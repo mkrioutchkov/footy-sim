@@ -1234,11 +1234,11 @@ export class GameEngine {
       const perp = Math.sqrt((o.x - from.x - t * dx) ** 2 + (o.y - from.y - t * dy) ** 2);
       if (perp < 35 && t > 0.1 && t < 0.9) blockers++;
     }
-    // loft: short passes stay flat, long + contested passes go aerial
-    if (rawDist > 120) this.ball.vz = speed * 0.20;
-    if (rawDist > 200) this.ball.vz = Math.max(this.ball.vz, speed * 0.35);
-    if (blockers > 0) this.ball.vz = Math.max(this.ball.vz, speed * (0.18 + blockers * 0.10)); // loft over defenders
-    if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 0.50); // long ball
+    // loft: short passes stay flat, long + contested passes go aerial (scaled for heading range)
+    if (rawDist > 120) this.ball.vz = speed * 0.55;
+    if (rawDist > 200) this.ball.vz = Math.max(this.ball.vz, speed * 0.80);
+    if (blockers > 0) this.ball.vz = Math.max(this.ball.vz, speed * (0.55 + blockers * 0.20)); // loft over defenders
+    if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.1); // long ball
     this.beginTrackedPass(from, to, throughBall ? 'through_ball' : 'open_play');
     if (this.checkOffside(to, from)) {
       this.statsOffsides++;
