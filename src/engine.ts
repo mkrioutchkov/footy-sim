@@ -122,6 +122,7 @@ export class GameEngine {
   private pendingPass: { fromId: number; team: Team; toId: number; source: string } | null = null;
   private qConsecutiveSaves = 0;
   private qLastShotMs = 0;
+  private qLastPassFrom = 0; private qLastPassRecipient = 0; private qLastPassRecipientMs = 0;
   private qShotOrigin: { team: Team; x: number; y: number } | null = null;
   private qBounceOnSamePlayer = 0; private qLastBouncePlayer: number | null = null;
   private qBallThird: 'homeDef' | 'mid' | 'awayDef' | null = null;
@@ -356,6 +357,7 @@ export class GameEngine {
     if (source === 'through_ball') this.statsThroughBallAttempted++;
     this.recordPassAttempt(from, to);
     this.pendingPass = { fromId: from.id, team: from.team, toId: to.id, source };
+    this.qLastPassFrom = from.id; this.qLastPassRecipient = to.id; this.qLastPassRecipientMs = this.clockMs;
     this.logDebug('pass_attempt', { from: from.id, to: to.id, team: from.team, source });
   }
 
@@ -1203,6 +1205,7 @@ export class GameEngine {
     if (fromWide && intoBox && (from.role === 'WM' || from.role === 'FB') && !throughBall) {
       this.logDebug('cross_attempt', { from: from.id, role: from.role, targetX: Math.round(predX), targetY: Math.round(predY), lofted: this.ball.vz > 0 });
     }
+    if (rawDist > 380) this.logDebug('long_ball', { from: from.id, role: from.role, to: to.id, dist: Math.round(rawDist) });
   }
 
   forcePassTo(from: Player, to: Player): void {
@@ -1273,6 +1276,10 @@ export class GameEngine {
     this.isShotActive = true; // distinguish from fast passes triggering saves
     this.qLastShotMs = this.clockMs;
     this.qShotOrigin = { team: shooter.team, x: shooter.x, y: shooter.y };
+    // key pass: shot within 3s of receiving a pass
+    if (this.qLastPassRecipient === shooter.id && this.clockMs - this.qLastPassRecipientMs < 3000) {
+      this.logDebug('key_pass', { to: shooter.id, passer: this.qLastPassFrom, msSincePass: this.clockMs - this.qLastPassRecipientMs });
+    }
     const inOwnHalf = shooter.team === 'home' ? shooter.x < HALF_X : shooter.x > HALF_X;
     if (inOwnHalf) {
       this.logQualityFlag('shot_from_own_half', { shooter: shooter.id, team: shooter.team, x: Math.round(shooter.x), y: Math.round(shooter.y) });
