@@ -93,6 +93,7 @@ export class GameEngine {
   private playerDistances: Map<number, number> = new Map();
   private prevBallX = 0;
   private prevBallY = 0;
+  private prevBallTick = 0; // for teleport detection
   private prevPlayerPositions: Map<number, { x: number; y: number }> = new Map();
   private lastDistanceLog = 0;
 
@@ -945,7 +946,7 @@ export class GameEngine {
         this.ballDistance += Math.sqrt((this.ball.x - this.prevBallX) ** 2 + (this.ball.y - this.prevBallY) ** 2);
       }
     }
-    this.prevBallX = this.ball.x; this.prevBallY = this.ball.y;
+    this.prevBallX = this.ball.x; this.prevBallY = this.ball.y; this.prevBallTick = this.clockMs;
     // possession tracking
     const ballCtrl = this.playerById(this.ball.controllerId);
     if (ballCtrl) this.statsPossession[ballCtrl.team] = (this.statsPossession[ballCtrl.team] ?? 0) + 1;
@@ -1301,6 +1302,12 @@ export class GameEngine {
     collector.vx = fd * 15; collector.vy = 0;
     this.recordControlChange(collector);
     this.possessionByRole[collector.role] = (this.possessionByRole[collector.role] ?? 0) + 1;
+    // ball teleport diagnosis: ball was far from collector last tick, suddenly in possession
+    if (this.prevBallTick > 0) {
+      const collectorPrev = this.prevPlayerPositions.get(collector.id);
+      const ballPrevDist = collectorPrev ? Math.sqrt((this.prevBallX - collectorPrev.x) ** 2 + (this.prevBallY - collectorPrev.y) ** 2) : 0;
+      if (ballPrevDist > 40) this.logDebug('q_flag', { flag: 'possession_mystery', player: collector.id, role: collector.role, prevBallDist: Math.round(ballPrevDist), tickDelta: this.clockMs - this.prevBallTick });
+    }
     this.qLastBouncePlayer = null; this.qBounceOnSamePlayer = 0;
     if (this.isShotActive) {
       this.isShotActive = false;
@@ -1323,6 +1330,16 @@ export class GameEngine {
         this.statsPassIntercepted++;
         this.recordPassFailure();
         this.logDebug('pass_fail', { reason: 'intercepted', intended: intendedId, collector: collector.id, collectorTeam: collector.team });
+        // danger pass: ball given away in own defensive third
+        const passer = this.playerById(pendingPass.fromId);
+        if (passer) {
+          const ownGoalX = passer.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
+          const inOwnThird = Math.abs(passer.x - ownGoalX) < PITCH_W / 3;
+          if (inOwnThird) {
+            const forced = this.players.filter(o => o.team !== passer.team && o.role !== 'GK' && dist(o, passer) < 60).length >= 2;
+            this.logDebug('danger_pass', { from: passer.id, role: passer.role, team: passer.team, x: Math.round(passer.x), y: Math.round(passer.y), forced, collector: collector.id, collectorRole: collector.role });
+          }
+        }
       } else {
         this.recordPassFailure();
         this.logDebug('pass_fail', { reason: 'wrong_teammate', intended: intendedId, collector: collector.id });
