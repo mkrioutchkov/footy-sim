@@ -17,7 +17,7 @@ export class MatchRenderer {
   pitchContainer: Container;
   private playerLayer: Container;
   private trailPool: Graphics[] = [];
-  private playerEntries: Map<number, { body: Graphics; arrow: Graphics; label: Text; drawn: boolean }> = new Map();
+  private playerEntries: Map<number, { body: Graphics; arrow: Graphics; label: Text; drawn: boolean; wasSliding: boolean }> = new Map();
   private ringGfx: Graphics;
   private ballBody: Graphics;
   private ballGlow: Graphics;
@@ -191,7 +191,7 @@ export class MatchRenderer {
         this.playerLayer.addChild(body);
         this.playerLayer.addChild(arrow);
         this.playerLayer.addChild(label);
-        entry = { body, arrow, label, drawn: false };
+        entry = { body, arrow, label, drawn: false, wasSliding: false };
         this.playerEntries.set(p.id, entry);
       }
 
@@ -201,10 +201,12 @@ export class MatchRenderer {
       const staminaAlpha = 0.5 + (p.stamina ?? 100) / 200;
       const vp = this.smoothPlayer(p.id, p.x, p.y);
       const sliding = (p.tackleAnim ?? 0) > 0;
+      const needsRedraw = !entry.drawn || sliding || entry.wasSliding;
+      entry.wasSliding = sliding;
 
       entry.body.position.set(vp.x, vp.y);
       entry.body.alpha = hasBall ? 1 : staminaAlpha * 0.9;
-      if (!entry.drawn || sliding) {
+      if (needsRedraw) {
         entry.body.clear();
         if (sliding) {
           // slide tackle: elongated oval + dust trail

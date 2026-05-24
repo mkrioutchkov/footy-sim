@@ -1626,6 +1626,7 @@ export class GameEngine {
       const inGoal = b.y > PITCH_H / 2 - GOAL_W / 2 && b.y < PITCH_H / 2 + GOAL_W / 2;
       if (!inGoal) {
         if (this.isShotActive) { this.statsShotsOffTarget++; this.isShotActive = false; this.qShotOrigin = null; this.qConsecutiveSaves = 0; }
+        this.failPendingPass('out_of_play');
         if (lt === 'away') this.awardSetPiece('goal_kick', 'home');
         else if (lt === 'home') this.awardSetPiece('corner', 'away');
         else this.awardSetPiece('goal_kick', 'home');
@@ -1635,6 +1636,7 @@ export class GameEngine {
       const inGoal = b.y > PITCH_H / 2 - GOAL_W / 2 && b.y < PITCH_H / 2 + GOAL_W / 2;
       if (!inGoal) {
         if (this.isShotActive) { this.statsShotsOffTarget++; this.isShotActive = false; this.qShotOrigin = null; this.qConsecutiveSaves = 0; }
+        this.failPendingPass('out_of_play');
         if (lt === 'home') this.awardSetPiece('goal_kick', 'away');
         else if (lt === 'away') this.awardSetPiece('corner', 'home');
         else this.awardSetPiece('goal_kick', 'away');
@@ -1645,6 +1647,10 @@ export class GameEngine {
   private awardThrowIn(lt: Team | null, y: number): void {
     this.recordOutOfPlay();
     this.failPendingPass('out_of_play');
+    if (this.pendingPass) {
+      const passer = this.playerById(this.pendingPass.fromId);
+      this.logDebug('stray_pass', { reason: 'into_touch', from: this.pendingPass.fromId, intended: this.pendingPass.toId, passerX: passer ? Math.round(passer.x) : '?', passerY: passer ? Math.round(passer.y) : '?' });
+    }
     const exitX = Math.round(this.ball.x);
     const exitY = Math.round(this.ball.y);
     this.setPieceType = 'throw_in';
