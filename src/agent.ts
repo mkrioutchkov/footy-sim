@@ -543,10 +543,9 @@ export class PlayerAgent {
           const defLine = clamp(ld, p.homeX - 40, oppGoalX + fd * 20);
           c.push({ x: fd === 1 ? Math.min(p.homeX + fd * 100, ld - 15) : Math.max(p.homeX + fd * 100, ld + 15), y: p.homeY, pur: 'offer' });
           // offside gamble: explicit run past the defensive line (25% chance)
-          if (random() < 0.25) {
-            const offsideRun = ld + fd * (5 + random() * 30);
-            c.push({ x: clamp(offsideRun, p.homeX + fd * 30, oppGoalX), y: p.homeY + (random() - 0.5) * 40, pur: 'offside_risk' });
-          }
+          // offside gamble: always generate as an option (tactical risk/reward)
+          const offsideRun = ld + fd * (3 + random() * 25); // 3-28px past last defender
+          c.push({ x: clamp(offsideRun, p.homeX + fd * 30, oppGoalX), y: p.homeY + (random() - 0.5) * 50, pur: 'offside_risk' });
           // run behind the defensive line — diagonal burst
           const runY = clamp(p.homeY + (random() > 0.5 ? 40 : -40), PITCH_H * 0.2, PITCH_H * 0.8);
           c.push({ x: clamp(defLine - fd * 10, p.homeX + fd * 40, oppGoalX), y: runY, pur: 'space' });
@@ -609,7 +608,7 @@ export class PlayerAgent {
       const tac = my ? (cn.x - p.homeX) * fd / PITCH_W * 0.5 : -(cn.x - p.homeX) * fd / PITCH_W * 0.25;
       const og2 = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X, db = !my ? clamp(((b.x - cn.x) * fd) / (Math.abs(b.x - og2) + 1), 0, 0.30) : 0;
       const bp = Math.sqrt((cn.x - b.x) ** 2 + (cn.y - b.y) ** 2) / 600 * 0.08;
-      const ob = cn.pur === 'observe' ? 0.10 : cn.pur === 'offside_risk' ? 0.15 : 0;
+      const ob = cn.pur === 'observe' ? 0.10 : cn.pur === 'offside_risk' ? 0.20 : 0;
       return { type: 'position', score: clamp(0.15 + sf * 0.3 + tac - bp + db + ob, 0, 1), posX: clamp(cn.x, 40, PITCH_W - 40), posY: clamp(cn.y, 40, PITCH_H - 40), purpose: cn.pur };
     });
     const task = this.e.assignmentFor(p.id);
@@ -630,7 +629,10 @@ export class PlayerAgent {
     const best = a[0];
     // press resistance: carrier holds if no clearly good option exists
     const ic = this.e.ball.controllerId === this.player.id;
-    if (ic && best.score < 0.25) return { type: 'hold', score: 1 };
+    // near goal: don't hold — shoot or pass
+    const gx = this.player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
+    const nearGoal = Math.abs(this.player.x - gx) < 180;
+    if (ic && best.score < (nearGoal ? 0.15 : 0.25)) return { type: 'hold', score: 1 };
     if (best.score < 0.10) return { type: 'hold', score: 1 };
     const bb = this.e.teamBlackboards.get(this.player.team)!;
     if (best.type === 'tackle' && best.target) {

@@ -302,7 +302,13 @@ export class GameEngine {
   }
 
   isOffsideTarget(passer: Player, receiver: Player): boolean {
-    return this.checkOffside(receiver, passer);
+    const offside = this.checkOffside(receiver, passer);
+    if (!offside) return false;
+    // timing misjudgment: 20% chance passer doesn't see the offside if it's close
+    const fd = passer.team === 'home' ? 1 : -1;
+    const gap = Math.abs(receiver.x - this.offsideLineFor(passer.team)!);
+    if (gap < 20 && random() < 0.20) return false; // misjudged — passer releases anyway
+    return true;
   }
 
   offsideLineFor(team: Team): number | null {
