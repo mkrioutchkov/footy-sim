@@ -29,6 +29,7 @@ export interface Player {
   stamina: number;
   attrs: PlayerAttributes;
   tackleAnim: number;
+  headingAnim: number;
 }
 
 export interface Ball {
@@ -60,7 +61,7 @@ export interface EngineState {
 }
 
 export interface MatchEvent {
-  type: 'pass' | 'shot' | 'tackle' | 'intercept' | 'save' | 'goal';
+  type: 'pass' | 'shot' | 'tackle' | 'intercept' | 'save' | 'goal' | 'header';
   x: number;
   y: number;
   age: number;

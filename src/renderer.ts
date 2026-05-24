@@ -32,7 +32,7 @@ export class MatchRenderer {
   private lastControllerId: number | null = null;
   private animTime = 0;
   private facingAngles: Map<number, number> = new Map();
-  private prevArrowAngles: Map<number, number> = new Map();
+  private prevFacingAngles: Map<number, number> = new Map();
 
   constructor() {
     this.app = new Application();
@@ -248,18 +248,39 @@ export class MatchRenderer {
         angle = this.turnTowards(angle, lookAngle, Math.PI / 60);
       }
       this.facingAngles.set(p.id, angle);
-      // detect arrow flickering: >120° change between frames
-      const prevA = this.prevArrowAngles.get(p.id);
+      // Diagnose unexpected facing jumps even though ordinary turns are capped.
+      const prevA = this.prevFacingAngles.get(p.id);
       if (prevA !== undefined) {
         const aDiff = Math.abs(angle - prevA);
         const na = aDiff > Math.PI ? 2*Math.PI - aDiff : aDiff;
-        if (na > Math.PI * 0.7) console.warn(`[arrow_flicker] player ${p.id} (${p.role}) angle jumped ${Math.round(na*180/Math.PI)}° — speed=${Math.round(speed)}`);
+        if (na > Math.PI * 0.7) console.warn(`[facing_flicker] player ${p.id} (${p.role}) angle jumped ${Math.round(na * 180 / Math.PI)} deg - speed=${Math.round(speed)}`);
       }
-      this.prevArrowAngles.set(p.id, angle);
-      entry.arrow.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
-      entry.arrow.lineTo(Math.cos(angle + 2.5) * r * 0.55, Math.sin(angle + 2.5) * r * 0.55);
-      entry.arrow.lineTo(Math.cos(angle - 2.5) * r * 0.55, Math.sin(angle - 2.5) * r * 0.55);
-      entry.arrow.fill(0xffffff);
+      this.prevFacingAngles.set(p.id, angle);
+      const heading = (p.headingAnim ?? 0) > 0;
+      const forwardX = Math.cos(angle);
+      const forwardY = Math.sin(angle);
+      const sideX = -forwardY;
+      const sideY = forwardX;
+      const hipX = -forwardX * r * 0.25;
+      const hipY = -forwardY * r * 0.25;
+      const footBackX = -forwardX * r * 0.92;
+      const footBackY = -forwardY * r * 0.92;
+      entry.arrow.moveTo(hipX, hipY);
+      entry.arrow.lineTo(footBackX + sideX * r * 0.42, footBackY + sideY * r * 0.42);
+      entry.arrow.moveTo(hipX, hipY);
+      entry.arrow.lineTo(footBackX - sideX * r * 0.42, footBackY - sideY * r * 0.42);
+      entry.arrow.stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
+      const headReach = heading ? r * 1.34 : r * 0.86;
+      const headX = forwardX * headReach;
+      const headY = forwardY * headReach;
+      entry.arrow.circle(headX, headY, heading ? r * 0.48 : r * 0.39);
+      entry.arrow.fill({ color: 0xffdfbb });
+      entry.arrow.circle(headX, headY, heading ? r * 0.48 : r * 0.39);
+      entry.arrow.stroke({ width: 1, color: 0x33261c });
+      if (heading) {
+        entry.arrow.circle(forwardX * r * 2.05, forwardY * r * 2.05, r * 0.9);
+        entry.arrow.stroke({ width: 2, color: 0xfff1a8, alpha: 0.75 });
+      }
 
       entry.label.position.set(vp.x, vp.y + r + 3);
     }
@@ -299,12 +320,13 @@ export class MatchRenderer {
     this.eventGfx.clear();
     for (const ev of state.events) {
       if (ev.type === 'pass') continue;
-      const alpha = clamp(1 - ev.age / 2000, 0, 1) * 0.8;
+      const lifetime = ev.type === 'header' ? 600 : 2000;
+      const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
-      const er = 14 + (ev.age / 2000) * 30;
-      const ec = ev.type === 'goal' ? 0xffdd44 : ev.type === 'save' ? 0x44ddff : ev.type === 'tackle' ? 0xff6644 : ev.type === 'intercept' ? 0xffb347 : 0xffffff;
+      const er = 14 + (ev.age / lifetime) * (ev.type === 'header' ? 15 : 30);
+      const ec = ev.type === 'goal' ? 0xffdd44 : ev.type === 'save' ? 0x44ddff : ev.type === 'tackle' ? 0xff6644 : ev.type === 'intercept' ? 0xffb347 : ev.type === 'header' ? 0xfff1a8 : 0xffffff;
       this.eventGfx.circle(ev.x, ev.y, er);
-      this.eventGfx.stroke({ width: 2, color: ec, alpha });
+      this.eventGfx.stroke({ width: ev.type === 'header' ? 3 : 2, color: ec, alpha });
     }
 
     // ── HUD ──

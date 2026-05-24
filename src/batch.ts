@@ -72,6 +72,13 @@ const qualityFlags = sumValues(results.map(result => result.qualityFlags));
 
 const attempted = results.reduce((total, result) => total + result.passes.attempted, 0);
 const completed = results.reduce((total, result) => total + result.passes.completed, 0);
+const crosses = results.reduce((total, result) => total + result.crosses.attempted, 0);
+const gkDistributions = results.reduce((total, result) => total + result.distributions.goalkeeper.attempted, 0);
+const completedGKDistributions = results.reduce((total, result) => total + result.distributions.goalkeeper.completed, 0);
+const looseBallSamples = results.reduce((total, result) => total + result.ballSpeed.looseSamples, 0);
+const passLaunches = results.reduce((total, result) => total + result.ballSpeed.passLaunches, 0);
+const shotLaunches = results.reduce((total, result) => total + result.ballSpeed.shotLaunches, 0);
+const headerLaunches = results.reduce((total, result) => total + result.ballSpeed.headerLaunches, 0);
 const output = {
   config: { matches, minutes, seeds: results.map(result => result.seed), tacticalOverrides: overrides },
   aggregate: {
@@ -88,6 +95,22 @@ const output = {
     throughBallCompletionPct: round(results.reduce((total, result) => total + result.throughBalls.completed, 0) / Math.max(1, results.reduce((total, result) => total + result.throughBalls.attempted, 0)) * 100),
     timedRunsPerMatch: round(results.reduce((total, result) => total + result.timedRuns.started, 0) / matches),
     timedRunOffsidesPerMatch: round(results.reduce((total, result) => total + result.timedRuns.offsides, 0) / matches),
+    crossesPerMatch: round(crosses / matches),
+    crossCompletionPct: round(results.reduce((total, result) => total + result.crosses.completed, 0) / Math.max(1, crosses) * 100),
+    crossShotsPerMatch: round(results.reduce((total, result) => total + result.crosses.shots, 0) / matches),
+    crossGoalsPerMatch: round(results.reduce((total, result) => total + result.crosses.goals, 0) / matches),
+    gkDistributionsPerMatch: round(gkDistributions / matches),
+    gkDistributionCompletionPct: round(completedGKDistributions / Math.max(1, gkDistributions) * 100),
+    gkDangerousTurnoversPerMatch: round(results.reduce((total, result) => total + result.distributions.goalkeeper.dangerousTurnovers, 0) / matches),
+    outfieldDangerTurnoversPerMatch: round(results.reduce((total, result) => total + result.distributions.outfieldDangerTurnovers, 0) / matches),
+    gkAssessedShotsPerMatch: round(results.reduce((total, result) => total + result.goalkeeping.assessedShots, 0) / matches),
+    unlikelyGKSavesPerMatch: round(results.reduce((total, result) => total + result.goalkeeping.unlikelySaves, 0) / matches),
+    preventableGoalsPerMatch: round(results.reduce((total, result) => total + result.goalkeeping.preventableGoals, 0) / matches),
+    peakBallSpeedAvg: round(results.reduce((total, result) => total + result.ballSpeed.peak, 0) / matches),
+    looseBallSpeedAvg: round(results.reduce((total, result) => total + result.ballSpeed.looseSampleAvg * result.ballSpeed.looseSamples, 0) / Math.max(1, looseBallSamples)),
+    passLaunchSpeedAvg: round(results.reduce((total, result) => total + result.ballSpeed.passLaunchAvg * result.ballSpeed.passLaunches, 0) / Math.max(1, passLaunches)),
+    shotLaunchSpeedAvg: round(results.reduce((total, result) => total + result.ballSpeed.shotLaunchAvg * result.ballSpeed.shotLaunches, 0) / Math.max(1, shotLaunches)),
+    headerLaunchSpeedAvg: round(results.reduce((total, result) => total + result.ballSpeed.headerLaunchAvg * result.ballSpeed.headerLaunches, 0) / Math.max(1, headerLaunches)),
     midfieldTerritoryPct: round(results.reduce((total, result) => total + result.territoryPct.mid, 0) / matches),
   },
   tacticalActivity: taskSelections,

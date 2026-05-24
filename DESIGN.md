@@ -63,6 +63,9 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 - `timed_run_start`, `timed_pass_release`, `offside` — through-run release timing
 - `shot_start` — shot taken
 - `goal_line_crossing` — accepted crossing position and height inside the goal frame
+- `cross_to_shot`, `cross_goal` - delivered crosses that lead to a shot or goal
+- `gk_distribution_result` - goalkeeper delivery completion or failure context
+- `gk_save_assessment` - shot speed, projected offset, time to line and save chance
 - `tackle_win`, `tackle_fail`, `tackle_rejected` — contact-validated challenges
 - `save` / `goal` — key match outcomes
 - `set_piece_awarded`, `set_piece_taker` — restarts
@@ -72,7 +75,10 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 Quality flags are intended to name actionable failures. In particular,
 `ball_unclaimed` means a slow grounded ball is close enough to contest but is
 still ignored, while `rapid_control_changes` counts rapid team turnovers rather
-than ordinary completed passes.
+than ordinary completed passes. `bad_gk_distribution` and
+`bad_player_distribution` identify harmful defensive-third distribution
+outcomes; `unrealistic_gk_save` and `poor_gk_save_attempt` retain the
+speed/trajectory/reaction values needed for replay.
 
 **Log analysis:** Compare event frequency to real football. Expect 8-12 possession changes per real-world minute. If you see 30+ per 30 seconds, pacing is broken.
 
@@ -86,9 +92,10 @@ Run seeded headless matches before and after AI changes:
 npm run batch -- --matches 5 --minutes 10 --seed 1
 ```
 
-The batch output includes possession, territory, pass and shot rates, quality
-flags, tactical task selection counts, and per-match summaries. Reusing the
-same seed set makes tactical changes comparable rather than anecdotal.
+The batch output includes possession, territory, pass and shot rates, cross
+outcomes, distribution outcomes, goalkeeper assessments and weighted ball
+launch speeds. Reusing the same seed set makes tactical changes comparable
+rather than anecdotal.
 
 For visual inspection with repeatable team generation and agent decisions,
 seed the live server:

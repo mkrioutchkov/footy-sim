@@ -126,19 +126,24 @@ This command runs seeds 101 through 108 for ten simulated minutes each.
 | Metric | Current value |
 | --- | ---: |
 | Goals per ten-minute match | 1.1 |
-| Shots per ten-minute match | 5.9 |
-| Shots on target | 51.1% |
-| Saves per ten-minute match | 1.6 |
-| Goals per shot | 19.1% |
-| Passes per ten-minute match | 353.3 |
-| Pass completion | 83.3% |
-| Intercepted passes per ten-minute match | 57.8 |
-| Through balls per ten-minute match | 30.4 |
-| Through-ball completion | 49.8% |
+| Shots per ten-minute match | 4.0 |
+| Shots on target | 43.8% |
+| Saves per ten-minute match | 0.5 |
+| Goals per shot | 28.1% |
+| Passes per ten-minute match | 371.4 |
+| Pass completion | 84.9% |
+| Intercepted passes per ten-minute match | 54.5 |
+| Through balls per ten-minute match | 28.1 |
+| Through-ball completion | 49.3% |
 | Timed runs per ten-minute match | 1.5 |
 | Timed-run offsides per ten-minute match | 0.4 |
 | Offsides per ten-minute match | 0.4 |
-| Middle-third territory | 60.6% |
+| Crosses per ten-minute match | 0.5 |
+| Goalkeeper distribution completion | 84.8% |
+| Goalkeeper dangerous turnovers per match | 0.5 |
+| Mean shot launch speed | 485.6 px/s |
+| Mean header launch speed | 134.8 px/s |
+| Middle-third territory | 63.6% |
 
 Known interpretation for the next intelligence pass:
 
@@ -148,16 +153,23 @@ Known interpretation for the next intelligence pass:
   diagonal lines between boxes.
 - Goal decisions now match the rendered frame: the whole ball must cross the
   painted line, clear the posts by its radius, and remain under the crossbar.
-  `goal_line_crossing` records accepted `x`, `y`, and `z` values. Direction
-  arrows have a bounded turn rate and slide tackle bodies retain their
-  initial orientation rather than pivoting during contact.
+  The crossing decision now runs immediately after ball physics, before any
+  generic collection or save can retrieve a ball already over the line.
+  `goal_line_crossing` records accepted `x`, `y`, and `z` values. Player
+  orientation now uses visible legs and a head instead of a triangle, and
+  headed contacts briefly project the head and display a contact ring.
 - Tackles now require live contact with the current carrier. Rear challenges
   are less likely to win cleanly and more likely to concede a free kick, and a
   failed tackle no longer draws a successful-looking slide animation.
-- Pass outcomes are resolved on control or headed contact; open-play cross
-  completions and goalkeeper distributions now enter the same accounting. In
-  this benchmark, six recorded open-play crosses produced two completions, so
-  wide delivery exists but remains too rare to tune confidently.
+- Pass outcomes are resolved on control or headed contact; open-play and
+  corner crosses plus goalkeeper distributions now enter the same accounting.
+  `cross_to_shot` and `cross_goal` retain positive attacking outcomes, while
+  harmful defensive-third distributions produce `bad_gk_distribution` or
+  `bad_player_distribution`. A same-team header from a cross now opens a
+  tracked cross-origin shot chain rather than becoming an unaccounted touch.
+  This benchmark produced four crosses, two
+  completions and no cross-led shots or goals, so wide delivery remains too
+  rare to tune confidently.
 - The artificial `offside_risk` position and random offside-rule bypass were
   removed. Through balls can now prepare a short committed run from an onside
   position; that runner sprints while the passer releases. A one-pixel
@@ -167,12 +179,15 @@ Known interpretation for the next intelligence pass:
   turnover churn, not routine receptions; `ball_unclaimed` requires a slow
   grounded ball near an outfielder; possession imbalance waits three simulated
   minutes; pressured shielding does not trigger `backward_dribble` or
-  `why_no_shoot`.
-- Remaining high-signal concerns are repeated pass pairs (52 benchmark alerts)
-  and recoverable slow loose-ball cases (25). A trial penalty for recently
-  repeated non-progressive pass pairs reduced repeats to 40 but reduced shots
-  from 5.3 to 4.4; it was not retained. Diagnose circulation chains and
-  progression before changing pass utility.
+  `why_no_shoot`. Goalkeeper outcomes now log speed, projected offset,
+  distance/time to the line and assessed save chance. No
+  `unrealistic_gk_save` or `poor_gk_save_attempt` alarms occurred in this
+  standard benchmark.
+- Remaining high-signal concerns are chance creation and progression: shots
+  are down to `4.0` per match, `no_shots` fired eight times, repeated pass
+  pairs fired 72 times and slow loose-ball cases fired 26 times. Do not
+  recover shots by allowing post-line saves or radius-blind goals. Diagnose
+  circulation and final-third entries before changing pass utility.
 
 ## Engineering Rules For AI Changes
 
