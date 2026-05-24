@@ -68,6 +68,7 @@ export function createTeam(team: Team, formation: Formation): Player[] {
       homeX: pos.x, homeY: pos.y,
       stamina: 100,
       attrs: randomAttrs(),
+      tackleAnim: 0,
     };
   });
 }

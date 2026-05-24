@@ -198,24 +198,35 @@ export class MatchRenderer {
       const color = p.team === 'home' ? HOME_COLOR : AWAY_COLOR;
       const hasBall = b.controllerId === p.id;
       const r = PLAYER_R;
-      const staminaAlpha = 0.5 + (p.stamina ?? 100) / 200; // 0.5-1.0
+      const staminaAlpha = 0.5 + (p.stamina ?? 100) / 200;
       const vp = this.smoothPlayer(p.id, p.x, p.y);
+      const sliding = (p.tackleAnim ?? 0) > 0;
 
       entry.body.position.set(vp.x, vp.y);
       entry.body.alpha = hasBall ? 1 : staminaAlpha * 0.9;
-      if (!entry.drawn) {
-        entry.body.circle(0, 0, r);
-        entry.body.fill({ color });
-        entry.body.circle(0, 0, r);
-        entry.body.stroke({ width: hasBall ? 2.5 : 1.5, color: 0x000000 });
-        entry.drawn = true;
-      } else {
-        // redraw to update stroke width on possession change
+      if (!entry.drawn || sliding) {
         entry.body.clear();
-        entry.body.circle(0, 0, r);
-        entry.body.fill({ color, alpha: hasBall ? 1 : 0.75 });
-        entry.body.circle(0, 0, r);
-        entry.body.stroke({ width: hasBall ? 2.5 : 1.5, color: 0x000000 });
+        if (sliding) {
+          // slide tackle: elongated oval + dust trail
+          const angle = Math.atan2(p.vy, p.vx) || (p.team === 'home' ? 0 : Math.PI);
+          entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
+          entry.body.rotation = angle;
+          entry.body.fill({ color, alpha: 0.7 });
+          entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
+          entry.body.rotation = angle;
+          entry.body.stroke({ width: 1, color: 0x000000 });
+          // dust puffs behind the slide
+          entry.body.circle(-Math.cos(angle) * r * 0.8, -Math.sin(angle) * r * 0.8, r * 0.4);
+          entry.body.fill({ color: 0xcccccc, alpha: 0.5 });
+          entry.body.circle(-Math.cos(angle) * r * 1.3, -Math.sin(angle) * r * 1.3, r * 0.25);
+          entry.body.fill({ color: 0xdddddd, alpha: 0.3 });
+        } else {
+          entry.body.circle(0, 0, r);
+          entry.body.fill({ color });
+          entry.body.circle(0, 0, r);
+          entry.body.stroke({ width: hasBall ? 2.5 : 1.5, color: 0x000000 });
+        }
+        if (!sliding) entry.drawn = true;
       }
 
       // arrow — redraw at relative coords

@@ -636,7 +636,7 @@ export class PlayerAgent {
         bb.oneTwo = { from: p.id, to: a.target.id, expires: this.e.clockMs + 2000 }; } this.sl = 20; break;
       case 'shoot': this.e.shootBall(p); this.e.emitEvent('shot', p.x, p.y); this.sl = 20; break;
       case 'dribble': p.targetX = a.posX ?? (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X); p.targetY = a.posY ?? p.y; break;
-      case 'tackle': if (a.target && dist(p, a.target) < TACKLE_RANGE + 5 && this.e.attemptTackle(p, a.target)) { this.e.emitEvent('tackle', p.x, p.y); } else { p.targetX = a.target?.x ?? p.x; p.targetY = a.target?.y ?? p.y; } break;
+      case 'tackle': if (a.target && dist(p, a.target) < TACKLE_RANGE + 5 && this.e.attemptTackle(p, a.target)) { this.e.emitEvent('tackle', p.x, p.y); p.tackleAnim = 300; } else { p.targetX = a.target?.x ?? p.x; p.targetY = a.target?.y ?? p.y; } break;
       case 'mark': if (a.target) { p.targetX = a.target.x; p.targetY = a.target.y; } break;
       case 'chase': { const tx = a.posX ?? b.x, ty = a.posY ?? b.y; p.targetX = tx; p.targetY = ty;
         const ms = attrFactor(p.attrs, 'speed') * SPEED_SPRINT; const cdx = tx - p.x, cdy = ty - p.y, cd = Math.sqrt(cdx * cdx + cdy * cdy);

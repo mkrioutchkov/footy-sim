@@ -861,6 +861,8 @@ export class GameEngine {
     this.rebuildGrid();
     this.updateTeamAssignments();
     this.detectStuckCarrier(sdt);
+    // decay tackle animation timers
+    for (const p of this.players) { if (p.tackleAnim > 0) p.tackleAnim = Math.max(0, p.tackleAnim - sdt); }
     this.maybeLogPitchSample();
     if (this.reboundBlockTimer > 0) {
       this.reboundBlockTimer -= sdt;

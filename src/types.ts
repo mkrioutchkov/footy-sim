@@ -28,6 +28,7 @@ export interface Player {
   homeY: number;
   stamina: number;
   attrs: PlayerAttributes;
+  tackleAnim: number;
 }
 
 export interface Ball {
