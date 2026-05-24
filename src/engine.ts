@@ -42,6 +42,11 @@ export interface AnalysisSummary {
   territoryPct: { homeDef: number; mid: number; awayDef: number };
   qualityFlags: Record<string, number>;
   passByRole: Record<string, { att: number; comp: number; pct: number }>;
+  setPieces: { corners: number; throwIns: number; freeKicks: number };
+  crosses: { attempted: number; completed: number };
+  headers: { total: number; won: number };
+  bounces: number;
+  flankTime: { left: number; mid: number; right: number };
   phaseTicks: Record<Team, Record<TacticalPhase, number>>;
   taskSelections: Record<string, number>;
   possessionByRole: Partial<Record<PlayerRole, number>>;
@@ -88,6 +93,18 @@ export class GameEngine {
   private lastAssignmentLog = 0;
   private lastStuckLog = 0;
   private lastStateSampleLog = 0;
+
+  // expanded stats
+  private statsCrossAttempted = 0; private statsCrossCompleted = 0;
+  private statsHeadersWon = 0; private statsHeadersTotal = 0;
+  private statsCornersTaken = 0; private statsCornersToShot = 0;
+  private statsThrowInsTaken = 0; private statsThrowInsRetained = 0;
+  private statsBouncesNoControl = 0;
+  private statsFlankTime: Record<string, number> = { left: 0, right: 0, center: 0 };
+  private statsPossessionTime: Map<number, number> = new Map();
+  private statsPhaseTime: Record<string, number> = {};
+  private statsFreeKicks = 0;
+  private statsPlayerUncontestedMs: Map<number, number> = new Map();
 
   // distance tracking (meters, assuming 10px = 1m pitch scale)
   private ballDistance = 0;
@@ -261,6 +278,11 @@ export class GameEngine {
       },
       qualityFlags: Object.fromEntries(this.qualityFlagCounts),
       passByRole: Object.fromEntries(Object.entries(this.statsPassByRole).map(([role, s]) => [role, { ...s, pct: Math.round(s.comp / Math.max(1, s.att) * 1000) / 10 }])),
+      setPieces: { corners: this.statsCornersTaken, throwIns: this.statsThrowInsTaken, freeKicks: this.statsFreeKicks },
+      crosses: { attempted: this.statsCrossAttempted, completed: this.statsCrossCompleted },
+      headers: { total: this.statsHeadersTotal, won: this.statsHeadersWon },
+      bounces: this.statsBouncesNoControl,
+      flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
       possessionByRole: { ...this.possessionByRole },
@@ -957,7 +979,11 @@ export class GameEngine {
     this.prevBallX = this.ball.x; this.prevBallY = this.ball.y; this.prevBallTick = this.clockMs;
     // possession tracking
     const ballCtrl = this.playerById(this.ball.controllerId);
-    if (ballCtrl) this.statsPossession[ballCtrl.team] = (this.statsPossession[ballCtrl.team] ?? 0) + 1;
+    if (ballCtrl) { this.statsPossession[ballCtrl.team] = (this.statsPossession[ballCtrl.team] ?? 0) + 1; this.statsPossessionTime.set(ballCtrl.id, (this.statsPossessionTime.get(ballCtrl.id) ?? 0) + 1); }
+    // flank tracking
+    if (this.ball.y < PITCH_H * 0.35) this.statsFlankTime.left++;
+    else if (this.ball.y > PITCH_H * 0.65) this.statsFlankTime.right++;
+    else this.statsFlankTime.center++;
     // territory: which third is the ball in
     if (this.ball.x < PITCH_W / 3) this.statsBallInThird.homeDef++;
     else if (this.ball.x > PITCH_W * 2 / 3) this.statsBallInThird.awayDef++;
@@ -1088,8 +1114,8 @@ export class GameEngine {
         if (dot < 0) { b.vx -= 1.3 * dot * nx; b.vy -= 1.3 * dot * ny; } // soft deflection
         b.vx *= 0.25; b.vy *= 0.25; // kill the ball — it's near a player
         b.vx += ny * ballSpeed * 0.03; b.vy += -nx * ballSpeed * 0.03;
-        this.recordBallImpulse();
         b.lastTouchTeam = p.team; b.lastToucherId = p.id;
+        this.statsBouncesNoControl++;
         this.blockReboundFor(p.id, 600);
         this.recordBounce(p.id);
       }
@@ -1188,6 +1214,16 @@ export class GameEngine {
     this.ball.intendedReceiverId = to.id;
     this.receiverShieldTargetId = to.id; // protect the receiver on collect
     this.ball.z = 0; this.ball.vz = 0;
+    // cross curl: wide passes bend toward goal
+    const fromWideForCurl = Math.abs(from.y - PITCH_H / 2) > 180;
+    const intoBoxForCurl = Math.abs(predX - (from.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X)) < 220 && Math.abs(predY - PITCH_H / 2) < 150;
+    if (fromWideForCurl && intoBoxForCurl && (from.role === 'WM' || from.role === 'FB')) {
+      this.statsCrossAttempted++;
+      const curlDir = from.y < PITCH_H / 2 ? 1 : -1; // curl toward center
+      const rawDx2 = to.x - from.x, rawDy2 = to.y - from.y;
+      this.ball.vx += -rawDy2 / rawDist * speed * 0.08 * curlDir;
+      this.ball.vy += rawDx2 / rawDist * speed * 0.08 * curlDir;
+    }
     // loft based on distance + opponent interference in passing lane
     let blockers = 0;
     for (const o of this.players) {
@@ -1398,7 +1434,12 @@ export class GameEngine {
     const facingBonus = (tackler.team === 'home' ? tackler.vx > 0 : tackler.vx < 0) ? 0.08 : -0.05;
     const carrierShielded = this.clockMs < this.receiverShieldUntil;
     const chance = clamp(0.18 + tackleSkill * 0.35 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0), 0.08, 0.72);
-    if (random() >= chance) { this.logDebug('tackle_fail', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance*100) }); return false; }
+    if (random() >= chance) {
+      this.logDebug('tackle_fail', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance*100) });
+      // slide tackle foul: small chance of free kick on failed tackles
+      if (random() < 0.12) { this.awardFreeKick(carrier.team, tackler); }
+      return false;
+    }
     this.qTackleSuccesses.push(this.clockMs);
     this.logDebug('tackle_win', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance*100) });
     this.tackleBall(tackler, carrier);
@@ -1445,6 +1486,18 @@ export class GameEngine {
     this.receiverShieldTargetId = to.id;
     this.ball.z = 0; this.ball.vz = 0;
     this.logDebug('gk_throw', { from: from.id, to: to.id, role: to.role, dist: Math.round(d) });
+  }
+
+  private awardFreeKick(team: Team, fouler: Player): void {
+    this.statsFreeKicks++;
+    this.ball.controllerId = null;
+    this.ball.x = clamp(fouler.x, 30, PITCH_W - 30);
+    this.ball.y = clamp(fouler.y, 30, PITCH_H - 30);
+    this.ball.vx = 0; this.ball.vy = 0; this.ball.z = 0; this.ball.vz = 0;
+    this.setPieceType = 'goal_kick'; // reuse existing restart logic
+    this.setPieceTeam = team;
+    this.armSetPiece();
+    this.logDebug('free_kick', { team, fouler: fouler.id, role: fouler.role, x: Math.round(this.ball.x), y: Math.round(this.ball.y) });
   }
 
   private gkDistribute(): void {
@@ -1729,7 +1782,8 @@ export class GameEngine {
     // opposite of last touch team gets the throw
     if (lt === 'home') this.setPieceTeam = 'away';
     else if (lt === 'away') this.setPieceTeam = 'home';
-    else this.setPieceTeam = this.ball.x < PITCH_W/2 ? 'away' : 'home'; // fallback: closest to exit side
+    else this.setPieceTeam = this.ball.x < PITCH_W/2 ? 'away' : 'home';
+    this.statsThrowInsTaken++;
     // x at crossing point, clamped to pitch
     this.ball.x = clamp(this.ball.x, 10, PITCH_W - 10);
     this.ball.y = clamp(y, 10, PITCH_H - 10);
@@ -1752,6 +1806,7 @@ export class GameEngine {
   private awardSetPiece(type: 'goal_kick' | 'corner', team: Team): void {
     this.recordOutOfPlay();
     this.failPendingPass('out_of_play');
+    if (type === 'corner') this.statsCornersTaken++;
     const exitX = Math.round(this.ball.x);
     const exitY = Math.round(this.ball.y);
     const lastTouchTeam = this.ball.lastTouchTeam;
