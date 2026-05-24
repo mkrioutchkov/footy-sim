@@ -1075,9 +1075,11 @@ export class GameEngine {
       const d = dist(p, b);
       if (d > r) continue;
       // heading: play aerial balls with head (z between 50-180)
-      if (b.z > 50 && b.z < 180 && p.role !== 'GK') {
+      if (b.z > 35 && b.z < 200 && p.role !== 'GK') {
         const headingSkill = attrFactor(p.attrs, 'positioning') * 0.5 + attrFactor(p.attrs, 'tackling') * 0.2;
+        this.statsHeadersTotal++;
         if (random() < headingSkill * 0.7) {
+          this.statsHeadersWon++;
           this.headBall(p);
           return;
         }
