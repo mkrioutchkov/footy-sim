@@ -125,20 +125,20 @@ This command runs seeds 101 through 108 for ten simulated minutes each.
 
 | Metric | Current value |
 | --- | ---: |
-| Goals per ten-minute match | 0.6 |
-| Shots per ten-minute match | 5.3 |
-| Shots on target | 54.8% |
-| Saves per ten-minute match | 2.1 |
-| Goals per shot | 11.9% |
-| Passes per ten-minute match | 335.3 |
-| Pass completion | 80.3% |
-| Intercepted passes per ten-minute match | 64.6 |
-| Through balls per ten-minute match | 33.4 |
-| Through-ball completion | 46.4% |
+| Goals per ten-minute match | 1.1 |
+| Shots per ten-minute match | 5.9 |
+| Shots on target | 51.1% |
+| Saves per ten-minute match | 1.6 |
+| Goals per shot | 19.1% |
+| Passes per ten-minute match | 353.3 |
+| Pass completion | 83.3% |
+| Intercepted passes per ten-minute match | 57.8 |
+| Through balls per ten-minute match | 30.4 |
+| Through-ball completion | 49.8% |
 | Timed runs per ten-minute match | 1.5 |
-| Timed-run offsides per ten-minute match | 0.3 |
-| Offsides per ten-minute match | 0.3 |
-| Middle-third territory | 62.6% |
+| Timed-run offsides per ten-minute match | 0.4 |
+| Offsides per ten-minute match | 0.4 |
+| Middle-third territory | 60.6% |
 
 Known interpretation for the next intelligence pass:
 
@@ -146,6 +146,11 @@ Known interpretation for the next intelligence pass:
   axis. Rendering no longer leaves a stopped-ball trail or a controller
   connector, and marking arcs start explicit paths so Pixi does not draw
   diagonal lines between boxes.
+- Goal decisions now match the rendered frame: the whole ball must cross the
+  painted line, clear the posts by its radius, and remain under the crossbar.
+  `goal_line_crossing` records accepted `x`, `y`, and `z` values. Direction
+  arrows have a bounded turn rate and slide tackle bodies retain their
+  initial orientation rather than pivoting during contact.
 - Tackles now require live contact with the current carrier. Rear challenges
   are less likely to win cleanly and more likely to concede a free kick, and a
   failed tackle no longer draws a successful-looking slide animation.
@@ -163,8 +168,8 @@ Known interpretation for the next intelligence pass:
   grounded ball near an outfielder; possession imbalance waits three simulated
   minutes; pressured shielding does not trigger `backward_dribble` or
   `why_no_shoot`.
-- Remaining high-signal concerns are repeated pass pairs (50 benchmark alerts)
-  and recoverable slow loose-ball cases (27). A trial penalty for recently
+- Remaining high-signal concerns are repeated pass pairs (52 benchmark alerts)
+  and recoverable slow loose-ball cases (25). A trial penalty for recently
   repeated non-progressive pass pairs reduced repeats to 40 but reduced shots
   from 5.3 to 4.4; it was not retained. Diagnose circulation chains and
   progression before changing pass utility.

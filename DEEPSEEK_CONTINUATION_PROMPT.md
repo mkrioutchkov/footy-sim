@@ -54,6 +54,11 @@ investigating an animation or event sequence.
   commits to a sprint. Keep `timed_run_start` and `timed_pass_release`
   telemetry, and keep offside tolerance as a small numerical buffer rather
   than a visible positional allowance.
+- A goal now requires the whole ball beyond the painted line and inside a
+  radius-aware, crossbar-aware aperture. Preserve `goal_line_crossing`
+  telemetry and do not restore center-point-only scoring.
+- Direction arrows turn at a bounded visual rate; slide tackles keep the
+  orientation captured when contact begins instead of pivoting mid-animation.
 - Keep alert semantics narrow. Do not bring back broad
   `player_way_off`/`defender_passive` spam or count normal receptions as rapid
   turnovers.
@@ -64,20 +69,20 @@ Current `npm.cmd run benchmark` runs seeds 101-108 for ten simulated minutes:
 
 | Metric | Value |
 | --- | ---: |
-| Goals / match | 0.6 |
-| Shots / match | 5.3 |
-| Shots on target | 54.8% |
-| Pass completion | 80.3% |
-| Interceptions / match | 64.6 |
-| Through balls / match | 33.4 |
-| Through completion | 46.4% |
+| Goals / match | 1.1 |
+| Shots / match | 5.9 |
+| Shots on target | 51.1% |
+| Pass completion | 83.3% |
+| Interceptions / match | 57.8 |
+| Through balls / match | 30.4 |
+| Through completion | 49.8% |
 | Timed runs / match | 1.5 |
-| Timed-run offsides / match | 0.3 |
-| Offsides / match | 0.3 |
-| Middle-third territory | 62.6% |
+| Timed-run offsides / match | 0.4 |
+| Offsides / match | 0.4 |
+| Middle-third territory | 60.6% |
 
-The most frequent quality flags are `repeated_pass_pair` (50) and
-`ball_unclaimed` (27). Cross accounting works, but wide delivery remains too
+The most frequent quality flags are `repeated_pass_pair` (52) and
+`ball_unclaimed` (25). Cross accounting works, but wide delivery remains too
 rare for confident tuning. Timed offsides are now present without selecting
 illegal receivers.
 
@@ -97,13 +102,14 @@ Acceptance criteria:
 
 - `repeated_pass_pair` declines for stagnant chains, not merely because normal
   possession is being lost sooner.
-- Shots do not fall below the current 5.3-per-match benchmark without a clear,
+- Shots do not fall below the current 5.9-per-match benchmark without a clear,
   measured improvement in chance quality.
 - Determinism remains true for identical source, seed, and inputs.
 
 A simple penalty on recently repeated non-progressive receiver pairs has
 already been tried and rejected: it reduced pair flags from 50 to 40, but
-shots fell from 5.3 to 4.4 and `no_shots` alerts increased.
+shots fell from 5.3 to 4.4 and `no_shots` alerts increased; rerun an equivalent
+experiment from the current 5.9-shot baseline rather than assuming it carries forward.
 
 ## Later Slices
 

@@ -5,7 +5,7 @@ import type {
 import {
   PITCH_W, PITCH_H, HOME_GOAL_X, AWAY_GOAL_X, HALF_X,
   MATCH_DURATION_MS, MAX_PLAYER_SPEED, SPEED_SPRINT,
-  PLAYER_R,
+  PLAYER_R, BALL_R, GOAL_W, GOAL_H,
   SEPARATION_DIST, SEPARATION_FORCE,
   GK_RUSH_DIST,
   DRIBBLE_MAX,
@@ -18,12 +18,12 @@ import {
 import { PlayerAgent } from './agent';
 import { random } from './random';
 
-const GOAL_W = 73;
 const FIXED_DT = 16.667;
 const MAX_FRAME_DELTA_MS = 34;
 const MAX_STEPS_PER_FRAME = 3;
 const GRID_CELL = 150;
 const GRID_COLS = Math.ceil(PITCH_W / GRID_CELL);
+const GOAL_OPENING_HALF_W = GOAL_W / 2 - BALL_R;
 const GRID_ROWS = Math.ceil(PITCH_H / GRID_CELL);
 const DEBUG_LOG_MAX = 1200;
 const COORDINATOR_LOG_INTERVAL = 1000;
@@ -1519,7 +1519,7 @@ export class GameEngine {
       speed: Math.round(shotSpeed),
       distance: Math.round(shotDistance),
       pressureCount,
-      projectedOnTarget: Math.abs(goalY - goalCenterY) < GOAL_W / 2,
+      projectedOnTarget: Math.abs(goalY - goalCenterY) <= GOAL_OPENING_HALF_W,
     });
   }
 
@@ -1749,7 +1749,7 @@ export class GameEngine {
     const dToGoal = Math.abs(b.x - goalX);
     if (dToGoal > 250) return;
     const crossY = b.y + b.vy * (dToGoal / Math.abs(b.vx));
-    if (crossY < PITCH_H / 2 - GOAL_W / 2 || crossY > PITCH_H / 2 + GOAL_W / 2) return;
+    if (Math.abs(crossY - PITCH_H / 2) > GOAL_OPENING_HALF_W) return;
     const originDistance = this.qShotOrigin
       ? Math.hypot(this.qShotOrigin.x - goalX, this.qShotOrigin.y - PITCH_H / 2)
       : Math.sqrt((b.x - gk.x) ** 2 + (b.y - gk.y) ** 2);
@@ -1932,7 +1932,7 @@ export class GameEngine {
       this.awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H); return;
     }
     if (b.x < -25) {
-      const inGoal = b.y > PITCH_H / 2 - GOAL_W / 2 && b.y < PITCH_H / 2 + GOAL_W / 2;
+      const inGoal = this.ballInsideGoalOpening(b);
       if (!inGoal) {
         if (this.isShotActive) { this.statsShotsOffTarget++; this.isShotActive = false; this.qShotOrigin = null; this.qConsecutiveSaves = 0; }
         this.failPendingPass('out_of_play');
@@ -1942,7 +1942,7 @@ export class GameEngine {
       } return;
     }
     if (b.x > PITCH_W + 25) {
-      const inGoal = b.y > PITCH_H / 2 - GOAL_W / 2 && b.y < PITCH_H / 2 + GOAL_W / 2;
+      const inGoal = this.ballInsideGoalOpening(b);
       if (!inGoal) {
         if (this.isShotActive) { this.statsShotsOffTarget++; this.isShotActive = false; this.qShotOrigin = null; this.qConsecutiveSaves = 0; }
         this.failPendingPass('out_of_play');
@@ -2246,10 +2246,20 @@ export class GameEngine {
 
   private checkGoal(): void {
     const b = this.ball;
-    const inLeft = b.x < 5 && b.y > PITCH_H / 2 - GOAL_W / 2 && b.y < PITCH_H / 2 + GOAL_W / 2;
-    const inRight = b.x > PITCH_W - 5 && b.y > PITCH_H / 2 - GOAL_W / 2 && b.y < PITCH_H / 2 + GOAL_W / 2;
-    if (inLeft) { this.recordGoalQuality('away', HOME_GOAL_X); this.awayScore++; this.emitEvent('goal', b.x, b.y); this.resetAfterGoal('home'); }
-    else if (inRight) { this.recordGoalQuality('home', AWAY_GOAL_X); this.homeScore++; this.emitEvent('goal', b.x, b.y); this.resetAfterGoal('away'); }
+    if (!this.ballInsideGoalOpening(b)) return;
+    const inLeft = b.x + BALL_R < HOME_GOAL_X;
+    const inRight = b.x - BALL_R > AWAY_GOAL_X;
+    if (inLeft) {
+      this.logDebug('goal_line_crossing', { goal: 'home', x: Math.round(b.x), y: Math.round(b.y), z: Math.round(b.z) });
+      this.recordGoalQuality('away', HOME_GOAL_X); this.awayScore++; this.emitEvent('goal', b.x, b.y); this.resetAfterGoal('home');
+    } else if (inRight) {
+      this.logDebug('goal_line_crossing', { goal: 'away', x: Math.round(b.x), y: Math.round(b.y), z: Math.round(b.z) });
+      this.recordGoalQuality('home', AWAY_GOAL_X); this.homeScore++; this.emitEvent('goal', b.x, b.y); this.resetAfterGoal('away');
+    }
+  }
+
+  private ballInsideGoalOpening(ball: Ball): boolean {
+    return Math.abs(ball.y - PITCH_H / 2) <= GOAL_OPENING_HALF_W && ball.z + BALL_R <= GOAL_H;
   }
 
   private recordGoalQuality(scoringTeam: Team, goalX: number): void {

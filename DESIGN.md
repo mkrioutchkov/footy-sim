@@ -62,6 +62,7 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 - `pass_start` / `force_pass_start` — normal vs panic pass execution
 - `timed_run_start`, `timed_pass_release`, `offside` — through-run release timing
 - `shot_start` — shot taken
+- `goal_line_crossing` — accepted crossing position and height inside the goal frame
 - `tackle_win`, `tackle_fail`, `tackle_rejected` — contact-validated challenges
 - `save` / `goal` — key match outcomes
 - `set_piece_awarded`, `set_piece_taker` — restarts

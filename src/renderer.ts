@@ -17,7 +17,7 @@ export class MatchRenderer {
   pitchContainer: Container;
   private playerLayer: Container;
   private trailPool: Graphics[] = [];
-  private playerEntries: Map<number, { body: Graphics; arrow: Graphics; label: Text; drawn: boolean; wasSliding: boolean; hadBall: boolean }> = new Map();
+  private playerEntries: Map<number, { body: Graphics; arrow: Graphics; label: Text; drawn: boolean; wasSliding: boolean; hadBall: boolean; slideAngle: number }> = new Map();
   private ringGfx: Graphics;
   private ballBody: Graphics;
   private ballGlow: Graphics;
@@ -185,7 +185,7 @@ export class MatchRenderer {
         this.playerLayer.addChild(body);
         this.playerLayer.addChild(arrow);
         this.playerLayer.addChild(label);
-        entry = { body, arrow, label, drawn: false, wasSliding: false, hadBall: false };
+        entry = { body, arrow, label, drawn: false, wasSliding: false, hadBall: false, slideAngle: p.team === 'home' ? 0 : Math.PI };
         this.playerEntries.set(p.id, entry);
       }
 
@@ -195,6 +195,9 @@ export class MatchRenderer {
       const staminaAlpha = 0.5 + (p.stamina ?? 100) / 200;
       const vp = this.smoothPlayer(p.id, p.x, p.y);
       const sliding = (p.tackleAnim ?? 0) > 0;
+      if (sliding && !entry.wasSliding) {
+        entry.slideAngle = Math.hypot(p.vx, p.vy) > 1 ? Math.atan2(p.vy, p.vx) : (p.team === 'home' ? 0 : Math.PI);
+      }
       const needsRedraw = !entry.drawn || sliding || entry.wasSliding || hasBall !== entry.hadBall;
       entry.wasSliding = sliding;
       entry.hadBall = hasBall;
@@ -205,17 +208,16 @@ export class MatchRenderer {
         entry.body.clear();
         if (sliding) {
           // slide tackle: elongated oval + dust trail
-          const angle = Math.atan2(p.vy, p.vx) || (p.team === 'home' ? 0 : Math.PI);
-          entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
+          const angle = entry.slideAngle;
           entry.body.rotation = angle;
+          entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
           entry.body.fill({ color, alpha: 0.7 });
           entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
-          entry.body.rotation = angle;
           entry.body.stroke({ width: 1, color: 0x000000 });
           // dust puffs behind the slide
-          entry.body.circle(-Math.cos(angle) * r * 0.8, -Math.sin(angle) * r * 0.8, r * 0.4);
+          entry.body.circle(-r * 0.8, 0, r * 0.4);
           entry.body.fill({ color: 0xcccccc, alpha: 0.5 });
-          entry.body.circle(-Math.cos(angle) * r * 1.3, -Math.sin(angle) * r * 1.3, r * 0.25);
+          entry.body.circle(-r * 1.3, 0, r * 0.25);
           entry.body.fill({ color: 0xdddddd, alpha: 0.3 });
         } else {
           entry.body.rotation = 0;
@@ -239,11 +241,11 @@ export class MatchRenderer {
       }
       if (speed > MIN_SPEED) {
         const newAngle = Math.atan2(p.vy, p.vx);
-        angle = angle + Math.atan2(Math.sin(newAngle - angle), Math.cos(newAngle - angle)) * 0.35;
+        angle = this.turnTowards(angle, newAngle, Math.PI / 24);
       } else {
         // slow/stationary: scan toward the action — look at the ball
         const lookAngle = Math.atan2(state.ball.y - p.y, state.ball.x - p.x);
-        angle = angle + Math.atan2(Math.sin(lookAngle - angle), Math.cos(lookAngle - angle)) * 0.06;
+        angle = this.turnTowards(angle, lookAngle, Math.PI / 60);
       }
       this.facingAngles.set(p.id, angle);
       // detect arrow flickering: >120° change between frames
@@ -350,6 +352,8 @@ export class MatchRenderer {
     for (let nx = netX; dir > 0 ? nx >= x - GOAL_DEPTH + 2 : nx <= x + GOAL_DEPTH - 2; nx -= dir * 6) {
       g.moveTo(nx, y - hw + 2); g.lineTo(nx, y + hw - 2); g.stroke({ width: 0.5, color: 0xcccccc, alpha: 0.55 });
     }
+    g.circle(x, y - hw, 2.5); g.fill(GOAL_COLOR);
+    g.circle(x, y + hw, 2.5); g.fill(GOAL_COLOR);
   }
 
   private drawPenaltyArea(g: Graphics, x: number): void {
@@ -373,5 +377,10 @@ export class MatchRenderer {
     g.moveTo(x + Math.cos(start) * radius, y + Math.sin(start) * radius);
     g.arc(x, y, radius, start, end);
     g.stroke({ width: 2, color: LINE_COLOR });
+  }
+
+  private turnTowards(current: number, target: number, maxStep: number): number {
+    const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+    return current + clamp(delta, -maxStep, maxStep);
   }
 }
