@@ -1434,10 +1434,30 @@ export class GameEngine {
     carrier.vx = 0; carrier.vy = 0;
   }
 
+  private rollBallTo(from: Player, to: Player): void {
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const speed = 90 + d * 0.08;
+    this.ball.controllerId = null;
+    this.ball.lastTouchTeam = from.team; this.ball.lastToucherId = from.id;
+    this.ball.vx = (dx / d) * speed; this.ball.vy = (dy / d) * speed;
+    this.ball.intendedReceiverId = to.id;
+    this.receiverShieldTargetId = to.id;
+    this.ball.z = 0; this.ball.vz = 0;
+    this.logDebug('gk_throw', { from: from.id, to: to.id, role: to.role, dist: Math.round(d) });
+  }
+
   private gkDistribute(): void {
     const gk = this.playerById(this.ball.controllerId);
     if (!gk || gk.role !== 'GK') return;
     this.clearTeamAssignments();
+    // short distribution: roll/throw to nearest open defender
+    const closeDef = this.players.find(p => p.team === gk.team && (p.role === 'CB' || p.role === 'FB') && dist(gk, p) < 120
+      && !this.players.some(o => o.team !== gk.team && o.role !== 'GK' && dist(o, p) < 50));
+    if (closeDef && random() < 0.55) {
+      this.rollBallTo(gk, closeDef);
+      return;
+    }
     // find best open teammate — prefer progressive passes, avoid marked targets
     const teammates = this.players.filter(p => p.team === gk.team && p.role !== 'GK' && dist(gk, p) < 600);
     if (teammates.length === 0) return;
