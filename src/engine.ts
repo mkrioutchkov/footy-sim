@@ -1075,7 +1075,7 @@ export class GameEngine {
       const d = dist(p, b);
       if (d > r) continue;
       // heading: play aerial balls with head (z between 50-180)
-      if (b.z > 35 && b.z < 200 && p.role !== 'GK') {
+      if (b.z > 25 && b.z < 200 && p.role !== 'GK') {
         const headingSkill = attrFactor(p.attrs, 'positioning') * 0.5 + attrFactor(p.attrs, 'tackling') * 0.2;
         this.statsHeadersTotal++;
         if (random() < headingSkill * 0.7) {
@@ -1235,10 +1235,10 @@ export class GameEngine {
       if (perp < 35 && t > 0.1 && t < 0.9) blockers++;
     }
     // loft: short passes stay flat, long + contested passes go aerial (scaled for heading range)
-    if (rawDist > 120) this.ball.vz = speed * 0.85;
-    if (rawDist > 200) this.ball.vz = Math.max(this.ball.vz, speed * 1.20);
-    if (blockers > 0) this.ball.vz = Math.max(this.ball.vz, speed * (0.85 + blockers * 0.25));
-    if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.50);
+    if (rawDist > 90) this.ball.vz = speed * 0.90;  // even short-medium passes get air
+    if (rawDist > 200) this.ball.vz = Math.max(this.ball.vz, speed * 1.30);
+    if (blockers > 0) this.ball.vz = Math.max(this.ball.vz, speed * (0.90 + blockers * 0.25));
+    if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.60);
     this.beginTrackedPass(from, to, throughBall ? 'through_ball' : 'open_play');
     if (this.checkOffside(to, from)) {
       this.statsOffsides++;

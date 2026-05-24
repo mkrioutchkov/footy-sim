@@ -531,9 +531,12 @@ export class PlayerAgent {
         const oppGoalX = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
         if (oo.length > 0) { const ld = fd === 1 ? Math.max(...oo.map(o => o.x)) : Math.min(...oo.map(o => o.x));
           const defLine = clamp(ld, p.homeX - 40, oppGoalX + fd * 20);
-          // offside uncertainty: occasionally drift past the last defender
-          const offsideDrift = random() < 0.25 ? fd * (10 + random() * 35) : 0; // 25% chance, bigger drift
-          c.push({ x: fd === 1 ? Math.min(p.homeX + fd * 100, ld - 15 + offsideDrift) : Math.max(p.homeX + fd * 100, ld + 15 + offsideDrift), y: p.homeY, pur: 'offer' });
+          c.push({ x: fd === 1 ? Math.min(p.homeX + fd * 100, ld - 15) : Math.max(p.homeX + fd * 100, ld + 15), y: p.homeY, pur: 'offer' });
+          // offside gamble: explicit run past the defensive line (25% chance)
+          if (random() < 0.25) {
+            const offsideRun = ld + fd * (5 + random() * 30);
+            c.push({ x: clamp(offsideRun, p.homeX + fd * 30, oppGoalX), y: p.homeY + (random() - 0.5) * 40, pur: 'offside_risk' });
+          }
           // run behind the defensive line — diagonal burst
           const runY = clamp(p.homeY + (random() > 0.5 ? 40 : -40), PITCH_H * 0.2, PITCH_H * 0.8);
           c.push({ x: clamp(defLine - fd * 10, p.homeX + fd * 40, oppGoalX), y: runY, pur: 'space' });
@@ -596,7 +599,7 @@ export class PlayerAgent {
       const tac = my ? (cn.x - p.homeX) * fd / PITCH_W * 0.5 : -(cn.x - p.homeX) * fd / PITCH_W * 0.25;
       const og2 = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X, db = !my ? clamp(((b.x - cn.x) * fd) / (Math.abs(b.x - og2) + 1), 0, 0.30) : 0;
       const bp = Math.sqrt((cn.x - b.x) ** 2 + (cn.y - b.y) ** 2) / 600 * 0.08;
-      const ob = cn.pur === 'observe' ? 0.10 : 0;
+      const ob = cn.pur === 'observe' ? 0.10 : cn.pur === 'offside_risk' ? 0.15 : 0;
       return { type: 'position', score: clamp(0.15 + sf * 0.3 + tac - bp + db + ob, 0, 1), posX: clamp(cn.x, 40, PITCH_W - 40), posY: clamp(cn.y, 40, PITCH_H - 40), purpose: cn.pur };
     });
     const task = this.e.assignmentFor(p.id);
