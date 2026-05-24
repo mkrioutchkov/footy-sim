@@ -178,9 +178,11 @@ export class PlayerAgent {
       const onsideGap = offsideLine === null ? Infinity : (offsideLine - t.x) * fd;
       const releasedRunner = targetTask === 'run_ahead' || targetTask === 'overlap'
         || (p.role === 'CM' && (t.role === 'CF' || t.role === 'WM'));
-      if (releasedRunner && fp > 40 && onsideGap > 5 && onsideGap < 115 && bl <= 1) {
+      if (releasedRunner && fp > 40 && onsideGap > -15 && onsideGap < 140 && bl <= 1) {
         pur = 'through';
         sc += 0.14 + attrFactor(p.attrs, 'creativity') * 0.10;
+        // slight timing uncertainty: occasionally runners go fractionally offside
+        if (onsideGap < 8) sc += random() * 0.04; // borderline — sometimes still go
       }
       sc += Math.min(this.ht / 200, 0.35);
       if (receiverPressure >= 2) sc -= 0.25; if (_per.pressureCount >= 2 && bl === 0) sc += 0.10; if (_per.pressureCount >= 2 && bl >= 2) sc -= 0.15;
