@@ -58,14 +58,20 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 - `session_start` — match metadata
 - `sample` — periodic state snapshot (ball pos, controller, pressure, close players)
 - `possession` — when a player gains control
-- `pass_start` / `force_pass_start` — normal vs panic passes
+- `pass_attempt`, `pass_complete`, `pass_fail` — accountable delivery outcomes
+- `pass_start` / `force_pass_start` — normal vs panic pass execution
+- `timed_run_start`, `timed_pass_release`, `offside` — through-run release timing
 - `shot_start` — shot taken
-- `tackle` / `save` / `goal` — key match events
+- `tackle_win`, `tackle_fail`, `tackle_rejected` — contact-validated challenges
+- `save` / `goal` — key match outcomes
 - `set_piece_awarded`, `set_piece_taker` — restarts
 - `assignments` — team coordinator role assignments
 - `contest_block` — player blocked from re-collecting after releasing
 
-Add more logging freely — the system is designed to be verbose for debugging.
+Quality flags are intended to name actionable failures. In particular,
+`ball_unclaimed` means a slow grounded ball is close enough to contest but is
+still ignored, while `rapid_control_changes` counts rapid team turnovers rather
+than ordinary completed passes.
 
 **Log analysis:** Compare event frequency to real football. Expect 8-12 possession changes per real-world minute. If you see 30+ per 30 seconds, pacing is broken.
 

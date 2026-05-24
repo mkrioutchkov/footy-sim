@@ -86,6 +86,8 @@ const output = {
     offsidesPerMatch: round(results.reduce((total, result) => total + result.passes.offsides, 0) / matches),
     throughBallsPerMatch: round(results.reduce((total, result) => total + result.throughBalls.attempted, 0) / matches),
     throughBallCompletionPct: round(results.reduce((total, result) => total + result.throughBalls.completed, 0) / Math.max(1, results.reduce((total, result) => total + result.throughBalls.attempted, 0)) * 100),
+    timedRunsPerMatch: round(results.reduce((total, result) => total + result.timedRuns.started, 0) / matches),
+    timedRunOffsidesPerMatch: round(results.reduce((total, result) => total + result.timedRuns.offsides, 0) / matches),
     midfieldTerritoryPct: round(results.reduce((total, result) => total + result.territoryPct.mid, 0) / matches),
   },
   tacticalActivity: taskSelections,

@@ -41,6 +41,13 @@ export class PlayerAgent {
     }
     const ic = this.e.ball.controllerId === this.player.id;
     if (ic) this.ht++; else this.ht = 0;
+    if (ic && this.e.isPreparingPass(this.player.id)) {
+      this.player.targetX = this.player.x;
+      this.player.targetY = this.player.y;
+      this.lx = this.player.x;
+      this.ly = this.player.y;
+      return;
+    }
     // Intended receivers must react to the current flight, not a cached pre-pass view.
     if (this.e.ball.intendedReceiverId === this.player.id) this.ch = null;
     const per = this.gp(); if (!per) { this.am(sdt); return; }
@@ -53,7 +60,7 @@ export class PlayerAgent {
         this.player.x, this.player.y, ch.purpose);
     }
     // "why no shoot" alert: carrier near goal, unpressured, didn't shoot
-    if (ic && ch.type !== 'shoot' && ch.type !== 'hold' && this.e.clockMs % 500 < 20) {
+    if (ic && per.pressureCount === 0 && ch.type !== 'shoot' && ch.type !== 'hold' && this.e.clockMs % 500 < 20) {
       const gx = this.player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
       if (Math.abs(this.player.x - gx) < 120) {
         const shootOpt = aff.find(x => x.type === 'shoot');
@@ -355,9 +362,10 @@ export class PlayerAgent {
   private cc(per: P): A {
     const b = this.e.ball;
     const isIntendedReceiver = this.player.id === b.intendedReceiverId;
-    if (!per.ballIsLoose || !this.e.canContestBall(this.player) || (!isIntendedReceiver && per.ballDist > 180)) return { type: 'chase', score: 0 };
+    const ballSpeed = Math.sqrt(b.vx ** 2 + b.vy ** 2);
+    const needsRecovery = b.z <= 20 && ballSpeed < 30 && per.amClosestToBall;
+    if (!per.ballIsLoose || !this.e.canContestBall(this.player) || (!isIntendedReceiver && per.ballDist > 180 && !needsRecovery)) return { type: 'chase', score: 0 };
     if (isIntendedReceiver) {
-      const ballSpeed = Math.sqrt(b.vx ** 2 + b.vy ** 2);
       const lead = ballSpeed > 30 ? 0.3 + Math.min(ballSpeed / 200, 0.8) : 0;
       return {
         type: 'chase',
@@ -365,6 +373,9 @@ export class PlayerAgent {
         posX: clamp(b.x + b.vx * lead, 10, PITCH_W - 10),
         posY: clamp(b.y + b.vy * lead, 10, PITCH_H - 10),
       };
+    }
+    if (needsRecovery) {
+      return { type: 'chase', score: 1, posX: clamp(b.x, 10, PITCH_W - 10), posY: clamp(b.y, 10, PITCH_H - 10), purpose: 'recover_loose_ball' };
     }
     const isDef = this.player.role === 'CB' || this.player.role === 'FB';
     if (isDef) {
@@ -396,7 +407,7 @@ export class PlayerAgent {
     let sc = per.ballDist < 50 ? 0.90 : per.ballDist < 100 ? 0.75 : 0.55; sc -= per.ballDist / 180 * 0.3;
     if (per.amClosestToBall) sc += 0.12;
     if (per.anyOpponentCloserToBall) { const ms = attrFactor(this.player.attrs, 'speed') * SPEED_SPRINT; if (per.ballDist / Math.max(ms, 1) < 1.5) sc += 0.10; }
-    const bs = Math.sqrt(b.vx ** 2 + b.vy ** 2);
+    const bs = ballSpeed;
     // ball trajectory anticipation: lead the ball further for fast balls
     const la = bs > 30 ? 0.3 + Math.min(bs / 200, 0.8) : 0;
     // ball heading toward me? boost chase score — I'm the natural interceptor
@@ -420,6 +431,10 @@ export class PlayerAgent {
 
   private bp(per: P, ctx: GC): A[] {
     const p = this.player, b = this.e.ball, fd = p.team === 'home' ? 1 : -1, ip = this.e.teamInPossession(), my = per.ballControllerTeam === p.team;
+    const committedRun = this.e.committedRunFor(p.id);
+    if (committedRun) {
+      return [{ type: 'position', score: 1, posX: committedRun.targetX, posY: committedRun.targetY, purpose: 'timed_run' }];
+    }
     const phase = this.e.teamPhaseFor(p.team);
     const ba = fd === 1 ? b.x / PITCH_W : 1 - b.x / PITCH_W, pu = my ? ba * 180 : 0;
     const iw = p.role === 'FB' || p.role === 'WM', wp = (iw && my) ? ba * 60 : 0;
@@ -542,11 +557,7 @@ export class PlayerAgent {
         if (oo.length > 0) { const ld = fd === 1 ? Math.max(...oo.map(o => o.x)) : Math.min(...oo.map(o => o.x));
           const defLine = clamp(ld, p.homeX - 40, oppGoalX + fd * 20);
           c.push({ x: fd === 1 ? Math.min(p.homeX + fd * 100, ld - 15) : Math.max(p.homeX + fd * 100, ld + 15), y: p.homeY, pur: 'offer' });
-          // offside gamble: explicit run past the defensive line (25% chance)
-          // offside gamble: always generate as an option (tactical risk/reward)
-          const offsideRun = ld + fd * (3 + random() * 25); // 3-28px past last defender
-          c.push({ x: clamp(offsideRun, p.homeX + fd * 30, oppGoalX), y: p.homeY + (random() - 0.5) * 50, pur: 'offside_risk' });
-          // run behind the defensive line — diagonal burst
+          // Attack the defensive line while remaining eligible at selection time.
           const runY = clamp(p.homeY + (random() > 0.5 ? 40 : -40), PITCH_H * 0.2, PITCH_H * 0.8);
           c.push({ x: clamp(defLine - fd * 10, p.homeX + fd * 40, oppGoalX), y: runY, pur: 'space' });
         }
@@ -608,7 +619,7 @@ export class PlayerAgent {
       const tac = my ? (cn.x - p.homeX) * fd / PITCH_W * 0.5 : -(cn.x - p.homeX) * fd / PITCH_W * 0.25;
       const og2 = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X, db = !my ? clamp(((b.x - cn.x) * fd) / (Math.abs(b.x - og2) + 1), 0, 0.30) : 0;
       const bp = Math.sqrt((cn.x - b.x) ** 2 + (cn.y - b.y) ** 2) / 600 * 0.08;
-      const ob = cn.pur === 'observe' ? 0.10 : cn.pur === 'offside_risk' ? 0.20 : 0;
+      const ob = cn.pur === 'observe' ? 0.10 : 0;
       return { type: 'position', score: clamp(0.15 + sf * 0.3 + tac - bp + db + ob, 0, 1), posX: clamp(cn.x, 40, PITCH_W - 40), posY: clamp(cn.y, 40, PITCH_H - 40), purpose: cn.pur };
     });
     const task = this.e.assignmentFor(p.id);
@@ -655,21 +666,32 @@ export class PlayerAgent {
     const p = this.player, b = this.e.ball;
     this.la = a.type; this.lt = a.target?.id ?? null;
     switch (a.type) {
-      case 'pass': if (a.target) { if (a.purpose === 'clear') this.e.forcePassTo(p, a.target); else this.e.passBallTo(p, a.target, a.purpose === 'through'); this.e.emitEvent('pass', p.x, p.y); // trigger one-two: I just passed, I want it back — make a run
-        const bb = this.e.teamBlackboards.get(p.team)!;
-        bb.oneTwo = { from: p.id, to: a.target.id, expires: this.e.clockMs + 2000 }; } this.sl = 20; break;
+      case 'pass': if (a.target) {
+        const released = a.purpose === 'clear'
+          ? (this.e.forcePassTo(p, a.target), true)
+          : this.e.passBallTo(p, a.target, a.purpose === 'through');
+        if (released) {
+          this.e.emitEvent('pass', p.x, p.y);
+          // Trigger one-two only when the ball has actually been released.
+          const bb = this.e.teamBlackboards.get(p.team)!;
+          bb.oneTwo = { from: p.id, to: a.target.id, expires: this.e.clockMs + 2000 };
+          this.sl = 20;
+        } else {
+          this.sl = 4;
+        }
+      } break;
       case 'shoot': this.e.shootBall(p); this.e.emitEvent('shot', p.x, p.y); this.sl = 20; break;
       case 'dribble': p.targetX = a.posX ?? (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X); p.targetY = a.posY ?? p.y;
         // backward dribble alert
         const oppGoalX = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
         const fd = p.team === 'home' ? 1 : -1;
         if ((fd === 1 && p.targetX < p.x - 10) || (fd === -1 && p.targetX > p.x + 10)) {
-          if (Math.abs(p.x - oppGoalX) < 300) {
+          if (Math.abs(p.x - oppGoalX) < 300 && this.e.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, p) < 60).length === 0) {
             this.e.logQualityFlag('backward_dribble', { player: p.id, role: p.role, fromX: Math.round(p.x), toX: Math.round(p.targetX) });
           }
         }
         break;
-      case 'tackle': if (a.target && dist(p, a.target) < TACKLE_RANGE + 5 && this.e.attemptTackle(p, a.target)) { this.e.emitEvent('tackle', p.x, p.y); p.tackleAnim = 300; } else { p.targetX = a.target?.x ?? p.x; p.targetY = a.target?.y ?? p.y; p.tackleAnim = 80; } break; // brief flash for failed/standing tackle
+      case 'tackle': if (a.target && dist(p, a.target) < TACKLE_RANGE + 5 && this.e.attemptTackle(p, a.target)) { this.e.emitEvent('tackle', (p.x + a.target.x) / 2, (p.y + a.target.y) / 2); p.tackleAnim = 300; } else { p.targetX = a.target?.x ?? p.x; p.targetY = a.target?.y ?? p.y; } break;
       case 'mark': if (a.target) { p.targetX = a.target.x; p.targetY = a.target.y; } break;
       case 'chase': { const tx = a.posX ?? b.x, ty = a.posY ?? b.y; p.targetX = tx; p.targetY = ty;
         const ms = attrFactor(p.attrs, 'speed') * SPEED_SPRINT; const cdx = tx - p.x, cdy = ty - p.y, cd = Math.sqrt(cdx * cdx + cdy * cdy);
@@ -726,12 +748,13 @@ export class PlayerAgent {
     else if (spd < 15) p.stamina = Math.min(100, p.stamina + STAMINA_RECOVER);
     const sf = p.stamina < STAMINA_SLOW_THRESHOLD * 100 ? p.stamina / 100 : 1;
     const dx = p.targetX - p.x, dy = p.targetY - p.y, d = Math.sqrt(dx * dx + dy * dy);
-    // observation cruise: far from ball = walk toward play, don't sprint
+    const committedRun = this.e.committedRunFor(p.id) !== undefined;
+    // A called-for run behind the line is a sprint even when the ball is far away.
     const bdx = this.e.ball.x - p.x, bdy = this.e.ball.y - p.y, bd = Math.sqrt(bdx * bdx + bdy * bdy);
-    const isObserving = bd > 300 && bd > PLAYER_AWARE_RANGE * 0.5;
+    const isObserving = !committedRun && bd > 300 && bd > PLAYER_AWARE_RANGE * 0.5;
     const cruiseMul = isObserving ? (p.role === 'CF' ? 0.45 : p.role === 'CB' || p.role === 'FB' ? 0.65 : p.role === 'WM' ? 0.55 : 0.50) : 1;
-    const baseSpeed = this.la === 'chase' ? SPEED_SPRINT : SPEED_RUN;
-    const df = Math.min(d / 120, 1.5), ms = attrFactor(p.attrs, 'speed') * baseSpeed * sf * df * cruiseMul;
+    const baseSpeed = this.la === 'chase' || committedRun ? SPEED_SPRINT : SPEED_RUN;
+    const df = committedRun ? 1 : Math.min(d / 120, 1.5), ms = attrFactor(p.attrs, 'speed') * baseSpeed * sf * df * cruiseMul;
     const px = p.x, py = p.y; if (d > 1) { const sp = Math.min(ms * secs, d); p.x += (dx / d) * sp; p.y += (dy / d) * sp; }
     if (secs > 0.001) { p.vx = (p.x - px) / secs; p.vy = (p.y - py) / secs; }
     // ball tracking: update memory when ball is in vision cone, otherwise age it

@@ -9,7 +9,7 @@ import {
   SEPARATION_DIST, SEPARATION_FORCE,
   GK_RUSH_DIST,
   DRIBBLE_MAX,
-  CONTROL_DIST,
+  CONTROL_DIST, TACKLE_RANGE, OFFSIDE_TOLERANCE,
   BALL_FRICTION,
   PASS_SPEED_BASE, PASS_SPEED_DIST, SHOT_SPEED_BASE, TACKLE_KICK_SPEED,
   clamp, dist, lerp, attrFactor,
@@ -44,12 +44,33 @@ export interface AnalysisSummary {
   passByRole: Record<string, { att: number; comp: number; pct: number }>;
   setPieces: { corners: number; throwIns: number; freeKicks: number };
   crosses: { attempted: number; completed: number };
+  timedRuns: { started: number; released: number; offsides: number; cancelled: number };
   headers: { total: number; won: number };
   bounces: number;
   flankTime: { left: number; mid: number; right: number };
   phaseTicks: Record<Team, Record<TacticalPhase, number>>;
   taskSelections: Record<string, number>;
   possessionByRole: Partial<Record<PlayerRole, number>>;
+}
+
+interface PendingPass {
+  fromId: number;
+  team: Team;
+  toId: number;
+  source: string;
+  isCross: boolean;
+}
+
+interface PreparedThroughBall {
+  fromId: number;
+  toId: number;
+  team: Team;
+  selectedAt: number;
+  releaseAt: number;
+  selectedLineX: number;
+  selectedOnsideGap: number;
+  runTargetX: number;
+  runTargetY: number;
 }
 
 export class GameEngine {
@@ -67,7 +88,7 @@ export class GameEngine {
   awayConfig: ManagerConfig;
 
   private actionTimer = 0;
-  private setPieceType: 'goal_kick' | 'corner' | 'throw_in' = 'throw_in';
+  private setPieceType: 'goal_kick' | 'corner' | 'throw_in' | 'free_kick' = 'throw_in';
   private setPieceTeam: Team = 'home';
   private setPieceArmed = false;
   private setPieceTakerId: number | null = null;
@@ -97,14 +118,13 @@ export class GameEngine {
   // expanded stats
   private statsCrossAttempted = 0; private statsCrossCompleted = 0;
   private statsHeadersWon = 0; private statsHeadersTotal = 0;
-  private statsCornersTaken = 0; private statsCornersToShot = 0;
-  private statsThrowInsTaken = 0; private statsThrowInsRetained = 0;
+  private statsCornersTaken = 0;
+  private statsThrowInsTaken = 0;
+  private statsTimedRunsStarted = 0; private statsTimedRunsReleased = 0; private statsTimedRunOffsides = 0; private statsTimedRunsCancelled = 0;
   private statsBouncesNoControl = 0;
   private statsFlankTime: Record<string, number> = { left: 0, right: 0, center: 0 };
   private statsPossessionTime: Map<number, number> = new Map();
-  private statsPhaseTime: Record<string, number> = {};
   private statsFreeKicks = 0;
-  private statsPlayerUncontestedMs: Map<number, number> = new Map();
 
   // distance tracking (meters, assuming 10px = 1m pitch scale)
   private ballDistance = 0;
@@ -137,12 +157,12 @@ export class GameEngine {
   private qTackleAttempts: number[] = []; private qTackleSuccesses: number[] = [];
   private qPassAttempts: number[] = []; private qPassFails: number[] = [];
   private qRecentPassPairs: { pair: string; t: number }[] = [];
-  private pendingPass: { fromId: number; team: Team; toId: number; source: string } | null = null;
+  private pendingPass: PendingPass | null = null;
+  private preparedThroughBall: PreparedThroughBall | null = null;
   private qConsecutiveSaves = 0;
   private qLastShotMs = 0;
   private qLastPassFrom = 0; private qLastPassRecipient = 0; private qLastPassRecipientMs = 0;
   private statsPassByRole: Record<string, { att: number; comp: number }> = {};
-  private statsShotsByZone: Record<string, number> = {}; // shot locations binned
   private qShotOrigin: { team: Team; x: number; y: number } | null = null;
   private qBounceOnSamePlayer = 0; private qLastBouncePlayer: number | null = null;
   private qBallThird: 'homeDef' | 'mid' | 'awayDef' | null = null;
@@ -224,6 +244,16 @@ export class GameEngine {
     return this.assignmentByPlayer.get(playerId);
   }
 
+  committedRunFor(playerId: number): { targetX: number; targetY: number } | undefined {
+    const pass = this.preparedThroughBall;
+    if (!pass || pass.toId !== playerId || this.ball.controllerId !== pass.fromId) return undefined;
+    return { targetX: pass.runTargetX, targetY: pass.runTargetY };
+  }
+
+  isPreparingPass(playerId: number): boolean {
+    return this.preparedThroughBall?.fromId === playerId && this.ball.controllerId === playerId;
+  }
+
   getDebugLogText(): string {
     const latest = this.debugLog.slice(-DEBUG_LOG_MAX);
     return latest.map(e => JSON.stringify(e)).join('\n');
@@ -280,6 +310,7 @@ export class GameEngine {
       passByRole: Object.fromEntries(Object.entries(this.statsPassByRole).map(([role, s]) => [role, { ...s, pct: Math.round(s.comp / Math.max(1, s.att) * 1000) / 10 }])),
       setPieces: { corners: this.statsCornersTaken, throwIns: this.statsThrowInsTaken, freeKicks: this.statsFreeKicks },
       crosses: { attempted: this.statsCrossAttempted, completed: this.statsCrossCompleted },
+      timedRuns: { started: this.statsTimedRunsStarted, released: this.statsTimedRunsReleased, offsides: this.statsTimedRunOffsides, cancelled: this.statsTimedRunsCancelled },
       headers: { total: this.statsHeadersTotal, won: this.statsHeadersWon },
       bounces: this.statsBouncesNoControl,
       flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
@@ -302,13 +333,7 @@ export class GameEngine {
   }
 
   isOffsideTarget(passer: Player, receiver: Player): boolean {
-    const offside = this.checkOffside(receiver, passer);
-    if (!offside) return false;
-    // timing misjudgment: 20% chance passer doesn't see the offside if it's close
-    const fd = passer.team === 'home' ? 1 : -1;
-    const gap = Math.abs(receiver.x - this.offsideLineFor(passer.team)!);
-    if (gap < 20 && random() < 0.20) return false; // misjudged — passer releases anyway
-    return true;
+    return this.checkOffside(receiver, passer);
   }
 
   offsideLineFor(team: Team): number | null {
@@ -346,12 +371,12 @@ export class GameEngine {
 
   private recordControlChange(collector: Player): void {
     if (this.qLastControllerId !== collector.id) {
-      if (this.qLastControllerId !== null) this.qPossessionChanges.push(this.clockMs);
       this.qLastControllerId = collector.id;
     }
     if (this.qLastPossessionTeam !== collector.team) {
       const previousTeam = this.qLastPossessionTeam;
       if (previousTeam !== null) {
+        this.qPossessionChanges.push(this.clockMs);
         this.transitionUntil[collector.team] = this.clockMs + 2500;
         this.transitionUntil[previousTeam] = this.clockMs + 2500;
         this.logDebug('transition', { wonBy: collector.team, lostBy: previousTeam, player: collector.id, x: Math.round(collector.x), y: Math.round(collector.y) });
@@ -384,13 +409,16 @@ export class GameEngine {
     this.qPassFails.push(this.clockMs);
   }
 
-  private beginTrackedPass(from: Player, to: Player, source = 'open_play'): void {
+  private beginTrackedPass(from: Player, to: Player, source = 'open_play', isCross = false): void {
     this.statsPassAttempted++;
     if (source === 'through_ball') this.statsThroughBallAttempted++;
+    if (isCross) this.statsCrossAttempted++;
+    if (!this.statsPassByRole[from.role]) this.statsPassByRole[from.role] = { att: 0, comp: 0 };
+    this.statsPassByRole[from.role].att++;
     this.recordPassAttempt(from, to);
-    this.pendingPass = { fromId: from.id, team: from.team, toId: to.id, source };
+    this.pendingPass = { fromId: from.id, team: from.team, toId: to.id, source, isCross };
     this.qLastPassFrom = from.id; this.qLastPassRecipient = to.id; this.qLastPassRecipientMs = this.clockMs;
-    this.logDebug('pass_attempt', { from: from.id, to: to.id, team: from.team, source });
+    this.logDebug('pass_attempt', { from: from.id, to: to.id, team: from.team, source, isCross });
   }
 
   private failPendingPass(reason: string): void {
@@ -398,6 +426,49 @@ export class GameEngine {
     this.recordPassFailure();
     this.logDebug('pass_fail', { reason, from: this.pendingPass.fromId, intended: this.pendingPass.toId });
     this.pendingPass = null;
+    this.receiverShieldTargetId = null;
+  }
+
+  private resolvePendingPassOnContact(receiver: Player, contact: 'control' | 'header'): void {
+    const pass = this.pendingPass;
+    if (!pass) return;
+    const passer = this.playerById(pass.fromId);
+    const role = passer?.role ?? '?';
+    if (receiver.team === pass.team) {
+      this.statsPassCompleted++;
+      if (!this.statsPassByRole[role]) this.statsPassByRole[role] = { att: 0, comp: 0 };
+      this.statsPassByRole[role].comp++;
+      if (pass.source === 'through_ball') this.statsThroughBallCompleted++;
+      if (pass.isCross) this.statsCrossCompleted++;
+      this.logDebug('pass_complete', {
+        from: pass.fromId,
+        intended: pass.toId,
+        receiver: receiver.id,
+        contact,
+        source: pass.source,
+        isCross: pass.isCross,
+        redirected: receiver.id !== pass.toId,
+      });
+    } else {
+      this.statsPassIntercepted++;
+      this.recordPassFailure();
+      this.logDebug('pass_fail', {
+        reason: contact === 'header' ? 'opponent_header' : 'intercepted',
+        from: pass.fromId,
+        intended: pass.toId,
+        collector: receiver.id,
+        collectorTeam: receiver.team,
+      });
+      if (passer) {
+        const ownGoalX = passer.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
+        if (Math.abs(passer.x - ownGoalX) < PITCH_W / 3) {
+          const forced = this.players.filter(o => o.team !== passer.team && o.role !== 'GK' && dist(o, passer) < 60).length >= 2;
+          this.logDebug('danger_pass', { from: passer.id, role: passer.role, team: passer.team, x: Math.round(passer.x), y: Math.round(passer.y), forced, collector: receiver.id, collectorRole: receiver.role });
+        }
+      }
+    }
+    this.pendingPass = null;
+    this.receiverShieldTargetId = null;
   }
 
   private recordBounce(playerId: number): void {
@@ -462,6 +533,14 @@ export class GameEngine {
     this.statsOffsides = 0;
     this.statsShotsOnTarget = 0; this.statsShotsOffTarget = 0; this.statsSaves = 0;
     this.statsBallInThird = { homeDef: 0, mid: 0, awayDef: 0 };
+    this.statsCrossAttempted = 0; this.statsCrossCompleted = 0;
+    this.statsHeadersWon = 0; this.statsHeadersTotal = 0;
+    this.statsCornersTaken = 0; this.statsThrowInsTaken = 0; this.statsFreeKicks = 0;
+    this.statsTimedRunsStarted = 0; this.statsTimedRunsReleased = 0; this.statsTimedRunOffsides = 0; this.statsTimedRunsCancelled = 0;
+    this.statsBouncesNoControl = 0;
+    this.statsFlankTime = { left: 0, right: 0, center: 0 };
+    this.statsPossessionTime.clear();
+    this.statsPassByRole = {};
     this.qBallUnclaimedSince = 0;
     this.qPossessionChanges = [];
     this.qLastControllerId = null;
@@ -474,6 +553,7 @@ export class GameEngine {
     this.qPassAttempts = []; this.qPassFails = [];
     this.qRecentPassPairs = [];
     this.pendingPass = null;
+    this.preparedThroughBall = null;
     this.qConsecutiveSaves = 0;
     this.qLastShotMs = 0;
     this.qShotOrigin = null;
@@ -510,7 +590,8 @@ export class GameEngine {
 
   teamInPossession(): Team | undefined {
     const c = this.playerById(this.ball.controllerId);
-    return c?.team ?? this.pendingPass?.team;
+    if (c) return c.team;
+    return this.ball.intendedReceiverId !== null ? this.pendingPass?.team : undefined;
   }
 
   // ── spatial grid
@@ -698,6 +779,11 @@ export class GameEngine {
     const carrier = this.playerById(this.ball.controllerId);
     if (!carrier) {
       this.carrierWatchId = null;
+      this.carrierWatchMs = 0;
+      return;
+    }
+    if (this.isPreparingPass(carrier.id)) {
+      this.carrierWatchId = carrier.id;
       this.carrierWatchMs = 0;
       return;
     }
@@ -954,6 +1040,7 @@ export class GameEngine {
 
     this.updateControlledBall(secs);
     this.moveBallCarrier(sdt);
+    this.releasePreparedThroughBallIfReady();
     this.applySeparation(secs);
 
     // corner cross execution
@@ -1184,13 +1271,96 @@ export class GameEngine {
 
   private isInKeeperArea(gk: Player, x: number, y: number): boolean {
     const ownGoalX = gk.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
-    const inDepth = gk.team === 'home' ? x < 190 : x > PITCH_W - 190;
-    return inDepth && Math.abs(y - PITCH_H / 2) < 135 && Math.abs(x - ownGoalX) < 210;
+    const inDepth = gk.team === 'home' ? x < PENALTY_AREA_W : x > PITCH_W - PENALTY_AREA_W;
+    return inDepth && Math.abs(y - PITCH_H / 2) < PENALTY_AREA_H / 2 && Math.abs(x - ownGoalX) < PENALTY_AREA_W;
   }
 
   // ═══════════════════════ AGENT API
 
-  passBallTo(from: Player, to: Player, throughBall = false): void {
+  private prepareTimedThroughBall(from: Player, to: Player): boolean {
+    if (this.preparedThroughBall || this.ball.controllerId !== from.id) return false;
+    const fd = from.team === 'home' ? 1 : -1;
+    const lineX = this.offsideLineFor(from.team);
+    if (lineX === null) return false;
+    const onsideGap = (lineX - to.x) * fd;
+    if (onsideGap < 5 || onsideGap > 28) return false;
+    const delayMs = Math.round(240 + (1 - attrFactor(from.attrs, 'creativity')) * 140);
+    const runTargetX = clamp(lineX + fd * 65, 55, PITCH_W - 55);
+    const runTargetY = clamp(lerp(to.y, PITCH_H / 2, 0.12), 45, PITCH_H - 45);
+    this.preparedThroughBall = {
+      fromId: from.id,
+      toId: to.id,
+      team: from.team,
+      selectedAt: this.clockMs,
+      releaseAt: this.clockMs + delayMs,
+      selectedLineX: lineX,
+      selectedOnsideGap: onsideGap,
+      runTargetX,
+      runTargetY,
+    };
+    this.statsTimedRunsStarted++;
+    from.targetX = from.x;
+    from.targetY = from.y;
+    this.logDebug('timed_run_start', {
+      from: from.id,
+      to: to.id,
+      role: to.role,
+      lineX: Math.round(lineX),
+      onsideGap: Math.round(onsideGap),
+      releaseDelayMs: delayMs,
+      runTargetX: Math.round(runTargetX),
+      runTargetY: Math.round(runTargetY),
+    });
+    return true;
+  }
+
+  private cancelPreparedThroughBall(reason: string): void {
+    const pass = this.preparedThroughBall;
+    if (!pass) return;
+    this.statsTimedRunsCancelled++;
+    this.logDebug('timed_run_cancel', { reason, from: pass.fromId, to: pass.toId, heldMs: Math.round(this.clockMs - pass.selectedAt) });
+    this.preparedThroughBall = null;
+  }
+
+  private releasePreparedThroughBallIfReady(): void {
+    const pass = this.preparedThroughBall;
+    if (!pass) return;
+    if (this.ball.controllerId !== pass.fromId) {
+      this.cancelPreparedThroughBall('possession_lost');
+      return;
+    }
+    if (this.clockMs < pass.releaseAt) return;
+    const from = this.playerById(pass.fromId);
+    const to = this.playerById(pass.toId);
+    if (!from || !to || from.team !== pass.team || to.team !== pass.team) {
+      this.cancelPreparedThroughBall('player_unavailable');
+      return;
+    }
+    const lineX = this.offsideLineFor(pass.team);
+    const fd = pass.team === 'home' ? 1 : -1;
+    const releaseGap = lineX === null ? null : (lineX - to.x) * fd;
+    const offsideAtRelease = this.checkOffside(to, from);
+    this.preparedThroughBall = null;
+    this.statsTimedRunsReleased++;
+    if (offsideAtRelease) this.statsTimedRunOffsides++;
+    this.logDebug('timed_pass_release', {
+      from: from.id,
+      to: to.id,
+      selectedLineX: Math.round(pass.selectedLineX),
+      selectedOnsideGap: Math.round(pass.selectedOnsideGap),
+      releaseLineX: lineX === null ? null : Math.round(lineX),
+      releaseOnsideGap: releaseGap === null ? null : Math.round(releaseGap),
+      preparationMs: Math.round(this.clockMs - pass.selectedAt),
+      offsideAtRelease,
+    });
+    if (this.passBallTo(from, to, true, true)) {
+      this.emitEvent('pass', from.x, from.y);
+      this.teamBlackboards.get(from.team)!.oneTwo = { from: from.id, to: to.id, expires: this.clockMs + 2000 };
+    }
+  }
+
+  passBallTo(from: Player, to: Player, throughBall = false, preparedRelease = false): boolean {
+    if (throughBall && !preparedRelease && this.prepareTimedThroughBall(from, to)) return false;
     // lead pass: predict where receiver will be when ball arrives, not where they are now
     const rawDx = to.x - from.x, rawDy = to.y - from.y;
     const rawDist = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
@@ -1206,7 +1376,7 @@ export class GameEngine {
     const predY = to.y + to.vy * travelTime * leadFactor;
     const dx = predX - from.x, dy = predY - from.y;
     const adjDist = Math.sqrt(dx * dx + dy * dy);
-    if (adjDist < 1) return; // safety check
+    if (adjDist < 1) return false; // safety check
     const passSkill = attrFactor(from.attrs, 'passing');
     const inacc = (1 - passSkill) * rawDist * 0.12;
     const tdx = dx + (random() - 0.5) * inacc;
@@ -1222,11 +1392,12 @@ export class GameEngine {
     this.ball.intendedReceiverId = to.id;
     this.receiverShieldTargetId = to.id; // protect the receiver on collect
     this.ball.z = 0; this.ball.vz = 0;
-    // cross curl: wide passes bend toward goal
-    const fromWideForCurl = Math.abs(from.y - PITCH_H / 2) > 180;
-    const intoBoxForCurl = Math.abs(predX - (from.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X)) < 220 && Math.abs(predY - PITCH_H / 2) < 150;
-    if (fromWideForCurl && intoBoxForCurl && (from.role === 'WM' || from.role === 'FB')) {
-      this.statsCrossAttempted++;
+    const goalX = from.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
+    const fromWide = Math.abs(from.y - PITCH_H / 2) > 180;
+    const intoBox = Math.abs(predX - goalX) < 200 && Math.abs(predY - PITCH_H / 2) < 140;
+    const isCross = fromWide && intoBox && (from.role === 'WM' || from.role === 'FB') && !throughBall;
+    // Crosses bend toward the central target zone.
+    if (isCross) {
       const curlDir = from.y < PITCH_H / 2 ? 1 : -1; // curl toward center
       const rawDx2 = to.x - from.x, rawDy2 = to.y - from.y;
       this.ball.vx += -rawDy2 / rawDist * speed * 0.08 * curlDir;
@@ -1240,31 +1411,29 @@ export class GameEngine {
       const perp = Math.sqrt((o.x - from.x - t * dx) ** 2 + (o.y - from.y - t * dy) ** 2);
       if (perp < 35 && t > 0.1 && t < 0.9) blockers++;
     }
-    // loft: short passes stay flat, long + contested passes go aerial (scaled for heading range)
-    if (rawDist > 90) this.ball.vz = speed * 0.90;  // even short-medium passes get air
-    if (rawDist > 200) this.ball.vz = Math.max(this.ball.vz, speed * 1.30);
-    if (blockers > 0) this.ball.vz = Math.max(this.ball.vz, speed * (0.90 + blockers * 0.25));
-    if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.60);
-    this.beginTrackedPass(from, to, throughBall ? 'through_ball' : 'open_play');
+    // Ground passes dominate; crosses and genuine long balls create aerial contests.
+    if (rawDist > 240) this.ball.vz = speed * 0.55;
+    if (blockers > 0 && rawDist > 120) this.ball.vz = Math.max(this.ball.vz, speed * 0.70);
+    if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.00);
+    if (isCross) this.ball.vz = Math.max(this.ball.vz, speed * 1.15);
+    this.beginTrackedPass(from, to, throughBall ? 'through_ball' : 'open_play', isCross);
     if (this.checkOffside(to, from)) {
       this.statsOffsides++;
       this.logDebug('offside', { from: from.id, to: to.id, x: Math.round(to.x), y: Math.round(to.y) });
       this.failPendingPass('offside');
       this.awardOffsideFreeKick(from.team === 'home' ? 'away' : 'home', to);
-      return;
+      return true;
     }
     this.logDebug(throughBall ? 'through_ball_start' : 'pass_start', { from: from.id, to: to.id, dist: Math.round(rawDist), speed: Math.round(speed) });
-    // cross detection: wide player passing into the box from open play
-    const fromWide = Math.abs(from.y - PITCH_H / 2) > 180;
-    const goalX = from.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
-    const intoBox = Math.abs(predX - goalX) < 200 && Math.abs(predY - PITCH_H / 2) < 140;
-    if (fromWide && intoBox && (from.role === 'WM' || from.role === 'FB') && !throughBall) {
+    if (isCross) {
       this.logDebug('cross_attempt', { from: from.id, role: from.role, targetX: Math.round(predX), targetY: Math.round(predY), lofted: this.ball.vz > 0 });
     }
     if (rawDist > 380) this.logDebug('long_ball', { from: from.id, role: from.role, to: to.id, dist: Math.round(rawDist) });
+    return true;
   }
 
   forcePassTo(from: Player, to: Player): void {
+    this.cancelPreparedThroughBall('forced_pass');
     const dx = to.x - from.x, dy = to.y - from.y;
     const rawDist = Math.sqrt(dx * dx + dy * dy);
     const tdx = dx + (random() - 0.5) * rawDist * 0.2;
@@ -1294,6 +1463,7 @@ export class GameEngine {
   }
 
   releaseAndKick(kicker: Player, vx: number, vy: number): void {
+    this.cancelPreparedThroughBall('clearance');
     this.clearTeamAssignments();
     this.ball.controllerId = null;
     this.placeBallForRelease(kicker, vx, vy);
@@ -1307,6 +1477,7 @@ export class GameEngine {
   }
 
   shootBall(shooter: Player): void {
+    this.cancelPreparedThroughBall('shot');
     if (shooter.team === 'home') this.homeShots++; else this.awayShots++;
     const goalX = shooter.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
     const accuracy = attrFactor(shooter.attrs, 'shooting');
@@ -1355,8 +1526,6 @@ export class GameEngine {
   collectBall(collector: Player): boolean {
     if (!this.canContestBall(collector)) return false;
     const previous = this.ball.controllerId;
-    const intendedId = this.ball.intendedReceiverId;
-    const pendingPass = this.pendingPass;
     this.ball.controllerId = collector.id; this.ball.intendedReceiverId = null;
     this.ball.vx *= 0.3; this.ball.vy *= 0.3; this.ball.z = 0; this.ball.vz = 0;
     this.ball.lastTouchTeam = collector.team; this.ball.lastToucherId = collector.id;
@@ -1392,37 +1561,7 @@ export class GameEngine {
       this.receiverShieldUntil = this.clockMs + 300;
       this.receiverShieldTargetId = null;
     }
-    // pass completion tracking
-    if (pendingPass && intendedId === pendingPass.toId) {
-      const passer = this.playerById(pendingPass.fromId);
-      const pRole = passer?.role ?? '?';
-      if (!this.statsPassByRole[pRole]) this.statsPassByRole[pRole] = { att: 0, comp: 0 };
-      this.statsPassByRole[pRole].att++;
-      if (collector.id === pendingPass.toId) {
-        this.statsPassCompleted++;
-        this.statsPassByRole[pRole].comp++;
-        if (pendingPass.source === 'through_ball') this.statsThroughBallCompleted++;
-      }
-      else if (collector.team !== pendingPass.team) {
-        this.statsPassIntercepted++;
-        this.recordPassFailure();
-        this.logDebug('pass_fail', { reason: 'intercepted', intended: intendedId, collector: collector.id, collectorTeam: collector.team });
-        // danger pass: ball given away in own defensive third
-        const passer = this.playerById(pendingPass.fromId);
-        if (passer) {
-          const ownGoalX = passer.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
-          const inOwnThird = Math.abs(passer.x - ownGoalX) < PITCH_W / 3;
-          if (inOwnThird) {
-            const forced = this.players.filter(o => o.team !== passer.team && o.role !== 'GK' && dist(o, passer) < 60).length >= 2;
-            this.logDebug('danger_pass', { from: passer.id, role: passer.role, team: passer.team, x: Math.round(passer.x), y: Math.round(passer.y), forced, collector: collector.id, collectorRole: collector.role });
-          }
-        }
-      } else {
-        this.recordPassFailure();
-        this.logDebug('pass_fail', { reason: 'wrong_teammate', intended: intendedId, collector: collector.id });
-      }
-      this.pendingPass = null;
-    }
+    this.resolvePendingPassOnContact(collector, 'control');
     if (previous !== collector.id) {
       this.logDebug('possession', {
         player: collector.id,
@@ -1436,26 +1575,37 @@ export class GameEngine {
   }
 
   attemptTackle(tackler: Player, carrier: Player): boolean {
+    const contactDist = dist(tackler, carrier);
+    if (this.ball.controllerId !== carrier.id || tackler.team === carrier.team || contactDist > TACKLE_RANGE + 5) {
+      this.logDebug('tackle_rejected', { tackler: tackler.id, carrier: carrier.id, contactDist: Math.round(contactDist), controller: this.ball.controllerId });
+      return false;
+    }
     this.qTackleAttempts.push(this.clockMs);
     const tackleSkill = attrFactor(tackler.attrs, 'tackling');
     const carrierControl = attrFactor(carrier.attrs, 'positioning') * 0.35 + attrFactor(carrier.attrs, 'speed') * 0.15;
     const facingBonus = (tackler.team === 'home' ? tackler.vx > 0 : tackler.vx < 0) ? 0.08 : -0.05;
     const carrierShielded = this.clockMs < this.receiverShieldUntil;
-    const chance = clamp(0.18 + tackleSkill * 0.35 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0), 0.08, 0.72);
+    const carrierSpeed = Math.hypot(carrier.vx, carrier.vy);
+    const forwardX = carrierSpeed > 8 ? carrier.vx / carrierSpeed : (carrier.team === 'home' ? 1 : -1);
+    const forwardY = carrierSpeed > 8 ? carrier.vy / carrierSpeed : 0;
+    const approachDot = contactDist > 0 ? ((tackler.x - carrier.x) * forwardX + (tackler.y - carrier.y) * forwardY) / contactDist : 0;
+    const fromBehind = approachDot < -0.30;
+    const chance = clamp(0.18 + tackleSkill * 0.35 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0) - (fromBehind ? 0.14 : 0), 0.06, 0.72);
     if (random() >= chance) {
-      this.logDebug('tackle_fail', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance*100) });
-      // slide tackle foul: small chance of free kick on failed tackles
-      if (random() < 0.12) { this.awardFreeKick(carrier.team, tackler); }
+      this.logDebug('tackle_fail', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance * 100), contactDist: Math.round(contactDist), fromBehind });
+      const foulChance = fromBehind ? 0.34 : 0.10;
+      if (random() < foulChance) { this.awardFreeKick(carrier.team, tackler); }
       return false;
     }
     this.qTackleSuccesses.push(this.clockMs);
-    this.logDebug('tackle_win', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance*100) });
+    this.logDebug('tackle_win', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance * 100), contactDist: Math.round(contactDist), fromBehind });
     this.tackleBall(tackler, carrier);
     return true;
   }
 
   private headBall(player: Player): void {
     this.clearTeamAssignments();
+    this.resolvePendingPassOnContact(player, 'header');
     this.ball.controllerId = null;
     const fd = player.team === 'home' ? 1 : -1;
     const dx = fd * (30 + random() * 70);
@@ -1476,7 +1626,8 @@ export class GameEngine {
     const kickSpeed = TACKLE_KICK_SPEED + random() * 150;
     this.ball.vx = Math.cos(angle) * kickSpeed; this.ball.vy = Math.sin(angle) * kickSpeed;
     this.recordBallImpulse();
-    this.placeBallForRelease(tackler, this.ball.vx, this.ball.vy, CONTROL_DIST + PLAYER_R + 4);
+    this.ball.x = clamp(this.ball.x, 5, PITCH_W - 5);
+    this.ball.y = clamp(this.ball.y, 5, PITCH_H - 5);
     this.blockReboundFor(carrier.id, 450);
     this.ball.lastTouchTeam = tackler.team; this.ball.lastToucherId = tackler.id;
     this.ball.intendedReceiverId = null; this.ball.z = 0; this.ball.vz = 0;
@@ -1490,19 +1641,26 @@ export class GameEngine {
     this.ball.controllerId = null;
     this.ball.lastTouchTeam = from.team; this.ball.lastToucherId = from.id;
     this.ball.vx = (dx / d) * speed; this.ball.vy = (dy / d) * speed;
+    this.recordBallImpulse();
     this.ball.intendedReceiverId = to.id;
     this.receiverShieldTargetId = to.id;
     this.ball.z = 0; this.ball.vz = 0;
+    this.beginTrackedPass(from, to, 'gk_distribution');
     this.logDebug('gk_throw', { from: from.id, to: to.id, role: to.role, dist: Math.round(d) });
   }
 
   private awardFreeKick(team: Team, fouler: Player): void {
+    this.cancelPreparedThroughBall('free_kick');
     this.statsFreeKicks++;
+    this.failPendingPass('foul');
     this.ball.controllerId = null;
     this.ball.x = clamp(fouler.x, 30, PITCH_W - 30);
     this.ball.y = clamp(fouler.y, 30, PITCH_H - 30);
     this.ball.vx = 0; this.ball.vy = 0; this.ball.z = 0; this.ball.vz = 0;
-    this.setPieceType = 'goal_kick'; // reuse existing restart logic
+    this.ball.intendedReceiverId = null;
+    this.recordBallImpulse();
+    this.qBallPrevSpeed = 0;
+    this.setPieceType = 'free_kick';
     this.setPieceTeam = team;
     this.armSetPiece();
     this.logDebug('free_kick', { team, fouler: fouler.id, role: fouler.role, x: Math.round(this.ball.x), y: Math.round(this.ball.y) });
@@ -1529,9 +1687,11 @@ export class GameEngine {
       this.ball.controllerId = null;
       this.ball.lastTouchTeam = gk.team; this.ball.lastToucherId = gk.id;
       this.ball.vx = (dx/d)*speed; this.ball.vy = (dy/d)*speed;
+      this.recordBallImpulse();
       this.ball.intendedReceiverId = mediumTarget.id;
       this.receiverShieldTargetId = mediumTarget.id;
       this.ball.z = 0; this.ball.vz = 0;
+      this.beginTrackedPass(gk, mediumTarget, 'gk_distribution');
       this.logDebug('gk_throw', { from: gk.id, to: mediumTarget.id, role: mediumTarget.role, dist: Math.round(d), type: 'medium' });
       return;
     }
@@ -1794,11 +1954,13 @@ export class GameEngine {
   }
 
   private awardThrowIn(lt: Team | null, y: number): void {
+    this.cancelPreparedThroughBall('throw_in');
     this.recordOutOfPlay();
+    const strayPass = this.pendingPass;
     this.failPendingPass('out_of_play');
-    if (this.pendingPass) {
-      const passer = this.playerById(this.pendingPass.fromId);
-      this.logDebug('stray_pass', { reason: 'into_touch', from: this.pendingPass.fromId, intended: this.pendingPass.toId, passerX: passer ? Math.round(passer.x) : '?', passerY: passer ? Math.round(passer.y) : '?' });
+    if (strayPass) {
+      const passer = this.playerById(strayPass.fromId);
+      this.logDebug('stray_pass', { reason: 'into_touch', from: strayPass.fromId, intended: strayPass.toId, passerX: passer ? Math.round(passer.x) : '?', passerY: passer ? Math.round(passer.y) : '?' });
     }
     const exitX = Math.round(this.ball.x);
     const exitY = Math.round(this.ball.y);
@@ -1830,6 +1992,7 @@ export class GameEngine {
   }
 
   private awardSetPiece(type: 'goal_kick' | 'corner', team: Team): void {
+    this.cancelPreparedThroughBall(type);
     this.recordOutOfPlay();
     this.failPendingPass('out_of_play');
     if (type === 'corner') this.statsCornersTaken++;
@@ -2014,6 +2177,7 @@ export class GameEngine {
   }
 
   private prepareKickoff(team: Team): void {
+    this.cancelPreparedThroughBall('kickoff');
     for (const p of this.players) {
       const pos = this.kickoffPositionFor(p, team);
       p.x = pos.x; p.y = pos.y;
@@ -2131,14 +2295,14 @@ export class GameEngine {
   private checkOffside(receiver: Player, passer: Player): boolean {
     const fd = passer.team === 'home' ? 1 : -1;
     const inOpponentHalf = fd === 1 ? receiver.x > HALF_X : receiver.x < HALF_X;
-    const aheadOfBall = fd === 1 ? receiver.x > passer.x + 5 : receiver.x < passer.x - 5;
+    const aheadOfBall = fd === 1 ? receiver.x > passer.x + OFFSIDE_TOLERANCE : receiver.x < passer.x - OFFSIDE_TOLERANCE;
     if (!inOpponentHalf || !aheadOfBall) return false;
     const opponents = this.players.filter(p => p.team !== passer.team);
     if (opponents.length < 2) return false;
     // Offside is judged against the second-last opponent, commonly including the goalkeeper.
     const sorted = [...opponents].sort((a, b) => fd === 1 ? b.x - a.x : a.x - b.x);
     const offsideLine = sorted[1].x; // second-to-last
-    return fd === 1 ? receiver.x > offsideLine + 5 : receiver.x < offsideLine - 5;
+    return fd === 1 ? receiver.x > offsideLine + OFFSIDE_TOLERANCE : receiver.x < offsideLine - OFFSIDE_TOLERANCE;
   }
 
   private awardOffsideFreeKick(defendingTeam: Team, offsidePlayer: Player): void {
@@ -2148,7 +2312,7 @@ export class GameEngine {
     this.recordBallImpulse();
     this.qBallPrevSpeed = 0;
     this.ball.controllerId = null;
-    this.setPieceType = 'goal_kick'; // treat like goal kick for simplicity
+    this.setPieceType = 'free_kick';
     this.setPieceTeam = defendingTeam;
     this.armSetPiece();
   }
@@ -2159,12 +2323,16 @@ export class GameEngine {
     this.qLastQualityCheck = this.clockMs;
     const b = this.ball; const bs = Math.sqrt(b.vx ** 2 + b.vy ** 2);
 
-    // 1. Ball unclaimed for too long
-    if (b.controllerId === null && (!this.pendingPass || bs < 30)) this.qBallUnclaimedSince += 500;
+    // 1. A slow, grounded ball available to contest remains unclaimed.
+    const loosePlayableBall = b.controllerId === null && !this.setPieceArmed && !this.kickoffPhase && b.z <= 20 && bs < 30;
+    if (loosePlayableBall) this.qBallUnclaimedSince += 500;
     else this.qBallUnclaimedSince = 0;
-    if (this.qBallUnclaimedSince > 1500) this.logQualityFlag('ball_unclaimed', { ms: this.qBallUnclaimedSince });
+    const nearestOutfieldDist = Math.min(...this.players.filter(p => p.role !== 'GK').map(p => dist(p, b)));
+    if (this.qBallUnclaimedSince > 1500 && nearestOutfieldDist < 90) {
+      this.logQualityFlag('ball_unclaimed', { ms: this.qBallUnclaimedSince, nearestDist: Math.round(nearestOutfieldDist) });
+    }
 
-    // 2. Rapid possession changes
+    // 2. Rapid team turnovers, excluding ordinary completed passes.
     this.qPossessionChanges = this.qPossessionChanges.filter(t => t >= this.clockMs - 5000);
     if (this.qPossessionChanges.length > 8) {
       this.logQualityFlag('rapid_control_changes', { count: this.qPossessionChanges.length, windowMs: 5000 });
@@ -2222,9 +2390,9 @@ export class GameEngine {
     // 9. No shots for too long
     if (this.clockMs > 240000 && this.clockMs - this.qLastShotMs > 240000) this.logQualityFlag('no_shots', { ms: Math.round(this.clockMs - this.qLastShotMs) }, 120000);
 
-    // 10. Possession imbalance
+    // 10. Possession imbalance after enough of the match has been played to be meaningful.
     const tp = this.statsPossession.home + this.statsPossession.away;
-    if (tp > 1800) {
+    if (this.clockMs > 180000 && tp > 0) {
       const hp = this.statsPossession.home / tp;
       if (hp > 0.80 || hp < 0.20) this.logQualityFlag('possession_imbalance', { homePct: Math.round(hp*100) }, 30000);
     }
@@ -2233,8 +2401,8 @@ export class GameEngine {
     const nb = this.players.filter(p => dist(p, b) < 60).length;
     if (nb > 10) this.logQualityFlag('crowding', { playersNearBall: nb });
 
-    // 12. Ball too high (z > 80)
-    if (b.z > 80) this.logQualityFlag('ball_too_high', { z: Math.round(b.z) });
+    // 12. Extreme height is a physics alarm; routine lofted passes are expected.
+    if (b.z > 240) this.logQualityFlag('ball_height_extreme', { z: Math.round(b.z) });
 
     // 13. Ball remains in one third for an extended period.
     const third: 'homeDef' | 'mid' | 'awayDef' = b.x < PITCH_W / 3 ? 'homeDef' : b.x > PITCH_W * 2 / 3 ? 'awayDef' : 'mid';
@@ -2251,11 +2419,12 @@ export class GameEngine {
     // 15. Ball bouncing off same player
     // Pinball is logged at collision time so repeated rebounds retain the responsible player id.
 
-    // 16. Defensive third empty — no defenders near goal
+    // 16. A controlled attacker in the box with no defender in the box is a shape failure.
     const homeDefInBox = this.players.filter(p => p.team === 'home' && (p.role === 'CB' || p.role === 'FB') && Math.abs(p.x - HOME_GOAL_X) < PENALTY_AREA_W).length;
     const awayDefInBox = this.players.filter(p => p.team === 'away' && (p.role === 'CB' || p.role === 'FB') && Math.abs(p.x - AWAY_GOAL_X) < PENALTY_AREA_W).length;
-    if (homeDefInBox === 0 && Math.abs(b.x - HOME_GOAL_X) < 200) this.logQualityFlag('defensive_line_absent', { team: 'home' }, 10000, 'defensive_line_absent:home');
-    if (awayDefInBox === 0 && Math.abs(b.x - AWAY_GOAL_X) < 200) this.logQualityFlag('defensive_line_absent', { team: 'away' }, 10000, 'defensive_line_absent:away');
+    const carrier = this.playerById(b.controllerId);
+    if (carrier?.team === 'away' && homeDefInBox === 0 && Math.abs(carrier.x - HOME_GOAL_X) < PENALTY_AREA_W) this.logQualityFlag('defensive_line_absent', { team: 'home', carrier: carrier.id }, 10000, 'defensive_line_absent:home');
+    if (carrier?.team === 'home' && awayDefInBox === 0 && Math.abs(carrier.x - AWAY_GOAL_X) < PENALTY_AREA_W) this.logQualityFlag('defensive_line_absent', { team: 'away', carrier: carrier.id }, 10000, 'defensive_line_absent:away');
 
     // 17. Ball stationary too long while in play
     if (bs < 3 && b.controllerId === null && this.qBallUnclaimedSince > 3000) this.logQualityFlag('ball_stationary_in_play', { ms: this.qBallUnclaimedSince });
@@ -2267,22 +2436,14 @@ export class GameEngine {
       const goalX = gk.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
       if (Math.abs(gk.x - goalX) > 250) this.logQualityFlag('gk_out_of_position', { team: gk.team, distFromGoal: Math.round(Math.abs(gk.x - goalX)) }, 10000, `gk_out_of_position:${gk.team}`);
     }
-    // 21. Defenders ineffective: CB/FB near own goal but not marking or tackling
-    for (const p of this.players) {
-      if (p.role !== 'CB' && p.role !== 'FB') continue;
-      const ownGoalX = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
-      if (Math.abs(p.x - ownGoalX) > 250) continue;
-      if (this.ball.controllerId && this.playerById(this.ball.controllerId)?.team !== p.team) {
-        const oppNear = this.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, p) < 80).length;
-        if (oppNear === 0) this.logQualityFlag('defender_passive', { player: p.id, role: p.role, team: p.team, distFromGoal: Math.round(Math.abs(p.x - ownGoalX)) }, 15000, `defender_passive:${p.id}`);
+    // 21. Carrier close to goal with no defender able to engage.
+    if (carrier) {
+      const defendingTeam: Team = carrier.team === 'home' ? 'away' : 'home';
+      const ownGoalX = defendingTeam === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
+      if (Math.abs(carrier.x - ownGoalX) < 220) {
+        const engaged = this.players.filter(p => p.team === defendingTeam && p.role !== 'GK' && dist(p, carrier) < 90).length;
+        if (engaged === 0) this.logQualityFlag('danger_carrier_unopposed', { defendingTeam, carrier: carrier.id, x: Math.round(carrier.x), y: Math.round(carrier.y) }, 10000, `danger_carrier_unopposed:${defendingTeam}`);
       }
-    }
-    // 22. Player way off position relative to action
-    for (const p of this.players) {
-      if (p.role === 'GK') continue;
-      const bd = dist(p, b);
-      const expectedDist = p.role === 'CF' ? 350 : p.role === 'CM' ? 200 : p.role === 'CB' || p.role === 'FB' ? 250 : 250;
-      if (bd > expectedDist * 1.8) this.logQualityFlag('player_way_off', { player: p.id, role: p.role, ballDist: Math.round(bd), expectedMax: Math.round(expectedDist*1.8) }, 20000, `player_way_off:${p.id}`);
     }
   }
 }

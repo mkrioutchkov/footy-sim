@@ -125,28 +125,49 @@ This command runs seeds 101 through 108 for ten simulated minutes each.
 
 | Metric | Current value |
 | --- | ---: |
-| Goals per ten-minute match | 1.4 |
-| Shots per ten-minute match | 5.4 |
-| Shots on target | 62.8% |
-| Saves per ten-minute match | 1.9 |
-| Goals per shot | 25.6% |
-| Passes per ten-minute match | 338.6 |
-| Pass completion | 71.8% |
-| Intercepted passes per ten-minute match | 59.1 |
-| Through balls per ten-minute match | 24.9 |
-| Through-ball completion | 51.8% |
+| Goals per ten-minute match | 0.6 |
+| Shots per ten-minute match | 5.3 |
+| Shots on target | 54.8% |
+| Saves per ten-minute match | 2.1 |
+| Goals per shot | 11.9% |
+| Passes per ten-minute match | 335.3 |
+| Pass completion | 80.3% |
+| Intercepted passes per ten-minute match | 64.6 |
+| Through balls per ten-minute match | 33.4 |
+| Through-ball completion | 46.4% |
+| Timed runs per ten-minute match | 1.5 |
+| Timed-run offsides per ten-minute match | 0.3 |
+| Offsides per ten-minute match | 0.3 |
 | Middle-third territory | 62.6% |
 
 Known interpretation for the next intelligence pass:
 
-- Timed runner releases are active; through-ball volume is no longer zero.
-- Offsides remain zero because agents still see the line exactly and reject
-  targets already offside. Add imperfect line awareness only if it improves
-  behavior rather than inserting arbitrary errors.
-- Repeated pass-pair and low-completion flags remain useful indicators for
-  improving possession structure and press resistance.
-- The remaining isolated stuck/stationary flags need seed-level replay before
-  further broad movement tuning.
+- Regulation penalty and goal area dimensions now match the horizontal pitch
+  axis. Rendering no longer leaves a stopped-ball trail or a controller
+  connector, and marking arcs start explicit paths so Pixi does not draw
+  diagonal lines between boxes.
+- Tackles now require live contact with the current carrier. Rear challenges
+  are less likely to win cleanly and more likely to concede a free kick, and a
+  failed tackle no longer draws a successful-looking slide animation.
+- Pass outcomes are resolved on control or headed contact; open-play cross
+  completions and goalkeeper distributions now enter the same accounting. In
+  this benchmark, six recorded open-play crosses produced two completions, so
+  wide delivery exists but remains too rare to tune confidently.
+- The artificial `offside_risk` position and random offside-rule bypass were
+  removed. Through balls can now prepare a short committed run from an onside
+  position; that runner sprints while the passer releases. A one-pixel
+  numerical offside tolerance replaces the former half-metre grace margin.
+  The resulting `0.3` offsides per match come from logged release timing.
+- Alerts now describe narrower failures: `rapid_control_changes` is team
+  turnover churn, not routine receptions; `ball_unclaimed` requires a slow
+  grounded ball near an outfielder; possession imbalance waits three simulated
+  minutes; pressured shielding does not trigger `backward_dribble` or
+  `why_no_shoot`.
+- Remaining high-signal concerns are repeated pass pairs (50 benchmark alerts)
+  and recoverable slow loose-ball cases (27). A trial penalty for recently
+  repeated non-progressive pass pairs reduced repeats to 40 but reduced shots
+  from 5.3 to 4.4; it was not retained. Diagnose circulation chains and
+  progression before changing pass utility.
 
 ## Engineering Rules For AI Changes
 
