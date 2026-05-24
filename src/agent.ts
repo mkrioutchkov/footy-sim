@@ -24,6 +24,8 @@ export class PlayerAgent {
   private ht = 0; private lx = 0; private ly = 0;
   private la = ''; private lt: number | null = null; private lp: number | null = null;
   private facing = 0;
+  private recentPassTarget: number | null = null; private recentPassTime = 0;
+  private receivedFromWide = 0;
   private ballMemX = 0; private ballMemY = 0; private ballMemAge = 0;
 
   constructor(player: Player, engine: GameEngine) {
@@ -41,6 +43,14 @@ export class PlayerAgent {
     }
     const ic = this.e.ball.controllerId === this.player.id;
     if (ic) this.ht++; else this.ht = 0;
+    // track if I just received from a wide player (cross)
+    if (ic && this.ht === 1) {
+      const passer = this.e.playerById(this.e.ball.lastToucherId);
+      if (passer && passer.team === this.player.team && (passer.role === 'WM' || passer.role === 'FB') && Math.abs(passer.y - PITCH_H/2) > 130) {
+        this.receivedFromWide = 1200; // ~20 ticks of cross→shoot window
+      }
+    }
+    if (!ic) this.receivedFromWide = Math.max(0, this.receivedFromWide - 1);
     if (ic && this.e.isPreparingPass(this.player.id)) {
       this.player.targetX = this.player.x;
       this.player.targetY = this.player.y;
@@ -151,14 +161,16 @@ export class PlayerAgent {
       const receiverPressure = this.e.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, t) < 45).length;
       if (receiverPressure >= 3) continue;
       const completion = clamp(
-        0.90 + rs * 0.10 + rr * 0.06 - d / 850 * 0.28 - bl * 0.21 - receiverPressure * 0.12 - (fp > 130 ? 0.05 : 0),
+        0.89 + rs * 0.10 + rr * 0.06 - d / 850 * 0.28 - bl * 0.21 - receiverPressure * 0.12 - (fp > 130 ? 0.05 : 0),
         0.10,
         0.98,
       );
       const progression = clamp(fp / 240, -0.5, 1);
       const turnoverCost = (p.team === 'home' ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
       let sc = completion * (0.38 + Math.max(0, progression) * 0.34) - (1 - completion) * turnoverCost;
-      if (t.id === this.lp) sc -= 0.14;
+      if (t.id === this.lp) sc -= 0.18;
+      // recent pass pair memory: penalize passes within a short window to same partner
+      if (this.recentPassTarget === t.id && this.e.clockMs - this.recentPassTime < 3000) sc -= 0.10;
       if (bl === 0 && fp > 80) sc += 0.08;
       if (fp < -30) sc -= 0.16; if (fp < -90) sc -= 0.18;
       const dg2 = Math.abs(p.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X));
@@ -250,6 +262,8 @@ export class PlayerAgent {
     // near goal: shoot! Don't pass or dribble when you can score
     if (dg < 120) sc += 0.35;
     if (dg < 70) sc += 0.25;
+    // cross→shot: just received from wide player → shoot first time in box
+    if (dg < 160 && Math.abs(p.y - PITCH_H / 2) < 150 && this.receivedFromWide > 0) sc += 0.28;
     return { type: 'shoot', score: clamp(sc, 0, 1) };
   }
 
@@ -675,6 +689,7 @@ export class PlayerAgent {
           : this.e.passBallTo(p, a.target, a.purpose === 'through');
         if (released) {
           this.lp = a.target.id;
+          this.recentPassTarget = a.target.id; this.recentPassTime = this.e.clockMs;
           this.e.emitEvent('pass', p.x, p.y);
           // Trigger one-two only when the ball has actually been released.
           const bb = this.e.teamBlackboards.get(p.team)!;
