@@ -70,6 +70,7 @@ export function createTeam(team: Team, formation: Formation): Player[] {
       attrs: randomAttrs(),
       tackleAnim: 0,
       headingAnim: 0,
+      facing: team === 'home' ? 0 : Math.PI,
     };
   });
 }

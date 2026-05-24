@@ -22,7 +22,7 @@ export class PlayerAgent {
   player: Player; private e: GameEngine;
   private sl = 0; private sc = 0;   private pa = 0; private ch: P | null = null;
   private ht = 0; private lx = 0; private ly = 0;
-  private la = ''; private lt: number | null = null;
+  private la = ''; private lt: number | null = null; private lp: number | null = null;
   private facing = 0;
   private ballMemX = 0; private ballMemY = 0; private ballMemAge = 0;
 
@@ -151,13 +151,14 @@ export class PlayerAgent {
       const receiverPressure = this.e.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, t) < 45).length;
       if (receiverPressure >= 3) continue;
       const completion = clamp(
-        0.92 + rs * 0.10 + rr * 0.06 - d / 850 * 0.28 - bl * 0.21 - receiverPressure * 0.12 - (fp > 130 ? 0.05 : 0),
+        0.90 + rs * 0.10 + rr * 0.06 - d / 850 * 0.28 - bl * 0.21 - receiverPressure * 0.12 - (fp > 130 ? 0.05 : 0),
         0.10,
         0.98,
       );
       const progression = clamp(fp / 240, -0.5, 1);
-      const turnoverCost = (p.team === 'home' ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.34 : 0.20;
+      const turnoverCost = (p.team === 'home' ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
       let sc = completion * (0.38 + Math.max(0, progression) * 0.34) - (1 - completion) * turnoverCost;
+      if (t.id === this.lp) sc -= 0.14;
       if (bl === 0 && fp > 80) sc += 0.08;
       if (fp < -30) sc -= 0.16; if (fp < -90) sc -= 0.18;
       const dg2 = Math.abs(p.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X));
@@ -673,6 +674,7 @@ export class PlayerAgent {
           ? (this.e.forcePassTo(p, a.target), true)
           : this.e.passBallTo(p, a.target, a.purpose === 'through');
         if (released) {
+          this.lp = a.target.id;
           this.e.emitEvent('pass', p.x, p.y);
           // Trigger one-two only when the ball has actually been released.
           const bb = this.e.teamBlackboards.get(p.team)!;
@@ -785,5 +787,6 @@ export class PlayerAgent {
       const memAngle = Math.atan2(this.ballMemY - p.y, this.ballMemX - p.x);
       this.facing = this.facing + Math.atan2(Math.sin(memAngle - this.facing), Math.cos(memAngle - this.facing)) * 0.08;
     }
+    p.facing = this.facing;
   }
 }

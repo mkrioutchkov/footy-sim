@@ -239,11 +239,12 @@ export class MatchRenderer {
       if (angle === undefined) {
         angle = p.team === 'home' ? 0 : Math.PI;
       }
-      if (speed > MIN_SPEED) {
+      if (p.facing !== undefined) {
+        angle = this.turnTowards(angle, p.facing, Math.PI / 18);
+      } else if (speed > MIN_SPEED) {
         const newAngle = Math.atan2(p.vy, p.vx);
         angle = this.turnTowards(angle, newAngle, Math.PI / 24);
       } else {
-        // slow/stationary: scan toward the action — look at the ball
         const lookAngle = Math.atan2(state.ball.y - p.y, state.ball.x - p.x);
         angle = this.turnTowards(angle, lookAngle, Math.PI / 60);
       }
