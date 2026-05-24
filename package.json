@@ -1,0 +1,24 @@
+{
+  "name": "footy-sim",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "server": "tsx src/server.ts",
+    "batch": "tsx src/batch.ts",
+    "benchmark": "tsx src/batch.ts --matches 8 --minutes 10 --seed 101",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.22.3",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.12"
+  },
+  "dependencies": {
+    "pixi.js": "^8.18.1",
+    "ws": "^8.21.0"
+  }
+}
