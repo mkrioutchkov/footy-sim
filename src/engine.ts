@@ -1376,8 +1376,14 @@ export class GameEngine {
 
   attemptTackle(tackler: Player, carrier: Player): boolean {
     this.qTackleAttempts.push(this.clockMs);
-    if (random() >= 0.35) return false;
+    const tackleSkill = attrFactor(tackler.attrs, 'tackling');
+    const carrierControl = attrFactor(carrier.attrs, 'positioning') * 0.35 + attrFactor(carrier.attrs, 'speed') * 0.15;
+    const facingBonus = (tackler.team === 'home' ? tackler.vx > 0 : tackler.vx < 0) ? 0.08 : -0.05;
+    const carrierShielded = this.clockMs < this.receiverShieldUntil;
+    const chance = clamp(0.18 + tackleSkill * 0.35 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0), 0.08, 0.72);
+    if (random() >= chance) { this.logDebug('tackle_fail', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance*100) }); return false; }
     this.qTackleSuccesses.push(this.clockMs);
+    this.logDebug('tackle_win', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance*100) });
     this.tackleBall(tackler, carrier);
     return true;
   }
