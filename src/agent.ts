@@ -151,7 +151,7 @@ export class PlayerAgent {
       const receiverPressure = this.e.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, t) < 45).length;
       if (receiverPressure >= 3) continue;
       const completion = clamp(
-        0.96 + rs * 0.10 + rr * 0.06 - d / 850 * 0.28 - bl * 0.21 - receiverPressure * 0.12 - (fp > 130 ? 0.05 : 0),
+        0.92 + rs * 0.10 + rr * 0.06 - d / 850 * 0.28 - bl * 0.21 - receiverPressure * 0.12 - (fp > 130 ? 0.05 : 0),
         0.10,
         0.98,
       );
@@ -163,9 +163,11 @@ export class PlayerAgent {
       const dg2 = Math.abs(p.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X));
       if (dg2 < 200 && fp > 0 && d < 150) sc += 0.10;       // WM crossing: near byline, target CF in box
       const dgW = Math.abs(p.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X));
-      if (p.role === 'WM' && dgW < 250 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 150) sc += 0.14;
+      if (p.role === 'WM' && dgW < 250 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 150) sc += 0.22;
       // WM: cross early from deep — reward forward passes from wide areas
-      if (p.role === 'WM' && fp > 100 && Math.abs(p.y - PITCH_H / 2) > 140 && bl <= 1) sc += 0.10;
+      if (p.role === 'WM' && fp > 100 && Math.abs(p.y - PITCH_H / 2) > 140 && bl <= 1) sc += 0.16;
+      // FB overlap cross: reward wide passes into box
+      if (p.role === 'FB' && fp > 80 && Math.abs(p.y - PITCH_H / 2) > 120 && dgW < 300) sc += 0.12;
       sc -= bl * 0.06; if (fp > 0) sc += 0.08 + (ctx.urgency > 0.5 ? 0.10 : 0) + (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.2;
       else sc -= (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.15;
       let pur = 'keep'; if (fp > 120 && bl === 0) pur = 'build'; else if (fp > 40 && bl <= 1) pur = 'build';
