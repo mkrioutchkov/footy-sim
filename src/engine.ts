@@ -1196,6 +1196,13 @@ export class GameEngine {
       return;
     }
     this.logDebug(throughBall ? 'through_ball_start' : 'pass_start', { from: from.id, to: to.id, dist: Math.round(rawDist), speed: Math.round(speed) });
+    // cross detection: wide player passing into the box from open play
+    const fromWide = Math.abs(from.y - PITCH_H / 2) > 180;
+    const goalX = from.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
+    const intoBox = Math.abs(predX - goalX) < 200 && Math.abs(predY - PITCH_H / 2) < 140;
+    if (fromWide && intoBox && (from.role === 'WM' || from.role === 'FB') && !throughBall) {
+      this.logDebug('cross_attempt', { from: from.id, role: from.role, targetX: Math.round(predX), targetY: Math.round(predY), lofted: this.ball.vz > 0 });
+    }
   }
 
   forcePassTo(from: Player, to: Player): void {
