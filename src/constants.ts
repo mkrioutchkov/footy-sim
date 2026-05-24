@@ -7,11 +7,11 @@ export const GOAL_H = 24;
 export const GOAL_DEPTH = 20;
 export const PLAYER_R = 12;
 export const BALL_R = 4.5;
-export const PENALTY_AREA_W = 332;
-export const PENALTY_AREA_H = 132;
+export const PENALTY_AREA_W = 403;
+export const PENALTY_AREA_H = 165;
 export const CENTER_CIRCLE_R = 91;
-export const GOAL_AREA_W = 100;
-export const GOAL_AREA_H = 37;
+export const GOAL_AREA_W = 183;
+export const GOAL_AREA_H = 55;
 export const CORNER_ARC_R = 10;
 
 export const HOME_COLOR = 0xe63946;

@@ -330,7 +330,7 @@ export class GameEngine {
     });
   }
 
-  private logQualityFlag(flag: string, data: DebugLogEntry['data'], cooldownMs = 10000, key = flag): void {
+  logQualityFlag(flag: string, data: DebugLogEntry['data'], cooldownMs = 10000, key = flag): void {
     const last = this.qFlagLastLogged.get(key) ?? -Infinity;
     if (this.clockMs - last < cooldownMs) return;
     this.qFlagLastLogged.set(key, this.clockMs);
@@ -2260,6 +2260,23 @@ export class GameEngine {
     for (const [, gk] of this.gkByTeam) {
       const goalX = gk.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
       if (Math.abs(gk.x - goalX) > 250) this.logQualityFlag('gk_out_of_position', { team: gk.team, distFromGoal: Math.round(Math.abs(gk.x - goalX)) }, 10000, `gk_out_of_position:${gk.team}`);
+    }
+    // 21. Defenders ineffective: CB/FB near own goal but not marking or tackling
+    for (const p of this.players) {
+      if (p.role !== 'CB' && p.role !== 'FB') continue;
+      const ownGoalX = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
+      if (Math.abs(p.x - ownGoalX) > 250) continue;
+      if (this.ball.controllerId && this.playerById(this.ball.controllerId)?.team !== p.team) {
+        const oppNear = this.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, p) < 80).length;
+        if (oppNear === 0) this.logQualityFlag('defender_passive', { player: p.id, role: p.role, team: p.team, distFromGoal: Math.round(Math.abs(p.x - ownGoalX)) }, 15000, `defender_passive:${p.id}`);
+      }
+    }
+    // 22. Player way off position relative to action
+    for (const p of this.players) {
+      if (p.role === 'GK') continue;
+      const bd = dist(p, b);
+      const expectedDist = p.role === 'CF' ? 350 : p.role === 'CM' ? 200 : p.role === 'CB' || p.role === 'FB' ? 250 : 250;
+      if (bd > expectedDist * 1.8) this.logQualityFlag('player_way_off', { player: p.id, role: p.role, ballDist: Math.round(bd), expectedMax: Math.round(expectedDist*1.8) }, 20000, `player_way_off:${p.id}`);
     }
   }
 }

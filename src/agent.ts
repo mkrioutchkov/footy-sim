@@ -52,6 +52,16 @@ export class PlayerAgent {
         aff.sort((x, y) => y.score - x.score).slice(0, 5).map(x => ({ type: x.type, score: x.score })),
         this.player.x, this.player.y, ch.purpose);
     }
+    // "why no shoot" alert: carrier near goal, unpressured, didn't shoot
+    if (ic && ch.type !== 'shoot' && ch.type !== 'hold' && this.e.clockMs % 500 < 20) {
+      const gx = this.player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
+      if (Math.abs(this.player.x - gx) < 120) {
+        const shootOpt = aff.find(x => x.type === 'shoot');
+        if (shootOpt && shootOpt.score > 0.20) {
+          this.e.logQualityFlag('why_no_shoot', { player: this.player.id, role: this.player.role, distToGoal: Math.round(Math.abs(this.player.x - gx)), shootScore: Math.round(shootOpt.score*1000)/1000, chose: ch.type, choseScore: Math.round(ch.score*1000)/1000 });
+        }
+      }
+    }
     this.lx = this.player.x; this.ly = this.player.y;
   }
 
@@ -647,7 +657,16 @@ export class PlayerAgent {
         const bb = this.e.teamBlackboards.get(p.team)!;
         bb.oneTwo = { from: p.id, to: a.target.id, expires: this.e.clockMs + 2000 }; } this.sl = 20; break;
       case 'shoot': this.e.shootBall(p); this.e.emitEvent('shot', p.x, p.y); this.sl = 20; break;
-      case 'dribble': p.targetX = a.posX ?? (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X); p.targetY = a.posY ?? p.y; break;
+      case 'dribble': p.targetX = a.posX ?? (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X); p.targetY = a.posY ?? p.y;
+        // backward dribble alert
+        const oppGoalX = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
+        const fd = p.team === 'home' ? 1 : -1;
+        if ((fd === 1 && p.targetX < p.x - 10) || (fd === -1 && p.targetX > p.x + 10)) {
+          if (Math.abs(p.x - oppGoalX) < 300) {
+            this.e.logQualityFlag('backward_dribble', { player: p.id, role: p.role, fromX: Math.round(p.x), toX: Math.round(p.targetX) });
+          }
+        }
+        break;
       case 'tackle': if (a.target && dist(p, a.target) < TACKLE_RANGE + 5 && this.e.attemptTackle(p, a.target)) { this.e.emitEvent('tackle', p.x, p.y); p.tackleAnim = 300; } else { p.targetX = a.target?.x ?? p.x; p.targetY = a.target?.y ?? p.y; p.tackleAnim = 80; } break; // brief flash for failed/standing tackle
       case 'mark': if (a.target) { p.targetX = a.target.x; p.targetY = a.target.y; } break;
       case 'chase': { const tx = a.posX ?? b.x, ty = a.posY ?? b.y; p.targetX = tx; p.targetY = ty;

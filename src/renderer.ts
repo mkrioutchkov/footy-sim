@@ -32,6 +32,7 @@ export class MatchRenderer {
   private visualBall: { x: number; y: number; z: number } | null = null;
   private animTime = 0;
   private facingAngles: Map<number, number> = new Map();
+  private prevArrowAngles: Map<number, number> = new Map();
 
   constructor() {
     this.app = new Application();
@@ -250,6 +251,14 @@ export class MatchRenderer {
         angle = angle + Math.atan2(Math.sin(lookAngle - angle), Math.cos(lookAngle - angle)) * 0.06;
       }
       this.facingAngles.set(p.id, angle);
+      // detect arrow flickering: >120° change between frames
+      const prevA = this.prevArrowAngles.get(p.id);
+      if (prevA !== undefined) {
+        const aDiff = Math.abs(angle - prevA);
+        const na = aDiff > Math.PI ? 2*Math.PI - aDiff : aDiff;
+        if (na > Math.PI * 0.7) console.warn(`[arrow_flicker] player ${p.id} (${p.role}) angle jumped ${Math.round(na*180/Math.PI)}° — speed=${Math.round(speed)}`);
+      }
+      this.prevArrowAngles.set(p.id, angle);
       entry.arrow.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
       entry.arrow.lineTo(Math.cos(angle + 2.5) * r * 0.55, Math.sin(angle + 2.5) * r * 0.55);
       entry.arrow.lineTo(Math.cos(angle - 2.5) * r * 0.55, Math.sin(angle - 2.5) * r * 0.55);
