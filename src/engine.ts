@@ -41,6 +41,7 @@ export interface AnalysisSummary {
   possessionPct: { home: number; away: number };
   territoryPct: { homeDef: number; mid: number; awayDef: number };
   qualityFlags: Record<string, number>;
+  passByRole: Record<string, { att: number; comp: number; pct: number }>;
   phaseTicks: Record<Team, Record<TacticalPhase, number>>;
   taskSelections: Record<string, number>;
   possessionByRole: Partial<Record<PlayerRole, number>>;
@@ -123,6 +124,8 @@ export class GameEngine {
   private qConsecutiveSaves = 0;
   private qLastShotMs = 0;
   private qLastPassFrom = 0; private qLastPassRecipient = 0; private qLastPassRecipientMs = 0;
+  private statsPassByRole: Record<string, { att: number; comp: number }> = {};
+  private statsShotsByZone: Record<string, number> = {}; // shot locations binned
   private qShotOrigin: { team: Team; x: number; y: number } | null = null;
   private qBounceOnSamePlayer = 0; private qLastBouncePlayer: number | null = null;
   private qBallThird: 'homeDef' | 'mid' | 'awayDef' | null = null;
@@ -257,6 +260,7 @@ export class GameEngine {
         awayDef: Math.round(this.statsBallInThird.awayDef / totalTerritory * 1000) / 10,
       },
       qualityFlags: Object.fromEntries(this.qualityFlagCounts),
+      passByRole: Object.fromEntries(Object.entries(this.statsPassByRole).map(([role, s]) => [role, { ...s, pct: Math.round(s.comp / Math.max(1, s.att) * 1000) / 10 }])),
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
       possessionByRole: { ...this.possessionByRole },
@@ -1044,6 +1048,14 @@ export class GameEngine {
       if (!this.canContestBall(p)) continue;
       const d = dist(p, b);
       if (d > r) continue;
+      // heading: play aerial balls with head (z between 50-180)
+      if (b.z > 50 && b.z < 180 && p.role !== 'GK') {
+        const headingSkill = attrFactor(p.attrs, 'positioning') * 0.5 + attrFactor(p.attrs, 'tackling') * 0.2;
+        if (random() < headingSkill * 0.7) {
+          this.headBall(p);
+          return;
+        }
+      }
       if (b.z > 20 && p.id !== b.intendedReceiverId) continue;
       if (p.role === 'GK' && ballSpeed < 220 && this.isInKeeperArea(p, b.x, b.y)) {
         this.collectBall(p);
@@ -1338,8 +1350,13 @@ export class GameEngine {
     }
     // pass completion tracking
     if (pendingPass && intendedId === pendingPass.toId) {
+      const passer = this.playerById(pendingPass.fromId);
+      const pRole = passer?.role ?? '?';
+      if (!this.statsPassByRole[pRole]) this.statsPassByRole[pRole] = { att: 0, comp: 0 };
+      this.statsPassByRole[pRole].att++;
       if (collector.id === pendingPass.toId) {
         this.statsPassCompleted++;
+        this.statsPassByRole[pRole].comp++;
         if (pendingPass.source === 'through_ball') this.statsThroughBallCompleted++;
       }
       else if (collector.team !== pendingPass.team) {
@@ -1386,6 +1403,21 @@ export class GameEngine {
     this.logDebug('tackle_win', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance*100) });
     this.tackleBall(tackler, carrier);
     return true;
+  }
+
+  private headBall(player: Player): void {
+    this.clearTeamAssignments();
+    this.ball.controllerId = null;
+    const fd = player.team === 'home' ? 1 : -1;
+    const dx = fd * (30 + random() * 70);
+    const dy = (random() - 0.5) * 100;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const speed = 80 + random() * 100;
+    this.ball.vx = dx / d * speed; this.ball.vy = dy / d * speed;
+    this.recordBallImpulse();
+    this.ball.lastTouchTeam = player.team; this.ball.lastToucherId = player.id;
+    this.ball.intendedReceiverId = null; this.ball.z = 0; this.ball.vz = 0;
+    this.logDebug('header', { player: player.id, role: player.role, team: player.team, x: Math.round(player.x), y: Math.round(player.y) });
   }
 
   tackleBall(tackler: Player, carrier: Player): void {

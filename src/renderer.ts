@@ -274,11 +274,20 @@ export class MatchRenderer {
     // ── ball ──
     const inFlight = b.controllerId === null && ballSpeed > 30;
     const bob = inFlight || b.z > 0 ? 0 : Math.sin(this.animTime * 0.12) * 1.5;
-    const arcOffset = vb.z;
+    const arcOffset = vb.z * 0.7; // amplify Z to screen Y
+    const shadowAlpha = clamp(vb.z / 200, 0, 0.35);
+    // ball position with Z lift
     this.ballBody.position.set(vb.x, vb.y + bob - arcOffset);
-    this.ballBody.scale.set(inFlight ? 1.2 : (1 - clamp(b.z / 400, 0, 0.5)));
-    this.ballGlow.position.set(vb.x, vb.y + bob - arcOffset);
-    this.ballGlow.visible = b.controllerId !== null;
+    const heightRatio = clamp(vb.z / 250, 0, 1);
+    this.ballBody.scale.set(1 - heightRatio * 0.3); // smaller when high up
+    // ball shadow on ground
+    this.ballGlow.position.set(vb.x, vb.y + bob);
+    this.ballGlow.clear();
+    if (vb.z > 5) {
+      this.ballGlow.ellipse(0, 0, BALL_R * (1 + heightRatio * 0.8), BALL_R * 0.5);
+      this.ballGlow.fill({ color: 0x000000, alpha: shadowAlpha });
+    }
+    this.ballGlow.visible = vb.z > 5;
 
     // ── events ──
     this.eventGfx.clear();
