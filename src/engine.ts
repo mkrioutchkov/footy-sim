@@ -1235,10 +1235,10 @@ export class GameEngine {
       if (perp < 35 && t > 0.1 && t < 0.9) blockers++;
     }
     // loft: short passes stay flat, long + contested passes go aerial (scaled for heading range)
-    if (rawDist > 120) this.ball.vz = speed * 0.55;
-    if (rawDist > 200) this.ball.vz = Math.max(this.ball.vz, speed * 0.80);
-    if (blockers > 0) this.ball.vz = Math.max(this.ball.vz, speed * (0.55 + blockers * 0.20)); // loft over defenders
-    if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.1); // long ball
+    if (rawDist > 120) this.ball.vz = speed * 0.85;
+    if (rawDist > 200) this.ball.vz = Math.max(this.ball.vz, speed * 1.20);
+    if (blockers > 0) this.ball.vz = Math.max(this.ball.vz, speed * (0.85 + blockers * 0.25));
+    if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.50);
     this.beginTrackedPass(from, to, throughBall ? 'through_ball' : 'open_play');
     if (this.checkOffside(to, from)) {
       this.statsOffsides++;
@@ -1513,6 +1513,22 @@ export class GameEngine {
       this.rollBallTo(gk, closeDef);
       return;
     }
+    // medium throw: find fullback/winger at moderate distance
+    const mediumTarget = this.players.find(p => p.team === gk.team && (p.role === 'FB' || p.role === 'WM') && dist(gk, p) > 80 && dist(gk, p) < 250
+      && !this.players.some(o => o.team !== gk.team && o.role !== 'GK' && dist(o, p) < 45));
+    if (mediumTarget && random() < 0.50) {
+      const dx = mediumTarget.x - gk.x, dy = mediumTarget.y - gk.y;
+      const d = Math.sqrt(dx*dx+dy*dy) || 1;
+      const speed = 140 + d * 0.1;
+      this.ball.controllerId = null;
+      this.ball.lastTouchTeam = gk.team; this.ball.lastToucherId = gk.id;
+      this.ball.vx = (dx/d)*speed; this.ball.vy = (dy/d)*speed;
+      this.ball.intendedReceiverId = mediumTarget.id;
+      this.receiverShieldTargetId = mediumTarget.id;
+      this.ball.z = 0; this.ball.vz = 0;
+      this.logDebug('gk_throw', { from: gk.id, to: mediumTarget.id, role: mediumTarget.role, dist: Math.round(d), type: 'medium' });
+      return;
+    }
     // find best open teammate — prefer progressive passes, avoid marked targets
     const teammates = this.players.filter(p => p.team === gk.team && p.role !== 'GK' && dist(gk, p) < 600);
     if (teammates.length === 0) return;
@@ -1785,6 +1801,8 @@ export class GameEngine {
     if (lt === 'home') this.setPieceTeam = 'away';
     else if (lt === 'away') this.setPieceTeam = 'home';
     else this.setPieceTeam = this.ball.x < PITCH_W/2 ? 'away' : 'home';
+    // alert: suspicious throw-in (throwing team = last touch team indicates bug)
+    if (lt && lt === this.setPieceTeam) this.logDebug('throw_in_bug', { lastTouch: lt, awardedTo: this.setPieceTeam, fallback: !lt, bx: Math.round(this.ball.x) });
     this.statsThrowInsTaken++;
     // x at crossing point, clamped to pitch
     this.ball.x = clamp(this.ball.x, 10, PITCH_W - 10);
@@ -1860,6 +1878,15 @@ export class GameEngine {
     // corner cross: taker kicks ball into the box immediately
     if (this.setPieceType === 'corner') {
       this.actionTimer = 200;
+      // short corner option: pass to nearby teammate instead of crossing (30% chance)
+      if (random() < 0.30) {
+        const shortTarget = this.players.find(p => p.team === taker.team && p.id !== taker.id && p.role !== 'GK' && dist(taker, p) < 150);
+        if (shortTarget) {
+          this.passBallTo(taker, shortTarget);
+          this.logDebug('short_corner', { taker: taker.id, target: shortTarget.id, role: shortTarget.role });
+          return;
+        }
+      }
       this.cornerCrossPending = true;
       this.cornerCrossTaker = taker.id;
     }

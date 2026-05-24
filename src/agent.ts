@@ -67,7 +67,12 @@ export class PlayerAgent {
     let a: A[];
     if (ic) {
       if (this.sl > 0) return [{ type: 'hold', score: 1 }];
-      if (this.sc > 0) { const d = this.cd(per, ctx); d.score = 0.6; return [d]; }
+      if (this.sc > 0) {
+        // near goal: bypass stuck-carrier, evaluate shoot immediately
+        const gx = this.player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
+        if (Math.abs(this.player.x - gx) < 150) { a = [...this.cp(per, ctx), this.cs(per, ctx), this.cd(per, ctx)]; }
+        else { const d = this.cd(per, ctx); d.score = 0.6; return [d]; }
+      }
       a = [...this.cp(per, ctx), this.cs(per, ctx), this.cd(per, ctx)];
       const pc = per.pressureCount;
       for (const x of a) {
@@ -294,6 +299,8 @@ export class PlayerAgent {
     const ownGoalX = this.player.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
     if (Math.abs(ctrl.x - ownGoalX) < 220) sc += 0.18; // in/around our box
     if (Math.abs(ctrl.x - ownGoalX) < 120) sc += 0.12; // deep in our box
+    // pressing trigger: carrier unpressured in dangerous area — must close down
+    if (Math.abs(ctrl.x - ownGoalX) < 300 && per.nearbyOpponents.filter(o => dist(o, ctrl) < 60).length < 2) sc += 0.08;
     // intelligent pressing: opponent facing wrong way = easier to tackle
     const oppFacingAway = ctrl.team === 'home' ? ctrl.vx < 0 : ctrl.vx > 0;
     if (oppFacingAway && d < TACKLE_RANGE + 20) sc += 0.10;
@@ -524,7 +531,9 @@ export class PlayerAgent {
         const oppGoalX = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
         if (oo.length > 0) { const ld = fd === 1 ? Math.max(...oo.map(o => o.x)) : Math.min(...oo.map(o => o.x));
           const defLine = clamp(ld, p.homeX - 40, oppGoalX + fd * 20);
-          c.push({ x: fd === 1 ? Math.min(p.homeX + fd * 100, ld - 15) : Math.max(p.homeX + fd * 100, ld + 15), y: p.homeY, pur: 'offer' });
+          // offside uncertainty: occasionally drift past the last defender
+          const offsideDrift = random() < 0.25 ? fd * (10 + random() * 35) : 0; // 25% chance, bigger drift
+          c.push({ x: fd === 1 ? Math.min(p.homeX + fd * 100, ld - 15 + offsideDrift) : Math.max(p.homeX + fd * 100, ld + 15 + offsideDrift), y: p.homeY, pur: 'offer' });
           // run behind the defensive line — diagonal burst
           const runY = clamp(p.homeY + (random() > 0.5 ? 40 : -40), PITCH_H * 0.2, PITCH_H * 0.8);
           c.push({ x: clamp(defLine - fd * 10, p.homeX + fd * 40, oppGoalX), y: runY, pur: 'space' });
