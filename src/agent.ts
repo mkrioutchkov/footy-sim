@@ -698,13 +698,12 @@ export class PlayerAgent {
   private rc(a: A[]): A {
     a.sort((x, y) => y.score - x.score); if (a.length === 0) return { type: 'hold', score: 1 };
     const best = a[0];
-    // press resistance: carrier holds if no clearly good option exists
+    // press resistance: carrier holds only if truly stuck
     const ic = this.e.ball.controllerId === this.player.id;
-    // near goal: don't hold — shoot or pass
     const gx = this.player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
-    const nearGoal = Math.abs(this.player.x - gx) < 180;
-    if (ic && best.score < (nearGoal ? 0.15 : 0.25)) return { type: 'hold', score: 1 };
-    if (best.score < 0.10) return { type: 'hold', score: 1 };
+    const nearGoal = Math.abs(this.player.x - gx) < 220;
+    const inBox = Math.abs(this.player.x - gx) < 150;
+    if (ic && best.score < (inBox ? 0.08 : nearGoal ? 0.12 : 0.22)) return { type: 'hold', score: 1 };
     const bb = this.e.teamBlackboards.get(this.player.team)!;
     if (best.type === 'tackle' && best.target) {
       const isSelf = bb.pressingPlayerId === this.player.id || bb.pressingPlayerId2 === this.player.id;
