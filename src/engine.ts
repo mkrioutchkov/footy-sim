@@ -32,6 +32,30 @@ const STATE_SAMPLE_LOG_INTERVAL = 500;
 
 export type { EngineState } from './types';
 
+export interface PassSelectionAudit {
+  score: number;
+  distance: number;
+  forwardProgress: number;
+  expectedCompletion: number;
+  blockers: number;
+  receiverPressure: number;
+  purpose: string;
+  saferOptionTargetId: number | null;
+  saferOptionScore: number | null;
+  saferOptionCompletion: number | null;
+  saferOptionProgress: number | null;
+}
+
+export interface ShotSelectionAudit {
+  score: number;
+  distance: number;
+  angleDeg: number;
+  pressureCount: number;
+  bestPassTargetId: number | null;
+  bestPassScore: number | null;
+  bestPassCompletion: number | null;
+}
+
 export interface AnalysisSummary {
   clockMs: number;
   score: { home: number; away: number };
@@ -44,6 +68,7 @@ export interface AnalysisSummary {
   passByRole: Record<string, { att: number; comp: number; pct: number }>;
   setPieces: { corners: number; throwIns: number; freeKicks: number };
   crosses: { attempted: number; completed: number; shots: number; goals: number };
+  cutbacks: { attempted: number; completed: number; shots: number; goals: number };
   distributions: {
     goalkeeper: { attempted: number; completed: number; failed: number; dangerousTurnovers: number };
     outfieldDangerTurnovers: number;
@@ -67,6 +92,12 @@ export interface AnalysisSummary {
   phaseTicks: Record<Team, Record<TacticalPhase, number>>;
   taskSelections: Record<string, number>;
   possessionByRole: Partial<Record<PlayerRole, number>>;
+  selectionAudit: {
+    passes: { audited: number; avgDistance: number; avgExpectedCompletion: number; progressivePct: number; saferOptionIgnored: number };
+    shots: { audited: number; avgDistance: number; avgAngleDeg: number; lowValue: number; betterPassAvailable: number };
+    goals: { audited: number; avgDistance: number; avgAngleDeg: number; lowValue: number; tightAngle: number };
+  };
+  defending: { pressSamples: number; avgPrimaryDistance: number; avoidablePressSelections: number; dangerUnengagedSamples: number };
 }
 
 interface PendingPass {
@@ -106,6 +137,14 @@ interface ActiveShot {
   launchSpeed: number;
   fromCross: boolean;
   crossFromId: number | null;
+  fromCutback: boolean;
+  cutbackFromId: number | null;
+  distance: number;
+  angleDeg: number;
+  pressureCount: number;
+  selectionScore: number | null;
+  bestPassScore: number | null;
+  lowValue: boolean;
   saveAssessment: SaveAssessment | null;
 }
 
@@ -119,6 +158,14 @@ interface PreparedThroughBall {
   selectedOnsideGap: number;
   runTargetX: number;
   runTargetY: number;
+  selectionAudit?: PassSelectionAudit;
+}
+
+interface PendingDecisionMoment {
+  id: number;
+  reason: string;
+  actorId: number;
+  dueAt: number;
 }
 
 export class GameEngine {
@@ -165,6 +212,7 @@ export class GameEngine {
 
   // expanded stats
   private statsCrossAttempted = 0; private statsCrossCompleted = 0; private statsCrossShots = 0; private statsCrossGoals = 0;
+  private statsCutbackAttempted = 0; private statsCutbackCompleted = 0; private statsCutbackShots = 0; private statsCutbackGoals = 0;
   private statsHeadersWon = 0; private statsHeadersTotal = 0;
   private statsCornersTaken = 0;
   private statsThrowInsTaken = 0;
@@ -180,6 +228,14 @@ export class GameEngine {
   private statsPassLaunchSpeedTotal = 0; private statsPassLaunchCount = 0;
   private statsShotLaunchSpeedTotal = 0; private statsShotLaunchCount = 0;
   private statsHeaderLaunchSpeedTotal = 0; private statsHeaderLaunchCount = 0;
+  private statsAuditedPasses = 0; private statsPassChoiceDistanceTotal = 0; private statsPassExpectedCompletionTotal = 0;
+  private statsProgressivePassChoices = 0; private statsSaferOptionIgnored = 0;
+  private statsAuditedShots = 0; private statsShotChoiceDistanceTotal = 0; private statsShotChoiceAngleTotal = 0;
+  private statsLowValueShots = 0; private statsBetterPassShots = 0;
+  private statsAuditedGoals = 0; private statsGoalDistanceTotal = 0; private statsGoalAngleTotal = 0;
+  private statsLowValueGoals = 0; private statsTightAngleGoals = 0;
+  private statsPressSamples = 0; private statsPrimaryPressDistanceTotal = 0;
+  private statsAvoidablePressSelections = 0; private statsDangerUnengagedSamples = 0;
 
   // distance tracking (meters, assuming 10px = 1m pitch scale)
   private ballDistance = 0;
@@ -225,6 +281,9 @@ export class GameEngine {
   private qLastQualityCheck = 0;
   private qFlagLastLogged: Map<string, number> = new Map();
   private qualityFlagCounts: Map<string, number> = new Map();
+  private pendingDecisionMoments: PendingDecisionMoment[] = [];
+  private momentSequence = 0;
+  private momentLastLogged: Map<string, number> = new Map();
   private transitionUntil: Record<Team, number> = { home: 0, away: 0 };
   private phaseTicks: Record<Team, Record<TacticalPhase, number>> = {
     home: { loose_ball: 0, possession: 0, attacking_transition: 0, defending: 0, defensive_transition: 0 },
@@ -365,6 +424,7 @@ export class GameEngine {
       passByRole: Object.fromEntries(Object.entries(this.statsPassByRole).map(([role, s]) => [role, { ...s, pct: Math.round(s.comp / Math.max(1, s.att) * 1000) / 10 }])),
       setPieces: { corners: this.statsCornersTaken, throwIns: this.statsThrowInsTaken, freeKicks: this.statsFreeKicks },
       crosses: { attempted: this.statsCrossAttempted, completed: this.statsCrossCompleted, shots: this.statsCrossShots, goals: this.statsCrossGoals },
+      cutbacks: { attempted: this.statsCutbackAttempted, completed: this.statsCutbackCompleted, shots: this.statsCutbackShots, goals: this.statsCutbackGoals },
       distributions: {
         goalkeeper: {
           attempted: this.statsGKDistributionAttempted,
@@ -397,6 +457,35 @@ export class GameEngine {
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
       possessionByRole: { ...this.possessionByRole },
+      selectionAudit: {
+        passes: {
+          audited: this.statsAuditedPasses,
+          avgDistance: Math.round(this.statsPassChoiceDistanceTotal / Math.max(1, this.statsAuditedPasses)),
+          avgExpectedCompletion: Math.round(this.statsPassExpectedCompletionTotal / Math.max(1, this.statsAuditedPasses) * 1000) / 10,
+          progressivePct: Math.round(this.statsProgressivePassChoices / Math.max(1, this.statsAuditedPasses) * 1000) / 10,
+          saferOptionIgnored: this.statsSaferOptionIgnored,
+        },
+        shots: {
+          audited: this.statsAuditedShots,
+          avgDistance: Math.round(this.statsShotChoiceDistanceTotal / Math.max(1, this.statsAuditedShots)),
+          avgAngleDeg: Math.round(this.statsShotChoiceAngleTotal / Math.max(1, this.statsAuditedShots) * 10) / 10,
+          lowValue: this.statsLowValueShots,
+          betterPassAvailable: this.statsBetterPassShots,
+        },
+        goals: {
+          audited: this.statsAuditedGoals,
+          avgDistance: Math.round(this.statsGoalDistanceTotal / Math.max(1, this.statsAuditedGoals)),
+          avgAngleDeg: Math.round(this.statsGoalAngleTotal / Math.max(1, this.statsAuditedGoals) * 10) / 10,
+          lowValue: this.statsLowValueGoals,
+          tightAngle: this.statsTightAngleGoals,
+        },
+      },
+      defending: {
+        pressSamples: this.statsPressSamples,
+        avgPrimaryDistance: Math.round(this.statsPrimaryPressDistanceTotal / Math.max(1, this.statsPressSamples)),
+        avoidablePressSelections: this.statsAvoidablePressSelections,
+        dangerUnengagedSamples: this.statsDangerUnengagedSamples,
+      },
     };
   }
 
@@ -414,6 +503,20 @@ export class GameEngine {
 
   isOffsideTarget(passer: Player, receiver: Player): boolean {
     return this.checkOffside(receiver, passer);
+  }
+
+  isRecentFinishingDeliveryReceiver(playerId: number): boolean {
+    const delivery = this.qLastCompletedDelivery;
+    return delivery !== null && (delivery.isCross || delivery.source === 'cutback') && delivery.receiverId === playerId
+      && this.clockMs - delivery.completedAt < 3000;
+  }
+
+  goalOpeningAngleDeg(x: number, y: number, goalX: number): number {
+    const upperPostY = PITCH_H / 2 - GOAL_OPENING_HALF_W;
+    const lowerPostY = PITCH_H / 2 + GOAL_OPENING_HALF_W;
+    const upper = Math.atan2(upperPostY - y, goalX - x);
+    const lower = Math.atan2(lowerPostY - y, goalX - x);
+    return Math.abs(Math.atan2(Math.sin(lower - upper), Math.cos(lower - upper))) * 180 / Math.PI;
   }
 
   offsideLineFor(team: Team): number | null {
@@ -447,6 +550,64 @@ export class GameEngine {
     this.qFlagLastLogged.set(key, this.clockMs);
     this.qualityFlagCounts.set(flag, (this.qualityFlagCounts.get(flag) ?? 0) + 1);
     this.logDebug('q_flag', { flag, ...data });
+  }
+
+  captureDecisionMoment(reason: string, actor: Player, data: DebugLogEntry['data'], cooldownMs = 8000, key = `${reason}:${actor.team}`): void {
+    const last = this.momentLastLogged.get(key) ?? -Infinity;
+    if (this.clockMs - last < cooldownMs) return;
+    this.momentLastLogged.set(key, this.clockMs);
+    const id = ++this.momentSequence;
+    this.logDebug('moment_start', {
+      momentId: id,
+      reason,
+      actor: actor.id,
+      actorRole: actor.role,
+      actorTeam: actor.team,
+      ...data,
+      snapshot: this.decisionSnapshot(actor),
+    });
+    this.pendingDecisionMoments.push({ id, reason, actorId: actor.id, dueAt: this.clockMs + 1200 });
+  }
+
+  private decisionSnapshot(actor: Player): Record<string, unknown> {
+    const controller = this.playerById(this.ball.controllerId);
+    const nearest = this.players
+      .filter(p => p.id !== actor.id)
+      .map(p => ({ p, d: dist(actor, p) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 8)
+      .map(({ p, d }) => `${p.id}:${p.team[0]}:${p.role}:${Math.round(p.x)},${Math.round(p.y)}:${Math.round(d)}`)
+      .join('|');
+    return {
+      clockMs: Math.round(this.clockMs),
+      ball: `${Math.round(this.ball.x)},${Math.round(this.ball.y)}`,
+      controller: controller?.id ?? null,
+      controllerTeam: controller?.team ?? null,
+      actor: `${Math.round(actor.x)},${Math.round(actor.y)}`,
+      actorTarget: `${Math.round(actor.targetX)},${Math.round(actor.targetY)}`,
+      nearby: nearest,
+    };
+  }
+
+  private flushDecisionMoments(): void {
+    if (this.pendingDecisionMoments.length === 0) return;
+    const waiting: PendingDecisionMoment[] = [];
+    for (const moment of this.pendingDecisionMoments) {
+      if (moment.dueAt > this.clockMs) {
+        waiting.push(moment);
+        continue;
+      }
+      const actor = this.playerById(moment.actorId);
+      if (!actor) continue;
+      this.logDebug('moment_followup', {
+        momentId: moment.id,
+        reason: moment.reason,
+        elapsedMs: 1200,
+        score: `${this.homeScore}-${this.awayScore}`,
+        snapshot: this.decisionSnapshot(actor),
+      });
+    }
+    this.pendingDecisionMoments = waiting;
   }
 
   private recordControlChange(collector: Player): void {
@@ -490,16 +651,62 @@ export class GameEngine {
     this.qPassFails.push(this.clockMs);
   }
 
-  private beginTrackedPass(from: Player, to: Player, source = 'open_play', isCross = false): void {
+  private recordPassSelection(from: Player, to: Player, selection: PassSelectionAudit): void {
+    this.statsAuditedPasses++;
+    this.statsPassChoiceDistanceTotal += selection.distance;
+    this.statsPassExpectedCompletionTotal += selection.expectedCompletion;
+    if (selection.forwardProgress > 40) this.statsProgressivePassChoices++;
+    const ignoredSaferOption = selection.saferOptionTargetId !== null;
+    if (ignoredSaferOption) {
+      this.statsSaferOptionIgnored++;
+      this.logQualityFlag('questionable_pass_choice', {
+        from: from.id,
+        to: to.id,
+        selectedCompletion: Math.round(selection.expectedCompletion * 100),
+        selectedProgress: Math.round(selection.forwardProgress),
+        alternative: selection.saferOptionTargetId,
+        alternativeCompletion: selection.saferOptionCompletion === null ? null : Math.round(selection.saferOptionCompletion * 100),
+        alternativeProgress: selection.saferOptionProgress === null ? null : Math.round(selection.saferOptionProgress),
+      }, 8000, `questionable_pass_choice:${from.team}`);
+      this.captureDecisionMoment('why_this_pass', from, {
+        selected: to.id,
+        selectedScore: Math.round(selection.score * 1000) / 1000,
+        selectedCompletion: Math.round(selection.expectedCompletion * 100),
+        selectedProgress: Math.round(selection.forwardProgress),
+        selectedDistance: Math.round(selection.distance),
+        selectedBlockers: selection.blockers,
+        alternative: selection.saferOptionTargetId,
+        alternativeScore: selection.saferOptionScore === null ? null : Math.round(selection.saferOptionScore * 1000) / 1000,
+        alternativeCompletion: selection.saferOptionCompletion === null ? null : Math.round(selection.saferOptionCompletion * 100),
+        alternativeProgress: selection.saferOptionProgress === null ? null : Math.round(selection.saferOptionProgress),
+      }, 8000, `why_this_pass:${from.team}`);
+    }
+    this.logDebug('pass_selection', {
+      from: from.id,
+      to: to.id,
+      purpose: selection.purpose,
+      score: Math.round(selection.score * 1000) / 1000,
+      distance: Math.round(selection.distance),
+      forwardProgress: Math.round(selection.forwardProgress),
+      expectedCompletion: Math.round(selection.expectedCompletion * 100),
+      blockers: selection.blockers,
+      receiverPressure: selection.receiverPressure,
+      alternative: selection.saferOptionTargetId,
+    });
+  }
+
+  private beginTrackedPass(from: Player, to: Player, source = 'open_play', isCross = false, selection?: PassSelectionAudit): void {
     const launchSpeed = Math.hypot(this.ball.vx, this.ball.vy);
     this.statsPassAttempted++;
     if (source === 'through_ball') this.statsThroughBallAttempted++;
     if (isCross) this.statsCrossAttempted++;
+    if (source === 'cutback') this.statsCutbackAttempted++;
     if (source === 'gk_distribution') this.statsGKDistributionAttempted++;
     this.statsPassLaunchSpeedTotal += launchSpeed; this.statsPassLaunchCount++;
     if (!this.statsPassByRole[from.role]) this.statsPassByRole[from.role] = { att: 0, comp: 0 };
     this.statsPassByRole[from.role].att++;
     this.recordPassAttempt(from, to);
+    if (selection) this.recordPassSelection(from, to, selection);
     this.pendingPass = { fromId: from.id, team: from.team, toId: to.id, source, isCross };
     this.logDebug('pass_attempt', { from: from.id, to: to.id, team: from.team, source, isCross, launchSpeed: Math.round(launchSpeed) });
   }
@@ -523,6 +730,7 @@ export class GameEngine {
       this.statsPassByRole[role].comp++;
       if (pass.source === 'through_ball') this.statsThroughBallCompleted++;
       if (pass.isCross) this.statsCrossCompleted++;
+      if (pass.source === 'cutback') this.statsCutbackCompleted++;
       if (pass.source === 'gk_distribution') {
         this.statsGKDistributionCompleted++;
         this.logDebug('gk_distribution_result', { from: pass.fromId, to: pass.toId, receiver: receiver.id, result: 'complete', contact });
@@ -682,6 +890,7 @@ export class GameEngine {
     this.statsShotsOnTarget = 0; this.statsShotsOffTarget = 0; this.statsSaves = 0;
     this.statsBallInThird = { homeDef: 0, mid: 0, awayDef: 0 };
     this.statsCrossAttempted = 0; this.statsCrossCompleted = 0; this.statsCrossShots = 0; this.statsCrossGoals = 0;
+    this.statsCutbackAttempted = 0; this.statsCutbackCompleted = 0; this.statsCutbackShots = 0; this.statsCutbackGoals = 0;
     this.statsHeadersWon = 0; this.statsHeadersTotal = 0;
     this.statsCornersTaken = 0; this.statsThrowInsTaken = 0; this.statsFreeKicks = 0;
     this.statsGKDistributionAttempted = 0; this.statsGKDistributionCompleted = 0; this.statsGKDistributionFailed = 0; this.statsGKDistributionDangerTurnovers = 0;
@@ -691,6 +900,14 @@ export class GameEngine {
     this.statsPassLaunchSpeedTotal = 0; this.statsPassLaunchCount = 0;
     this.statsShotLaunchSpeedTotal = 0; this.statsShotLaunchCount = 0;
     this.statsHeaderLaunchSpeedTotal = 0; this.statsHeaderLaunchCount = 0;
+    this.statsAuditedPasses = 0; this.statsPassChoiceDistanceTotal = 0; this.statsPassExpectedCompletionTotal = 0;
+    this.statsProgressivePassChoices = 0; this.statsSaferOptionIgnored = 0;
+    this.statsAuditedShots = 0; this.statsShotChoiceDistanceTotal = 0; this.statsShotChoiceAngleTotal = 0;
+    this.statsLowValueShots = 0; this.statsBetterPassShots = 0;
+    this.statsAuditedGoals = 0; this.statsGoalDistanceTotal = 0; this.statsGoalAngleTotal = 0;
+    this.statsLowValueGoals = 0; this.statsTightAngleGoals = 0;
+    this.statsPressSamples = 0; this.statsPrimaryPressDistanceTotal = 0;
+    this.statsAvoidablePressSelections = 0; this.statsDangerUnengagedSamples = 0;
     this.statsTimedRunsStarted = 0; this.statsTimedRunsReleased = 0; this.statsTimedRunOffsides = 0; this.statsTimedRunsCancelled = 0;
     this.statsBouncesNoControl = 0;
     this.statsFlankTime = { left: 0, right: 0, center: 0 };
@@ -717,6 +934,7 @@ export class GameEngine {
     this.qBallThird = null; this.qBallThirdSince = 0;
     this.qLastQualityCheck = 0; this.qFlagLastLogged.clear();
     this.qualityFlagCounts.clear();
+    this.pendingDecisionMoments = []; this.momentSequence = 0; this.momentLastLogged.clear();
     this.transitionUntil = { home: 0, away: 0 };
     this.phaseTicks = {
       home: { loose_ball: 0, possession: 0, attacking_transition: 0, defending: 0, defensive_transition: 0 },
@@ -789,8 +1007,10 @@ export class GameEngine {
     for (const team of ['home', 'away'] as Team[]) {
       const phase = this.teamPhaseFor(team);
       this.phaseTicks[team][phase]++;
-      if (possessingTeam && possessingTeam !== team) this.assignDefensiveRoles(team);
-      else if (possessingTeam === team) this.assignAttackingRoles(team);
+    }
+    if (possessingTeam) {
+      this.assignAttackingRoles(possessingTeam);
+      this.assignDefensiveRoles(possessingTeam === 'home' ? 'away' : 'home');
     }
 
     if (this.clockMs - this.lastAssignmentLog >= COORDINATOR_LOG_INTERVAL) {
@@ -805,6 +1025,10 @@ export class GameEngine {
         awayPhase: this.teamPhaseFor('away'),
         snapshot,
       });
+      if (possessingTeam) {
+        this.auditPressAssignment(possessingTeam === 'home' ? 'away' : 'home');
+        this.auditOffBallShape(possessingTeam);
+      }
     }
   }
 
@@ -819,14 +1043,28 @@ export class GameEngine {
     const defendingDanger = Math.abs(ctrl.x - ownGoalX) < 240;
     const candidates = (this.playersByTeam.get(team) ?? []).filter(p => p.role !== 'GK');
     const ranked = candidates
-      .map(p => ({
-        p,
-        score: dist(p, ctrl)
-          - attrFactor(p.attrs, 'speed') * 45
-          - attrFactor(p.attrs, 'tackling') * 35
-          + (p.role === 'CB' ? (defendingDanger ? 8 : 70) : p.role === 'CF' ? 28 : p.role === 'CM' ? 0 : p.role === 'WM' ? 6 : 14),
-      }))
+      .map(p => {
+        const distance = dist(p, ctrl);
+        const arrivalSeconds = distance / Math.max(18, attrFactor(p.attrs, 'speed') * SPEED_SPRINT);
+        return {
+          p,
+          distance,
+          arrivalSeconds,
+          score: distance
+            - attrFactor(p.attrs, 'speed') * 45
+            - attrFactor(p.attrs, 'tackling') * 35
+            + (p.role === 'CB' ? (defendingDanger ? 8 : 70) : p.role === 'CF' ? 28 : p.role === 'CM' ? 0 : p.role === 'WM' ? 6 : 14),
+        };
+      })
       .sort((a, b) => a.score - b.score);
+    if (defendingDanger && ranked.length > 1) {
+      const fastestUrgent = [...ranked].sort((a, b) => a.arrivalSeconds - b.arrivalSeconds)[0];
+      if (fastestUrgent && ranked[0].arrivalSeconds > fastestUrgent.arrivalSeconds + 0.55) {
+        const urgentIndex = ranked.findIndex(r => r.p.id === fastestUrgent.p.id);
+        ranked.splice(urgentIndex, 1);
+        ranked.unshift(fastestUrgent);
+      }
+    }
     const assigned = new Set<number>();
 
     const primary = ranked[0]?.p;
@@ -851,6 +1089,43 @@ export class GameEngine {
       this.setAssignment(screen, 'midfield_screen', lerp(ctrl.x, ownGoalX + fd * 175, 0.4), lerp(ctrl.y, PITCH_H / 2, 0.65), 1);
       assigned.add(screen.id);
     }
+    const attackingTeam: Team = team === 'home' ? 'away' : 'home';
+    const offBallThreats = (this.playersByTeam.get(attackingTeam) ?? [])
+      .filter(p => p.id !== ctrl.id && p.role !== 'GK')
+      .map(p => {
+        const task = this.assignmentByPlayer.get(p.id);
+        return { p, x: task?.targetX ?? p.x, y: task?.targetY ?? p.y };
+      })
+      .filter(threat => {
+        const depth = Math.abs(threat.x - ownGoalX);
+        const p = threat.p;
+        return (p.role === 'CF' && depth < (defendingDanger ? 300 : 245))
+          || (p.role === 'WM' && depth < (defendingDanger ? 250 : 205) && Math.abs(threat.y - PITCH_H / 2) < 200)
+          || (p.role === 'CM' && depth < 180);
+      })
+      .sort((a, b) => Math.abs(a.x - ownGoalX) - Math.abs(b.x - ownGoalX))
+      .slice(0, defendingDanger ? 2 : 1);
+    for (const threat of offBallThreats) {
+      const defenders = candidates
+        .filter(p => !assigned.has(p.id) && (p.role === 'CB' || p.role === 'FB'))
+        .filter(p => threat.p.role !== 'WM' || p.role === 'CB' || Math.abs(p.homeY - threat.y) < PITCH_H * 0.42)
+        .sort((a, b) => {
+          const roleA = threat.p.role === 'CF' && a.role === 'CB' ? -35 : threat.p.role === 'WM' && a.role === 'FB' ? -35 : 0;
+          const roleB = threat.p.role === 'CF' && b.role === 'CB' ? -35 : threat.p.role === 'WM' && b.role === 'FB' ? -35 : 0;
+          return dist(a, threat) + roleA - (dist(b, threat) + roleB);
+        });
+      const marker = defenders[0];
+      if (!marker) continue;
+      this.setAssignment(
+        marker,
+        'lane_block',
+        clamp(lerp(threat.x, ownGoalX + fd * 36, 0.20), 30, PITCH_W - 30),
+        clamp(lerp(threat.y, PITCH_H / 2, 0.08), 38, PITCH_H - 38),
+        1,
+        threat.p.id,
+      );
+      assigned.add(marker.id);
+    }
     for (const defender of candidates.filter(p => !assigned.has(p.id) && (p.role === 'CB' || p.role === 'FB'))) {
       const task: TeamAssignmentRole = defender.role === 'FB' ? 'wide_cover' : 'defensive_line';
       const depth = phase === 'defensive_transition' ? 92 : 120;
@@ -866,6 +1141,110 @@ export class GameEngine {
     }
   }
 
+  private auditPressAssignment(defendingTeam: Team): void {
+    const controller = this.playerById(this.ball.controllerId);
+    if (!controller || controller.team === defendingTeam) return;
+    const primaryAssignment = [...this.assignmentByPlayer.values()]
+      .find(a => a.team === defendingTeam && a.role === 'primary_press');
+    if (!primaryAssignment) return;
+    const primary = this.playerById(primaryAssignment.playerId);
+    if (!primary) return;
+    const candidates = (this.playersByTeam.get(defendingTeam) ?? []).filter(p => p.role !== 'GK');
+    const byArrival = candidates
+      .map(p => ({
+        p,
+        distance: dist(p, controller),
+        eta: dist(p, controller) / Math.max(18, attrFactor(p.attrs, 'speed') * SPEED_SPRINT),
+      }))
+      .sort((a, b) => a.eta - b.eta);
+    const fastest = byArrival[0];
+    const selected = byArrival.find(o => o.p.id === primary.id);
+    if (!fastest || !selected) return;
+    const ownGoalX = defendingTeam === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
+    const danger = Math.abs(controller.x - ownGoalX) < 240;
+    const avoidable = fastest.p.id !== selected.p.id && selected.eta > fastest.eta + 0.45;
+    this.statsPressSamples++;
+    this.statsPrimaryPressDistanceTotal += selected.distance;
+    if (avoidable) {
+      this.statsAvoidablePressSelections++;
+    }
+    if (avoidable && (danger || selected.distance > 105 || selected.distance > fastest.distance + 45)) {
+      this.logQualityFlag('questionable_press_assignment', {
+        defendingTeam,
+        controller: controller.id,
+        selected: primary.id,
+        selectedDistance: Math.round(selected.distance),
+        selectedEta: Math.round(selected.eta * 100) / 100,
+        fastest: fastest.p.id,
+        fastestDistance: Math.round(fastest.distance),
+        fastestEta: Math.round(fastest.eta * 100) / 100,
+        danger,
+      }, 8000, `questionable_press_assignment:${defendingTeam}`);
+      this.captureDecisionMoment('why_this_presser', primary, {
+        controller: controller.id,
+        selectedDistance: Math.round(selected.distance),
+        selectedEta: Math.round(selected.eta * 100) / 100,
+        fasterPlayer: fastest.p.id,
+        fasterDistance: Math.round(fastest.distance),
+        fasterEta: Math.round(fastest.eta * 100) / 100,
+        danger,
+      }, 8000, `why_this_presser:${defendingTeam}`);
+    }
+    if (danger && selected.distance > 95) this.statsDangerUnengagedSamples++;
+    this.logDebug('press_assignment_audit', {
+      defendingTeam,
+      controller: controller.id,
+      primary: primary.id,
+      primaryDistance: Math.round(selected.distance),
+      primaryEta: Math.round(selected.eta * 100) / 100,
+      fastest: fastest.p.id,
+      fastestEta: Math.round(fastest.eta * 100) / 100,
+      avoidable,
+      danger,
+    });
+  }
+
+  private auditOffBallShape(attackingTeam: Team): void {
+    const defendingTeam: Team = attackingTeam === 'home' ? 'away' : 'home';
+    const opponentGoalX = attackingTeam === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
+    const attackingTasks = [...this.assignmentByPlayer.values()]
+      .filter(a => a.team === attackingTeam && ['run_ahead', 'inside_run', 'hold_width', 'overlap', 'advance_midfield'].includes(a.role));
+    const trackingTasks = [...this.assignmentByPlayer.values()]
+      .filter(a => a.team === defendingTeam && a.role === 'lane_block');
+    this.logDebug('off_ball_shape', {
+      attackingTeam,
+      runners: attackingTasks
+        .map(a => `${a.role}:${a.playerId}->${Math.round(a.targetX)},${Math.round(a.targetY)}`)
+        .join('|'),
+      tracked: trackingTasks.map(a => `${a.playerId}->${a.opponentId ?? 'none'}`).join('|'),
+    });
+    for (const run of attackingTasks.filter(a => a.role === 'run_ahead' || a.role === 'inside_run')) {
+      const attacker = this.playerById(run.playerId);
+      if (!attacker || Math.abs(run.targetX - opponentGoalX) > 220) continue;
+      const marked = trackingTasks.some(a => a.opponentId === attacker.id);
+      const nearestDefender = (this.playersByTeam.get(defendingTeam) ?? [])
+        .filter(p => p.role !== 'GK')
+        .reduce((best, defender) => Math.min(best, Math.hypot(defender.x - run.targetX, defender.y - run.targetY)), Infinity);
+      if (!marked && nearestDefender > 95) {
+        this.logQualityFlag('untracked_attacking_run', {
+          attackingTeam,
+          attacker: attacker.id,
+          role: attacker.role,
+          run: run.role,
+          targetX: Math.round(run.targetX),
+          targetY: Math.round(run.targetY),
+          nearestDefender: Math.round(nearestDefender),
+        }, 8000, `untracked_attacking_run:${defendingTeam}`);
+        this.captureDecisionMoment('untracked_attacking_run', attacker, {
+          run: run.role,
+          targetX: Math.round(run.targetX),
+          targetY: Math.round(run.targetY),
+          nearestDefender: Math.round(nearestDefender),
+        }, 8000, `untracked_attacking_run:${defendingTeam}`);
+      }
+    }
+  }
+
   private assignAttackingRoles(team: Team): void {
     const ctrl = this.playerById(this.ball.controllerId ?? this.pendingPass?.toId ?? null);
     if (!ctrl || ctrl.team !== team) return;
@@ -878,25 +1257,41 @@ export class GameEngine {
     const midfielders = teammates.filter(p => p.role === 'CM').sort((a, b) => dist(a, ctrl) - dist(b, ctrl));
     const support = midfielders[0];
     if (support) {
-      this.setAssignment(support, 'support_outlet', clamp(ctrl.x - fd * 70, 55, PITCH_W - 55), clamp(ctrl.y + (support.homeY <= ctrl.y ? -75 : 75), 50, PITCH_H - 50), 1);
+      const outletX = clamp(ctrl.x - fd * 70, 55, PITCH_W - 55);
+      const preferredY = clamp(ctrl.y + (support.homeY <= ctrl.y ? -75 : 75), 50, PITCH_H - 50);
+      const outletY = this.openLaneY(team, outletX, preferredY, [PITCH_H / 2 - 120, PITCH_H / 2, PITCH_H / 2 + 120]);
+      this.setAssignment(support, 'support_outlet', outletX, outletY, 1);
       assigned.add(support.id);
     }
     const advancedMid = midfielders.find(p => !assigned.has(p.id));
     const midfieldThreshold = clamp(0.45 - tactics.midfieldFreedom / 250, 0.12, 0.36);
     if (advancedMid && (phase === 'attacking_transition' || progress > midfieldThreshold)) {
       const advance = (phase === 'attacking_transition' ? 135 : 86) + tactics.midfieldFreedom * 0.42;
-      this.setAssignment(advancedMid, 'advance_midfield', clamp(ctrl.x + fd * advance, 55, PITCH_W - 55), clamp(lerp(advancedMid.homeY, ctrl.y, 0.32), 45, PITCH_H - 45), 1);
+      const advanceX = clamp(ctrl.x + fd * advance, 55, PITCH_W - 55);
+      const preferredY = clamp(lerp(advancedMid.homeY, ctrl.y, 0.32), 45, PITCH_H - 45);
+      const advanceY = this.openLaneY(team, advanceX, preferredY, [PITCH_H / 2 - 95, PITCH_H / 2, PITCH_H / 2 + 95]);
+      this.setAssignment(advancedMid, 'advance_midfield', advanceX, advanceY, 1);
       assigned.add(advancedMid.id);
     }
     const runner = teammates.filter(p => p.role === 'CF').sort((a, b) => dist(a, ctrl) - dist(b, ctrl))[0];
     if (runner) {
       const depth = phase === 'attacking_transition' ? 220 : 150;
-      this.setAssignment(runner, 'run_ahead', clamp(ctrl.x + fd * depth, 55, PITCH_W - 55), clamp(runner.homeY, 45, PITCH_H - 45), 1);
+      const runX = clamp(ctrl.x + fd * depth, 55, PITCH_W - 55);
+      const driftWide = progress > 0.45 && this.roleRotationActive(runner, 11);
+      const centralSlots = [PITCH_H / 2 - 70, PITCH_H / 2, PITCH_H / 2 + 70];
+      const channelY = driftWide
+        ? (runner.homeY < PITCH_H / 2 ? 112 : PITCH_H - 112)
+        : this.openLaneY(team, runX, runner.homeY, centralSlots);
+      this.setAssignment(runner, 'run_ahead', runX, clamp(channelY, 45, PITCH_H - 45), 1);
       assigned.add(runner.id);
     }
     for (const winger of teammates.filter(p => p.role === 'WM')) {
       const wideY = winger.homeY < PITCH_H / 2 ? 35 : PITCH_H - 35;
-      this.setAssignment(winger, 'hold_width', clamp(ctrl.x + fd * (phase === 'attacking_transition' ? 145 : 85), 45, PITCH_W - 45), wideY, 1);
+      const weakSide = Math.abs(ctrl.y - winger.homeY) > 180;
+      const cutInside = progress > 0.50 && weakSide && this.roleRotationActive(winger, 13);
+      const wingerX = clamp(ctrl.x + fd * (phase === 'attacking_transition' ? 145 : cutInside ? 120 : 85), 45, PITCH_W - 45);
+      const wingerY = cutInside ? (winger.homeY < PITCH_H / 2 ? PITCH_H / 2 - 72 : PITCH_H / 2 + 72) : wideY;
+      this.setAssignment(winger, cutInside ? 'inside_run' : 'hold_width', wingerX, wingerY, 1);
       assigned.add(winger.id);
     }
     const fullbacks = teammates.filter(p => p.role === 'FB');
@@ -911,8 +1306,23 @@ export class GameEngine {
     for (const defender of teammates.filter(p => !assigned.has(p.id) && (p.role === 'CB' || p.role === 'FB'))) {
       const linePush = (tactics.defensiveLineHeight - 50) * 0.45;
       const targetX = clamp(defender.homeX + fd * (Math.min(115, progress * 150) + linePush), 40, PITCH_W - 40);
-      this.setAssignment(defender, 'rest_defence', targetX, clamp(lerp(defender.homeY, PITCH_H / 2, 0.18), 45, PITCH_H - 45), 1);
+      const targetY = defender.role === 'FB' ? lerp(defender.homeY, PITCH_H / 2, 0.05) : lerp(defender.homeY, PITCH_H / 2, 0.18);
+      this.setAssignment(defender, 'rest_defence', targetX, clamp(targetY, 45, PITCH_H - 45), 1);
     }
+  }
+
+  private openLaneY(team: Team, x: number, preferredY: number, candidates: number[]): number {
+    const opponents = (this.playersByTeam.get(team === 'home' ? 'away' : 'home') ?? []).filter(p => p.role !== 'GK');
+    const options = [preferredY, ...candidates].map(y => {
+      const pressure = opponents.reduce((sum, opponent) => sum + Math.max(0, 100 - dist({ x, y }, opponent)), 0);
+      return { y, score: pressure + Math.abs(y - preferredY) * 0.10 };
+    });
+    options.sort((a, b) => a.score - b.score);
+    return clamp(options[0].y, 45, PITCH_H - 45);
+  }
+
+  private roleRotationActive(player: Player, rarity: number): boolean {
+    return (Math.floor(this.clockMs / 6500) + player.id * 3) % rarity === 0;
   }
 
   private setAssignment(player: Player, role: TeamAssignmentRole, targetX: number, targetY: number, score: number, opponentId?: number): void {
@@ -1135,6 +1545,7 @@ export class GameEngine {
 
     const secs = sdt / 1000;
     this.rebuildGrid();
+    this.flushDecisionMoments();
     this.updateTeamAssignments();
     this.detectStuckCarrier(sdt);
     // decay tackle animation timers
@@ -1444,7 +1855,7 @@ export class GameEngine {
 
   // ═══════════════════════ AGENT API
 
-  private prepareTimedThroughBall(from: Player, to: Player): boolean {
+  private prepareTimedThroughBall(from: Player, to: Player, selectionAudit?: PassSelectionAudit): boolean {
     if (this.preparedThroughBall || this.ball.controllerId !== from.id) return false;
     const fd = from.team === 'home' ? 1 : -1;
     const lineX = this.offsideLineFor(from.team);
@@ -1464,6 +1875,7 @@ export class GameEngine {
       selectedOnsideGap: onsideGap,
       runTargetX,
       runTargetY,
+      ...(selectionAudit ? { selectionAudit } : {}),
     };
     this.statsTimedRunsStarted++;
     from.targetX = from.x;
@@ -1520,14 +1932,14 @@ export class GameEngine {
       preparationMs: Math.round(this.clockMs - pass.selectedAt),
       offsideAtRelease,
     });
-    if (this.passBallTo(from, to, true, true)) {
+    if (this.passBallTo(from, to, true, true, pass.selectionAudit)) {
       this.emitEvent('pass', from.x, from.y);
       this.teamBlackboards.get(from.team)!.oneTwo = { from: from.id, to: to.id, expires: this.clockMs + 2000 };
     }
   }
 
-  passBallTo(from: Player, to: Player, throughBall = false, preparedRelease = false): boolean {
-    if (throughBall && !preparedRelease && this.prepareTimedThroughBall(from, to)) return false;
+  passBallTo(from: Player, to: Player, throughBall = false, preparedRelease = false, selectionAudit?: PassSelectionAudit): boolean {
+    if (throughBall && !preparedRelease && this.prepareTimedThroughBall(from, to, selectionAudit)) return false;
     // lead pass: predict where receiver will be when ball arrives, not where they are now
     const rawDx = to.x - from.x, rawDy = to.y - from.y;
     const rawDist = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
@@ -1562,7 +1974,8 @@ export class GameEngine {
     const goalX = from.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
     const fromWide = Math.abs(from.y - PITCH_H / 2) > 180;
     const intoBox = Math.abs(predX - goalX) < 200 && Math.abs(predY - PITCH_H / 2) < 140;
-    const isCross = fromWide && intoBox && (from.role === 'WM' || from.role === 'FB') && !throughBall;
+    const isCross = fromWide && intoBox && (from.role === 'WM' || from.role === 'FB') && !throughBall
+      && selectionAudit?.purpose !== 'cutback';
     // Crosses bend toward the central target zone.
     if (isCross) {
       const curlDir = from.y < PITCH_H / 2 ? 1 : -1; // curl toward center
@@ -1583,7 +1996,8 @@ export class GameEngine {
     if (blockers > 0 && rawDist > 120) this.ball.vz = Math.max(this.ball.vz, speed * 0.70);
     if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.00);
     if (isCross) this.ball.vz = Math.max(this.ball.vz, speed * 1.15);
-    this.beginTrackedPass(from, to, throughBall ? 'through_ball' : 'open_play', isCross);
+    const source = throughBall ? 'through_ball' : selectionAudit?.purpose === 'cutback' ? 'cutback' : 'open_play';
+    this.beginTrackedPass(from, to, source, isCross, selectionAudit);
     if (this.checkOffside(to, from)) {
       this.statsOffsides++;
       this.logDebug('offside', { from: from.id, to: to.id, x: Math.round(to.x), y: Math.round(to.y) });
@@ -1591,7 +2005,7 @@ export class GameEngine {
       this.awardOffsideFreeKick(from.team === 'home' ? 'away' : 'home', to);
       return true;
     }
-    this.logDebug(throughBall ? 'through_ball_start' : 'pass_start', { from: from.id, to: to.id, dist: Math.round(rawDist), speed: Math.round(speed) });
+    this.logDebug(throughBall ? 'through_ball_start' : source === 'cutback' ? 'cutback_start' : 'pass_start', { from: from.id, to: to.id, dist: Math.round(rawDist), speed: Math.round(speed) });
     if (isCross) {
       this.logDebug('cross_attempt', { from: from.id, role: from.role, targetX: Math.round(predX), targetY: Math.round(predY), lofted: this.ball.vz > 0 });
     }
@@ -1599,7 +2013,7 @@ export class GameEngine {
     return true;
   }
 
-  forcePassTo(from: Player, to: Player): void {
+  forcePassTo(from: Player, to: Player, selectionAudit?: PassSelectionAudit): void {
     this.cancelPreparedThroughBall('forced_pass');
     const dx = to.x - from.x, dy = to.y - from.y;
     const rawDist = Math.sqrt(dx * dx + dy * dy);
@@ -1618,7 +2032,7 @@ export class GameEngine {
     this.receiverShieldTargetId = to.id; // protect the receiver on collect
     this.ball.z = 0; this.ball.vz = 0;
     this.ball.vz = speed * 0.40; // clearance always lofts high
-    this.beginTrackedPass(from, to, 'forced');
+    this.beginTrackedPass(from, to, 'forced', false, selectionAudit);
     if (this.checkOffside(to, from)) {
       this.statsOffsides++;
       this.logDebug('offside_forced', { from: from.id, to: to.id });
@@ -1643,7 +2057,7 @@ export class GameEngine {
     this.logDebug('clearance', { from: kicker.id, vx: Math.round(vx), vy: Math.round(vy) });
   }
 
-  shootBall(shooter: Player): void {
+  shootBall(shooter: Player, selectionAudit?: ShotSelectionAudit): void {
     this.cancelPreparedThroughBall('shot');
     if (shooter.team === 'home') this.homeShots++; else this.awayShots++;
     const goalX = shooter.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
@@ -1651,11 +2065,54 @@ export class GameEngine {
     const goalCenterY = PITCH_H / 2;
     const shotDistance = Math.hypot(goalX - shooter.x, goalCenterY - shooter.y);
     const pressureCount = this.players.filter(p => p.team !== shooter.team && p.role !== 'GK' && dist(p, shooter) < 58).length;
+    const angleDeg = this.goalOpeningAngleDeg(shooter.x, shooter.y, goalX);
+    const outsideGoalLane = Math.abs(shooter.y - goalCenterY) > GOAL_OPENING_HALF_W + 20;
+    const acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150;
+    const lowValue = acuteGeometry || shotDistance > 300;
+    const forcedAttempt = pressureCount >= 2 && shotDistance > 150;
+    const betterPassAvailable = selectionAudit?.bestPassScore !== null && selectionAudit?.bestPassScore !== undefined
+      && selectionAudit.bestPassScore > selectionAudit.score + 0.12;
+    if (selectionAudit) {
+      this.statsAuditedShots++;
+      this.statsShotChoiceDistanceTotal += shotDistance;
+      this.statsShotChoiceAngleTotal += angleDeg;
+      if (lowValue) this.statsLowValueShots++;
+      if (betterPassAvailable) this.statsBetterPassShots++;
+      if (lowValue || forcedAttempt || betterPassAvailable) {
+        this.logQualityFlag('questionable_shot_choice', {
+          shooter: shooter.id,
+          distance: Math.round(shotDistance),
+          angleDeg: Math.round(angleDeg * 10) / 10,
+          pressureCount,
+          selectedScore: Math.round(selectionAudit.score * 1000) / 1000,
+          bestPass: selectionAudit.bestPassTargetId,
+          bestPassScore: selectionAudit.bestPassScore === null ? null : Math.round(selectionAudit.bestPassScore * 1000) / 1000,
+          lowValue,
+          forcedAttempt,
+        }, 8000, `questionable_shot_choice:${shooter.team}`);
+        this.captureDecisionMoment('why_this_shot', shooter, {
+          distance: Math.round(shotDistance),
+          angleDeg: Math.round(angleDeg * 10) / 10,
+          pressureCount,
+          selectedScore: Math.round(selectionAudit.score * 1000) / 1000,
+          bestPass: selectionAudit.bestPassTargetId,
+          bestPassScore: selectionAudit.bestPassScore === null ? null : Math.round(selectionAudit.bestPassScore * 1000) / 1000,
+          lowValue,
+          forcedAttempt,
+        }, 8000, `why_this_shot:${shooter.team}`);
+      }
+    }
     const anglePenalty = clamp(Math.abs(shooter.y - goalCenterY) / 230, 0, 1);
     const distancePenalty = clamp((shotDistance - 70) / 270, 0, 1);
     const executionError = 24 + (1 - accuracy) * 112 + pressureCount * 28 + anglePenalty * 52 + distancePenalty * 48;
     const aimedPost = (random() < 0.5 ? -1 : 1) * GOAL_W * (0.18 + accuracy * 0.13);
-    const goalY = goalCenterY + aimedPost + (random() + random() - 1) * executionError;
+    let goalY = goalCenterY + aimedPost + (random() + random() - 1) * executionError;
+    if (acuteGeometry) {
+      const nearPostSide = shooter.y < goalCenterY ? -1 : 1;
+      const nearPostY = goalCenterY + nearPostSide * GOAL_OPENING_HALF_W;
+      // Stay on the shooter's side of the near post even after whole-ball extrapolation.
+      goalY = shooter.y + (nearPostY - shooter.y) * (0.30 + random() * 0.10);
+    }
     const dx = goalX - shooter.x, dy = goalY - shooter.y;
     const dst = Math.sqrt(dx * dx + dy * dy);
     const shotSpeed = SHOT_SPEED_BASE + accuracy * 180 - pressureCount * 10;
@@ -1674,6 +2131,7 @@ export class GameEngine {
     const keyPass = delivery !== null && delivery.team === shooter.team && delivery.receiverId === shooter.id
       && this.clockMs - delivery.completedAt < 3000;
     const fromCross = keyPass && delivery.isCross;
+    const fromCutback = keyPass && delivery.source === 'cutback';
     this.activeShot = {
       shooterId: shooter.id,
       team: shooter.team,
@@ -1682,6 +2140,14 @@ export class GameEngine {
       launchSpeed: shotSpeed,
       fromCross,
       crossFromId: fromCross ? delivery.fromId : null,
+      fromCutback,
+      cutbackFromId: fromCutback ? delivery.fromId : null,
+      distance: shotDistance,
+      angleDeg,
+      pressureCount,
+      selectionScore: selectionAudit?.score ?? null,
+      bestPassScore: selectionAudit?.bestPassScore ?? null,
+      lowValue,
       saveAssessment: null,
     };
     if (keyPass) {
@@ -1690,6 +2156,10 @@ export class GameEngine {
     if (fromCross) {
       this.statsCrossShots++;
       this.logDebug('cross_to_shot', { from: delivery.fromId, shooter: shooter.id, contact: delivery.contact, delayMs: Math.round(this.clockMs - delivery.completedAt) });
+    }
+    if (fromCutback) {
+      this.statsCutbackShots++;
+      this.logDebug('cutback_to_shot', { from: delivery.fromId, shooter: shooter.id, contact: delivery.contact, delayMs: Math.round(this.clockMs - delivery.completedAt) });
     }
     this.qLastCompletedDelivery = null;
     const inOwnHalf = shooter.team === 'home' ? shooter.x < HALF_X : shooter.x > HALF_X;
@@ -1703,7 +2173,15 @@ export class GameEngine {
       y: Math.round(shooter.y),
       speed: Math.round(shotSpeed),
       distance: Math.round(shotDistance),
+      angleDeg: Math.round(angleDeg * 10) / 10,
       pressureCount,
+      lowValue,
+      acuteGeometry,
+      aimedGoalY: Math.round(goalY),
+      bestPass: selectionAudit?.bestPassTargetId ?? null,
+      bestPassScore: selectionAudit?.bestPassScore === null || selectionAudit?.bestPassScore === undefined
+        ? null
+        : Math.round(selectionAudit.bestPassScore * 1000) / 1000,
       projectedOnTarget: Math.abs(goalY - goalCenterY) <= GOAL_OPENING_HALF_W,
     });
   }
@@ -1818,6 +2296,17 @@ export class GameEngine {
         launchSpeed: speed,
         fromCross: true,
         crossFromId: crosserId,
+        fromCutback: false,
+        cutbackFromId: null,
+        distance: Math.hypot((player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X) - player.x, PITCH_H / 2 - player.y),
+        angleDeg: this.goalOpeningAngleDeg(player.x, player.y, player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X),
+        pressureCount: this.players.filter(p => p.team !== player.team && p.role !== 'GK' && dist(p, player) < 58).length,
+        selectionScore: null,
+        bestPassScore: null,
+        lowValue: (Math.abs(player.y - PITCH_H / 2) > GOAL_OPENING_HALF_W + 20
+          && this.goalOpeningAngleDeg(player.x, player.y, player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X) < 7.5
+          && Math.hypot((player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X) - player.x, PITCH_H / 2 - player.y) > 150)
+          || Math.hypot((player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X) - player.x, PITCH_H / 2 - player.y) > 300,
         saveAssessment: null,
       };
       this.qLastCompletedDelivery = null;
@@ -2549,11 +3038,11 @@ export class GameEngine {
     const inRight = b.x - BALL_R > AWAY_GOAL_X;
     if (inLeft) {
       this.logDebug('goal_line_crossing', { goal: 'home', x: Math.round(b.x), y: Math.round(b.y), z: Math.round(b.z) });
-      this.recordGoalQuality('away', HOME_GOAL_X); this.awayScore++; this.emitEvent('goal', b.x, b.y); this.resetAfterGoal('home');
+      this.recordGoalQuality('away'); this.awayScore++; this.emitEvent('goal', b.x, b.y); this.resetAfterGoal('home');
       return true;
     } else if (inRight) {
       this.logDebug('goal_line_crossing', { goal: 'away', x: Math.round(b.x), y: Math.round(b.y), z: Math.round(b.z) });
-      this.recordGoalQuality('home', AWAY_GOAL_X); this.homeScore++; this.emitEvent('goal', b.x, b.y); this.resetAfterGoal('away');
+      this.recordGoalQuality('home'); this.homeScore++; this.emitEvent('goal', b.x, b.y); this.resetAfterGoal('away');
       return true;
     }
     return false;
@@ -2563,7 +3052,7 @@ export class GameEngine {
     return Math.abs(ball.y - PITCH_H / 2) <= GOAL_OPENING_HALF_W && ball.z + BALL_R <= GOAL_H;
   }
 
-  private recordGoalQuality(scoringTeam: Team, goalX: number): void {
+  private recordGoalQuality(scoringTeam: Team): void {
     if (this.isShotActive) this.statsShotsOnTarget++;
     const directCross = this.pendingPass?.team === scoringTeam && this.pendingPass.isCross
       && !(this.activeShot?.team === scoringTeam && this.activeShot.fromCross);
@@ -2574,9 +3063,45 @@ export class GameEngine {
         crosser: this.pendingPass.fromId,
         speed: Math.round(Math.hypot(this.ball.vx, this.ball.vy)),
       });
+      this.logDebug('goal_audit', {
+        team: scoringTeam,
+        source: 'direct_cross',
+        from: this.pendingPass.fromId,
+        goalY: Math.round(this.ball.y),
+      });
     }
     if (this.activeShot?.team === scoringTeam) {
-      const shotDistance = Math.abs(goalX - this.activeShot.originX);
+      const shotDistance = this.activeShot.distance;
+      const angleDeg = this.activeShot.angleDeg;
+      this.statsAuditedGoals++;
+      this.statsGoalDistanceTotal += shotDistance;
+      this.statsGoalAngleTotal += angleDeg;
+      if (this.activeShot.lowValue) this.statsLowValueGoals++;
+      if (angleDeg < 8) this.statsTightAngleGoals++;
+      this.logDebug('goal_audit', {
+        team: scoringTeam,
+        shooter: this.activeShot.shooterId,
+        shotDistance: Math.round(shotDistance),
+        angleDeg: Math.round(angleDeg * 10) / 10,
+        pressureCount: this.activeShot.pressureCount,
+        shotSpeed: Math.round(this.activeShot.launchSpeed),
+        lowValue: this.activeShot.lowValue,
+        fromCross: this.activeShot.fromCross,
+        fromCutback: this.activeShot.fromCutback,
+        finalTouch: this.ball.lastToucherId,
+        redirected: this.ball.lastToucherId !== this.activeShot.shooterId,
+        selectionScore: this.activeShot.selectionScore,
+        bestPassScore: this.activeShot.bestPassScore,
+      });
+      if (this.activeShot.lowValue) {
+        this.logQualityFlag('low_value_goal', {
+          team: scoringTeam,
+          shooter: this.activeShot.shooterId,
+          distance: Math.round(shotDistance),
+          angleDeg: Math.round(angleDeg * 10) / 10,
+          pressureCount: this.activeShot.pressureCount,
+        }, 10000, `low_value_goal:${scoringTeam}`);
+      }
       if (shotDistance > 450) {
         this.logQualityFlag('long_range_goal', { team: scoringTeam, distance: Math.round(shotDistance) });
       }
@@ -2584,6 +3109,14 @@ export class GameEngine {
         this.statsCrossGoals++;
         this.logDebug('cross_goal', {
           crosser: this.activeShot.crossFromId,
+          shooter: this.activeShot.shooterId,
+          shotSpeed: Math.round(this.activeShot.launchSpeed),
+        });
+      }
+      if (this.activeShot.fromCutback) {
+        this.statsCutbackGoals++;
+        this.logDebug('cutback_goal', {
+          passer: this.activeShot.cutbackFromId,
           shooter: this.activeShot.shooterId,
           shotSpeed: Math.round(this.activeShot.launchSpeed),
         });

@@ -105,6 +105,7 @@ export type TeamAssignmentRole =
   | 'support_outlet'
   | 'advance_midfield'
   | 'run_ahead'
+  | 'inside_run'
   | 'hold_width'
   | 'overlap'
   | 'rest_defence';

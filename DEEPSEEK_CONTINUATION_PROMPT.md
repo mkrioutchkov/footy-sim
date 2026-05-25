@@ -10,6 +10,51 @@ compiles and produces deterministic seeded output. Work in small slices,
 measure each behavior change, and prefer mechanisms that explain what is seen
 on screen.
 
+## Latest Accepted State (2026-05-25)
+
+This is the baseline to use for new changes. The later historical evidence
+section describes an older state and must not be treated as the current
+benchmark.
+
+Standard `npm.cmd run benchmark` results for seeds 101 through 108, ten
+simulated minutes each:
+
+| Revision | Goals / match | Shots / match | Pass completion | Through balls / match | Crosses / match | Low-value goals |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Repository root `2d81c67` | 1.4 | 5.4 | 71.8% | 24.9 | not recorded | not recorded |
+| DeepSeek `f87ef60` | 1.8 | 6.3 | 81.2% | 29.5 | 0.9 | not recorded |
+| Latest accepted state | 0.8 | 3.0 | 80.7% | 28.6 | 0.3 | 0 |
+
+The accepted drop in output is intentional: the incoming branch could score
+from very acute positions that looked outside the rendered goal. The latest
+run audited six goals with no low-value goals. Average chosen shot angle is
+`13.3` degrees; all scored-goal opening angles were at least `7.5` degrees.
+
+New instrumentation and behavior you must preserve:
+
+- `pass_selection`, shot selection data and `goal_audit` quantify distance,
+  opening angle, pressure and available alternatives.
+- `moment_start` / `moment_followup` provide paired snapshots for
+  `why_this_pass`, `why_this_shot`, `why_no_shoot`, `why_this_presser`,
+  `why_player_running_direction` and `untracked_attacking_run`. A moment
+  raised in the final `1200ms` may end without a follow-up.
+- `cutback_start`, `cutback_to_shot` and `cutback_goal` distinguish pulled
+  back wide delivery from generic passing. The receiver of a recent cross or
+  cutback may take a first-time shot without entering a holding delay.
+- Off-ball attack is role-shaped and stable: CFs normally seek central lanes,
+  wide midfielders normally hold width with occasional inside runs, and
+  fullbacks overlap wide. Defensive lane blocks track advanced threats, while
+  urgent pressing may switch to a materially quicker defender.
+- Tight-angle shot selection and aiming protect the radius-aware rendered goal
+  aperture. Do not increase goals by weakening these constraints.
+
+Work next on replayable causes of low credible chance volume. In this standard
+run, cutbacks are `2.8` per match but cutback shots only `0.3`, cross-led shots
+are absent, raw avoidable primary-presser selections are `12.6` per match, and
+outfield dangerous turnovers are `4.3` per match. Use the paired moments to
+improve centrally prepared chances, pressing handoff, and distribution safety
+without admitting acute goals.
+
 ## Start Here
 
 Read these files before editing:
@@ -72,7 +117,7 @@ investigating an animation or event sequence.
   `player_way_off`/`defender_passive` spam or count normal receptions as rapid
   turnovers.
 
-## Current Evidence
+## Historical Baseline (Before Selection And Off-Ball Slice)
 
 Current `npm.cmd run benchmark` runs seeds 101-108 for ten simulated minutes:
 
@@ -104,7 +149,7 @@ illegal receivers. The goalkeeper assessment thresholds did not raise an
 implausible-save or preventable-goal flag in this seed set; do not loosen them
 without a replayable case.
 
-## Recommended Next Slice
+## Historical Recommended Slice (Already Implemented In Part)
 
 Diagnose missing chances and weak wide progression before changing keeper or
 goal rules:

@@ -8,10 +8,19 @@ import {
   SPEED_RUN, SPEED_SPRINT,
   clamp, dist, lerp, attrFactor,
 } from './constants';
-import type { GameEngine } from './engine';
+import type { GameEngine, PassSelectionAudit, ShotSelectionAudit } from './engine';
 import { random } from './random';
 
-interface A { type: string; score: number; target?: Player; posX?: number; posY?: number; purpose?: string; }
+interface ActionAudit {
+  distance?: number;
+  forwardProgress?: number;
+  expectedCompletion?: number;
+  blockers?: number;
+  receiverPressure?: number;
+  angleDeg?: number;
+  pressureCount?: number;
+}
+interface A { type: string; score: number; target?: Player; posX?: number; posY?: number; purpose?: string; audit?: ActionAudit; }
 interface GC { scoreDiff: number; timeLeft: number; half: number; urgency: number; }
 interface P { ballDist: number; ballIsLoose: boolean; ballControllerTeam: string | null; ballControllerId: number | null;
   nearbyTeammates: Player[]; nearbyOpponents: Player[]; nearestOpponentDist: number; iAmController: boolean;
@@ -22,10 +31,9 @@ export class PlayerAgent {
   player: Player; private e: GameEngine;
   private sl = 0; private sc = 0;   private pa = 0; private ch: P | null = null;
   private ht = 0; private lx = 0; private ly = 0;
-  private la = ''; private lt: number | null = null; private lp: number | null = null;
+  private la = ''; private lastPurpose = ''; private lt: number | null = null; private lp: number | null = null;
   private facing = 0;
   private recentPassTarget: number | null = null; private recentPassTime = 0;
-  private receivedFromWide = 0;
   private ballMemX = 0; private ballMemY = 0; private ballMemAge = 0;
 
   constructor(player: Player, engine: GameEngine) {
@@ -43,14 +51,6 @@ export class PlayerAgent {
     }
     const ic = this.e.ball.controllerId === this.player.id;
     if (ic) this.ht++; else this.ht = 0;
-    // track if I just received from a wide player (cross)
-    if (ic && this.ht === 1) {
-      const passer = this.e.playerById(this.e.ball.lastToucherId);
-      if (passer && passer.team === this.player.team && (passer.role === 'WM' || passer.role === 'FB') && Math.abs(passer.y - PITCH_H/2) > 130) {
-        this.receivedFromWide = 1200; // ~20 ticks of cross→shoot window
-      }
-    }
-    if (!ic) this.receivedFromWide = Math.max(0, this.receivedFromWide - 1);
     if (ic && this.e.isPreparingPass(this.player.id)) {
       this.player.targetX = this.player.x;
       this.player.targetY = this.player.y;
@@ -62,7 +62,9 @@ export class PlayerAgent {
     if (this.e.ball.intendedReceiverId === this.player.id) this.ch = null;
     const per = this.gp(); if (!per) { this.am(sdt); return; }
     const ctx = this.ctx();     const aff = this.ev(per, ic, ctx);
-    const ch = this.rc(aff); this.ex(ch, sdt);
+    const ch = this.rc(aff);
+    this.auditDefensiveMovement(ch);
+    this.ex(ch, sdt, aff);
     // per-player decision log
     if (this.e.clockMs % 500 < 20) { // log roughly every 500ms to avoid spam
       this.e.logPlayerDecision(this.player.id, ch.type, ch.score,
@@ -75,7 +77,17 @@ export class PlayerAgent {
       if (Math.abs(this.player.x - gx) < 120) {
         const shootOpt = aff.find(x => x.type === 'shoot');
         if (shootOpt && shootOpt.score > 0.20) {
-          this.e.logQualityFlag('why_no_shoot', { player: this.player.id, role: this.player.role, distToGoal: Math.round(Math.abs(this.player.x - gx)), shootScore: Math.round(shootOpt.score*1000)/1000, chose: ch.type, choseScore: Math.round(ch.score*1000)/1000 });
+          const distance = shootOpt.audit?.distance ?? Math.hypot(this.player.x - gx, this.player.y - PITCH_H / 2);
+          const angleDeg = shootOpt.audit?.angleDeg ?? this.e.goalOpeningAngleDeg(this.player.x, this.player.y, gx);
+          this.e.logQualityFlag('why_no_shoot', { player: this.player.id, role: this.player.role, distance: Math.round(distance), angleDeg: Math.round(angleDeg * 10) / 10, shootScore: Math.round(shootOpt.score*1000)/1000, chose: ch.type, choseScore: Math.round(ch.score*1000)/1000 });
+          this.e.captureDecisionMoment('why_no_shoot', this.player, {
+            chose: ch.type,
+            choseScore: Math.round(ch.score * 1000) / 1000,
+            shootScore: Math.round(shootOpt.score * 1000) / 1000,
+            distance: Math.round(distance),
+            angleDeg: Math.round(angleDeg * 10) / 10,
+            pressureCount: per.pressureCount,
+          }, 8000, `why_no_shoot:${this.player.team}`);
         }
       }
     }
@@ -176,6 +188,12 @@ export class PlayerAgent {
       const dg2 = Math.abs(p.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X));
       if (dg2 < 200 && fp > 0 && d < 150) sc += 0.10;       // WM crossing: near byline, target CF in box
       const dgW = Math.abs(p.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X));
+      const isCutback = (p.role === 'WM' || p.role === 'FB')
+        && dgW < 315
+        && Math.abs(p.y - PITCH_H / 2) > 90
+        && Math.abs(t.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X)) < 235
+        && Math.abs(t.y - PITCH_H / 2) < 135
+        && fp > -80;
       if (p.role === 'WM' && dgW < 250 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 150) sc += 0.22;
       // WM: cross early from deep — reward forward passes from wide areas
       if (p.role === 'WM' && fp > 100 && Math.abs(p.y - PITCH_H / 2) > 140 && bl <= 1) sc += 0.16;
@@ -185,6 +203,7 @@ export class PlayerAgent {
       else sc -= (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.15;
       let pur = 'keep'; if (fp > 120 && bl === 0) pur = 'build'; else if (fp > 40 && bl <= 1) pur = 'build';
       else if (Math.abs(t.y - p.y) > 150) pur = 'switch'; else if (bl >= 2 && fp < -30) pur = 'clear';
+      if (isCutback) pur = 'cutback';
       // switching play: boost cross-field passes when near flank is congested, far flank open
       if (pur === 'switch') {
         const carrierSide = p.y < PITCH_H / 2 ? 'top' : 'bottom';
@@ -215,7 +234,7 @@ export class PlayerAgent {
       const onsideGap = offsideLine === null ? Infinity : (offsideLine - t.x) * fd;
       const releasedRunner = targetTask === 'run_ahead' || targetTask === 'overlap'
         || (p.role === 'CM' && (t.role === 'CF' || t.role === 'WM'));
-      if (releasedRunner && fp > 40 && onsideGap > -15 && onsideGap < 140 && bl <= 1) {
+      if (!isCutback && releasedRunner && fp > 40 && onsideGap > -15 && onsideGap < 140 && bl <= 1) {
         pur = 'through';
         sc += 0.14 + attrFactor(p.attrs, 'creativity') * 0.10;
         // slight timing uncertainty: occasionally runners go fractionally offside
@@ -228,20 +247,36 @@ export class PlayerAgent {
       // one-two return: heavy bonus to pass back to a teammate who just passed to me
       const bb = this.e.teamBlackboards.get(p.team)!;
       if (bb.oneTwo && bb.oneTwo.from === t.id && bb.oneTwo.to === p.id && this.e.clockMs < bb.oneTwo.expires) sc += 0.25;
-      if (sc > 0) r.push({ type: 'pass', score: clamp(sc, 0, 1), target: t, purpose: pur });
+      if (sc > 0) r.push({
+        type: 'pass',
+        score: clamp(sc, 0, 1),
+        target: t,
+        purpose: pur,
+        audit: {
+          distance: d,
+          forwardProgress: fp,
+          expectedCompletion: completion,
+          blockers: bl,
+          receiverPressure,
+        },
+      });
     }
     return r;
   }
 
   private cs(per: P, ctx: GC): A {
-    const p = this.player; const gx = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X; const dg = Math.abs(p.x - gx);
-    // role-based max shoot range: CFs can hit from range, WMs only close, defenders barely
+    const p = this.player; const gx = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
+    const depthToGoal = Math.abs(p.x - gx);
+    const shotDistance = Math.hypot(p.x - gx, p.y - PITCH_H / 2);
+    const angleDeg = this.e.goalOpeningAngleDeg(p.x, p.y, gx);
+    const audit: ActionAudit = { distance: shotDistance, angleDeg, pressureCount: per.pressureCount };
+    // Preserve normal chance-taking while rejecting the diagnosed near-byline geometry.
     const roleMax: Record<string, number> = { 'CF': 260, 'CM': 220, 'WM': 180, 'FB': 150, 'CB': 140 };
     const hardMax = roleMax[p.role] ?? 220;
-    if (dg > hardMax) return { type: 'shoot', score: 0 };
+    if (depthToGoal > hardMax) return { type: 'shoot', score: 0, audit };
     const mr = SHOOT_MIN_DIST + attrFactor(p.attrs, 'shooting') * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
-    if (dg > Math.min(mr, hardMax)) return { type: 'shoot', score: 0 };
-    let sc = attrFactor(p.attrs, 'shooting') * (1 - dg / mr) * 0.35; // lower base
+    if (depthToGoal > Math.min(mr, hardMax)) return { type: 'shoot', score: 0, audit };
+    let sc = attrFactor(p.attrs, 'shooting') * (1 - depthToGoal / mr) * 0.35;
     const gk = this.e.players.find(o => o.team !== p.team && o.role === 'GK');
     if (gk) {
       const gkOffCenter = Math.abs(p.y - gk.y);
@@ -249,22 +284,20 @@ export class PlayerAgent {
       else if (gkOffCenter < 25) sc -= 0.08; // keeper well positioned
       if (Math.abs(gk.x - gx) > 50) sc += 0.08; // keeper off line
     }
-    // only close-range shots get bonus
-    if (dg < 100) sc += 0.12;
-      if (dg < 60) sc += 0.10;
-      // role-based: CFs shoot more, CMs shoot less
-      if (p.role === 'CF') sc += 0.11;
-      if (p.role === 'CM') sc -= 0.05;
-    // wide angle penalty
+    if (depthToGoal < 100) sc += 0.12;
+    if (depthToGoal < 60) sc += 0.10;
+    if (p.role === 'CF') sc += 0.11;
+    if (p.role === 'CM') sc -= 0.05;
     if (Math.abs(p.y - PITCH_H / 2) > 100) sc -= 0.08;
+    if (angleDeg < 7.5 && shotDistance > 150) sc -= 0.08;
     sc -= Math.min(0.24, per.pressureCount * 0.09);
-    if (ctx.urgency > 0.6 && dg < 350) sc += 0.08;
-    // near goal: shoot! Don't pass or dribble when you can score
-    if (dg < 120) sc += 0.35;
-    if (dg < 70) sc += 0.25;
+    if (ctx.urgency > 0.6 && depthToGoal < 350) sc += 0.08;
+    const credibleOpening = angleDeg >= 7.5 || shotDistance < 115;
+    if (depthToGoal < 120 && credibleOpening) sc += 0.35;
+    if (depthToGoal < 70 && credibleOpening) sc += 0.25;
     // cross→shot: just received from wide player → shoot first time in box
-    if (dg < 160 && Math.abs(p.y - PITCH_H / 2) < 150 && this.receivedFromWide > 0) sc += 0.28;
-    return { type: 'shoot', score: clamp(sc, 0, 1) };
+    if (depthToGoal < 190 && angleDeg > 8 && this.e.isRecentFinishingDeliveryReceiver(p.id)) sc += 0.46;
+    return { type: 'shoot', score: clamp(sc, 0, 1), audit };
   }
 
   private cd(per: P, _ctx: GC): A {
@@ -645,7 +678,7 @@ export class PlayerAgent {
         primary_press: 0.90, secondary_press: 0.78, cover: 0.80, lane_block: 0.76,
         defensive_line: 0.80, wide_cover: 0.80, midfield_screen: 0.80,
         support_outlet: 0.77, advance_midfield: 0.82, run_ahead: 0.85,
-        hold_width: 0.80, overlap: 0.88, rest_defence: 0.76,
+        inside_run: 0.84, hold_width: 0.80, overlap: 0.88, rest_defence: 0.76,
       };
       options.push({ type: 'position', score: taskScores[task.role], posX: task.targetX, posY: task.targetY, purpose: `task:${task.role}` });
     }
@@ -679,14 +712,90 @@ export class PlayerAgent {
     return best;
   }
 
-  private ex(a: A, sdt: number): void {
+  private passSelectionAudit(choice: A, actions: A[]): PassSelectionAudit | undefined {
+    const chosen = choice.audit;
+    if (!choice.target || chosen?.distance === undefined || chosen.forwardProgress === undefined
+      || chosen.expectedCompletion === undefined || chosen.blockers === undefined || chosen.receiverPressure === undefined) return undefined;
+    const safer = actions
+      .filter(a => a.type === 'pass' && a.target?.id !== choice.target!.id
+        && a.audit?.expectedCompletion !== undefined && a.audit.forwardProgress !== undefined
+        && a.audit.expectedCompletion >= chosen.expectedCompletion! + 0.12
+        && a.audit.forwardProgress >= chosen.forwardProgress! - 35
+        && a.score >= choice.score - 0.04)
+      .sort((a, b) => (b.audit?.expectedCompletion ?? 0) - (a.audit?.expectedCompletion ?? 0))[0];
+    return {
+      score: choice.score,
+      distance: chosen.distance,
+      forwardProgress: chosen.forwardProgress,
+      expectedCompletion: chosen.expectedCompletion,
+      blockers: chosen.blockers,
+      receiverPressure: chosen.receiverPressure,
+      purpose: choice.purpose ?? 'keep',
+      saferOptionTargetId: safer?.target?.id ?? null,
+      saferOptionScore: safer?.score ?? null,
+      saferOptionCompletion: safer?.audit?.expectedCompletion ?? null,
+      saferOptionProgress: safer?.audit?.forwardProgress ?? null,
+    };
+  }
+
+  private shotSelectionAudit(choice: A, actions: A[]): ShotSelectionAudit | undefined {
+    const shot = choice.audit;
+    if (shot?.distance === undefined || shot.angleDeg === undefined || shot.pressureCount === undefined) return undefined;
+    const bestPass = actions.filter(a => a.type === 'pass' && a.target).sort((a, b) => b.score - a.score)[0];
+    return {
+      score: choice.score,
+      distance: shot.distance,
+      angleDeg: shot.angleDeg,
+      pressureCount: shot.pressureCount,
+      bestPassTargetId: bestPass?.target?.id ?? null,
+      bestPassScore: bestPass?.score ?? null,
+      bestPassCompletion: bestPass?.audit?.expectedCompletion ?? null,
+    };
+  }
+
+  private auditDefensiveMovement(choice: A): void {
+    const task = this.e.assignmentFor(this.player.id);
+    const controller = this.e.playerById(this.e.ball.controllerId);
+    if (!task || !controller || controller.team === this.player.team) return;
+    if (task.role !== 'primary_press' && task.role !== 'secondary_press') return;
+    if (choice.type === 'tackle' || choice.type === 'chase' || choice.purpose === `task:${task.role}`) return;
+    const targetX = choice.target?.x ?? choice.posX ?? this.player.targetX;
+    const targetY = choice.target?.y ?? choice.posY ?? this.player.targetY;
+    const currentDistance = dist(this.player, controller);
+    const targetDistance = Math.hypot(targetX - controller.x, targetY - controller.y);
+    const ownGoalX = this.player.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
+    const danger = Math.abs(controller.x - ownGoalX) < 240;
+    if (!danger && targetDistance <= currentDistance + 12) return;
+    this.e.logQualityFlag('why_player_running_direction', {
+      player: this.player.id,
+      task: task.role,
+      controller: controller.id,
+      chose: choice.type,
+      purpose: choice.purpose ?? null,
+      currentDistance: Math.round(currentDistance),
+      targetDistance: Math.round(targetDistance),
+      danger,
+    }, 8000, `why_player_running_direction:${this.player.team}`);
+    this.e.captureDecisionMoment('why_player_running_direction', this.player, {
+      task: task.role,
+      controller: controller.id,
+      chose: choice.type,
+      purpose: choice.purpose ?? null,
+      currentDistance: Math.round(currentDistance),
+      targetDistance: Math.round(targetDistance),
+      danger,
+    }, 8000, `why_player_running_direction:${this.player.team}`);
+  }
+
+  private ex(a: A, sdt: number, actions: A[]): void {
     const p = this.player, b = this.e.ball;
-    this.la = a.type; this.lt = a.target?.id ?? null;
+    this.la = a.type; this.lastPurpose = a.purpose ?? ''; this.lt = a.target?.id ?? null;
     switch (a.type) {
       case 'pass': if (a.target) {
+        const selectionAudit = this.passSelectionAudit(a, actions);
         const released = a.purpose === 'clear'
-          ? (this.e.forcePassTo(p, a.target), true)
-          : this.e.passBallTo(p, a.target, a.purpose === 'through');
+          ? (this.e.forcePassTo(p, a.target, selectionAudit), true)
+          : this.e.passBallTo(p, a.target, a.purpose === 'through', false, selectionAudit);
         if (released) {
           this.lp = a.target.id;
           this.recentPassTarget = a.target.id; this.recentPassTime = this.e.clockMs;
@@ -699,7 +808,7 @@ export class PlayerAgent {
           this.sl = 4;
         }
       } break;
-      case 'shoot': this.e.shootBall(p); this.e.emitEvent('shot', p.x, p.y); this.sl = 20; break;
+      case 'shoot': this.e.shootBall(p, this.shotSelectionAudit(a, actions)); this.e.emitEvent('shot', p.x, p.y); this.sl = 20; break;
       case 'dribble': p.targetX = a.posX ?? (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X); p.targetY = a.posY ?? p.y;
         // backward dribble alert
         const oppGoalX = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
@@ -715,7 +824,12 @@ export class PlayerAgent {
       case 'chase': { const tx = a.posX ?? b.x, ty = a.posY ?? b.y; p.targetX = tx; p.targetY = ty;
         const ms = attrFactor(p.attrs, 'speed') * SPEED_SPRINT; const cdx = tx - p.x, cdy = ty - p.y, cd = Math.sqrt(cdx * cdx + cdy * cdy);
         if (cd > 1) { p.vx = lerp(p.vx, (cdx / cd) * ms, 0.15); p.vy = lerp(p.vy, (cdy / cd) * ms, 0.15); }
-        if (dist(p, b) < COLLECT_DIST * 1.3 && b.z < 20) { const bs = Math.sqrt(b.vx ** 2 + b.vy ** 2); if (bs < (p.id === b.intendedReceiverId ? COLLECT_SPEED_MAX * INTENDED_COLLECT_BONUS : COLLECT_SPEED_MAX)) { this.e.collectBall(p); this.sl = 45; this.sc = 15; } } break; }
+        if (dist(p, b) < COLLECT_DIST * 1.3 && b.z < 20) { const bs = Math.sqrt(b.vx ** 2 + b.vy ** 2); if (bs < (p.id === b.intendedReceiverId ? COLLECT_SPEED_MAX * INTENDED_COLLECT_BONUS : COLLECT_SPEED_MAX)) {
+          this.e.collectBall(p);
+          const firstTimeChance = this.e.isRecentFinishingDeliveryReceiver(p.id);
+          this.sl = firstTimeChance ? 0 : 45;
+          this.sc = firstTimeChance ? 0 : 15;
+        } } break; }
       case 'position': p.targetX = a.posX ?? p.homeX; p.targetY = a.posY ?? p.homeY;
         if (a.purpose?.startsWith('task:')) this.e.noteTaskSelection(p, a.purpose.slice(5) as TeamAssignmentRole);
         break;
@@ -768,12 +882,15 @@ export class PlayerAgent {
     const sf = p.stamina < STAMINA_SLOW_THRESHOLD * 100 ? p.stamina / 100 : 1;
     const dx = p.targetX - p.x, dy = p.targetY - p.y, d = Math.sqrt(dx * dx + dy * dy);
     const committedRun = this.e.committedRunFor(p.id) !== undefined;
-    // A called-for run behind the line is a sprint even when the ball is far away.
+    const pressTask = this.lastPurpose === 'task:primary_press';
+    // Called-for runs and an urgent primary press must actually engage at sprint pace.
     const bdx = this.e.ball.x - p.x, bdy = this.e.ball.y - p.y, bd = Math.sqrt(bdx * bdx + bdy * bdy);
-    const isObserving = !committedRun && bd > 300 && bd > PLAYER_AWARE_RANGE * 0.5;
+    const ownGoalX = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
+    const committedPress = pressTask && bd > 45 && (bd < 145 || Math.abs(this.e.ball.x - ownGoalX) < 240);
+    const isObserving = !committedRun && !committedPress && bd > 300 && bd > PLAYER_AWARE_RANGE * 0.5;
     const cruiseMul = isObserving ? (p.role === 'CF' ? 0.45 : p.role === 'CB' || p.role === 'FB' ? 0.65 : p.role === 'WM' ? 0.55 : 0.50) : 1;
-    const baseSpeed = this.la === 'chase' || committedRun ? SPEED_SPRINT : SPEED_RUN;
-    const df = committedRun ? 1 : Math.min(d / 120, 1.5), ms = attrFactor(p.attrs, 'speed') * baseSpeed * sf * df * cruiseMul;
+    const baseSpeed = this.la === 'chase' || committedRun || committedPress ? SPEED_SPRINT : SPEED_RUN;
+    const df = committedRun || committedPress ? 1 : Math.min(d / 120, 1.5), ms = attrFactor(p.attrs, 'speed') * baseSpeed * sf * df * cruiseMul;
     const px = p.x, py = p.y; if (d > 1) { const sp = Math.min(ms * secs, d); p.x += (dx / d) * sp; p.y += (dy / d) * sp; }
     if (secs > 0.001) { p.vx = (p.x - px) / secs; p.vy = (p.y - py) / secs; }
     // ball tracking: update memory when ball is in vision cone, otherwise age it

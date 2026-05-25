@@ -73,12 +73,17 @@ const qualityFlags = sumValues(results.map(result => result.qualityFlags));
 const attempted = results.reduce((total, result) => total + result.passes.attempted, 0);
 const completed = results.reduce((total, result) => total + result.passes.completed, 0);
 const crosses = results.reduce((total, result) => total + result.crosses.attempted, 0);
+const cutbacks = results.reduce((total, result) => total + result.cutbacks.attempted, 0);
 const gkDistributions = results.reduce((total, result) => total + result.distributions.goalkeeper.attempted, 0);
 const completedGKDistributions = results.reduce((total, result) => total + result.distributions.goalkeeper.completed, 0);
 const looseBallSamples = results.reduce((total, result) => total + result.ballSpeed.looseSamples, 0);
 const passLaunches = results.reduce((total, result) => total + result.ballSpeed.passLaunches, 0);
 const shotLaunches = results.reduce((total, result) => total + result.ballSpeed.shotLaunches, 0);
 const headerLaunches = results.reduce((total, result) => total + result.ballSpeed.headerLaunches, 0);
+const auditedPasses = results.reduce((total, result) => total + result.selectionAudit.passes.audited, 0);
+const auditedShots = results.reduce((total, result) => total + result.selectionAudit.shots.audited, 0);
+const auditedGoals = results.reduce((total, result) => total + result.selectionAudit.goals.audited, 0);
+const pressSamples = results.reduce((total, result) => total + result.defending.pressSamples, 0);
 const output = {
   config: { matches, minutes, seeds: results.map(result => result.seed), tacticalOverrides: overrides },
   aggregate: {
@@ -99,6 +104,10 @@ const output = {
     crossCompletionPct: round(results.reduce((total, result) => total + result.crosses.completed, 0) / Math.max(1, crosses) * 100),
     crossShotsPerMatch: round(results.reduce((total, result) => total + result.crosses.shots, 0) / matches),
     crossGoalsPerMatch: round(results.reduce((total, result) => total + result.crosses.goals, 0) / matches),
+    cutbacksPerMatch: round(cutbacks / matches),
+    cutbackCompletionPct: round(results.reduce((total, result) => total + result.cutbacks.completed, 0) / Math.max(1, cutbacks) * 100),
+    cutbackShotsPerMatch: round(results.reduce((total, result) => total + result.cutbacks.shots, 0) / matches),
+    cutbackGoalsPerMatch: round(results.reduce((total, result) => total + result.cutbacks.goals, 0) / matches),
     gkDistributionsPerMatch: round(gkDistributions / matches),
     gkDistributionCompletionPct: round(completedGKDistributions / Math.max(1, gkDistributions) * 100),
     gkDangerousTurnoversPerMatch: round(results.reduce((total, result) => total + result.distributions.goalkeeper.dangerousTurnovers, 0) / matches),
@@ -112,6 +121,22 @@ const output = {
     shotLaunchSpeedAvg: round(results.reduce((total, result) => total + result.ballSpeed.shotLaunchAvg * result.ballSpeed.shotLaunches, 0) / Math.max(1, shotLaunches)),
     headerLaunchSpeedAvg: round(results.reduce((total, result) => total + result.ballSpeed.headerLaunchAvg * result.ballSpeed.headerLaunches, 0) / Math.max(1, headerLaunches)),
     midfieldTerritoryPct: round(results.reduce((total, result) => total + result.territoryPct.mid, 0) / matches),
+    auditedPassesPerMatch: round(auditedPasses / matches),
+    chosenPassDistanceAvg: round(results.reduce((total, result) => total + result.selectionAudit.passes.avgDistance * result.selectionAudit.passes.audited, 0) / Math.max(1, auditedPasses)),
+    chosenPassExpectedCompletionPct: round(results.reduce((total, result) => total + result.selectionAudit.passes.avgExpectedCompletion * result.selectionAudit.passes.audited, 0) / Math.max(1, auditedPasses)),
+    saferPassIgnoredPerMatch: round(results.reduce((total, result) => total + result.selectionAudit.passes.saferOptionIgnored, 0) / matches),
+    auditedShotsPerMatch: round(auditedShots / matches),
+    chosenShotDistanceAvg: round(results.reduce((total, result) => total + result.selectionAudit.shots.avgDistance * result.selectionAudit.shots.audited, 0) / Math.max(1, auditedShots)),
+    chosenShotAngleDegAvg: round(results.reduce((total, result) => total + result.selectionAudit.shots.avgAngleDeg * result.selectionAudit.shots.audited, 0) / Math.max(1, auditedShots)),
+    lowValueShotsPerMatch: round(results.reduce((total, result) => total + result.selectionAudit.shots.lowValue, 0) / matches),
+    betterPassShotChoicesPerMatch: round(results.reduce((total, result) => total + result.selectionAudit.shots.betterPassAvailable, 0) / matches),
+    auditedGoalsPerMatch: round(auditedGoals / matches),
+    chosenGoalDistanceAvg: round(results.reduce((total, result) => total + result.selectionAudit.goals.avgDistance * result.selectionAudit.goals.audited, 0) / Math.max(1, auditedGoals)),
+    chosenGoalAngleDegAvg: round(results.reduce((total, result) => total + result.selectionAudit.goals.avgAngleDeg * result.selectionAudit.goals.audited, 0) / Math.max(1, auditedGoals)),
+    lowValueGoalsPerMatch: round(results.reduce((total, result) => total + result.selectionAudit.goals.lowValue, 0) / matches),
+    pressPrimaryDistanceAvg: round(results.reduce((total, result) => total + result.defending.avgPrimaryDistance * result.defending.pressSamples, 0) / Math.max(1, pressSamples)),
+    avoidablePressSelectionsPerMatch: round(results.reduce((total, result) => total + result.defending.avoidablePressSelections, 0) / matches),
+    dangerUnengagedSamplesPerMatch: round(results.reduce((total, result) => total + result.defending.dangerUnengagedSamples, 0) / matches),
   },
   tacticalActivity: taskSelections,
   qualityFlags,

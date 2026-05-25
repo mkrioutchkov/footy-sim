@@ -60,8 +60,10 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 - `possession` — when a player gains control
 - `pass_attempt`, `pass_complete`, `pass_fail` — accountable delivery outcomes
 - `pass_start` / `force_pass_start` — normal vs panic pass execution
+- `pass_selection` — chosen target geometry, expected completion and viable safer alternative
 - `timed_run_start`, `timed_pass_release`, `offside` — through-run release timing
-- `shot_start` — shot taken
+- `cutback_start`, `cutback_to_shot`, `cutback_goal` — wide pull-back outcomes
+- `shot_start`, `goal_audit` — shot choice geometry and resulting scored chance
 - `goal_line_crossing` — accepted crossing position and height inside the goal frame
 - `cross_to_shot`, `cross_goal` - delivered crosses that lead to a shot or goal
 - `gk_distribution_result` - goalkeeper delivery completion or failure context
@@ -70,6 +72,8 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 - `save` / `goal` — key match outcomes
 - `set_piece_awarded`, `set_piece_taker` — restarts
 - `assignments` — team coordinator role assignments
+- `press_assignment_audit`, `off_ball_shape` — presser choice and tracked attacking runs
+- `moment_start`, `moment_followup` — paired decision snapshots for quality alerts
 - `contest_block` — player blocked from re-collecting after releasing
 
 Quality flags are intended to name actionable failures. In particular,
@@ -93,8 +97,9 @@ npm run batch -- --matches 5 --minutes 10 --seed 1
 ```
 
 The batch output includes possession, territory, pass and shot rates, cross
-outcomes, distribution outcomes, goalkeeper assessments and weighted ball
-launch speeds. Reusing the same seed set makes tactical changes comparable
+and cutback outcomes, distribution outcomes, goalkeeper assessments, weighted
+ball launch speeds, pass/shot selection audits and pressing-assignment
+diagnostics. Reusing the same seed set makes tactical changes comparable
 rather than anecdotal.
 
 For visual inspection with repeatable team generation and agent decisions,

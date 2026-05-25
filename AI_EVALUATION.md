@@ -189,6 +189,68 @@ Known interpretation for the next intelligence pass:
   recover shots by allowing post-line saves or radius-blind goals. Diagnose
   circulation and final-third entries before changing pass utility.
 
+## 2026-05-25 Selection, Goal-Angle And Off-Ball Iteration
+
+The latest pass was compared with both the original repository root and
+DeepSeek's incoming `f87ef60` state using the standard seeds 101 through 108
+for ten simulated minutes each:
+
+| Revision | Goals | Shots | Pass completion | Through balls | Crosses | Low-value goals |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Repository root `2d81c67` | 1.4 | 5.4 | 71.8% | 24.9 | not recorded | not recorded |
+| DeepSeek `f87ef60` | 1.8 | 6.3 | 81.2% | 29.5 | 0.9 | not recorded |
+| Latest accepted state | 0.8 | 3.0 | 80.7% | 28.6 | 0.3 | 0 |
+
+The lower current goal and shot count is accepted for this slice because the
+incoming simulation could award visually implausible goals from acute,
+near-byline positions. Six scored goals in the current benchmark were audited;
+none were low value and each had a recorded opening angle of at least `7.5`
+degrees. Current benchmark additions include `2.8` cutbacks per match,
+`0.3` cutback-led shots, an average chosen shot angle of `13.3` degrees and
+`12.6` raw avoidable primary-presser selections per match.
+
+Mechanisms and telemetry now in place:
+
+- Pass choices log `pass_selection` with distance, expected completion,
+  forward progress and a comparable safer alternative when one exists.
+  Shot and goal audits record distance, opening angle, pressure and the
+  highest-ranked passing alternative.
+- `moment_start` and `moment_followup` capture two snapshots roughly `1200ms`
+  apart for `why_this_pass`, `why_this_shot`, `why_no_shoot`,
+  `why_this_presser`, `why_player_running_direction` and
+  `untracked_attacking_run`. A moment begun just before the final whistle may
+  reasonably have no follow-up frame.
+- Acute shooting geometry is penalized at selection time and cannot aim
+  through the painted goal aperture from the diagnosed near-post angle.
+  `goal_audit` and `low_value_goal` protect this repair from future tuning.
+- Wide deliveries distinguish `cutback_start`, `cutback_to_shot` and
+  `cutback_goal`. A completed finishing delivery now lets its receiver shoot
+  immediately; seed `104` produced a cutback-led shot `17ms` after control.
+- Attacking tasks now create stable role-shaped movement: central forwards
+  normally choose central open lanes, wide midfielders normally preserve
+  width with occasional inside runs, and fullbacks normally overlap wide.
+  Defenders add lane blocks for advanced off-ball threats and prefer a
+  materially quicker urgent presser when the carrier is dangerous.
+- The prior cross-to-shot bonus bug is removed: the receiver is now detected
+  from the completed delivery record rather than reading a last-toucher value
+  already replaced on collection.
+
+Next measured slice:
+
+1. Replay `no_shots` and `why_no_shoot` moments and create more centrally
+   prepared, credible shots without relaxing the angle safeguard. Standard
+   seeds currently contain no cross-led shots and only `0.3` cutback-led
+   shots per match.
+2. Reduce the raw `12.6` avoidable press assignments while retaining defensive
+   coverage. Diagnose `why_this_presser` snapshots before changing thresholds.
+3. Inspect `bad_player_distribution` and outfield dangerous turnovers, now
+   `4.3` per match, so extra attacking motion does not merely generate cheap
+   transition chances.
+
+Acceptance constraints remain deterministic seeded output, zero
+`low_value_goal` events in the benchmark, and preservation of the pitch,
+goal-aperture, tackle and rendered-line repairs.
+
 ## Engineering Rules For AI Changes
 
 - Preserve fixed update ordering unless the ordering defect is specifically
