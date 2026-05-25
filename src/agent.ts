@@ -412,11 +412,11 @@ export class PlayerAgent {
         else if (o.role === 'CM') score -= 15;
       }
       // CB: strongly prefer CF (direct threat), then CM
-      if (!isFb) {
+      if (score < bd && d < 300) { bd = score; best = o; } }
         if (o.role === 'CF') score -= 60;
         else if (o.role === 'CM') score -= 20;
       }
-      if (score < bd && d < 300) { bd = score; best = o; } }
+    if (!isFb) {
     if (!best) return { type: 'mark', score: 0 };
     const dangerDist = dist(this.player, best);
     const baseScore = isFb ? 0.60 : 0.50;
@@ -554,6 +554,13 @@ export class PlayerAgent {
           c.push({ x: lerp(p.x, carrier.x, 0.3), y: lerp(p.y, carrier.y, 0.25), pur: 'offer' });
           c.push({ x: lerp(p.x, carrier.x, 0.2), y: clamp(lerp(p.y, carrier.y, 0.15), 40, PITCH_H - 40), pur: 'offer' });
         }
+      }
+    }
+    // react to nearby pass: edge toward passing lane to offer option
+    if (this.e.qRecentPass && this.e.clockMs - this.e.qRecentPass.clockMs < 600) {
+      const rp = this.e.qRecentPass;
+      if (rp.team === this.player.team && dist(this.player, { x: rp.bx, y: rp.by }) < 250) {
+        c.push({ x: lerp(p.x, rp.bx, 0.12), y: lerp(p.y, rp.by, 0.10), pur: 'offer' });
       }
     }
     if (my && ip === p.team) {
