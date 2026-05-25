@@ -19,8 +19,8 @@ When asked to "iterate" or "continue autonomously", follow this cycle:
 | Shots/match | 3-8 | 6+ |
 | On target % | 37-75% | 35-50% |
 | Pass completion | 73-82% | 75-80% |
-| Crosses/match | 0-1.5 | 1+ |
-| Cross shots/match | 0-0.5 | 0.5+ |
+| Open-play crosses/match | 2.4 | audit repetitive outliers |
+| Open-play cross shots/match | 1.0 | retain origin attribution |
 | Through-balls | 24-47 | 25-40 |
 | No_shots flags | 1-12 | <5 |
 | Avoidable press | 12-16 | <12 |
@@ -33,6 +33,7 @@ When asked to "iterate" or "continue autonomously", follow this cycle:
 - Never weaken goal aperture constraints
 - Prefer diagnosed behavior changes over stacked score bonuses.
 - Treat telemetry as invalid until its definition is bounded and covered by a scenario or replay.
+- Do not relabel forward wide crosses as cutbacks; preserve origin-specific cross attempts, shots and goals.
 - Always benchmark after every change
 - Commit after measurable improvements
 - Push after every 2-3 commits

@@ -65,7 +65,7 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 - `cutback_start`, `cutback_to_shot`, `cutback_goal` — wide pull-back outcomes
 - `shot_start`, `goal_audit` — shot choice geometry and resulting scored chance
 - `goal_line_crossing` — accepted crossing position and height inside the goal frame
-- `cross_to_shot`, `cross_goal` - delivered crosses that lead to a shot or goal
+- `cross_to_shot`, `cross_goal` - delivered crosses that lead to a shot or goal, retaining open-play/corner origin in batch outcomes
 - `gk_distribution_result` - goalkeeper delivery completion or failure context
 - `gk_save_assessment` - shot speed, projected offset, time to line and save chance
 - `tackle_win`, `tackle_fail`, `tackle_rejected` — contact-validated challenges
@@ -131,6 +131,12 @@ use the same long/acute geometry rejection as the low-value audit, and
 rejected options cannot be revived by later urgency or pressure bonuses.
 `poor_gk_save_attempt` is reserved for clear keeper failures; less certain
 beaten assessments remain visible in `gk_save_assessment`.
+
+A wide forward delivery into a central finishing target is a cross; a
+cutback is the pull-back alternative, not a catch-all label for every wide
+pass. Batch cross output separates open-play and corner attempts,
+completions, shots and goals. A selected cross remains an attempted cross if
+the eventual delivery misses its intended central landing area.
 
 For visual inspection with repeatable team generation and agent decisions,
 seed the live server:

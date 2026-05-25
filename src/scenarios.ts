@@ -77,6 +77,39 @@ function crossCompletionScenario(): void {
   const summary = engine.getAnalysisSummary();
   assert(receiver.crossCollected === 1200, 'completed cross did not start receiver finishing window');
   assert(summary.crosses.completed === 1, 'completed cross was not counted');
+  assert(summary.crosses.openPlayCompleted === 1, 'completed open-play cross was not classified by origin');
+  engine.ball.controllerId = receiver.id;
+  engine.ball.x = receiver.x + 12; engine.ball.y = receiver.y;
+  engine.shootBall(receiver);
+  assert(engine.getAnalysisSummary().crosses.openPlayShots === 1, 'open-play cross-led shot lost its origin');
+}
+
+function selectedCrossClassificationScenario(): void {
+  const engine = createEngine(15);
+  const crosser = engine.players.find(player => player.team === 'home' && player.role === 'WM') ?? outfielder(engine, 'home');
+  const receiver = engine.players.find(player => player.team === 'home' && player.role === 'CF') ?? outfielder(engine, 'home');
+  crosser.x = AWAY_GOAL_X - 280; crosser.y = 60;
+  // Selection intent remains a cross even if execution leads just outside the ideal box target.
+  receiver.x = AWAY_GOAL_X - 210; receiver.y = PITCH_H / 2;
+  engine.ball.x = crosser.x + 12; engine.ball.y = crosser.y;
+  engine.ball.controllerId = crosser.id;
+  const released = engine.passBallTo(crosser, receiver, false, false, {
+    score: 0.6,
+    distance: 330,
+    forwardProgress: 150,
+    expectedCompletion: 0.7,
+    blockers: 0,
+    receiverPressure: 0,
+    purpose: 'cross',
+    saferOptionTargetId: null,
+    saferOptionScore: null,
+    saferOptionCompletion: null,
+    saferOptionProgress: null,
+  });
+  const summary = engine.getAnalysisSummary();
+  assert(released, 'selected open-play cross was not released');
+  assert(summary.crosses.openPlayAttempted === 1, 'selected open-play cross was not counted by origin');
+  assert(summary.crosses.cornerAttempted === 0, 'selected open-play cross was counted as a corner');
 }
 
 function aerialReachScenario(): void {
@@ -187,14 +220,16 @@ function scriptedCornerWindupScenario(): void {
   for (let tick = 0; tick < 13; tick++) engine.update(16.667);
   summary = engine.getAnalysisSummary();
   assert(summary.crosses.attempted === 1, 'scripted corner cross did not execute after its wind-up');
+  assert(summary.crosses.cornerAttempted === 1, 'scripted corner cross was not classified by origin');
   assert(summary.shots.home + summary.shots.away === 0, 'scripted corner created a phantom shot');
 }
 
 contactBoundsScenario();
 crossCompletionScenario();
+selectedCrossClassificationScenario();
 aerialReachScenario();
 shotBlockScenario();
 finalThirdConversionScenario();
 invalidShotChoiceScenario();
 scriptedCornerWindupScenario();
-console.log('Scenario checks passed: contact, crosses, headers, shot blocks, final-third conversion, shot rejection, corner wind-up.');
+console.log('Scenario checks passed: contact, cross origin, headers, shot blocks, final-third conversion, shot rejection, corner wind-up.');

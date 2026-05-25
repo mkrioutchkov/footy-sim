@@ -2,12 +2,13 @@
 
 ## Active — P0 (affects benchmarks)
 - [ ] Recover credible chance volume (`4.4` shots / match after rejecting bad attempts) through delivery and movement, not weaker shot geometry
-- [ ] Replay the remaining `no_shots` alerts (`6` in the standard run) while creating wide/cutback alternatives
+- [ ] Replay the remaining `no_shots` alerts (`6` in the standard run) while creating varied central finishing options
+- [ ] Replay seed `103` for potentially repetitive crossing (`9` open-play crosses in ten simulated minutes)
 - [ ] Validate dribble-type episodes and tackle outcomes (`84.3` fast, `6.6` medium, `16.0` close / match)
 
 ## Active — P1 (realism metrics)
-- [ ] Cross frequency and completion (`0.3` attempts, `0` completions / match) through positioning and delivery choices only
-- [ ] Cross-to-shot chain (`0` / match; do not expand receiver/header reach)
+- [ ] Monitor open-play cross quality (`2.4` attempts, `63.2%` completion, `1.0` resulting shots / match)
+- [ ] Convert varied credible deliveries into goals without overusing one crosser (`0.4` open-play cross goals / match)
 - [ ] Shot block rate (`5.7%` current run; replay after restoring credible shots)
 - [ ] Monitor final-third entry-to-shot conversion (`18.6%` current run)
 - [ ] Goals consistency (`1.1` / match standard run)
@@ -15,6 +16,8 @@
 ## Active — P2
 
 ## Done
+- [x] Split corner and open-play cross outcomes; forward wide deliveries are no longer mislabeled as cutbacks (`0` to `2.4` open-play crosses / match)
+- [x] Retain cross origin through completion, shot and goal (`1.0` open-play cross-led shots, `0.4` open-play cross goals / match)
 - [x] Replay and remove selected low-value shots (`2.1` to `0.0` / match); rejected shot options cannot be revived by urgency/pressure bonuses
 - [x] Reserve scripted corner wind-up execution; a corner taker cannot take an ordinary shot before the scheduled cross
 - [x] Tighten `poor_gk_save_attempt` to clear keeper failures; ordinary failed `74-82%` save chances no longer raise a false alarm (`0.4` to `0.0` / match)

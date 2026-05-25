@@ -115,12 +115,41 @@ scenarios.
 | Avoidable press selections / match | 11.0 | 10.8 |
 | Outfield dangerous turnovers / match | 3.9 | 3.3 |
 
-Do not restore low-value shots to increase volume. The next measured work is
-credible chance creation: diagnose the six `no_shots` flags, increase
-delivered wide attacks and central receivers, and retain zero selected
-long/acute attempts. `poor_gk_save_attempt` is deliberately a high-confidence
-alert now; beaten `74-82%` chances remain debug evidence, not automatic
-failures.
+Do not restore low-value shots to increase volume. The following addendum
+resolves the suspected missing-cross gap and gives the current next task.
+`poor_gk_save_attempt` is deliberately a high-confidence alert now; beaten
+`74-82%` chances remain debug evidence, not automatic failures.
+
+### Open-Play Cross Attribution Addendum (2026-05-25)
+
+This is the latest accepted state. Replay showed that forward passes from
+wide players into a central forward were being labeled as cutbacks. The
+engine now distinguishes those open-play crosses from genuine pull-backs and
+from corner crosses, retaining origin through completion, shot and goal.
+No reception or header distance was increased and a selected cross retains
+its evaluated ball flight.
+
+| Metric | Previous category output | Current attributed output |
+| --- | ---: | ---: |
+| Goals / match | 1.1 | 1.1 |
+| Shots / match | 4.4 | 4.4 |
+| Shots on target | 51.4% | 51.4% |
+| Pass completion | 77.7% | 77.7% |
+| Through balls / match | 37.3 | 37.3 |
+| Crosses / match | 0.3 | 2.6 |
+| Open-play crosses / match | not split | 2.4 |
+| Open-play cross completion | not split | 63.2% |
+| Open-play cross-led shots / match | not split | 1.0 |
+| Open-play cross goals / match | not split | 0.4 |
+| Cutbacks / match | 2.5 | 0.1 |
+| Low-value shots / match | 0 | 0 |
+| Poor keeper goals / match | 0 | 0 |
+
+The next task is not to manufacture more crosses. Replay seed `103`, which
+contains `9` open-play crosses in ten simulated minutes, for repetitive
+delivery selection and receiver movement. Also address the six remaining
+`no_shots` flags and pressing decisions while preserving the current shot and
+contact constraints.
 
 Mandatory checks before and after the next behavioral edit:
 
@@ -137,11 +166,12 @@ Do not restore any extended cross receiver reach:
 ordinary and aerial contact is `20` px, intended grounded reception may use
 `28` px, and tackle wins are capped at `24` px.
 
-Work next on natural wide creation. The corrected run has `4.4` shots per
-match with `0` selected low-value shots and `0` clear keeper-failure alerts,
-while only `0.3` cross attempts per match yielded no completed cross or
-cross-led shot. Restore credible volume through positions and delivery
-choices, not contact envelopes or generic shooting bonuses.
+Work next on cross variation, shotless possession chains and pressing
+quality. The corrected run has `4.4` shots per match with `0` selected
+low-value shots and `0` clear keeper-failure alerts, while attributed
+open-play crosses already create `1.0` shots and `0.4` goals per match.
+Improve choices and receiver movement, not contact envelopes or generic
+shooting bonuses.
 
 New instrumentation and behavior you must preserve:
 
@@ -161,12 +191,12 @@ New instrumentation and behavior you must preserve:
 - Tight-angle shot selection and aiming protect the radius-aware rendered goal
   aperture. Do not increase goals by weakening these constraints.
 
-Work next on replayable causes of low credible chance volume. In this standard
-run, cutbacks are `2.8` per match but cutback shots only `0.3`, cross-led shots
-are absent, raw avoidable primary-presser selections are `12.6` per match, and
-outfield dangerous turnovers are `4.3` per match. Use the paired moments to
-improve centrally prepared chances, pressing handoff, and distribution safety
-without admitting acute goals.
+Work next on replayable causes of low credible chance volume. In the latest
+standard run, open-play crosses produce `1.0` shots and `0.4` goals per match,
+but seed `103` accounts for `9` cross attempts and six `no_shots` alerts
+remain across the seed set. Use paired moments to reduce repetitive delivery,
+improve centrally prepared chances and improve pressing handoff without
+admitting acute goals.
 
 ## Start Here
 

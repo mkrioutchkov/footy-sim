@@ -67,7 +67,11 @@ export interface AnalysisSummary {
   qualityFlags: Record<string, number>;
   passByRole: Record<string, { att: number; comp: number; pct: number }>;
   setPieces: { corners: number; throwIns: number; freeKicks: number; unpressuredClearances: number };
-  crosses: { attempted: number; completed: number; shots: number; goals: number };
+  crosses: {
+    attempted: number; completed: number; shots: number; goals: number;
+    openPlayAttempted: number; openPlayCompleted: number; cornerAttempted: number; cornerCompleted: number;
+    openPlayShots: number; openPlayGoals: number; cornerShots: number; cornerGoals: number;
+  };
   cutbacks: { attempted: number; completed: number; shots: number; goals: number };
   distributions: {
     goalkeeper: { attempted: number; completed: number; failed: number; dangerousTurnovers: number };
@@ -159,6 +163,7 @@ interface ActiveShot {
   launchSpeed: number;
   fromCross: boolean;
   crossFromId: number | null;
+  crossSource: string | null;
   fromCutback: boolean;
   cutbackFromId: number | null;
   distance: number;
@@ -234,6 +239,10 @@ export class GameEngine {
 
   // expanded stats
   private statsCrossAttempted = 0; private statsCrossCompleted = 0; private statsCrossShots = 0; private statsCrossGoals = 0;
+  private statsOpenPlayCrossAttempted = 0; private statsOpenPlayCrossCompleted = 0;
+  private statsCornerCrossAttempted = 0; private statsCornerCrossCompleted = 0;
+  private statsOpenPlayCrossShots = 0; private statsOpenPlayCrossGoals = 0;
+  private statsCornerCrossShots = 0; private statsCornerCrossGoals = 0;
   private statsCutbackAttempted = 0; private statsCutbackCompleted = 0; private statsCutbackShots = 0; private statsCutbackGoals = 0;
   private statsHeadersWon = 0; private statsHeadersTotal = 0;
   private statsCornersTaken = 0;
@@ -455,7 +464,20 @@ export class GameEngine {
       qualityFlags: Object.fromEntries(this.qualityFlagCounts),
       passByRole: Object.fromEntries(Object.entries(this.statsPassByRole).map(([role, s]) => [role, { ...s, pct: Math.round(s.comp / Math.max(1, s.att) * 1000) / 10 }])),
       setPieces: { corners: this.statsCornersTaken,       throwIns: this.statsThrowInsTaken, freeKicks: this.statsFreeKicks, unpressuredClearances: this.statsUnpressuredClearances },
-      crosses: { attempted: this.statsCrossAttempted, completed: this.statsCrossCompleted, shots: this.statsCrossShots, goals: this.statsCrossGoals },
+      crosses: {
+        attempted: this.statsCrossAttempted,
+        completed: this.statsCrossCompleted,
+        shots: this.statsCrossShots,
+        goals: this.statsCrossGoals,
+        openPlayAttempted: this.statsOpenPlayCrossAttempted,
+        openPlayCompleted: this.statsOpenPlayCrossCompleted,
+        cornerAttempted: this.statsCornerCrossAttempted,
+        cornerCompleted: this.statsCornerCrossCompleted,
+        openPlayShots: this.statsOpenPlayCrossShots,
+        openPlayGoals: this.statsOpenPlayCrossGoals,
+        cornerShots: this.statsCornerCrossShots,
+        cornerGoals: this.statsCornerCrossGoals,
+      },
       cutbacks: { attempted: this.statsCutbackAttempted, completed: this.statsCutbackCompleted, shots: this.statsCutbackShots, goals: this.statsCutbackGoals },
       distributions: {
         goalkeeper: {
@@ -824,7 +846,11 @@ export class GameEngine {
     const launchPressure = this.players.filter(o => o.team !== from.team && o.role !== 'GK' && dist(o, from) < 70).length;
     this.statsPassAttempted++;
     if (source === 'through_ball') this.statsThroughBallAttempted++;
-    if (isCross) this.statsCrossAttempted++;
+    if (isCross) {
+      this.statsCrossAttempted++;
+      if (source === 'corner_cross') this.statsCornerCrossAttempted++;
+      else this.statsOpenPlayCrossAttempted++;
+    }
     if (source === 'cutback') this.statsCutbackAttempted++;
     if (source === 'gk_distribution') this.statsGKDistributionAttempted++;
     this.statsPassLaunchSpeedTotal += launchSpeed; this.statsPassLaunchCount++;
@@ -871,7 +897,9 @@ export class GameEngine {
       this.statsPassByRole[role].comp++;
       if (pass.source === 'through_ball') this.statsThroughBallCompleted++;
       if (pass.isCross) { 
-        this.statsCrossCompleted++; 
+        this.statsCrossCompleted++;
+        if (pass.source === 'corner_cross') this.statsCornerCrossCompleted++;
+        else this.statsOpenPlayCrossCompleted++;
         receiver.crossCollected = 1200;
         this.logDebug('cross_completed', { from: pass.fromId, to: receiver.id, role: receiver.role, distToGoal: Math.round(Math.abs(receiver.x - (receiver.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X))) });
       }
@@ -1035,6 +1063,10 @@ export class GameEngine {
     this.statsShotsOnTarget = 0; this.statsShotsOffTarget = 0; this.statsSaves = 0;
     this.statsBallInThird = { homeDef: 0, mid: 0, awayDef: 0 };
     this.statsCrossAttempted = 0; this.statsCrossCompleted = 0; this.statsCrossShots = 0; this.statsCrossGoals = 0;
+    this.statsOpenPlayCrossAttempted = 0; this.statsOpenPlayCrossCompleted = 0;
+    this.statsCornerCrossAttempted = 0; this.statsCornerCrossCompleted = 0;
+    this.statsOpenPlayCrossShots = 0; this.statsOpenPlayCrossGoals = 0;
+    this.statsCornerCrossShots = 0; this.statsCornerCrossGoals = 0;
     this.statsCutbackAttempted = 0; this.statsCutbackCompleted = 0; this.statsCutbackShots = 0; this.statsCutbackGoals = 0;
     this.statsHeadersWon = 0; this.statsHeadersTotal = 0;
     this.statsCornersTaken = 0; this.statsThrowInsTaken = 0; this.statsFreeKicks = 0;
@@ -2136,11 +2168,15 @@ export class GameEngine {
     const goalX = from.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
     const fromWide = Math.abs(from.y - PITCH_H / 2) > 180;
     const intoBox = Math.abs(predX - goalX) < 200 && Math.abs(predY - PITCH_H / 2) < 140;
-    const isCross = fromWide && intoBox && (from.role === 'WM' || from.role === 'FB') && !throughBall
+    const selectedCross = selectionAudit?.purpose === 'cross' && fromWide
+      && (from.role === 'WM' || from.role === 'FB') && !throughBall;
+    const whippedCross = fromWide && intoBox && (from.role === 'WM' || from.role === 'FB') && !throughBall
       && selectionAudit?.purpose !== 'cutback'
-      && selectionAudit?.purpose !== 'through';
-    // Crosses bend toward the central target zone.
-    if (isCross) {
+      && selectionAudit?.purpose !== 'through'
+      && selectionAudit?.purpose !== 'cross';
+    const isCross = selectedCross || whippedCross;
+    // An inferred whipped cross adds curl; selected wide deliveries retain their evaluated flight.
+    if (whippedCross) {
       speed *= 1.30;
       this.ball.vx *= 1.30;
       this.ball.vy *= 1.30;
@@ -2163,7 +2199,7 @@ export class GameEngine {
     if (rawDist > 240) this.ball.vz = speed * 0.55;
     if (blockers > 0 && rawDist > 120) this.ball.vz = Math.max(this.ball.vz, speed * 0.70);
     if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.00);
-    if (isCross) this.ball.vz = Math.max(this.ball.vz, speed * 1.15);
+    if (whippedCross) this.ball.vz = Math.max(this.ball.vz, speed * 1.15);
     this.recordBallImpulse();
     const source = throughBall ? 'through_ball' : selectionAudit?.purpose === 'cutback' ? 'cutback' : 'open_play';
     this.beginTrackedPass(from, to, source, isCross, selectionAudit);
@@ -2176,7 +2212,14 @@ export class GameEngine {
     }
     this.logDebug(throughBall ? 'through_ball_start' : source === 'cutback' ? 'cutback_start' : 'pass_start', { from: from.id, to: to.id, dist: Math.round(rawDist), speed: Math.round(speed) });
     if (isCross) {
-      this.logDebug('cross_attempt', { from: from.id, role: from.role, targetX: Math.round(predX), targetY: Math.round(predY), lofted: this.ball.vz > 0 });
+      this.logDebug('cross_attempt', {
+        from: from.id,
+        role: from.role,
+        targetX: Math.round(predX),
+        targetY: Math.round(predY),
+        lofted: this.ball.vz > 0,
+        selected: selectedCross,
+      });
     }
     if (rawDist > 380) this.logDebug('long_ball', { from: from.id, role: from.role, to: to.id, dist: Math.round(rawDist) });
     return true;
@@ -2301,6 +2344,7 @@ export class GameEngine {
     const keyPass = delivery !== null && delivery.team === shooter.team && delivery.receiverId === shooter.id
       && this.clockMs - delivery.completedAt < 3000;
     const fromCross = keyPass && delivery.isCross;
+    const crossSource = fromCross ? delivery.source : null;
     const fromCutback = keyPass && delivery.source === 'cutback';
     this.activeShot = {
       shooterId: shooter.id,
@@ -2310,6 +2354,7 @@ export class GameEngine {
       launchSpeed: shotSpeed,
       fromCross,
       crossFromId: fromCross ? delivery.fromId : null,
+      crossSource,
       fromCutback,
       cutbackFromId: fromCutback ? delivery.fromId : null,
       distance: shotDistance,
@@ -2325,6 +2370,8 @@ export class GameEngine {
     }
     if (fromCross) {
       this.statsCrossShots++;
+      if (crossSource === 'corner_cross') this.statsCornerCrossShots++;
+      else this.statsOpenPlayCrossShots++;
       this.logDebug('cross_to_shot', { from: delivery.fromId, shooter: shooter.id, contact: delivery.contact, delayMs: Math.round(this.clockMs - delivery.completedAt) });
     }
     if (fromCutback) {
@@ -2539,6 +2586,7 @@ export class GameEngine {
     this.recordOutfieldShotBlock(player, 'header');
     const headedCross = this.pendingPass?.team === player.team && this.pendingPass.isCross;
     const crosserId = headedCross ? this.pendingPass?.fromId ?? null : null;
+    const crossSource = headedCross ? this.pendingPass?.source ?? null : null;
     this.resolvePendingPassOnContact(player, 'header');
     this.ball.controllerId = null;
     const fd = player.team === 'home' ? 1 : -1;
@@ -2554,6 +2602,8 @@ export class GameEngine {
     if (headedCross) {
       if (player.team === 'home') this.homeShots++; else this.awayShots++;
       this.statsCrossShots++;
+      if (crossSource === 'corner_cross') this.statsCornerCrossShots++;
+      else this.statsOpenPlayCrossShots++;
       this.statsShotLaunchSpeedTotal += speed; this.statsShotLaunchCount++;
       this.isShotActive = true;
       this.qLastShotMs = this.clockMs;
@@ -2566,6 +2616,7 @@ export class GameEngine {
         launchSpeed: speed,
         fromCross: true,
         crossFromId: crosserId,
+        crossSource,
         fromCutback: false,
         cutbackFromId: null,
         distance: Math.hypot((player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X) - player.x, PITCH_H / 2 - player.y),
@@ -3338,6 +3389,8 @@ export class GameEngine {
       && !(this.activeShot?.team === scoringTeam && this.activeShot.fromCross);
     if (directCross && this.pendingPass) {
       this.statsCrossGoals++;
+      if (this.pendingPass.source === 'corner_cross') this.statsCornerCrossGoals++;
+      else this.statsOpenPlayCrossGoals++;
       this.logDebug('cross_goal', {
         type: 'direct',
         crosser: this.pendingPass.fromId,
@@ -3387,6 +3440,8 @@ export class GameEngine {
       }
       if (this.activeShot.fromCross) {
         this.statsCrossGoals++;
+        if (this.activeShot.crossSource === 'corner_cross') this.statsCornerCrossGoals++;
+        else this.statsOpenPlayCrossGoals++;
         this.logDebug('cross_goal', {
           crosser: this.activeShot.crossFromId,
           shooter: this.activeShot.shooterId,

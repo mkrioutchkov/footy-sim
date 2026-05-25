@@ -27,4 +27,6 @@ Push after every 2-3 improvements. Stay in the benchmarking loop.
 Do not change contact distances or goal geometry.
 Do not expand aerial header reach beyond the 20px contact rule.
 Prefer replayable behavior mechanisms over stacked score/number bonuses.
-Keep iterating until goals ≥ 1.0 and crosses ≥ 1.0 are both stable.
+Goals and open-play crosses now meet their initial bands. Work next on the six
+`no_shots` flags, seed `103` crossing repetition, and pressing quality without
+weakening contact or shot geometry.

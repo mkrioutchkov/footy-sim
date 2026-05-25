@@ -73,6 +73,8 @@ const qualityFlags = sumValues(results.map(result => result.qualityFlags));
 const attempted = results.reduce((total, result) => total + result.passes.attempted, 0);
 const completed = results.reduce((total, result) => total + result.passes.completed, 0);
 const crosses = results.reduce((total, result) => total + result.crosses.attempted, 0);
+const openPlayCrosses = results.reduce((total, result) => total + result.crosses.openPlayAttempted, 0);
+const cornerCrosses = results.reduce((total, result) => total + result.crosses.cornerAttempted, 0);
 const cutbacks = results.reduce((total, result) => total + result.cutbacks.attempted, 0);
 const gkDistributions = results.reduce((total, result) => total + result.distributions.goalkeeper.attempted, 0);
 const completedGKDistributions = results.reduce((total, result) => total + result.distributions.goalkeeper.completed, 0);
@@ -109,8 +111,14 @@ const output = {
     timedRunOffsidesPerMatch: round(results.reduce((total, result) => total + result.timedRuns.offsides, 0) / matches),
     crossesPerMatch: round(crosses / matches),
     crossCompletionPct: round(results.reduce((total, result) => total + result.crosses.completed, 0) / Math.max(1, crosses) * 100),
+    openPlayCrossesPerMatch: round(openPlayCrosses / matches),
+    openPlayCrossCompletionPct: round(results.reduce((total, result) => total + result.crosses.openPlayCompleted, 0) / Math.max(1, openPlayCrosses) * 100),
+    cornerCrossesPerMatch: round(cornerCrosses / matches),
     crossShotsPerMatch: round(results.reduce((total, result) => total + result.crosses.shots, 0) / matches),
     crossGoalsPerMatch: round(results.reduce((total, result) => total + result.crosses.goals, 0) / matches),
+    openPlayCrossShotsPerMatch: round(results.reduce((total, result) => total + result.crosses.openPlayShots, 0) / matches),
+    openPlayCrossGoalsPerMatch: round(results.reduce((total, result) => total + result.crosses.openPlayGoals, 0) / matches),
+    cornerCrossShotsPerMatch: round(results.reduce((total, result) => total + result.crosses.cornerShots, 0) / matches),
     cutbacksPerMatch: round(cutbacks / matches),
     cutbackCompletionPct: round(results.reduce((total, result) => total + result.cutbacks.completed, 0) / Math.max(1, cutbacks) * 100),
     cutbackShotsPerMatch: round(results.reduce((total, result) => total + result.cutbacks.shots, 0) / matches),

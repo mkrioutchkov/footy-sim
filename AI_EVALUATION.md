@@ -426,3 +426,51 @@ The reduced shot count reflects removal of bogus attempts, not successful
 chance-creation tuning. Restore credible shots next through wide progression
 and central cutback/cross receivers; do not weaken shot geometry, the goal
 aperture, or reception reach to increase volume.
+
+## 2026-05-25 Open-Play Cross Attribution Slice
+
+The next replay found that the apparently missing open-play crosses were
+already present but misclassified. In seed `103`, wide midfielders repeatedly
+played forward deliveries from wide positions into a central forward; the
+existing predicate counted all of them as `cutback` because it did not
+distinguish a forward cross from a pull-back.
+
+Changes in this slice:
+
+- Wide forward deliveries to the central finishing zone now retain a
+  `cross` purpose; remaining wide pull-backs retain `cutback`.
+- A selected cross keeps its evaluated flight rather than receiving an
+  additional generic whipped-cross boost. Contact distances and header reach
+  remain unchanged.
+- Cross telemetry splits open-play and corner attempts/completions, and keeps
+  that origin through resulting shots and goals.
+- A completed cross no longer stacks two first-time finishing bonuses for the
+  same delivery.
+- Scenarios now cover selected open-play cross classification and
+  open-play-origin shot attribution.
+
+Standard benchmark against `4c7b2fa` (`npm.cmd run benchmark`, seeds
+`101-108`, ten simulated minutes each):
+
+| Metric | `4c7b2fa` category output | Current attributed output |
+| --- | ---: | ---: |
+| Goals / match | 1.1 | 1.1 |
+| Shots / match | 4.4 | 4.4 |
+| Shots on target | 51.4% | 51.4% |
+| Pass completion | 77.7% | 77.7% |
+| Through balls / match | 37.3 | 37.3 |
+| Crosses / match | 0.3 | 2.6 |
+| Open-play crosses / match | not split (trace: 0 counted) | 2.4 |
+| Open-play cross completion | not split | 63.2% |
+| Open-play cross-led shots / match | not split | 1.0 |
+| Open-play cross goals / match | not split | 0.4 |
+| Cutbacks / match | 2.5 | 0.1 |
+| Low-value shots / match | 0 | 0 |
+| Poor keeper goals / match | 0 | 0 |
+| Avoidable press selections / match | 10.8 | 10.8 |
+
+Headline outcomes and quality flags are unchanged; this corrects attribution
+and preserves the existing flight/contact rules. Cross production is no
+longer a missing-mechanism target. The high-signal next replay is seed `103`,
+which contains `9` open-play crosses in ten simulated minutes, plus the six
+remaining `no_shots` alarms and press-selection review.

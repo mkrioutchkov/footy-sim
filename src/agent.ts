@@ -207,12 +207,14 @@ export class PlayerAgent {
       const dg2 = Math.abs(p.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X));
       if (dg2 < 200 && fp > 0 && d < 150) sc += 0.10;       // WM crossing: near byline, target CF in box
       const dgW = Math.abs(p.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X));
-      const isCutback = (p.role === 'WM' || p.role === 'FB')
+      const isWideDelivery = (p.role === 'WM' || p.role === 'FB')
         && dgW < 315
         && Math.abs(p.y - PITCH_H / 2) > 90
         && Math.abs(t.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X)) < 235
         && Math.abs(t.y - PITCH_H / 2) < 135
         && fp > -80;
+      const isCross = isWideDelivery && Math.abs(p.y - PITCH_H / 2) > 180 && fp > 0;
+      const isCutback = isWideDelivery && !isCross;
       if (p.role === 'WM' && dgW < 380 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 200) sc += 0.28;
       if (p.role === 'WM' && fp > 50 && Math.abs(p.y - PITCH_H / 2) > 120 && bl <= 2) sc += 0.20;
       if (p.role === 'FB' && fp > 35 && Math.abs(p.y - PITCH_H / 2) > 90 && dgW < 360) sc += 0.18;
@@ -220,7 +222,8 @@ export class PlayerAgent {
       else sc -= (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.15;
       let pur = 'keep'; if (fp > 120 && bl === 0) pur = 'build'; else if (fp > 40 && bl <= 1) pur = 'build';
       else if (Math.abs(t.y - p.y) > 150) pur = 'switch'; else if (bl >= 2 && fp < -30) pur = 'clear';
-      if (isCutback) pur = 'cutback';
+      if (isCross) pur = 'cross';
+      else if (isCutback) pur = 'cutback';
       // switching play: boost cross-field passes when near flank is congested, far flank open
       if (pur === 'switch') {
         const carrierSide = p.y < PITCH_H / 2 ? 'top' : 'bottom';
@@ -251,7 +254,7 @@ export class PlayerAgent {
       const onsideGap = offsideLine === null ? Infinity : (offsideLine - t.x) * fd;
       const releasedRunner = targetTask === 'run_ahead' || targetTask === 'overlap'
         || (p.role === 'CM' && (t.role === 'CF' || t.role === 'WM'));
-      if (!isCutback && releasedRunner && fp > 30 && onsideGap > -25 && onsideGap < 170 && bl <= 2) {
+      if (!isWideDelivery && releasedRunner && fp > 30 && onsideGap > -25 && onsideGap < 170 && bl <= 2) {
         pur = 'through';
         sc += 0.18 + attrFactor(p.attrs, 'creativity') * 0.12;
         // slight timing uncertainty: occasionally runners go fractionally offside
@@ -321,9 +324,10 @@ export class PlayerAgent {
     if (depthToGoal < 70 && credibleOpening) sc += 0.28;
     if (depthToGoal < 40) sc += 0.18; // point blank — always shoot
     // cross→shot: just received from wide player → shoot first time in box
-    if (depthToGoal < 260 && angleDeg > 5 && this.e.isRecentFinishingDeliveryReceiver(p.id)) sc += 0.52;
-    // cross collected: first-time shot
-    if (p.crossCollected > 0 && depthToGoal < 280) sc += 0.35;
+    const recentFinishingDelivery = this.e.isRecentFinishingDeliveryReceiver(p.id);
+    if (depthToGoal < 260 && angleDeg > 5 && recentFinishingDelivery) sc += 0.52;
+    // Retain the fallback window without stacking two bonuses for one completed cross.
+    if (p.crossCollected > 0 && depthToGoal < 280 && !recentFinishingDelivery) sc += 0.35;
     // through-ball receiver: shot-first mentality
     if (depthToGoal < 250 && this.e.isRecentThroughBallReceiver(p.id)) sc += 0.32;
     return { type: 'shoot', score: clamp(sc, 0, 1), audit };
