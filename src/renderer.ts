@@ -203,7 +203,7 @@ export class MatchRenderer {
       entry.hadBall = hasBall;
 
       entry.body.position.set(vp.x, vp.y);
-      entry.body.alpha = hasBall ? 1 : staminaAlpha * 0.9;
+      entry.body.alpha = hasBall ? 1 : 0.82; // consistent alpha: carriers pop, others uniform
       if (needsRedraw) {
         entry.body.clear();
         if (sliding) {
