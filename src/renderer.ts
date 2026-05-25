@@ -308,8 +308,8 @@ export class MatchRenderer {
     }
 
     // ── ball ──
-    const arcOffset = vb.z * 0.7; // amplify Z to screen Y
-    const shadowAlpha = clamp(vb.z / 200, 0, 0.35);
+    const arcOffset = vb.z * 0.7;
+    const shadowAlpha = clamp(vb.z / 120, 0.05, 0.55); // stronger shadow for elevation clarity
     // ball position with Z lift
     this.ballBody.position.set(vb.x, vb.y - arcOffset);
     const heightRatio = clamp(vb.z / 250, 0, 1);
