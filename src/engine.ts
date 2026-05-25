@@ -319,6 +319,7 @@ export class GameEngine {
   private qBallUnclaimedSince = 0;
   private qPossessionChanges: number[] = [];
   private qLastControllerId: number | null = null;
+  private qLastControllerTeam: Team | null = null; private qLastControllerChange = 0;
   private qLastPossessionTeam: Team | null = null;
   private qLastPossessionTeamChange = 0;
   private qPlayerLastMoved: Map<number, { x: number; y: number; stuckSince: number }> = new Map();
@@ -745,8 +746,13 @@ export class GameEngine {
 
   private recordControlChange(collector: Player): void {
     if (this.qLastControllerId !== collector.id) {
+      // teammate pinball: same-team controller change within 500ms without opponent touch
+      if (this.qLastControllerTeam === collector.team && this.clockMs - this.qLastControllerChange < 500) {
+        this.logQualityFlag('teammate_pinball', { p1: this.qLastControllerId, p2: collector.id, team: collector.team, ms: this.clockMs - this.qLastControllerChange }, 6000, `pinball:${collector.team}`);
+      }
       this.qLastControllerId = collector.id;
     }
+    this.qLastControllerTeam = collector.team; this.qLastControllerChange = this.clockMs;
     if (this.qLastPossessionTeam !== collector.team) {
       const previousTeam = this.qLastPossessionTeam;
       if (previousTeam !== null) {
