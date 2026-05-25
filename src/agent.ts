@@ -300,8 +300,9 @@ export class PlayerAgent {
     sc -= Math.min(0.24, per.pressureCount * 0.09);
     if (ctx.urgency > 0.6 && depthToGoal < 350) sc += 0.08;
     const credibleOpening = angleDeg >= 7.5 || shotDistance < 115;
-    if (depthToGoal < 120 && credibleOpening) sc += 0.35;
-    if (depthToGoal < 70 && credibleOpening) sc += 0.25;
+    if (depthToGoal < 120 && credibleOpening) sc += 0.38;
+    if (depthToGoal < 70 && credibleOpening) sc += 0.28;
+    if (depthToGoal < 40) sc += 0.18; // point blank — always shoot
     // cross→shot: just received from wide player → shoot first time in box
     if (depthToGoal < 190 && angleDeg > 8 && this.e.isRecentFinishingDeliveryReceiver(p.id)) sc += 0.46;
     return { type: 'shoot', score: clamp(sc, 0, 1), audit };
