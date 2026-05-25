@@ -203,9 +203,9 @@ export class PlayerAgent {
         && Math.abs(t.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X)) < 235
         && Math.abs(t.y - PITCH_H / 2) < 135
         && fp > -80;
-      if (p.role === 'WM' && dgW < 300 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 160) sc += 0.24;
-      if (p.role === 'WM' && fp > 80 && Math.abs(p.y - PITCH_H / 2) > 140 && bl <= 1) sc += 0.18;
-      if (p.role === 'FB' && fp > 60 && Math.abs(p.y - PITCH_H / 2) > 110 && dgW < 320) sc += 0.14;
+      if (p.role === 'WM' && dgW < 330 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 160) sc += 0.24;
+      if (p.role === 'WM' && fp > 70 && Math.abs(p.y - PITCH_H / 2) > 140 && bl <= 1) sc += 0.16;
+      if (p.role === 'FB' && fp > 50 && Math.abs(p.y - PITCH_H / 2) > 110 && dgW < 320) sc += 0.14;
       sc -= bl * 0.06; if (fp > 0) sc += 0.08 + (ctx.urgency > 0.5 ? 0.10 : 0) + (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.2;
       else sc -= (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.15;
       let pur = 'keep'; if (fp > 120 && bl === 0) pur = 'build'; else if (fp > 40 && bl <= 1) pur = 'build';
@@ -241,7 +241,7 @@ export class PlayerAgent {
       const onsideGap = offsideLine === null ? Infinity : (offsideLine - t.x) * fd;
       const releasedRunner = targetTask === 'run_ahead' || targetTask === 'overlap'
         || (p.role === 'CM' && (t.role === 'CF' || t.role === 'WM'));
-      if (!isCutback && releasedRunner && fp > 30 && onsideGap > -20 && onsideGap < 160 && bl <= 2) {
+      if (!isCutback && releasedRunner && fp > 35 && onsideGap > -18 && onsideGap < 150 && bl <= 1) {
         pur = 'through';
         sc += 0.16 + attrFactor(p.attrs, 'creativity') * 0.12;
         // slight timing uncertainty: occasionally runners go fractionally offside
@@ -601,7 +601,7 @@ export class PlayerAgent {
       // WM: attack the flank — stay wide, run behind, cut inside
       if (p.role === 'WM') {
         // hug the touchline when team advances
-        const flankY = p.homeY < PITCH_H / 2 ? 28 : PITCH_H - 28; // hug touchline tighter
+        const flankY = p.homeY < PITCH_H / 2 ? 22 : PITCH_H - 22; // extreme width for crossing
         c.push({ x: clamp(p.homeX + fd * 80 + pu, 60, PITCH_W - 60), y: flankY, pur: 'space' });
         // diagonal run behind the fullback
         const runBehindY = p.homeY < PITCH_H / 2 ? PITCH_H * 0.3 : PITCH_H * 0.7;
