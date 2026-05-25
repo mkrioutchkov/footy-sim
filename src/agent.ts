@@ -203,9 +203,9 @@ export class PlayerAgent {
         && Math.abs(t.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X)) < 235
         && Math.abs(t.y - PITCH_H / 2) < 135
         && fp > -80;
-      if (p.role === 'WM' && dgW < 350 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 180) sc += 0.26;
-      if (p.role === 'WM' && fp > 60 && Math.abs(p.y - PITCH_H / 2) > 130 && bl <= 2) sc += 0.18;
-      if (p.role === 'FB' && fp > 40 && Math.abs(p.y - PITCH_H / 2) > 100 && dgW < 340) sc += 0.16;
+      if (p.role === 'WM' && dgW < 380 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 200) sc += 0.28;
+      if (p.role === 'WM' && fp > 50 && Math.abs(p.y - PITCH_H / 2) > 120 && bl <= 2) sc += 0.20;
+      if (p.role === 'FB' && fp > 35 && Math.abs(p.y - PITCH_H / 2) > 90 && dgW < 360) sc += 0.18;
       sc -= bl * 0.06; if (fp > 0) sc += 0.08 + (ctx.urgency > 0.5 ? 0.10 : 0) + (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.2;
       else sc -= (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.15;
       let pur = 'keep'; if (fp > 120 && bl === 0) pur = 'build'; else if (fp > 40 && bl <= 1) pur = 'build';
@@ -609,8 +609,8 @@ export class PlayerAgent {
       // WM: attack the flank — stay wide, run behind, cut inside
       if (p.role === 'WM') {
         // hug the touchline when team advances
-        const flankY = p.homeY < PITCH_H / 2 ? 22 : PITCH_H - 22;
-        const crossPur = ba > 0.55 ? 'offer' : 'space'; // high priority when in final third
+        const flankY = p.homeY < PITCH_H / 2 ? 18 : PITCH_H - 18; // extreme width
+        const crossPur = ba > 0.45 ? 'offer' : 'space';
         c.push({ x: clamp(p.homeX + fd * 80 + pu, 60, PITCH_W - 60), y: flankY, pur: crossPur });
         // diagonal run behind the fullback
         const runBehindY = p.homeY < PITCH_H / 2 ? PITCH_H * 0.3 : PITCH_H * 0.7;
