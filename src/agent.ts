@@ -442,6 +442,18 @@ export class PlayerAgent {
     if (needsRecovery) {
       return { type: 'chase', score: 1, posX: clamp(b.x, 10, PITCH_W - 10), posY: clamp(b.y, 10, PITCH_H - 10), purpose: 'recover_loose_ball' };
     }
+    // react to recent pass: intercept if I'm near the trajectory
+    if (this.e.qRecentPass && this.e.clockMs - this.e.qRecentPass.clockMs < 800) {
+      const rp = this.e.qRecentPass;
+      if (rp.team !== this.player.team) {
+        const dx = rp.vx, dy = rp.vy, d = Math.sqrt(dx*dx+dy*dy);
+        if (d > 1) {
+          const toLine = ((this.player.x - rp.bx)*dx + (this.player.y - rp.by)*dy)/(d*d);
+          const perp = Math.sqrt((this.player.x - rp.bx - toLine*dx)**2 + (this.player.y - rp.by - toLine*dy)**2);
+          if (perp < 60 && toLine > 0.1 && toLine < 1.2) sc += 0.12; // near pass path, boost interception
+        }
+      }
+    }
     const isDef = this.player.role === 'CB' || this.player.role === 'FB';
     if (isDef) {
       if (this.player.role === 'FB') {

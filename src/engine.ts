@@ -288,6 +288,7 @@ export class GameEngine {
   private qTackleAttempts: number[] = []; private qTackleSuccesses: number[] = [];
   private qPassAttempts: number[] = []; private qPassFails: number[] = [];
   private qRecentPassPairs: { pair: string; t: number }[] = [];
+  qRecentPass: { bx: number; by: number; vx: number; vy: number; team: Team; clockMs: number } | null = null;
   private pendingPass: PendingPass | null = null;
   private qLastCompletedDelivery: CompletedDelivery | null = null;
   private preparedThroughBall: PreparedThroughBall | null = null;
@@ -760,6 +761,8 @@ export class GameEngine {
     this.statsPassLaunchSpeedTotal += launchSpeed; this.statsPassLaunchCount++;
     if (!this.statsPassByRole[from.role]) this.statsPassByRole[from.role] = { att: 0, comp: 0 };
     this.statsPassByRole[from.role].att++;
+    // pass reaction: mark the pass trajectory for defenders to react
+    this.qRecentPass = { bx: this.ball.x, by: this.ball.y, vx: this.ball.vx, vy: this.ball.vy, team: from.team, clockMs: this.clockMs };
     this.recordPassAttempt(from, to);
     if (selection) this.recordPassSelection(from, to, selection);
     this.pendingPass = { fromId: from.id, team: from.team, toId: to.id, source, isCross };
