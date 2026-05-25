@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "server": "tsx src/server.ts",
-    "cpp-server": "cd ../.scratch/cpp-engine && tsx cpp-server.ts",
+    "cpp-server": "tsx src/cpp-server.ts",
     "batch": "tsx src/batch.ts",
     "benchmark": "tsx src/batch.ts --matches 8 --minutes 10 --seed 101",
     "scenarios": "tsx src/scenarios.ts",
