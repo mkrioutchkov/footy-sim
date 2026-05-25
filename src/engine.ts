@@ -18,8 +18,8 @@ import {
 import { PlayerAgent } from './agent';
 import { random } from './random';
 
-const GIT_HASH = 'a8586eb';
-const GIT_DATE = '2026-05-25T20:11:17+10:00';
+const GIT_HASH = '4c0a771';
+const GIT_DATE = '2026-05-25T20:20:36+10:00';
 
 const FIXED_DT = 16.667;
 const MAX_FRAME_DELTA_MS = 34;
@@ -361,6 +361,8 @@ export class GameEngine {
   private carrierWatchMs = 0;
   private carrierWatchX = 0;
   private carrierWatchY = 0;
+  private carrierWatchNearestOppDist = 0;
+  private carrierWatchUnpressuredSince = 0;
   private finalThirdPossessionTeam: Team | null = null;
   private finalThirdPossessionHasShot = false;
 
@@ -1617,6 +1619,19 @@ export class GameEngine {
     }
 
     const nearbyOpponents = this.players.filter(p => p.team !== carrier.team && p.role !== 'GK' && dist(p, carrier) < 58).length;
+    const nearestOppDist = this.players
+      .filter(p => p.team !== carrier.team && p.role !== 'GK')
+      .reduce((min, p) => Math.min(min, dist(p, carrier)), Infinity);
+    // track unpressured possession: carrier holding ball with no opponent closing down
+    if (nearestOppDist > 80 && nearestOppDist >= this.carrierWatchNearestOppDist - 5) {
+      this.carrierWatchUnpressuredSince += sdt;
+      if (this.carrierWatchUnpressuredSince > 3000) {
+        this.logQualityFlag('carrier_unpressured_too_long', { player: carrier.id, role: carrier.role, nearestOpp: Math.round(nearestOppDist), ms: Math.round(this.carrierWatchUnpressuredSince) }, 10000, `unpressured:${carrier.id}`);
+      }
+    } else {
+      this.carrierWatchUnpressuredSince = 0;
+    }
+    this.carrierWatchNearestOppDist = nearestOppDist;
     const pressuredOrDeep = nearbyOpponents > 0 || (carrier.team === 'home' ? carrier.x < PITCH_W * 0.28 : carrier.x > PITCH_W * 0.72);
     if (this.carrierWatchMs > 2800 && moved <= 42 && pressuredOrDeep && this.clockMs - this.lastStuckLog > STUCK_LOG_INTERVAL) {
       this.lastStuckLog = this.clockMs;
