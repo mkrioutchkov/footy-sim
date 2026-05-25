@@ -288,6 +288,7 @@ export class GameEngine {
   private statsAuditedShots = 0; private statsShotChoiceDistanceTotal = 0; private statsShotChoiceAngleTotal = 0;
   private statsLowValueShots = 0; private statsBetterPassShots = 0;
   private statsAuditedGoals = 0; private statsGoalDistanceTotal = 0; private statsGoalAngleTotal = 0;
+  private statsGoalsClose = 0; private statsGoalsMedium = 0; private statsGoalsLong = 0;
   private statsLowValueGoals = 0; private statsTightAngleGoals = 0;
   private statsPressSamples = 0; private statsPrimaryPressDistanceTotal = 0;
   private statsAvoidablePressSelections = 0; private statsDangerUnengagedSamples = 0;
@@ -777,6 +778,9 @@ export class GameEngine {
       this.finalThirdPossessionHasShot = false;
       this.statsFinalThirdEntries++;
       this.logDebug('final_third_entry', { team: carrier.team, player: carrier.id, x: Math.round(carrier.x), y: Math.round(carrier.y) });
+      // unmarked player in final third: no CB within 100px
+      const cbsNearby = this.players.filter(p => p.team !== carrier.team && (p.role === 'CB' || p.role === 'FB') && dist(p, carrier) < 120).length;
+      if (cbsNearby === 0 && carrier.role !== 'GK') this.logQualityFlag('unmarked_final_third', { player: carrier.id, role: carrier.role, team: carrier.team, x: Math.round(carrier.x) }, 8000, `unmarked:${carrier.id}`);
     }
   }
 
@@ -2798,6 +2802,10 @@ export class GameEngine {
     this.ball.x = clamp(this.ball.x, 5, PITCH_W - 5);
     this.ball.y = clamp(this.ball.y, 5, PITCH_H - 5);
     this.blockReboundFor(carrier.id, 450);
+    // slide tackle distance alert: ball kicked too far
+    if (kickSpeed > 220) this.logQualityFlag('slide_tackle_distance', { tackler: tackler.id, speed: Math.round(kickSpeed), bx: Math.round(this.ball.x), by: Math.round(this.ball.y) }, 5000, `slide_dist:${tackler.id}`);
+    // slide tackle out of bounds alert
+    if (this.ball.x < 10 || this.ball.x > PITCH_W - 10 || this.ball.y < 10 || this.ball.y > PITCH_H - 10) this.logQualityFlag('slide_tackle_oob', { tackler: tackler.id, bx: Math.round(this.ball.x), by: Math.round(this.ball.y) }, 5000, `slide_oob:${tackler.id}`);
     this.ball.lastTouchTeam = tackler.team; this.ball.lastToucherId = tackler.id;
     this.ball.intendedReceiverId = null; this.ball.z = 0; this.ball.vz = 0;
     carrier.vx = 0; carrier.vy = 0;
@@ -3567,6 +3575,10 @@ export class GameEngine {
       const angleDeg = this.activeShot.angleDeg;
       this.statsAuditedGoals++;
       this.statsGoalDistanceTotal += shotDistance;
+      this.statsGoalAngleTotal += angleDeg;
+      if (shotDistance < 100) this.statsGoalsClose++;
+      else if (shotDistance < 250) this.statsGoalsMedium++;
+      else this.statsGoalsLong++;
       this.statsGoalAngleTotal += angleDeg;
       if (this.activeShot.lowValue) this.statsLowValueGoals++;
       if (angleDeg < 8) this.statsTightAngleGoals++;
