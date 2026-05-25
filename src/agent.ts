@@ -278,12 +278,15 @@ export class PlayerAgent {
     const angleDeg = this.e.goalOpeningAngleDeg(p.x, p.y, gx);
     const audit: ActionAudit = { distance: shotDistance, angleDeg, pressureCount: per.pressureCount };
     // Preserve normal chance-taking while rejecting the diagnosed near-byline geometry.
-    const roleMax: Record<string, number> = { 'CF': 260, 'CM': 220, 'WM': 180, 'FB': 150, 'CB': 140 };
+    const roleMax: Record<string, number> = { 'CF': 270, 'CM': 230, 'WM': 200, 'FB': 160, 'CB': 140 };
     const hardMax = roleMax[p.role] ?? 220;
     if (depthToGoal > hardMax) return { type: 'shoot', score: 0, audit };
     const mr = SHOOT_MIN_DIST + attrFactor(p.attrs, 'shooting') * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
     if (depthToGoal > Math.min(mr, hardMax)) return { type: 'shoot', score: 0, audit };
     let sc = attrFactor(p.attrs, 'shooting') * (1 - depthToGoal / mr) * 0.35;
+    // box floor: carriers close to goal always consider shooting
+    if (depthToGoal < 90) sc = Math.max(sc, 0.28);
+    if (depthToGoal < 50) sc = Math.max(sc, 0.42);
     const gk = this.e.players.find(o => o.team !== p.team && o.role === 'GK');
     if (gk) {
       const gkOffCenter = Math.abs(p.y - gk.y);
