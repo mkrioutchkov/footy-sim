@@ -294,10 +294,11 @@ export class PlayerAgent {
       else if (gkOffCenter < 25) sc -= 0.08; // keeper well positioned
       if (Math.abs(gk.x - gx) > 50) sc += 0.08; // keeper off line
     }
-    if (depthToGoal < 100) sc += 0.12;
-    if (depthToGoal < 60) sc += 0.10;
-    if (p.role === 'CF') sc += 0.11;
-    if (p.role === 'CM') sc -= 0.05;
+    if (depthToGoal < 100) sc += 0.14;
+      if (depthToGoal < 60) sc += 0.12;
+      // role-based: CFs shoot more, CMs shoot less
+      if (p.role === 'CF') sc += 0.13;
+      if (p.role === 'CM') sc -= 0.03;
     if (Math.abs(p.y - PITCH_H / 2) > 100) sc -= 0.08;
     if (angleDeg < 7.5 && shotDistance > 150) sc -= 0.08;
     sc -= Math.min(0.24, per.pressureCount * 0.09);
@@ -588,7 +589,7 @@ export class PlayerAgent {
       // WM: attack the flank — stay wide, run behind, cut inside
       if (p.role === 'WM') {
         // hug the touchline when team advances
-        const flankY = p.homeY < PITCH_H / 2 ? 35 : PITCH_H - 35;
+        const flankY = p.homeY < PITCH_H / 2 ? 28 : PITCH_H - 28; // hug touchline tighter
         c.push({ x: clamp(p.homeX + fd * 80 + pu, 60, PITCH_W - 60), y: flankY, pur: 'space' });
         // diagonal run behind the fullback
         const runBehindY = p.homeY < PITCH_H / 2 ? PITCH_H * 0.3 : PITCH_H * 0.7;
