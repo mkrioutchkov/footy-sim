@@ -2163,7 +2163,7 @@ export class GameEngine {
     }
     const anglePenalty = clamp(Math.abs(shooter.y - goalCenterY) / 230, 0, 1);
     const distancePenalty = clamp((shotDistance - 70) / 270, 0, 1);
-    const executionError = 24 + (1 - accuracy) * 112 + pressureCount * 28 + anglePenalty * 52 + distancePenalty * 48;
+    const executionError = 20 + (1 - accuracy) * 95 + pressureCount * 24 + anglePenalty * 42 + distancePenalty * 40;
     const aimedPost = (random() < 0.5 ? -1 : 1) * GOAL_W * (0.18 + accuracy * 0.13);
     let goalY = goalCenterY + aimedPost + (random() + random() - 1) * executionError;
     if (acuteGeometry) {
@@ -2582,7 +2582,7 @@ export class GameEngine {
     const trajectoryOffset = Math.abs(crossY - gk.y);
     const timeToLineMs = distanceToLine / Math.max(Math.abs(b.vx), 1) * 1000;
     const handling = attrFactor(gk.attrs, 'positioning');
-    const saveChance = clamp(0.45 + handling * 0.22 - speed / 1400 - trajectoryOffset / 400, 0.25, 0.88);
+    const saveChance = clamp(0.40 + handling * 0.20 - speed / 1200 - trajectoryOffset / 350, 0.18, 0.82);
     this.activeShot.saveAssessment = {
       goalkeeperId: gk.id,
       goalkeeperTeam: gk.team,
