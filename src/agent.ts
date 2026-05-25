@@ -723,6 +723,11 @@ export class PlayerAgent {
       else bb.pressingPlayerId2 = this.player.id;
     }
     if (best.type === 'mark' && best.target) { const al = bb.markedOpponents.get(best.target.id); if (al && al !== this.player.id) { for (const x of a) if (x.type !== 'mark' && x.type !== 'tackle' && x.score > 0.15) return x; return { type: 'hold', score: 1 }; } bb.markedOpponents.set(best.target.id, this.player.id); }
+    // backward pass audit: passed backward when forward options existed
+    if (ic && best.type === 'pass' && best.audit && (best.audit.forwardProgress ?? 0) < -40) {
+      const fwdOpt = a.find(x => x.type === 'pass' && (x.audit?.forwardProgress ?? 0) > 30 && x.score > best.score - 0.15);
+      if (fwdOpt) this.e.logQualityFlag('questionable_backpass', { player: this.player.id, role: this.player.role, forwardProgress: best.audit.forwardProgress, fwdOptAvailable: true, fwdScore: Math.round(fwdOpt.score * 1000) / 1000, chosenScore: Math.round(best.score * 1000) / 1000 }, 8000, `backpass:${this.player.id}`);
+    }
     return best;
   }
 
