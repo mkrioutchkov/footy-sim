@@ -310,6 +310,8 @@ export class PlayerAgent {
     if (depthToGoal < 40) sc += 0.18; // point blank — always shoot
     // cross→shot: just received from wide player → shoot first time in box
     if (depthToGoal < 260 && angleDeg > 5 && this.e.isRecentFinishingDeliveryReceiver(p.id)) sc += 0.52;
+    // cross collected: first-time shot
+    if (p.crossCollected > 0 && depthToGoal < 280) sc += 0.35;
     // through-ball receiver: shot-first mentality
     if (depthToGoal < 250 && this.e.isRecentThroughBallReceiver(p.id)) sc += 0.32;
     return { type: 'shoot', score: clamp(sc, 0, 1), audit };

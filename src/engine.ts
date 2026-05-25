@@ -789,7 +789,7 @@ export class GameEngine {
       if (!this.statsPassByRole[role]) this.statsPassByRole[role] = { att: 0, comp: 0 };
       this.statsPassByRole[role].comp++;
       if (pass.source === 'through_ball') this.statsThroughBallCompleted++;
-      if (pass.isCross) this.statsCrossCompleted++;
+      if (pass.isCross) { this.statsCrossCompleted++; collector.crossCollected = 1200; }
       if (pass.source === 'cutback') this.statsCutbackCompleted++;
       if (pass.source === 'gk_distribution') {
         this.statsGKDistributionCompleted++;
@@ -1619,6 +1619,7 @@ export class GameEngine {
     for (const p of this.players) {
       if (p.tackleAnim > 0) p.tackleAnim = Math.max(0, p.tackleAnim - sdt);
       if (p.headingAnim > 0) p.headingAnim = Math.max(0, p.headingAnim - sdt);
+      if (p.crossCollected > 0) p.crossCollected = Math.max(0, p.crossCollected - sdt);
     }
     this.maybeLogPitchSample();
     // possession tracking

@@ -31,6 +31,7 @@ export interface Player {
   tackleAnim: number;
   headingAnim: number;
   facing: number;
+  crossCollected: number;
 }
 
 export interface Ball {
