@@ -855,7 +855,10 @@ export class PlayerAgent {
         const fd = p.team === 'home' ? 1 : -1;
         if ((fd === 1 && p.targetX < p.x - 10) || (fd === -1 && p.targetX > p.x + 10)) {
           if (Math.abs(p.x - oppGoalX) < 300 && this.e.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, p) < 60).length === 0) {
-            this.e.logQualityFlag('backward_dribble', { player: p.id, role: p.role, fromX: Math.round(p.x), toX: Math.round(p.targetX) });
+            const myScore = p.team === 'home' ? this.e.homeScore : this.e.awayScore;
+            const oppScore = p.team === 'home' ? this.e.awayScore : this.e.homeScore;
+            const isTimeWasting = myScore <= oppScore && this.e.clockMs > 60_000;
+            this.e.logQualityFlag(isTimeWasting ? 'time_wasting_dribble' : 'backward_dribble', { player: p.id, role: p.role, fromX: Math.round(p.x), toX: Math.round(p.targetX), score: `${myScore}-${oppScore}` });
           }
         }
         break;

@@ -1,12 +1,12 @@
 # TODO — Footy Sim
 
 ## Active
-- [ ] Pass-triggered player reactions (defenders intercept, teammates adjust)
-- [ ] Sliding tackle angle alerts + diagonal-only slides
-- [ ] Backward-pass-that-makes-no-sense audit
-- [ ] Goals still low (0.4-1.0, target 1.5+)
-- [ ] Cross frequency (0.5, target 2+)
-- [ ] Player running away from ball on receive (lead overshoot fixed, verify)
+- [ ] Cross frequency (0.3-1.5, target 2+)
+- [ ] Cross→shot chain (0-0.5, target 1+)
+- [ ] Kicking out of play not under pressure — benchmark needed
+- [ ] Pointless backward dribbling (time wasting when not winning) — benchmark needed
+- [ ] Goals consistency (0.4-1.1, target 1.0+ stable)
+- [ ] Player running away from ball on receive
 - [ ] "Continue" loop benchmark → improve → benchmark
 
 ## Done
@@ -40,8 +40,10 @@
 - [x] Receiver lead overshoot fix
 
 ## Benchmarks needed
-- [ ] Backward pass audit
-- [ ] Sliding tackle angle audit
+- [ ] Backward pass audit (questionable_backpass flag exists)
+- [ ] Sliding tackle angle audit (rear_tackle flag exists)
+- [ ] Kicking-out-of-play audit (unpressured clearances)
+- [ ] Pointless backward dribble audit (time wasting)
 - [ ] Pass reaction time audit
 - [ ] Cross conversion audit
 - [ ] Through-ball completion rate
