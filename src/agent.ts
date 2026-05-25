@@ -285,9 +285,9 @@ export class PlayerAgent {
     if (depthToGoal > Math.min(mr, hardMax)) return { type: 'shoot', score: 0, audit };
     let sc = attrFactor(p.attrs, 'shooting') * (1 - depthToGoal / mr) * 0.35;
     // box floor: carriers close to goal always consider shooting
-    if (depthToGoal < 90) sc = Math.max(sc, 0.32);
-    if (depthToGoal < 50) sc = Math.max(sc, 0.48);
-    if (depthToGoal < 30) sc = Math.max(sc, 0.65); // point blank — shoot!
+    if (depthToGoal < 90) sc = Math.max(sc, 0.35);
+    if (depthToGoal < 50) sc = Math.max(sc, 0.52);
+    if (depthToGoal < 30) sc = Math.max(sc, 0.70); // point blank — shoot!
     const gk = this.e.players.find(o => o.team !== p.team && o.role === 'GK');
     if (gk) {
       const gkOffCenter = Math.abs(p.y - gk.y);
