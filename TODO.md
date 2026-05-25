@@ -10,6 +10,10 @@
 - [ ] "Continue" loop benchmark → improve → benchmark
 
 ## Done
+- [x] Pass-triggered player reactions (defenders intercept — +0.12 chase near trajectory)
+- [x] Sliding tackle angle alerts (rear_tackle, head_on_tackle)
+- [x] Backward pass audit (questionable_backpass)
+- [x] TOD.md created
 - [x] Offsides (0 → 0.5)
 - [x] Cross goals (0 → 0.1, first ever)
 - [x] Cutback goals (0 → 0.3)
