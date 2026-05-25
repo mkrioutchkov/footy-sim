@@ -192,7 +192,6 @@ export class MatchRenderer {
       const color = p.team === 'home' ? HOME_COLOR : AWAY_COLOR;
       const hasBall = b.controllerId === p.id;
       const r = PLAYER_R;
-      const staminaAlpha = 0.5 + (p.stamina ?? 100) / 200;
       const vp = this.smoothPlayer(p.id, p.x, p.y);
       const sliding = (p.tackleAnim ?? 0) > 0;
       if (sliding && !entry.wasSliding) {

@@ -412,7 +412,7 @@ export class PlayerAgent {
         else if (o.role === 'CM') score -= 15;
       }
       // CB: strongly prefer CF (direct threat), then CM
-      if (score < bd && d < 300) { bd = score; best = o; } }
+      if (!isFb) {
         if (o.role === 'CF') score -= 60;
         else if (o.role === 'CM') score -= 20;
       }
