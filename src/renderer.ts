@@ -260,26 +260,34 @@ export class MatchRenderer {
       const heading = (p.headingAnim ?? 0) > 0;
       const forwardX = Math.cos(angle);
       const forwardY = Math.sin(angle);
-      const sideX = -forwardY;
-      const sideY = forwardX;
-      const hipX = -forwardX * r * 0.25;
-      const hipY = -forwardY * r * 0.25;
-      const footBackX = -forwardX * r * 0.92;
-      const footBackY = -forwardY * r * 0.92;
-      entry.arrow.moveTo(hipX, hipY);
-      entry.arrow.lineTo(footBackX + sideX * r * 0.42, footBackY + sideY * r * 0.42);
-      entry.arrow.moveTo(hipX, hipY);
-      entry.arrow.lineTo(footBackX - sideX * r * 0.42, footBackY - sideY * r * 0.42);
+      const controlDx = hasBall ? vb.x - vp.x : 0;
+      const controlDy = hasBall ? vb.y - vp.y : 0;
+      const controlDist = Math.hypot(controlDx, controlDy);
+      const feetX = hasBall && controlDist > 2 ? controlDx / controlDist : forwardX;
+      const feetY = hasBall && controlDist > 2 ? controlDy / controlDist : forwardY;
+      const feetSideX = -feetY;
+      const feetSideY = feetX;
+      const bootForward = hasBall ? Math.max(r * 0.62, Math.min(r * 0.94, controlDist - BALL_R * 0.5)) : r * 0.74;
+      const bootSpread = hasBall ? BALL_R + 2.3 : r * 0.37;
+      const leftBootX = feetX * bootForward + feetSideX * bootSpread;
+      const leftBootY = feetY * bootForward + feetSideY * bootSpread;
+      const rightBootX = feetX * bootForward - feetSideX * bootSpread;
+      const rightBootY = feetY * bootForward - feetSideY * bootSpread;
+      entry.arrow.moveTo(feetSideX * r * 0.22, feetSideY * r * 0.22);
+      entry.arrow.lineTo(leftBootX, leftBootY);
+      entry.arrow.moveTo(-feetSideX * r * 0.22, -feetSideY * r * 0.22);
+      entry.arrow.lineTo(rightBootX, rightBootY);
       entry.arrow.stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
-      const headReach = heading ? r * 1.34 : r * 0.86;
-      const headX = forwardX * headReach;
-      const headY = forwardY * headReach;
-      entry.arrow.circle(headX, headY, heading ? r * 0.48 : r * 0.39);
+      entry.arrow.circle(leftBootX, leftBootY, hasBall ? 2.8 : 2.4);
+      entry.arrow.circle(rightBootX, rightBootY, hasBall ? 2.8 : 2.4);
+      entry.arrow.fill({ color: 0x171717 });
+      // Top-down head stays centered inside the team marker; boots indicate possession.
+      entry.arrow.circle(0, 0, heading ? r * 0.47 : r * 0.41);
       entry.arrow.fill({ color: 0xffdfbb });
-      entry.arrow.circle(headX, headY, heading ? r * 0.48 : r * 0.39);
+      entry.arrow.circle(0, 0, heading ? r * 0.47 : r * 0.41);
       entry.arrow.stroke({ width: 1, color: 0x33261c });
       if (heading) {
-        entry.arrow.circle(forwardX * r * 2.05, forwardY * r * 2.05, r * 0.9);
+        entry.arrow.circle(forwardX * r * 1.65, forwardY * r * 1.65, r * 0.82);
         entry.arrow.stroke({ width: 2, color: 0xfff1a8, alpha: 0.75 });
       }
 
@@ -300,16 +308,14 @@ export class MatchRenderer {
     }
 
     // ── ball ──
-    const inFlight = b.controllerId === null && ballSpeed > 30;
-    const bob = inFlight || b.z > 0 ? 0 : Math.sin(this.animTime * 0.12) * 1.5;
     const arcOffset = vb.z * 0.7; // amplify Z to screen Y
     const shadowAlpha = clamp(vb.z / 200, 0, 0.35);
     // ball position with Z lift
-    this.ballBody.position.set(vb.x, vb.y + bob - arcOffset);
+    this.ballBody.position.set(vb.x, vb.y - arcOffset);
     const heightRatio = clamp(vb.z / 250, 0, 1);
     this.ballBody.scale.set(1 - heightRatio * 0.3); // smaller when high up
     // ball shadow on ground
-    this.ballGlow.position.set(vb.x, vb.y + bob);
+    this.ballGlow.position.set(vb.x, vb.y);
     this.ballGlow.clear();
     if (vb.z > 5) {
       this.ballGlow.ellipse(0, 0, BALL_R * (1 + heightRatio * 0.8), BALL_R * 0.5);

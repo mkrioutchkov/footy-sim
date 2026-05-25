@@ -75,6 +75,8 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 - `press_assignment_audit`, `off_ball_shape` — presser choice and tracked attacking runs
 - `moment_start`, `moment_followup` — paired decision snapshots for quality alerts
 - `contest_block` — player blocked from re-collecting after releasing
+- `stale_chase_cancelled` - loose-ball perception invalidated after another player takes control
+- `collection_rejected` - rejected controlled-ball, out-of-reach or protected re-collection attempt
 
 Quality flags are intended to name actionable failures. In particular,
 `ball_unclaimed` means a slow grounded ball is close enough to contest but is
@@ -99,8 +101,13 @@ npm run batch -- --matches 5 --minutes 10 --seed 1
 The batch output includes possession, territory, pass and shot rates, cross
 and cutback outcomes, distribution outcomes, goalkeeper assessments, weighted
 ball launch speeds, pass/shot selection audits and pressing-assignment
-diagnostics. Reusing the same seed set makes tactical changes comparable
-rather than anecdotal.
+diagnostics. It also includes contest bounds: collection and interception
+contact distances, stale chase cancellations, rejected grabs and winning
+tackle distances. Ordinary or interception collection is bounded to `20` px,
+winning tackles to `24` px; an intended pass receiver alone may secure a
+stretched first touch at `28` px and the controlled ball is snapped to the
+visible boot position. Reusing the same seed set makes tactical changes
+comparable rather than anecdotal.
 
 For visual inspection with repeatable team generation and agent decisions,
 seed the live server:

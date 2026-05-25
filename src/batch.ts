@@ -84,6 +84,10 @@ const auditedPasses = results.reduce((total, result) => total + result.selection
 const auditedShots = results.reduce((total, result) => total + result.selectionAudit.shots.audited, 0);
 const auditedGoals = results.reduce((total, result) => total + result.selectionAudit.goals.audited, 0);
 const pressSamples = results.reduce((total, result) => total + result.defending.pressSamples, 0);
+const collections = results.reduce((total, result) => total + result.contests.collections, 0);
+const interceptionCollections = results.reduce((total, result) => total + result.contests.interceptionsCollected, 0);
+const tacklesWon = results.reduce((total, result) => total + result.contests.tacklesWon, 0);
+const tacklesAttempted = results.reduce((total, result) => total + result.contests.tacklesAttempted, 0);
 const output = {
   config: { matches, minutes, seeds: results.map(result => result.seed), tacticalOverrides: overrides },
   aggregate: {
@@ -137,6 +141,20 @@ const output = {
     pressPrimaryDistanceAvg: round(results.reduce((total, result) => total + result.defending.avgPrimaryDistance * result.defending.pressSamples, 0) / Math.max(1, pressSamples)),
     avoidablePressSelectionsPerMatch: round(results.reduce((total, result) => total + result.defending.avoidablePressSelections, 0) / matches),
     dangerUnengagedSamplesPerMatch: round(results.reduce((total, result) => total + result.defending.dangerUnengagedSamples, 0) / matches),
+    collectionsPerMatch: round(collections / matches),
+    collectionDistanceAvg: round(results.reduce((total, result) => total + result.contests.avgCollectionDistance * result.contests.collections, 0) / Math.max(1, collections)),
+    collectionDistanceMax: round(Math.max(...results.map(result => result.contests.maxCollectionDistance))),
+    interceptionsCollectedPerMatch: round(interceptionCollections / matches),
+    interceptionDistanceAvg: round(results.reduce((total, result) => total + result.contests.avgInterceptionDistance * result.contests.interceptionsCollected, 0) / Math.max(1, interceptionCollections)),
+    interceptionDistanceMax: round(Math.max(...results.map(result => result.contests.maxInterceptionDistance))),
+    preventedStaleGrabsPerMatch: round(results.reduce((total, result) => total + result.contests.preventedStaleGrabs, 0) / matches),
+    rejectedControlledGrabsPerMatch: round(results.reduce((total, result) => total + result.contests.rejectedControlledGrabs, 0) / matches),
+    rejectedLongReachPerMatch: round(results.reduce((total, result) => total + result.contests.rejectedLongReach, 0) / matches),
+    protectedRecollectionsPerMatch: round(results.reduce((total, result) => total + result.contests.protectedRecollections, 0) / matches),
+    tacklesAttemptedPerMatch: round(tacklesAttempted / matches),
+    tackleWinPct: round(tacklesWon / Math.max(1, tacklesAttempted) * 100),
+    winningTackleDistanceAvg: round(results.reduce((total, result) => total + result.contests.avgWinningTackleDistance * result.contests.tacklesWon, 0) / Math.max(1, tacklesWon)),
+    winningTackleDistanceMax: round(Math.max(...results.map(result => result.contests.maxWinningTackleDistance))),
   },
   tacticalActivity: taskSelections,
   qualityFlags,

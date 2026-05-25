@@ -9,7 +9,7 @@ import {
   SEPARATION_DIST, SEPARATION_FORCE,
   GK_RUSH_DIST,
   DRIBBLE_MAX,
-  CONTROL_DIST, TACKLE_RANGE, OFFSIDE_TOLERANCE,
+  CONTROL_DIST, COLLECT_DIST, INTENDED_COLLECT_DIST, TACKLE_RANGE, OFFSIDE_TOLERANCE,
   BALL_FRICTION,
   PASS_SPEED_BASE, PASS_SPEED_DIST, SHOT_SPEED_BASE, TACKLE_KICK_SPEED,
   clamp, dist, lerp, attrFactor,
@@ -98,6 +98,22 @@ export interface AnalysisSummary {
     goals: { audited: number; avgDistance: number; avgAngleDeg: number; lowValue: number; tightAngle: number };
   };
   defending: { pressSamples: number; avgPrimaryDistance: number; avoidablePressSelections: number; dangerUnengagedSamples: number };
+  contests: {
+    collections: number;
+    avgCollectionDistance: number;
+    maxCollectionDistance: number;
+    interceptionsCollected: number;
+    avgInterceptionDistance: number;
+    maxInterceptionDistance: number;
+    preventedStaleGrabs: number;
+    rejectedControlledGrabs: number;
+    rejectedLongReach: number;
+    protectedRecollections: number;
+    tacklesAttempted: number;
+    tacklesWon: number;
+    avgWinningTackleDistance: number;
+    maxWinningTackleDistance: number;
+  };
 }
 
 interface PendingPass {
@@ -192,14 +208,14 @@ export class GameEngine {
   private kickoffPhase = false;
   private gkDistributeTimer = 0;
   private receiverShieldUntil = 0;
+  private receiverShieldedPlayerId: number | null = null;
   private receiverShieldTargetId: number | null = null;
   private accumulator = 0;
   private half = 1;
   private halfTimePause = 0;
   private nextKickoffTeam: Team = 'home';
   private lastSaveMs = 0;
-  private reboundBlockedId: number | null = null;
-  private reboundBlockTimer = 0;
+  private contestBlockedUntil: Map<number, number> = new Map();
   private assignmentByPlayer: Map<number, TeamAssignment> = new Map();
   teamBlackboards: Map<Team, TeamBlackboard> = new Map();
   private debugLog: DebugLogEntry[] = [];
@@ -236,6 +252,10 @@ export class GameEngine {
   private statsLowValueGoals = 0; private statsTightAngleGoals = 0;
   private statsPressSamples = 0; private statsPrimaryPressDistanceTotal = 0;
   private statsAvoidablePressSelections = 0; private statsDangerUnengagedSamples = 0;
+  private statsCollections = 0; private statsCollectionDistanceTotal = 0; private statsMaxCollectionDistance = 0;
+  private statsInterceptionCollections = 0; private statsInterceptionDistanceTotal = 0; private statsMaxInterceptionDistance = 0;
+  private statsPreventedStaleGrabs = 0; private statsRejectedControlledGrabs = 0; private statsRejectedLongReach = 0; private statsProtectedRecollections = 0;
+  private statsTackleAttempts = 0; private statsTackleWins = 0; private statsTackleWinDistanceTotal = 0; private statsMaxTackleWinDistance = 0;
 
   // distance tracking (meters, assuming 10px = 1m pitch scale)
   private ballDistance = 0;
@@ -486,6 +506,22 @@ export class GameEngine {
         avoidablePressSelections: this.statsAvoidablePressSelections,
         dangerUnengagedSamples: this.statsDangerUnengagedSamples,
       },
+      contests: {
+        collections: this.statsCollections,
+        avgCollectionDistance: Math.round(this.statsCollectionDistanceTotal / Math.max(1, this.statsCollections) * 10) / 10,
+        maxCollectionDistance: Math.round(this.statsMaxCollectionDistance * 10) / 10,
+        interceptionsCollected: this.statsInterceptionCollections,
+        avgInterceptionDistance: Math.round(this.statsInterceptionDistanceTotal / Math.max(1, this.statsInterceptionCollections) * 10) / 10,
+        maxInterceptionDistance: Math.round(this.statsMaxInterceptionDistance * 10) / 10,
+        preventedStaleGrabs: this.statsPreventedStaleGrabs,
+        rejectedControlledGrabs: this.statsRejectedControlledGrabs,
+        rejectedLongReach: this.statsRejectedLongReach,
+        protectedRecollections: this.statsProtectedRecollections,
+        tacklesAttempted: this.statsTackleAttempts,
+        tacklesWon: this.statsTackleWins,
+        avgWinningTackleDistance: Math.round(this.statsTackleWinDistanceTotal / Math.max(1, this.statsTackleWins) * 10) / 10,
+        maxWinningTackleDistance: Math.round(this.statsMaxTackleWinDistance * 10) / 10,
+      },
     };
   }
 
@@ -550,6 +586,19 @@ export class GameEngine {
     this.qFlagLastLogged.set(key, this.clockMs);
     this.qualityFlagCounts.set(flag, (this.qualityFlagCounts.get(flag) ?? 0) + 1);
     this.logDebug('q_flag', { flag, ...data });
+  }
+
+  notePreventedStaleGrab(collector: Player): void {
+    const controller = this.playerById(this.ball.controllerId);
+    if (!controller || controller.team === collector.team) return;
+    this.statsPreventedStaleGrabs++;
+    this.logDebug('stale_chase_cancelled', {
+      collector: collector.id,
+      collectorTeam: collector.team,
+      controller: controller.id,
+      controllerTeam: controller.team,
+      contactDist: Math.round(dist(collector, this.ball) * 10) / 10,
+    });
   }
 
   captureDecisionMoment(reason: string, actor: Player, data: DebugLogEntry['data'], cooldownMs = 8000, key = `${reason}:${actor.team}`): void {
@@ -908,6 +957,10 @@ export class GameEngine {
     this.statsLowValueGoals = 0; this.statsTightAngleGoals = 0;
     this.statsPressSamples = 0; this.statsPrimaryPressDistanceTotal = 0;
     this.statsAvoidablePressSelections = 0; this.statsDangerUnengagedSamples = 0;
+    this.statsCollections = 0; this.statsCollectionDistanceTotal = 0; this.statsMaxCollectionDistance = 0;
+    this.statsInterceptionCollections = 0; this.statsInterceptionDistanceTotal = 0; this.statsMaxInterceptionDistance = 0;
+    this.statsPreventedStaleGrabs = 0; this.statsRejectedControlledGrabs = 0; this.statsRejectedLongReach = 0; this.statsProtectedRecollections = 0;
+    this.statsTackleAttempts = 0; this.statsTackleWins = 0; this.statsTackleWinDistanceTotal = 0; this.statsMaxTackleWinDistance = 0;
     this.statsTimedRunsStarted = 0; this.statsTimedRunsReleased = 0; this.statsTimedRunOffsides = 0; this.statsTimedRunsCancelled = 0;
     this.statsBouncesNoControl = 0;
     this.statsFlankTime = { left: 0, right: 0, center: 0 };
@@ -935,6 +988,8 @@ export class GameEngine {
     this.qLastQualityCheck = 0; this.qFlagLastLogged.clear();
     this.qualityFlagCounts.clear();
     this.pendingDecisionMoments = []; this.momentSequence = 0; this.momentLastLogged.clear();
+    this.receiverShieldUntil = 0; this.receiverShieldedPlayerId = null; this.receiverShieldTargetId = null;
+    this.contestBlockedUntil.clear();
     this.transitionUntil = { home: 0, away: 0 };
     this.phaseTicks = {
       home: { loose_ball: 0, possession: 0, attacking_transition: 0, defending: 0, defensive_transition: 0 },
@@ -1554,11 +1609,6 @@ export class GameEngine {
       if (p.headingAnim > 0) p.headingAnim = Math.max(0, p.headingAnim - sdt);
     }
     this.maybeLogPitchSample();
-    if (this.reboundBlockTimer > 0) {
-      this.reboundBlockTimer -= sdt;
-      if (this.reboundBlockTimer <= 0) this.reboundBlockedId = null;
-    }
-
     // possession tracking
     const ctrl = this.playerById(this.ball.controllerId);
     if (ctrl) {
@@ -1589,8 +1639,8 @@ export class GameEngine {
       this.applyBallPhysics(secs);
       this.clampBallPosition();
       if (this.checkGoal()) return;
+      if (this.checkOutOfPlay()) return;
       this.checkBallPlayerCollision(secs);
-      this.checkOutOfPlay();
     }
 
     // clear blackboards before agents evaluate
@@ -1739,7 +1789,7 @@ export class GameEngine {
     const b = this.ball;
     if (b.x < -10 || b.x > PITCH_W + 10 || b.y < -10 || b.y > PITCH_H + 10) return;
     const ballSpeed = Math.sqrt(b.vx ** 2 + b.vy ** 2);
-    const r = 20; // collection radius
+    const r = COLLECT_DIST;
     for (const p of this.players) {
       if (!this.canContestBall(p)) continue;
       const d = dist(p, b);
@@ -1757,20 +1807,20 @@ export class GameEngine {
       if (b.z > 20 && p.id !== b.intendedReceiverId) continue;
       if (p.role === 'GK' && ballSpeed < 220 && this.isInKeeperArea(p, b.x, b.y)) {
         this.recordGKCollectionOutcome(p, ballSpeed);
-        this.collectBall(p);
+        this.collectBall(p, 'keeper_collection');
         return;
       }
       if (p.role === 'GK') continue;
       // A marked receiver must still secure the ball under pressure.
       if (p.id === b.intendedReceiverId && ballSpeed < 220) {
         const underPressure = this.players.some(o => o.team !== p.team && o.role !== 'GK' && dist(o, p) < 38);
-        if (!underPressure && this.collectBall(p)) return;
+        if (!underPressure && this.collectBall(p, 'intended_reception', INTENDED_COLLECT_DIST)) return;
         if (underPressure && this.tryTrapMovingBall(p, ballSpeed, d)) return;
         continue;
       }
       // general collection: most slow/medium balls stick
       if (ballSpeed < 130) {
-        if (this.collectBall(p)) return;
+        if (this.collectBall(p, 'collision_collection')) return;
         continue;
       }
       // trap for faster balls
@@ -1810,24 +1860,27 @@ export class GameEngine {
     const contactBonus = clamp((20 - contactDist) / 20, 0, 1) * 0.25;
     const chance = clamp(skill - speedPenalty + contactBonus + (isIntended ? 0.35 : 0.10), 0.25, 0.98);
     if (random() >= chance) return false;
-    if (!this.collectBall(player)) return false;
+    if (!this.collectBall(player, isIntended ? 'intended_trap' : 'interception_trap', isIntended ? INTENDED_COLLECT_DIST : COLLECT_DIST)) return false;
     if (isInterception) this.emitEvent('intercept', player.x, player.y);
     return true;
   }
 
   canContestBall(player: Player): boolean {
     if (this.setPieceArmed && this.ball.controllerId === null) return false;
-    return !(this.reboundBlockTimer > 0 && this.reboundBlockedId === player.id);
+    const blockedUntil = this.contestBlockedUntil.get(player.id) ?? 0;
+    if (blockedUntil > this.clockMs) return false;
+    if (blockedUntil !== 0) this.contestBlockedUntil.delete(player.id);
+    return true;
   }
 
-  isCarrierShielded(): boolean {
-    return this.clockMs < this.receiverShieldUntil;
+  isCarrierShielded(playerId: number): boolean {
+    return this.receiverShieldedPlayerId === playerId && this.clockMs < this.receiverShieldUntil;
   }
 
   private blockReboundFor(playerId: number | null, ms: number): void {
     if (playerId === null) return;
-    this.reboundBlockedId = playerId;
-    this.reboundBlockTimer = ms;
+    const until = this.clockMs + ms;
+    this.contestBlockedUntil.set(playerId, Math.max(until, this.contestBlockedUntil.get(playerId) ?? 0));
   }
 
   private blockReleaser(player: Player, ms: number): void {
@@ -2186,23 +2239,82 @@ export class GameEngine {
     });
   }
 
-  collectBall(collector: Player): boolean {
-    if (!this.canContestBall(collector)) return false;
+  collectBall(collector: Player, source = 'contact', allowedDist = COLLECT_DIST): boolean {
+    const contactDist = dist(collector, this.ball);
+    const ballSpeed = Math.hypot(this.ball.vx, this.ball.vy);
     const previous = this.ball.controllerId;
+    if (previous !== null) {
+      const controller = this.playerById(previous);
+      if (previous !== collector.id && controller?.team !== collector.team) {
+        this.statsRejectedControlledGrabs++;
+        this.logDebug('collection_rejected', {
+          reason: 'controlled_ball',
+          source,
+          collector: collector.id,
+          controller: previous,
+          controllerTeam: controller?.team ?? null,
+          contactDist: Math.round(contactDist * 10) / 10,
+        });
+        this.logQualityFlag('ghost_dispossession_attempt', {
+          source,
+          collector: collector.id,
+          controller: previous,
+          contactDist: Math.round(contactDist * 10) / 10,
+        }, 5000, `ghost_dispossession_attempt:${collector.team}`);
+      }
+      return false;
+    }
+    if (!this.canContestBall(collector)) {
+      this.statsProtectedRecollections++;
+      this.logDebug('collection_rejected', {
+        reason: 'contest_block',
+        source,
+        collector: collector.id,
+        contactDist: Math.round(contactDist * 10) / 10,
+      });
+      return false;
+    }
+    if (contactDist > allowedDist + 0.001) {
+      this.statsRejectedLongReach++;
+      this.logDebug('collection_rejected', {
+        reason: 'out_of_reach',
+        source,
+        collector: collector.id,
+        contactDist: Math.round(contactDist * 10) / 10,
+        allowedDist,
+      });
+      this.logQualityFlag('unrealistic_collection_reach', {
+        source,
+        collector: collector.id,
+        contactDist: Math.round(contactDist * 10) / 10,
+        allowedDist,
+      }, 5000, `unrealistic_collection_reach:${collector.team}`);
+      return false;
+    }
+    this.statsCollections++;
+    this.statsCollectionDistanceTotal += contactDist;
+    this.statsMaxCollectionDistance = Math.max(this.statsMaxCollectionDistance, contactDist);
+    const isInterception = this.pendingPass !== null && this.pendingPass.team !== collector.team;
+    if (isInterception) {
+      this.statsInterceptionCollections++;
+      this.statsInterceptionDistanceTotal += contactDist;
+      this.statsMaxInterceptionDistance = Math.max(this.statsMaxInterceptionDistance, contactDist);
+    }
+    const fd = collector.team === 'home' ? 1 : -1;
+    const touchX = contactDist > 0.5 ? (this.ball.x - collector.x) / contactDist : fd;
+    const touchY = contactDist > 0.5 ? (this.ball.y - collector.y) / contactDist : 0;
     this.ball.controllerId = collector.id; this.ball.intendedReceiverId = null;
     this.ball.vx *= 0.3; this.ball.vy *= 0.3; this.ball.z = 0; this.ball.vz = 0;
     this.ball.lastTouchTeam = collector.team; this.ball.lastToucherId = collector.id;
     this.controlTicks = 0;
-    if (this.reboundBlockedId === collector.id) {
-      this.reboundBlockedId = null;
-      this.reboundBlockTimer = 0;
-    }
     if (this.ball.x < 5 || this.ball.x > PITCH_W - 5 || this.ball.y < 5 || this.ball.y > PITCH_H - 5) {
       this.ball.x = clamp(collector.x, 20, PITCH_W - 20); this.ball.y = clamp(collector.y, 20, PITCH_H - 20);
+    } else {
+      this.ball.x = clamp(collector.x + touchX * CONTROL_DIST, 5, PITCH_W - 5);
+      this.ball.y = clamp(collector.y + touchY * CONTROL_DIST, 5, PITCH_H - 5);
     }
     if (collector.role === 'GK') this.gkDistributeTimer = 400;
     // face receiver toward opponent's goal
-    const fd = collector.team === 'home' ? 1 : -1;
     collector.vx = fd * 15; collector.vy = 0;
     this.recordControlChange(collector);
     this.possessionByRole[collector.role] = (this.possessionByRole[collector.role] ?? 0) + 1;
@@ -2222,6 +2334,11 @@ export class GameEngine {
     const wasIntendedReceiver = this.receiverShieldTargetId !== null && collector.id === this.receiverShieldTargetId;
     if (wasIntendedReceiver) {
       this.receiverShieldUntil = this.clockMs + 300;
+      this.receiverShieldedPlayerId = collector.id;
+      this.receiverShieldTargetId = null;
+    } else {
+      this.receiverShieldUntil = 0;
+      this.receiverShieldedPlayerId = null;
       this.receiverShieldTargetId = null;
     }
     this.resolvePendingPassOnContact(collector, 'control');
@@ -2232,6 +2349,9 @@ export class GameEngine {
         role: collector.role,
         x: Math.round(collector.x),
         y: Math.round(collector.y),
+        source,
+        contactDist: Math.round(contactDist * 10) / 10,
+        ballSpeed: Math.round(ballSpeed),
       });
     }
     return true;
@@ -2239,15 +2359,16 @@ export class GameEngine {
 
   attemptTackle(tackler: Player, carrier: Player): boolean {
     const contactDist = dist(tackler, carrier);
-    if (this.ball.controllerId !== carrier.id || tackler.team === carrier.team || contactDist > TACKLE_RANGE + 5) {
+    if (this.ball.controllerId !== carrier.id || tackler.team === carrier.team || contactDist > TACKLE_RANGE) {
       this.logDebug('tackle_rejected', { tackler: tackler.id, carrier: carrier.id, contactDist: Math.round(contactDist), controller: this.ball.controllerId });
       return false;
     }
     this.qTackleAttempts.push(this.clockMs);
+    this.statsTackleAttempts++;
     const tackleSkill = attrFactor(tackler.attrs, 'tackling');
     const carrierControl = attrFactor(carrier.attrs, 'positioning') * 0.35 + attrFactor(carrier.attrs, 'speed') * 0.15;
     const facingBonus = (tackler.team === 'home' ? tackler.vx > 0 : tackler.vx < 0) ? 0.08 : -0.05;
-    const carrierShielded = this.clockMs < this.receiverShieldUntil;
+    const carrierShielded = this.isCarrierShielded(carrier.id);
     const carrierSpeed = Math.hypot(carrier.vx, carrier.vy);
     const forwardX = carrierSpeed > 8 ? carrier.vx / carrierSpeed : (carrier.team === 'home' ? 1 : -1);
     const forwardY = carrierSpeed > 8 ? carrier.vy / carrierSpeed : 0;
@@ -2261,6 +2382,9 @@ export class GameEngine {
       return false;
     }
     this.qTackleSuccesses.push(this.clockMs);
+    this.statsTackleWins++;
+    this.statsTackleWinDistanceTotal += contactDist;
+    this.statsMaxTackleWinDistance = Math.max(this.statsMaxTackleWinDistance, contactDist);
     this.logDebug('tackle_win', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance * 100), contactDist: Math.round(contactDist), fromBehind });
     this.tackleBall(tackler, carrier);
     return true;
@@ -2320,6 +2444,8 @@ export class GameEngine {
 
   tackleBall(tackler: Player, carrier: Player): void {
     this.clearTeamAssignments();
+    this.receiverShieldUntil = 0;
+    this.receiverShieldedPlayerId = null;
     this.ball.controllerId = null;
     const angle = Math.atan2(this.ball.y - tackler.y, this.ball.x - tackler.x) + (random() - 0.5) * 1.5;
     const kickSpeed = TACKLE_KICK_SPEED + random() * 150;
@@ -2555,7 +2681,7 @@ export class GameEngine {
       if (random() < catchChance) {
         this.ball.x = gk.x;
         this.ball.y = gk.y;
-        this.collectBall(gk);
+        this.collectBall(gk, 'goalkeeper_save');
         return;
       }
 
@@ -2709,14 +2835,14 @@ export class GameEngine {
     }
   }
 
-  private checkOutOfPlay(): void {
+  private checkOutOfPlay(): boolean {
     const b = this.ball; const lt = this.ball.lastTouchTeam;
-    if (b.y < -25 || b.y > PITCH_H + 25) {
+    if (b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
       if (this.isShotActive) { this.statsShotsOffTarget++; this.isShotActive = false; this.activeShot = null; this.qConsecutiveSaves = 0; }
       else this.activeShot = null;
-      this.awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H); return;
+      this.awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H); return true;
     }
-    if (b.x < -25) {
+    if (b.x + BALL_R < HOME_GOAL_X) {
       const inGoal = this.ballInsideGoalOpening(b);
       if (!inGoal) {
         if (this.isShotActive) { this.statsShotsOffTarget++; this.isShotActive = false; this.activeShot = null; this.qConsecutiveSaves = 0; }
@@ -2725,9 +2851,11 @@ export class GameEngine {
         if (lt === 'away') this.awardSetPiece('goal_kick', 'home');
         else if (lt === 'home') this.awardSetPiece('corner', 'away');
         else this.awardSetPiece('goal_kick', 'home');
-      } return;
+        return true;
+      }
+      return false;
     }
-    if (b.x > PITCH_W + 25) {
+    if (b.x - BALL_R > AWAY_GOAL_X) {
       const inGoal = this.ballInsideGoalOpening(b);
       if (!inGoal) {
         if (this.isShotActive) { this.statsShotsOffTarget++; this.isShotActive = false; this.activeShot = null; this.qConsecutiveSaves = 0; }
@@ -2736,8 +2864,10 @@ export class GameEngine {
         if (lt === 'home') this.awardSetPiece('goal_kick', 'away');
         else if (lt === 'away') this.awardSetPiece('corner', 'home');
         else this.awardSetPiece('goal_kick', 'away');
+        return true;
       }
     }
+    return false;
   }
 
   private awardThrowIn(lt: Team | null, y: number): void {
@@ -3225,7 +3355,8 @@ export class GameEngine {
     if (loosePlayableBall) this.qBallUnclaimedSince += 500;
     else this.qBallUnclaimedSince = 0;
     const nearestOutfieldDist = Math.min(...this.players.filter(p => p.role !== 'GK').map(p => dist(p, b)));
-    if (this.qBallUnclaimedSince > 1500 && nearestOutfieldDist < 90) {
+    // Flag a ball ignored at plausible foot reach, not a slow pass still rolling toward its receiver.
+    if (this.qBallUnclaimedSince > 2000 && nearestOutfieldDist < INTENDED_COLLECT_DIST + 4) {
       this.logQualityFlag('ball_unclaimed', { ms: this.qBallUnclaimedSince, nearestDist: Math.round(nearestOutfieldDist) });
     }
 

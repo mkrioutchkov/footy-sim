@@ -30,6 +30,43 @@ from very acute positions that looked outside the rendered goal. The latest
 run audited six goals with no low-value goals. Average chosen shot angle is
 `13.3` degrees; all scored-goal opening angles were at least `7.5` degrees.
 
+### Contact And Control Addendum (2026-05-25)
+
+The contact/readability repair after that selection baseline is the new
+starting point. Standard `npm.cmd run benchmark` output is:
+
+| Metric | Selection baseline `584ac2b` | Contact/control state |
+| --- | ---: | ---: |
+| Goals / match | 0.8 | 0.4 |
+| Shots / match | 3.0 | 3.3 |
+| Pass completion | 80.7% | 73.4% |
+| Interceptions / match | 55.8 | 60.0 |
+| Low-value goals / match | 0 | 0 |
+| Maximum interception collection distance | not recorded | 20 px |
+| Maximum winning tackle distance | not recorded | 24 px |
+| Stale chase candidates cancelled / match | not recorded | 51.1 |
+| Illegal controlled grabs in standard run | not recorded | 0 |
+| Rejected long-reach grabs in standard run | not recorded | 0 |
+
+Diagnosed mechanism: a cached loose-ball chase could still call
+`collectBall()` after an opponent had taken control, using the former
+`36.4` px collection envelope. The engine now refuses collection of a
+controlled ball, cancels the stale perception, and logs contest distances.
+Ordinary/interception control is restricted to `20` px and tackle wins to
+`24` px. An intended receiver may make a `28` px stretched first touch, which
+immediately places the ball at the rendered boots.
+
+Also preserve the related visual and restart repairs: heads are centered
+inside player markers, boots visibly bracket a controlled ball, grounded balls
+do not bob into the head marker, and a whole ball beyond a non-goal endline or
+touchline causes an immediate restart. The boundary fix removed a reproducible
+seed `103` stationary-ball cascade.
+
+Do not raise contact distances to recover the pass-completion decline. Improve
+target selection, pass execution or receiver approach behavior and rerun this
+same benchmark. Current additional targets are `15.4` avoidable press
+selections and `2.9` outfield dangerous turnovers per match.
+
 New instrumentation and behavior you must preserve:
 
 - `pass_selection`, shot selection data and `goal_audit` quantify distance,
@@ -90,6 +127,11 @@ investigating an animation or event sequence.
 - A tackle can dispossess only the currently controlling opponent at contact
   range. Rear tackles are penalized and failed challenges do not render a
   successful slide.
+- `collectBall()` cannot silently transfer an already controlled ball. Preserve
+  `collection_rejected` and `stale_chase_cancelled` telemetry, the `20` px
+  ordinary/interception reach bound, and the `24` px winning-tackle bound.
+- Keep endline and touchline restart checks whole-ball based. A loose ball just
+  outside the painted line must not remain stopped in play.
 - A pending pass resolves on control or headed contact. Do not restore stale
   pending possession after a header.
 - Foul and offside restarts are `free_kick` restarts, not disguised goal kicks.
@@ -104,9 +146,11 @@ investigating an animation or event sequence.
   telemetry and do not restore center-point-only scoring. Goal detection runs
   immediately after loose-ball physics so a goalkeeper or collision cannot
   retrieve a ball that has already fully crossed the line.
-- Player orientation is now drawn as legs plus a head rather than a triangle.
-  Facing turns remain capped, slide tackles keep their captured orientation,
-  and headed contact uses `headingAnim` plus a short `header` event ring.
+- Player orientation is now drawn as legs plus a centered head rather than a
+  triangle. Controlled-ball boots point toward and bracket the ball, grounded
+  ball rendering has no artificial bob, facing turns remain capped, slide
+  tackles keep their captured orientation, and headed contact uses
+  `headingAnim` plus a short `header` event ring.
 - Preserve `cross_to_shot`, `cross_goal`, `gk_distribution_result` and
   `gk_save_assessment` events. Preserve `bad_gk_distribution`,
   `bad_player_distribution`, `unrealistic_gk_save` and

@@ -251,6 +251,61 @@ Acceptance constraints remain deterministic seeded output, zero
 `low_value_goal` events in the benchmark, and preservation of the pitch,
 goal-aperture, tackle and rendered-line repairs.
 
+## 2026-05-25 Contact, Control And Readability Iteration
+
+A live log reproduced the apparent ghost dispossession: an opponent retained a
+cached loose-ball chase after control had already changed, then called
+`collectBall()` from the previous `36.4` px chase envelope. Separately, tackle
+wins were permitted at `29` px. Both distances could show a visible gap between
+the player bodies.
+
+This slice rejects collection while another player controls the ball,
+invalidates stale loose-ball perceptions as soon as control changes, and
+requires tackle body contact. Successful control now records its source and
+contact distance; batch output reports collection, interception and tackle
+distance limits.
+
+| Metric | Pre-contact baseline `584ac2b` | Latest accepted state |
+| --- | ---: | ---: |
+| Goals per match | 0.8 | 0.4 |
+| Shots per match | 3.0 | 3.3 |
+| Pass completion | 80.7% | 73.4% |
+| Intercepted passes per match | 55.8 | 60.0 |
+| Low-value goals per match | 0 | 0 |
+| Maximum interception collection distance | not recorded | 20 px |
+| Maximum winning tackle distance | not recorded | 24 px |
+| Stale chase candidates cancelled per match | not recorded | 51.1 |
+| Rejected controlled grabs per match | not recorded | 0 |
+| Rejected long-reach grabs per match | not recorded | 0 |
+
+Physical and visual constraints now in place:
+
+- Ordinary loose-ball collection and interceptions require contact within
+  `20` px. A specifically intended receiver may stretch to `28` px for a
+  delivered pass, then the ball is immediately positioned at the visible
+  `12` px foot-control distance.
+- Tackles must be within `24` px, the diameter of the two rendered player
+  bodies. A direct scenario rejects an illegal controlled-ball grab, a normal
+  collection attempt from `21` px and a tackle attempt from `25` px.
+- The old single-player rebound lock is now a per-player timed contest block,
+  and first-touch shielding is tied to the actual receiver rather than any
+  later carrier.
+- A whole ball past a touchline or non-goal endline now triggers a restart.
+  Seed `103` previously stopped outside the endline and generated recurring
+  stationary/stuck alarms; after the repair it generated no
+  `ball_stationary_in_play` alarm.
+- The top-down player head is centered in the body marker. Visible boots point
+  toward and bracket a controlled ball; a grounded ball no longer bobs into
+  the head marker.
+
+The completion reduction is an accepted diagnostic tradeoff for this repair:
+previously some passes survived because distant or stale collections were
+allowed. Do not recover completion by expanding opponent contact range. A
+later pass-selection/receiver-movement slice should address the current
+`73.4%` completion, `15.4` avoidable press selections per match and
+`2.9` outfield dangerous turnovers per match while preserving these contact
+bounds.
+
 ## Engineering Rules For AI Changes
 
 - Preserve fixed update ordering unless the ordering defect is specifically

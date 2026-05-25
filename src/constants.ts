@@ -36,6 +36,7 @@ export const STAMINA_DRAIN_SPRINT = 0.028;
 export const STAMINA_RECOVER = 0.015;
 export const STAMINA_SLOW_THRESHOLD = 0.35;
 export const CLOSE_DIST = 30;
+// Two 12px player bodies must visibly meet before a tackle can connect.
 export const TACKLE_RANGE = 24;
 export const CHASE_DIST = 150;
 export const SHOOT_MIN_DIST = 120;
@@ -47,7 +48,10 @@ export const GK_RUSH_DIST = 200;
 export const DRIBBLE_MAX = 52;
 export const CONTROL_DIST = 12;
 export const OFFSIDE_TOLERANCE = 1;
-export const COLLECT_DIST = 28;
+// Player radius plus ball radius and a small reaching touch with the boot.
+export const COLLECT_DIST = PLAYER_R + BALL_R + 3.5;
+// A selected receiver can stretch for a pass, but must immediately bring it to the feet.
+export const INTENDED_COLLECT_DIST = PLAYER_R + BALL_R + 11.5;
 export const COLLECT_SPEED_MAX = 80;
 export const INTENDED_COLLECT_BONUS = 1.8;
 export const BALL_FRICTION = 0.70;

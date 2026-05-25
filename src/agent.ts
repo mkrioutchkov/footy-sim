@@ -2,7 +2,7 @@ import type { Player, PlayerRole, TeamAssignmentRole } from './types';
 import {
   PITCH_W, PITCH_H, HOME_GOAL_X, AWAY_GOAL_X,
   SHOOT_MIN_DIST, SHOOT_MAX_DIST,
-  COLLECT_DIST, COLLECT_SPEED_MAX, INTENDED_COLLECT_BONUS,
+  COLLECT_DIST, INTENDED_COLLECT_DIST, COLLECT_SPEED_MAX, INTENDED_COLLECT_BONUS,
   TACKLE_RANGE, PLAYER_AWARE_RANGE,
   STAMINA_DRAIN_SPRINT, STAMINA_RECOVER, STAMINA_SLOW_THRESHOLD,
   SPEED_RUN, SPEED_SPRINT,
@@ -10,6 +10,9 @@ import {
 } from './constants';
 import type { GameEngine, PassSelectionAudit, ShotSelectionAudit } from './engine';
 import { random } from './random';
+
+// Former chase collection envelope; retained only to count now-rejected steals.
+const PRE_CONTACT_CHASE_REACH = 36.4;
 
 interface ActionAudit {
   distance?: number;
@@ -57,6 +60,12 @@ export class PlayerAgent {
       this.lx = this.player.x;
       this.ly = this.player.y;
       return;
+    }
+    if (this.ch && this.ch.ballControllerId !== this.e.ball.controllerId) {
+      if (this.ch.ballIsLoose && this.e.ball.controllerId !== null && dist(this.player, this.e.ball) <= PRE_CONTACT_CHASE_REACH) {
+        this.e.notePreventedStaleGrab(this.player);
+      }
+      this.ch = null;
     }
     // Intended receivers must react to the current flight, not a cached pre-pass view.
     if (this.e.ball.intendedReceiverId === this.player.id) this.ch = null;
@@ -361,7 +370,7 @@ export class PlayerAgent {
     if (defensiveTask && defensiveTask.role !== 'primary_press' && defensiveTask.role !== 'secondary_press'
       && Math.abs(ctrl.x - (this.player.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X)) > 170) sc -= 0.20;
     // first-touch shield: can't immediately tackle a receiver
-    if (this.e.isCarrierShielded()) sc -= 0.20;
+    if (this.e.isCarrierShielded(ctrl.id)) sc -= 0.20;
     // carrier near our goal? must engage — tackle urgency
     const ownGoalX = this.player.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
     if (Math.abs(ctrl.x - ownGoalX) < 220) sc += 0.18; // in/around our box
@@ -422,6 +431,7 @@ export class PlayerAgent {
         score: 1,
         posX: clamp(b.x + b.vx * lead, 10, PITCH_W - 10),
         posY: clamp(b.y + b.vy * lead, 10, PITCH_H - 10),
+        purpose: 'receive_ball',
       };
     }
     if (needsRecovery) {
@@ -819,17 +829,12 @@ export class PlayerAgent {
           }
         }
         break;
-      case 'tackle': if (a.target && dist(p, a.target) < TACKLE_RANGE + 5 && this.e.attemptTackle(p, a.target)) { this.e.emitEvent('tackle', (p.x + a.target.x) / 2, (p.y + a.target.y) / 2); p.tackleAnim = 300; } else { p.targetX = a.target?.x ?? p.x; p.targetY = a.target?.y ?? p.y; } break;
+      case 'tackle': if (a.target && dist(p, a.target) <= TACKLE_RANGE && this.e.attemptTackle(p, a.target)) { this.e.emitEvent('tackle', (p.x + a.target.x) / 2, (p.y + a.target.y) / 2); p.tackleAnim = 300; } else { p.targetX = a.target?.x ?? p.x; p.targetY = a.target?.y ?? p.y; } break;
       case 'mark': if (a.target) { p.targetX = a.target.x; p.targetY = a.target.y; } break;
       case 'chase': { const tx = a.posX ?? b.x, ty = a.posY ?? b.y; p.targetX = tx; p.targetY = ty;
         const ms = attrFactor(p.attrs, 'speed') * SPEED_SPRINT; const cdx = tx - p.x, cdy = ty - p.y, cd = Math.sqrt(cdx * cdx + cdy * cdy);
         if (cd > 1) { p.vx = lerp(p.vx, (cdx / cd) * ms, 0.15); p.vy = lerp(p.vy, (cdy / cd) * ms, 0.15); }
-        if (dist(p, b) < COLLECT_DIST * 1.3 && b.z < 20) { const bs = Math.sqrt(b.vx ** 2 + b.vy ** 2); if (bs < (p.id === b.intendedReceiverId ? COLLECT_SPEED_MAX * INTENDED_COLLECT_BONUS : COLLECT_SPEED_MAX)) {
-          this.e.collectBall(p);
-          const firstTimeChance = this.e.isRecentFinishingDeliveryReceiver(p.id);
-          this.sl = firstTimeChance ? 0 : 45;
-          this.sc = firstTimeChance ? 0 : 15;
-        } } break; }
+        break; }
       case 'position': p.targetX = a.posX ?? p.homeX; p.targetY = a.posY ?? p.homeY;
         if (a.purpose?.startsWith('task:')) this.e.noteTaskSelection(p, a.purpose.slice(5) as TeamAssignmentRole);
         break;
@@ -843,7 +848,26 @@ export class PlayerAgent {
         else { p.targetX = clamp(p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X, 40, PITCH_W - 40); p.targetY = clamp(p.y + (random() - 0.5) * 20, 40, PITCH_H - 40); }
       } break;
     }
-    if (this.e.ball.controllerId !== p.id) this.am(sdt);
+    if (this.e.ball.controllerId !== p.id) {
+      this.am(sdt);
+      if (a.type === 'chase') this.tryCollectAfterChase();
+    }
+  }
+
+  private tryCollectAfterChase(): void {
+    const p = this.player;
+    const b = this.e.ball;
+    const distance = dist(p, b);
+    if (b.controllerId !== null) return;
+    const intended = p.id === b.intendedReceiverId;
+    const reach = intended ? INTENDED_COLLECT_DIST : COLLECT_DIST;
+    if (b.z >= 20 || distance > reach) return;
+    const speed = Math.hypot(b.vx, b.vy);
+    const speedLimit = intended ? COLLECT_SPEED_MAX * INTENDED_COLLECT_BONUS : COLLECT_SPEED_MAX;
+    if (speed >= speedLimit || !this.e.collectBall(p, intended ? 'intended_chase_reception' : 'chase_collection', reach)) return;
+    const firstTimeChance = this.e.isRecentFinishingDeliveryReceiver(p.id);
+    this.sl = firstTimeChance ? 0 : 45;
+    this.sc = firstTimeChance ? 0 : 15;
   }
 
   private gp(): P | null { this.pa++; if (this.ch && this.pa < 3) return this.ch; this.ch = this.pr(); this.pa = 0; return this.ch; }
@@ -883,14 +907,16 @@ export class PlayerAgent {
     const dx = p.targetX - p.x, dy = p.targetY - p.y, d = Math.sqrt(dx * dx + dy * dy);
     const committedRun = this.e.committedRunFor(p.id) !== undefined;
     const pressTask = this.lastPurpose === 'task:primary_press';
-    // Called-for runs and an urgent primary press must actually engage at sprint pace.
+    const committedChase = this.la === 'chase' && this.e.ball.controllerId === null
+      && (this.lastPurpose === 'receive_ball' || this.lastPurpose === 'recover_loose_ball');
+    // Called-for runs, loose-ball chases and an urgent primary press must actually engage at sprint pace.
     const bdx = this.e.ball.x - p.x, bdy = this.e.ball.y - p.y, bd = Math.sqrt(bdx * bdx + bdy * bdy);
     const ownGoalX = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
     const committedPress = pressTask && bd > 45 && (bd < 145 || Math.abs(this.e.ball.x - ownGoalX) < 240);
-    const isObserving = !committedRun && !committedPress && bd > 300 && bd > PLAYER_AWARE_RANGE * 0.5;
+    const isObserving = !committedRun && !committedChase && !committedPress && bd > 300 && bd > PLAYER_AWARE_RANGE * 0.5;
     const cruiseMul = isObserving ? (p.role === 'CF' ? 0.45 : p.role === 'CB' || p.role === 'FB' ? 0.65 : p.role === 'WM' ? 0.55 : 0.50) : 1;
     const baseSpeed = this.la === 'chase' || committedRun || committedPress ? SPEED_SPRINT : SPEED_RUN;
-    const df = committedRun || committedPress ? 1 : Math.min(d / 120, 1.5), ms = attrFactor(p.attrs, 'speed') * baseSpeed * sf * df * cruiseMul;
+    const df = committedRun || committedChase || committedPress ? 1 : Math.min(d / 120, 1.5), ms = attrFactor(p.attrs, 'speed') * baseSpeed * sf * df * cruiseMul;
     const px = p.x, py = p.y; if (d > 1) { const sp = Math.min(ms * secs, d); p.x += (dx / d) * sp; p.y += (dy / d) * sp; }
     if (secs > 0.001) { p.vx = (p.x - px) / secs; p.vy = (p.y - py) / secs; }
     // ball tracking: update memory when ball is in vision cone, otherwise age it
