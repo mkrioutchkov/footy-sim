@@ -553,6 +553,7 @@ export class GameEngine {
         pending: this.activeKnockAhead === null ? 0 : 1,
       },
       shotsBlocked: this.statsShotsBlocked,
+      goalsByDistance: { close: this.statsGoalsClose, medium: this.statsGoalsMedium, long: this.statsGoalsLong },
       flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
@@ -1138,6 +1139,7 @@ export class GameEngine {
     this.statsAuditedShots = 0; this.statsShotChoiceDistanceTotal = 0; this.statsShotChoiceAngleTotal = 0;
     this.statsLowValueShots = 0; this.statsBetterPassShots = 0;
     this.statsAuditedGoals = 0; this.statsGoalDistanceTotal = 0; this.statsGoalAngleTotal = 0;
+    this.statsGoalsClose = 0; this.statsGoalsMedium = 0; this.statsGoalsLong = 0;
     this.statsLowValueGoals = 0; this.statsTightAngleGoals = 0;
     this.statsPressSamples = 0; this.statsPrimaryPressDistanceTotal = 0;
     this.statsAvoidablePressSelections = 0; this.statsDangerUnengagedSamples = 0;
@@ -2030,9 +2032,9 @@ export class GameEngine {
         if (dot < 0) { b.vx -= 1.3 * dot * nx; b.vy -= 1.3 * dot * ny; }
         // teammate bounce: dampen more heavily to reduce pinball
         const sameTeamBounce = b.lastTouchTeam === p.team;
-        b.vx *= sameTeamBounce ? 0.12 : 0.25;
-        b.vy *= sameTeamBounce ? 0.12 : 0.25;
-        b.vx += ny * ballSpeed * 0.02; b.vy += -nx * ballSpeed * 0.02;
+        b.vx *= sameTeamBounce ? 0.08 : 0.25;
+        b.vy *= sameTeamBounce ? 0.08 : 0.25;
+        b.vx += ny * ballSpeed * 0.015; b.vy += -nx * ballSpeed * 0.015;
         this.recordOutfieldShotBlock(p, 'deflection');
         b.lastTouchTeam = p.team; b.lastToucherId = p.id;
         this.statsBouncesNoControl++;
