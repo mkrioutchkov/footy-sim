@@ -547,6 +547,12 @@ export class GameEngine {
       && this.clockMs - delivery.completedAt < 3000;
   }
 
+  isRecentThroughBallReceiver(playerId: number): boolean {
+    const delivery = this.qLastCompletedDelivery;
+    return delivery !== null && delivery.source === 'through_ball' && delivery.receiverId === playerId
+      && this.clockMs - delivery.completedAt < 2500;
+  }
+
   goalOpeningAngleDeg(x: number, y: number, goalX: number): number {
     const upperPostY = PITCH_H / 2 - GOAL_OPENING_HALF_W;
     const lowerPostY = PITCH_H / 2 + GOAL_OPENING_HALF_W;
@@ -2576,7 +2582,7 @@ export class GameEngine {
     const trajectoryOffset = Math.abs(crossY - gk.y);
     const timeToLineMs = distanceToLine / Math.max(Math.abs(b.vx), 1) * 1000;
     const handling = attrFactor(gk.attrs, 'positioning');
-    const saveChance = clamp(0.70 + handling * 0.24 - speed / 1800 - trajectoryOffset / 500, 0.55, 0.96);
+    const saveChance = clamp(0.45 + handling * 0.22 - speed / 1400 - trajectoryOffset / 400, 0.25, 0.88);
     this.activeShot.saveAssessment = {
       goalkeeperId: gk.id,
       goalkeeperTeam: gk.team,
