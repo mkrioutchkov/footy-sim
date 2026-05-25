@@ -320,6 +320,7 @@ export class GameEngine {
   private qPossessionChanges: number[] = [];
   private qLastControllerId: number | null = null;
   private qLastControllerTeam: Team | null = null; private qLastControllerChange = 0;
+  private qLastProgressiveAction: Map<number, { x: number; t: number }> = new Map();
   private qLastPossessionTeam: Team | null = null;
   private qLastPossessionTeamChange = 0;
   private qPlayerLastMoved: Map<number, { x: number; y: number; stuckSince: number }> = new Map();
@@ -920,6 +921,8 @@ export class GameEngine {
     if (selection) this.recordPassSelection(from, to, selection);
     this.pendingPass = { fromId: from.id, team: from.team, toId: to.id, source, isCross, launchPressure };
     this.logDebug('pass_attempt', { from: from.id, to: to.id, team: from.team, source, isCross, launchSpeed: Math.round(launchSpeed) });
+    // ball hogging reset: passing shows intent
+    this.qLastProgressiveAction.set(from.id, { x: from.x, t: this.clockMs });
   }
 
   private failPendingPass(reason: string): void {
@@ -2024,9 +2027,12 @@ export class GameEngine {
         const nx = dx / d2, ny = dy / d2;
         b.x = p.x + nx * r; b.y = p.y + ny * r;
         const dot = b.vx * nx + b.vy * ny;
-        if (dot < 0) { b.vx -= 1.3 * dot * nx; b.vy -= 1.3 * dot * ny; } // soft deflection
-        b.vx *= 0.25; b.vy *= 0.25; // kill the ball — it's near a player
-        b.vx += ny * ballSpeed * 0.03; b.vy += -nx * ballSpeed * 0.03;
+        if (dot < 0) { b.vx -= 1.3 * dot * nx; b.vy -= 1.3 * dot * ny; }
+        // teammate bounce: dampen more heavily to reduce pinball
+        const sameTeamBounce = b.lastTouchTeam === p.team;
+        b.vx *= sameTeamBounce ? 0.12 : 0.25;
+        b.vy *= sameTeamBounce ? 0.12 : 0.25;
+        b.vx += ny * ballSpeed * 0.02; b.vy += -nx * ballSpeed * 0.02;
         this.recordOutfieldShotBlock(p, 'deflection');
         b.lastTouchTeam = p.team; b.lastToucherId = p.id;
         this.statsBouncesNoControl++;
