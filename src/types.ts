@@ -32,6 +32,7 @@ export interface Player {
   headingAnim: number;
   facing: number;
   crossCollected: number;
+  dribbleType: number; // 0=none, 1=close, 2=medium, 3=fast/knock-forward
 }
 
 export interface Ball {
