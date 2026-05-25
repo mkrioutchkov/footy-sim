@@ -2949,7 +2949,15 @@ export class GameEngine {
   private awardSetPiece(type: 'goal_kick' | 'corner', team: Team): void {
     this.cancelPreparedThroughBall(type);
     this.recordOutOfPlay();
+    const spPass = this.pendingPass;
     this.failPendingPass('out_of_play');
+    if (spPass) {
+      const spPasser = this.playerById(spPass.fromId);
+      if (spPasser) {
+        const pressure = this.players.filter(o => o.team !== spPasser.team && o.role !== 'GK' && dist(o, spPasser) < 65).length;
+        if (pressure === 0) { this.statsUnpressuredClearances++; this.logQualityFlag('unpressured_clearance', { player: spPasser.id, role: spPasser.role, team: spPasser.team }, 8000, `unpressured_clearance:${spPasser.id}`); }
+      }
+    }
     if (type === 'corner') this.statsCornersTaken++;
     const exitX = Math.round(this.ball.x);
     const exitY = Math.round(this.ball.y);
