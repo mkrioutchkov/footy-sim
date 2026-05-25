@@ -705,7 +705,7 @@ export class PlayerAgent {
       const tac = my ? (cn.x - p.homeX) * fd / PITCH_W * 0.5 : -(cn.x - p.homeX) * fd / PITCH_W * 0.25;
       const og2 = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X, db = !my ? clamp(((b.x - cn.x) * fd) / (Math.abs(b.x - og2) + 1), 0, 0.30) : 0;
       const bp = Math.sqrt((cn.x - b.x) ** 2 + (cn.y - b.y) ** 2) / 600 * 0.08;
-      const ob = cn.pur === 'observe' ? 0.10 : 0;
+      const ob = cn.pur === 'observe' ? 0.10 : (cn.pur === 'space' && p.role === 'WM' && Math.abs(cn.y - PITCH_H/2) > 150 && ba > 0.4) ? 0.12 : 0;
       return { type: 'position', score: clamp(0.15 + sf * 0.3 + tac - bp + db + ob, 0, 1), posX: clamp(cn.x, 40, PITCH_W - 40), posY: clamp(cn.y, 40, PITCH_H - 40), purpose: cn.pur };
     });
     const task = this.e.assignmentFor(p.id);
