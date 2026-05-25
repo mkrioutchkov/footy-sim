@@ -235,6 +235,7 @@ export class GameEngine {
   statsUnpressuredClearances = 0; statsTimeWastingDribbles = 0;
   statsFinalThirdEntries = 0; statsFinalThirdShots = 0; statsShotsBlocked = 0; statsPanicClears = 0;
   statsDribbleFast = 0; statsDribbleMedium = 0; statsDribbleClose = 0;
+  private statsClumpingSamples = 0; private statsClumpingTotal = 0;
   private statsTimedRunsStarted = 0; private statsTimedRunsReleased = 0; private statsTimedRunOffsides = 0; private statsTimedRunsCancelled = 0;
   private statsBouncesNoControl = 0;
   private statsFlankTime: Record<string, number> = { left: 0, right: 0, center: 0 };
@@ -487,6 +488,7 @@ export class GameEngine {
       panicClears: this.statsPanicClears,
       dribbleTypes: { fast: this.statsDribbleFast, medium: this.statsDribbleMedium, close: this.statsDribbleClose },
       shotsBlocked: this.statsShotsBlocked,
+      avgSpacing: this.statsClumpingSamples > 0 ? Math.round(this.statsClumpingTotal / this.statsClumpingSamples) : 0,
       flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
