@@ -22,7 +22,7 @@ export class MatchRenderer {
   private ballBody: Graphics;
   private ballGlow: Graphics;
   private hudText: Text;
-  private versionText: Text;
+  private versionText: Text = null!;
   private uiVersion = '';
   private eventGfx: Graphics;
   private scale = 1;

@@ -18,8 +18,8 @@ import {
 import { PlayerAgent } from './agent';
 import { random } from './random';
 
-const GIT_HASH = '58f087c';
-const GIT_DATE = '2026-05-25T20:22:48+10:00';
+const GIT_HASH = '34c7598';
+const GIT_DATE = '2026-05-25T20:26:12+10:00';
 
 const FIXED_DT = 16.667;
 const MAX_FRAME_DELTA_MS = 34;
@@ -99,6 +99,8 @@ export interface AnalysisSummary {
   timeWastingDribbles: number;
   finalThird: { entries: number; shots: number; shotPct: number };
   panicClears: number;
+  carrierUnpressuredEvents: number;
+  receiveFacingAway: number;
   dribbleTypes: {
     fast: number; medium: number; close: number;
     knockAheads: number; recovered: number; retainedByTeammate: number;
@@ -235,6 +237,7 @@ export class GameEngine {
   private cornerCrossPending = false;
   private cornerCrossTaker: number | null = null;
   private kickoffPhase = false;
+  private lastKickoffMs = 0;
   private gkDistributeTimer = 0;
   private receiverShieldUntil = 0;
   private receiverShieldedPlayerId: number | null = null;
@@ -364,6 +367,7 @@ export class GameEngine {
   private carrierWatchNearestOppDist = 0;
   private carrierWatchUnpressuredSince = 0;
   private statsCarrierUnpressuredEvents = 0;
+  private statsReceiveFacingAway = 0;
   private finalThirdPossessionTeam: Team | null = null;
   private finalThirdPossessionHasShot = false;
 
@@ -546,6 +550,7 @@ export class GameEngine {
       },
       panicClears: this.statsPanicClears,
       carrierUnpressuredEvents: this.statsCarrierUnpressuredEvents,
+      receiveFacingAway: this.statsReceiveFacingAway,
       dribbleTypes: {
         fast: this.statsDribbleFast,
         medium: this.statsDribbleMedium,
@@ -2681,11 +2686,28 @@ export class GameEngine {
       this.ball.y = clamp(collector.y + touchY * CONTROL_DIST, 5, PITCH_H - 5);
     }
     if (collector.role === 'GK') this.gkDistributeTimer = 400;
-    // face receiver toward opponent's goal
-    // organic receive: carry momentum — receiver doesn't stop dead
     collector.dribbleType = 0;
-    collector.vx = collector.vx * 0.55 + fd * 10 + (random() - 0.5) * 4;
-    collector.vy = collector.vy * 0.55 + (random() - 0.5) * 6;
+    // organic receive: carry momentum and turn toward ball approach
+    const bs = Math.hypot(this.ball.vx, this.ball.vy);
+    if (bs > 20) {
+      const approachX = -this.ball.vx / bs;
+      const approachY = -this.ball.vy / bs;
+      collector.vx = collector.vx * 0.3 + approachX * 8;
+      collector.vy = collector.vy * 0.3 + approachY * 8;
+    } else {
+      collector.vx = collector.vx * 0.55 + fd * 10 + (random() - 0.5) * 4;
+      collector.vy = collector.vy * 0.55 + (random() - 0.5) * 6;
+    }
+    // audit: receiver facing away from ball approach
+    if (bs > 20 && collector.facing !== undefined) {
+      const approachAngle = Math.atan2(-this.ball.vy, -this.ball.vx);
+      const faceDiff = Math.abs(collector.facing - approachAngle);
+      const faceNorm = faceDiff > Math.PI ? 2 * Math.PI - faceDiff : faceDiff;
+      if (faceNorm > Math.PI * 0.55) {
+        this.statsReceiveFacingAway++;
+        this.logQualityFlag('receive_facing_away', { player: collector.id, role: collector.role, angle: Math.round(faceNorm * 180 / Math.PI) }, 5000, `faceAway:${collector.id}`);
+      }
+    }
     this.recordControlChange(collector);
     this.possessionByRole[collector.role] = (this.possessionByRole[collector.role] ?? 0) + 1;
     // ball teleport diagnosis: ball was far from collector last tick, suddenly in possession
@@ -3276,6 +3298,10 @@ export class GameEngine {
     this.cancelPreparedThroughBall('throw_in');
     this.resolveKnockAhead(null, 'out_of_play');
     this.recordOutOfPlay();
+    // kickoff→throw-in diagnostic
+    if (this.clockMs - this.lastKickoffMs < 5000) {
+      this.logQualityFlag('kickoff_led_to_throw_in', { msSinceKickoff: this.clockMs - this.lastKickoffMs }, 2000, 'kickoff_throw_in');
+    }
     const strayPass = this.pendingPass;
     this.failPendingPass('out_of_play');
     if (strayPass) {
@@ -3525,6 +3551,7 @@ export class GameEngine {
     this.setPieceTakerId = null;
     this.gkDistributeTimer = 0;
     this.actionTimer = 600; this.kickoffPhase = true;
+    this.lastKickoffMs = this.clockMs;
   }
 
   private kickoffPositionFor(p: Player, kickoffTeam: Team): { x: number; y: number } {
