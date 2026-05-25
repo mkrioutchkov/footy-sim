@@ -2380,7 +2380,13 @@ export class GameEngine {
     const forwardY = carrierSpeed > 8 ? carrier.vy / carrierSpeed : 0;
     const approachDot = contactDist > 0 ? ((tackler.x - carrier.x) * forwardX + (tackler.y - carrier.y) * forwardY) / contactDist : 0;
     const fromBehind = approachDot < -0.30;
-    const chance = clamp(0.18 + tackleSkill * 0.35 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0) - (fromBehind ? 0.14 : 0), 0.06, 0.72);
+    // tackle angle audit
+    const angleDeg = Math.round(Math.acos(clamp(approachDot, -1, 1)) * 180 / Math.PI);
+    const isRear = approachDot < -0.5;
+    const isHeadOn = approachDot > 0.85 && contactDist < TACKLE_RANGE * 0.8;
+    if (isRear) this.logQualityFlag('rear_tackle', { tackler: tackler.id, carrier: carrier.id, angle: angleDeg }, 5000, `rear_tackle:${tackler.id}`);
+    if (isHeadOn) this.logQualityFlag('head_on_tackle', { tackler: tackler.id, carrier: carrier.id, angle: angleDeg }, 5000, `head_on:${tackler.id}`);
+    const chance = clamp(0.18 + tackleSkill * 0.35 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0) - (fromBehind ? 0.14 : 0) + (approachDot > 0.3 && approachDot < 0.85 ? 0.06 : 0), 0.06, 0.72);
     if (random() >= chance) {
       this.logDebug('tackle_fail', { tackler: tackler.id, carrier: carrier.id, chance: Math.round(chance * 100), contactDist: Math.round(contactDist), fromBehind });
       const foulChance = fromBehind ? 0.34 : 0.10;
