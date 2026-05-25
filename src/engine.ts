@@ -234,6 +234,7 @@ export class GameEngine {
   private statsThrowInsTaken = 0;
   statsUnpressuredClearances = 0; statsTimeWastingDribbles = 0;
   statsFinalThirdEntries = 0; statsFinalThirdShots = 0; statsShotsBlocked = 0; statsPanicClears = 0;
+  statsDribbleFast = 0; statsDribbleMedium = 0; statsDribbleClose = 0;
   private statsTimedRunsStarted = 0; private statsTimedRunsReleased = 0; private statsTimedRunOffsides = 0; private statsTimedRunsCancelled = 0;
   private statsBouncesNoControl = 0;
   private statsFlankTime: Record<string, number> = { left: 0, right: 0, center: 0 };
@@ -484,6 +485,7 @@ export class GameEngine {
         shotPct: Math.round(this.statsFinalThirdShots / Math.max(1, this.statsFinalThirdEntries) * 1000) / 10,
       },
       panicClears: this.statsPanicClears,
+      dribbleTypes: { fast: this.statsDribbleFast, medium: this.statsDribbleMedium, close: this.statsDribbleClose },
       flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
@@ -778,8 +780,8 @@ export class GameEngine {
     // pass reaction: mark the pass trajectory for defenders to react
     this.qRecentPass = { bx: this.ball.x, by: this.ball.y, vx: this.ball.vx, vy: this.ball.vy, team: from.team, clockMs: this.clockMs };
     // panic clear: forced pass within 1s of team gaining possession with no pressure
-    if (source === 'forced' && this.clockMs - this.qLastPossessionTeamChange < 1000) {
-      const pPressure = this.players.filter(o => o.team !== from.team && o.role !== 'GK' && dist(o, from) < 65).length;
+    if (source === 'forced' && this.clockMs - this.qLastPossessionTeamChange < 2000) {
+      const pPressure = this.players.filter(o => o.team !== from.team && o.role !== 'GK' && dist(o, from) < 70).length;
       if (pPressure <= 1) { this.statsPanicClears++; this.logQualityFlag('panic_clear', { player: from.id, role: from.role, pressure: pPressure }, 5000, `panic_clear:${from.id}`); }
     }
     this.recordPassAttempt(from, to);
@@ -976,6 +978,7 @@ export class GameEngine {
     this.statsCornersTaken = 0; this.statsThrowInsTaken = 0; this.statsFreeKicks = 0;
     this.statsUnpressuredClearances = 0; this.statsTimeWastingDribbles = 0;
     this.statsFinalThirdEntries = 0; this.statsFinalThirdShots = 0; this.statsShotsBlocked = 0; this.statsPanicClears = 0;
+    this.statsDribbleFast = 0; this.statsDribbleMedium = 0; this.statsDribbleClose = 0;
     this.statsGKDistributionAttempted = 0; this.statsGKDistributionCompleted = 0; this.statsGKDistributionFailed = 0; this.statsGKDistributionDangerTurnovers = 0;
     this.statsOutfieldDangerTurnovers = 0;
     this.statsGKAssessedShots = 0; this.statsGKUnlikelySaves = 0; this.statsGKPreventableGoals = 0;

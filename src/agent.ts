@@ -855,9 +855,9 @@ export class PlayerAgent {
         // dribble type: 1=close control, 2=medium, 3=fast knock-forward
         const distToTarget = Math.sqrt((p.targetX - p.x) ** 2 + (p.targetY - p.y) ** 2);
         const nearbyOpps = this.e.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, p) < 55).length;
-        if (distToTarget > 90 && nearbyOpps <= 1) p.dribbleType = 3; // fast — knock forward into space
-        else if (nearbyOpps >= 2) p.dribbleType = 1; // close control under pressure
-        else p.dribbleType = 2; // medium
+        if (distToTarget > 90 && nearbyOpps <= 1) { p.dribbleType = 3; this.e.statsDribbleFast++; }
+        else if (nearbyOpps >= 2) { p.dribbleType = 1; this.e.statsDribbleClose++; }
+        else { p.dribbleType = 2; this.e.statsDribbleMedium++; }
         // backward dribble alert
         const oppGoalX = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
         const fd = p.team === 'home' ? 1 : -1;
