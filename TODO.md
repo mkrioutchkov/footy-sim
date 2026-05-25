@@ -1,20 +1,23 @@
 # TODO — Footy Sim
 
 ## Active — P0 (affects benchmarks)
-- [ ] Replay low-value shot choices (`2.1` / match) before adding further final-third shooting bonuses
-- [ ] Replay preventable goalkeeper goals (`0.4` / match) before changing keeper save tuning
+- [ ] Recover credible chance volume (`4.4` shots / match after rejecting bad attempts) through delivery and movement, not weaker shot geometry
+- [ ] Replay the remaining `no_shots` alerts (`6` in the standard run) while creating wide/cutback alternatives
 - [ ] Validate dribble-type episodes and tackle outcomes (`84.3` fast, `6.6` medium, `16.0` close / match)
 
 ## Active — P1 (realism metrics)
-- [ ] Cross frequency and completion (`0.4` attempts, `0` completions / match) through positioning and delivery choices only
+- [ ] Cross frequency and completion (`0.3` attempts, `0` completions / match) through positioning and delivery choices only
 - [ ] Cross-to-shot chain (`0` / match; do not expand receiver/header reach)
-- [ ] Shot block rate (`9.1%` valid baseline; replay before setting a target)
-- [ ] Monitor final-third entry-to-shot conversion (`24.3%` valid baseline)
-- [ ] Goals consistency (`0.9` / match standard baseline)
+- [ ] Shot block rate (`5.7%` current run; replay after restoring credible shots)
+- [ ] Monitor final-third entry-to-shot conversion (`18.6%` current run)
+- [ ] Goals consistency (`1.1` / match standard run)
 
 ## Active — P2
 
 ## Done
+- [x] Replay and remove selected low-value shots (`2.1` to `0.0` / match); rejected shot options cannot be revived by urgency/pressure bonuses
+- [x] Reserve scripted corner wind-up execution; a corner taker cannot take an ordinary shot before the scheduled cross
+- [x] Tighten `poor_gk_save_attempt` to clear keeper failures; ordinary failed `74-82%` save chances no longer raise a false alarm (`0.4` to `0.0` / match)
 - [x] Restore TypeScript build after metrics/cross changes
 - [x] Add deterministic `npm.cmd run scenarios` checks for contact, cross completion, header reach, shot blocks and final-third conversion
 - [x] Remove extended cross-header contact reach; aerial contact remains at 20px

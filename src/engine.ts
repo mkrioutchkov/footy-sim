@@ -1729,6 +1729,19 @@ export class GameEngine {
       return;
     }
 
+    if (this.cornerCrossPending) {
+      this.actionTimer -= sdt;
+      this.tickAgents(sdt, false);
+      this.updateControlledBall(secs);
+      this.applySeparation(secs);
+      if (this.actionTimer <= 0) {
+        this.executeCornerCross();
+        this.cornerCrossPending = false;
+      }
+      this.updateGK(sdt);
+      return;
+    }
+
     if (this.kickoffPhase) {
       this.actionTimer -= sdt;
       this.holdKickoffShape();
@@ -1767,14 +1780,6 @@ export class GameEngine {
     this.releasePreparedThroughBallIfReady();
     this.applySeparation(secs);
 
-    // corner cross execution
-    if (this.cornerCrossPending) {
-      this.actionTimer -= sdt;
-      if (this.actionTimer <= 0) {
-        this.executeCornerCross();
-        this.cornerCrossPending = false;
-      }
-    }
     this.updateGK(sdt);
     this.tryGKSave(secs);
     // ball trace: log every 2nd tick to catch teleports
@@ -3398,8 +3403,9 @@ export class GameEngine {
       }
       const assessment = this.activeShot.saveAssessment;
       if (assessment && !assessment.saved) {
-        const preventable = assessment.saveChance >= 0.72
-          || (assessment.trajectoryOffset < 16 && assessment.timeToLineMs > 260 && assessment.speed < 430);
+        // A merely favored save can still be beaten normally; alert only on clear keeper failures.
+        const preventable = assessment.saveChance >= 0.84
+          || (assessment.trajectoryOffset < 10 && assessment.timeToLineMs > 360 && assessment.speed < 410);
         if (preventable) {
           this.statsGKPreventableGoals++;
           this.logQualityFlag('poor_gk_save_attempt', {

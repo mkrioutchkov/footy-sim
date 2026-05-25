@@ -3,6 +3,7 @@ import { createManager } from './manager';
 import { setSeed } from './random';
 import { createTeam, resetIds } from './teams';
 import { FORMATIONS, type Player, type Team } from './types';
+import { AWAY_GOAL_X, PITCH_H } from './constants';
 
 interface ScenarioEngine {
   pendingPass: {
@@ -16,6 +17,10 @@ interface ScenarioEngine {
   resolvePendingPassOnContact(receiver: Player, contact: 'control' | 'header'): void;
   checkBallPlayerCollision(secs: number): void;
   trackFinalThirdPossession(): void;
+  cornerCrossPending: boolean;
+  cornerCrossTaker: number | null;
+  actionTimer: number;
+  kickoffPhase: boolean;
 }
 
 function assert(condition: boolean, message: string): void {
@@ -132,9 +137,64 @@ function finalThirdConversionScenario(): void {
   assert(summary.finalThird.shotPct === 100, 'final-third conversion exceeded its bounded definition');
 }
 
+function invalidShotChoiceScenario(): void {
+  const engine = createEngine(14);
+  engine.startMatch();
+  const internal = engine as unknown as ScenarioEngine;
+  internal.kickoffPhase = false;
+  const shooter = engine.players.find(player => player.team === 'home' && player.role === 'CF') ?? outfielder(engine, 'home');
+  for (const teammate of engine.players.filter(player => player.team === shooter.team && player.id !== shooter.id)) {
+    teammate.x = 100; teammate.y = 100;
+  }
+  shooter.x = AWAY_GOAL_X - 210; shooter.y = PITCH_H - 39;
+  engine.players
+    .filter(player => player.team !== shooter.team && player.role !== 'GK')
+    .slice(0, 5)
+    .forEach((opponent, index) => {
+      opponent.x = shooter.x + 20 + index * 2;
+      opponent.y = shooter.y - index * 5;
+    });
+  engine.ball.x = shooter.x + 12; engine.ball.y = shooter.y;
+  engine.ball.controllerId = shooter.id;
+  engine.ball.lastTouchTeam = shooter.team;
+  engine.ball.lastToucherId = shooter.id;
+
+  engine.update(16.667);
+  const summary = engine.getAnalysisSummary();
+  assert(summary.shots.home + summary.shots.away === 0, 'pressure bonuses revived an invalid acute/long shot');
+}
+
+function scriptedCornerWindupScenario(): void {
+  const engine = createEngine(13);
+  engine.startMatch();
+  const internal = engine as unknown as ScenarioEngine;
+  const taker = outfielder(engine, 'home');
+  internal.kickoffPhase = false;
+  taker.x = AWAY_GOAL_X - 70; taker.y = PITCH_H / 2;
+  engine.ball.x = taker.x + 12; engine.ball.y = taker.y;
+  engine.ball.controllerId = taker.id;
+  engine.ball.lastTouchTeam = taker.team;
+  engine.ball.lastToucherId = taker.id;
+  internal.cornerCrossPending = true;
+  internal.cornerCrossTaker = taker.id;
+  internal.actionTimer = 200;
+
+  engine.update(16.667);
+  let summary = engine.getAnalysisSummary();
+  assert(summary.shots.home + summary.shots.away === 0, 'corner wind-up allowed a normal shot');
+  assert(summary.passes.attempted === 0, 'corner wind-up allowed an ordinary pass');
+
+  for (let tick = 0; tick < 13; tick++) engine.update(16.667);
+  summary = engine.getAnalysisSummary();
+  assert(summary.crosses.attempted === 1, 'scripted corner cross did not execute after its wind-up');
+  assert(summary.shots.home + summary.shots.away === 0, 'scripted corner created a phantom shot');
+}
+
 contactBoundsScenario();
 crossCompletionScenario();
 aerialReachScenario();
 shotBlockScenario();
 finalThirdConversionScenario();
-console.log('Scenario checks passed: contact, crosses, headers, shot blocks, final-third conversion.');
+invalidShotChoiceScenario();
+scriptedCornerWindupScenario();
+console.log('Scenario checks passed: contact, crosses, headers, shot blocks, final-third conversion, shot rejection, corner wind-up.');

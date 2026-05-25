@@ -1,6 +1,7 @@
 import type { Player, PlayerRole, TeamAssignmentRole } from './types';
 import {
   PITCH_W, PITCH_H, HOME_GOAL_X, AWAY_GOAL_X,
+  GOAL_W, BALL_R,
   SHOOT_MIN_DIST, SHOOT_MAX_DIST,
   COLLECT_DIST, INTENDED_COLLECT_DIST, COLLECT_SPEED_MAX, INTENDED_COLLECT_BONUS,
   TACKLE_RANGE, PLAYER_AWARE_RANGE,
@@ -286,12 +287,15 @@ export class PlayerAgent {
     const shotDistance = Math.hypot(p.x - gx, p.y - PITCH_H / 2);
     const angleDeg = this.e.goalOpeningAngleDeg(p.x, p.y, gx);
     const audit: ActionAudit = { distance: shotDistance, angleDeg, pressureCount: per.pressureCount };
-    // Preserve normal chance-taking while rejecting the diagnosed near-byline geometry.
+    const outsideGoalLane = Math.abs(p.y - PITCH_H / 2) > GOAL_W / 2 - BALL_R + 20;
+    const acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150;
+    // Invalid shots stay negative because contextual urgency/pressure bonuses are applied later.
+    if (shotDistance > 300 || acuteGeometry) return { type: 'shoot', score: -1, audit };
     const roleMax: Record<string, number> = { 'CF': 280, 'CM': 240, 'WM': 220, 'FB': 170, 'CB': 140 };
     const hardMax = roleMax[p.role] ?? 220;
-    if (depthToGoal > hardMax) return { type: 'shoot', score: 0, audit };
+    if (depthToGoal > hardMax) return { type: 'shoot', score: -1, audit };
     const mr = SHOOT_MIN_DIST + attrFactor(p.attrs, 'shooting') * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
-    if (depthToGoal > Math.min(mr, hardMax)) return { type: 'shoot', score: 0, audit };
+    if (depthToGoal > Math.min(mr, hardMax)) return { type: 'shoot', score: -1, audit };
     let sc = attrFactor(p.attrs, 'shooting') * (1 - depthToGoal / mr) * 0.35;
     // box floor: carriers close to goal always consider shooting
     if (depthToGoal < 90) sc = Math.max(sc, 0.35);
@@ -310,7 +314,6 @@ export class PlayerAgent {
       if (p.role === 'CF') sc += 0.13;
       if (p.role === 'CM') sc -= 0.03;
     if (Math.abs(p.y - PITCH_H / 2) > 100) sc -= 0.08;
-    if (angleDeg < 7.5 && shotDistance > 150) sc -= 0.08;
     sc -= Math.min(0.24, per.pressureCount * 0.09);
     if (ctx.urgency > 0.6 && depthToGoal < 350) sc += 0.08;
     const credibleOpening = angleDeg >= 7.5 || shotDistance < 115;

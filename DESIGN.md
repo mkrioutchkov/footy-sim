@@ -125,6 +125,13 @@ outfield controls, headers and physical deflections while a shot is active.
 receiving a teammate's pass; unpressured out-of-play audits use launch-time
 pressure and require the passing team to remain the last toucher.
 
+A scripted corner cross owns its short wind-up interval: the taker cannot
+execute an ordinary agent shot or pass before that delivery. Selected shots
+use the same long/acute geometry rejection as the low-value audit, and
+rejected options cannot be revived by later urgency or pressure bonuses.
+`poor_gk_save_attempt` is reserved for clear keeper failures; less certain
+beaten assessments remain visible in `gk_save_assessment`.
+
 For visual inspection with repeatable team generation and agent decisions,
 seed the live server:
 

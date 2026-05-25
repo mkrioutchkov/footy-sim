@@ -91,6 +91,37 @@ is:
 | Avoidable press selections / match | 11.0 |
 | Outfield dangerous turnovers / match | 3.9 |
 
+### Corner Wind-Up And Shot Eligibility Addendum (2026-05-25)
+
+This addendum supersedes the stabilized benchmark above as the current state.
+Replays showed that corner takers could shoot during their prescribed
+`200ms` cross wind-up, and that a shot rejected with score `0` could be
+revived by later pressure/final-third bonuses. Both are now guarded by
+scenarios.
+
+| Metric | Stabilized state | Current state |
+| --- | ---: | ---: |
+| Goals / match | 0.9 | 1.1 |
+| Shots / match | 6.9 | 4.4 |
+| Shots on target | 36.4% | 51.4% |
+| Pass completion | 77.1% | 77.7% |
+| Through balls / match | 39.0 | 37.3 |
+| Crosses / match | 0.4 | 0.3 |
+| Cross-led shots / match | 0 | 0 |
+| Cutback-led shots / match | 0.8 | 1.1 |
+| Final-third entries yielding a shot | 24.3% | 18.6% |
+| Low-value shots / match | 2.1 | 0.0 |
+| Poor keeper goals / match | 0.4 | 0.0 |
+| Avoidable press selections / match | 11.0 | 10.8 |
+| Outfield dangerous turnovers / match | 3.9 | 3.3 |
+
+Do not restore low-value shots to increase volume. The next measured work is
+credible chance creation: diagnose the six `no_shots` flags, increase
+delivered wide attacks and central receivers, and retain zero selected
+long/acute attempts. `poor_gk_save_attempt` is deliberately a high-confidence
+alert now; beaten `74-82%` chances remain debug evidence, not automatic
+failures.
+
 Mandatory checks before and after the next behavioral edit:
 
 ```powershell
@@ -100,16 +131,17 @@ npm.cmd run benchmark
 ```
 
 The scenarios protect controlled-ball collection, collection/tackle/header
-reach limits, completed crosses, shot-block attribution and bounded
-final-third conversion. Do not restore any extended cross receiver reach:
+reach limits, completed crosses, shot-block attribution, bounded final-third
+conversion, invalid pressured-shot rejection and reserved corner wind-ups.
+Do not restore any extended cross receiver reach:
 ordinary and aerial contact is `20` px, intended grounded reception may use
 `28` px, and tackle wins are capped at `24` px.
 
-Work next on shot quality and natural wide creation. The current shot volume
-is adequate, but `2.1` low-value shots and `0.4` preventable goals per match
-need replay, while three total cross attempts in the standard run yielded no
-completed cross or cross-led shot. Improve positions and selections, not
-contact envelopes or generic shooting bonuses.
+Work next on natural wide creation. The corrected run has `4.4` shots per
+match with `0` selected low-value shots and `0` clear keeper-failure alerts,
+while only `0.3` cross attempts per match yielded no completed cross or
+cross-led shot. Restore credible volume through positions and delivery
+choices, not contact envelopes or generic shooting bonuses.
 
 New instrumentation and behavior you must preserve:
 

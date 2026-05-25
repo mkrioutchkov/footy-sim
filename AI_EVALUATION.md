@@ -377,3 +377,52 @@ shot. Preserve the new scenario checks while doing so.
 - Prefer a small new metric over an unexplained utility-score bonus.
 - Keep the seed and exact command in review notes so another model can replay a
   claimed improvement.
+
+## 2026-05-25 Corner Wind-Up And Shot Eligibility Slice
+
+Starting point: `ce1e74b`. Replays of seeds `101`, `106`, and `107` exposed
+two causes of low-value attempts:
+
+- Seed `107` generated normal `shot_start` events from corner takers during
+  the scripted `200ms` cross wind-up, immediately before `cross_attempt`.
+- Rejected shots returned score `0`, then pressure and final-third bonuses
+  made the invalid action selectable again.
+
+Seed `103` also marked three legitimate goals as `poor_gk_save_attempt` at
+assessed save chances of `74%`, `80%`, and `82%`; these are probabilistic
+outcomes rather than clear keeper failures.
+
+Accepted fixes:
+
+- A pending scripted corner cross is a reserved restart phase; the taker
+  cannot execute ordinary pass or shot actions before delivery.
+- Shot selection rejects the same `>300px` or acute geometry class recorded by
+  `lowValue`, and rejected shot options stay negative through later bonuses.
+- `poor_gk_save_attempt` now requires a clear failure (`>=84%` assessed save
+  chance, or a very slow and central delayed reaction). Borderline beaten
+  assessments remain available as `gk_save_assessment` events.
+- Scenarios now cover pressured invalid-shot rejection and reserved corner
+  wind-up execution.
+
+Standard benchmark (`npm.cmd run benchmark`, seeds `101-108`, ten simulated
+minutes each):
+
+| Metric | Stabilized state | Current state |
+| --- | ---: | ---: |
+| Goals / match | 0.9 | 1.1 |
+| Shots / match | 6.9 | 4.4 |
+| Shots on target | 36.4% | 51.4% |
+| Pass completion | 77.1% | 77.7% |
+| Through balls / match | 39.0 | 37.3 |
+| Crosses / match | 0.4 | 0.3 |
+| Cutback shots / match | 0.8 | 1.1 |
+| Final-third entries yielding a shot | 24.3% | 18.6% |
+| Low-value shots / match | 2.1 | 0.0 |
+| Poor keeper goals / match | 0.4 | 0.0 |
+| Avoidable press selections / match | 11.0 | 10.8 |
+| Outfield dangerous turnovers / match | 3.9 | 3.3 |
+
+The reduced shot count reflects removal of bogus attempts, not successful
+chance-creation tuning. Restore credible shots next through wide progression
+and central cutback/cross receivers; do not weaken shot geometry, the goal
+aperture, or reception reach to increase volume.
