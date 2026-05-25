@@ -203,11 +203,9 @@ export class PlayerAgent {
         && Math.abs(t.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X)) < 235
         && Math.abs(t.y - PITCH_H / 2) < 135
         && fp > -80;
-      if (p.role === 'WM' && dgW < 250 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 150) sc += 0.22;
-      // WM: cross early from deep — reward forward passes from wide areas
-      if (p.role === 'WM' && fp > 100 && Math.abs(p.y - PITCH_H / 2) > 140 && bl <= 1) sc += 0.16;
-      // FB overlap cross: reward wide passes into box
-      if (p.role === 'FB' && fp > 80 && Math.abs(p.y - PITCH_H / 2) > 120 && dgW < 300) sc += 0.12;
+      if (p.role === 'WM' && dgW < 300 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 160) sc += 0.24;
+      if (p.role === 'WM' && fp > 80 && Math.abs(p.y - PITCH_H / 2) > 140 && bl <= 1) sc += 0.18;
+      if (p.role === 'FB' && fp > 60 && Math.abs(p.y - PITCH_H / 2) > 110 && dgW < 320) sc += 0.14;
       sc -= bl * 0.06; if (fp > 0) sc += 0.08 + (ctx.urgency > 0.5 ? 0.10 : 0) + (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.2;
       else sc -= (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.15;
       let pur = 'keep'; if (fp > 120 && bl === 0) pur = 'build'; else if (fp > 40 && bl <= 1) pur = 'build';
@@ -425,7 +423,7 @@ export class PlayerAgent {
     const needsRecovery = b.z <= 20 && ballSpeed < 30 && per.amClosestToBall;
     if (!per.ballIsLoose || !this.e.canContestBall(this.player) || (!isIntendedReceiver && per.ballDist > 180 && !needsRecovery)) return { type: 'chase', score: 0 };
     if (isIntendedReceiver) {
-      const lead = ballSpeed > 30 ? 0.3 + Math.min(ballSpeed / 200, 0.8) : 0;
+      const lead = ballSpeed > 30 ? 0.2 + Math.min(ballSpeed / 300, 0.5) : 0; // don't overshoot - move to arrival point
       return {
         type: 'chase',
         score: 1,

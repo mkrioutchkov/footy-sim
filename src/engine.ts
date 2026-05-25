@@ -1804,7 +1804,7 @@ export class GameEngine {
           return;
         }
       }
-      if (b.z > 20 && p.id !== b.intendedReceiverId) continue;
+      if (b.z > 20 && p.id !== b.intendedReceiverId && d > 12) continue; // allow close non-receivers to contest aerial balls
       if (p.role === 'GK' && ballSpeed < 220 && this.isInKeeperArea(p, b.x, b.y)) {
         this.recordGKCollectionOutcome(p, ballSpeed);
         this.collectBall(p, 'keeper_collection');
