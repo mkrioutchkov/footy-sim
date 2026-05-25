@@ -66,7 +66,7 @@ export interface AnalysisSummary {
   territoryPct: { homeDef: number; mid: number; awayDef: number };
   qualityFlags: Record<string, number>;
   passByRole: Record<string, { att: number; comp: number; pct: number }>;
-  setPieces: { corners: number; throwIns: number; freeKicks: number };
+  setPieces: { corners: number; throwIns: number; freeKicks: number; unpressuredClearances: number };
   crosses: { attempted: number; completed: number; shots: number; goals: number };
   cutbacks: { attempted: number; completed: number; shots: number; goals: number };
   distributions: {
@@ -2037,6 +2037,9 @@ export class GameEngine {
     const rawDx = to.x - from.x, rawDy = to.y - from.y;
     const rawDist = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
     const speed = PASS_SPEED_BASE + rawDist * PASS_SPEED_DIST;
+    // organic pass weight: slightly vary speed for natural feel
+    const weightVariation = 0.92 + random() * 0.16; // 0.92-1.08x multiplier
+    const organicSpeed = speed * weightVariation;
     const travelTime = rawDist / Math.max(speed, 1);
     // through-ball: lead more when receiver is sprinting forward into space
     const receiverSpeed = Math.sqrt(to.vx * to.vx + to.vy * to.vy);

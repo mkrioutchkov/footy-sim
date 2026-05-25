@@ -708,7 +708,10 @@ export class PlayerAgent {
       const og2 = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X, db = !my ? clamp(((b.x - cn.x) * fd) / (Math.abs(b.x - og2) + 1), 0, 0.30) : 0;
       const bp = Math.sqrt((cn.x - b.x) ** 2 + (cn.y - b.y) ** 2) / 600 * 0.08;
       const ob = cn.pur === 'observe' ? 0.10 : (cn.pur === 'space' && p.role === 'WM' && Math.abs(cn.y - PITCH_H/2) > 150 && ba > 0.4) ? 0.12 : 0;
-      return { type: 'position', score: clamp(0.15 + sf * 0.3 + tac - bp + db + ob, 0, 1), posX: clamp(cn.x, 40, PITCH_W - 40), posY: clamp(cn.y, 40, PITCH_H - 40), purpose: cn.pur };
+      // organic movement: micro-jitter prevents robotic positioning
+      const jx = Math.sin(this.e.clockMs * 0.007 + p.id * 1.3) * 6;
+      const jy = Math.cos(this.e.clockMs * 0.009 + p.id * 1.9) * 6;
+      return { type: 'position', score: clamp(0.15 + sf * 0.3 + tac - bp + db + ob, 0, 1), posX: clamp(cn.x + jx, 40, PITCH_W - 40), posY: clamp(cn.y + jy, 40, PITCH_H - 40), purpose: cn.pur };
     });
     const task = this.e.assignmentFor(p.id);
     if (task) {
@@ -852,6 +855,11 @@ export class PlayerAgent {
       } break;
       case 'shoot': this.e.shootBall(p, this.shotSelectionAudit(a, actions)); this.e.emitEvent('shot', p.x, p.y); this.sl = 20; break;
       case 'dribble': p.targetX = a.posX ?? (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X); p.targetY = a.posY ?? p.y;
+        // organic dribble: add wobble — carriers don't move in straight lines
+        const wobbleAngle = Math.sin(this.e.clockMs * 0.008 + p.id * 1.7) * 0.3;
+        const wobbleDist = Math.sin(this.e.clockMs * 0.012 + p.id * 2.3) * 12;
+        p.targetX += Math.cos(wobbleAngle) * wobbleDist;
+        p.targetY += Math.sin(wobbleAngle) * wobbleDist;
         // dribble type: 1=close control, 2=medium, 3=fast knock-forward
         const distToTarget = Math.sqrt((p.targetX - p.x) ** 2 + (p.targetY - p.y) ** 2);
         const nearbyOpps = this.e.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, p) < 55).length;
@@ -872,7 +880,15 @@ export class PlayerAgent {
         }
         break;
       case 'tackle': if (a.target && dist(p, a.target) <= TACKLE_RANGE && this.e.attemptTackle(p, a.target)) { this.e.emitEvent('tackle', (p.x + a.target.x) / 2, (p.y + a.target.y) / 2); p.tackleAnim = 300; } else { p.targetX = a.target?.x ?? p.x; p.targetY = a.target?.y ?? p.y; } break;
-      case 'mark': if (a.target) { p.targetX = a.target.x; p.targetY = a.target.y; } break;
+      case 'mark': if (a.target) { 
+        // organic marking: anticipate target movement, not just static position
+        const leadX = a.target.x + a.target.vx * 0.3;
+        const leadY = a.target.y + a.target.vy * 0.3;
+        // stay between target and own goal
+        const ownGx = p.team === 'home' ? HOME_GOAL_X : AWAY_GOAL_X;
+        p.targetX = clamp(lerp(leadX, ownGx, 0.15), leadX - 80, leadX + 40);
+        p.targetY = clamp(leadY + (Math.sin(this.e.clockMs * 0.004 + p.id) * 8), 30, PITCH_H - 30);
+      } break;
       case 'chase': { const tx = a.posX ?? b.x, ty = a.posY ?? b.y; p.targetX = tx; p.targetY = ty;
         const ms = attrFactor(p.attrs, 'speed') * SPEED_SPRINT; const cdx = tx - p.x, cdy = ty - p.y, cd = Math.sqrt(cdx * cdx + cdy * cdy);
         if (cd > 1) { p.vx = lerp(p.vx, (cdx / cd) * ms, 0.15); p.vy = lerp(p.vy, (cdy / cd) * ms, 0.15); }
