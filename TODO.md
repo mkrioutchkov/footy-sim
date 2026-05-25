@@ -13,6 +13,15 @@
 - [x] Pass-triggered player reactions (defenders intercept — +0.12 chase near trajectory)
 - [x] Sliding tackle angle alerts (rear_tackle, head_on_tackle)
 - [x] Backward pass audit (questionable_backpass)
+- [x] TODO.md created + AGENTS.md + autonomous agents
+- [x] Offsides (0 → 0.5)
+- [x] Color bug (stamina-based alpha variance fixed)
+- [x] Unpressured clearance benchmark (counter added)
+- [x] Time-wasting dribble benchmark (counter added)
+- [x] GK save significantly nerfed (floor 0.04)
+- [x] Cross→shoot boosted (0.52 at 260px/5°)
+- [x] Cross loft lowered + speed 1.25x
+- [x] Box floor 0.35/0.52/0.70 for point-blank shots
 - [x] TOD.md created
 - [x] Offsides (0 → 0.5)
 - [x] Cross goals (0 → 0.1, first ever)

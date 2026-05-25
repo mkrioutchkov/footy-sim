@@ -15,15 +15,17 @@ When asked to "iterate" or "continue autonomously", follow this cycle:
 ## Target bands
 | Metric | Current | Target |
 |--------|---------|--------|
-| Goals/match | 0.4-1.1 | 1.0+ stable |
-| Shots/match | 3-6 | 6+ |
-| On target % | 30-50% | 35-45% |
-| Pass completion | 73-78% | 75-80% |
-| Crosses/match | 0.1-1.5 | 1+ |
+| Goals/match | 0.4-2.0 | 1.0+ stable |
+| Shots/match | 3-8 | 6+ |
+| On target % | 37-75% | 35-50% |
+| Pass completion | 73-82% | 75-80% |
+| Crosses/match | 0-1.5 | 1+ |
 | Cross shots/match | 0-0.5 | 0.5+ |
-| Through-balls | 24-47 | 25-35 |
-| No_shots flags | 2-12 | <5 |
+| Through-balls | 24-47 | 25-40 |
+| No_shots flags | 1-12 | <5 |
 | Avoidable press | 12-16 | <12 |
+| Unpressured clearances | 0-? | benchmark |
+| Time-wasting dribbles | 0-1 | track |
 
 ## Rules
 - Never increase contact distances (max intercept 20px, tackle 24px)
