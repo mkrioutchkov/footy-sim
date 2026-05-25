@@ -2,7 +2,7 @@
 
 ## Active
 - [ ] Cross frequency (0.3-1.5, target 2+)
-- [ ] Cross→shot chain (0-0.5, target 1+)
+- [x] CrossCollected mechanic — receiver +0.35 shoot + extended collection range
 - [ ] Kicking out of play not under pressure — benchmark needed
 - [ ] Pointless backward dribbling (time wasting when not winning) — benchmark needed
 - [ ] Goals consistency (0.4-1.1, target 1.0+ stable)
