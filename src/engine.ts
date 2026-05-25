@@ -790,7 +790,11 @@ export class GameEngine {
       if (!this.statsPassByRole[role]) this.statsPassByRole[role] = { att: 0, comp: 0 };
       this.statsPassByRole[role].comp++;
       if (pass.source === 'through_ball') this.statsThroughBallCompleted++;
-      if (pass.isCross) { this.statsCrossCompleted++; collector.crossCollected = 1200; }
+      if (pass.isCross) { 
+        this.statsCrossCompleted++; 
+        collector.crossCollected = 1200;
+        this.logDebug('cross_completed', { from: pass.fromId, to: collector.id, role: collector.role, distToGoal: Math.round(Math.abs(collector.x - (collector.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X))) });
+      }
       if (pass.source === 'cutback') this.statsCutbackCompleted++;
       if (pass.source === 'gk_distribution') {
         this.statsGKDistributionCompleted++;
