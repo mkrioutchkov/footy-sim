@@ -2,7 +2,8 @@ import { MatchRenderer } from './renderer';
 import { showSetup } from './ui';
 import { createManager } from './manager';
 
-const WS_URL = 'ws://localhost:3000';
+const useCpp = typeof window !== 'undefined' && window.location.search.includes('cpp');
+const WS_URL = useCpp ? 'ws://localhost:3001' : 'ws://localhost:3000';
 
 async function main() {
   const homeConfig = createManager('home', false);
