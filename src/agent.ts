@@ -858,6 +858,7 @@ export class PlayerAgent {
             const myScore = p.team === 'home' ? this.e.homeScore : this.e.awayScore;
             const oppScore = p.team === 'home' ? this.e.awayScore : this.e.homeScore;
             const isTimeWasting = myScore <= oppScore && this.e.clockMs > 60_000;
+            if (isTimeWasting) this.e.statsTimeWastingDribbles++;
             this.e.logQualityFlag(isTimeWasting ? 'time_wasting_dribble' : 'backward_dribble', { player: p.id, role: p.role, fromX: Math.round(p.x), toX: Math.round(p.targetX), score: `${myScore}-${oppScore}` });
           }
         }

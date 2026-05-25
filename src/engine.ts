@@ -232,6 +232,7 @@ export class GameEngine {
   private statsHeadersWon = 0; private statsHeadersTotal = 0;
   private statsCornersTaken = 0;
   private statsThrowInsTaken = 0;
+  statsUnpressuredClearances = 0; statsTimeWastingDribbles = 0;
   private statsTimedRunsStarted = 0; private statsTimedRunsReleased = 0; private statsTimedRunOffsides = 0; private statsTimedRunsCancelled = 0;
   private statsBouncesNoControl = 0;
   private statsFlankTime: Record<string, number> = { left: 0, right: 0, center: 0 };
@@ -443,7 +444,7 @@ export class GameEngine {
       },
       qualityFlags: Object.fromEntries(this.qualityFlagCounts),
       passByRole: Object.fromEntries(Object.entries(this.statsPassByRole).map(([role, s]) => [role, { ...s, pct: Math.round(s.comp / Math.max(1, s.att) * 1000) / 10 }])),
-      setPieces: { corners: this.statsCornersTaken, throwIns: this.statsThrowInsTaken, freeKicks: this.statsFreeKicks },
+      setPieces: { corners: this.statsCornersTaken,       throwIns: this.statsThrowInsTaken, freeKicks: this.statsFreeKicks, unpressuredClearances: this.statsUnpressuredClearances },
       crosses: { attempted: this.statsCrossAttempted, completed: this.statsCrossCompleted, shots: this.statsCrossShots, goals: this.statsCrossGoals },
       cutbacks: { attempted: this.statsCutbackAttempted, completed: this.statsCutbackCompleted, shots: this.statsCutbackShots, goals: this.statsCutbackGoals },
       distributions: {
@@ -474,6 +475,7 @@ export class GameEngine {
       timedRuns: { started: this.statsTimedRunsStarted, released: this.statsTimedRunsReleased, offsides: this.statsTimedRunOffsides, cancelled: this.statsTimedRunsCancelled },
       headers: { total: this.statsHeadersTotal, won: this.statsHeadersWon },
       bounces: this.statsBouncesNoControl,
+      timeWastingDribbles: this.statsTimeWastingDribbles,
       flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
@@ -951,6 +953,7 @@ export class GameEngine {
     this.statsCutbackAttempted = 0; this.statsCutbackCompleted = 0; this.statsCutbackShots = 0; this.statsCutbackGoals = 0;
     this.statsHeadersWon = 0; this.statsHeadersTotal = 0;
     this.statsCornersTaken = 0; this.statsThrowInsTaken = 0; this.statsFreeKicks = 0;
+    this.statsUnpressuredClearances = 0; this.statsTimeWastingDribbles = 0;
     this.statsGKDistributionAttempted = 0; this.statsGKDistributionCompleted = 0; this.statsGKDistributionFailed = 0; this.statsGKDistributionDangerTurnovers = 0;
     this.statsOutfieldDangerTurnovers = 0;
     this.statsGKAssessedShots = 0; this.statsGKUnlikelySaves = 0; this.statsGKPreventableGoals = 0;
@@ -2913,7 +2916,7 @@ export class GameEngine {
       const passer = this.playerById(this.pendingPass.fromId);
       if (passer) {
         const pressure = this.players.filter(o => o.team !== passer.team && o.role !== 'GK' && dist(o, passer) < 65).length;
-        if (pressure === 0) this.logQualityFlag('unpressured_clearance', { player: passer.id, role: passer.role, team: passer.team }, 8000, `unpressured_clearance:${passer.id}`);
+        if (pressure === 0) { this.statsUnpressuredClearances++; this.logQualityFlag('unpressured_clearance', { player: passer.id, role: passer.role, team: passer.team }, 8000, `unpressured_clearance:${passer.id}`); }
       }
     }
     // x at crossing point, clamped to pitch
