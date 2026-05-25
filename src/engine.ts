@@ -2032,9 +2032,9 @@ export class GameEngine {
         if (dot < 0) { b.vx -= 1.3 * dot * nx; b.vy -= 1.3 * dot * ny; }
         // teammate bounce: dampen more heavily to reduce pinball
         const sameTeamBounce = b.lastTouchTeam === p.team;
-        b.vx *= sameTeamBounce ? 0.08 : 0.25;
-        b.vy *= sameTeamBounce ? 0.08 : 0.25;
-        b.vx += ny * ballSpeed * 0.015; b.vy += -nx * ballSpeed * 0.015;
+        b.vx *= sameTeamBounce ? 0.18 : 0.25;
+        b.vy *= sameTeamBounce ? 0.18 : 0.25;
+        b.vx += ny * ballSpeed * 0.02; b.vy += -nx * ballSpeed * 0.02;
         this.recordOutfieldShotBlock(p, 'deflection');
         b.lastTouchTeam = p.team; b.lastToucherId = p.id;
         this.statsBouncesNoControl++;
