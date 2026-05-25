@@ -474,3 +474,49 @@ and preserves the existing flight/contact rules. Cross production is no
 longer a missing-mechanism target. The high-signal next replay is seed `103`,
 which contains `9` open-play crosses in ten simulated minutes, plus the six
 remaining `no_shots` alarms and press-selection review.
+
+## 2026-05-25 Physical Dribbling And Knock-Ahead Slice
+
+The prior dribble categories were labels only: every controlled carrier used
+the same movement limit and a fast dribble never released the ball. This
+slice makes the tradeoff physical:
+
+- Close control moves at `39.4` px/s and has stronger tackle protection in
+  crowded shielding; ordinary carrying is `52` px/s.
+- A fast dribble is a short loose-ball knock-ahead. During that episode the
+  runner is capped at `95%` of sprint pace, and the released ball has no
+  intended-receiver reach or first-touch shield.
+- A recovered knock-ahead has a short cadence delay before another burst.
+  `knock_ahead_start`, `knock_ahead_result` and
+  `bad_knock_ahead_turnover` expose the decision and outcome.
+- Deterministic scenarios cover tier speeds, legal risky turnover collection,
+  carrier recovery and immediate-repeat prevention.
+
+Standard benchmark against `8d2017b` (`npm.cmd run benchmark`, seeds
+`101-108`, ten simulated minutes each):
+
+| Metric | Prior attributed state | Physical dribbling state |
+| --- | ---: | ---: |
+| Goals / match | 1.1 | 1.1 |
+| Shots / match | 4.4 | 4.4 |
+| Shots on target | 51.4% | 60.0% |
+| Pass completion | 77.7% | 77.2% |
+| Through balls / match | 37.3 | 42.6 |
+| Open-play crosses / match | 2.4 | 2.9 |
+| Final-third entries yielding a shot | 18.6% | 20.3% |
+| Low-value shots / match | 0 | 0 |
+| Poor keeper goals / match | 0 | 0.3 |
+| Knock-aheads / match | not physical | 7.0 |
+| Knock-ahead launch speed | not measured | 58 px/s |
+| Carrier recovery | not measured | 80.4% |
+| Knock-ahead turnovers / match | not measured | 1.4 |
+| Risky knock-aheads / risky losses | not measured | 1.9 / 1.1 |
+| Avoidable press selections / match | 10.8 | 10.9 |
+
+Headline chance volume is preserved, but the new audit identifies an
+immediate outlier: seed `103` attempts `7` knock-aheads and loses `5`, with
+`4` of those losses flagged as risky starts. Its open-play crosses have fallen
+from the previous `9` to `3`, so the next replay target is now risky dribble
+choice rather than crossing repetition. Also replay the `8` `no_shots` flags
+and the two `poor_gk_save_attempt` events in seeds `103` and `105`; do not
+relax contact bounds or goal/shot geometry to compensate.

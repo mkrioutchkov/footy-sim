@@ -27,6 +27,8 @@ Push after every 2-3 improvements. Stay in the benchmarking loop.
 Do not change contact distances or goal geometry.
 Do not expand aerial header reach beyond the 20px contact rule.
 Prefer replayable behavior mechanisms over stacked score/number bonuses.
-Goals and open-play crosses now meet their initial bands. Work next on the six
-`no_shots` flags, seed `103` crossing repetition, and pressing quality without
-weakening contact or shot geometry.
+Goals and shots remain at `1.1` and `4.4` after the first physical dribbling
+slice. Work next on seed `103`, where `7` knock-aheads become `5` turnovers
+(`4` risky), then the `8` `no_shots` flags and the two replayable
+`poor_gk_save_attempt` events. Preserve loose-ball burst contact rules,
+cross-origin telemetry, and shot geometry.

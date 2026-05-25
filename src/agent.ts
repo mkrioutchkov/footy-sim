@@ -6,7 +6,7 @@ import {
   COLLECT_DIST, INTENDED_COLLECT_DIST, COLLECT_SPEED_MAX, INTENDED_COLLECT_BONUS,
   TACKLE_RANGE, PLAYER_AWARE_RANGE,
   STAMINA_DRAIN_SPRINT, STAMINA_RECOVER, STAMINA_SLOW_THRESHOLD,
-  SPEED_RUN, SPEED_SPRINT,
+  SPEED_RUN, SPEED_SPRINT, DRIBBLE_FAST_SPEED,
   clamp, dist, lerp, attrFactor,
 } from './constants';
 import type { GameEngine, PassSelectionAudit, ShotSelectionAudit } from './engine';
@@ -879,14 +879,21 @@ export class PlayerAgent {
         p.targetY += Math.sin(wobbleAngle) * wobbleDist;
         // dribble type: 1=close control, 2=medium, 3=fast knock-forward
         const distToTarget = Math.sqrt((p.targetX - p.x) ** 2 + (p.targetY - p.y) ** 2);
-        const nearbyOpps = this.e.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, p) < 55).length;
-        const dribbleType = distToTarget > 90 && nearbyOpps <= 1 ? 3 : nearbyOpps >= 2 ? 1 : 2;
-        if (p.dribbleType !== dribbleType) {
+        const opponents = this.e.players.filter(o => o.team !== p.team && o.role !== 'GK');
+        const nearbyOpps = opponents.filter(o => dist(o, p) < 55).length;
+        const nearestOpponentDist = opponents.reduce((nearest, opponent) => Math.min(nearest, dist(opponent, p)), Infinity);
+        const openBurst = distToTarget > 130 && nearestOpponentDist > 120;
+        const speculativeBurst = distToTarget > 175 && nearestOpponentDist > 95 && p.attrs.creativity >= 84;
+        const mayBurst = this.e.canKnockBallAhead(p.id) && (openBurst || speculativeBurst);
+        const dribbleType = mayBurst ? 3 : nearbyOpps >= 2 ? 1 : 2;
+        const newEpisode = p.dribbleType !== dribbleType;
+        if (newEpisode) {
           if (dribbleType === 3) this.e.statsDribbleFast++;
           else if (dribbleType === 1) this.e.statsDribbleClose++;
           else this.e.statsDribbleMedium++;
         }
         p.dribbleType = dribbleType;
+        if (dribbleType === 3 && newEpisode) this.e.knockBallAhead(p, p.targetX, p.targetY);
         // backward dribble alert
         const oppGoalX = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
         const fd = p.team === 'home' ? 1 : -1;
@@ -994,7 +1001,9 @@ export class PlayerAgent {
     const committedPress = pressTask && bd > 45 && (bd < 145 || Math.abs(this.e.ball.x - ownGoalX) < 240);
     const isObserving = !committedRun && !committedChase && !committedPress && bd > 300 && bd > PLAYER_AWARE_RANGE * 0.5;
     const cruiseMul = isObserving ? (p.role === 'CF' ? 0.45 : p.role === 'CB' || p.role === 'FB' ? 0.65 : p.role === 'WM' ? 0.55 : 0.50) : 1;
-    const baseSpeed = this.la === 'chase' || committedRun || committedPress ? SPEED_SPRINT : SPEED_RUN;
+    const baseSpeed = this.e.isActiveKnockAheadRunner(p.id)
+      ? DRIBBLE_FAST_SPEED
+      : this.la === 'chase' || committedRun || committedPress ? SPEED_SPRINT : SPEED_RUN;
     const df = committedRun || committedChase || committedPress ? 1 : Math.min(d / 120, 1.5), ms = attrFactor(p.attrs, 'speed') * baseSpeed * sf * df * cruiseMul;
     const px = p.x, py = p.y; if (d > 1) { const sp = Math.min(ms * secs, d); p.x += (dx / d) * sp; p.y += (dy / d) * sp; }
     if (secs > 0.001) { p.vx = (p.x - px) / secs; p.vy = (p.y - py) / secs; }

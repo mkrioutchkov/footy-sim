@@ -8,7 +8,7 @@ import {
   PLAYER_R, BALL_R, GOAL_W, GOAL_H,
   SEPARATION_DIST, SEPARATION_FORCE,
   GK_RUSH_DIST,
-  DRIBBLE_MAX,
+  DRIBBLE_CLOSE_SPEED, DRIBBLE_MEDIUM_SPEED, DRIBBLE_FAST_SPEED, DRIBBLE_KNOCK_SPEED_ADVANTAGE, DRIBBLE_KNOCK_OFFSET,
   CONTROL_DIST, COLLECT_DIST, INTENDED_COLLECT_DIST, TACKLE_RANGE, OFFSIDE_TOLERANCE,
   BALL_FRICTION,
   PASS_SPEED_BASE, PASS_SPEED_DIST, SHOT_SPEED_BASE, TACKLE_KICK_SPEED,
@@ -29,6 +29,7 @@ const DEBUG_LOG_MAX = 1200;
 const COORDINATOR_LOG_INTERVAL = 1000;
 const STUCK_LOG_INTERVAL = 1200;
 const STATE_SAMPLE_LOG_INTERVAL = 500;
+const KNOCK_AHEAD_RECOVERY_COOLDOWN = 2600;
 
 export type { EngineState } from './types';
 
@@ -95,7 +96,12 @@ export interface AnalysisSummary {
   timeWastingDribbles: number;
   finalThird: { entries: number; shots: number; shotPct: number };
   panicClears: number;
-  dribbleTypes: { fast: number; medium: number; close: number };
+  dribbleTypes: {
+    fast: number; medium: number; close: number;
+    knockAheads: number; recovered: number; retainedByTeammate: number;
+    turnovers: number; outOfPlay: number; risky: number; riskyTurnovers: number;
+    launchSpeedAvg: number; pending: number;
+  };
   shotsBlocked: number;
   flankTime: { left: number; mid: number; right: number };
   phaseTicks: Record<Team, Record<TacticalPhase, number>>;
@@ -195,6 +201,15 @@ interface PendingDecisionMoment {
   dueAt: number;
 }
 
+interface ActiveKnockAhead {
+  playerId: number;
+  team: Team;
+  launchedAt: number;
+  nearestOpponentId: number | null;
+  nearestOpponentDistance: number | null;
+  risky: boolean;
+}
+
 export class GameEngine {
   players: Player[];
   ball: Ball;
@@ -250,6 +265,12 @@ export class GameEngine {
   statsUnpressuredClearances = 0; statsTimeWastingDribbles = 0;
   statsFinalThirdEntries = 0; statsFinalThirdShots = 0; statsShotsBlocked = 0; statsPanicClears = 0;
   statsDribbleFast = 0; statsDribbleMedium = 0; statsDribbleClose = 0;
+  private statsKnockAheads = 0; private statsKnockAheadRecovered = 0; private statsKnockAheadRetained = 0;
+  private statsKnockAheadTurnovers = 0; private statsKnockAheadOutOfPlay = 0;
+  private statsRiskyKnockAheads = 0; private statsRiskyKnockAheadTurnovers = 0;
+  private statsKnockAheadLaunchSpeedTotal = 0;
+  private activeKnockAhead: ActiveKnockAhead | null = null;
+  private knockAheadCooldownUntil: Map<number, number> = new Map();
   private statsTimedRunsStarted = 0; private statsTimedRunsReleased = 0; private statsTimedRunOffsides = 0; private statsTimedRunsCancelled = 0;
   private statsBouncesNoControl = 0;
   private statsFlankTime: Record<string, number> = { left: 0, right: 0, center: 0 };
@@ -514,7 +535,20 @@ export class GameEngine {
         shotPct: Math.round(this.statsFinalThirdShots / Math.max(1, this.statsFinalThirdEntries) * 1000) / 10,
       },
       panicClears: this.statsPanicClears,
-      dribbleTypes: { fast: this.statsDribbleFast, medium: this.statsDribbleMedium, close: this.statsDribbleClose },
+      dribbleTypes: {
+        fast: this.statsDribbleFast,
+        medium: this.statsDribbleMedium,
+        close: this.statsDribbleClose,
+        knockAheads: this.statsKnockAheads,
+        recovered: this.statsKnockAheadRecovered,
+        retainedByTeammate: this.statsKnockAheadRetained,
+        turnovers: this.statsKnockAheadTurnovers,
+        outOfPlay: this.statsKnockAheadOutOfPlay,
+        risky: this.statsRiskyKnockAheads,
+        riskyTurnovers: this.statsRiskyKnockAheadTurnovers,
+        launchSpeedAvg: Math.round(this.statsKnockAheadLaunchSpeedTotal / Math.max(1, this.statsKnockAheads) * 10) / 10,
+        pending: this.activeKnockAhead === null ? 0 : 1,
+      },
       shotsBlocked: this.statsShotsBlocked,
       flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
@@ -1073,6 +1107,12 @@ export class GameEngine {
     this.statsUnpressuredClearances = 0; this.statsTimeWastingDribbles = 0;
     this.statsFinalThirdEntries = 0; this.statsFinalThirdShots = 0; this.statsShotsBlocked = 0; this.statsPanicClears = 0;
     this.statsDribbleFast = 0; this.statsDribbleMedium = 0; this.statsDribbleClose = 0;
+    this.statsKnockAheads = 0; this.statsKnockAheadRecovered = 0; this.statsKnockAheadRetained = 0;
+    this.statsKnockAheadTurnovers = 0; this.statsKnockAheadOutOfPlay = 0;
+    this.statsRiskyKnockAheads = 0; this.statsRiskyKnockAheadTurnovers = 0;
+    this.statsKnockAheadLaunchSpeedTotal = 0;
+    this.activeKnockAhead = null;
+    this.knockAheadCooldownUntil.clear();
     this.statsGKDistributionAttempted = 0; this.statsGKDistributionCompleted = 0; this.statsGKDistributionFailed = 0; this.statsGKDistributionDangerTurnovers = 0;
     this.statsOutfieldDangerTurnovers = 0;
     this.statsGKAssessedShots = 0; this.statsGKUnlikelySaves = 0; this.statsGKPreventableGoals = 0;
@@ -2418,6 +2458,112 @@ export class GameEngine {
     this.qConsecutiveSaves = 0;
   }
 
+  isActiveKnockAheadRunner(playerId: number): boolean {
+    return this.activeKnockAhead?.playerId === playerId;
+  }
+
+  canKnockBallAhead(playerId: number): boolean {
+    return this.activeKnockAhead === null && (this.knockAheadCooldownUntil.get(playerId) ?? 0) <= this.clockMs;
+  }
+
+  knockBallAhead(carrier: Player, targetX: number, targetY: number): boolean {
+    if (this.ball.controllerId !== carrier.id || !this.canKnockBallAhead(carrier.id)) return false;
+    const dx = targetX - carrier.x;
+    const dy = targetY - carrier.y;
+    const directionDist = Math.hypot(dx, dy);
+    if (directionDist < 1) return false;
+    const opponents = this.players
+      .filter(player => player.team !== carrier.team && player.role !== 'GK')
+      .map(player => ({ player, distance: dist(player, carrier) }))
+      .sort((a, b) => a.distance - b.distance);
+    const nearest = opponents[0];
+    const nearestDistance = nearest?.distance ?? null;
+    const risky = nearestDistance !== null && nearestDistance < 125;
+    const nx = dx / directionDist;
+    const ny = dy / directionDist;
+    const launchSpeed = attrFactor(carrier.attrs, 'speed') * DRIBBLE_FAST_SPEED + DRIBBLE_KNOCK_SPEED_ADVANTAGE;
+    this.ball.controllerId = null;
+    this.ball.intendedReceiverId = null;
+    this.receiverShieldUntil = 0;
+    this.receiverShieldedPlayerId = null;
+    this.receiverShieldTargetId = null;
+    this.placeBallForRelease(carrier, dx, dy, DRIBBLE_KNOCK_OFFSET);
+    this.ball.vx = nx * launchSpeed;
+    this.ball.vy = ny * launchSpeed;
+    this.ball.z = 0;
+    this.ball.vz = 0;
+    this.ball.lastTouchTeam = carrier.team;
+    this.ball.lastToucherId = carrier.id;
+    this.recordBallImpulse();
+    this.statsKnockAheads++;
+    this.statsKnockAheadLaunchSpeedTotal += launchSpeed;
+    if (risky) this.statsRiskyKnockAheads++;
+    this.activeKnockAhead = {
+      playerId: carrier.id,
+      team: carrier.team,
+      launchedAt: this.clockMs,
+      nearestOpponentId: nearest?.player.id ?? null,
+      nearestOpponentDistance: nearestDistance,
+      risky,
+    };
+    this.logDebug('knock_ahead_start', {
+      player: carrier.id,
+      role: carrier.role,
+      targetX: Math.round(targetX),
+      targetY: Math.round(targetY),
+      ballSpeed: Math.round(launchSpeed),
+      nearestOpponent: nearest?.player.id ?? null,
+      nearestOpponentDistance: nearestDistance === null ? null : Math.round(nearestDistance),
+      risky,
+    });
+    if (risky) {
+      this.captureDecisionMoment('risky_knock_ahead', carrier, {
+        nearestOpponent: nearest?.player.id ?? null,
+        nearestOpponentDistance: nearestDistance === null ? null : Math.round(nearestDistance),
+      }, 6000, `risky_knock_ahead:${carrier.team}`);
+    }
+    return true;
+  }
+
+  private resolveKnockAhead(collector: Player | null, stopped: 'out_of_play' | 'goal' | null = null): void {
+    const episode = this.activeKnockAhead;
+    if (!episode) return;
+    let outcome: 'recovered' | 'retained_by_teammate' | 'turnover' | 'out_of_play' | 'goal';
+    if (stopped !== null) {
+      outcome = stopped;
+      if (stopped === 'out_of_play') this.statsKnockAheadOutOfPlay++;
+    } else if (collector?.id === episode.playerId) {
+      outcome = 'recovered';
+      this.statsKnockAheadRecovered++;
+      this.knockAheadCooldownUntil.set(episode.playerId, this.clockMs + KNOCK_AHEAD_RECOVERY_COOLDOWN);
+    } else if (collector?.team === episode.team) {
+      outcome = 'retained_by_teammate';
+      this.statsKnockAheadRetained++;
+    } else {
+      outcome = 'turnover';
+      this.statsKnockAheadTurnovers++;
+      if (episode.risky) {
+        this.statsRiskyKnockAheadTurnovers++;
+        this.logQualityFlag('bad_knock_ahead_turnover', {
+          player: episode.playerId,
+          opponent: collector?.id ?? null,
+          launchOpponent: episode.nearestOpponentId,
+          launchOpponentDistance: episode.nearestOpponentDistance === null ? null : Math.round(episode.nearestOpponentDistance),
+          elapsedMs: Math.round(this.clockMs - episode.launchedAt),
+        }, 5000, `bad_knock_ahead_turnover:${episode.team}`);
+      }
+    }
+    this.logDebug('knock_ahead_result', {
+      player: episode.playerId,
+      outcome,
+      collector: collector?.id ?? null,
+      collectorTeam: collector?.team ?? null,
+      risky: episode.risky,
+      elapsedMs: Math.round(this.clockMs - episode.launchedAt),
+    });
+    this.activeKnockAhead = null;
+  }
+
   collectBall(collector: Player, source = 'contact', allowedDist = COLLECT_DIST): boolean {
     const contactDist = dist(collector, this.ball);
     const ballSpeed = Math.hypot(this.ball.vx, this.ball.vy);
@@ -2482,6 +2628,7 @@ export class GameEngine {
     const fd = collector.team === 'home' ? 1 : -1;
     const touchX = contactDist > 0.5 ? (this.ball.x - collector.x) / contactDist : fd;
     const touchY = contactDist > 0.5 ? (this.ball.y - collector.y) / contactDist : 0;
+    this.resolveKnockAhead(collector);
     this.ball.controllerId = collector.id; this.ball.intendedReceiverId = null;
     this.ball.vx *= 0.3; this.ball.vy *= 0.3; this.ball.z = 0; this.ball.vz = 0;
     this.ball.lastTouchTeam = collector.team; this.ball.lastToucherId = collector.id;
@@ -2557,8 +2704,8 @@ export class GameEngine {
     const forwardY = carrierSpeed > 8 ? carrier.vy / carrierSpeed : 0;
     const approachDot = contactDist > 0 ? ((tackler.x - carrier.x) * forwardX + (tackler.y - carrier.y) * forwardY) / contactDist : 0;
     const fromBehind = approachDot < -0.30;
-    // dribble type affects tackle: fast knock-forward easier, close control harder
-    const dribbleBonus = (carrier.dribbleType === 3 ? 0.06 : carrier.dribbleType === 1 ? -0.04 : 0);
+    // Attached close control improves protection; a fast knock-ahead is normally contested as a loose ball.
+    const dribbleBonus = (carrier.dribbleType === 3 ? 0.10 : carrier.dribbleType === 1 ? -0.10 : 0);
     // tackle angle audit
     const angleDeg = Math.round(Math.acos(clamp(approachDot, -1, 1)) * 180 / Math.PI);
     const isRear = approachDot < -0.5;
@@ -3000,7 +3147,14 @@ export class GameEngine {
     const c = this.playerById(this.ball.controllerId);
     if (!c) return;
     const secs = sdt / 1000;
-    const ts = attrFactor(c.attrs, 'speed') * DRIBBLE_MAX;
+    const dribbleLimit = c.dribbleType === 1
+      ? DRIBBLE_CLOSE_SPEED
+      : c.dribbleType === 2
+        ? DRIBBLE_MEDIUM_SPEED
+        : c.dribbleType === 3
+          ? DRIBBLE_FAST_SPEED
+          : DRIBBLE_MEDIUM_SPEED;
+    const ts = attrFactor(c.attrs, 'speed') * dribbleLimit;
     const dx = c.targetX - c.x, dy = c.targetY - c.y;
     const d = Math.sqrt(dx * dx + dy * dy);
     const prevX = c.x, prevY = c.y;
@@ -3071,6 +3225,7 @@ export class GameEngine {
 
   private awardThrowIn(lt: Team | null, y: number): void {
     this.cancelPreparedThroughBall('throw_in');
+    this.resolveKnockAhead(null, 'out_of_play');
     this.recordOutOfPlay();
     const strayPass = this.pendingPass;
     this.failPendingPass('out_of_play');
@@ -3109,6 +3264,7 @@ export class GameEngine {
 
   private awardSetPiece(type: 'goal_kick' | 'corner', team: Team): void {
     this.cancelPreparedThroughBall(type);
+    this.resolveKnockAhead(null, 'out_of_play');
     this.recordOutOfPlay();
     const spPass = this.pendingPass;
     this.failPendingPass('out_of_play');
@@ -3296,6 +3452,8 @@ export class GameEngine {
 
   private prepareKickoff(team: Team): void {
     this.cancelPreparedThroughBall('kickoff');
+    this.activeKnockAhead = null;
+    this.knockAheadCooldownUntil.clear();
     for (const p of this.players) {
       const pos = this.kickoffPositionFor(p, team);
       p.x = pos.x; p.y = pos.y;
@@ -3384,6 +3542,7 @@ export class GameEngine {
   }
 
   private recordGoalQuality(scoringTeam: Team): void {
+    this.resolveKnockAhead(null, 'goal');
     if (this.isShotActive) this.statsShotsOnTarget++;
     const directCross = this.pendingPass?.team === scoringTeam && this.pendingPass.isCross
       && !(this.activeShot?.team === scoringTeam && this.activeShot.fromCross);

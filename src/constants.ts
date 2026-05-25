@@ -45,8 +45,13 @@ export const SEPARATION_DIST = 38;
 export const SEPARATION_FORCE = 140;
 
 export const GK_RUSH_DIST = 200;
-export const DRIBBLE_MAX = 52;
+// Attached control is slower than running; only a knock-ahead burst approaches sprint pace.
+export const DRIBBLE_CLOSE_SPEED = SPEED_SPRINT * 0.58;
+export const DRIBBLE_MEDIUM_SPEED = SPEED_RUN;
+export const DRIBBLE_FAST_SPEED = SPEED_SPRINT * 0.95;
+export const DRIBBLE_KNOCK_SPEED_ADVANTAGE = 16;
 export const CONTROL_DIST = 12;
+export const DRIBBLE_KNOCK_OFFSET = CONTROL_DIST + BALL_R + 3.5;
 export const OFFSIDE_TOLERANCE = 1;
 // Player radius plus ball radius and a small reaching touch with the boot.
 export const COLLECT_DIST = PLAYER_R + BALL_R + 3.5;

@@ -345,3 +345,64 @@ After the circulation slice, address these in order:
 For every slice, state the diagnosed mechanism, edit only the relevant files,
 run `npm.cmd run build` and the seeded comparison, and record the result in
 `AI_EVALUATION.md`.
+
+## Latest Accepted Slice: Physical Dribbling (2026-05-25)
+
+This section supersedes the older recommended-next-step text above. The
+accepted engine now gives dribbling an actual speed/control tradeoff:
+
+- Close control is `39.4` px/s and is harder to tackle in crowded shielding.
+- Ordinary attached carrying is `52` px/s, below a `68` px/s sprint.
+- Fast dribbling is a short loose-ball knock-ahead. Only its runner approaches
+  sprint pace, capped at `95%`; the ball receives no intended-receiver reach
+  or reception shield.
+- A carrier who recovers a pushed ball must wait briefly before repeating the
+  burst. Do not remove this cadence or reattach the fast ball.
+- Preserve `knock_ahead_start`, `knock_ahead_result`,
+  `bad_knock_ahead_turnover` and the batch metrics for attempts, launch speed,
+  recoveries, turnovers, risky attempts and risky losses.
+
+Accepted standard benchmark for seeds `101-108`, ten simulated minutes:
+
+| Metric | Value |
+| --- | ---: |
+| Goals / match | 1.1 |
+| Shots / match | 4.4 |
+| Shots on target | 60.0% |
+| Pass completion | 77.2% |
+| Through balls / match | 42.6 |
+| Open-play crosses / match | 2.9 |
+| Open-play cross-led shots / match | 0.9 |
+| Final-third entry-to-shot | 20.3% |
+| Low-value shots / match | 0 |
+| Preventable keeper goals / match | 0.3 |
+| Knock-aheads / match | 7.0 |
+| Average knock-ahead launch speed | 58 px/s |
+| Carrier recovery | 80.4% |
+| Knock-ahead turnovers / match | 1.4 |
+| Risky knock-aheads / risky turnovers | 1.9 / 1.1 |
+| Avoidable press selections / match | 10.9 |
+
+Your next measured slice should replay seed `103` first. It has `7`
+knock-aheads, `5` losses and `4` `bad_knock_ahead_turnover` events, while its
+open-play crosses are now `3` rather than the previous `9`. Diagnose whether
+the risky bursts are repeated by one carrier, selected into a closing lane,
+or missing a preferable pass; use the paired moment data before changing
+thresholds. Also replay the `8` `no_shots` flags and the two
+`poor_gk_save_attempt` events in seeds `103` and `105`.
+
+Run before and after any accepted behavioral edit:
+
+```powershell
+npm.cmd run build
+npm.cmd run scenarios
+npm.cmd run benchmark
+$a = npm.cmd run batch -- --matches 1 --minutes 2 --seed 44 | Out-String
+$b = npm.cmd run batch -- --matches 1 --minutes 2 --seed 44 | Out-String
+$a -ceq $b
+```
+
+Do not increase collection or tackle reach, do not grant a knock-ahead the
+selected-receiver collection advantage, and do not loosen shot or goal
+geometry to restore chances. Improve burst choice, central support movement,
+or keeper response only from replayable logged cases.

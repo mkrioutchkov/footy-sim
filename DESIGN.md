@@ -80,6 +80,7 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 - `final_third_entry` - attacking-third possession-chain start for conversion measurement
 - `shot_blocked` - outfield control, header or physical deflection stopping an active shot
 - `cross_completed` - delivered cross secured by a receiver with goal distance context
+- `knock_ahead_start`, `knock_ahead_result` - released fast-dribble touch, pressure at launch and the resulting recovery or turnover
 
 Quality flags are intended to name actionable failures. In particular,
 `ball_unclaimed` means a slow grounded ball is close enough to contest but is
@@ -87,7 +88,9 @@ still ignored, while `rapid_control_changes` counts rapid team turnovers rather
 than ordinary completed passes. `bad_gk_distribution` and
 `bad_player_distribution` identify harmful defensive-third distribution
 outcomes; `unrealistic_gk_save` and `poor_gk_save_attempt` retain the
-speed/trajectory/reaction values needed for replay.
+speed/trajectory/reaction values needed for replay. `bad_knock_ahead_turnover`
+identifies a fast touch lost after it was launched with a defender in the
+marginal-pressure band.
 
 **Log analysis:** Compare event frequency to real football. Expect 8-12 possession changes per real-world minute. If you see 30+ per 30 seconds, pacing is broken.
 
@@ -137,6 +140,15 @@ cutback is the pull-back alternative, not a catch-all label for every wide
 pass. Batch cross output separates open-play and corner attempts,
 completions, shots and goals. A selected cross remains an attempted cross if
 the eventual delivery misses its intended central landing area.
+
+Dribbling has three physical speeds. Close control is slow and protected in
+crowded contact, ordinary carrying remains well below sprint pace, and only
+a fast knock-ahead runner can approach `95%` of sprint speed. A knock-ahead
+releases a short loose ball without intended-receiver reach or shielding, so
+recovery and loss use the ordinary visible-contact rules. The carrier cannot
+repeat the touch immediately after retrieving it. Batch output includes
+attempts, average launch speed, carrier recoveries, retained possession,
+turnovers, risky attempts and risky turnovers.
 
 For visual inspection with repeatable team generation and agent decisions,
 seed the live server:

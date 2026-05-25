@@ -2,20 +2,23 @@
 
 ## Active — P0 (affects benchmarks)
 - [ ] Recover credible chance volume (`4.4` shots / match after rejecting bad attempts) through delivery and movement, not weaker shot geometry
-- [ ] Replay the remaining `no_shots` alerts (`6` in the standard run) while creating varied central finishing options
-- [ ] Replay seed `103` for potentially repetitive crossing (`9` open-play crosses in ten simulated minutes)
-- [ ] Validate dribble-type episodes and tackle outcomes (`84.3` fast, `6.6` medium, `16.0` close / match)
+- [ ] Replay the remaining `no_shots` alerts (`8` in the dribbling run) while creating varied central finishing options
+- [ ] Replay seed `103` for risky knock-ahead repetition (`7` attempts, `5` turnovers, `4` risky turnovers); it now has `3` open-play crosses rather than the prior `9`
+- [ ] Replay the two `poor_gk_save_attempt` alerts introduced by changed attacking sequences (seeds `103` and `105`)
 
 ## Active — P1 (realism metrics)
-- [ ] Monitor open-play cross quality (`2.4` attempts, `63.2%` completion, `1.0` resulting shots / match)
-- [ ] Convert varied credible deliveries into goals without overusing one crosser (`0.4` open-play cross goals / match)
-- [ ] Shot block rate (`5.7%` current run; replay after restoring credible shots)
-- [ ] Monitor final-third entry-to-shot conversion (`18.6%` current run)
+- [ ] Monitor open-play cross quality (`2.9` attempts, `0.9` resulting shots / match)
+- [ ] Convert varied credible deliveries into goals without overusing one crosser (`0.1` open-play cross goals / match)
+- [ ] Shot block rate (`8.6%` current run; replay after restoring credible shots)
+- [ ] Monitor final-third entry-to-shot conversion (`20.3%` current run)
 - [ ] Goals consistency (`1.1` / match standard run)
 
 ## Active — P2
 
 ## Done
+- [x] Make dribble types physical: close control `39.4` px/s, ordinary carry `52` px/s, and only knock-ahead recovery reaches `95%` of sprint pace
+- [x] Release fast dribbles as short loose-ball touches with ordinary contact limits, recovery cadence, and `bad_knock_ahead_turnover` audit (`7.0` attempts, `1.4` turnovers / match)
+- [x] Add deterministic dribble speed/recovery/turnover scenarios and batch outcome/launch-speed metrics (`58` px/s average launch)
 - [x] Split corner and open-play cross outcomes; forward wide deliveries are no longer mislabeled as cutbacks (`0` to `2.4` open-play crosses / match)
 - [x] Retain cross origin through completion, shot and goal (`1.0` open-play cross-led shots, `0.4` open-play cross goals / match)
 - [x] Replay and remove selected low-value shots (`2.1` to `0.0` / match); rejected shot options cannot be revived by urgency/pressure bonuses

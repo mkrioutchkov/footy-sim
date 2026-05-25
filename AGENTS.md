@@ -15,15 +15,17 @@ When asked to "iterate" or "continue autonomously", follow this cycle:
 ## Target bands
 | Metric | Current | Target |
 |--------|---------|--------|
-| Goals/match | 0.4-2.0 | 1.0+ stable |
-| Shots/match | 3-8 | 6+ |
-| On target % | 37-75% | 35-50% |
-| Pass completion | 73-82% | 75-80% |
-| Open-play crosses/match | 2.4 | audit repetitive outliers |
-| Open-play cross shots/match | 1.0 | retain origin attribution |
-| Through-balls | 24-47 | 25-40 |
-| No_shots flags | 1-12 | <5 |
-| Avoidable press | 12-16 | <12 |
+| Goals/match | 1.1 | 1.0+ stable |
+| Shots/match | 4.4 | 6+ credible chances |
+| On target % | 60.0% | 35-50% |
+| Pass completion | 77.2% | 75-80% |
+| Open-play crosses/match | 2.9 | audit repetitive outliers |
+| Open-play cross shots/match | 0.9 | retain origin attribution |
+| Through-balls | 42.6 | 25-40 |
+| No_shots flags | 8 | <5 |
+| Avoidable press | 10.9 | <12 |
+| Knock-aheads / turnovers | 7.0 / 1.4 | replay risky outliers |
+| Poor keeper goals | 0.3 | replay before tuning |
 | Unpressured clearances | 0-? | benchmark |
 | Time-wasting dribbles | 0-1 | track |
 
@@ -34,6 +36,8 @@ When asked to "iterate" or "continue autonomously", follow this cycle:
 - Prefer diagnosed behavior changes over stacked score bonuses.
 - Treat telemetry as invalid until its definition is bounded and covered by a scenario or replay.
 - Do not relabel forward wide crosses as cutbacks; preserve origin-specific cross attempts, shots and goals.
+- Preserve dribble speed tiers and loose-ball knock-ahead contact rules; do not grant a burst intended-receiver reach or shielding.
+- Use `knock_ahead_result` and `bad_knock_ahead_turnover` to tune risky bursts, starting with seed `103`.
 - Always benchmark after every change
 - Commit after measurable improvements
 - Push after every 2-3 commits

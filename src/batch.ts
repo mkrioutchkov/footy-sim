@@ -90,6 +90,9 @@ const collections = results.reduce((total, result) => total + result.contests.co
 const interceptionCollections = results.reduce((total, result) => total + result.contests.interceptionsCollected, 0);
 const tacklesWon = results.reduce((total, result) => total + result.contests.tacklesWon, 0);
 const tacklesAttempted = results.reduce((total, result) => total + result.contests.tacklesAttempted, 0);
+const knockAheads = results.reduce((total, result) => total + result.dribbleTypes.knockAheads, 0);
+const retainedKnockAheads = results.reduce((total, result) => total + result.dribbleTypes.recovered + result.dribbleTypes.retainedByTeammate, 0);
+const knockAheadLaunchSpeedTotal = results.reduce((total, result) => total + result.dribbleTypes.launchSpeedAvg * result.dribbleTypes.knockAheads, 0);
 const shots = results.reduce((total, result) => total + result.shots.home + result.shots.away, 0);
 const finalThirdEntries = results.reduce((total, result) => total + result.finalThird.entries, 0);
 const finalThirdShots = results.reduce((total, result) => total + result.finalThird.shots, 0);
@@ -134,6 +137,14 @@ const output = {
     fastDribblesPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.fast, 0) / matches),
     mediumDribblesPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.medium, 0) / matches),
     closeDribblesPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.close, 0) / matches),
+    knockAheadsPerMatch: round(knockAheads / matches),
+    knockAheadCarrierRecoveryPct: round(results.reduce((total, result) => total + result.dribbleTypes.recovered, 0) / Math.max(1, knockAheads) * 100),
+    knockAheadRetentionPct: round(retainedKnockAheads / Math.max(1, knockAheads) * 100),
+    knockAheadTurnoversPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.turnovers, 0) / matches),
+    knockAheadOutOfPlayPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.outOfPlay, 0) / matches),
+    riskyKnockAheadsPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.risky, 0) / matches),
+    riskyKnockAheadTurnoversPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.riskyTurnovers, 0) / matches),
+    knockAheadLaunchSpeedAvg: round(knockAheadLaunchSpeedTotal / Math.max(1, knockAheads)),
     gkDistributionsPerMatch: round(gkDistributions / matches),
     gkDistributionCompletionPct: round(completedGKDistributions / Math.max(1, gkDistributions) * 100),
     gkDangerousTurnoversPerMatch: round(results.reduce((total, result) => total + result.distributions.goalkeeper.dangerousTurnovers, 0) / matches),

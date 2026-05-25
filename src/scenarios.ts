@@ -3,7 +3,7 @@ import { createManager } from './manager';
 import { setSeed } from './random';
 import { createTeam, resetIds } from './teams';
 import { FORMATIONS, type Player, type Team } from './types';
-import { AWAY_GOAL_X, PITCH_H } from './constants';
+import { AWAY_GOAL_X, PITCH_H, DRIBBLE_CLOSE_SPEED, DRIBBLE_MEDIUM_SPEED, DRIBBLE_FAST_SPEED, DRIBBLE_KNOCK_SPEED_ADVANTAGE } from './constants';
 
 interface ScenarioEngine {
   pendingPass: {
@@ -21,6 +21,7 @@ interface ScenarioEngine {
   cornerCrossTaker: number | null;
   actionTimer: number;
   kickoffPhase: boolean;
+  moveBallCarrier(sdt: number): void;
 }
 
 function assert(condition: boolean, message: string): void {
@@ -224,6 +225,61 @@ function scriptedCornerWindupScenario(): void {
   assert(summary.shots.home + summary.shots.away === 0, 'scripted corner created a phantom shot');
 }
 
+function dribbleControlScenario(): void {
+  const engine = createEngine(16);
+  const carrier = outfielder(engine, 'home');
+  const internal = engine as unknown as ScenarioEngine;
+  carrier.attrs.speed = 100;
+  carrier.x = 100; carrier.y = 200; carrier.targetX = 500; carrier.targetY = 200;
+  engine.ball.controllerId = carrier.id;
+  carrier.dribbleType = 1;
+  internal.moveBallCarrier(1000);
+  const closeDistance = carrier.x - 100;
+  assert(Math.abs(closeDistance - DRIBBLE_CLOSE_SPEED) < 0.01, 'close control did not use its reduced carry speed');
+
+  carrier.x = 100; carrier.targetX = 500; carrier.dribbleType = 2;
+  internal.moveBallCarrier(1000);
+  const mediumDistance = carrier.x - 100;
+  assert(Math.abs(mediumDistance - DRIBBLE_MEDIUM_SPEED) < 0.01, 'medium control did not use its carry speed');
+  assert(mediumDistance > closeDistance, 'medium control was not faster than close control');
+
+  carrier.x = 100; carrier.targetX = 500; carrier.dribbleType = 3;
+  internal.moveBallCarrier(1000);
+  assert(Math.abs(carrier.x - 100 - DRIBBLE_FAST_SPEED) < 0.01, 'fast dribble exceeded or missed the 95 percent chase limit');
+
+  const burst = createEngine(17);
+  const dribbler = outfielder(burst, 'home');
+  const defender = outfielder(burst, 'away');
+  dribbler.x = 300; dribbler.y = 300;
+  dribbler.attrs.speed = 100;
+  defender.x = 420; defender.y = 300;
+  burst.ball.x = dribbler.x + 12; burst.ball.y = dribbler.y; burst.ball.controllerId = dribbler.id;
+  assert(burst.knockBallAhead(dribbler, 520, 300), 'fast dribble did not release a knock-ahead');
+  assert(burst.ball.controllerId === null, 'knock-ahead remained attached control');
+  assert(burst.ball.intendedReceiverId === null, 'knock-ahead gained intended-receiver collection reach');
+  assert(Math.abs(Math.hypot(burst.ball.vx, burst.ball.vy) - (DRIBBLE_FAST_SPEED + DRIBBLE_KNOCK_SPEED_ADVANTAGE)) < 0.01, 'knock-ahead ball speed was not relative to the runner pace');
+  defender.x = burst.ball.x; defender.y = burst.ball.y;
+  assert(burst.collectBall(defender, 'scenario_knock_ahead_turnover'), 'defender could not legally collect a risky knock-ahead');
+  const summary = burst.getAnalysisSummary();
+  assert(summary.dribbleTypes.knockAheads === 1 && summary.dribbleTypes.risky === 1, 'risky knock-ahead was not measured');
+  assert(Math.abs(summary.dribbleTypes.launchSpeedAvg - (DRIBBLE_FAST_SPEED + DRIBBLE_KNOCK_SPEED_ADVANTAGE)) < 0.1, 'knock-ahead launch speed was not summarized');
+  assert(summary.dribbleTypes.turnovers === 1 && summary.dribbleTypes.riskyTurnovers === 1, 'risky knock-ahead turnover was not measured');
+  assert(summary.qualityFlags.bad_knock_ahead_turnover === 1, 'risky knock-ahead loss did not raise its audit flag');
+
+  const recovery = createEngine(18);
+  const runner = outfielder(recovery, 'home');
+  runner.x = 200; runner.y = 260; runner.attrs.speed = 100;
+  recovery.players
+    .filter(player => player.team !== runner.team)
+    .forEach(player => { player.x = 800; player.y = 500; });
+  recovery.ball.x = runner.x + 12; recovery.ball.y = runner.y; recovery.ball.controllerId = runner.id;
+  assert(recovery.knockBallAhead(runner, 450, 260), 'open knock-ahead did not start');
+  runner.x = recovery.ball.x; runner.y = recovery.ball.y;
+  assert(recovery.collectBall(runner, 'scenario_knock_ahead_recovery'), 'runner could not legally recover its short touch');
+  assert(recovery.getAnalysisSummary().dribbleTypes.recovered === 1, 'knock-ahead recovery was not measured');
+  assert(!recovery.knockBallAhead(runner, 450, 260), 'recovered runner immediately repeated a knock-ahead without cadence');
+}
+
 contactBoundsScenario();
 crossCompletionScenario();
 selectedCrossClassificationScenario();
@@ -232,4 +288,5 @@ shotBlockScenario();
 finalThirdConversionScenario();
 invalidShotChoiceScenario();
 scriptedCornerWindupScenario();
-console.log('Scenario checks passed: contact, cross origin, headers, shot blocks, final-third conversion, shot rejection, corner wind-up.');
+dribbleControlScenario();
+console.log('Scenario checks passed: contact, cross origin, headers, shot blocks, final-third conversion, shot rejection, corner wind-up, dribble control.');
