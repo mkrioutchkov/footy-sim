@@ -2678,12 +2678,16 @@ export class GameEngine {
       this.activeShot = null;
       this.qConsecutiveSaves = 0;
     }
-    // first-touch protection: only for intended pass recipients, brief window
+    // first-touch protection: intended receiver gets full shield, any teammate gets brief
     const wasIntendedReceiver = this.receiverShieldTargetId !== null && collector.id === this.receiverShieldTargetId;
+    const isTeamCollect = this.receiverShieldTargetId !== null && collector.team === this.ball.lastTouchTeam && !wasIntendedReceiver;
     if (wasIntendedReceiver) {
       this.receiverShieldUntil = this.clockMs + 300;
       this.receiverShieldedPlayerId = collector.id;
       this.receiverShieldTargetId = null;
+    } else if (isTeamCollect) {
+      this.receiverShieldUntil = this.clockMs + 150; // brief shield for any teammate — reduces pinball
+      this.receiverShieldedPlayerId = collector.id;
     } else {
       this.receiverShieldUntil = 0;
       this.receiverShieldedPlayerId = null;
