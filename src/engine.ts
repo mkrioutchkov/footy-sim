@@ -2903,8 +2903,7 @@ export class GameEngine {
     const strayPass = this.pendingPass;
     this.failPendingPass('out_of_play');
     if (strayPass) {
-      const passer = this.playerById(strayPass.fromId);
-      this.logDebug('stray_pass', { reason: 'into_touch', from: strayPass.fromId, intended: strayPass.toId, passerX: passer ? Math.round(passer.x) : '?', passerY: passer ? Math.round(passer.y) : '?' });
+      this.logDebug('stray_pass', { reason: 'into_touch', from: strayPass.fromId, intended: strayPass.toId });
     }
     const exitX = Math.round(this.ball.x);
     const exitY = Math.round(this.ball.y);
@@ -2917,8 +2916,8 @@ export class GameEngine {
     if (lt && lt === this.setPieceTeam) this.logDebug('throw_in_bug', { lastTouch: lt, awardedTo: this.setPieceTeam, fallback: !lt, bx: Math.round(this.ball.x) });
     this.statsThrowInsTaken++;
     // unpressured out-of-play: kicked out despite no pressure
-    if (lt && this.pendingPass) {
-      const passer = this.playerById(this.pendingPass.fromId);
+    if (lt && strayPass) {
+      const passer = this.playerById(strayPass.fromId);
       if (passer) {
         const pressure = this.players.filter(o => o.team !== passer.team && o.role !== 'GK' && dist(o, passer) < 65).length;
         if (pressure === 0) { this.statsUnpressuredClearances++; this.logQualityFlag('unpressured_clearance', { player: passer.id, role: passer.role, team: passer.team }, 8000, `unpressured_clearance:${passer.id}`); }
