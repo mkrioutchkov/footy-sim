@@ -608,8 +608,9 @@ export class PlayerAgent {
       // WM: attack the flank — stay wide, run behind, cut inside
       if (p.role === 'WM') {
         // hug the touchline when team advances
-        const flankY = p.homeY < PITCH_H / 2 ? 22 : PITCH_H - 22; // extreme width for crossing
-        c.push({ x: clamp(p.homeX + fd * 80 + pu, 60, PITCH_W - 60), y: flankY, pur: 'space' });
+        const flankY = p.homeY < PITCH_H / 2 ? 22 : PITCH_H - 22;
+        const crossPur = ba > 0.55 ? 'offer' : 'space'; // high priority when in final third
+        c.push({ x: clamp(p.homeX + fd * 80 + pu, 60, PITCH_W - 60), y: flankY, pur: crossPur });
         // diagonal run behind the fullback
         const runBehindY = p.homeY < PITCH_H / 2 ? PITCH_H * 0.3 : PITCH_H * 0.7;
         c.push({ x: clamp(p.homeX + fd * 140 + pu, 60, AWAY_GOAL_X - fd * 20), y: runBehindY, pur: 'space' });
