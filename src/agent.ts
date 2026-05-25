@@ -416,7 +416,7 @@ export class PlayerAgent {
         if (o.role === 'CF') score -= 60;
         else if (o.role === 'CM') score -= 20;
       }
-    if (!isFb) {
+      if (score < bd && d < 300) { bd = score; best = o; } }
     if (!best) return { type: 'mark', score: 0 };
     const dangerDist = dist(this.player, best);
     const baseScore = isFb ? 0.60 : 0.50;
