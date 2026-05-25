@@ -2582,7 +2582,9 @@ export class GameEngine {
     const trajectoryOffset = Math.abs(crossY - gk.y);
     const timeToLineMs = distanceToLine / Math.max(Math.abs(b.vx), 1) * 1000;
     const handling = attrFactor(gk.attrs, 'positioning');
-    const saveChance = clamp(0.40 + handling * 0.20 - speed / 1200 - trajectoryOffset / 350, 0.18, 0.82);
+    const shotDist = this.activeShot?.distance ?? 200;
+    const distancePenalty = clamp((shotDist - 30) / 350, 0, 0.35);
+    const saveChance = clamp(0.40 + handling * 0.20 - speed / 1200 - trajectoryOffset / 350 - distancePenalty, 0.12, 0.78);
     this.activeShot.saveAssessment = {
       goalkeeperId: gk.id,
       goalkeeperTeam: gk.team,
