@@ -2368,7 +2368,9 @@ export class GameEngine {
     }
     if (collector.role === 'GK') this.gkDistributeTimer = 400;
     // face receiver toward opponent's goal
-    collector.vx = fd * 15; collector.vy = 0;
+    // organic receive: carry momentum — receiver doesn't stop dead
+    collector.vx = collector.vx * 0.55 + fd * 10 + (random() - 0.5) * 4;
+    collector.vy = collector.vy * 0.55 + (random() - 0.5) * 6;
     this.recordControlChange(collector);
     this.possessionByRole[collector.role] = (this.possessionByRole[collector.role] ?? 0) + 1;
     // ball teleport diagnosis: ball was far from collector last tick, suddenly in possession
