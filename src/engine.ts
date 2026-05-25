@@ -486,6 +486,7 @@ export class GameEngine {
       },
       panicClears: this.statsPanicClears,
       dribbleTypes: { fast: this.statsDribbleFast, medium: this.statsDribbleMedium, close: this.statsDribbleClose },
+      shotsBlocked: this.statsShotsBlocked,
       flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
@@ -2392,6 +2393,8 @@ export class GameEngine {
     }
     this.resolvePendingPassOnContact(collector, 'control');
     if (previous !== collector.id) {
+      // shot block detection
+      if (this.isShotActive && collector.team !== this.ball.lastTouchTeam) { this.statsShotsBlocked++; this.logQualityFlag('shot_blocked', { blocker: collector.id, role: collector.role }, 5000, `shot_blocked:${collector.id}`); }
       this.logDebug('possession', {
         player: collector.id,
         team: collector.team,
