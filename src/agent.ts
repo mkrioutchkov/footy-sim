@@ -203,9 +203,9 @@ export class PlayerAgent {
         && Math.abs(t.x - (p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X)) < 235
         && Math.abs(t.y - PITCH_H / 2) < 135
         && fp > -80;
-      if (p.role === 'WM' && dgW < 330 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 160) sc += 0.24;
-      if (p.role === 'WM' && fp > 70 && Math.abs(p.y - PITCH_H / 2) > 140 && bl <= 1) sc += 0.16;
-      if (p.role === 'FB' && fp > 50 && Math.abs(p.y - PITCH_H / 2) > 110 && dgW < 320) sc += 0.14;
+      if (p.role === 'WM' && dgW < 350 && t.role === 'CF' && Math.abs(t.y - PITCH_H/2) < 180) sc += 0.26;
+      if (p.role === 'WM' && fp > 60 && Math.abs(p.y - PITCH_H / 2) > 130 && bl <= 2) sc += 0.18;
+      if (p.role === 'FB' && fp > 40 && Math.abs(p.y - PITCH_H / 2) > 100 && dgW < 340) sc += 0.16;
       sc -= bl * 0.06; if (fp > 0) sc += 0.08 + (ctx.urgency > 0.5 ? 0.10 : 0) + (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.2;
       else sc -= (this.e.configFor(p.team).passingDirectness - 50) / 100 * 0.15;
       let pur = 'keep'; if (fp > 120 && bl === 0) pur = 'build'; else if (fp > 40 && bl <= 1) pur = 'build';
@@ -278,15 +278,16 @@ export class PlayerAgent {
     const angleDeg = this.e.goalOpeningAngleDeg(p.x, p.y, gx);
     const audit: ActionAudit = { distance: shotDistance, angleDeg, pressureCount: per.pressureCount };
     // Preserve normal chance-taking while rejecting the diagnosed near-byline geometry.
-    const roleMax: Record<string, number> = { 'CF': 270, 'CM': 230, 'WM': 200, 'FB': 160, 'CB': 140 };
+    const roleMax: Record<string, number> = { 'CF': 280, 'CM': 240, 'WM': 220, 'FB': 170, 'CB': 140 };
     const hardMax = roleMax[p.role] ?? 220;
     if (depthToGoal > hardMax) return { type: 'shoot', score: 0, audit };
     const mr = SHOOT_MIN_DIST + attrFactor(p.attrs, 'shooting') * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
     if (depthToGoal > Math.min(mr, hardMax)) return { type: 'shoot', score: 0, audit };
     let sc = attrFactor(p.attrs, 'shooting') * (1 - depthToGoal / mr) * 0.35;
     // box floor: carriers close to goal always consider shooting
-    if (depthToGoal < 90) sc = Math.max(sc, 0.28);
-    if (depthToGoal < 50) sc = Math.max(sc, 0.42);
+    if (depthToGoal < 90) sc = Math.max(sc, 0.32);
+    if (depthToGoal < 50) sc = Math.max(sc, 0.48);
+    if (depthToGoal < 30) sc = Math.max(sc, 0.65); // point blank — shoot!
     const gk = this.e.players.find(o => o.team !== p.team && o.role === 'GK');
     if (gk) {
       const gkOffCenter = Math.abs(p.y - gk.y);
