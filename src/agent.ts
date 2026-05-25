@@ -185,7 +185,7 @@ export class PlayerAgent {
         0.89 + rs * 0.10 + rr * 0.06 - d / 850 * 0.28 - bl * 0.21 - receiverPressure * 0.12 - (fp > 130 ? 0.05 : 0),
         0.08, 0.98,
       );
-      if (completion < 0.09) continue;
+      if (completion < 0.06) continue;
       const progression = clamp(fp / 240, -0.5, 1);
       const turnoverCost = (p.team === 'home' ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
       let sc = completion * (0.38 + Math.max(0, progression) * 0.34) - (1 - completion) * turnoverCost;
@@ -728,7 +728,7 @@ export class PlayerAgent {
     const gx = this.player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
     const nearGoal = Math.abs(this.player.x - gx) < 220;
     const inBox = Math.abs(this.player.x - gx) < 150;
-    if (ic && best.score < (inBox ? 0.08 : nearGoal ? 0.12 : 0.22)) return { type: 'hold', score: 1 };
+    if (ic && best.score < (inBox ? 0.05 : nearGoal ? 0.10 : 0.22)) return { type: 'hold', score: 1 };
     const bb = this.e.teamBlackboards.get(this.player.team)!;
     if (best.type === 'tackle' && best.target) {
       const isSelf = bb.pressingPlayerId === this.player.id || bb.pressingPlayerId2 === this.player.id;
