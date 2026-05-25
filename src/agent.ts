@@ -150,6 +150,15 @@ export class PlayerAgent {
     } else {
       a = [this.ct(per, ctx), this.cm(per, ctx), this.cc(per), ...this.bp(per, ctx)];
     }
+    // final third urgency: carrier near opponent goal — be aggressive
+    const gx = this.player.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
+    if (Math.abs(this.player.x - gx) < 280) {
+      for (const x of a) {
+        if (x.type === 'shoot') x.score += 0.06;
+        if (x.type === 'pass' && x.purpose === 'through') x.score += 0.04;
+        if (x.type === 'dribble' && x.purpose === 'space') x.score += 0.04;
+      }
+    }
     for (const x of a) { if (x.type === this.la && x.target?.id === this.lt) x.score += ic ? 0.12 : 0.05;
       // position stickiness: prefer targets near current heading to reduce oscillation
       if (x.type === 'position' && x.posX !== undefined && x.posY !== undefined) {
