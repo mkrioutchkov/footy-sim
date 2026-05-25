@@ -290,6 +290,7 @@ export class GameEngine {
   private qPassAttempts: number[] = []; private qPassFails: number[] = [];
   private qRecentPassPairs: { pair: string; t: number }[] = [];
   qRecentPass: { bx: number; by: number; vx: number; vy: number; team: Team; clockMs: number } | null = null;
+  private crossReceiverId: number | null = null; private crossReceiverUntil = 0;
   private pendingPass: PendingPass | null = null;
   private qLastCompletedDelivery: CompletedDelivery | null = null;
   private preparedThroughBall: PreparedThroughBall | null = null;
@@ -1806,7 +1807,8 @@ export class GameEngine {
     for (const p of this.players) {
       if (!this.canContestBall(p)) continue;
       const d = dist(p, b);
-      if (d > r) continue;
+      const crossBoost = (this.crossReceiverId === p.id && this.clockMs < this.crossReceiverUntil) ? r * 0.8 : 0;
+      if (d > r + crossBoost) continue;
       // heading: play aerial balls with head (z between 50-180)
       if (b.z > 25 && b.z < 200 && p.role !== 'GK') {
         const headingSkill = attrFactor(p.attrs, 'positioning') * 0.5 + attrFactor(p.attrs, 'tackling') * 0.2;
@@ -2046,10 +2048,12 @@ export class GameEngine {
     // Crosses bend toward the central target zone.
     if (isCross) {
       speed *= 1.30;
-      this.ball.vz *= 0.35; // driven low cross
-      // cross receiver instant velocity toward ball
-      to.vx = (this.ball.x - to.x) * 0.3;
-      to.vy = (this.ball.y - to.y) * 0.3;
+      this.ball.vz *= 0.35;
+      to.vx = (this.ball.x - to.x) * 0.4;
+      to.vy = (this.ball.y - to.y) * 0.4;
+      // cross receivers get extended collection range
+      this.crossReceiverId = to.id;
+      this.crossReceiverUntil = this.clockMs + 1500;
       const curlDir = from.y < PITCH_H / 2 ? 1 : -1;
       const rawDx2 = to.x - from.x, rawDy2 = to.y - from.y;
       this.ball.vx += -rawDy2 / rawDist * speed * 0.08 * curlDir;
