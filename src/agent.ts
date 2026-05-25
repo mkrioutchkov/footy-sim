@@ -844,6 +844,7 @@ export class PlayerAgent {
   private ex(a: A, sdt: number, actions: A[]): void {
     const p = this.player, b = this.e.ball;
     this.la = a.type; this.lastPurpose = a.purpose ?? ''; this.lt = a.target?.id ?? null;
+    if (a.type !== 'dribble') p.dribbleType = 0;
     switch (a.type) {
       case 'pass': if (a.target) {
         const selectionAudit = this.passSelectionAudit(a, actions);
@@ -872,9 +873,13 @@ export class PlayerAgent {
         // dribble type: 1=close control, 2=medium, 3=fast knock-forward
         const distToTarget = Math.sqrt((p.targetX - p.x) ** 2 + (p.targetY - p.y) ** 2);
         const nearbyOpps = this.e.players.filter(o => o.team !== p.team && o.role !== 'GK' && dist(o, p) < 55).length;
-        if (distToTarget > 90 && nearbyOpps <= 1) { p.dribbleType = 3; this.e.statsDribbleFast++; }
-        else if (nearbyOpps >= 2) { p.dribbleType = 1; this.e.statsDribbleClose++; }
-        else { p.dribbleType = 2; this.e.statsDribbleMedium++; }
+        const dribbleType = distToTarget > 90 && nearbyOpps <= 1 ? 3 : nearbyOpps >= 2 ? 1 : 2;
+        if (p.dribbleType !== dribbleType) {
+          if (dribbleType === 3) this.e.statsDribbleFast++;
+          else if (dribbleType === 1) this.e.statsDribbleClose++;
+          else this.e.statsDribbleMedium++;
+        }
+        p.dribbleType = dribbleType;
         // backward dribble alert
         const oppGoalX = p.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X;
         const fd = p.team === 'home' ? 1 : -1;

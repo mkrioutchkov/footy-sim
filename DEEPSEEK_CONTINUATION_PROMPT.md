@@ -67,6 +67,50 @@ target selection, pass execution or receiver approach behavior and rerun this
 same benchmark. Current additional targets are `15.4` avoidable press
 selections and `2.9` outfield dangerous turnovers per match.
 
+### Stabilized DeepSeek State (2026-05-25)
+
+Treat this section and `TODO.md` as the current baseline. DeepSeek's incoming
+`3edfbd9` source contained uncompiled telemetry/cross edits and briefly
+reintroduced enlarged aerial cross contact. The repaired standard benchmark
+is:
+
+| Metric | Stabilized value |
+| --- | ---: |
+| Goals / match | 0.9 |
+| Shots / match | 6.9 |
+| Shots on target | 36.4% |
+| Pass completion | 77.1% |
+| Through balls / match | 39.0 |
+| Crosses / match | 0.4 |
+| Cross-led shots / match | 0 |
+| Cutback-led shots / match | 0.8 |
+| Final-third entries yielding a shot | 24.3% |
+| Outfield shot block rate | 9.1% |
+| Low-value shots / match | 2.1 |
+| Low-value goals / match | 0 |
+| Avoidable press selections / match | 11.0 |
+| Outfield dangerous turnovers / match | 3.9 |
+
+Mandatory checks before and after the next behavioral edit:
+
+```powershell
+npm.cmd run build
+npm.cmd run scenarios
+npm.cmd run benchmark
+```
+
+The scenarios protect controlled-ball collection, collection/tackle/header
+reach limits, completed crosses, shot-block attribution and bounded
+final-third conversion. Do not restore any extended cross receiver reach:
+ordinary and aerial contact is `20` px, intended grounded reception may use
+`28` px, and tackle wins are capped at `24` px.
+
+Work next on shot quality and natural wide creation. The current shot volume
+is adequate, but `2.1` low-value shots and `0.4` preventable goals per match
+need replay, while three total cross attempts in the standard run yielded no
+completed cross or cross-led shot. Improve positions and selections, not
+contact envelopes or generic shooting bonuses.
+
 New instrumentation and behavior you must preserve:
 
 - `pass_selection`, shot selection data and `goal_audit` quantify distance,

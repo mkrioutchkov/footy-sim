@@ -306,6 +306,67 @@ later pass-selection/receiver-movement slice should address the current
 `2.9` outfield dangerous turnovers per match while preserving these contact
 bounds.
 
+## 2026-05-25 DeepSeek Stabilization And Metric Validation
+
+DeepSeek's incoming `3edfbd9` state contained useful attacking experiments,
+but was not acceptable as a baseline: TypeScript failed to compile, a
+completed cross referenced an undefined player variable, and aerial cross
+receivers could initiate header contact from the removed long-reach envelope.
+It also reported final-third conversion above `100%`, never attributed
+outfield blocks, and counted dribble types every simulation tick.
+
+The repaired state was measured with:
+
+```powershell
+npm.cmd run build
+npm.cmd run scenarios
+npm.cmd run benchmark
+```
+
+`npm.cmd run scenarios` covers controlled-ball grab rejection, ordinary
+collection and tackle distance bounds, completed-cross handling, aerial
+header reach, both controlled and deflected shot blocks, and bounded
+final-third entry-to-shot conversion.
+
+| Metric | Contact/control baseline | Stabilized DeepSeek state |
+| --- | ---: | ---: |
+| Goals per match | 0.4 | 0.9 |
+| Shots per match | 3.3 | 6.9 |
+| Shots on target | 19.2% | 36.4% |
+| Pass completion | 73.4% | 77.1% |
+| Through balls per match | 24.3 | 39.0 |
+| Crosses per match | 0.1 | 0.4 |
+| Cross-led shots per match | 0 | 0 |
+| Cutback-led shots per match | 0.1 | 0.8 |
+| Final-third entries per match | not recorded | 26.8 |
+| Final-third entries yielding a shot | not recorded | 24.3% |
+| Outfield shot blocks per match | not recorded | 0.6 |
+| Outfield shot block rate | not recorded | 9.1% |
+| Low-value shots per match | 0.4 | 2.1 |
+| Low-value goals per match | 0 | 0 |
+| Outfield dangerous turnovers per match | 2.9 | 3.9 |
+| Avoidable press selections per match | 15.4 | 11.0 |
+
+Preserved correctness constraints:
+
+- Ordinary and aerial contact remains bounded to `20` px, intended grounded
+  receptions may use `28` px, and winning tackles remain bounded to `24` px.
+  The standard run reported no illegal controlled grabs or rejected
+  long-reach attempts.
+- Final-third conversion now means one attacking-third possession entry can
+  contribute at most one resulting shot; it cannot exceed `100%`.
+- Outfield shot blocks are recorded before shot state is cleared, including
+  fast physical deflections. `panic_clear` now specifically requires an
+  unpressured forced pass within one second of receiving from a teammate.
+- Out-of-play distribution audits store pressure at launch and do not blame
+  the passer after an opposing last touch.
+
+Next measured slice should not add another blanket shot bonus. Replay the
+`2.1` low-value shots per match and the `0.4` preventable goals per match,
+then improve genuine wide-delivery creation: this run produced only three
+cross attempts across eight matches, with no completed cross or cross-led
+shot. Preserve the new scenario checks while doing so.
+
 ## Engineering Rules For AI Changes
 
 - Preserve fixed update ordering unless the ordering defect is specifically

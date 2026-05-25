@@ -1,35 +1,38 @@
 # TODO — Footy Sim
 
 ## Active — P0 (affects benchmarks)
-- [ ] Panic clear on receiving from teammate when NOT pressured — benchmark needed
-- [ ] Dribble types: fast (knock forward), medium, close control (slow), skill — benchmark needed
-- [ ] Tackle dynamics affected by dribble type
-- [ ] Pointless time-wasting while in possession (not leading) — add to tracking
+- [ ] Replay low-value shot choices (`2.1` / match) before adding further final-third shooting bonuses
+- [ ] Replay preventable goalkeeper goals (`0.4` / match) before changing keeper save tuning
+- [ ] Validate dribble-type episodes and tackle outcomes (`84.3` fast, `6.6` medium, `16.0` close / match)
 
 ## Active — P1 (realism metrics)
-- [ ] Final third possession → shot % (target 20-30%) — benchmark needed
-- [ ] Shot block % (target 28-33%) — benchmark needed
-- [ ] Cross frequency (0.3-1.5, target 2+)
-- [ ] Cross→shot chain (0-0.5, target 1+)
-- [ ] Goals consistency (0.4-2.0, target 1.0+ stable)
+- [ ] Cross frequency and completion (`0.4` attempts, `0` completions / match) through positioning and delivery choices only
+- [ ] Cross-to-shot chain (`0` / match; do not expand receiver/header reach)
+- [ ] Shot block rate (`9.1%` valid baseline; replay before setting a target)
+- [ ] Monitor final-third entry-to-shot conversion (`24.3%` valid baseline)
+- [ ] Goals consistency (`0.9` / match standard baseline)
 
 ## Active — P2
 
 ## Done
+- [x] Restore TypeScript build after metrics/cross changes
+- [x] Add deterministic `npm.cmd run scenarios` checks for contact, cross completion, header reach, shot blocks and final-third conversion
+- [x] Remove extended cross-header contact reach; aerial contact remains at 20px
+- [x] Bound final-third conversion to one resulting shot per attacking-third possession entry
+- [x] Attribute outfield shot blocks before the shot state is cleared
+- [x] Establish valid standard baseline: final-third entry-to-shot `24.3%`, shot blocks `9.1%`, panic clears `0`
 - [x] Pass-triggered player reactions (defenders intercept — +0.12 chase near trajectory)
 - [x] Sliding tackle angle alerts (rear_tackle, head_on_tackle)
 - [x] Backward pass audit (questionable_backpass)
 - [x] TODO.md created + AGENTS.md + autonomous agents
 - [x] Offsides (0 → 0.5)
 - [x] Color bug (stamina-based alpha variance fixed)
-- [x] Unpressured clearance benchmark (counter added)
-- [x] Time-wasting dribble benchmark (counter added)
+- [x] Unpressured out-of-play counter stores pressure at launch
+- [x] Time-wasting dribble counter added
 - [x] GK save significantly nerfed (floor 0.04)
 - [x] Cross→shoot boosted (0.52 at 260px/5°)
 - [x] Cross loft lowered + speed 1.25x
 - [x] Box floor 0.35/0.52/0.70 for point-blank shots
-- [x] TOD.md created
-- [x] Offsides (0 → 0.5)
 - [x] Cross goals (0 → 0.1, first ever)
 - [x] Cutback goals (0 → 0.3)
 - [x] Ghost dispossessions

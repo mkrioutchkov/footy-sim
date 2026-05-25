@@ -88,6 +88,9 @@ const collections = results.reduce((total, result) => total + result.contests.co
 const interceptionCollections = results.reduce((total, result) => total + result.contests.interceptionsCollected, 0);
 const tacklesWon = results.reduce((total, result) => total + result.contests.tacklesWon, 0);
 const tacklesAttempted = results.reduce((total, result) => total + result.contests.tacklesAttempted, 0);
+const shots = results.reduce((total, result) => total + result.shots.home + result.shots.away, 0);
+const finalThirdEntries = results.reduce((total, result) => total + result.finalThird.entries, 0);
+const finalThirdShots = results.reduce((total, result) => total + result.finalThird.shots, 0);
 const output = {
   config: { matches, minutes, seeds: results.map(result => result.seed), tacticalOverrides: overrides },
   aggregate: {
@@ -112,6 +115,17 @@ const output = {
     cutbackCompletionPct: round(results.reduce((total, result) => total + result.cutbacks.completed, 0) / Math.max(1, cutbacks) * 100),
     cutbackShotsPerMatch: round(results.reduce((total, result) => total + result.cutbacks.shots, 0) / matches),
     cutbackGoalsPerMatch: round(results.reduce((total, result) => total + result.cutbacks.goals, 0) / matches),
+    finalThirdEntriesPerMatch: round(finalThirdEntries / matches),
+    finalThirdShotsPerMatch: round(finalThirdShots / matches),
+    finalThirdEntryShotPct: round(finalThirdShots / Math.max(1, finalThirdEntries) * 100),
+    shotsBlockedPerMatch: round(results.reduce((total, result) => total + result.shotsBlocked, 0) / matches),
+    shotBlockPct: round(results.reduce((total, result) => total + result.shotsBlocked, 0) / Math.max(1, shots) * 100),
+    panicClearsPerMatch: round(results.reduce((total, result) => total + result.panicClears, 0) / matches),
+    unpressuredClearancesPerMatch: round(results.reduce((total, result) => total + result.setPieces.unpressuredClearances, 0) / matches),
+    timeWastingDribblesPerMatch: round(results.reduce((total, result) => total + result.timeWastingDribbles, 0) / matches),
+    fastDribblesPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.fast, 0) / matches),
+    mediumDribblesPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.medium, 0) / matches),
+    closeDribblesPerMatch: round(results.reduce((total, result) => total + result.dribbleTypes.close, 0) / matches),
     gkDistributionsPerMatch: round(gkDistributions / matches),
     gkDistributionCompletionPct: round(completedGKDistributions / Math.max(1, gkDistributions) * 100),
     gkDangerousTurnoversPerMatch: round(results.reduce((total, result) => total + result.distributions.goalkeeper.dangerousTurnovers, 0) / matches),

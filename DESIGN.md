@@ -77,6 +77,9 @@ Logs are JSONL files in `.scratch/footy-sim-logs/`. Each line is a JSON event. T
 - `contest_block` — player blocked from re-collecting after releasing
 - `stale_chase_cancelled` - loose-ball perception invalidated after another player takes control
 - `collection_rejected` - rejected controlled-ball, out-of-reach or protected re-collection attempt
+- `final_third_entry` - attacking-third possession-chain start for conversion measurement
+- `shot_blocked` - outfield control, header or physical deflection stopping an active shot
+- `cross_completed` - delivered cross secured by a receiver with goal distance context
 
 Quality flags are intended to name actionable failures. In particular,
 `ball_unclaimed` means a slow grounded ball is close enough to contest but is
@@ -98,6 +101,12 @@ Run seeded headless matches before and after AI changes:
 npm run batch -- --matches 5 --minutes 10 --seed 1
 ```
 
+Run deterministic rule scenarios before accepting behavior changes:
+
+```bash
+npm run scenarios
+```
+
 The batch output includes possession, territory, pass and shot rates, cross
 and cutback outcomes, distribution outcomes, goalkeeper assessments, weighted
 ball launch speeds, pass/shot selection audits and pressing-assignment
@@ -108,6 +117,13 @@ winning tackles to `24` px; an intended pass receiver alone may secure a
 stretched first touch at `28` px and the controlled ball is snapped to the
 visible boot position. Reusing the same seed set makes tactical changes
 comparable rather than anecdotal.
+
+Final-third conversion is measured per possession entry and counts at most one
+shot for each attacking-third possession. Shot blocks are attributed to
+outfield controls, headers and physical deflections while a shot is active.
+`panic_clear` means an unpressured forced pass made within one second of
+receiving a teammate's pass; unpressured out-of-play audits use launch-time
+pressure and require the passing team to remain the last toucher.
 
 For visual inspection with repeatable team generation and agent decisions,
 seed the live server:

@@ -88,6 +88,11 @@ export interface AnalysisSummary {
   timedRuns: { started: number; released: number; offsides: number; cancelled: number };
   headers: { total: number; won: number };
   bounces: number;
+  timeWastingDribbles: number;
+  finalThird: { entries: number; shots: number; shotPct: number };
+  panicClears: number;
+  dribbleTypes: { fast: number; medium: number; close: number };
+  shotsBlocked: number;
   flankTime: { left: number; mid: number; right: number };
   phaseTicks: Record<Team, Record<TacticalPhase, number>>;
   taskSelections: Record<string, number>;
@@ -122,6 +127,7 @@ interface PendingPass {
   toId: number;
   source: string;
   isCross: boolean;
+  launchPressure: number;
 }
 
 interface CompletedDelivery {
@@ -235,7 +241,6 @@ export class GameEngine {
   statsUnpressuredClearances = 0; statsTimeWastingDribbles = 0;
   statsFinalThirdEntries = 0; statsFinalThirdShots = 0; statsShotsBlocked = 0; statsPanicClears = 0;
   statsDribbleFast = 0; statsDribbleMedium = 0; statsDribbleClose = 0;
-  private statsClumpingSamples = 0; private statsClumpingTotal = 0;
   private statsTimedRunsStarted = 0; private statsTimedRunsReleased = 0; private statsTimedRunOffsides = 0; private statsTimedRunsCancelled = 0;
   private statsBouncesNoControl = 0;
   private statsFlankTime: Record<string, number> = { left: 0, right: 0, center: 0 };
@@ -293,7 +298,6 @@ export class GameEngine {
   private qPassAttempts: number[] = []; private qPassFails: number[] = [];
   private qRecentPassPairs: { pair: string; t: number }[] = [];
   qRecentPass: { bx: number; by: number; vx: number; vy: number; team: Team; clockMs: number } | null = null;
-  private crossReceiverId: number | null = null; private crossReceiverUntil = 0;
   private pendingPass: PendingPass | null = null;
   private qLastCompletedDelivery: CompletedDelivery | null = null;
   private preparedThroughBall: PreparedThroughBall | null = null;
@@ -321,6 +325,8 @@ export class GameEngine {
   private carrierWatchMs = 0;
   private carrierWatchX = 0;
   private carrierWatchY = 0;
+  private finalThirdPossessionTeam: Team | null = null;
+  private finalThirdPossessionHasShot = false;
 
   homeShots = 0; awayShots = 0;
   homeTackles = 0; awayTackles = 0;
@@ -488,7 +494,6 @@ export class GameEngine {
       panicClears: this.statsPanicClears,
       dribbleTypes: { fast: this.statsDribbleFast, medium: this.statsDribbleMedium, close: this.statsDribbleClose },
       shotsBlocked: this.statsShotsBlocked,
-      avgSpacing: this.statsClumpingSamples > 0 ? Math.round(this.statsClumpingTotal / this.statsClumpingSamples) : 0,
       flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
@@ -696,11 +701,41 @@ export class GameEngine {
       }
       this.qLastPossessionTeam = collector.team;
       this.qLastPossessionTeamChange = this.clockMs;
-      // final third entry tracking
-      const homeAttThird = collector.team === 'home' && collector.x > PITCH_W * 2 / 3;
-      const awayAttThird = collector.team === 'away' && collector.x < PITCH_W / 3;
-      if (homeAttThird || awayAttThird) this.statsFinalThirdEntries++;
     }
+  }
+
+  private isInAttackingThird(team: Team, x: number): boolean {
+    return team === 'home' ? x > PITCH_W * 2 / 3 : x < PITCH_W / 3;
+  }
+
+  private trackFinalThirdPossession(): void {
+    const carrier = this.playerById(this.ball.controllerId);
+    if (!carrier) return;
+    if (!this.isInAttackingThird(carrier.team, carrier.x)) {
+      this.finalThirdPossessionTeam = null;
+      this.finalThirdPossessionHasShot = false;
+      return;
+    }
+    if (this.finalThirdPossessionTeam !== carrier.team) {
+      this.finalThirdPossessionTeam = carrier.team;
+      this.finalThirdPossessionHasShot = false;
+      this.statsFinalThirdEntries++;
+      this.logDebug('final_third_entry', { team: carrier.team, player: carrier.id, x: Math.round(carrier.x), y: Math.round(carrier.y) });
+    }
+  }
+
+  private recordFinalThirdShot(shooter: Player): void {
+    this.trackFinalThirdPossession();
+    if (!this.isInAttackingThird(shooter.team, shooter.x)) return;
+    if (this.finalThirdPossessionTeam !== shooter.team) {
+      this.finalThirdPossessionTeam = shooter.team;
+      this.finalThirdPossessionHasShot = false;
+      this.statsFinalThirdEntries++;
+      this.logDebug('final_third_entry', { team: shooter.team, player: shooter.id, x: Math.round(shooter.x), y: Math.round(shooter.y), touch: 'shot' });
+    }
+    if (this.finalThirdPossessionHasShot) return;
+    this.finalThirdPossessionHasShot = true;
+    this.statsFinalThirdShots++;
   }
 
   private recordOutOfPlay(): void {
@@ -709,6 +744,20 @@ export class GameEngine {
     if (this.qOutOfPlayEvents.length >= 5) {
       this.logQualityFlag('frequent_out_of_play', { count: this.qOutOfPlayEvents.length, windowMs: 30000 });
     }
+  }
+
+  private recordUnpressuredOutOfPlay(pass: PendingPass): void {
+    if (pass.launchPressure !== 0 || this.ball.lastTouchTeam !== pass.team) return;
+    const passer = this.playerById(pass.fromId);
+    if (!passer) return;
+    this.statsUnpressuredClearances++;
+    this.logQualityFlag('unpressured_clearance', {
+      player: passer.id,
+      role: passer.role,
+      team: passer.team,
+      source: pass.source,
+      launchPressure: pass.launchPressure,
+    }, 8000, `unpressured_clearance:${passer.id}`);
   }
 
   private recordPassAttempt(from: Player, to: Player): void {
@@ -772,6 +821,7 @@ export class GameEngine {
 
   private beginTrackedPass(from: Player, to: Player, source = 'open_play', isCross = false, selection?: PassSelectionAudit): void {
     const launchSpeed = Math.hypot(this.ball.vx, this.ball.vy);
+    const launchPressure = this.players.filter(o => o.team !== from.team && o.role !== 'GK' && dist(o, from) < 70).length;
     this.statsPassAttempted++;
     if (source === 'through_ball') this.statsThroughBallAttempted++;
     if (isCross) this.statsCrossAttempted++;
@@ -782,14 +832,23 @@ export class GameEngine {
     this.statsPassByRole[from.role].att++;
     // pass reaction: mark the pass trajectory for defenders to react
     this.qRecentPass = { bx: this.ball.x, by: this.ball.y, vx: this.ball.vx, vy: this.ball.vy, team: from.team, clockMs: this.clockMs };
-    // panic clear: forced pass within 1s of team gaining possession with no pressure
-    if (source === 'forced' && this.clockMs - this.qLastPossessionTeamChange < 2000) {
-      const pPressure = this.players.filter(o => o.team !== from.team && o.role !== 'GK' && dist(o, from) < 70).length;
-      if (pPressure <= 1) { this.statsPanicClears++; this.logQualityFlag('panic_clear', { player: from.id, role: from.role, pressure: pPressure }, 5000, `panic_clear:${from.id}`); }
+    // A panic clearance is an immediate unpressured rejection of a teammate's pass.
+    const delivery = this.qLastCompletedDelivery;
+    const justReceived = delivery !== null && delivery.team === from.team && delivery.receiverId === from.id
+      && this.clockMs - delivery.completedAt <= 1000;
+    if (source === 'forced' && justReceived && launchPressure === 0) {
+      this.statsPanicClears++;
+      this.logQualityFlag('panic_clear', {
+        player: from.id,
+        role: from.role,
+        receivedFrom: delivery.fromId,
+        msAfterReceipt: Math.round(this.clockMs - delivery.completedAt),
+        pressure: launchPressure,
+      }, 5000, `panic_clear:${from.id}`);
     }
     this.recordPassAttempt(from, to);
     if (selection) this.recordPassSelection(from, to, selection);
-    this.pendingPass = { fromId: from.id, team: from.team, toId: to.id, source, isCross };
+    this.pendingPass = { fromId: from.id, team: from.team, toId: to.id, source, isCross, launchPressure };
     this.logDebug('pass_attempt', { from: from.id, to: to.id, team: from.team, source, isCross, launchSpeed: Math.round(launchSpeed) });
   }
 
@@ -813,8 +872,8 @@ export class GameEngine {
       if (pass.source === 'through_ball') this.statsThroughBallCompleted++;
       if (pass.isCross) { 
         this.statsCrossCompleted++; 
-        collector.crossCollected = 1200;
-        this.logDebug('cross_completed', { from: pass.fromId, to: collector.id, role: collector.role, distToGoal: Math.round(Math.abs(collector.x - (collector.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X))) });
+        receiver.crossCollected = 1200;
+        this.logDebug('cross_completed', { from: pass.fromId, to: receiver.id, role: receiver.role, distToGoal: Math.round(Math.abs(receiver.x - (receiver.team === 'home' ? AWAY_GOAL_X : HOME_GOAL_X))) });
       }
       if (pass.source === 'cutback') this.statsCutbackCompleted++;
       if (pass.source === 'gk_distribution') {
@@ -1011,6 +1070,8 @@ export class GameEngine {
     this.qLastControllerId = null;
     this.qLastPossessionTeam = null;
     this.qLastPossessionTeamChange = 0;
+    this.finalThirdPossessionTeam = null;
+    this.finalThirdPossessionHasShot = false;
     this.qPlayerLastMoved.clear();
     this.qOutOfPlayEvents = [];
     this.qBallPrevSpeed = 0; this.qLastBallImpulseMs = -Infinity;
@@ -1691,6 +1752,7 @@ export class GameEngine {
       bb.activeRuns = [];
       bb.zoneClaims = [];
     }
+    this.trackFinalThirdPossession();
     this.tickAgents(sdt, true);
 
     // goal-area logging
@@ -1834,8 +1896,7 @@ export class GameEngine {
     for (const p of this.players) {
       if (!this.canContestBall(p)) continue;
       const d = dist(p, b);
-      const crossBoost = (this.crossReceiverId === p.id && this.clockMs < this.crossReceiverUntil) ? r * 0.8 : 0;
-      if (d > r + crossBoost) continue;
+      if (d > r) continue;
       // heading: play aerial balls with head (z between 50-180)
       if (b.z > 25 && b.z < 200 && p.role !== 'GK') {
         const headingSkill = attrFactor(p.attrs, 'positioning') * 0.5 + attrFactor(p.attrs, 'tackling') * 0.2;
@@ -1879,6 +1940,7 @@ export class GameEngine {
         if (dot < 0) { b.vx -= 1.3 * dot * nx; b.vy -= 1.3 * dot * ny; } // soft deflection
         b.vx *= 0.25; b.vy *= 0.25; // kill the ball — it's near a player
         b.vx += ny * ballSpeed * 0.03; b.vy += -nx * ballSpeed * 0.03;
+        this.recordOutfieldShotBlock(p, 'deflection');
         b.lastTouchTeam = p.team; b.lastToucherId = p.id;
         this.statsBouncesNoControl++;
         this.blockReboundFor(p.id, 600);
@@ -2038,10 +2100,8 @@ export class GameEngine {
     // lead pass: predict where receiver will be when ball arrives, not where they are now
     const rawDx = to.x - from.x, rawDy = to.y - from.y;
     const rawDist = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
-    const speed = PASS_SPEED_BASE + rawDist * PASS_SPEED_DIST;
-    // organic pass weight: slightly vary speed for natural feel
-    const weightVariation = 0.92 + random() * 0.16; // 0.92-1.08x multiplier
-    const organicSpeed = speed * weightVariation;
+    // Organic pass weight varies execution speed without changing contact limits.
+    let speed = (PASS_SPEED_BASE + rawDist * PASS_SPEED_DIST) * (0.92 + random() * 0.16);
     const travelTime = rawDist / Math.max(speed, 1);
     // through-ball: lead more when receiver is sprinting forward into space
     const receiverSpeed = Math.sqrt(to.vx * to.vx + to.vy * to.vy);
@@ -2065,7 +2125,6 @@ export class GameEngine {
     this.blockReleaser(from, 900);
     this.ball.lastTouchTeam = from.team; this.ball.lastToucherId = from.id;
     this.ball.vx = (tdx / tDist) * speed; this.ball.vy = (tdy / tDist) * speed;
-    this.recordBallImpulse();
     this.ball.intendedReceiverId = to.id;
     this.receiverShieldTargetId = to.id; // protect the receiver on collect
     this.ball.z = 0; this.ball.vz = 0;
@@ -2078,12 +2137,10 @@ export class GameEngine {
     // Crosses bend toward the central target zone.
     if (isCross) {
       speed *= 1.30;
-      this.ball.vz *= 0.35;
+      this.ball.vx *= 1.30;
+      this.ball.vy *= 1.30;
       to.vx = (this.ball.x - to.x) * 0.4;
       to.vy = (this.ball.y - to.y) * 0.4;
-      // cross receivers get extended collection range
-      this.crossReceiverId = to.id;
-      this.crossReceiverUntil = this.clockMs + 1500;
       const curlDir = from.y < PITCH_H / 2 ? 1 : -1;
       const rawDx2 = to.x - from.x, rawDy2 = to.y - from.y;
       this.ball.vx += -rawDy2 / rawDist * speed * 0.08 * curlDir;
@@ -2102,6 +2159,7 @@ export class GameEngine {
     if (blockers > 0 && rawDist > 120) this.ball.vz = Math.max(this.ball.vz, speed * 0.70);
     if (rawDist > 350) this.ball.vz = Math.max(this.ball.vz, speed * 1.00);
     if (isCross) this.ball.vz = Math.max(this.ball.vz, speed * 1.15);
+    this.recordBallImpulse();
     const source = throughBall ? 'through_ball' : selectionAudit?.purpose === 'cutback' ? 'cutback' : 'open_play';
     this.beginTrackedPass(from, to, source, isCross, selectionAudit);
     if (this.checkOffside(to, from)) {
@@ -2233,8 +2291,7 @@ export class GameEngine {
     this.ball.intendedReceiverId = null;
     this.isShotActive = true;
     this.qLastShotMs = this.clockMs;
-    // final third shot tracking
-    if (shooter.team === 'home' ? shooter.x > PITCH_W * 2 / 3 : shooter.x < PITCH_W / 3) this.statsFinalThirdShots++;
+    this.recordFinalThirdShot(shooter);
     const delivery = this.qLastCompletedDelivery;
     const keyPass = delivery !== null && delivery.team === shooter.team && delivery.receiverId === shooter.id
       && this.clockMs - delivery.completedAt < 3000;
@@ -2292,6 +2349,21 @@ export class GameEngine {
         : Math.round(selectionAudit.bestPassScore * 1000) / 1000,
       projectedOnTarget: Math.abs(goalY - goalCenterY) <= GOAL_OPENING_HALF_W,
     });
+  }
+
+  private recordOutfieldShotBlock(blocker: Player, contact: 'control' | 'header' | 'deflection'): void {
+    const shot = this.activeShot;
+    if (!this.isShotActive || !shot || blocker.role === 'GK' || blocker.team === shot.team) return;
+    this.statsShotsBlocked++;
+    this.logDebug('shot_blocked', {
+      blocker: blocker.id,
+      blockerRole: blocker.role,
+      shooter: shot.shooterId,
+      contact,
+    });
+    this.isShotActive = false;
+    this.activeShot = null;
+    this.qConsecutiveSaves = 0;
   }
 
   collectBall(collector: Player, source = 'contact', allowedDist = COLLECT_DIST): boolean {
@@ -2371,6 +2443,7 @@ export class GameEngine {
     if (collector.role === 'GK') this.gkDistributeTimer = 400;
     // face receiver toward opponent's goal
     // organic receive: carry momentum — receiver doesn't stop dead
+    collector.dribbleType = 0;
     collector.vx = collector.vx * 0.55 + fd * 10 + (random() - 0.5) * 4;
     collector.vy = collector.vy * 0.55 + (random() - 0.5) * 6;
     this.recordControlChange(collector);
@@ -2382,6 +2455,7 @@ export class GameEngine {
       if (ballPrevDist > 40) this.logDebug('q_flag', { flag: 'possession_mystery', player: collector.id, role: collector.role, prevBallDist: Math.round(ballPrevDist), tickDelta: this.clockMs - this.prevBallTick });
     }
     this.qLastBouncePlayer = null; this.qBounceOnSamePlayer = 0;
+    this.recordOutfieldShotBlock(collector, 'control');
     if (this.isShotActive || this.activeShot) {
       this.isShotActive = false;
       this.activeShot = null;
@@ -2400,8 +2474,6 @@ export class GameEngine {
     }
     this.resolvePendingPassOnContact(collector, 'control');
     if (previous !== collector.id) {
-      // shot block detection
-      if (this.isShotActive && collector.team !== this.ball.lastTouchTeam) { this.statsShotsBlocked++; this.logQualityFlag('shot_blocked', { blocker: collector.id, role: collector.role }, 5000, `shot_blocked:${collector.id}`); }
       this.logDebug('possession', {
         player: collector.id,
         team: collector.team,
@@ -2459,6 +2531,7 @@ export class GameEngine {
 
   private headBall(player: Player): void {
     this.clearTeamAssignments();
+    this.recordOutfieldShotBlock(player, 'header');
     const headedCross = this.pendingPass?.team === player.team && this.pendingPass.isCross;
     const crosserId = headedCross ? this.pendingPass?.fromId ?? null : null;
     this.resolvePendingPassOnContact(player, 'header');
@@ -2479,6 +2552,7 @@ export class GameEngine {
       this.statsShotLaunchSpeedTotal += speed; this.statsShotLaunchCount++;
       this.isShotActive = true;
       this.qLastShotMs = this.clockMs;
+      this.recordFinalThirdShot(player);
       this.activeShot = {
         shooterId: player.id,
         team: player.team,
@@ -2946,6 +3020,7 @@ export class GameEngine {
     this.failPendingPass('out_of_play');
     if (strayPass) {
       this.logDebug('stray_pass', { reason: 'into_touch', from: strayPass.fromId, intended: strayPass.toId });
+      this.recordUnpressuredOutOfPlay(strayPass);
     }
     const exitX = Math.round(this.ball.x);
     const exitY = Math.round(this.ball.y);
@@ -2957,14 +3032,6 @@ export class GameEngine {
     // alert: suspicious throw-in (throwing team = last touch team indicates bug)
     if (lt && lt === this.setPieceTeam) this.logDebug('throw_in_bug', { lastTouch: lt, awardedTo: this.setPieceTeam, fallback: !lt, bx: Math.round(this.ball.x) });
     this.statsThrowInsTaken++;
-    // unpressured out-of-play: kicked out despite no pressure
-    if (lt && strayPass) {
-      const passer = this.playerById(strayPass.fromId);
-      if (passer) {
-        const pressure = this.players.filter(o => o.team !== passer.team && o.role !== 'GK' && dist(o, passer) < 65).length;
-        if (pressure === 0) { this.statsUnpressuredClearances++; this.logQualityFlag('unpressured_clearance', { player: passer.id, role: passer.role, team: passer.team }, 8000, `unpressured_clearance:${passer.id}`); }
-      }
-    }
     // x at crossing point, clamped to pitch
     this.ball.x = clamp(this.ball.x, 10, PITCH_W - 10);
     this.ball.y = clamp(y, 10, PITCH_H - 10);
@@ -2989,13 +3056,7 @@ export class GameEngine {
     this.recordOutOfPlay();
     const spPass = this.pendingPass;
     this.failPendingPass('out_of_play');
-    if (spPass) {
-      const spPasser = this.playerById(spPass.fromId);
-      if (spPasser) {
-        const pressure = this.players.filter(o => o.team !== spPasser.team && o.role !== 'GK' && dist(o, spPasser) < 65).length;
-        if (pressure === 0) { this.statsUnpressuredClearances++; this.logQualityFlag('unpressured_clearance', { player: spPasser.id, role: spPasser.role, team: spPasser.team }, 8000, `unpressured_clearance:${spPasser.id}`); }
-      }
-    }
+    if (spPass) this.recordUnpressuredOutOfPlay(spPass);
     if (type === 'corner') this.statsCornersTaken++;
     const exitX = Math.round(this.ball.x);
     const exitY = Math.round(this.ball.y);

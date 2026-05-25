@@ -8,6 +8,7 @@
     "server": "tsx src/server.ts",
     "batch": "tsx src/batch.ts",
     "benchmark": "tsx src/batch.ts --matches 8 --minutes 10 --seed 101",
+    "scenarios": "tsx src/scenarios.ts",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
