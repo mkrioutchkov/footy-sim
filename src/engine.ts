@@ -2044,9 +2044,11 @@ export class GameEngine {
       && selectionAudit?.purpose !== 'through';
     // Crosses bend toward the central target zone.
     if (isCross) {
-      speed *= 1.25;
-      // crosses stay lower for better completion
-      this.ball.vz *= 0.5;
+      speed *= 1.30;
+      this.ball.vz *= 0.35; // driven low cross
+      // cross receiver instant velocity toward ball
+      to.vx = (this.ball.x - to.x) * 0.3;
+      to.vy = (this.ball.y - to.y) * 0.3;
       const curlDir = from.y < PITCH_H / 2 ? 1 : -1;
       const rawDx2 = to.x - from.x, rawDy2 = to.y - from.y;
       this.ball.vx += -rawDy2 / rawDist * speed * 0.08 * curlDir;
