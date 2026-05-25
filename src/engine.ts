@@ -2040,7 +2040,8 @@ export class GameEngine {
       && selectionAudit?.purpose !== 'cutback';
     // Crosses bend toward the central target zone.
     if (isCross) {
-      const curlDir = from.y < PITCH_H / 2 ? 1 : -1; // curl toward center
+      speed *= 1.15; // crosses are whipped in faster — harder to intercept
+      const curlDir = from.y < PITCH_H / 2 ? 1 : -1;
       const rawDx2 = to.x - from.x, rawDy2 = to.y - from.y;
       this.ball.vx += -rawDy2 / rawDist * speed * 0.08 * curlDir;
       this.ball.vy += rawDx2 / rawDist * speed * 0.08 * curlDir;
