@@ -23,6 +23,7 @@ export class MatchRenderer {
   private ballGlow: Graphics;
   private hudText: Text;
   private versionText: Text;
+  private uiVersion = '';
   private eventGfx: Graphics;
   private scale = 1;
   private offsetX = 0;
@@ -86,12 +87,15 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ballGlow);
     this.pitchContainer.addChild(this.eventGfx);
     this.app.stage.addChild(this.hudText);
-    // version display — auto from git
-    const versionText = new Text({ text: '', style: new TextStyle({ fill: 0x888888, fontSize: 9, fontFamily: 'monospace' }) });
-    versionText.position.set(this.app.screen.width - 4, 4);
-    versionText.anchor.set(1, 0);
+    // version display — engine + UI
+    const versionText = new Text({ text: '...', style: new TextStyle({ fill: 0xffffff, fontSize: 8, fontFamily: 'monospace' }) });
+    versionText.position.set(this.app.screen.width - 6, this.app.screen.height - 12);
+    versionText.anchor.set(1, 1);
+    versionText.zIndex = 1000;
     this.app.stage.addChild(versionText);
     this.versionText = versionText;
+    // UI version is static
+    this.uiVersion = 'ui:2';
 
     this.drawPitch();
     this.calcTransform();
@@ -144,7 +148,7 @@ export class MatchRenderer {
 
   sync(state: EngineState): void {
     this.animTime++;
-    if (state.version && this.versionText.text !== state.version) this.versionText.text = state.version;
+    if (state.version) this.versionText.text = `eng:${state.version} ${this.uiVersion}`;
     const b = state.ball;
     const ballSpeed = Math.sqrt(b.vx ** 2 + b.vy ** 2);
     if (b.controllerId !== this.lastControllerId) {

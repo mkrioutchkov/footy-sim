@@ -18,8 +18,8 @@ import {
 import { PlayerAgent } from './agent';
 import { random } from './random';
 
-const GIT_HASH = '4c0a771';
-const GIT_DATE = '2026-05-25T20:20:36+10:00';
+const GIT_HASH = '58f087c';
+const GIT_DATE = '2026-05-25T20:22:48+10:00';
 
 const FIXED_DT = 16.667;
 const MAX_FRAME_DELTA_MS = 34;
@@ -363,6 +363,7 @@ export class GameEngine {
   private carrierWatchY = 0;
   private carrierWatchNearestOppDist = 0;
   private carrierWatchUnpressuredSince = 0;
+  private statsCarrierUnpressuredEvents = 0;
   private finalThirdPossessionTeam: Team | null = null;
   private finalThirdPossessionHasShot = false;
 
@@ -544,6 +545,7 @@ export class GameEngine {
         shotPct: Math.round(this.statsFinalThirdShots / Math.max(1, this.statsFinalThirdEntries) * 1000) / 10,
       },
       panicClears: this.statsPanicClears,
+      carrierUnpressuredEvents: this.statsCarrierUnpressuredEvents,
       dribbleTypes: {
         fast: this.statsDribbleFast,
         medium: this.statsDribbleMedium,
@@ -1126,6 +1128,7 @@ export class GameEngine {
     this.statsCornersTaken = 0; this.statsThrowInsTaken = 0; this.statsFreeKicks = 0;
     this.statsUnpressuredClearances = 0; this.statsTimeWastingDribbles = 0;
     this.statsFinalThirdEntries = 0; this.statsFinalThirdShots = 0; this.statsShotsBlocked = 0; this.statsPanicClears = 0;
+    this.statsCarrierUnpressuredEvents = 0;
     this.statsDribbleFast = 0; this.statsDribbleMedium = 0; this.statsDribbleClose = 0;
     this.statsKnockAheads = 0; this.statsKnockAheadRecovered = 0; this.statsKnockAheadRetained = 0;
     this.statsKnockAheadTurnovers = 0; this.statsKnockAheadOutOfPlay = 0;
@@ -1626,6 +1629,7 @@ export class GameEngine {
     if (nearestOppDist > 80 && nearestOppDist >= this.carrierWatchNearestOppDist - 5) {
       this.carrierWatchUnpressuredSince += sdt;
       if (this.carrierWatchUnpressuredSince > 3000) {
+        this.statsCarrierUnpressuredEvents++;
         this.logQualityFlag('carrier_unpressured_too_long', { player: carrier.id, role: carrier.role, nearestOpp: Math.round(nearestOppDist), ms: Math.round(this.carrierWatchUnpressuredSince) }, 10000, `unpressured:${carrier.id}`);
       }
     } else {
