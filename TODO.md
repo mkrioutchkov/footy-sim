@@ -1,13 +1,19 @@
 # TODO — Footy Sim
 
-## Active
+## Active — P0 (affects benchmarks)
+- [ ] Panic clear on receiving from teammate when NOT pressured — benchmark needed
+- [ ] Dribble types: fast (knock forward), medium, close control (slow), skill — benchmark needed
+- [ ] Tackle dynamics affected by dribble type
+- [ ] Pointless time-wasting while in possession (not leading) — add to tracking
+
+## Active — P1 (realism metrics)
+- [ ] Final third possession → shot % (target 20-30%) — benchmark needed
+- [ ] Shot block % (target 28-33%) — benchmark needed
 - [ ] Cross frequency (0.3-1.5, target 2+)
-- [x] CrossCollected mechanic — receiver +0.35 shoot + extended collection range
-- [ ] Kicking out of play not under pressure — benchmark needed
-- [ ] Pointless backward dribbling (time wasting when not winning) — benchmark needed
-- [ ] Goals consistency (0.4-1.1, target 1.0+ stable)
-- [ ] Player running away from ball on receive
-- [ ] "Continue" loop benchmark → improve → benchmark
+- [ ] Cross→shot chain (0-0.5, target 1+)
+- [ ] Goals consistency (0.4-2.0, target 1.0+ stable)
+
+## Active — P2
 
 ## Done
 - [x] Pass-triggered player reactions (defenders intercept — +0.12 chase near trajectory)

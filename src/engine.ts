@@ -233,6 +233,7 @@ export class GameEngine {
   private statsCornersTaken = 0;
   private statsThrowInsTaken = 0;
   statsUnpressuredClearances = 0; statsTimeWastingDribbles = 0;
+  statsFinalThirdEntries = 0; statsFinalThirdShots = 0; statsShotsBlocked = 0; statsPanicClears = 0;
   private statsTimedRunsStarted = 0; private statsTimedRunsReleased = 0; private statsTimedRunOffsides = 0; private statsTimedRunsCancelled = 0;
   private statsBouncesNoControl = 0;
   private statsFlankTime: Record<string, number> = { left: 0, right: 0, center: 0 };
@@ -477,6 +478,12 @@ export class GameEngine {
       headers: { total: this.statsHeadersTotal, won: this.statsHeadersWon },
       bounces: this.statsBouncesNoControl,
       timeWastingDribbles: this.statsTimeWastingDribbles,
+      finalThird: {
+        entries: this.statsFinalThirdEntries,
+        shots: this.statsFinalThirdShots,
+        shotPct: Math.round(this.statsFinalThirdShots / Math.max(1, this.statsFinalThirdEntries) * 1000) / 10,
+      },
+      panicClears: this.statsPanicClears,
       flankTime: { left: Math.round(this.statsFlankTime.left / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, mid: Math.round(this.statsFlankTime.center / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10, right: Math.round(this.statsFlankTime.right / Math.max(1, this.statsFlankTime.left + this.statsFlankTime.center + this.statsFlankTime.right) * 1000) / 10 },
       phaseTicks: { home: { ...this.phaseTicks.home }, away: { ...this.phaseTicks.away } },
       taskSelections: Object.fromEntries(this.taskSelections),
@@ -684,6 +691,10 @@ export class GameEngine {
       }
       this.qLastPossessionTeam = collector.team;
       this.qLastPossessionTeamChange = this.clockMs;
+      // final third entry tracking
+      const homeAttThird = collector.team === 'home' && collector.x > PITCH_W * 2 / 3;
+      const awayAttThird = collector.team === 'away' && collector.x < PITCH_W / 3;
+      if (homeAttThird || awayAttThird) this.statsFinalThirdEntries++;
     }
   }
 
@@ -766,6 +777,11 @@ export class GameEngine {
     this.statsPassByRole[from.role].att++;
     // pass reaction: mark the pass trajectory for defenders to react
     this.qRecentPass = { bx: this.ball.x, by: this.ball.y, vx: this.ball.vx, vy: this.ball.vy, team: from.team, clockMs: this.clockMs };
+    // panic clear: forced pass within 1s of team gaining possession with no pressure
+    if (source === 'forced' && this.clockMs - this.qLastPossessionTeamChange < 1000) {
+      const pPressure = this.players.filter(o => o.team !== from.team && o.role !== 'GK' && dist(o, from) < 65).length;
+      if (pPressure <= 1) { this.statsPanicClears++; this.logQualityFlag('panic_clear', { player: from.id, role: from.role, pressure: pPressure }, 5000, `panic_clear:${from.id}`); }
+    }
     this.recordPassAttempt(from, to);
     if (selection) this.recordPassSelection(from, to, selection);
     this.pendingPass = { fromId: from.id, team: from.team, toId: to.id, source, isCross };
@@ -959,6 +975,7 @@ export class GameEngine {
     this.statsHeadersWon = 0; this.statsHeadersTotal = 0;
     this.statsCornersTaken = 0; this.statsThrowInsTaken = 0; this.statsFreeKicks = 0;
     this.statsUnpressuredClearances = 0; this.statsTimeWastingDribbles = 0;
+    this.statsFinalThirdEntries = 0; this.statsFinalThirdShots = 0; this.statsShotsBlocked = 0; this.statsPanicClears = 0;
     this.statsGKDistributionAttempted = 0; this.statsGKDistributionCompleted = 0; this.statsGKDistributionFailed = 0; this.statsGKDistributionDangerTurnovers = 0;
     this.statsOutfieldDangerTurnovers = 0;
     this.statsGKAssessedShots = 0; this.statsGKUnlikelySaves = 0; this.statsGKPreventableGoals = 0;
@@ -2205,8 +2222,10 @@ export class GameEngine {
     this.recordBallImpulse();
     this.statsShotLaunchSpeedTotal += shotSpeed; this.statsShotLaunchCount++;
     this.ball.intendedReceiverId = null;
-    this.isShotActive = true; // distinguish from fast passes triggering saves
+    this.isShotActive = true;
     this.qLastShotMs = this.clockMs;
+    // final third shot tracking
+    if (shooter.team === 'home' ? shooter.x > PITCH_W * 2 / 3 : shooter.x < PITCH_W / 3) this.statsFinalThirdShots++;
     const delivery = this.qLastCompletedDelivery;
     const keyPass = delivery !== null && delivery.team === shooter.team && delivery.receiverId === shooter.id
       && this.clockMs - delivery.completedAt < 3000;
