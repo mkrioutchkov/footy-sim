@@ -61,6 +61,7 @@ export interface EngineState {
   awayShots: number;
   possessionPct: number;
   half: number;
+  version: string;
 }
 
 export interface MatchEvent {

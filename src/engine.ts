@@ -18,6 +18,9 @@ import {
 import { PlayerAgent } from './agent';
 import { random } from './random';
 
+const GIT_HASH = 'a8586eb';
+const GIT_DATE = '2026-05-25T20:11:17+10:00';
+
 const FIXED_DT = 16.667;
 const MAX_FRAME_DELTA_MS = 34;
 const MAX_STEPS_PER_FRAME = 3;
@@ -403,6 +406,7 @@ export class GameEngine {
       homeScore: 0, awayScore: 0,
       events: this.recentEvents,
       homeShots: 0, awayShots: 0, possessionPct: 50, half: 1,
+      version: `${GIT_HASH} ${GIT_DATE}`,
     };
   }
 

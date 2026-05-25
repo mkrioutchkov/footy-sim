@@ -22,6 +22,7 @@ export class MatchRenderer {
   private ballBody: Graphics;
   private ballGlow: Graphics;
   private hudText: Text;
+  private versionText: Text;
   private eventGfx: Graphics;
   private scale = 1;
   private offsetX = 0;
@@ -85,6 +86,12 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ballGlow);
     this.pitchContainer.addChild(this.eventGfx);
     this.app.stage.addChild(this.hudText);
+    // version display — auto from git
+    const versionText = new Text({ text: '', style: new TextStyle({ fill: 0x888888, fontSize: 9, fontFamily: 'monospace' }) });
+    versionText.position.set(this.app.screen.width - 4, 4);
+    versionText.anchor.set(1, 0);
+    this.app.stage.addChild(versionText);
+    this.versionText = versionText;
 
     this.drawPitch();
     this.calcTransform();
@@ -137,6 +144,7 @@ export class MatchRenderer {
 
   sync(state: EngineState): void {
     this.animTime++;
+    if (state.version && this.versionText.text !== state.version) this.versionText.text = state.version;
     const b = state.ball;
     const ballSpeed = Math.sqrt(b.vx ** 2 + b.vy ** 2);
     if (b.controllerId !== this.lastControllerId) {
