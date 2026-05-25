@@ -241,9 +241,9 @@ export class PlayerAgent {
       const onsideGap = offsideLine === null ? Infinity : (offsideLine - t.x) * fd;
       const releasedRunner = targetTask === 'run_ahead' || targetTask === 'overlap'
         || (p.role === 'CM' && (t.role === 'CF' || t.role === 'WM'));
-      if (!isCutback && releasedRunner && fp > 35 && onsideGap > -18 && onsideGap < 150 && bl <= 1) {
+      if (!isCutback && releasedRunner && fp > 30 && onsideGap > -25 && onsideGap < 170 && bl <= 2) {
         pur = 'through';
-        sc += 0.16 + attrFactor(p.attrs, 'creativity') * 0.12;
+        sc += 0.18 + attrFactor(p.attrs, 'creativity') * 0.12;
         // slight timing uncertainty: occasionally runners go fractionally offside
         if (onsideGap < 8) sc += random() * 0.04; // borderline — sometimes still go
       }

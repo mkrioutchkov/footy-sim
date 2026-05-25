@@ -2037,7 +2037,8 @@ export class GameEngine {
     const fromWide = Math.abs(from.y - PITCH_H / 2) > 180;
     const intoBox = Math.abs(predX - goalX) < 200 && Math.abs(predY - PITCH_H / 2) < 140;
     const isCross = fromWide && intoBox && (from.role === 'WM' || from.role === 'FB') && !throughBall
-      && selectionAudit?.purpose !== 'cutback';
+      && selectionAudit?.purpose !== 'cutback'
+      && selectionAudit?.purpose !== 'through';
     // Crosses bend toward the central target zone.
     if (isCross) {
       speed *= 1.15; // crosses are whipped in faster — harder to intercept
