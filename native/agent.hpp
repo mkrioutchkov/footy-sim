@@ -393,7 +393,7 @@ inline std::vector<Action> PlayerAgent::ev(const Perception& per, bool ic, const
                     if (dot > 0.65) { quickPassAvailable = true; break; }
                 }
                 if (!quickPassAvailable) {
-                    sl = 12 + static_cast<int>(engine.rng.random() * 18); // 200-500ms
+                    sl = 8 + static_cast<int>(engine.rng.random() * 10); // 133-300ms scan-hold
                     return { Action{"hold", 1.0} };
                 }
             }
@@ -1477,7 +1477,7 @@ inline void PlayerAgent::ex(Action& a, double sdt, std::vector<Action>& actions)
             engine.emitEvent("pass", p.x, p.y);
             auto& bb = engine.blackboards[p.team];
             bb.oneTwo = TeamBlackboard::OneTwo{ p.id, a.target->id, engine.state.clockMs + 2000.0 };
-            sl = 90 + static_cast<int>(engine.rng.random() * 31); // 1.5-2s cooldown
+            sl = 50 + static_cast<int>(engine.rng.random() * 21); // 0.8-1.2s cooldown
         } else {
             sl = 4;
         }
