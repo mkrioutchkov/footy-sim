@@ -1251,11 +1251,11 @@ inline std::vector<Action> PlayerAgent::bp(const Perception& per, const GameCont
             if (ba < 0.5 && my) {
                 c.push_back({ clamp(p.homeX - fd * 20.0, p.homeX - 60.0, PITCH_W - 60.0), p.homeY, "offer" });
             }
-            if (ba > 0.5 && my) {
+            if (ba > 0.58 && my) {
                 double nearPost = (p.y < PITCH_H / 2.0) ? PITCH_H * 0.35 : PITCH_H * 0.65;
                 double farPost  = (p.y < PITCH_H / 2.0) ? PITCH_H * 0.65 : PITCH_H * 0.35;
-                c.push_back({ clamp(oppGoalX - fd * 20.0, 60.0, PITCH_W - 60.0), nearPost, "space" });
-                c.push_back({ clamp(oppGoalX - fd * 30.0, 60.0, PITCH_W - 60.0), farPost, "space" });
+                c.push_back({ clamp(oppGoalX - fd * 55.0, 60.0, PITCH_W - 60.0), nearPost, "space" });
+                c.push_back({ clamp(oppGoalX - fd * 80.0, 60.0, PITCH_W - 60.0), farPost, "space" });
             }
         }
     }

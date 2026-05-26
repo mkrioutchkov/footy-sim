@@ -30,7 +30,17 @@ interface Summary {
     cfCloseWindowSamples: number;
     cfCloseDeferredSamples: number;
   };
-  marking: { questionablePress: number; finalThirdSamples: number; unmarkedFinalThird: number };
+  marking: {
+    questionablePress: number;
+    backLineSamples: number;
+    singleDropSamples: number;
+    avgBackLineGap: number;
+    avgSingleDropGap: number;
+    maxBackLineGap: number;
+    laneBlockSingleDrops: number;
+    finalThirdSamples: number;
+    unmarkedFinalThird: number;
+  };
   carrierTurns: { over30: number };
 }
 
@@ -80,6 +90,9 @@ const shots = total('shots');
 const goals = results.reduce((sum, result) => sum + result.homeScore + result.awayScore, 0);
 const markingSamples = results.reduce((sum, result) => sum + result.marking.finalThirdSamples, 0);
 const unmarked = results.reduce((sum, result) => sum + result.marking.unmarkedFinalThird, 0);
+const backLineSamples = results.reduce((sum, result) => sum + result.marking.backLineSamples, 0);
+const singleDrops = results.reduce((sum, result) => sum + result.marking.singleDropSamples, 0);
+const laneBlockSingleDrops = results.reduce((sum, result) => sum + result.marking.laneBlockSingleDrops, 0);
 
 console.log(JSON.stringify({
   config: { matches, minutes, seeds: results.map(result => result.seed), engine: 'native' },
@@ -107,6 +120,11 @@ console.log(JSON.stringify({
     riskyPassSelectionsPerMatch: round(results.reduce((sum, result) => sum + result.passSelection.risky, 0) / matches),
     pressuredReceptionFailuresPerMatch: round(results.reduce((sum, result) => sum + result.passSelection.pressuredReceptionFailures, 0) / matches),
     questionablePressSelectionsPerMatch: round(results.reduce((sum, result) => sum + result.marking.questionablePress, 0) / matches),
+    singleDefenderDropPct: round(singleDrops / Math.max(1, backLineSamples) * 100),
+    laneBlockSingleDropsPerMatch: round(laneBlockSingleDrops / matches),
+    avgBackLineGap: round(results.reduce((sum, result) => sum + result.marking.avgBackLineGap * result.marking.backLineSamples, 0) / Math.max(1, backLineSamples)),
+    avgSingleDropGap: round(results.reduce((sum, result) => sum + result.marking.avgSingleDropGap * result.marking.singleDropSamples, 0) / Math.max(1, singleDrops)),
+    maxBackLineGap: round(results.reduce((max, result) => Math.max(max, result.marking.maxBackLineGap), 0)),
     unmarkedFinalThirdPct: round(unmarked / Math.max(1, markingSamples) * 100),
     carrierTurnsOver30PerMatch: round(results.reduce((sum, result) => sum + result.carrierTurns.over30, 0) / matches),
   },
@@ -128,6 +146,7 @@ console.log(JSON.stringify({
     goals: result.homeScore + result.awayScore,
     tackles: result.tackles.attempts,
     stuck: result.stuckCarrierAlerts,
+    singleDropPct: round(result.marking.singleDropSamples / Math.max(1, result.marking.backLineSamples) * 100),
     unmarkedFinalThirdPct: round(result.marking.unmarkedFinalThird / Math.max(1, result.marking.finalThirdSamples) * 100),
   })),
 }, null, 2));

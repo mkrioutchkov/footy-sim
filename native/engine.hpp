@@ -66,6 +66,9 @@ public:
     double primaryPressDistanceTotal = 0;
     int finalThirdMarkingSamples = 0, finalThirdUnmarkedSamples = 0;
     double finalThirdNearestCbTotal = 0, finalThirdNearestDefenderTotal = 0;
+    int backLineSamples = 0, backLineSingleDropSamples = 0;
+    int backLineSingleDropLaneBlockSamples = 0;
+    double backLineGapTotal = 0, backLineSingleDropGapTotal = 0, backLineGapMax = 0;
     double nextTacticalAuditMs = 0;
     int watchedCarrierId = -1;
     double watchedCarrierX = 0, watchedCarrierY = 0, watchedCarrierMs = 0, lastStuckAlertMs = -1e9;
@@ -786,6 +789,9 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
     if(state.clockMs<nextTacticalAuditMs)return;
     nextTacticalAuditMs=state.clockMs+500.0;
     std::string defending=carrier.team=="home"?"away":"home";
+    double ownGoalX=defending=="home"?HOME_GOAL_X:AWAY_GOAL_X;
+    double fd=defending=="home"?1.0:-1.0;
+    bool danger=std::abs(carrier.x-ownGoalX)<240.0;
     Player* primary=nullptr;
     for(const auto& [id,task]:assignmentByPlayer){
         if(task.role=="primary_press"){primary=playerById(id);break;}
@@ -802,6 +808,26 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
             fastestEta=std::min(fastestEta,eta);
         }
         if(selectedEta>fastestEta+0.45)questionablePressAssignments++;
+    }
+    struct LineMember { const Player* player; double progress; };
+    std::vector<LineMember> line;
+    for(const auto& defender:state.players){
+        if(defender.team!=defending)continue;
+        if(defender.role!="CB"&&defender.role!="FB")continue;
+        line.push_back({&defender,(defender.x-ownGoalX)*fd});
+    }
+    if(line.size()>=3){
+        std::sort(line.begin(),line.end(),[](const LineMember& a,const LineMember& b){return a.progress<b.progress;});
+        double gap=line[1].progress-line[0].progress;
+        backLineSamples++;
+        backLineGapTotal+=gap;
+        backLineGapMax=std::max(backLineGapMax,gap);
+        if(!danger&&gap>85.0){
+            backLineSingleDropSamples++;
+            backLineSingleDropGapTotal+=gap;
+            const auto* task=assignmentFor(line[0].player->id);
+            if(task&&task->role=="lane_block")backLineSingleDropLaneBlockSamples++;
+        }
     }
     bool finalThird=carrier.team=="home"?carrier.x>PITCH_W*2.0/3.0:carrier.x<PITCH_W/3.0;
     if(!finalThird)return;
@@ -1206,7 +1232,7 @@ inline std::string GameEngine::getJSON() const {
         R"(,"carrierTurns":{{"samples":{},"requestedSharp":{},"appliedSharp":{},"limitedFrames":{},"over15":{},"over30":{},"avgAppliedDeg":{:.1f}}})"
         R"(,"passSelection":{{"audited":{},"risky":{},"saferIgnored":{},"avgDistance":{:.0f},"avgExpectedCompletionPct":{:.1f},"pressuredReceptions":{},"pressuredReceptionFailures":{}}})"
         R"(,"shotSelection":{{"audited":{},"betterPassAvailable":{},"tightAngle":{},"avgAngleDeg":{:.1f},"avgPressure":{:.2f},"cfCredibleWindowSamples":{},"cfDeferredSamples":{},"cfDeferredForPass":{},"cfDeferredForDribble":{},"cfCloseWindowSamples":{},"cfCloseDeferredSamples":{}}})"
-        R"(,"marking":{{"pressSamples":{},"questionablePress":{},"avgPrimaryPressDistance":{:.0f},"finalThirdSamples":{},"unmarkedFinalThird":{},"unmarkedPct":{:.1f},"avgNearestCb":{:.0f},"avgNearestDefender":{:.0f}}})"
+        R"(,"marking":{{"pressSamples":{},"questionablePress":{},"avgPrimaryPressDistance":{:.0f},"backLineSamples":{},"singleDropSamples":{},"singleDropPct":{:.1f},"avgBackLineGap":{:.0f},"avgSingleDropGap":{:.0f},"maxBackLineGap":{:.0f},"laneBlockSingleDrops":{},"finalThirdSamples":{},"unmarkedFinalThird":{},"unmarkedPct":{:.1f},"avgNearestCb":{:.0f},"avgNearestDefender":{:.0f}}})"
         R"(,"dribbleTypes":{{"fast":{},"medium":{},"close":{},"knockAheads":{},"recovered":{},"retainedByTeammate":{},"turnovers":{},"outOfPlay":{},"risky":{},"riskyTurnovers":{},"launchSpeedAvg":{:.1f},"pending":{}}})"
         R"(,"tackles":{{"attempts":{},"wins":{},"cleanControls":{},"looseDeflections":{},"fouls":{}}},"stuckCarrierAlerts":{},"tackleAttempts":{},"tackleWins":{},"slideTackleDistanceAlerts":{},"slideTackleOobAlerts":{})"
         R"(,"qualityFlags":{{"player_stuck":{},"slide_tackle_distance":{},"slide_tackle_oob":{},"cross_goal":{},"direct_delivery_goal":{},"untracked_goal":{},"tackle_deflection_goal":{},"goalkeeper_parry_goal":{},"shot_deflection_goal":{},"own_pass_goal":{},"lost_shot_goal":{},"unknown_loose_goal":{},"bad_knock_ahead_turnover":{},"knock_ahead_goal":{},"unrealistic_gk_save":{},"poor_gk_save_attempt":{},"questionable_shot_choice":{},"questionable_press_assignment":{},"unmarked_final_third":{},"risky_pass_choice":{}}},"events":[]}})",
@@ -1228,6 +1254,11 @@ inline std::string GameEngine::getJSON() const {
         credibleCloseShotWindows,deferredCredibleCloseShots,
         pressAssignmentSamples,questionablePressAssignments,
         pressAssignmentSamples>0?primaryPressDistanceTotal/pressAssignmentSamples:0,
+        backLineSamples,backLineSingleDropSamples,
+        backLineSamples>0?backLineSingleDropSamples*100.0/backLineSamples:0,
+        backLineSamples>0?backLineGapTotal/backLineSamples:0,
+        backLineSingleDropSamples>0?backLineSingleDropGapTotal/backLineSingleDropSamples:0,
+        backLineGapMax,backLineSingleDropLaneBlockSamples,
         finalThirdMarkingSamples,finalThirdUnmarkedSamples,
         finalThirdMarkingSamples>0?finalThirdUnmarkedSamples*100.0/finalThirdMarkingSamples:0,
         finalThirdMarkingSamples>0?finalThirdNearestCbTotal/finalThirdMarkingSamples:0,
