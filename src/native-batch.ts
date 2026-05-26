@@ -105,6 +105,7 @@ console.log(JSON.stringify({
     passesPerMatch: round(passes / matches),
     passCompletionPct: round(total('passesCompleted') / Math.max(1, passes) * 100),
     interceptedPassesPerMatch: round(total('passesIntercepted') / matches),
+    offsidesPerMatch: round(total('offsides') / matches),
     tacklesAttemptedPerMatch: round(results.reduce((sum, result) => sum + result.tackles.attempts, 0) / matches),
     tackleWinPct: round(results.reduce((sum, result) => sum + result.tackles.wins, 0)
       / Math.max(1, results.reduce((sum, result) => sum + result.tackles.attempts, 0)) * 100),

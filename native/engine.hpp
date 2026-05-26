@@ -14,7 +14,7 @@
 
 class GameEngine {
 public:
-    SeededRNG rng;
+    mutable SeededRNG rng;
     EngineState state;
     std::unordered_map<std::string, TeamBlackboard> blackboards;
     std::list<PlayerAgent> agents;
@@ -57,6 +57,7 @@ public:
     int passSelectionAudits = 0, riskyPassSelections = 0, saferPassIgnored = 0;
     double selectedPassDistanceTotal = 0, selectedPassCompletionTotal = 0;
     int pressuredReceptions = 0, pressuredReceptionFailures = 0;
+    int offsidesTotal = 0;
     int shotSelectionAudits = 0, betterPassShots = 0, tightAngleShots = 0;
     int credibleShotWindows = 0, deferredCredibleShots = 0;
     int credibleShotPassChoices = 0, credibleShotDribbleChoices = 0;
@@ -121,7 +122,46 @@ public:
     Config homeConfig, awayConfig;
     [[nodiscard]] Config configFor(const std::string& team) const { return team=="home" ? homeConfig : awayConfig; }
     [[nodiscard]] std::string teamPhaseFor(const std::string&) const { return "possession"; }
-    [[nodiscard]] double offsideLineFor(const std::string& t) const { return t=="home" ? 0.0 : PITCH_W; }
+    [[nodiscard]] double offsideLineFor(const std::string& t) const {
+        const double fd = t=="home" ? 1.0 : -1.0;
+        const Player* d1=nullptr,*d2=nullptr;
+        double v1=fd==1?-1e9:1e9, v2=v1;
+        for(auto&p:state.players){
+            if(p.team==t)continue;
+            double v=fd==1?-p.x:p.x;
+            if(v<v1){if(v1!=v2)v2=v1;else v2=v;v1=v;d2=d1;d1=&p;}
+            else if(v<v2){v2=v;d2=&p;}
+        }
+        return d2 ? d2->x : (t=="home"?0.0:PITCH_W);
+    }
+    [[nodiscard]] bool checkOffside(const Player& receiver, const Player& passer) const {
+        const double fd = passer.team=="home" ? 1.0 : -1.0;
+        if(fd==1){if(receiver.x<=HALF_X||receiver.x<=passer.x+OFFSIDE_TOLERANCE)return false;}
+        else{if(receiver.x>=HALF_X||receiver.x>=passer.x-OFFSIDE_TOLERANCE)return false;}
+        const Player* d1=nullptr,*d2=nullptr;
+        double v1=fd==1?-1e9:1e9, v2=v1;
+        for(auto&p:state.players){
+            if(p.team==passer.team)continue;
+            double v=fd==1?-p.x:p.x;
+            if(v<v1){if(v1!=v2)v2=v1;else v2=v;v1=v;d2=d1;d1=&p;}
+            else if(v<v2){v2=v;d2=&p;}
+        }
+        if(!d2)return false;
+        const double line=d2->x;
+        return fd==1 ? receiver.x>line+OFFSIDE_TOLERANCE : receiver.x<line-OFFSIDE_TOLERANCE;
+    }
+    void awardOffsideFreeKick(const std::string& defendingTeam, const Player& offsidePlayer) {
+        auto& b=state.ball;
+        b.x=clamp(offsidePlayer.x,20.0,PITCH_W-20);
+        b.y=clamp(offsidePlayer.y,20.0,PITCH_H-20);
+        b.vx=b.vy=b.z=b.vz=0;
+        b.controllerId=-1; b.intendedReceiverId=-1;
+        receiverShieldTargetId=-1;
+        setPieceType="free_kick"; setPieceTeam=defendingTeam; setPieceArmed=true;
+    }
+    [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const {
+        return rng.random() < 0.20 && checkOffside(receiver, passer);
+    }
     struct AgentTeamAssignment { std::string role; int opponentId=-1; double targetX=0, targetY=0; };
     std::unordered_map<int, AgentTeamAssignment> assignmentByPlayer;
     [[nodiscard]] AgentTeamAssignment* assignmentFor(int playerId) {
@@ -133,8 +173,6 @@ public:
         return it==assignmentByPlayer.end()?nullptr:&it->second;
     }
     AgentTeamAssignment* committedRunFor(int) { return nullptr; }
-
-    // ── Player queries ──
     [[nodiscard]] Player* playerById(int id) { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
     [[nodiscard]] const Player* playerById(int id) const { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
     [[nodiscard]] std::vector<Player*> nearPlayers(Player& p, double range) {
@@ -142,10 +180,7 @@ public:
         for(auto& o:state.players) if(&o!=&p && dist(p.x,p.y,o.x,o.y)<range) r.push_back(&o);
         return r;
     }
-
-    // ── Boolean checks ──
     [[nodiscard]] bool isPreparingPass(int) const { return false; }
-    [[nodiscard]] bool isOffsideTarget(const Player&, const Player&) const { return false; }
     [[nodiscard]] bool isRecentFinishingDeliveryReceiver(int) const { return false; }
     [[nodiscard]] bool isRecentThroughBallReceiver(int) const { return false; }
     [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
@@ -285,6 +320,11 @@ public:
                 &&audit->saferOptionScore>=audit->score-0.08)saferPassIgnored++;
         }
         beginTrackedPass(f,t,selectedCross||whippedCross);
+        if(checkOffside(t,f)){
+            offsidesTotal++;
+            awardOffsideFreeKick(f.team=="home"?"away":"home",t);
+            return true;
+        }
         return true;
     }
     void forcePassTo(Player&f,Player&t,void*) {
@@ -304,6 +344,10 @@ public:
         receiverShieldTargetId=t.id;
         b.z=0; b.vz=speed*0.40;
         beginTrackedPass(f,t);
+        if(checkOffside(t,f)){
+            offsidesTotal++;
+            awardOffsideFreeKick(f.team=="home"?"away":"home",t);
+        }
     }
     bool attemptTackle(Player& tackler,Player& carrier){
         double contactDist=dist(tackler.x,tackler.y,carrier.x,carrier.y);
@@ -1212,9 +1256,10 @@ inline std::string GameEngine::getJSON() const {
     std::string lastToucherJson=b.lastToucherId>=0?std::to_string(b.lastToucherId):"null";
     std::string lastTouchTeamJson=b.lastTouchTeam.empty()?"null":"\""+b.lastTouchTeam+"\"";
     std::string js=std::format(
-        R"({{"clockMs":{:.0f},"matchState":"{}","half":{},"version":"cpp-audit","speed":{},"homeScore":{},"awayScore":{},"homeShots":{},"awayShots":{},"possessionPct":{:.1f},"passes":{},"passesCompleted":{},"passesIntercepted":{},"passCompletionPct":{:.1f},"shots":{},"shotsOnTarget":{},"saves":{},"ballSpeed":{{"peak":{:.0f},"looseSampleAvg":{:.0f},"looseSamples":{},"passLaunchAvg":{:.0f},"passLaunches":{},"shotLaunchAvg":{:.0f},"shotLaunches":{}}},"ball":{{"x":{:.1f},"y":{:.1f},"vx":{:.1f},"vy":{:.1f},"z":{:.1f},"controllerId":{},"intendedReceiverId":{},"lastTouchTeam":{},"lastToucherId":{}}},"players":[)",
+        R"({{"clockMs":{:.0f},"matchState":"{}","half":{},"version":"cpp-audit","speed":{},"homeScore":{},"awayScore":{},"homeShots":{},"awayShots":{},"possessionPct":{:.1f},"passes":{},"passesCompleted":{},"passesIntercepted":{},"passCompletionPct":{:.1f},"offsides":{},"shots":{},"shotsOnTarget":{},"saves":{},"ballSpeed":{{"peak":{:.0f},"looseSampleAvg":{:.0f},"looseSamples":{},"passLaunchAvg":{:.0f},"passLaunches":{},"shotLaunchAvg":{:.0f},"shotLaunches":{}}},"ball":{{"x":{:.1f},"y":{:.1f},"vx":{:.1f},"vy":{:.1f},"z":{:.1f},"controllerId":{},"intendedReceiverId":{},"lastTouchTeam":{},"lastToucherId":{}}},"players":[)",
         state.clockMs,state.matchState,half,state.speed,state.homeScore,state.awayScore,shotsHome,shotsAway,possessionPct,
         passAttempted,passCompleted,passIntercepted,completionPct,
+        offsidesTotal,
         shotsHome+shotsAway,shotsOnTarget,saves,
         peakBallSpeed,looseAvg,looseBallSpeedSamples,passAvg,passLaunchCount,shotAvg,shotLaunchCount,
         b.x,b.y,b.vx,b.vy,b.z,controllerJson,intendedReceiverJson,lastTouchTeamJson,lastToucherJson);

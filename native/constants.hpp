@@ -25,6 +25,7 @@ inline constexpr double SHOT_SPEED_BASE = 380.0;
 inline constexpr double TACKLE_KICK_SPEED = 120.0;
 
 inline constexpr double TACKLE_RANGE   = 24.0;
+inline constexpr double OFFSIDE_TOLERANCE = 1.0;
 inline constexpr double COLLECT_DIST   = 20.0;
 inline constexpr double INTENDED_COLLECT_DIST = 28.0;
 inline constexpr double CONTROL_DIST   = 12.0;
