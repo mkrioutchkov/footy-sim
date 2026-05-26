@@ -107,8 +107,8 @@ public:
     struct RecentPass { double bx=525,by=340,vx=0,vy=0; std::string team; double clockMs=0; };
     RecentPass qRecentPassVal;
     RecentPass* qRecentPass() { return &qRecentPassVal; }
-    int clockMs() const { return (int)state.clockMs; }
-    std::string teamInPossession() { return state.ball.lastTouchTeam.empty() ? "home" : state.ball.lastTouchTeam; }
+    [[nodiscard]] int clockMs() const { return static_cast<int>(state.clockMs); }
+    [[nodiscard]] std::string teamInPossession() const { return state.ball.lastTouchTeam.empty() ? "home" : state.ball.lastTouchTeam; }
 
     // ── Tactical callbacks ──
     struct Config {
@@ -116,32 +116,36 @@ public:
         double midfieldFreedom=50, defensiveLineHeight=50;
     };
     Config homeConfig, awayConfig;
-    Config configFor(const std::string& team) { return team=="home" ? homeConfig : awayConfig; }
-    std::string teamPhaseFor(std::string) { return "possession"; }
-    double offsideLineFor(std::string t) { return t=="home" ? 0.0 : PITCH_W; }
+    [[nodiscard]] Config configFor(const std::string& team) const { return team=="home" ? homeConfig : awayConfig; }
+    [[nodiscard]] std::string teamPhaseFor(const std::string&) const { return "possession"; }
+    [[nodiscard]] double offsideLineFor(const std::string& t) const { return t=="home" ? 0.0 : PITCH_W; }
     struct AgentTeamAssignment { std::string role; int opponentId=-1; double targetX=0, targetY=0; };
     std::unordered_map<int, AgentTeamAssignment> assignmentByPlayer;
-    AgentTeamAssignment* assignmentFor(int playerId) {
+    [[nodiscard]] AgentTeamAssignment* assignmentFor(int playerId) {
+        auto it=assignmentByPlayer.find(playerId);
+        return it==assignmentByPlayer.end()?nullptr:&it->second;
+    }
+    [[nodiscard]] const AgentTeamAssignment* assignmentFor(int playerId) const {
         auto it=assignmentByPlayer.find(playerId);
         return it==assignmentByPlayer.end()?nullptr:&it->second;
     }
     AgentTeamAssignment* committedRunFor(int) { return nullptr; }
 
     // ── Player queries ──
-    Player* playerById(int id) { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
-    const Player* playerById(int id) const { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
-    std::vector<Player*> nearPlayers(Player& p, double range) {
+    [[nodiscard]] Player* playerById(int id) { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
+    [[nodiscard]] const Player* playerById(int id) const { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
+    [[nodiscard]] std::vector<Player*> nearPlayers(Player& p, double range) {
         std::vector<Player*> r;
         for(auto& o:state.players) if(&o!=&p && dist(p.x,p.y,o.x,o.y)<range) r.push_back(&o);
         return r;
     }
 
     // ── Boolean checks ──
-    bool isPreparingPass(int) { return false; }
-    bool isOffsideTarget(const Player&, const Player&) { return false; }
-    bool isRecentFinishingDeliveryReceiver(int) { return false; }
-    bool isRecentThroughBallReceiver(int) { return false; }
-    bool isCarrierShielded(int playerId) { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
+    [[nodiscard]] bool isPreparingPass(int) const { return false; }
+    [[nodiscard]] bool isOffsideTarget(const Player&, const Player&) const { return false; }
+    [[nodiscard]] bool isRecentFinishingDeliveryReceiver(int) const { return false; }
+    [[nodiscard]] bool isRecentThroughBallReceiver(int) const { return false; }
+    [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
     bool canContestBall(Player& player) {
         if(setPieceArmed&&state.ball.controllerId<0)return false;
         auto it=contestBlockedUntil.find(player.id);
@@ -150,18 +154,18 @@ public:
         contestBlockedUntil.erase(it);
         return true;
     }
-    bool canKnockBallAhead(int playerId) {
+    [[nodiscard]] bool canKnockBallAhead(int playerId) const {
         auto it=knockAheadCooldownUntil.find(playerId);
         return !activeKnockAhead.active&&(it==knockAheadCooldownUntil.end()||it->second<=state.clockMs);
     }
-    bool isActiveKnockAheadRunner(int playerId) { return activeKnockAhead.active&&activeKnockAhead.playerId==playerId; }
+    [[nodiscard]] bool isActiveKnockAheadRunner(int playerId) const { return activeKnockAhead.active&&activeKnockAhead.playerId==playerId; }
 
     // ── Actions ──
     void notePreventedStaleGrab(Player&) {}
-    void noteTaskSelection(Player&, std::string) {}
+    void noteTaskSelection(Player&, const std::string&) {}
     bool knockBallAhead(Player&, double, double);
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
-    void emitEvent(std::string, double, double) {}
+    void emitEvent(const std::string&, double, double) {}
     void blockReboundFor(int playerId,double ms) {
         if(playerId<0)return;
         contestBlockedUntil[playerId]=std::max(contestBlockedUntil[playerId],state.clockMs+ms);
@@ -191,7 +195,7 @@ public:
     void auditCredibleShotWindow(const Player& player, double distance, double angleDeg,
                                  int pressureCount, const std::string& choiceType);
 
-    double goalOpeningAngleDeg(double x, double y, double gx) {
+    [[nodiscard]] double goalOpeningAngleDeg(double x, double y, double gx) const {
         double dx=gx-x;
         double top=std::atan2(PITCH_H/2.0-GOAL_W/2.0-y,dx);
         double bottom=std::atan2(PITCH_H/2.0+GOAL_W/2.0-y,dx);
