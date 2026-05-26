@@ -12,27 +12,31 @@ When asked to "iterate" or "continue autonomously", follow this cycle:
 8. If rejected, inspect the diff and remove only the current experiment; never discard unrelated work.
 9. Repeat from step 1.
 
+## Runtime Ownership
+- `native/*.hpp` and `native/main.cpp` are the authoritative simulation.
+- `src/cpp-server.ts` relays `native/live.exe` for visible play.
+- `src/native-batch.ts` and `src/native-scenarios.ts` drive `native/benchmark.exe`.
+- The retired TypeScript simulation source is not a reference implementation to restore.
+
 ## Target bands
 | Metric | Current | Target |
 |--------|---------|--------|
-| Goals/match | 1.1 | 1.0+ stable |
-| Shots/match | 4.4 | 6+ credible chances |
-| On target % | 60.0% | 35-50% |
-| Pass completion | 77.2% | 75-80% |
-| Open-play crosses/match | 2.9 | audit repetitive outliers |
-| Open-play cross shots/match | 0.9 | retain origin attribution |
-| Through-balls | 42.6 | 25-40 |
-| No_shots flags | 8 | <5 |
-| Avoidable press | 10.9 | <12 |
-| Knock-aheads / turnovers | 7.0 / 1.4 | replay risky outliers |
-| Poor keeper goals | 0.3 | replay before tuning |
-| Unpressured clearances | 0-? | benchmark |
-| Time-wasting dribbles | 0-1 | track |
+| Goals/match | 0.6 | improve from credible close chances |
+| Shots/match | 3.9 | 6+ credible chances |
+| On target % | 48.4% | 35-50% |
+| Pass completion | 81.8% | 75-80% |
+| Tackle attempts/match | 35.4 | reduce repeated challenges safely |
+| CF credible/deferred samples | 3.6 / 3.6 | create close options first |
+| CF close deferred samples | 0.0 | do not force medium shots |
+| Questionable press | 5.1 | <12 |
+| Unmarked final third | 12.2% | monitor while increasing chances |
+| Hard quality guards | 0 | keep at zero |
 
 ## Rules
 - Never increase contact distances (max intercept 20px, tackle 24px)
 - Aerial contact must also remain within the ordinary 20px visible-contact radius.
 - Never weaken goal aperture constraints
+- Implement offside eligibility and onside supporting runs as one measured slice; native offside methods are currently placeholders.
 - Prefer diagnosed behavior changes over stacked score bonuses.
 - Treat telemetry as invalid until its definition is bounded and covered by a scenario or replay.
 - Do not relabel forward wide crosses as cutbacks; preserve origin-specific cross attempts, shots and goals.

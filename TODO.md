@@ -1,4 +1,23 @@
-# TODO — Footy Sim
+# TODO - Footy Sim
+
+## Native Runtime Migration (Current, 2026-05-26)
+
+This section supersedes TypeScript-engine metrics below. The C++ simulator is
+now the runtime in `native/`, with `src/cpp-server.ts` as its paced browser
+relay and `src/native-batch.ts` / `src/native-scenarios.ts` as its test
+drivers.
+
+- [x] Move the recovered C++ engine into the main repository and remove the retired TypeScript simulator runtime.
+- [x] Separate `native/benchmark.exe` from `native/live.exe` so benchmarks can rebuild while a visible match is running.
+- [x] Add concurrent native benchmark execution and compact per-seed summaries.
+- [x] Preserve the accepted baseline while adding sampled CF credible-window/deferred-dribble telemetry.
+- [ ] Implement native offside eligibility with coordinated onside supporting runs; `isOffsideTarget`, `offsideLineFor`, `committedRunFor`, and `teamPhaseFor` are currently stubs.
+- [ ] Use close-chance creation metrics before tuning shooting: current sampled CF windows are `3.6`/match deferred at `120-190` px and `0` deferred inside `120` px.
+- [ ] Reduce pass completion (`81.8%`) and repeated tackle attempts (`35.4`/match) without reintroducing ghost contact or stuck play.
+
+Accepted native baseline, seeds `101-108` for ten minutes: `0.6` goals,
+`3.9` shots, `48.4%` on target, `81.8%` completion and zero hard quality
+guard failures.
 
 ## Active — P0 (affects benchmarks)
 - [ ] Recover credible chance volume (`4.4` shots / match after rejecting bad attempts) through delivery and movement, not weaker shot geometry

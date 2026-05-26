@@ -1,16 +1,8 @@
 import { MatchRenderer } from './renderer';
-import { showSetup } from './ui';
-import { createManager } from './manager';
 
-const useCpp = typeof window !== 'undefined' && window.location.search.includes('cpp');
-const WS_URL = useCpp ? 'ws://localhost:3001' : 'ws://localhost:3000';
+const WS_URL = 'ws://localhost:3000';
 
 async function main() {
-  const homeConfig = createManager('home', false);
-  const awayConfig = createManager('away', false);
-
-  const setup = await showSetup(homeConfig, awayConfig);
-
   const renderer = new MatchRenderer();
   await renderer.init();
 
@@ -88,7 +80,7 @@ async function main() {
     ws.onopen = () => {
       console.log('Connected to engine');
       if (!submittedSetup) {
-        ws!.send(JSON.stringify({ type: 'restart', homeConfig: setup.home, awayConfig: setup.away }));
+        ws!.send(JSON.stringify({ type: 'restart' }));
         submittedSetup = true;
       }
     };

@@ -198,4 +198,10 @@ Stop/go criterion: tactical variation changes behavior predictably while basic f
 - Run seeded batches across formations and attribute profiles.
 - Tune thresholds from aggregate failures and selected visual replays.
 - Decide whether current architecture is sufficient for the product direction before building deeper management, animation, or match-rule features.
+# Archived TypeScript Review Brief
+
+This brief predates the native C++ consolidation and must not be used as a
+current implementation map. The deleted TypeScript simulator has been
+replaced by `native/`; follow `DEEPSEEK_CONTINUATION_PROMPT.md` for current
+source paths, metrics and constraints.
 

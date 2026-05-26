@@ -4,3 +4,5 @@ dist/
 vite-dev.err.log
 vite-dev.log
 .gh_pat
+native/*.exe
+native/*.obj
