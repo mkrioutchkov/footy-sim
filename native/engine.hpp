@@ -3,6 +3,7 @@
 #include "constants.hpp"
 #include "types.hpp"
 #include "agent.hpp"
+#include "stats.hpp"
 #include <format>
 #include <algorithm>
 #include <unordered_map>
@@ -17,6 +18,7 @@ public:
     mutable SeededRNG rng;
     EngineState state;
     std::unordered_map<std::string, TeamBlackboard> blackboards;
+    StatsCollector stats;
     std::list<PlayerAgent> agents;
     double accumulator = 0.0;
 
@@ -222,7 +224,7 @@ public:
         peakBallSpeed=std::max(peakBallSpeed,std::hypot(state.ball.vx,state.ball.vy));
     }
     void beginTrackedPass(Player& from,Player& to,bool isCross=false) {
-        passAttempted++;
+        passAttempted++; stats.recordPassAttempt();
         lastLooseOrigin.clear();
         double speed=std::hypot(state.ball.vx,state.ball.vy);
         passLaunchSpeedTotal+=speed; passLaunchCount++;
@@ -231,8 +233,8 @@ public:
     }
     void resolvePendingPass(Player& receiver) {
         if(!pendingPass.active)return;
-        if(receiver.team==pendingPass.team)passCompleted++;
-        else passIntercepted++;
+        if(receiver.team==pendingPass.team){passCompleted++;stats.recordPassComplete();}
+        else {passIntercepted++;stats.recordPassIntercepted();}
         pendingPass.active=false;
     }
     void auditStuckCarrier(double sdt);
