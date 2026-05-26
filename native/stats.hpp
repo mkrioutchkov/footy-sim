@@ -190,6 +190,7 @@ inline std::string StatsCollector::summaryJSON() const {
         R"("marking":{{"pressSamples":{},"questionablePress":{},"avgPrimaryPressDistance":{:.0f},"backLineSamples":{},"singleDropSamples":{},"singleDropPct":{:.1f},"avgBackLineGap":{:.0f},"avgSingleDropGap":{:.0f},"maxBackLineGap":{:.0f},"laneBlockSingleDrops":{},"finalThirdSamples":{},"unmarkedFinalThird":{},"unmarkedPct":{:.1f},"avgNearestCb":{:.0f},"avgNearestDefender":{:.0f}}})"
         R"(,"qualityFlags":{{"player_stuck":{},"simulation_freeze":{},"dizzy_spin":{},"slide_tackle_distance":{},"slide_tackle_oob":{},"own_pass_goal":{},"unknown_loose_goal":{},"questionable_shot_choice":{},"questionable_press_assignment":{},"unmarked_final_third":{},"risky_pass_choice":{},"teammate_pingpong":{}}})"
         R"(,"ballSpeed":{{"peak":{:.0f},"looseSampleAvg":{:.0f},"looseSamples":{},"passLaunchAvg":{:.0f},"passLaunches":{},"shotLaunchAvg":{:.0f},"shotLaunches":{}}})"
+        R"(,"events":[])"
         R"(,"possessionPct":{:.1f}}})",
         passesAttempted,passesCompleted,passesIntercepted,completionPct,offsidesTotal,shotsHome,shotsAway,totalShots,shotsOnTarget,saves,
         stuckAlerts,simFreezes,dizzySpins,teammatePingPongs,
