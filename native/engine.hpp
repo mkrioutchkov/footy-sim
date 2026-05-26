@@ -53,6 +53,11 @@ public:
     int teammatePingPongs = 0;
     double lastSameTeamCollectionMs = 0;
     std::string lastCollectionTeam;
+    int simulationFreezes = 0;
+    double freezeWatchMs = 0;
+    double freezeBallX = 0, freezeBallY = 0;
+    int freezeLastController = -1;
+    double lastFreezeAlertMs = -1e9;
     int carrierMoveSamples = 0, carrierRequestedSharpTurns = 0;
     int carrierAppliedSharpTurns = 0, carrierTurnLimitedFrames = 0;
     int carrierAppliedTurnsOver15 = 0, carrierAppliedTurnsOver30 = 0;
@@ -678,6 +683,13 @@ inline void GameEngine::fixedUpdate(double sdt){
     auto*c=playerById(state.ball.controllerId);
     if(c){if(c->team=="home")possessionHome+=sdt;else possessionAway+=sdt;}
     auditStuckCarrier(sdt);
+    // freeze detection: ball hasn't moved >5px in 500ms with same controller (skip set pieces)
+    if(!setPieceArmed&&!kickoffPhase){
+        auto& fb=state.ball;
+        int cid=fb.controllerId;
+        if(cid!=freezeLastController){freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;freezeLastController=cid;}
+        else{freezeWatchMs+=sdt;if(dist(fb.x,fb.y,freezeBallX,freezeBallY)>=5){freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}else if(freezeWatchMs>500&&state.clockMs-lastFreezeAlertMs>5000){simulationFreezes++;lastFreezeAlertMs=state.clockMs;freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}}
+    }
     if(setPieceArmed){
         actionTimer-=sdt;
         updateControlledBall(sec);
@@ -1295,8 +1307,8 @@ inline std::string GameEngine::getJSON() const {
         R"(,"shotSelection":{{"audited":{},"betterPassAvailable":{},"tightAngle":{},"avgAngleDeg":{:.1f},"avgPressure":{:.2f},"cfCredibleWindowSamples":{},"cfDeferredSamples":{},"cfDeferredForPass":{},"cfDeferredForDribble":{},"cfCloseWindowSamples":{},"cfCloseDeferredSamples":{}}})"
         R"(,"marking":{{"pressSamples":{},"questionablePress":{},"avgPrimaryPressDistance":{:.0f},"backLineSamples":{},"singleDropSamples":{},"singleDropPct":{:.1f},"avgBackLineGap":{:.0f},"avgSingleDropGap":{:.0f},"maxBackLineGap":{:.0f},"laneBlockSingleDrops":{},"finalThirdSamples":{},"unmarkedFinalThird":{},"unmarkedPct":{:.1f},"avgNearestCb":{:.0f},"avgNearestDefender":{:.0f}}})"
         R"(,"dribbleTypes":{{"fast":{},"medium":{},"close":{},"knockAheads":{},"recovered":{},"retainedByTeammate":{},"turnovers":{},"outOfPlay":{},"risky":{},"riskyTurnovers":{},"launchSpeedAvg":{:.1f},"pending":{}}})"
-        R"(,"tackles":{{"attempts":{},"wins":{},"cleanControls":{},"looseDeflections":{},"fouls":{}}},"stuckCarrierAlerts":{},"teammatePingPongs":{},"tackleAttempts":{},"tackleWins":{},"slideTackleDistanceAlerts":{},"slideTackleOobAlerts":{})"
-        R"(,"qualityFlags":{{"player_stuck":{},"slide_tackle_distance":{},"slide_tackle_oob":{},"cross_goal":{},"direct_delivery_goal":{},"untracked_goal":{},"tackle_deflection_goal":{},"goalkeeper_parry_goal":{},"shot_deflection_goal":{},"own_pass_goal":{},"lost_shot_goal":{},"unknown_loose_goal":{},"bad_knock_ahead_turnover":{},"knock_ahead_goal":{},"unrealistic_gk_save":{},"poor_gk_save_attempt":{},"questionable_shot_choice":{},"questionable_press_assignment":{},"unmarked_final_third":{},"risky_pass_choice":{},"teammate_pingpong":{}}},"events":[]}})",
+        R"(,"tackles":{{"attempts":{},"wins":{},"cleanControls":{},"looseDeflections":{},"fouls":{}}},"stuckCarrierAlerts":{},"simulationFreezes":{},"teammatePingPongs":{},"tackleAttempts":{},"tackleWins":{},"slideTackleDistanceAlerts":{},"slideTackleOobAlerts":{})"
+        R"(,"qualityFlags":{{"player_stuck":{},"simulation_freeze":{},"slide_tackle_distance":{},"slide_tackle_oob":{},"cross_goal":{},"direct_delivery_goal":{},"untracked_goal":{},"tackle_deflection_goal":{},"goalkeeper_parry_goal":{},"shot_deflection_goal":{},"own_pass_goal":{},"lost_shot_goal":{},"unknown_loose_goal":{},"bad_knock_ahead_turnover":{},"knock_ahead_goal":{},"unrealistic_gk_save":{},"poor_gk_save_attempt":{},"questionable_shot_choice":{},"questionable_press_assignment":{},"unmarked_final_third":{},"risky_pass_choice":{},"teammate_pingpong":{}}},"events":[]}})",
         shotDistanceClose,shotDistanceMedium,shotDistanceLong,shotsHome+shotsAway>0?shotDistanceTotal/(shotsHome+shotsAway):0,questionableShots,
         goalDistanceClose,goalDistanceMedium,goalDistanceLong,untrackedGoals,directDeliveryGoals,directCrossGoals,tackleDeflectionGoals,goalkeeperParryGoals,shotDeflectionGoals,ownPassGoals,lostShotGoals,unknownLooseGoals,knockAheadGoals,
         lastGoalSource,lastGoalScoringTeam,lastGoalTouchTeam,lastGoalToucherId,lastGoalBallSpeed,
@@ -1328,9 +1340,9 @@ inline std::string GameEngine::getJSON() const {
         statsKnockAheadTurnovers,statsKnockAheadOutOfPlay,statsRiskyKnockAheads,statsRiskyKnockAheadTurnovers,
         statsKnockAheads>0?statsKnockAheadLaunchSpeedTotal/statsKnockAheads:0,activeKnockAhead.active?1:0,
         tackleAttempts,tackleWins,tackleCleanControls,tackleLooseDeflections,tackleFouls,
-        stuckCarrierAlerts,teammatePingPongs,
+        stuckCarrierAlerts,simulationFreezes,teammatePingPongs,
         tackleAttempts,tackleWins,slideTackleDistanceAlerts,slideTackleOobAlerts,
-        stuckCarrierAlerts,slideTackleDistanceAlerts,slideTackleOobAlerts,directCrossGoals,directDeliveryGoals,untrackedGoals,tackleDeflectionGoals,goalkeeperParryGoals,shotDeflectionGoals,ownPassGoals,lostShotGoals,unknownLooseGoals,
+        stuckCarrierAlerts,simulationFreezes,slideTackleDistanceAlerts,slideTackleOobAlerts,directCrossGoals,directDeliveryGoals,untrackedGoals,tackleDeflectionGoals,goalkeeperParryGoals,shotDeflectionGoals,ownPassGoals,lostShotGoals,unknownLooseGoals,
         statsRiskyKnockAheadTurnovers,knockAheadGoals,unlikelyGkSaves,preventableGkGoals,questionableShots,
         questionablePressAssignments,finalThirdUnmarkedSamples,saferPassIgnored,teammatePingPongs);
     return js;
