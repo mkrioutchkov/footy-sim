@@ -32,6 +32,7 @@ export class MatchRenderer {
   private visualPlayers: Map<number, { x: number; y: number }> = new Map();
   private visualBall: { x: number; y: number; z: number } | null = null;
   private lastControllerId: number | null = null;
+  private prevControllerId: number | null = null;
   private animTime = 0;
   private facingAngles: Map<number, number> = new Map();
   private prevFacingAngles: Map<number, number> = new Map();
@@ -143,6 +144,7 @@ export class MatchRenderer {
     this.visualPlayers.clear();
     this.visualBall = null;
     this.lastControllerId = null;
+    this.prevControllerId = null;
     this.trailBuffer = [];
   }
 
@@ -152,6 +154,7 @@ export class MatchRenderer {
     const b = state.ball;
     const ballSpeed = Math.sqrt(b.vx ** 2 + b.vy ** 2);
     if (b.controllerId !== this.lastControllerId) {
+      this.prevControllerId = this.lastControllerId;
       this.visualBall = null;
       this.trailBuffer = [];
       this.lastControllerId = b.controllerId;
@@ -251,7 +254,7 @@ export class MatchRenderer {
         angle = p.team === 'home' ? 0 : Math.PI;
       }
       if (p.facing !== undefined) {
-        if (b.controllerId === p.id && b.controllerId !== this.lastControllerId) {
+        if (b.controllerId === p.id && this.prevControllerId !== p.id) {
           // snap facing when player just received the ball
           angle = p.facing;
         } else {

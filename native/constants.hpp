@@ -15,9 +15,9 @@ inline constexpr double HALF_X    = PITCH_W / 2.0;
 inline constexpr double PLAYER_R  = 12.0;
 inline constexpr double BALL_R    = 4.5;
 
-inline constexpr double SPEED_RUN     = 52.0;
-inline constexpr double SPEED_SPRINT  = 68.0;
-inline constexpr double MAX_PLAYER_SPEED = 50.0;
+inline constexpr double SPEED_RUN     = 55.0;
+inline constexpr double SPEED_SPRINT  = 74.0;
+inline constexpr double MAX_PLAYER_SPEED = 55.0;
 
 inline constexpr double PASS_SPEED_BASE = 150.0;
 inline constexpr double PASS_SPEED_DIST = 0.12;

@@ -1096,6 +1096,7 @@ inline void GameEngine::checkBallPlayerCollision(double){
             b.vx*=damp;b.vy*=damp;
             b.vx+=ny*bs*.02;b.vy+=-nx*bs*.02;
             b.lastTouchTeam=p.team;b.lastToucherId=p.id;
+            if(p.team==lastCollectionTeam)lastSameTeamCollectionMs=state.clockMs-500; // push timer back — bounce is not a collection
             blockReboundFor(p.id,600);
         }
     }
