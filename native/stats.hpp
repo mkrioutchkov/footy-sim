@@ -10,7 +10,8 @@ public:
     // ── Pass events ──
     void recordPassAttempt()           { passesAttempted++; }
     void recordPassComplete()          { passesCompleted++; }
-    void recordPassIntercepted()       { passesIntercepted++; }
+    void recordPassIntercepted()      { passesIntercepted++; }
+    void recordOffside()              { offsidesTotal++; }
     void recordPassSelection(double dist, double expectedCompletion, int blockers, double pressure, bool risky, int saferId) {
         passAudits++; passDistTotal+=dist; passExpectedTotal+=expectedCompletion;
         if(risky) riskyPassChoices++;
@@ -23,6 +24,7 @@ public:
 
     // ── Shot events ──
     void recordShot(const std::string& team, bool onTarget);
+    void recordShotDistance(double distance) { shotDistTotal+=distance; if(distance<100)shotDistClose++; else if(distance<200)shotDistMedium++; else shotDistLong++; }
     void recordShotOnTarget();
     void recordSave() { saves++; }
     void recordGoal(const std::string& team, const std::string& source, double distance, double speed);
@@ -141,12 +143,13 @@ inline void StatsCollector::recordGoal(const std::string& team, const std::strin
     if(team=="home") goalsHome++; else goalsAway++;
     if(source=="direct_cross") directCrossGoals++;
     else if(source=="direct_delivery") directDeliveryGoals++;
+    else if(source=="shot") /* tracked shot goal */;
     else if(source=="tackle_deflection") tackleDeflectionGoals++;
     else if(source=="goalkeeper_parry") goalkeeperParryGoals++;
     else if(source=="shot_deflection") shotDeflectionGoals++;
     else if(source=="own_pass") ownPassGoals++;
-    else if(source=="lost_shot") lostShotGoals++;
-    else if(source=="unknown_loose") unknownLooseGoals++;
+    else if(source=="lost_shot"||source=="shot_state_lost") lostShotGoals++;
+    else if(source=="unknown_loose"||source=="loose_unclassified") unknownLooseGoals++;
     else if(source=="knock_ahead") knockAheadGoals++;
     else untrackedGoals++;
     if(distance<100) goalDistClose++; else if(distance<200) goalDistMedium++; else goalDistLong++;

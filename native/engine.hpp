@@ -290,6 +290,7 @@ public:
         }
         beginTrackedPass(f,t,selectedCross||whippedCross);
         if(checkOffside(t,f)){
+            stats.recordOffside();
             awardOffsideFreeKick(f.team=="home"?"away":"home",t);
             return true;
         }
@@ -313,6 +314,7 @@ public:
         b.z=0; b.vz=speed*0.40;
         beginTrackedPass(f,t);
         if(checkOffside(t,f)){
+            stats.recordOffside();
             awardOffsideFreeKick(f.team=="home"?"away":"home",t);
         }
     }
@@ -399,6 +401,7 @@ public:
         double accuracy=attrFactor(s.attrs.shooting);
         double goalCenterY=PITCH_H/2.0;
         double shotDistance=std::hypot(gx-s.x,goalCenterY-s.y);
+        stats.recordShotDistance(shotDistance);
         int pressureCount=0;
         for(auto&o:state.players)if(o.team!=s.team&&o.role!="GK"&&dist(o.x,o.y,s.x,s.y)<58)pressureCount++;
         double angleDeg=goalOpeningAngleDeg(s.x,s.y,gx);
