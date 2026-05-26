@@ -583,6 +583,7 @@ public:
     void awardThrowIn(std::string lt,double y);
     void awardSetPiece(std::string t,std::string tm);
 
+    std::string getSummaryJSON() const { return stats.summaryJSON(); }
     std::string getJSON() const;
 };
 
@@ -1293,7 +1294,7 @@ inline void GameEngine::tryGKSave(){
         stats.recordGkAssessment(false,trackedShotPreventable);
         return;
     }
-    saves++;
+    saves++; stats.recordSave();
     bool unlikelyCond=saveChance<0.18||(timeToLineMs<150&&trajectoryOffset>40&&speed>450);
     if(unlikelyCond)unlikelyGkSaves++;
     stats.recordGkAssessment(unlikelyCond,false);
@@ -1325,22 +1326,13 @@ inline void GameEngine::awardThrowIn(std::string lt,double y){auto&b=state.ball;
 inline void GameEngine::awardSetPiece(std::string t,std::string tm){auto&b=state.ball;b.vx=b.vy=b.z=b.vz=0;b.controllerId=-1;setPieceType=t;setPieceTeam=tm;setPieceArmed=true;actionTimer=900;for(auto&p:state.players)if(p.team==tm&&p.role=="GK"){b.controllerId=p.id;b.lastTouchTeam=tm;b.lastToucherId=p.id;b.x=p.x+((tm=="home")?CONTROL_DIST:-CONTROL_DIST);b.y=p.y;break;}}
 inline std::string GameEngine::getJSON() const {
     auto& b=state.ball;
-    double completionPct=passAttempted>0?passCompleted*100.0/passAttempted:0;
-    double possessionPct=(possessionHome+possessionAway)>0?possessionHome*100.0/(possessionHome+possessionAway):50;
-    double looseAvg=looseBallSpeedSamples>0?looseBallSpeedTotal/looseBallSpeedSamples:0;
-    double passAvg=passLaunchCount>0?passLaunchSpeedTotal/passLaunchCount:0;
-    double shotAvg=shotLaunchCount>0?shotLaunchSpeedTotal/shotLaunchCount:0;
     std::string controllerJson=b.controllerId>=0?std::to_string(b.controllerId):"null";
     std::string intendedReceiverJson=b.intendedReceiverId>=0?std::to_string(b.intendedReceiverId):"null";
     std::string lastToucherJson=b.lastToucherId>=0?std::to_string(b.lastToucherId):"null";
     std::string lastTouchTeamJson=b.lastTouchTeam.empty()?"null":"\""+b.lastTouchTeam+"\"";
     std::string js=std::format(
-        R"({{"clockMs":{:.0f},"matchState":"{}","half":{},"version":"{}","speed":{},"homeScore":{},"awayScore":{},"homeShots":{},"awayShots":{},"possessionPct":{:.1f},"passes":{},"passesCompleted":{},"passesIntercepted":{},"passCompletionPct":{:.1f},"offsides":{},"shots":{},"shotsOnTarget":{},"saves":{},"ballSpeed":{{"peak":{:.0f},"looseSampleAvg":{:.0f},"looseSamples":{},"passLaunchAvg":{:.0f},"passLaunches":{},"shotLaunchAvg":{:.0f},"shotLaunches":{}}},"ball":{{"x":{:.1f},"y":{:.1f},"vx":{:.1f},"vy":{:.1f},"z":{:.1f},"controllerId":{},"intendedReceiverId":{},"lastTouchTeam":{},"lastToucherId":{}}},"players":[)",
-        state.clockMs,state.matchState,half,std::format("{} {}","cpp",__TIME__),state.speed,state.homeScore,state.awayScore,shotsHome,shotsAway,possessionPct,
-        passAttempted,passCompleted,passIntercepted,completionPct,
-        offsidesTotal,
-        shotsHome+shotsAway,shotsOnTarget,saves,
-        peakBallSpeed,looseAvg,looseBallSpeedSamples,passAvg,passLaunchCount,shotAvg,shotLaunchCount,
+        R"({{"clockMs":{:.0f},"matchState":"{}","half":{},"version":"{}","speed":{},"homeScore":{},"awayScore":{},"ball":{{"x":{:.1f},"y":{:.1f},"vx":{:.1f},"vy":{:.1f},"z":{:.1f},"controllerId":{},"intendedReceiverId":{},"lastTouchTeam":{},"lastToucherId":{}}},"players":[)",
+        state.clockMs,state.matchState,half,std::format("{} {}","cpp",__TIME__),state.speed,state.homeScore,state.awayScore,
         b.x,b.y,b.vx,b.vy,b.z,controllerJson,intendedReceiverJson,lastTouchTeamJson,lastToucherJson);
     for(size_t i=0;i<state.players.size();i++){
         auto&p=state.players[i];
@@ -1349,52 +1341,7 @@ inline std::string GameEngine::getJSON() const {
             R"({{"id":{},"name":"{}","team":"{}","role":"{}","x":{:.1f},"y":{:.1f},"vx":{:.1f},"vy":{:.1f},"targetX":{:.1f},"targetY":{:.1f},"stamina":{:.0f},"facing":{:.3f},"dribbleType":{},"tackleAnim":{:.0f},"headingAnim":{:.0f}}})",
             p.id,p.name,p.team,p.role,p.x,p.y,p.vx,p.vy,p.targetX,p.targetY,p.stamina,p.facing,p.dribbleType,p.tackleAnim,p.headingAnim);
     }
-    js+=std::format(
-        R"(],"shotsByDistance":{{"close":{},"medium":{},"long":{},"average":{:.0f},"questionable":{}}},"goalsByDistance":{{"close":{},"medium":{},"long":{}}})"
-        R"(,"untrackedGoals":{},"directDeliveryGoals":{},"directCrossGoals":{},"tackleDeflectionGoals":{},"goalkeeperParryGoals":{},"shotDeflectionGoals":{},"ownPassGoals":{},"lostShotGoals":{},"unknownLooseGoals":{},"knockAheadGoals":{})"
-        R"(,"lastGoal":{{"source":"{}","scoringTeam":"{}","touchTeam":"{}","toucherId":{},"ballSpeed":{:.0f}}},"goalkeeping":{{"assessedShots":{},"unlikelySaves":{},"preventableGoals":{}}})"
-        R"(,"carrierTurns":{{"samples":{},"requestedSharp":{},"appliedSharp":{},"limitedFrames":{},"over15":{},"over30":{},"avgAppliedDeg":{:.1f}}})"
-        R"(,"passSelection":{{"audited":{},"risky":{},"saferIgnored":{},"avgDistance":{:.0f},"avgExpectedCompletionPct":{:.1f},"pressuredReceptions":{},"pressuredReceptionFailures":{}}})"
-        R"(,"shotSelection":{{"audited":{},"betterPassAvailable":{},"tightAngle":{},"avgAngleDeg":{:.1f},"avgPressure":{:.2f},"cfCredibleWindowSamples":{},"cfDeferredSamples":{},"cfDeferredForPass":{},"cfDeferredForDribble":{},"cfCloseWindowSamples":{},"cfCloseDeferredSamples":{}}})"
-        R"(,"marking":{{"pressSamples":{},"questionablePress":{},"avgPrimaryPressDistance":{:.0f},"backLineSamples":{},"singleDropSamples":{},"singleDropPct":{:.1f},"avgBackLineGap":{:.0f},"avgSingleDropGap":{:.0f},"maxBackLineGap":{:.0f},"laneBlockSingleDrops":{},"finalThirdSamples":{},"unmarkedFinalThird":{},"unmarkedPct":{:.1f},"avgNearestCb":{:.0f},"avgNearestDefender":{:.0f}}})"
-        R"(,"dribbleTypes":{{"fast":{},"medium":{},"close":{},"knockAheads":{},"recovered":{},"retainedByTeammate":{},"turnovers":{},"outOfPlay":{},"risky":{},"riskyTurnovers":{},"launchSpeedAvg":{:.1f},"pending":{}}})"
-        R"(,"tackles":{{"attempts":{},"wins":{},"cleanControls":{},"looseDeflections":{},"fouls":{}}},"stuckCarrierAlerts":{},"simulationFreezes":{},"dizzySpins":{},"teammatePingPongs":{},"tackleAttempts":{},"tackleWins":{},"slideTackleDistanceAlerts":{},"slideTackleOobAlerts":{})"
-        R"(,"qualityFlags":{{"player_stuck":{},"simulation_freeze":{},"dizzy_spin":{},"slide_tackle_distance":{},"slide_tackle_oob":{},"cross_goal":{},"direct_delivery_goal":{},"untracked_goal":{},"tackle_deflection_goal":{},"goalkeeper_parry_goal":{},"shot_deflection_goal":{},"own_pass_goal":{},"lost_shot_goal":{},"unknown_loose_goal":{},"bad_knock_ahead_turnover":{},"knock_ahead_goal":{},"unrealistic_gk_save":{},"poor_gk_save_attempt":{},"questionable_shot_choice":{},"questionable_press_assignment":{},"unmarked_final_third":{},"risky_pass_choice":{},"teammate_pingpong":{}}},"events":[]}})",
-        shotDistanceClose,shotDistanceMedium,shotDistanceLong,shotsHome+shotsAway>0?shotDistanceTotal/(shotsHome+shotsAway):0,questionableShots,
-        goalDistanceClose,goalDistanceMedium,goalDistanceLong,untrackedGoals,directDeliveryGoals,directCrossGoals,tackleDeflectionGoals,goalkeeperParryGoals,shotDeflectionGoals,ownPassGoals,lostShotGoals,unknownLooseGoals,knockAheadGoals,
-        lastGoalSource,lastGoalScoringTeam,lastGoalTouchTeam,lastGoalToucherId,lastGoalBallSpeed,
-        gkAssessedShots,unlikelyGkSaves,preventableGkGoals,
-        carrierMoveSamples,carrierRequestedSharpTurns,carrierAppliedSharpTurns,carrierTurnLimitedFrames,
-        carrierAppliedTurnsOver15,carrierAppliedTurnsOver30,
-        carrierMoveSamples>0?carrierAppliedTurnDegTotal/carrierMoveSamples:0,
-        passSelectionAudits,riskyPassSelections,saferPassIgnored,
-        passSelectionAudits>0?selectedPassDistanceTotal/passSelectionAudits:0,
-        passSelectionAudits>0?selectedPassCompletionTotal*100.0/passSelectionAudits:0,
-        pressuredReceptions,pressuredReceptionFailures,
-        shotSelectionAudits,betterPassShots,tightAngleShots,
-        shotSelectionAudits>0?selectedShotAngleTotal/shotSelectionAudits:0,
-        shotSelectionAudits>0?selectedShotPressureTotal/shotSelectionAudits:0,
-        credibleShotWindows,deferredCredibleShots,credibleShotPassChoices,credibleShotDribbleChoices,
-        credibleCloseShotWindows,deferredCredibleCloseShots,
-        pressAssignmentSamples,questionablePressAssignments,
-        pressAssignmentSamples>0?primaryPressDistanceTotal/pressAssignmentSamples:0,
-        backLineSamples,backLineSingleDropSamples,
-        backLineSamples>0?backLineSingleDropSamples*100.0/backLineSamples:0,
-        backLineSamples>0?backLineGapTotal/backLineSamples:0,
-        backLineSingleDropSamples>0?backLineSingleDropGapTotal/backLineSingleDropSamples:0,
-        backLineGapMax,backLineSingleDropLaneBlockSamples,
-        finalThirdMarkingSamples,finalThirdUnmarkedSamples,
-        finalThirdMarkingSamples>0?finalThirdUnmarkedSamples*100.0/finalThirdMarkingSamples:0,
-        finalThirdMarkingSamples>0?finalThirdNearestCbTotal/finalThirdMarkingSamples:0,
-        finalThirdMarkingSamples>0?finalThirdNearestDefenderTotal/finalThirdMarkingSamples:0,
-        statsDribbleFast,statsDribbleMedium,statsDribbleClose,statsKnockAheads,statsKnockAheadRecovered,statsKnockAheadRetained,
-        statsKnockAheadTurnovers,statsKnockAheadOutOfPlay,statsRiskyKnockAheads,statsRiskyKnockAheadTurnovers,
-        statsKnockAheads>0?statsKnockAheadLaunchSpeedTotal/statsKnockAheads:0,activeKnockAhead.active?1:0,
-        tackleAttempts,tackleWins,tackleCleanControls,tackleLooseDeflections,tackleFouls,
-        stuckCarrierAlerts,simulationFreezes,dizzySpins,teammatePingPongs,
-        tackleAttempts,tackleWins,slideTackleDistanceAlerts,slideTackleOobAlerts,
-        stuckCarrierAlerts,simulationFreezes,dizzySpins,slideTackleDistanceAlerts,slideTackleOobAlerts,directCrossGoals,directDeliveryGoals,untrackedGoals,tackleDeflectionGoals,goalkeeperParryGoals,shotDeflectionGoals,ownPassGoals,lostShotGoals,unknownLooseGoals,
-        statsRiskyKnockAheadTurnovers,knockAheadGoals,unlikelyGkSaves,preventableGkGoals,questionableShots,
-        questionablePressAssignments,finalThirdUnmarkedSamples,saferPassIgnored,teammatePingPongs);
+    std::string summary = stats.summaryJSON();
+    js+="],"+summary.substr(1,summary.size()-2)+"}";
     return js;
 }
