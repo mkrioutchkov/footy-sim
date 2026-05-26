@@ -325,34 +325,3 @@ Recommended next milestones:
 3. Port full pending-pass resolution and remaining quality summaries.
 4. Port timed runs, offside handling and full set-piece/distribution choices.
 5. Only then attempt exact frame/RNG parity.
-
-## Follow-Up Prompt For DeepSeek
-
-Work only on `Game\.scratch\cpp-engine` branch `recovery/full-agent-port`.
-Read this file before editing. Do not reset `footy-sim`; it is the reference
-engine and the native source is a separate repository. Root `main.cpp` builds
-the current executable; do not silently edit only `src\` duplicates.
-
-Preserve the current diagnosed fixes: subpixel native frame output and
-bounded carrier turns, short
-tackle-deflection outcomes, radial shot/goal aperture checks, defensive-third
-own-goal pass prevention with restart retry, physical knock-ahead dribbles,
-legal goalkeeper collection of slow loose balls, contested intended
-receptions, the defensive assignment slice and full-ball boundary restarts.
-Seeds `102` and `103` must continue progressing through twenty minutes; do
-not reintroduce dead out-of-play balls or restart holds.
-
-Next task: improve attacking chance creation incrementally. The current
-native ten-minute benchmark is `333.4` passes at `81.8%`, `3.88` shots,
-`0.63` goals and `35.4` tackles; current TypeScript is `261.0`, `76.2%`,
-`5.0`, `1.00` and `4.1`. A prototype that activated all attacking assignment
-tasks produced only `1.875` shots and `0.125` goals, so do not reapply it as
-a batch. Start with one measured support or final-third run behavior, retain
-the defensive coordinator, and reject any change that depresses shot volume.
-
-Build root `main.cpp`, run seeds `101-108` for ten minutes and seeds
-`101-103` for twenty minutes, and report passes, completion, shots, goals,
-tackles, stuck carriers, slide-tackle flags and all loose-goal source flags.
-Accept a behavior change only if tackle/chance excess materially improves
-without restoring a restart stall, own-pass goal, unknown loose goal or
-carrier-turn flicker.

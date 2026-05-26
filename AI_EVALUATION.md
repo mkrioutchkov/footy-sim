@@ -520,9 +520,3 @@ from the previous `9` to `3`, so the next replay target is now risky dribble
 choice rather than crossing repetition. Also replay the `8` `no_shots` flags
 and the two `poor_gk_save_attempt` events in seeds `103` and `105`; do not
 relax contact bounds or goal/shot geometry to compensate.
-# Historical TypeScript Evaluation
-
-This document describes the retired TypeScript simulator and is retained only
-as historical diagnosis. The current simulation runtime is the C++ engine in
-`native/`; use `native/RECOVERY_NOTES.md`, `TODO.md`, and
-`DEEPSEEK_CONTINUATION_PROMPT.md` for current benchmarks and next work.
