@@ -1767,14 +1767,13 @@ inline void PlayerAgent::am(double sdt) {
     if (ic) {
         auto& b = engine.state.ball;
         double bs = std::hypot(b.vx, b.vy);
-        double lookAngle = bs > 0.5 ? std::atan2(-b.vy, -b.vx) : facing;
-        facing = facing + std::atan2(std::sin(lookAngle - facing), std::cos(lookAngle - facing)) * 0.25;
+        if(bs > 0.5) facing = facing + std::atan2(std::sin(std::atan2(-b.vy, -b.vx) - facing), std::cos(std::atan2(-b.vy, -b.vx) - facing)) * 0.05;
     } else if (spdAfter > 5.0) {
         double moveAngle = std::atan2(p.vy, p.vx);
-        facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.3;
+        facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.06;
     } else if (ballMemAge > 30) {
         double memAngle = std::atan2(ballMemY - p.y, ballMemX - p.x);
-        facing = facing + std::atan2(std::sin(memAngle - facing), std::cos(memAngle - facing)) * 0.08;
+        facing = facing + std::atan2(std::sin(memAngle - facing), std::cos(memAngle - facing)) * 0.02;
     }
 
     // dizzy tracking: cumulative rotation in degrees
