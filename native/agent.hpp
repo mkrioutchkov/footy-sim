@@ -1545,7 +1545,7 @@ inline void PlayerAgent::ex(Action& a, double sdt, std::vector<Action>& actions)
             && engine.attemptTackle(p, *a.target))
         {
             engine.emitEvent("tackle", (p.x + a.target->x) / 2.0, (p.y + a.target->y) / 2.0);
-            p.tackleAnim = 300.0;
+            p.tackleAnim = 800.0;
         } else {
             p.targetX = a.target ? a.target->x : p.x;
             p.targetY = a.target ? a.target->y : p.y;

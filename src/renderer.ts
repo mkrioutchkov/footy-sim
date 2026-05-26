@@ -45,7 +45,7 @@ export class MatchRenderer {
     this.ballBody = new Graphics();
     this.ballGlow = new Graphics();
     this.eventGfx = new Graphics();
-    this.hudText = new Text({ text: '', style: new TextStyle({ fill: 0xffffff, fontSize: 16, fontFamily: 'monospace' }) });
+    this.hudText = new Text({ text: '', style: new TextStyle({ fill: 0xff4444, fontSize: 20, fontFamily: 'monospace', fontWeight: 'bold' }) });
 
     // pre-draw football (white with black pentagon pattern)
     const r = BALL_R;
@@ -87,8 +87,9 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
     this.pitchContainer.addChild(this.eventGfx);
+    this.app.stage.sortableChildren = true;
     this.app.stage.addChild(this.hudText);
-    this.hudText.zIndex = 1001;
+    this.hudText.zIndex = 9999;
     // version display — engine + UI
     const versionText = new Text({ text: '...', style: new TextStyle({ fill: 0xffffff, fontSize: 8, fontFamily: 'monospace' }) });
     versionText.position.set(this.app.screen.width - 6, this.app.screen.height - 12);
@@ -127,7 +128,7 @@ export class MatchRenderer {
     for (const t of this.trailPool) this.pitchContainer.addChild(t);
 
     const g = new Graphics();
-    g.rect(0, 0, PITCH_W, PITCH_H); g.fill(PITCH_GREEN);
+    g.rect(-GOAL_DEPTH, 0, PITCH_W + GOAL_DEPTH * 2, PITCH_H); g.fill(PITCH_GREEN);
     g.rect(0, 0, PITCH_W, PITCH_H); g.stroke({ width: 3, color: LINE_COLOR });
     g.moveTo(PITCH_W / 2, 0); g.lineTo(PITCH_W / 2, PITCH_H); g.stroke({ width: 2, color: LINE_COLOR });
     g.circle(PITCH_W / 2, PITCH_H / 2, CENTER_CIRCLE_R); g.stroke({ width: 2, color: LINE_COLOR });
@@ -150,6 +151,7 @@ export class MatchRenderer {
   }
 
   sync(state: EngineState): void {
+    if (this.animTime === 0) console.log('[HUD] first sync, state keys:', Object.keys(state).filter(k => ['homeScore','homeShots','possessionPct','clockMs','matchState'].includes(k)).map(k => `${k}=${(state as any)[k]}`).join(', '));
     this.animTime++;
     if (state.version) this.versionText.text = `eng:${state.version} ${this.uiVersion}`;
     const b = state.ball;
@@ -345,7 +347,7 @@ export class MatchRenderer {
 
     // ── events ──
     this.eventGfx.clear();
-    for (const ev of state.events) {
+    for (const ev of (state.events ?? [])) {
       if (ev.type === 'pass') continue;
       const lifetime = ev.type === 'header' ? 600 : 2000;
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
@@ -357,12 +359,14 @@ export class MatchRenderer {
     }
 
     // ── HUD ──
-    const halfMs = state.half === 1 ? state.clockMs : state.clockMs - 45 * 60 * 1000;
+    const halfMs = (state.half ?? 1) === 1 ? state.clockMs : state.clockMs - 45 * 60 * 1000;
     const min = String(Math.floor(halfMs / 60000)).padStart(2, '0');
     const sec = String(Math.floor((halfMs % 60000) / 1000)).padStart(2, '0');
-    const sl = state.speed >= 1 ? `${state.speed}x` : `${state.speed.toFixed(1)}x`;
-    const pos = state.possessionPct.toFixed(0);
-    this.hudText.text = `HOME ${state.homeScore}-${state.awayScore} AWAY    H${state.half} ${min}:${sec} [${sl}]    Shots ${state.homeShots}-${state.awayShots}    Poss ${pos}%    ${state.matchState}`;
+    const sl = (state.speed ?? 1) >= 1 ? `${state.speed ?? 1}x` : `${(state.speed ?? 1).toFixed(1)}x`;
+    const pct = (state.possessionPct ?? 50).toFixed(0);
+    this.hudText.text = `HOME ${state.homeScore ?? 0}-${state.awayScore ?? 0} AWAY    H${state.half ?? 1} ${min}:${sec} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}`;
+    this.hudText.visible = true;
+    console.log('[HUD] text set:', this.hudText.text.substring(0, 30));
   }
 
   private smoothPlayer(id: number, x: number, y: number): { x: number; y: number } {
@@ -392,34 +396,37 @@ export class MatchRenderer {
 
   private drawGoal(g: Graphics, x: number, y: number, dir: number): void {
     const hw = GOAL_W / 2;
-    g.rect(x - dir * GOAL_DEPTH, y - hw, dir * GOAL_DEPTH, GOAL_W); g.fill({ color: GOAL_COLOR, alpha: 0.08 });
-    g.rect(x - dir * GOAL_DEPTH, y - hw, dir * GOAL_DEPTH, GOAL_W); g.stroke({ width: 2, color: 0xcccccc });
+    const d = GOAL_DEPTH;
+    // goal box fill — behind the goal line
+    const rx = dir > 0 ? x - d : x;
+    g.rect(rx, y - hw, d, GOAL_W); g.fill({ color: GOAL_COLOR, alpha: 0.08 });
+    // 3 perimeter lines behind goal
+    g.moveTo(x, y - hw); g.lineTo(x - dir * d, y - hw); g.stroke({ width: 2, color: 0xcccccc });
+    g.moveTo(x, y + hw); g.lineTo(x - dir * d, y + hw); g.stroke({ width: 2, color: 0xcccccc });
+    g.moveTo(x - dir * d, y - hw); g.lineTo(x - dir * d, y + hw); g.stroke({ width: 2, color: 0xcccccc });
+    // net lines
     const netX = x - dir * 3;
     for (let ny = y - hw + 4; ny <= y + hw - 4; ny += 6) {
-      g.moveTo(netX, ny); g.lineTo(netX - dir * (GOAL_DEPTH - 6), ny); g.stroke({ width: 0.5, color: 0xcccccc, alpha: 0.55 });
+      g.moveTo(netX, ny); g.lineTo(netX - dir * (d - 6), ny); g.stroke({ width: 0.5, color: 0xcccccc, alpha: 0.55 });
     }
-    for (let nx = netX; dir > 0 ? nx >= x - GOAL_DEPTH + 2 : nx <= x + GOAL_DEPTH - 2; nx -= dir * 6) {
+    for (let nx = netX; dir > 0 ? nx <= x - d + 2 : nx >= x + d - 2; nx -= dir * 6) {
       g.moveTo(nx, y - hw + 2); g.lineTo(nx, y + hw - 2); g.stroke({ width: 0.5, color: 0xcccccc, alpha: 0.55 });
     }
-    g.circle(x, y - hw, 2.5); g.fill(GOAL_COLOR);
-    g.circle(x, y + hw, 2.5); g.fill(GOAL_COLOR);
+    g.circle(x, y - hw, 3.5); g.fill(GOAL_COLOR);
+    g.circle(x, y + hw, 3.5); g.fill(GOAL_COLOR);
+    g.circle(x, y - hw, 4); g.stroke({ width: 1, color: 0x333333 });
+    g.circle(x, y + hw, 4); g.stroke({ width: 1, color: 0x333333 });
+  }
+  private drawGoalArea(g: Graphics, x: number): void {
+    const l = x === 0 ? 0 : PITCH_W - GOAL_AREA_W;
+    const t = (PITCH_H - GOAL_AREA_H) / 2;
+    g.rect(l, t, GOAL_AREA_W, GOAL_AREA_H); g.stroke({ width: 2, color: LINE_COLOR });
   }
 
   private drawPenaltyArea(g: Graphics, x: number): void {
     const l = x === 0 ? 0 : PITCH_W - PENALTY_AREA_W;
     const t = (PITCH_H - PENALTY_AREA_H) / 2;
     g.rect(l, t, PENALTY_AREA_W, PENALTY_AREA_H); g.stroke({ width: 2, color: LINE_COLOR });
-    const spotX = x === 0 ? PENALTY_SPOT_DIST : PITCH_W - PENALTY_SPOT_DIST;
-    g.circle(spotX, PITCH_H / 2, 3); g.fill(LINE_COLOR);
-    const arcAngle = Math.acos((PENALTY_AREA_W - PENALTY_SPOT_DIST) / CENTER_CIRCLE_R);
-    if (x === 0) this.drawMarkingArc(g, spotX, PITCH_H / 2, CENTER_CIRCLE_R, -arcAngle, arcAngle);
-    else this.drawMarkingArc(g, spotX, PITCH_H / 2, CENTER_CIRCLE_R, Math.PI - arcAngle, Math.PI + arcAngle);
-  }
-
-  private drawGoalArea(g: Graphics, x: number): void {
-    const l = x === 0 ? 0 : PITCH_W - GOAL_AREA_W;
-    const t = (PITCH_H - GOAL_AREA_H) / 2;
-    g.rect(l, t, GOAL_AREA_W, GOAL_AREA_H); g.stroke({ width: 2, color: LINE_COLOR });
   }
 
   private drawMarkingArc(g: Graphics, x: number, y: number, radius: number, start: number, end: number): void {

@@ -22,7 +22,7 @@ inline constexpr double MAX_PLAYER_SPEED = 50.0;
 inline constexpr double PASS_SPEED_BASE = 150.0;
 inline constexpr double PASS_SPEED_DIST = 0.12;
 inline constexpr double SHOT_SPEED_BASE = 380.0;
-inline constexpr double TACKLE_KICK_SPEED = 120.0;
+inline constexpr double TACKLE_KICK_SPEED = 140.0;
 
 inline constexpr double TACKLE_RANGE   = 24.0;
 inline constexpr double OFFSIDE_TOLERANCE = 1.0;

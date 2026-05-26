@@ -69,7 +69,7 @@ async function main() {
           slider.value = String(bestIdx + 1);
           speedLabel.textContent = `${speeds[bestIdx]}x`;
         }
-      } catch { /* ignore */ }
+      } catch (e) { console.error('[WS] sync error:', e); }
     };
 
     ws.onclose = () => {
