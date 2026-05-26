@@ -684,12 +684,13 @@ inline void GameEngine::fixedUpdate(double sdt){
     auto*c=playerById(state.ball.controllerId);
     if(c){if(c->team=="home")possessionHome+=sdt;else possessionAway+=sdt;}
     auditStuckCarrier(sdt);
-    // freeze detection: ball hasn't moved >5px in 500ms with same controller (skip set pieces)
+    // freeze detection: ball hasn't moved >5px in 1500ms with same controller (skip set pieces & loose balls)
     if(!setPieceArmed&&!kickoffPhase){
         auto& fb=state.ball;
         int cid=fb.controllerId;
-        if(cid!=freezeLastController){freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;freezeLastController=cid;}
-        else{freezeWatchMs+=sdt;if(dist(fb.x,fb.y,freezeBallX,freezeBallY)>=5){freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}else if(freezeWatchMs>500&&state.clockMs-lastFreezeAlertMs>5000){simulationFreezes++;lastFreezeAlertMs=state.clockMs;freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}}
+        if(cid<0){freezeWatchMs=0;freezeLastController=-1;}
+        else if(cid!=freezeLastController){freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;freezeLastController=cid;}
+        else{freezeWatchMs+=sdt;if(dist(fb.x,fb.y,freezeBallX,freezeBallY)>=5){freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}else if(freezeWatchMs>1500&&state.clockMs-lastFreezeAlertMs>5000){simulationFreezes++;lastFreezeAlertMs=state.clockMs;freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}}
     }
     if(setPieceArmed){
         actionTimer-=sdt;
@@ -930,8 +931,7 @@ inline void GameEngine::auditStuckCarrier(double sdt){
         if(p.team!=carrier->team&&p.role!="GK"&&dist(p.x,p.y,carrier->x,carrier->y)<58)nearbyOpponents++;
     }
     bool deep=carrier->team=="home"?carrier->x<PITCH_W*0.28:carrier->x>PITCH_W*0.72;
-    if(watchedCarrierMs>4200&&state.clockMs-lastStuckAlertMs>8000){
-        stuckCarrierAlerts++;
+    if(watchedCarrierMs>4200){
         // Unstuck: force pass to nearest teammate or boot the ball
         Player* best=nullptr; double bestD=1e9;
         for(auto&p:state.players){
@@ -939,11 +939,14 @@ inline void GameEngine::auditStuckCarrier(double sdt){
             double d=dist(carrier->x,carrier->y,p.x,p.y);
             if(d<bestD){bestD=d; best=&p;}
         }
-        if(best){ forcePassTo(*carrier,*best,nullptr); }
-        else{ auto&b=state.ball; b.controllerId=-1; b.vx=carrier->team=="home"?300:-300; b.vy=0; b.vz=80; b.z=0; }
-        setPieceArmed=false; setPieceType.clear(); setPieceTeam.clear();
-        watchedCarrierMs=0; watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
-        lastStuckAlertMs=state.clockMs;
+        if(best)forcePassTo(*carrier,*best,nullptr);
+        else{auto&b=state.ball;b.controllerId=-1;b.vx=carrier->team=="home"?300:-300;b.vy=0;b.vz=80;b.z=0;}
+        setPieceArmed=false;setPieceType.clear();setPieceTeam.clear();
+        watchedCarrierMs=0;watchedCarrierX=carrier->x;watchedCarrierY=carrier->y;
+        if(state.clockMs-lastStuckAlertMs>8000){
+            stuckCarrierAlerts++;
+            lastStuckAlertMs=state.clockMs;
+        }
     }
 }
 inline void GameEngine::kickoffTap(){
