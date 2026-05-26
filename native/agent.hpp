@@ -145,6 +145,8 @@ public:
 
     // ── public tick ──
     void tick(double sdt);
+    double dizzyRotationAccum = 0;
+    double dizzyWindowStartMs = 0;
 
 private:
     // ---- cooldowns / state ----
@@ -1775,6 +1777,14 @@ inline void PlayerAgent::am(double sdt) {
         facing = facing + std::atan2(std::sin(memAngle - facing), std::cos(memAngle - facing)) * 0.08;
     }
 
+    // dizzy tracking: cumulative rotation in degrees
+    double prevFacing = p.facing;
+    double facingDelta = std::abs(std::atan2(std::sin(facing - prevFacing), std::cos(facing - prevFacing)));
+    dizzyRotationAccum += facingDelta * 180.0 / 3.141592653589793;
+    if(engine.state.clockMs - dizzyWindowStartMs > 2000){
+        dizzyWindowStartMs = engine.state.clockMs;
+        dizzyRotationAccum = facingDelta * 180.0 / 3.141592653589793;
+    }
     p.facing = facing;
 }
 

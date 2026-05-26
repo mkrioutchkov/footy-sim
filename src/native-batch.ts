@@ -134,6 +134,7 @@ console.log(JSON.stringify({
   qualityFlags: {
     stuckCarrier: total('stuckCarrierAlerts'),
     simulationFreeze: total('simulationFreezes'),
+    dizzySpin: total('dizzySpins'),
     slideTackleDistance: total('slideTackleDistanceAlerts'),
     slideTackleOob: total('slideTackleOobAlerts'),
     ownPassGoal: total('ownPassGoals'),
