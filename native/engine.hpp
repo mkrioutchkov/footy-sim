@@ -221,13 +221,16 @@ public:
         contestBlockedUntil[playerId]=std::max(contestBlockedUntil[playerId],state.clockMs+ms);
     }
     void recordBallImpulse() {
-        peakBallSpeed=std::max(peakBallSpeed,std::hypot(state.ball.vx,state.ball.vy));
+        double spd=std::hypot(state.ball.vx,state.ball.vy);
+        peakBallSpeed=std::max(peakBallSpeed,spd);
+        stats.recordBallSpeedSample(spd);
     }
     void beginTrackedPass(Player& from,Player& to,bool isCross=false) {
         passAttempted++; stats.recordPassAttempt();
         lastLooseOrigin.clear();
         double speed=std::hypot(state.ball.vx,state.ball.vy);
         passLaunchSpeedTotal+=speed; passLaunchCount++;
+        stats.recordPassLaunch(speed);
         recordBallImpulse();
         pendingPass={true,from.id,to.id,from.team,isCross};
     }
@@ -326,10 +329,12 @@ public:
             passSelectionAudits++;
             selectedPassDistanceTotal+=audit->distance;
             selectedPassCompletionTotal+=audit->expectedCompletion;
-            if(audit->blockers>0||audit->receiverPressure>0||audit->expectedCompletion<0.58)riskyPassSelections++;
+            bool riskyFlag=audit->blockers>0||audit->receiverPressure>0||audit->expectedCompletion<0.58;
+            if(riskyFlag)riskyPassSelections++;
             if(audit->saferOptionTargetId>=0
                 &&audit->saferOptionCompletion>audit->expectedCompletion+0.10
                 &&audit->saferOptionScore>=audit->score-0.08)saferPassIgnored++;
+            stats.recordPassSelection(audit->distance,audit->expectedCompletion,audit->blockers,audit->receiverPressure,riskyFlag,audit->saferOptionTargetId);
         }
         beginTrackedPass(f,t,selectedCross||whippedCross);
         if(checkOffside(t,f)){
@@ -367,6 +372,7 @@ public:
         if(b.controllerId!=carrier.id||tackler.team==carrier.team||contactDist>TACKLE_RANGE)return false;
         if(!canContestBall(tackler))return false;
         tackleAttempts++;
+        stats.recordTackleAttempt();
         double tackleSkill=attrFactor(tackler.attrs.tackling);
         double carrierControl=attrFactor(carrier.attrs.positioning)*0.35+attrFactor(carrier.attrs.speed)*0.15;
         double facingBonus=(tackler.team=="home"?tackler.vx>0:tackler.vx<0)?0.08:-0.05;
@@ -386,6 +392,7 @@ public:
             double foulChance=fromBehind?0.34:0.10;
             if(rng.random()<foulChance){
                 tackleFouls++;
+                stats.recordTackleFoul();
                 b.x=clamp(tackler.x,30.0,PITCH_W-30.0);
                 b.y=clamp(tackler.y,30.0,PITCH_H-30.0);
                 b.vx=b.vy=b.z=b.vz=0;
@@ -412,6 +419,7 @@ public:
             -(carrier.dribbleType==3?0.08:0),0.12,0.72);
         if(outcomeRoll<controlChance){
             tackleCleanControls++;
+            stats.recordTackleWin(true);
             b.controllerId=tackler.id;
             b.vx=b.vy=b.z=b.vz=0;
             b.lastTouchTeam=tackler.team; b.lastToucherId=tackler.id;
@@ -424,12 +432,13 @@ public:
             return true;
         }
         tackleLooseDeflections++;
+        stats.recordTackleWin(false);
         b.controllerId=-1;
         double kickSpeed=38+outcomeRoll*72+(carrier.dribbleType==3?30:0)+(carrierSpeed>DRIBBLE_MEDIUM_SPEED?16:0);
         b.vx=std::cos(angle)*kickSpeed; b.vy=std::sin(angle)*kickSpeed;
         b.x=clamp(b.x,5.0,PITCH_W-5.0); b.y=clamp(b.y,5.0,PITCH_H-5.0);
-        if(kickSpeed>180)slideTackleDistanceAlerts++;
-        if(b.x<10||b.x>PITCH_W-10||b.y<10||b.y>PITCH_H-10)slideTackleOobAlerts++;
+        if(kickSpeed>180){slideTackleDistanceAlerts++;stats.recordSlideTackleDistance();}
+        if(b.x<10||b.x>PITCH_W-10||b.y<10||b.y>PITCH_H-10){slideTackleOobAlerts++;stats.recordSlideTackleOob();}
         b.lastTouchTeam=tackler.team; b.lastToucherId=tackler.id;
         b.intendedReceiverId=-1; b.z=b.vz=0;
         lastLooseOrigin="tackle_deflection";
@@ -441,6 +450,7 @@ public:
     }
     void shootBall(Player&s,void* selectionAudit){
         if(s.team=="home")shotsHome++; else shotsAway++;
+        stats.recordShot(s.team,false);
         double gx=(s.team=="home")?AWAY_GOAL_X:HOME_GOAL_X;
         double accuracy=attrFactor(s.attrs.shooting);
         double goalCenterY=PITCH_H/2.0;
@@ -459,10 +469,13 @@ public:
             shotSelectionAudits++;
             selectedShotAngleTotal+=audit->angleDeg;
             selectedShotPressureTotal+=audit->pressureCount;
-            if(audit->bestPassTargetId>=0&&audit->bestPassScore>audit->score+0.12)betterPassShots++;
-            if(audit->angleDeg<8.0&&audit->distance>120.0)tightAngleShots++;
+            bool betterPassFlag=audit->bestPassTargetId>=0&&audit->bestPassScore>audit->score+0.12;
+            bool tightAngleFlag=audit->angleDeg<8.0&&audit->distance>120.0;
+            if(betterPassFlag)betterPassShots++;
+            if(tightAngleFlag)tightAngleShots++;
+            stats.recordShotSelection(audit->angleDeg,audit->pressureCount,0,0,0,0,0,0,betterPassFlag,tightAngleFlag);
         }
-        if(shotDistance>210||acuteGeometry||(audit&&audit->bestPassScore>audit->score+0.12))questionableShots++;
+        if(shotDistance>210||acuteGeometry||(audit&&audit->bestPassScore>audit->score+0.12)){questionableShots++;stats.recordQuestionableShot();}
         double anglePenalty=clamp(std::abs(s.y-goalCenterY)/230,0.0,1.0);
         double distancePenalty=clamp((shotDistance-70)/270,0.0,1.0);
         double longRangePenalty=clamp((shotDistance-120)/130,0.0,1.0);
@@ -485,6 +498,7 @@ public:
         b.intendedReceiverId=-1; b.z=b.vz=0;
         b.lastTouchTeam=s.team; b.lastToucherId=s.id;
         shotLaunchSpeedTotal+=speed; shotLaunchCount++;
+        stats.recordShotLaunch(speed);
         recordBallImpulse();
         pendingPass.active=false;
         lastLooseOrigin="shot";
@@ -608,7 +622,8 @@ inline bool GameEngine::knockBallAhead(Player& carrier,double targetX,double tar
     recordBallImpulse();
     statsKnockAheads++;
     statsKnockAheadLaunchSpeedTotal+=launchSpeed;
-    if(risky)statsRiskyKnockAheads++;
+    stats.recordKnockAhead(launchSpeed);
+    if(risky){statsRiskyKnockAheads++;stats.recordRiskyKnockAhead();}
     activeKnockAhead={true,carrier.id,carrier.team,state.clockMs,nearestId,nearestDist,risky};
     return true;
 }
@@ -616,15 +631,19 @@ inline void GameEngine::resolveKnockAhead(Player* collector,const std::string& s
     if(!activeKnockAhead.active)return;
     if(stopped=="out_of_play"){
         statsKnockAheadOutOfPlay++;
+        stats.recordKnockAheadOutOfPlay();
     }else if(stopped=="goal"){
         knockAheadGoals++;
     }else if(collector&&collector->id==activeKnockAhead.playerId){
         statsKnockAheadRecovered++;
+        stats.recordKnockAheadRecovered();
         knockAheadCooldownUntil[collector->id]=state.clockMs+2600;
     }else if(collector&&collector->team==activeKnockAhead.team){
         statsKnockAheadRetained++;
+        stats.recordKnockAheadRetained();
     }else{
         statsKnockAheadTurnovers++;
+        stats.recordKnockAheadTurnover(activeKnockAhead.risky);
         if(activeKnockAhead.risky)statsRiskyKnockAheadTurnovers++;
     }
     activeKnockAhead.active=false;
@@ -669,7 +688,7 @@ inline void GameEngine::kickoff(std::string t){
 inline void GameEngine::update(double dM){accumulator+=dM*state.speed;int s=0;while(accumulator>=FIXED_DT&&s<3){accumulator-=FIXED_DT;fixedUpdate(FIXED_DT);s++;}}
 inline void GameEngine::fixedUpdate(double sdt){
     state.clockMs+=sdt;
-    if(state.clockMs>=MATCH_DURATION){state.matchState="finished";return;}
+    if(state.clockMs>=MATCH_DURATION){state.matchState="finished";stats.recordScore(state.homeScore,state.awayScore);return;}
     if(half==1&&state.clockMs>=45*60*1000){half=2;halfTimePause=2000;}
     if(halfTimePause>0){
         halfTimePause-=sdt;
@@ -685,6 +704,7 @@ inline void GameEngine::fixedUpdate(double sdt){
     }
     auto*c=playerById(state.ball.controllerId);
     if(c){if(c->team=="home")possessionHome+=sdt;else possessionAway+=sdt;}
+    stats.recordPossession(possessionHome,possessionAway);
     auditStuckCarrier(sdt);
     // freeze detection: ball hasn't moved >5px in 1500ms with same controller (skip set pieces & loose balls)
     if(!setPieceArmed&&!kickoffPhase){
@@ -692,7 +712,7 @@ inline void GameEngine::fixedUpdate(double sdt){
         int cid=fb.controllerId;
         if(cid<0){freezeWatchMs=0;freezeLastController=-1;}
         else if(cid!=freezeLastController){freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;freezeLastController=cid;}
-        else{freezeWatchMs+=sdt;if(dist(fb.x,fb.y,freezeBallX,freezeBallY)>=5){freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}else if(freezeWatchMs>1500&&state.clockMs-lastFreezeAlertMs>5000){simulationFreezes++;lastFreezeAlertMs=state.clockMs;freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}}
+        else{freezeWatchMs+=sdt;if(dist(fb.x,fb.y,freezeBallX,freezeBallY)>=5){freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}else if(freezeWatchMs>1500&&state.clockMs-lastFreezeAlertMs>5000){simulationFreezes++;stats.recordSimulationFreeze();lastFreezeAlertMs=state.clockMs;freezeWatchMs=0;freezeBallX=fb.x;freezeBallY=fb.y;}}
     }
     if(setPieceArmed){
         actionTimer-=sdt;
@@ -729,6 +749,7 @@ inline void GameEngine::fixedUpdate(double sdt){
         peakBallSpeed=std::max(peakBallSpeed,speed);
         looseBallSpeedTotal+=speed;
         looseBallSpeedSamples++;
+        stats.recordBallSpeedSample(speed);
     }
 }
 inline void GameEngine::setAssignment(Player& player,const std::string& role,double x,double y,int opponentId){
@@ -748,6 +769,7 @@ inline void GameEngine::auditCredibleShotWindow(const Player& player, double dis
     credibleShotWindows++;
     bool closeChance=distance<120.0;
     if(closeChance)credibleCloseShotWindows++;
+    stats.recordShotSelection(0,0,1,choiceType=="shoot"?0:1,choiceType=="pass"?1:0,choiceType=="dribble"?1:0,closeChance?1:0,closeChance&&choiceType!="shoot"?1:0,false,false);
     if(choiceType=="shoot")return;
     deferredCredibleShots++;
     if(closeChance)deferredCredibleCloseShots++;
@@ -862,6 +884,7 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
     }
     if(primary){
         pressAssignmentSamples++;
+        stats.recordPressSample();
         double selectedDistance=dist(primary->x,primary->y,carrier.x,carrier.y);
         primaryPressDistanceTotal+=selectedDistance;
         double selectedEta=selectedDistance/std::max(18.0,attrFactor(primary->attrs.speed)*SPEED_SPRINT);
@@ -871,7 +894,7 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
             double eta=dist(p.x,p.y,carrier.x,carrier.y)/std::max(18.0,attrFactor(p.attrs.speed)*SPEED_SPRINT);
             fastestEta=std::min(fastestEta,eta);
         }
-        if(selectedEta>fastestEta+0.45)questionablePressAssignments++;
+        if(selectedEta>fastestEta+0.45){questionablePressAssignments++;stats.recordQuestionablePress(selectedDistance);}
     }
     struct LineMember { const Player* player; double progress; };
     std::vector<LineMember> line;
@@ -886,12 +909,15 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
         backLineSamples++;
         backLineGapTotal+=gap;
         backLineGapMax=std::max(backLineGapMax,gap);
+        bool singleDrop=false, laneBlock=false;
         if(!danger&&gap>85.0){
             backLineSingleDropSamples++;
             backLineSingleDropGapTotal+=gap;
+            singleDrop=true;
             const auto* task=assignmentFor(line[0].player->id);
-            if(task&&task->role=="lane_block")backLineSingleDropLaneBlockSamples++;
+            if(task&&task->role=="lane_block"){backLineSingleDropLaneBlockSamples++;laneBlock=true;}
         }
+        stats.recordBackLineSample(gap,singleDrop,laneBlock);
     }
     bool finalThird=carrier.team=="home"?carrier.x>PITCH_W*2.0/3.0:carrier.x<PITCH_W/3.0;
     if(!finalThird)return;
@@ -905,9 +931,11 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
     finalThirdMarkingSamples++;
     finalThirdNearestCbTotal+=nearestCb;
     finalThirdNearestDefenderTotal+=nearestDefender;
-    if(nearestCb>100.0)finalThirdUnmarkedSamples++;
+    bool unmarked=nearestCb>100.0;
+    if(unmarked)finalThirdUnmarkedSamples++;
+    stats.recordFinalThirdMarking(nearestCb,nearestDefender,unmarked);
 }
-inline void GameEngine::tickAgents(double sdt,bool ic){for(auto&a:agents){int id=a.player.id;if(a.player.role=="GK")continue;if(id==state.ball.controllerId&&!ic)continue;a.tick(sdt);if(a.dizzyRotationAccum>720.0){dizzySpins++;a.dizzyRotationAccum=0;a.dizzyWindowStartMs=state.clockMs;}}}
+inline void GameEngine::tickAgents(double sdt,bool ic){for(auto&a:agents){int id=a.player.id;if(a.player.role=="GK")continue;if(id==state.ball.controllerId&&!ic)continue;a.tick(sdt);if(a.dizzyRotationAccum>720.0){dizzySpins++;stats.recordDizzySpin();a.dizzyRotationAccum=0;a.dizzyWindowStartMs=state.clockMs;}}}
 inline void GameEngine::auditStuckCarrier(double sdt){
     Player* carrier=playerById(state.ball.controllerId);
     if(!carrier){
@@ -947,6 +975,7 @@ inline void GameEngine::auditStuckCarrier(double sdt){
         watchedCarrierMs=0;watchedCarrierX=carrier->x;watchedCarrierY=carrier->y;
         if(state.clockMs-lastStuckAlertMs>8000){
             stuckCarrierAlerts++;
+            stats.recordStuckCarrier();
             lastStuckAlertMs=state.clockMs;
         }
     }
@@ -1044,10 +1073,18 @@ inline bool GameEngine::checkGoal(){
         if(trackedShotPreventable)preventableGkGoals++;
     };
     if(b.x+BALL_R<HOME_GOAL_X){
-        recordGoalSource("away"); goalsAway++; state.awayScore++; shotActive=false; trackedShot=false; kickoff("home"); return true;
+        recordGoalSource("away");
+        double goalDist=0;
+        if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,HOME_GOAL_X,PITCH_H/2);
+        stats.recordGoal("away",lastGoalSource,goalDist,lastGoalBallSpeed);
+        goalsAway++; state.awayScore++; shotActive=false; trackedShot=false; kickoff("home"); return true;
     }
     if(b.x-BALL_R>AWAY_GOAL_X){
-        recordGoalSource("home"); goalsHome++; state.homeScore++; shotActive=false; trackedShot=false; kickoff("away"); return true;
+        recordGoalSource("home");
+        double goalDist=0;
+        if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,AWAY_GOAL_X,PITCH_H/2);
+        stats.recordGoal("home",lastGoalSource,goalDist,lastGoalBallSpeed);
+        goalsHome++; state.homeScore++; shotActive=false; trackedShot=false; kickoff("away"); return true;
     }
     return false;
 }
@@ -1090,8 +1127,9 @@ inline void GameEngine::checkBallPlayerCollision(double){
             pressuredReceptions++;
             double trapChance=clamp(0.34+attrFactor(p.attrs.positioning)*0.30
                 +attrFactor(p.attrs.passing)*0.14-clamp((bs-80.0)/300.0,0.0,0.25),0.18,0.82);
-            if(rng.random()<trapChance){collectBall(p);return;}
+            if(rng.random()<trapChance){stats.recordPressuredReception(false);collectBall(p);return;}
             pressuredReceptionFailures++;
+            stats.recordPressuredReception(true);
             b.intendedReceiverId=-1;
             receiverShieldTargetId=-1;
             blockReboundFor(p.id,150);
@@ -1119,7 +1157,7 @@ inline void GameEngine::checkBallPlayerCollision(double){
         }
     }
 }
-inline void GameEngine::collectBall(Player&c){auto&b=state.ball;if(!canContestBall(c))return;bool intended=receiverShieldTargetId==c.id;bool teammateTarget=receiverShieldTargetId>=0&&b.lastTouchTeam==c.team;resolveKnockAhead(&c);resolvePendingPass(c);if(c.role!="GK")c.facing=std::atan2(-b.vy,-b.vx);if(!lastCollectionTeam.empty()&&c.team==lastCollectionTeam&&state.clockMs-lastSameTeamCollectionMs<300)teammatePingPongs++;lastCollectionTeam=c.team;lastSameTeamCollectionMs=state.clockMs;trackedShot=false;trackedShotPreventable=false;lastLooseOrigin.clear();b.controllerId=c.id;b.intendedReceiverId=-1;b.vx*=.3;b.vy*=.3;b.z=b.vz=0;b.lastTouchTeam=c.team;b.lastToucherId=c.id;c.dribbleType=0;if(intended){receiverShieldUntil=state.clockMs+300;receiverShieldedPlayerId=c.id;receiverShieldTargetId=-1;}else if(teammateTarget){receiverShieldUntil=state.clockMs+150;receiverShieldedPlayerId=c.id;}else{receiverShieldUntil=0;receiverShieldedPlayerId=-1;receiverShieldTargetId=-1;}}
+inline void GameEngine::collectBall(Player&c){auto&b=state.ball;if(!canContestBall(c))return;bool intended=receiverShieldTargetId==c.id;bool teammateTarget=receiverShieldTargetId>=0&&b.lastTouchTeam==c.team;resolveKnockAhead(&c);resolvePendingPass(c);if(c.role!="GK")c.facing=std::atan2(-b.vy,-b.vx);if(!lastCollectionTeam.empty()&&c.team==lastCollectionTeam&&state.clockMs-lastSameTeamCollectionMs<300){teammatePingPongs++;stats.recordCollection(true);}lastCollectionTeam=c.team;lastSameTeamCollectionMs=state.clockMs;trackedShot=false;trackedShotPreventable=false;lastLooseOrigin.clear();b.controllerId=c.id;b.intendedReceiverId=-1;b.vx*=.3;b.vy*=.3;b.z=b.vz=0;b.lastTouchTeam=c.team;b.lastToucherId=c.id;c.dribbleType=0;if(intended){receiverShieldUntil=state.clockMs+300;receiverShieldedPlayerId=c.id;receiverShieldTargetId=-1;}else if(teammateTarget){receiverShieldUntil=state.clockMs+150;receiverShieldedPlayerId=c.id;}else{receiverShieldUntil=0;receiverShieldedPlayerId=-1;receiverShieldTargetId=-1;}}
 inline bool GameEngine::collectBall(Player&c,const std::string&,double allowedDist){
     auto&b=state.ball;
     if(b.controllerId>=0)return false;
@@ -1149,6 +1187,7 @@ inline void GameEngine::moveBallCarrier(double sdt){
     double previousSpeed=std::hypot(c->vx,c->vy);
     double previousAngle=previousSpeed>5?std::atan2(c->vy,c->vx):0;
     double moveAngle=d>1?std::atan2(dy,dx):previousAngle;
+    bool turnWasLimited=false;
     if(d>1&&previousSpeed>5){
         carrierMoveSamples++;
         double requestedTurn=std::atan2(std::sin(moveAngle-previousAngle),std::cos(moveAngle-previousAngle));
@@ -1159,6 +1198,7 @@ inline void GameEngine::moveBallCarrier(double sdt){
         if(std::abs(requestedTurn)>maxTurn){
             moveAngle=previousAngle+clamp(requestedTurn,-maxTurn,maxTurn);
             carrierTurnLimitedFrames++;
+            turnWasLimited=true;
         }
     }
     if(d>1){
@@ -1178,6 +1218,7 @@ inline void GameEngine::moveBallCarrier(double sdt){
         if(actualTurnDeg>15.0)carrierAppliedTurnsOver15++;
         if(actualTurnDeg>30.0)carrierAppliedTurnsOver30++;
         if(actualTurn>3.141592653589793/2)carrierAppliedSharpTurns++;
+        stats.recordCarrierTurn(actualTurn>3.141592653589793/2,actualTurnDeg,turnWasLimited);
     }
     if(actualSpeed>5){
         double desiredFacing=std::atan2(c->vy,c->vx);
@@ -1245,13 +1286,17 @@ inline void GameEngine::tryGKSave(){
     double timeToLineMs=dToGoal/std::max(std::abs(b.vx),1.0)*1000;
     gkAssessedShots++;
     shotsOnTarget++;
+    stats.recordShotOnTarget();
     shotActive=false;
     if(rng.random()>=saveChance){
         trackedShotPreventable=saveChance>=0.84||(trajectoryOffset<10&&timeToLineMs>360&&speed<410);
+        stats.recordGkAssessment(false,trackedShotPreventable);
         return;
     }
     saves++;
-    if(saveChance<0.18||(timeToLineMs<150&&trajectoryOffset>40&&speed>450))unlikelyGkSaves++;
+    bool unlikelyCond=saveChance<0.18||(timeToLineMs<150&&trajectoryOffset>40&&speed>450);
+    if(unlikelyCond)unlikelyGkSaves++;
+    stats.recordGkAssessment(unlikelyCond,false);
     trackedShot=false;
     trackedShotPreventable=false;
     double handling=attrFactor(gk->attrs.positioning);

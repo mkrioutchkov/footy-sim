@@ -22,8 +22,9 @@ public:
     }
 
     // ── Shot events ──
-    void recordShot(bool onTarget);
-    void recordGoal(const std::string& source, double distance, double speed);
+    void recordShot(const std::string& team, bool onTarget);
+    void recordShotOnTarget();
+    void recordGoal(const std::string& team, const std::string& source, double distance, double speed);
     void recordGkAssessment(bool unlikely, bool preventable) { gkAssessed++; if(unlikely) unlikelySaves++; if(preventable) preventableGoals++; }
     void recordShotSelection(double angle, double pressure, int credibleWindows, int deferred, int deferredPass, int deferredDribble, int closeWindows, int closeDeferred, bool betterPass, bool tightAngle) {
         shotAudits++; shotAngleTotal+=angle; shotPressureTotal+=pressure;
@@ -135,8 +136,8 @@ private:
     int passLaunchCount=0, shotLaunchCount=0;
 };
 
-inline void StatsCollector::recordGoal(const std::string& source, double distance, double speed) {
-    goalsHome++; // caller determines which side — simplified for now
+inline void StatsCollector::recordGoal(const std::string& team, const std::string& source, double distance, double speed) {
+    if(team=="home") goalsHome++; else goalsAway++;
     if(source=="direct_cross") directCrossGoals++;
     else if(source=="direct_delivery") directDeliveryGoals++;
     else if(source=="tackle_deflection") tackleDeflectionGoals++;
@@ -150,9 +151,13 @@ inline void StatsCollector::recordGoal(const std::string& source, double distanc
     if(distance<100) goalDistClose++; else if(distance<200) goalDistMedium++; else goalDistLong++;
 }
 
-inline void StatsCollector::recordShot(bool onTarget) {
-    shotsHome++; // simplified
+inline void StatsCollector::recordShot(const std::string& team, bool onTarget) {
+    if(team=="home") shotsHome++; else shotsAway++;
     if(onTarget) shotsOnTarget++;
+}
+
+inline void StatsCollector::recordShotOnTarget() {
+    shotsOnTarget++;
 }
 
 inline std::string StatsCollector::summaryJSON() const {
