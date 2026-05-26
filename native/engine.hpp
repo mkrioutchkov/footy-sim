@@ -22,35 +22,14 @@ public:
     std::list<PlayerAgent> agents;
     double accumulator = 0.0;
 
-    int passAttempted = 0, passCompleted = 0, passIntercepted = 0;
-    int shotsHome = 0, shotsAway = 0, shotsOnTarget = 0;
-    int saves = 0;
-    int goalsHome = 0, goalsAway = 0;
-    int tackleAttempts = 0, tackleWins = 0;
-    int slideTackleDistanceAlerts = 0, slideTackleOobAlerts = 0;
-    int tackleCleanControls = 0, tackleLooseDeflections = 0, tackleFouls = 0;
-    int tackleDeflectionGoals = 0, goalkeeperParryGoals = 0, shotDeflectionGoals = 0;
-    int ownPassGoals = 0, lostShotGoals = 0, unknownLooseGoals = 0;
-    std::string lastGoalSource = "none", lastGoalScoringTeam, lastGoalTouchTeam;
-    int lastGoalToucherId = -1;
-    double lastGoalBallSpeed = 0;
-    int statsTimeWastingDribbles = 0;
-    int statsDribbleFast = 0, statsDribbleMedium = 0, statsDribbleClose = 0;
-    int statsKnockAheads = 0, statsKnockAheadRecovered = 0, statsKnockAheadRetained = 0;
-    int statsKnockAheadTurnovers = 0, statsKnockAheadOutOfPlay = 0;
-    int statsRiskyKnockAheads = 0, statsRiskyKnockAheadTurnovers = 0;
-    int knockAheadGoals = 0;
-    double statsKnockAheadLaunchSpeedTotal = 0;
+    // per-frame state (not stats — used by game logic)
     double possessionHome = 0, possessionAway = 0;
     double peakBallSpeed = 0, looseBallSpeedTotal = 0;
     double passLaunchSpeedTotal = 0, shotLaunchSpeedTotal = 0;
     int looseBallSpeedSamples = 0, passLaunchCount = 0, shotLaunchCount = 0;
-    int goalDistanceClose = 0, goalDistanceMedium = 0, goalDistanceLong = 0;
-    int shotDistanceClose = 0, shotDistanceMedium = 0, shotDistanceLong = 0;
-    int questionableShots = 0;
-    double shotDistanceTotal = 0;
-    int untrackedGoals = 0, directDeliveryGoals = 0, directCrossGoals = 0;
-    int gkAssessedShots = 0, unlikelyGkSaves = 0, preventableGkGoals = 0;
+    std::string lastGoalSource = "none", lastGoalScoringTeam, lastGoalTouchTeam;
+    int lastGoalToucherId = -1;
+    double lastGoalBallSpeed = 0;
     int stuckCarrierAlerts = 0;
     int teammatePingPongs = 0;
     double lastSameTeamCollectionMs = 0;
@@ -61,26 +40,6 @@ public:
     int freezeLastController = -1;
     double lastFreezeAlertMs = -1e9;
     int dizzySpins = 0;
-    int carrierMoveSamples = 0, carrierRequestedSharpTurns = 0;
-    int carrierAppliedSharpTurns = 0, carrierTurnLimitedFrames = 0;
-    int carrierAppliedTurnsOver15 = 0, carrierAppliedTurnsOver30 = 0;
-    double carrierAppliedTurnDegTotal = 0;
-    int passSelectionAudits = 0, riskyPassSelections = 0, saferPassIgnored = 0;
-    double selectedPassDistanceTotal = 0, selectedPassCompletionTotal = 0;
-    int pressuredReceptions = 0, pressuredReceptionFailures = 0;
-    int offsidesTotal = 0;
-    int shotSelectionAudits = 0, betterPassShots = 0, tightAngleShots = 0;
-    int credibleShotWindows = 0, deferredCredibleShots = 0;
-    int credibleShotPassChoices = 0, credibleShotDribbleChoices = 0;
-    int credibleCloseShotWindows = 0, deferredCredibleCloseShots = 0;
-    double selectedShotAngleTotal = 0, selectedShotPressureTotal = 0;
-    int pressAssignmentSamples = 0, questionablePressAssignments = 0;
-    double primaryPressDistanceTotal = 0;
-    int finalThirdMarkingSamples = 0, finalThirdUnmarkedSamples = 0;
-    double finalThirdNearestCbTotal = 0, finalThirdNearestDefenderTotal = 0;
-    int backLineSamples = 0, backLineSingleDropSamples = 0;
-    int backLineSingleDropLaneBlockSamples = 0;
-    double backLineGapTotal = 0, backLineSingleDropGapTotal = 0, backLineGapMax = 0;
     double nextTacticalAuditMs = 0;
     int watchedCarrierId = -1;
     double watchedCarrierX = 0, watchedCarrierY = 0, watchedCarrierMs = 0, lastStuckAlertMs = -1e9;
@@ -226,7 +185,7 @@ public:
         stats.recordBallSpeedSample(spd);
     }
     void beginTrackedPass(Player& from,Player& to,bool isCross=false) {
-        passAttempted++; stats.recordPassAttempt();
+        stats.recordPassAttempt();
         lastLooseOrigin.clear();
         double speed=std::hypot(state.ball.vx,state.ball.vy);
         passLaunchSpeedTotal+=speed; passLaunchCount++;
@@ -236,8 +195,8 @@ public:
     }
     void resolvePendingPass(Player& receiver) {
         if(!pendingPass.active)return;
-        if(receiver.team==pendingPass.team){passCompleted++;stats.recordPassComplete();}
-        else {passIntercepted++;stats.recordPassIntercepted();}
+        if(receiver.team==pendingPass.team){stats.recordPassComplete();}
+        else {stats.recordPassIntercepted();}
         pendingPass.active=false;
     }
     void auditStuckCarrier(double sdt);
@@ -326,19 +285,11 @@ public:
             b.vz=std::max(b.vz,speed*1.30*1.15);
         }
         if(audit){
-            passSelectionAudits++;
-            selectedPassDistanceTotal+=audit->distance;
-            selectedPassCompletionTotal+=audit->expectedCompletion;
             bool riskyFlag=audit->blockers>0||audit->receiverPressure>0||audit->expectedCompletion<0.58;
-            if(riskyFlag)riskyPassSelections++;
-            if(audit->saferOptionTargetId>=0
-                &&audit->saferOptionCompletion>audit->expectedCompletion+0.10
-                &&audit->saferOptionScore>=audit->score-0.08)saferPassIgnored++;
             stats.recordPassSelection(audit->distance,audit->expectedCompletion,audit->blockers,audit->receiverPressure,riskyFlag,audit->saferOptionTargetId);
         }
         beginTrackedPass(f,t,selectedCross||whippedCross);
         if(checkOffside(t,f)){
-            offsidesTotal++;
             awardOffsideFreeKick(f.team=="home"?"away":"home",t);
             return true;
         }
@@ -362,7 +313,6 @@ public:
         b.z=0; b.vz=speed*0.40;
         beginTrackedPass(f,t);
         if(checkOffside(t,f)){
-            offsidesTotal++;
             awardOffsideFreeKick(f.team=="home"?"away":"home",t);
         }
     }
@@ -371,7 +321,6 @@ public:
         auto& b=state.ball;
         if(b.controllerId!=carrier.id||tackler.team==carrier.team||contactDist>TACKLE_RANGE)return false;
         if(!canContestBall(tackler))return false;
-        tackleAttempts++;
         stats.recordTackleAttempt();
         double tackleSkill=attrFactor(tackler.attrs.tackling);
         double carrierControl=attrFactor(carrier.attrs.positioning)*0.35+attrFactor(carrier.attrs.speed)*0.15;
@@ -391,7 +340,6 @@ public:
         if(rng.random()>=chance){
             double foulChance=fromBehind?0.34:0.10;
             if(rng.random()<foulChance){
-                tackleFouls++;
                 stats.recordTackleFoul();
                 b.x=clamp(tackler.x,30.0,PITCH_W-30.0);
                 b.y=clamp(tackler.y,30.0,PITCH_H-30.0);
@@ -407,7 +355,6 @@ public:
             }
             return false;
         }
-        tackleWins++;
         pendingPass.active=false;
         trackedShot=false;
         trackedShotPreventable=false;
@@ -418,7 +365,6 @@ public:
             -(fromBehind?0.20:0)+(approachDot>0.15?0.12:0)
             -(carrier.dribbleType==3?0.08:0),0.12,0.72);
         if(outcomeRoll<controlChance){
-            tackleCleanControls++;
             stats.recordTackleWin(true);
             b.controllerId=tackler.id;
             b.vx=b.vy=b.z=b.vz=0;
@@ -431,14 +377,13 @@ public:
             carrier.vx=carrier.vy=0;
             return true;
         }
-        tackleLooseDeflections++;
         stats.recordTackleWin(false);
         b.controllerId=-1;
         double kickSpeed=38+outcomeRoll*72+(carrier.dribbleType==3?30:0)+(carrierSpeed>DRIBBLE_MEDIUM_SPEED?16:0);
         b.vx=std::cos(angle)*kickSpeed; b.vy=std::sin(angle)*kickSpeed;
         b.x=clamp(b.x,5.0,PITCH_W-5.0); b.y=clamp(b.y,5.0,PITCH_H-5.0);
-        if(kickSpeed>180){slideTackleDistanceAlerts++;stats.recordSlideTackleDistance();}
-        if(b.x<10||b.x>PITCH_W-10||b.y<10||b.y>PITCH_H-10){slideTackleOobAlerts++;stats.recordSlideTackleOob();}
+        if(kickSpeed>180){stats.recordSlideTackleDistance();}
+        if(b.x<10||b.x>PITCH_W-10||b.y<10||b.y>PITCH_H-10){stats.recordSlideTackleOob();}
         b.lastTouchTeam=tackler.team; b.lastToucherId=tackler.id;
         b.intendedReceiverId=-1; b.z=b.vz=0;
         lastLooseOrigin="tackle_deflection";
@@ -449,7 +394,6 @@ public:
         return true;
     }
     void shootBall(Player&s,void* selectionAudit){
-        if(s.team=="home")shotsHome++; else shotsAway++;
         stats.recordShot(s.team,false);
         double gx=(s.team=="home")?AWAY_GOAL_X:HOME_GOAL_X;
         double accuracy=attrFactor(s.attrs.shooting);
@@ -461,21 +405,12 @@ public:
         bool outsideGoalLane=std::abs(s.y-goalCenterY)>GOAL_W/2+20;
         bool acuteGeometry=outsideGoalLane&&angleDeg<7.5&&shotDistance>150;
         const auto* audit=static_cast<const ShotSelectionAudit*>(selectionAudit);
-        shotDistanceTotal+=shotDistance;
-        if(shotDistance<100)shotDistanceClose++;
-        else if(shotDistance<200)shotDistanceMedium++;
-        else shotDistanceLong++;
         if(audit){
-            shotSelectionAudits++;
-            selectedShotAngleTotal+=audit->angleDeg;
-            selectedShotPressureTotal+=audit->pressureCount;
             bool betterPassFlag=audit->bestPassTargetId>=0&&audit->bestPassScore>audit->score+0.12;
             bool tightAngleFlag=audit->angleDeg<8.0&&audit->distance>120.0;
-            if(betterPassFlag)betterPassShots++;
-            if(tightAngleFlag)tightAngleShots++;
             stats.recordShotSelection(audit->angleDeg,audit->pressureCount,0,0,0,0,0,0,betterPassFlag,tightAngleFlag);
         }
-        if(shotDistance>210||acuteGeometry||(audit&&audit->bestPassScore>audit->score+0.12)){questionableShots++;stats.recordQuestionableShot();}
+        if(shotDistance>210||acuteGeometry||(audit&&audit->bestPassScore>audit->score+0.12)){stats.recordQuestionableShot();}
         double anglePenalty=clamp(std::abs(s.y-goalCenterY)/230,0.0,1.0);
         double distancePenalty=clamp((shotDistance-70)/270,0.0,1.0);
         double longRangePenalty=clamp((shotDistance-120)/130,0.0,1.0);
@@ -621,31 +556,23 @@ inline bool GameEngine::knockBallAhead(Player& carrier,double targetX,double tar
     b.lastToucherId=carrier.id;
     lastLooseOrigin="knock_ahead";
     recordBallImpulse();
-    statsKnockAheads++;
-    statsKnockAheadLaunchSpeedTotal+=launchSpeed;
     stats.recordKnockAhead(launchSpeed);
-    if(risky){statsRiskyKnockAheads++;stats.recordRiskyKnockAhead();}
+    if(risky){stats.recordRiskyKnockAhead();}
     activeKnockAhead={true,carrier.id,carrier.team,state.clockMs,nearestId,nearestDist,risky};
     return true;
 }
 inline void GameEngine::resolveKnockAhead(Player* collector,const std::string& stopped){
     if(!activeKnockAhead.active)return;
     if(stopped=="out_of_play"){
-        statsKnockAheadOutOfPlay++;
         stats.recordKnockAheadOutOfPlay();
     }else if(stopped=="goal"){
-        knockAheadGoals++;
     }else if(collector&&collector->id==activeKnockAhead.playerId){
-        statsKnockAheadRecovered++;
         stats.recordKnockAheadRecovered();
         knockAheadCooldownUntil[collector->id]=state.clockMs+2600;
     }else if(collector&&collector->team==activeKnockAhead.team){
-        statsKnockAheadRetained++;
         stats.recordKnockAheadRetained();
     }else{
-        statsKnockAheadTurnovers++;
         stats.recordKnockAheadTurnover(activeKnockAhead.risky);
-        if(activeKnockAhead.risky)statsRiskyKnockAheadTurnovers++;
     }
     activeKnockAhead.active=false;
 }
@@ -767,15 +694,9 @@ inline void GameEngine::updateTeamAssignments(){
 inline void GameEngine::auditCredibleShotWindow(const Player& player, double distance, double angleDeg,
                                                 int pressureCount, const std::string& choiceType){
     if(player.role!="CF"||distance>=190.0||angleDeg<=9.0||pressureCount>1)return;
-    credibleShotWindows++;
     bool closeChance=distance<120.0;
-    if(closeChance)credibleCloseShotWindows++;
     stats.recordShotSelection(0,0,1,choiceType=="shoot"?0:1,choiceType=="pass"?1:0,choiceType=="dribble"?1:0,closeChance?1:0,closeChance&&choiceType!="shoot"?1:0,false,false);
     if(choiceType=="shoot")return;
-    deferredCredibleShots++;
-    if(closeChance)deferredCredibleCloseShots++;
-    if(choiceType=="pass")credibleShotPassChoices++;
-    if(choiceType=="dribble")credibleShotDribbleChoices++;
 }
 inline void GameEngine::assignDefensiveRoles(const std::string& team,Player& carrier){
     double fd=team=="home"?1.0:-1.0;
@@ -884,10 +805,8 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
         if(task.role=="primary_press"){primary=playerById(id);break;}
     }
     if(primary){
-        pressAssignmentSamples++;
         stats.recordPressSample();
         double selectedDistance=dist(primary->x,primary->y,carrier.x,carrier.y);
-        primaryPressDistanceTotal+=selectedDistance;
         double selectedEta=selectedDistance/std::max(18.0,attrFactor(primary->attrs.speed)*SPEED_SPRINT);
         double fastestEta=1e9;
         for(auto& p:state.players){
@@ -895,7 +814,7 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
             double eta=dist(p.x,p.y,carrier.x,carrier.y)/std::max(18.0,attrFactor(p.attrs.speed)*SPEED_SPRINT);
             fastestEta=std::min(fastestEta,eta);
         }
-        if(selectedEta>fastestEta+0.45){questionablePressAssignments++;stats.recordQuestionablePress(selectedDistance);}
+        if(selectedEta>fastestEta+0.45){stats.recordQuestionablePress(selectedDistance);}
     }
     struct LineMember { const Player* player; double progress; };
     std::vector<LineMember> line;
@@ -907,16 +826,11 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
     if(line.size()>=3){
         std::sort(line.begin(),line.end(),[](const LineMember& a,const LineMember& b){return a.progress<b.progress;});
         double gap=line[1].progress-line[0].progress;
-        backLineSamples++;
-        backLineGapTotal+=gap;
-        backLineGapMax=std::max(backLineGapMax,gap);
         bool singleDrop=false, laneBlock=false;
         if(!danger&&gap>85.0){
-            backLineSingleDropSamples++;
-            backLineSingleDropGapTotal+=gap;
             singleDrop=true;
             const auto* task=assignmentFor(line[0].player->id);
-            if(task&&task->role=="lane_block"){backLineSingleDropLaneBlockSamples++;laneBlock=true;}
+            if(task&&task->role=="lane_block"){laneBlock=true;}
         }
         stats.recordBackLineSample(gap,singleDrop,laneBlock);
     }
@@ -929,11 +843,7 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
         nearestDefender=std::min(nearestDefender,distance);
         if(defender.role=="CB")nearestCb=std::min(nearestCb,distance);
     }
-    finalThirdMarkingSamples++;
-    finalThirdNearestCbTotal+=nearestCb;
-    finalThirdNearestDefenderTotal+=nearestDefender;
     bool unmarked=nearestCb>100.0;
-    if(unmarked)finalThirdUnmarkedSamples++;
     stats.recordFinalThirdMarking(nearestCb,nearestDefender,unmarked);
 }
 inline void GameEngine::tickAgents(double sdt,bool ic){for(auto&a:agents){int id=a.player.id;if(a.player.role=="GK")continue;if(id==state.ball.controllerId&&!ic)continue;a.tick(sdt);if(a.dizzyRotationAccum>720.0){dizzySpins++;stats.recordDizzySpin();a.dizzyRotationAccum=0;a.dizzyWindowStartMs=state.clockMs;}}}
@@ -1034,58 +944,44 @@ inline bool GameEngine::checkGoal(){
         lastGoalToucherId=b.lastToucherId;
         lastGoalBallSpeed=std::hypot(b.vx,b.vy);
         if(!trackedShot){
-            untrackedGoals++;
             if(pendingPass.active&&pendingPass.team==scoringTeam){
-                directDeliveryGoals++;
-                if(pendingPass.isCross){directCrossGoals++;lastGoalSource="direct_cross";}
+                if(pendingPass.isCross){lastGoalSource="direct_cross";}
                 else lastGoalSource="direct_delivery";
             }else if(pendingPass.active){
-                ownPassGoals++;
                 lastGoalSource="own_pass";
             }else if(lastLooseOrigin=="tackle_deflection"){
-                tackleDeflectionGoals++;
                 lastGoalSource="tackle_deflection";
             }else if(lastLooseOrigin=="goalkeeper_parry"){
-                goalkeeperParryGoals++;
                 lastGoalSource="goalkeeper_parry";
             }else if(lastLooseOrigin=="shot"){
-                lostShotGoals++;
                 lastGoalSource="shot_state_lost";
             }else if(lastLooseOrigin=="knock_ahead"){
                 resolveKnockAhead(nullptr,"goal");
                 lastGoalSource="knock_ahead";
             }else{
-                unknownLooseGoals++;
                 lastGoalSource="loose_unclassified";
             }
             return;
         }
         if(!b.lastTouchTeam.empty()&&b.lastTouchTeam!=trackedShotTeam){
-            shotDeflectionGoals++;
             lastGoalSource="shot_deflection";
         }else{
             lastGoalSource="shot";
         }
-        double goalX=scoringTeam=="home"?AWAY_GOAL_X:HOME_GOAL_X;
-        double d=dist(shotOriginX,shotOriginY,goalX,PITCH_H/2);
-        if(d<100)goalDistanceClose++;
-        else if(d<250)goalDistanceMedium++;
-        else goalDistanceLong++;
-        if(trackedShotPreventable)preventableGkGoals++;
     };
     if(b.x+BALL_R<HOME_GOAL_X){
         recordGoalSource("away");
         double goalDist=0;
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,HOME_GOAL_X,PITCH_H/2);
         stats.recordGoal("away",lastGoalSource,goalDist,lastGoalBallSpeed);
-        goalsAway++; state.awayScore++; shotActive=false; trackedShot=false; kickoff("home"); return true;
+        state.awayScore++; shotActive=false; trackedShot=false; kickoff("home"); return true;
     }
     if(b.x-BALL_R>AWAY_GOAL_X){
         recordGoalSource("home");
         double goalDist=0;
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,AWAY_GOAL_X,PITCH_H/2);
         stats.recordGoal("home",lastGoalSource,goalDist,lastGoalBallSpeed);
-        goalsHome++; state.homeScore++; shotActive=false; trackedShot=false; kickoff("away"); return true;
+        state.homeScore++; shotActive=false; trackedShot=false; kickoff("away"); return true;
     }
     return false;
 }
@@ -1125,11 +1021,9 @@ inline void GameEngine::checkBallPlayerCollision(double){
                     &&dist(opponent.x,opponent.y,p.x,p.y)<38.0){underPressure=true;break;}
             }
             if(!underPressure){collectBall(p);return;}
-            pressuredReceptions++;
             double trapChance=clamp(0.34+attrFactor(p.attrs.positioning)*0.30
                 +attrFactor(p.attrs.passing)*0.14-clamp((bs-80.0)/300.0,0.0,0.25),0.18,0.82);
             if(rng.random()<trapChance){stats.recordPressuredReception(false);collectBall(p);return;}
-            pressuredReceptionFailures++;
             stats.recordPressuredReception(true);
             b.intendedReceiverId=-1;
             receiverShieldTargetId=-1;
@@ -1190,15 +1084,12 @@ inline void GameEngine::moveBallCarrier(double sdt){
     double moveAngle=d>1?std::atan2(dy,dx):previousAngle;
     bool turnWasLimited=false;
     if(d>1&&previousSpeed>5){
-        carrierMoveSamples++;
         double requestedTurn=std::atan2(std::sin(moveAngle-previousAngle),std::cos(moveAngle-previousAngle));
-        if(std::abs(requestedTurn)>3.141592653589793/2)carrierRequestedSharpTurns++;
         // Close control permits quicker pivots; sprint dribbles must follow a wider arc.
         double turnRate=c->dribbleType==1?17.0:c->dribbleType==3?10.0:14.0;
         double maxTurn=turnRate*secs;
         if(std::abs(requestedTurn)>maxTurn){
             moveAngle=previousAngle+clamp(requestedTurn,-maxTurn,maxTurn);
-            carrierTurnLimitedFrames++;
             turnWasLimited=true;
         }
     }
@@ -1215,10 +1106,6 @@ inline void GameEngine::moveBallCarrier(double sdt){
             std::sin(std::atan2(c->vy,c->vx)-previousAngle),
             std::cos(std::atan2(c->vy,c->vx)-previousAngle)));
         double actualTurnDeg=actualTurn*180.0/3.141592653589793;
-        carrierAppliedTurnDegTotal+=actualTurnDeg;
-        if(actualTurnDeg>15.0)carrierAppliedTurnsOver15++;
-        if(actualTurnDeg>30.0)carrierAppliedTurnsOver30++;
-        if(actualTurn>3.141592653589793/2)carrierAppliedSharpTurns++;
         stats.recordCarrierTurn(actualTurn>3.141592653589793/2,actualTurnDeg,turnWasLimited);
     }
     if(actualSpeed>5){
@@ -1285,8 +1172,6 @@ inline void GameEngine::tryGKSave(){
     double saveChance=clamp(0.11+keeperSkill+reactionBonus-placementPenalty-speedPenalty,0.08,0.86);
     double trajectoryOffset=std::abs(crossY-gk->y);
     double timeToLineMs=dToGoal/std::max(std::abs(b.vx),1.0)*1000;
-    gkAssessedShots++;
-    shotsOnTarget++;
     stats.recordShotOnTarget();
     shotActive=false;
     if(rng.random()>=saveChance){
@@ -1294,9 +1179,8 @@ inline void GameEngine::tryGKSave(){
         stats.recordGkAssessment(false,trackedShotPreventable);
         return;
     }
-    saves++; stats.recordSave();
+    stats.recordSave();
     bool unlikelyCond=saveChance<0.18||(timeToLineMs<150&&trajectoryOffset>40&&speed>450);
-    if(unlikelyCond)unlikelyGkSaves++;
     stats.recordGkAssessment(unlikelyCond,false);
     trackedShot=false;
     trackedShotPreventable=false;

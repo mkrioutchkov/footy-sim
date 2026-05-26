@@ -1517,9 +1517,7 @@ inline void PlayerAgent::ex(Action& a, double sdt, std::vector<Action>& actions)
 
         bool newEpisode = (p.dribbleType != dribbleType);
         if (newEpisode) {
-            if (dribbleType == 3)      engine.statsDribbleFast++;
-            else if (dribbleType == 1) engine.statsDribbleClose++;
-            else                       engine.statsDribbleMedium++;
+            engine.stats.recordDribble(dribbleType);
         }
         p.dribbleType = dribbleType;
         if (dribbleType == 3 && newEpisode) engine.knockBallAhead(p, p.targetX, p.targetY);
@@ -1536,8 +1534,7 @@ inline void PlayerAgent::ex(Action& a, double sdt, std::vector<Action>& actions)
                     int myScore  = (p.team == "home") ? engine.state.homeScore : engine.state.awayScore;
                     int oppScore = (p.team == "home") ? engine.state.awayScore : engine.state.homeScore;
                     bool isTimeWasting = (myScore <= oppScore && engine.state.clockMs > 60000.0);
-                    if (isTimeWasting) engine.statsTimeWastingDribbles++;
-                    engine.logQualityFlag(isTimeWasting ? "time_wasting_dribble" : "backward_dribble",
+                    if (isTimeWasting) engine.logQualityFlag(isTimeWasting ? "time_wasting_dribble" : "backward_dribble",
                                           p.id, p.role, (double)p.targetX, 0.0, 0.0, "", 0.0);
                 }
             }

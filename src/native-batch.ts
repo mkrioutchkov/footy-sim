@@ -8,10 +8,13 @@ interface Summary {
   passesCompleted: number;
   passesIntercepted: number;
   passCompletionPct: number;
+  offsides: number;
   shots: number;
   shotsOnTarget: number;
   saves: number;
   stuckCarrierAlerts: number;
+  simulationFreezes: number;
+  dizzySpins: number;
   teammatePingPongs: number;
   slideTackleDistanceAlerts: number;
   slideTackleOobAlerts: number;
