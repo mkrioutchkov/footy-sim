@@ -88,6 +88,7 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ballGlow);
     this.pitchContainer.addChild(this.eventGfx);
     this.app.stage.addChild(this.hudText);
+    this.hudText.zIndex = 1001;
     // version display — engine + UI
     const versionText = new Text({ text: '...', style: new TextStyle({ fill: 0xffffff, fontSize: 8, fontFamily: 'monospace' }) });
     versionText.position.set(this.app.screen.width - 6, this.app.screen.height - 12);

@@ -174,7 +174,7 @@ inline std::string StatsCollector::summaryJSON() const {
     double passAvg=passLaunchCount>0?passLaunchTotal/passLaunchCount:0;
     double shotAvg=shotLaunchCount>0?shotLaunchTotal/shotLaunchCount:0;
     return std::format(
-        R"({{"passes":{},"passesCompleted":{},"passesIntercepted":{},"passCompletionPct":{:.1f},"offsides":{},"shots":{},"shotsOnTarget":{},"saves":{},)"
+        R"({{"passes":{},"passesCompleted":{},"passesIntercepted":{},"passCompletionPct":{:.1f},"offsides":{},"homeShots":{},"awayShots":{},"shots":{},"shotsOnTarget":{},"saves":{},)"
         R"("stuckCarrierAlerts":{},"simulationFreezes":{},"dizzySpins":{},"teammatePingPongs":{},)"
         R"("slideTackleDistanceAlerts":{},"slideTackleOobAlerts":{},"ownPassGoals":{},"unknownLooseGoals":{},)"
         R"("shotsByDistance":{{"close":{},"medium":{},"long":{},"average":{},"questionable":{}}},)"
@@ -191,7 +191,7 @@ inline std::string StatsCollector::summaryJSON() const {
         R"(,"qualityFlags":{{"player_stuck":{},"simulation_freeze":{},"dizzy_spin":{},"slide_tackle_distance":{},"slide_tackle_oob":{},"own_pass_goal":{},"unknown_loose_goal":{},"questionable_shot_choice":{},"questionable_press_assignment":{},"unmarked_final_third":{},"risky_pass_choice":{},"teammate_pingpong":{}}})"
         R"(,"ballSpeed":{{"peak":{:.0f},"looseSampleAvg":{:.0f},"looseSamples":{},"passLaunchAvg":{:.0f},"passLaunches":{},"shotLaunchAvg":{:.0f},"shotLaunches":{}}})"
         R"(,"possessionPct":{:.1f}}})",
-        passesAttempted,passesCompleted,passesIntercepted,completionPct,offsidesTotal,totalShots,shotsOnTarget,saves,
+        passesAttempted,passesCompleted,passesIntercepted,completionPct,offsidesTotal,shotsHome,shotsAway,totalShots,shotsOnTarget,saves,
         stuckAlerts,simFreezes,dizzySpins,teammatePingPongs,
         slideTackleDistance,slideTackleOob,ownPassGoals,unknownLooseGoals,
         shotDistClose,shotDistMedium,shotDistLong,totalShots>0?shotDistTotal/totalShots:0,questionableShots,
