@@ -50,6 +50,9 @@ public:
     int untrackedGoals = 0, directDeliveryGoals = 0, directCrossGoals = 0;
     int gkAssessedShots = 0, unlikelyGkSaves = 0, preventableGkGoals = 0;
     int stuckCarrierAlerts = 0;
+    int teammatePingPongs = 0;
+    double lastSameTeamCollectionMs = 0;
+    std::string lastCollectionTeam;
     int carrierMoveSamples = 0, carrierRequestedSharpTurns = 0;
     int carrierAppliedSharpTurns = 0, carrierTurnLimitedFrames = 0;
     int carrierAppliedTurnsOver15 = 0, carrierAppliedTurnsOver30 = 0;
@@ -174,6 +177,7 @@ public:
     }
     AgentTeamAssignment* committedRunFor(int) { return nullptr; }
     [[nodiscard]] Player* playerById(int id) { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
+    [[nodiscard]] double carrierHoldMs() const { return watchedCarrierMs; }
     [[nodiscard]] const Player* playerById(int id) const { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
     [[nodiscard]] std::vector<Player*> nearPlayers(Player& p, double range) {
         std::vector<Player*> r;
@@ -1096,7 +1100,7 @@ inline void GameEngine::checkBallPlayerCollision(double){
         }
     }
 }
-inline void GameEngine::collectBall(Player&c){auto&b=state.ball;if(!canContestBall(c))return;bool intended=receiverShieldTargetId==c.id;bool teammateTarget=receiverShieldTargetId>=0&&b.lastTouchTeam==c.team;resolveKnockAhead(&c);resolvePendingPass(c);trackedShot=false;trackedShotPreventable=false;lastLooseOrigin.clear();b.controllerId=c.id;b.intendedReceiverId=-1;b.vx*=.3;b.vy*=.3;b.z=b.vz=0;b.lastTouchTeam=c.team;b.lastToucherId=c.id;c.dribbleType=0;if(intended){receiverShieldUntil=state.clockMs+300;receiverShieldedPlayerId=c.id;receiverShieldTargetId=-1;}else if(teammateTarget){receiverShieldUntil=state.clockMs+150;receiverShieldedPlayerId=c.id;}else{receiverShieldUntil=0;receiverShieldedPlayerId=-1;receiverShieldTargetId=-1;}}
+inline void GameEngine::collectBall(Player&c){auto&b=state.ball;if(!canContestBall(c))return;bool intended=receiverShieldTargetId==c.id;bool teammateTarget=receiverShieldTargetId>=0&&b.lastTouchTeam==c.team;resolveKnockAhead(&c);resolvePendingPass(c);if(c.role!="GK")c.facing=std::atan2(-b.vy,-b.vx);if(!lastCollectionTeam.empty()&&c.team==lastCollectionTeam&&state.clockMs-lastSameTeamCollectionMs<300)teammatePingPongs++;lastCollectionTeam=c.team;lastSameTeamCollectionMs=state.clockMs;trackedShot=false;trackedShotPreventable=false;lastLooseOrigin.clear();b.controllerId=c.id;b.intendedReceiverId=-1;b.vx*=.3;b.vy*=.3;b.z=b.vz=0;b.lastTouchTeam=c.team;b.lastToucherId=c.id;c.dribbleType=0;if(intended){receiverShieldUntil=state.clockMs+300;receiverShieldedPlayerId=c.id;receiverShieldTargetId=-1;}else if(teammateTarget){receiverShieldUntil=state.clockMs+150;receiverShieldedPlayerId=c.id;}else{receiverShieldUntil=0;receiverShieldedPlayerId=-1;receiverShieldTargetId=-1;}}
 inline bool GameEngine::collectBall(Player&c,const std::string&,double allowedDist){
     auto&b=state.ball;
     if(b.controllerId>=0)return false;
@@ -1267,8 +1271,8 @@ inline std::string GameEngine::getJSON() const {
     std::string lastToucherJson=b.lastToucherId>=0?std::to_string(b.lastToucherId):"null";
     std::string lastTouchTeamJson=b.lastTouchTeam.empty()?"null":"\""+b.lastTouchTeam+"\"";
     std::string js=std::format(
-        R"({{"clockMs":{:.0f},"matchState":"{}","half":{},"version":"cpp-audit","speed":{},"homeScore":{},"awayScore":{},"homeShots":{},"awayShots":{},"possessionPct":{:.1f},"passes":{},"passesCompleted":{},"passesIntercepted":{},"passCompletionPct":{:.1f},"offsides":{},"shots":{},"shotsOnTarget":{},"saves":{},"ballSpeed":{{"peak":{:.0f},"looseSampleAvg":{:.0f},"looseSamples":{},"passLaunchAvg":{:.0f},"passLaunches":{},"shotLaunchAvg":{:.0f},"shotLaunches":{}}},"ball":{{"x":{:.1f},"y":{:.1f},"vx":{:.1f},"vy":{:.1f},"z":{:.1f},"controllerId":{},"intendedReceiverId":{},"lastTouchTeam":{},"lastToucherId":{}}},"players":[)",
-        state.clockMs,state.matchState,half,state.speed,state.homeScore,state.awayScore,shotsHome,shotsAway,possessionPct,
+        R"({{"clockMs":{:.0f},"matchState":"{}","half":{},"version":"{}","speed":{},"homeScore":{},"awayScore":{},"homeShots":{},"awayShots":{},"possessionPct":{:.1f},"passes":{},"passesCompleted":{},"passesIntercepted":{},"passCompletionPct":{:.1f},"offsides":{},"shots":{},"shotsOnTarget":{},"saves":{},"ballSpeed":{{"peak":{:.0f},"looseSampleAvg":{:.0f},"looseSamples":{},"passLaunchAvg":{:.0f},"passLaunches":{},"shotLaunchAvg":{:.0f},"shotLaunches":{}}},"ball":{{"x":{:.1f},"y":{:.1f},"vx":{:.1f},"vy":{:.1f},"z":{:.1f},"controllerId":{},"intendedReceiverId":{},"lastTouchTeam":{},"lastToucherId":{}}},"players":[)",
+        state.clockMs,state.matchState,half,std::format("{} {}","cpp",__TIME__),state.speed,state.homeScore,state.awayScore,shotsHome,shotsAway,possessionPct,
         passAttempted,passCompleted,passIntercepted,completionPct,
         offsidesTotal,
         shotsHome+shotsAway,shotsOnTarget,saves,
@@ -1290,8 +1294,8 @@ inline std::string GameEngine::getJSON() const {
         R"(,"shotSelection":{{"audited":{},"betterPassAvailable":{},"tightAngle":{},"avgAngleDeg":{:.1f},"avgPressure":{:.2f},"cfCredibleWindowSamples":{},"cfDeferredSamples":{},"cfDeferredForPass":{},"cfDeferredForDribble":{},"cfCloseWindowSamples":{},"cfCloseDeferredSamples":{}}})"
         R"(,"marking":{{"pressSamples":{},"questionablePress":{},"avgPrimaryPressDistance":{:.0f},"backLineSamples":{},"singleDropSamples":{},"singleDropPct":{:.1f},"avgBackLineGap":{:.0f},"avgSingleDropGap":{:.0f},"maxBackLineGap":{:.0f},"laneBlockSingleDrops":{},"finalThirdSamples":{},"unmarkedFinalThird":{},"unmarkedPct":{:.1f},"avgNearestCb":{:.0f},"avgNearestDefender":{:.0f}}})"
         R"(,"dribbleTypes":{{"fast":{},"medium":{},"close":{},"knockAheads":{},"recovered":{},"retainedByTeammate":{},"turnovers":{},"outOfPlay":{},"risky":{},"riskyTurnovers":{},"launchSpeedAvg":{:.1f},"pending":{}}})"
-        R"(,"tackles":{{"attempts":{},"wins":{},"cleanControls":{},"looseDeflections":{},"fouls":{}}},"stuckCarrierAlerts":{},"tackleAttempts":{},"tackleWins":{},"slideTackleDistanceAlerts":{},"slideTackleOobAlerts":{})"
-        R"(,"qualityFlags":{{"player_stuck":{},"slide_tackle_distance":{},"slide_tackle_oob":{},"cross_goal":{},"direct_delivery_goal":{},"untracked_goal":{},"tackle_deflection_goal":{},"goalkeeper_parry_goal":{},"shot_deflection_goal":{},"own_pass_goal":{},"lost_shot_goal":{},"unknown_loose_goal":{},"bad_knock_ahead_turnover":{},"knock_ahead_goal":{},"unrealistic_gk_save":{},"poor_gk_save_attempt":{},"questionable_shot_choice":{},"questionable_press_assignment":{},"unmarked_final_third":{},"risky_pass_choice":{}}},"events":[]}})",
+        R"(,"tackles":{{"attempts":{},"wins":{},"cleanControls":{},"looseDeflections":{},"fouls":{}}},"stuckCarrierAlerts":{},"teammatePingPongs":{},"tackleAttempts":{},"tackleWins":{},"slideTackleDistanceAlerts":{},"slideTackleOobAlerts":{})"
+        R"(,"qualityFlags":{{"player_stuck":{},"slide_tackle_distance":{},"slide_tackle_oob":{},"cross_goal":{},"direct_delivery_goal":{},"untracked_goal":{},"tackle_deflection_goal":{},"goalkeeper_parry_goal":{},"shot_deflection_goal":{},"own_pass_goal":{},"lost_shot_goal":{},"unknown_loose_goal":{},"bad_knock_ahead_turnover":{},"knock_ahead_goal":{},"unrealistic_gk_save":{},"poor_gk_save_attempt":{},"questionable_shot_choice":{},"questionable_press_assignment":{},"unmarked_final_third":{},"risky_pass_choice":{},"teammate_pingpong":{}}},"events":[]}})",
         shotDistanceClose,shotDistanceMedium,shotDistanceLong,shotsHome+shotsAway>0?shotDistanceTotal/(shotsHome+shotsAway):0,questionableShots,
         goalDistanceClose,goalDistanceMedium,goalDistanceLong,untrackedGoals,directDeliveryGoals,directCrossGoals,tackleDeflectionGoals,goalkeeperParryGoals,shotDeflectionGoals,ownPassGoals,lostShotGoals,unknownLooseGoals,knockAheadGoals,
         lastGoalSource,lastGoalScoringTeam,lastGoalTouchTeam,lastGoalToucherId,lastGoalBallSpeed,
@@ -1323,10 +1327,10 @@ inline std::string GameEngine::getJSON() const {
         statsKnockAheadTurnovers,statsKnockAheadOutOfPlay,statsRiskyKnockAheads,statsRiskyKnockAheadTurnovers,
         statsKnockAheads>0?statsKnockAheadLaunchSpeedTotal/statsKnockAheads:0,activeKnockAhead.active?1:0,
         tackleAttempts,tackleWins,tackleCleanControls,tackleLooseDeflections,tackleFouls,
-        stuckCarrierAlerts,
+        stuckCarrierAlerts,teammatePingPongs,
         tackleAttempts,tackleWins,slideTackleDistanceAlerts,slideTackleOobAlerts,
         stuckCarrierAlerts,slideTackleDistanceAlerts,slideTackleOobAlerts,directCrossGoals,directDeliveryGoals,untrackedGoals,tackleDeflectionGoals,goalkeeperParryGoals,shotDeflectionGoals,ownPassGoals,lostShotGoals,unknownLooseGoals,
         statsRiskyKnockAheadTurnovers,knockAheadGoals,unlikelyGkSaves,preventableGkGoals,questionableShots,
-        questionablePressAssignments,finalThirdUnmarkedSamples,saferPassIgnored);
+        questionablePressAssignments,finalThirdUnmarkedSamples,saferPassIgnored,teammatePingPongs);
     return js;
 }

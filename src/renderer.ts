@@ -251,7 +251,12 @@ export class MatchRenderer {
         angle = p.team === 'home' ? 0 : Math.PI;
       }
       if (p.facing !== undefined) {
-        angle = this.turnTowards(angle, p.facing, Math.PI / 18);
+        if (b.controllerId === p.id && b.controllerId !== this.lastControllerId) {
+          // snap facing when player just received the ball
+          angle = p.facing;
+        } else {
+          angle = this.turnTowards(angle, p.facing, Math.PI / 18);
+        }
       } else if (speed > MIN_SPEED) {
         const newAngle = Math.atan2(p.vy, p.vx);
         angle = this.turnTowards(angle, newAngle, Math.PI / 24);

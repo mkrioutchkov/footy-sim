@@ -12,6 +12,7 @@ interface Summary {
   shotsOnTarget: number;
   saves: number;
   stuckCarrierAlerts: number;
+  teammatePingPongs: number;
   slideTackleDistanceAlerts: number;
   slideTackleOobAlerts: number;
   ownPassGoals: number;
@@ -128,6 +129,7 @@ console.log(JSON.stringify({
     maxBackLineGap: round(results.reduce((max, result) => Math.max(max, result.marking.maxBackLineGap), 0)),
     unmarkedFinalThirdPct: round(unmarked / Math.max(1, markingSamples) * 100),
     carrierTurnsOver30PerMatch: round(results.reduce((sum, result) => sum + result.carrierTurns.over30, 0) / matches),
+    teammatePingPongsPerMatch: round(results.reduce((sum, result) => sum + result.teammatePingPongs, 0) / matches),
   },
   qualityFlags: {
     stuckCarrier: total('stuckCarrierAlerts'),

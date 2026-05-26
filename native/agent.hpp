@@ -368,7 +368,34 @@ inline GameContext PlayerAgent::ctx() {
 inline std::vector<Action> PlayerAgent::ev(const Perception& per, bool ic, const GameContext& ctx) {
     std::vector<Action> a;
     if (ic) {
-        if (sl > 0) return { Action{"hold", 1.0} };
+        if (sl > 0) {
+            // scan-hold: gentle drift
+            double angle = engine.state.clockMs * 0.005 + player.id * 1.7;
+            double tx = player.x + std::cos(angle) * 3.0;
+            double ty = player.y + std::sin(angle) * 3.0;
+            return { Action{"dribble", 1.0, nullptr, tx, ty, "hold"} };
+        }
+        // scan-hold: unpressured carriers in opponent half pause briefly
+        if (per.pressureCount == 0) {
+            bool inOppHalf = player.team == "home" ? player.x > HALF_X : player.x < HALF_X;
+            if (inOppHalf) {
+                bool quickPassAvailable = false;
+                double facingRad = player.facing;
+                double fx = std::cos(facingRad), fy = std::sin(facingRad);
+                for (auto& t : engine.state.players) {
+                    if (t.team != player.team || t.id == player.id || t.role == "GK") continue;
+                    double dx = t.x - player.x, dy = t.y - player.y;
+                    double d = std::hypot(dx, dy);
+                    if (d > 150.0) continue;
+                    double dot = (dx * fx + dy * fy) / d;
+                    if (dot > 0.65) { quickPassAvailable = true; break; }
+                }
+                if (!quickPassAvailable) {
+                    sl = 12 + static_cast<int>(engine.rng.random() * 18); // 200-500ms
+                    return { Action{"hold", 1.0} };
+                }
+            }
+        }
         if (sc > 0) {
             double gx = (player.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
             if (std::abs(player.x - gx) < 150.0) {
@@ -413,8 +440,8 @@ inline std::vector<Action> PlayerAgent::ev(const Perception& per, bool ic, const
                 if (!bestPass || x.score > bestPass->score) bestPass = &x;
             }
         }
-        if (bestPass && bestPass->score > 0.20) bestPass->score += 0.06;
-        if (player.role == "CM" && bestPass && bestPass->score > 0.15) bestPass->score += 0.14;
+        if (bestPass && bestPass->score > 0.20) bestPass->score += 0.00; // was 0.06
+        if (player.role == "CM" && bestPass && bestPass->score > 0.15) bestPass->score += 0.00; // was 0.14
 
         // CM: drive into space when no passing option is obvious
         if (player.role == "CM") {
@@ -1448,7 +1475,7 @@ inline void PlayerAgent::ex(Action& a, double sdt, std::vector<Action>& actions)
             engine.emitEvent("pass", p.x, p.y);
             auto& bb = engine.blackboards[p.team];
             bb.oneTwo = TeamBlackboard::OneTwo{ p.id, a.target->id, engine.state.clockMs + 2000.0 };
-            sl = 20;
+            sl = 90 + static_cast<int>(engine.rng.random() * 31); // 1.5-2s cooldown
         } else {
             sl = 4;
         }
@@ -1736,9 +1763,10 @@ inline void PlayerAgent::am(double sdt) {
     double spdAfter = std::sqrt(p.vx * p.vx + p.vy * p.vy);
     bool ic = (engine.state.ball.controllerId == p.id);
     if (ic) {
-        double oppGoalX = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
-        double goalAngle = std::atan2(PITCH_H / 2.0 - p.y, oppGoalX - p.x);
-        facing = facing + std::atan2(std::sin(goalAngle - facing), std::cos(goalAngle - facing)) * 0.25;
+        auto& b = engine.state.ball;
+        double bs = std::hypot(b.vx, b.vy);
+        double lookAngle = bs > 0.5 ? std::atan2(-b.vy, -b.vx) : facing;
+        facing = facing + std::atan2(std::sin(lookAngle - facing), std::cos(lookAngle - facing)) * 0.25;
     } else if (spdAfter > 5.0) {
         double moveAngle = std::atan2(p.vy, p.vx);
         facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.3;
