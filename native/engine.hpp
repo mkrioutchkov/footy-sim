@@ -913,8 +913,19 @@ inline void GameEngine::auditStuckCarrier(double sdt){
         if(p.team!=carrier->team&&p.role!="GK"&&dist(p.x,p.y,carrier->x,carrier->y)<58)nearbyOpponents++;
     }
     bool deep=carrier->team=="home"?carrier->x<PITCH_W*0.28:carrier->x>PITCH_W*0.72;
-    if(watchedCarrierMs>4200&&(nearbyOpponents>0||deep)&&state.clockMs-lastStuckAlertMs>8000){
+    if(watchedCarrierMs>4200&&state.clockMs-lastStuckAlertMs>8000){
         stuckCarrierAlerts++;
+        // Unstuck: force pass to nearest teammate or boot the ball
+        Player* best=nullptr; double bestD=1e9;
+        for(auto&p:state.players){
+            if(p.team!=carrier->team||p.id==carrier->id||p.role=="GK")continue;
+            double d=dist(carrier->x,carrier->y,p.x,p.y);
+            if(d<bestD){bestD=d; best=&p;}
+        }
+        if(best){ forcePassTo(*carrier,*best,nullptr); }
+        else{ auto&b=state.ball; b.controllerId=-1; b.vx=carrier->team=="home"?300:-300; b.vy=0; b.vz=80; b.z=0; }
+        setPieceArmed=false; setPieceType.clear(); setPieceTeam.clear();
+        watchedCarrierMs=0; watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
         lastStuckAlertMs=state.clockMs;
     }
 }
