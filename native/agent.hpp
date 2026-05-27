@@ -1709,13 +1709,23 @@ inline void PlayerAgent::am(double sdt) {
 
     // committedRunFor always returns nullptr (stub) — removed dead variable
     bool pressTask      = (lastPurpose == "task:primary_press");
-    bool committedChase = (la == "chase" && engine.state.ball.controllerId < 0
-                           && (lastPurpose == "receive_ball" || lastPurpose == "recover_loose_ball"));
+    bool secondaryPress = (lastPurpose == "task:secondary_press");
+    // Sprint when chasing any loose ball — defenders should be aggressive
+    bool committedChase = (la == "chase" && engine.state.ball.controllerId < 0)
+                       || (la == "chase" && lastPurpose == "receive_ball")
+                       || (la == "chase" && lastPurpose == "recover_loose_ball");
 
     double bdx = engine.state.ball.x - p.x, bdy = engine.state.ball.y - p.y;
     double bd  = std::sqrt(bdx * bdx + bdy * bdy);
     double ownGoalX = (p.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
-    bool committedPress = pressTask && bd > 45.0 && (bd < 145.0 || std::abs(engine.state.ball.x - ownGoalX) < 240.0);
+
+    // Predatorial: carrier is cornered, pressers sprint to force turnover
+    bool carrierCornered = (engine.state.ball.x < 80.0 || engine.state.ball.x > PITCH_W - 80.0)
+                        && (engine.state.ball.y < 80.0 || engine.state.ball.y > PITCH_H - 80.0);
+    bool predatorial = (pressTask || secondaryPress) && carrierCornered;
+
+    bool committedPress = (pressTask && bd > 45.0 && (bd < 145.0 || std::abs(engine.state.ball.x - ownGoalX) < 240.0))
+                        || predatorial;
 
     bool isObserving = !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5;
 
