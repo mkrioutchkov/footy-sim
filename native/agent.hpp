@@ -1772,6 +1772,10 @@ inline void PlayerAgent::am(double sdt) {
         auto& b = engine.state.ball;
         double bs = std::hypot(b.vx, b.vy);
         if(bs > 0.5) facing = facing + std::atan2(std::sin(std::atan2(-b.vy, -b.vx) - facing), std::cos(std::atan2(-b.vy, -b.vx) - facing)) * 0.05;
+    } else if (engine.state.ball.controllerId < 0 && bd < 80.0) {
+        // Ball is loose and nearby — face toward it
+        double ballAngle = std::atan2(bdy, bdx);
+        facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.15;
     } else if (spdAfter > 5.0) {
         double moveAngle = std::atan2(p.vy, p.vx);
         facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.06;
