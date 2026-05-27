@@ -16,6 +16,7 @@ public:
     std::unordered_map<std::string, TeamBlackboard> blackboards;
     StatsCollector stats;
     std::vector<PlayerAgent> agents;
+    std::array<Player*, 22> playerLookup = {};
     double accumulator = 0.0;
 
     // per-frame state (not stats — used by game logic)
@@ -139,9 +140,17 @@ public:
         return it==assignmentByPlayer.end()?nullptr:&it->second;
     }
     AgentTeamAssignment* committedRunFor(int) { return nullptr; }
-    [[nodiscard]] Player* playerById(int id) { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
+    [[nodiscard]] Player* playerById(int id) {
+        if(id>=0&&id<22&&playerLookup[id])return playerLookup[id];
+        for(auto&p:state.players)if(p.id==id)return &p;
+        return nullptr;
+    }
     [[nodiscard]] double carrierHoldMs() const { return watchedCarrierMs; }
-    [[nodiscard]] const Player* playerById(int id) const { for(auto&p:state.players) if(p.id==id) return &p; return nullptr; }
+    [[nodiscard]] const Player* playerById(int id) const {
+        if(id>=0&&id<22&&playerLookup[id])return playerLookup[id];
+        for(auto&p:state.players)if(p.id==id)return &p;
+        return nullptr;
+    }
     [[nodiscard]] std::vector<Player*> nearPlayers(Player& p, double range) {
         std::vector<Player*> r;
         for(auto& o:state.players) if(&o!=&p && dist(p.x,p.y,o.x,o.y)<range) r.push_back(&o);
@@ -468,6 +477,9 @@ public:
         createHomeTeam();
         for(int i=0;i<23;i++) rng.random();
         createAwayTeam();
+        for(auto&p:state.players){
+            if(p.id>=0&&p.id<22)playerLookup[p.id]=&p;
+        }
         for(auto&p:state.players)agents.emplace_back(p,*this);
     }
 
