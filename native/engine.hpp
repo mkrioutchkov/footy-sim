@@ -1191,7 +1191,12 @@ inline void GameEngine::collectBall(Player& c) {
     bool teammateTarget = receiverShieldTargetId >= 0 && b.lastTouchTeam == c.team;
     resolveKnockAhead(&c);
     resolvePendingPass(c);
-    if (c.role != "GK") c.facing = std::atan2(-b.vy, -b.vx);
+    // Face toward the ball's position, not its velocity direction
+    if (c.role != "GK") {
+        double fdx = b.x - c.x, fdy = b.y - c.y;
+        double fd = std::hypot(fdx, fdy);
+        if (fd > 0.1) c.facing = std::atan2(fdy, fdx);
+    }
     if (!lastCollectionTeam.empty() && c.team == lastCollectionTeam && state.clockMs - lastSameTeamCollectionMs < 300) {
         teammatePingPongs++;
         stats.recordCollection(true);
