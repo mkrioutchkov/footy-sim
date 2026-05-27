@@ -9,13 +9,17 @@ public:
     void setSeed(uint32_t seed) { state = seed; seeded = true; }
     void clearSeed() { seeded = false; }
 
+    // splitmix32 — deterministic, high-quality 32-bit PRNG
     double random() {
         if (!seeded) return (double)std::rand() / RAND_MAX;
-        state += 0x6d2b79f5;
-        uint32_t t = state;
-        t = (t ^ (t >> 15)) * (t | 1);
-        t ^= t + (t ^ (t >> 7)) * (t | 61);
-        return static_cast<double>(t ^ (t >> 14)) / 4294967296.0;
+        state += 0x9e3779b9;
+        uint32_t z = state;
+        z ^= z >> 16;
+        z *= 0x85ebca6b;
+        z ^= z >> 13;
+        z *= 0xc2b2ae35;
+        z ^= z >> 16;
+        return static_cast<double>(z) / 4294967296.0;
     }
 
     int randomInt(int min, int max) {

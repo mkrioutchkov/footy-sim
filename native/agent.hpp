@@ -270,13 +270,14 @@ inline void PlayerAgent::tick(double sdt) {
     if (ic) ht++;
     else    ht = 0;
 
-    if (ic && engine.isPreparingPass(player.id)) {
-        player.targetX = player.x;
-        player.targetY = player.y;
-        lx = player.x;
-        ly = player.y;
-        return;
-    }
+    // isPreparingPass always returns false (stub) — early return disabled
+    // if (ic && engine.isPreparingPass(player.id)) {
+    //     player.targetX = player.x;
+    //     player.targetY = player.y;
+    //     lx = player.x;
+    //     ly = player.y;
+    //     return;
+    // }
 
     if (ch.has_value() && ch->ballControllerId != engine.state.ball.controllerId) {
         if (ch->ballIsLoose
@@ -764,9 +765,11 @@ inline Action PlayerAgent::cs(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 40.0)  sc += 0.18;
 
     bool recentFinishingDelivery = engine.isRecentFinishingDeliveryReceiver(p.id);
-    if (shotDistance < 230.0 && angleDeg > 5.0 && recentFinishingDelivery) sc += 0.52;
+    // recentFinishingDelivery is always false (stub returns false) — bonus disabled
+    // if (shotDistance < 230.0 && angleDeg > 5.0 && recentFinishingDelivery) sc += 0.52;
     if (p.crossCollected > 0.0 && shotDistance < 230.0 && !recentFinishingDelivery) sc += 0.35;
-    if (shotDistance < 220.0 && engine.isRecentThroughBallReceiver(p.id)) sc += 0.32;
+    // isRecentThroughBallReceiver always returns false (stub) — bonus disabled
+    // if (shotDistance < 220.0 && engine.isRecentThroughBallReceiver(p.id)) sc += 0.32;
 
     return Action{"shoot", clamp(sc, 0.0, 1.0), nullptr, 0, 0, "", audit};
 }
@@ -1078,13 +1081,6 @@ inline std::vector<Action> PlayerAgent::bp(const Perception& per, const GameCont
     double fd = (p.team == "home") ? 1.0 : -1.0;
     std::string ip = engine.teamInPossession();
     bool my = (per.ballControllerTeam == p.team);
-    auto* committedRun = engine.committedRunFor(p.id);
-
-    if (committedRun) {
-        return { Action{"position", 1.0, nullptr, committedRun->targetX, committedRun->targetY, "timed_run"} };
-    }
-
-    std::string phase = engine.teamPhaseFor(p.team);
     double ba = (fd == 1.0) ? b.x / PITCH_W : 1.0 - b.x / PITCH_W;
     double pu = my ? ba * 180.0 : 0.0;
     bool iw = (p.role == "FB" || p.role == "WM");
@@ -1179,12 +1175,12 @@ inline std::vector<Action> PlayerAgent::bp(const Perception& per, const GameCont
             c.push_back({ clamp(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y + 30.0, 40.0, PITCH_H - 40.0), "space" });
         }
 
-        // counter-attack
-        if (phase == "attacking_transition" && (p.role == "CF" || p.role == "WM" || p.role == "CM")) {
-            double oppGoalX = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
-            c.push_back({ clamp(lerp(p.x, oppGoalX, 0.6), p.x + fd * 50.0, oppGoalX), p.homeY, "space" });
-            c.push_back({ clamp(lerp(p.x, oppGoalX, 0.5), p.x + fd * 40.0, oppGoalX), p.homeY - 30.0, "space" });
-        }
+        // counter-attack (disabled: teamPhaseFor always returns "possession")
+        // if (phase == "attacking_transition" && (p.role == "CF" || p.role == "WM" || p.role == "CM")) {
+        //     double oppGoalX = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+        //     c.push_back({ clamp(lerp(p.x, oppGoalX, 0.6), p.x + fd * 50.0, oppGoalX), p.homeY, "space" });
+        //     c.push_back({ clamp(lerp(p.x, oppGoalX, 0.5), p.x + fd * 40.0, oppGoalX), p.homeY - 30.0, "space" });
+        // }
 
         // box runs
         if (ba > 0.6 && (p.role == "CF" || p.role == "CM" || p.role == "WM")) {
@@ -1711,7 +1707,7 @@ inline void PlayerAgent::am(double sdt) {
     double dx = p.targetX - p.x, dy = p.targetY - p.y;
     double d = std::sqrt(dx * dx + dy * dy);
 
-    bool committedRun   = (engine.committedRunFor(p.id) != nullptr);
+    // committedRunFor always returns nullptr (stub) — removed dead variable
     bool pressTask      = (lastPurpose == "task:primary_press");
     bool committedChase = (la == "chase" && engine.state.ball.controllerId < 0
                            && (lastPurpose == "receive_ball" || lastPurpose == "recover_loose_ball"));
@@ -1721,7 +1717,7 @@ inline void PlayerAgent::am(double sdt) {
     double ownGoalX = (p.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
     bool committedPress = pressTask && bd > 45.0 && (bd < 145.0 || std::abs(engine.state.ball.x - ownGoalX) < 240.0);
 
-    bool isObserving = !committedRun && !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5;
+    bool isObserving = !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5;
 
     double cruiseMul = isObserving
         ? (p.role == "CF" ? 0.45 : p.role == "CB" || p.role == "FB" ? 0.65 : p.role == "WM" ? 0.55 : 0.50)
@@ -1729,9 +1725,9 @@ inline void PlayerAgent::am(double sdt) {
 
     double baseSpeed = engine.isActiveKnockAheadRunner(p.id)
         ? DRIBBLE_FAST_SPEED
-        : (la == "chase" || committedRun || committedPress ? SPEED_SPRINT : SPEED_RUN);
+        : (la == "chase" || committedPress ? SPEED_SPRINT : SPEED_RUN);
 
-    double df = (committedRun || committedChase || committedPress) ? 1.0 : std::min(d / 120.0, 1.5);
+    double df = (committedChase || committedPress) ? 1.0 : std::min(d / 120.0, 1.5);
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
 
     double px = p.x, py = p.y;
