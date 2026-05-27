@@ -760,6 +760,7 @@ inline Action PlayerAgent::cs(const Perception& per, const GameContext& ctx) {
     if (ctx.urgency > 0.6 && shotDistance < 240.0) sc += 0.08;
 
     bool credibleOpening = angleDeg >= 7.5 || shotDistance < 115.0;
+    if (shotDistance < 200.0 && credibleOpening) sc += 0.30;
     if (shotDistance < 120.0 && credibleOpening) sc += 0.38;
     if (shotDistance < 70.0  && credibleOpening) sc += 0.28;
     if (shotDistance < 40.0)  sc += 0.18;
