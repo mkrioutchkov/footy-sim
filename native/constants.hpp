@@ -67,3 +67,12 @@ inline constexpr double DRIBBLE_KNOCK_OFFSET = CONTROL_DIST + BALL_R + 3.5;
 // ── Collect ──
 inline constexpr double COLLECT_SPEED_MAX       = 80.0;
 inline constexpr double INTENDED_COLLECT_BONUS   = 1.8;
+
+// ── Pressure / detection ──
+inline constexpr double PRESSURE_RANGE          = 58.0;
+inline constexpr double STUCK_CARRIER_MOVE_THRESHOLD = 42.0;
+inline constexpr double STUCK_CARRIER_TIMEOUT_MS = 4200.0;
+inline constexpr double DANGER_ZONE_DIST        = 240.0;
+inline constexpr double PRESS_COMMIT_MAX_DIST   = 145.0;
+inline constexpr double CORNER_ZONE             = 80.0;
+inline constexpr double CORNER_TRAP_SIZE        = 80.0;

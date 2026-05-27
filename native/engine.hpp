@@ -409,7 +409,7 @@ public:
         double shotDistance=std::hypot(gx-s.x,goalCenterY-s.y);
         stats.recordShotDistance(shotDistance);
         int pressureCount=0;
-        for(auto&o:state.players)if(o.team!=s.team&&o.role!="GK"&&dist(o.x,o.y,s.x,s.y)<58)pressureCount++;
+        for(auto&o:state.players)if(o.team!=s.team&&o.role!="GK"&&dist(o.x,o.y,s.x,s.y)<PRESSURE_RANGE)pressureCount++;
         double angleDeg=goalOpeningAngleDeg(s.x,s.y,gx);
         bool outsideGoalLane=std::abs(s.y-goalCenterY)>GOAL_W/2+20;
         bool acuteGeometry=outsideGoalLane&&angleDeg<7.5&&shotDistance>150;
@@ -783,7 +783,7 @@ inline void GameEngine::auditCredibleShotWindow(const Player& player, double dis
 inline void GameEngine::assignDefensiveRoles(const std::string& team,Player& carrier){
     double fd=team=="home"?1.0:-1.0;
     double ownGoalX=team=="home"?HOME_GOAL_X:AWAY_GOAL_X;
-    bool danger=std::abs(carrier.x-ownGoalX)<240.0;
+    bool danger=std::abs(carrier.x-ownGoalX)<DANGER_ZONE_DIST;
     Config tactics=configFor(team);
     struct Rated { Player* player; double distance; double eta; double score; };
     std::vector<Rated> ranked;
@@ -881,7 +881,7 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
     std::string defending=carrier.team=="home"?"away":"home";
     double ownGoalX=defending=="home"?HOME_GOAL_X:AWAY_GOAL_X;
     double fd=defending=="home"?1.0:-1.0;
-    bool danger=std::abs(carrier.x-ownGoalX)<240.0;
+    bool danger=std::abs(carrier.x-ownGoalX)<DANGER_ZONE_DIST;
     Player* primary=nullptr;
     for(const auto& [id,task]:assignmentByPlayer){
         if(task.role=="primary_press"){primary=playerById(id);break;}
@@ -957,7 +957,7 @@ inline void GameEngine::auditStuckCarrier(double sdt){
     }
     watchedCarrierMs+=sdt;
     double moved=dist(carrier->x,carrier->y,watchedCarrierX,watchedCarrierY);
-    if(moved>42){
+    if(moved>STUCK_CARRIER_MOVE_THRESHOLD){
         watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
         watchedCarrierMs=0;
         return;
@@ -972,10 +972,10 @@ inline void GameEngine::auditStuckCarrier(double sdt){
     }
     int nearbyOpponents=0;
     for(auto& p:state.players){
-        if(p.team!=carrier->team&&p.role!="GK"&&dist(p.x,p.y,carrier->x,carrier->y)<58)nearbyOpponents++;
+        if(p.team!=carrier->team&&p.role!="GK"&&dist(p.x,p.y,carrier->x,carrier->y)<PRESSURE_RANGE)nearbyOpponents++;
     }
     bool deep=carrier->team=="home"?carrier->x<PITCH_W*0.28:carrier->x>PITCH_W*0.72;
-    if(watchedCarrierMs>4200){
+    if(watchedCarrierMs>STUCK_CARRIER_TIMEOUT_MS){
         // Unstuck: force pass to nearest teammate or boot the ball
         Player* best=nullptr; double bestD=1e9;
         for(auto&p:state.players){
