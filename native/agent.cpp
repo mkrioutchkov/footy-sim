@@ -481,8 +481,10 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/) {
     const auto& p = player;
     double gx = goalXFor(p.team);
+    double fd = (p.team == Team::Home) ? 1.0 : -1.0;
     double tx = gx, ty = p.y;
 
+    // Evade nearest opponent if close
     if (per.nearestOpponentDist < 50.0 && !per.nearbyOpponents.empty()) {
         Player* n = nullptr;
         double nd = 1e9;
@@ -497,33 +499,94 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         }
     }
 
+    // Keep away from pitch edges
     if (p.y < 60.0)           ty = std::max(ty, p.y + 40.0);
     if (p.y > PITCH_H - 60.0) ty = std::min(ty, p.y - 40.0);
     if (p.x < 60.0)           tx = std::max(tx, p.x + 40.0);
     if (p.x > PITCH_W - 60.0) tx = std::min(tx, p.x - 40.0);
 
-    tx = lerp(tx, gx, 0.3);
+    // Target selection: prefer space over goal
+    double distToGoal = std::abs(p.x - gx);
+    bool inOwnHalf = (fd > 0 && p.x < HALF_X) || (fd < 0 && p.x > HALF_X);
+    bool nearGoal = distToGoal < 200.0;
+
+    // Find open space: check density around potential targets
+    auto densityAt = [&](double cx, double cy) {
+        int count = 0;
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team || o.role == Role::GK) continue;
+            if (dist(cx, cy, o.x, o.y) < 80.0) count++;
+        }
+        return count;
+    };
+
+    // Consider flank targets for CM/FB
+    if (p.role == Role::CM || p.role == Role::FB) {
+        double topFlank = std::max(80.0, p.y - 100.0);
+        double botFlank = std::min(PITCH_H - 80.0, p.y + 100.0);
+        double topDensity = densityAt(p.x + fd * 60.0, topFlank);
+        double botDensity = densityAt(p.x + fd * 60.0, botFlank);
+        double centerDensity = densityAt(p.x + fd * 60.0, p.y);
+
+        // Pick the least congested direction
+        if (topDensity < centerDensity && topDensity < botDensity) {
+            ty = topFlank;
+            tx = p.x + fd * 80.0;
+        } else if (botDensity < centerDensity) {
+            ty = botFlank;
+            tx = p.x + fd * 80.0;
+        } else {
+            tx = p.x + fd * 80.0;
+        }
+    }
+
+    // Blend toward goal only when close
+    if (nearGoal) {
+        tx = lerp(tx, gx, 0.4);
+    } else {
+        tx = lerp(tx, gx, 0.15);
+    }
+
+    // Scoring
     double sc = 0.30;
 
-    if (per.nearestOpponentDist > 80.0) sc += 0.10;
-    if (per.nearestOpponentDist < 40.0) sc -= 0.10;
-    if (std::abs(p.x - gx) < 200.0) sc += 0.10;
+    // Space bonus: more space = more dribble
+    if (per.nearestOpponentDist > 100.0) sc += 0.15;
+    else if (per.nearestOpponentDist > 60.0) sc += 0.05;
+    else if (per.nearestOpponentDist < 30.0) sc -= 0.20;
 
+    // Traffic penalty: crowded area = don't dribble
+    int oppsInPath = 0;
+    for (auto& o : engine.state.players) {
+        if (o.team == p.team || o.role == Role::GK) continue;
+        double d = dist(p.x, p.y, o.x, o.y);
+        if (d < 80.0) oppsInPath++;
+    }
+    if (oppsInPath >= 3) sc -= 0.20;
+    if (oppsInPath >= 5) sc -= 0.30;
+
+    // Field position: prefer passing in own half
+    if (inOwnHalf) sc -= 0.10;
+    if (inOwnHalf && p.role != Role::WM) sc -= 0.05; // CM/CB/FB: extra penalty in own half
+
+    // Near goal bonus
+    if (nearGoal) sc += 0.10;
+
+    // Stuck detection
     double m = std::sqrt((p.x - lastPosX) * (p.x - lastPosX) + (p.y - lastPosY) * (p.y - lastPosY));
     if (holdTicks > 60 && m < 3.0)  sc -= 0.20;
     if (holdTicks > 180)            sc -= 0.30;
 
-    int ndCount = 0;
-    for (auto* o : per.nearbyOpponents) {
-        if (dist(p.x, p.y, o->x, o->y) < 80.0) ndCount++;
-    }
-    if (ndCount >= 3) sc -= 0.15;
-    if (ndCount >= 5) sc -= 0.20;
+    // Open space ahead bonus: check if target area is clear
+    int densityAtTarget = densityAt(tx, ty);
+    if (densityAtTarget == 0) sc += 0.15;
+    else if (densityAtTarget == 1) sc += 0.05;
+    else if (densityAtTarget >= 3) sc -= 0.10;
 
-    if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) > 120.0) sc += 0.08;
+    // Role-specific
     if (p.role == Role::WM) {
         bool inWide = std::abs(p.y - PITCH_H / 2.0) > 140.0;
-        bool nearOppBox = std::abs(p.x - gx) < 350.0;
+        bool nearOppBox = distToGoal < 350.0;
         if (inWide) {
             sc += 0.15;
             if (per.nearestOpponentDist < 60.0) sc += 0.08;
@@ -534,8 +597,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
             ty = lerp(ty, PITCH_H / 2.0, 0.3);
         }
     }
-    if (p.role == Role::CM && per.nearestOpponentDist > 60.0) sc += 0.12;
-    if (p.role == Role::CM && std::abs(p.x - gx) < 250.0) sc += 0.06;
+    if (p.role == Role::CM && per.nearestOpponentDist > 80.0) sc += 0.08;
+    if (p.role == Role::CF && nearGoal) sc += 0.10;
 
     return Action{ActionType::Dribble, clamp(sc, 0.0, 1.0), nullptr,
                   clamp(tx, 35.0, PITCH_W - 35.0),
