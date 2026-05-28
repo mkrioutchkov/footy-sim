@@ -5,15 +5,11 @@
 #include "rng.h"
 #include <vector>
 #include <string>
-#include <algorithm>
 #include <cmath>
 #include <optional>
 
 // ── Forward declare GameEngine ────────────────────────────────────────────────
 class GameEngine;
-
-// ── Former chase collection envelope (counts now-rejected stale steals) ──────
-inline constexpr double PRE_CONTACT_CHASE_REACH = 36.4;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Agent-internal types (mirror TS interfaces from agent.ts)

@@ -92,7 +92,6 @@ public:
     };
     Config homeConfig, awayConfig;
     [[nodiscard]] Config configFor(const std::string& team) const { return team=="home" ? homeConfig : awayConfig; }
-    [[nodiscard]] std::string teamPhaseFor(const std::string&) const { return "possession"; }
     [[nodiscard]] double offsideLineFor(const std::string& t) const {
         const double fd = t=="home" ? 1.0 : -1.0;
         const Player* d1=nullptr,*d2=nullptr;
@@ -143,13 +142,11 @@ public:
         auto it=assignmentByPlayer.find(playerId);
         return it==assignmentByPlayer.end()?nullptr:&it->second;
     }
-    AgentTeamAssignment* committedRunFor(int) { return nullptr; }
     [[nodiscard]] Player* playerById(int id) {
         if(id>=0&&id<22&&playerLookup[id])return playerLookup[id];
         for(auto&p:state.players)if(p.id==id)return &p;
         return nullptr;
     }
-    [[nodiscard]] double carrierHoldMs() const { return watchedCarrierMs; }
     [[nodiscard]] const Player* playerById(int id) const {
         if(id>=0&&id<22&&playerLookup[id])return playerLookup[id];
         for(auto&p:state.players)if(p.id==id)return &p;
@@ -252,7 +249,7 @@ public:
         double tdx=dx+(rng.random()-0.5)*inacc;
         double tdy=dy+(rng.random()-0.5)*inacc;
         double tDist=std::hypot(tdx,tdy);
-        double ownGoalX=f.team=="home"?HOME_GOAL_X:AWAY_GOAL_X;
+        double ownGoalX=ownGoalXFor(f.team);
         bool towardOwnGoal=f.team=="home"?tdx<0:tdx>0;
         bool defendingOwnBox=std::abs(f.x-ownGoalX)<PITCH_W/3.0;
         if(towardOwnGoal&&defendingOwnBox){
@@ -404,7 +401,7 @@ public:
     }
     void shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         stats.recordShot(s.team,false);
-        double gx=(s.team=="home")?AWAY_GOAL_X:HOME_GOAL_X;
+        double gx=goalXFor(s.team);
         double accuracy=attrFactor(s.attrs.shooting);
         double goalCenterY=PITCH_H/2.0;
         double shotDistance=std::hypot(gx-s.x,goalCenterY-s.y);

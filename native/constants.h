@@ -128,6 +128,9 @@ inline constexpr double SHOT_MAX_ANGLE_ACUTE    = 150.0;
 inline constexpr double SHOT_ANGLE_DISTANCE_2ND = 200.0;
 inline constexpr double SHOT_ANGLE_THRESH_2ND   = 9.0;
 
+// ── Chase ──
+inline constexpr double PRE_CONTACT_CHASE_REACH = 36.4;
+
 // ── GK save ──
 inline constexpr double GK_SAVE_MIN_SPEED       = 200.0;
 inline constexpr double GK_SAVE_MAX_GOAL_DIST   = 250.0;

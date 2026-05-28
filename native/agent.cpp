@@ -1,7 +1,6 @@
 #include "engine.h"
 #include "agent.h"
 #include <limits>
-#include <numeric>
 
 // ══════════════════════════════════════════════════════════════════════════════
 // tick()
@@ -63,7 +62,7 @@ void PlayerAI::tick(double sdt) {
     if (ic && per.pressureCount == 0 && choice.type != "shoot" && choice.type != "hold"
         && std::fmod(engine.state.clockMs, 500.0) < 20.0)
     {
-        double gx = (player.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+        double gx = goalXFor(player.team);
         if (std::abs(player.x - gx) < 120.0) {
             auto shootOpt = std::find_if(aff.begin(), aff.end(),
                                          [](const Action& x) { return x.type == "shoot"; });
@@ -131,7 +130,7 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
             }
         }
         if (shotCooldown > 0) {
-            double gx = (player.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+            double gx = goalXFor(player.team);
             if (std::abs(player.x - gx) < 150.0) {
                 auto cpv = this->scorePass(per, ctx);
                 auto csv = this->scoreShot(per, ctx);
@@ -195,7 +194,7 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
         a.insert(a.end(), bpv.begin(), bpv.end());
     }
 
-    double gx = (player.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+    double gx = goalXFor(player.team);
     if (std::abs(player.x - gx) < 280.0) {
         for (auto& x : a) {
             if (x.type == "shoot")                                  x.score += 0.06;
@@ -279,14 +278,14 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (fp < -30.0) sc -= 0.16;
         if (fp < -90.0) sc -= 0.18;
 
-        double dg2 = std::abs(p.x - ((p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X));
+        double dg2 = std::abs(p.x - (goalXFor(p.team)));
         if (dg2 < 200.0 && fp > 0.0 && d < 150.0) sc += 0.10;
 
         double dgW = dg2;
         bool isWideDelivery = (p.role == "WM" || p.role == "FB")
             && dgW < 315.0
             && std::abs(p.y - PITCH_H / 2.0) > 90.0
-            && std::abs(t.x - ((p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X)) < 235.0
+            && std::abs(t.x - (goalXFor(p.team))) < 235.0
             && std::abs(t.y - PITCH_H / 2.0) < 135.0
             && fp > -80.0;
 
@@ -406,7 +405,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
 // ══════════════════════════════════════════════════════════════════════════════
 Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
-    double gx = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+    double gx = goalXFor(p.team);
     double shotDistance = std::hypot(p.x - gx, p.y - PITCH_H / 2.0);
     double angleDeg = engine.goalOpeningAngleDeg(p.x, p.y, gx);
 
@@ -476,7 +475,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 // ══════════════════════════════════════════════════════════════════════════════
 Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/) {
     const auto& p = player;
-    double gx = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+    double gx = goalXFor(p.team);
     double tx = gx, ty = p.y;
 
     if (per.nearestOpponentDist < 50.0 && !per.nearbyOpponents.empty()) {
@@ -584,13 +583,13 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == "primary_press")   sc += 0.20;
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == "secondary_press") sc += 0.10;
         if (defensiveTask->role != "primary_press" && defensiveTask->role != "secondary_press"
-            && std::abs(ctrl->x - ((player.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X)) > 170.0)
+            && std::abs(ctrl->x - (ownGoalXFor(player.team))) > 170.0)
             sc -= 0.20;
     }
 
     if (engine.isCarrierShielded(ctrl->id)) sc -= 0.20;
 
-    double ownGoalX = (player.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
+    double ownGoalX = ownGoalXFor(player.team);
     if (std::abs(ctrl->x - ownGoalX) < 220.0) sc += 0.18;
     if (std::abs(ctrl->x - ownGoalX) < 120.0) sc += 0.12;
 
@@ -625,7 +624,7 @@ Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
 
     Player* best = nullptr;
     double bd = 1e9;
-    double ownGx = (player.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
+    double ownGx = ownGoalXFor(player.team);
     bool isFb = (player.role == "FB");
 
     for (auto& o : engine.state.players) {
@@ -712,7 +711,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
     }
 
     if (player.role == "CF" && per.ballDist > 80.0) {
-        double oppGx = (player.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+        double oppGx = goalXFor(player.team);
         bool ballNearOppGoal = std::abs(b.x - oppGx) < 200.0;
         if (!ballNearOppGoal) return Action{"chase", 0.0};
     }
@@ -755,7 +754,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
     }
 
     if (isDef) {
-        double ownGoalX = (player.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
+        double ownGoalX = ownGoalXFor(player.team);
         if (std::abs(b.x - ownGoalX) < 250.0) sc += 0.20;
         if (std::abs(b.x - ownGoalX) < 150.0) sc += 0.15;
     }
@@ -799,7 +798,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     c.push_back({ p.homeX + pu, clamp(p.homeY + openFlank * 50.0, 40.0, PITCH_H - 40.0), "cover" });
 
     if (!my && !per.ballIsLoose && !per.ballControllerTeam.empty()) {
-        double og = (p.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
+        double og = ownGoalXFor(p.team);
         double rx = clamp(lerp(p.x, og, 0.5), og, p.x);
         c.push_back({ rx, p.homeY, "cover" });
         c.push_back({ rx, p.homeY - 30.0, "cover" });
@@ -857,14 +856,14 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
 
         auto& bb2 = engine.blackboards[GameEngine::teamIndex(p.team)];
         if (bb2.oneTwo.has_value() && bb2.oneTwo->from == p.id && engine.state.clockMs < bb2.oneTwo->expires) {
-            double oppGoalX = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+            double oppGoalX = goalXFor(p.team);
             c.push_back({ clamp(p.x + fd * 80.0, p.homeX + fd * 40.0, oppGoalX), p.y, "space" });
             c.push_back({ clamp(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y - 30.0, 40.0, PITCH_H - 40.0), "space" });
             c.push_back({ clamp(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y + 30.0, 40.0, PITCH_H - 40.0), "space" });
         }
 
         if (ba > 0.6 && (p.role == "CF" || p.role == "CM" || p.role == "WM")) {
-            double bGoalX = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+            double bGoalX = goalXFor(p.team);
             c.push_back({ bGoalX - fd * (30.0 + engine.rng.random() * 70.0),                           clamp(PITCH_H / 2.0 + (p.homeY - PITCH_H / 2.0) * 0.4, PITCH_H * 0.25, PITCH_H * 0.75), "space" });
             c.push_back({ bGoalX - fd * (50.0 + engine.rng.random() * 50.0),                           clamp(PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 80.0, PITCH_H * 0.20, PITCH_H * 0.80), "space" });
         }
@@ -933,7 +932,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         }
 
         if (p.role == "CF") {
-            double oppGoalX = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+            double oppGoalX = goalXFor(p.team);
             double ld = (fd == 1.0) ? -1e9 : 1e9;
             bool anyDefenders = false;
             for (auto& o : engine.state.players) {
@@ -983,7 +982,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
 
         bool ballPastUs = (fd == 1.0) ? b.x > lineX + 20.0 : b.x < lineX - 20.0;
         if (ballPastUs) {
-            double dropX = clamp(lerp(lineX, (p.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X, 0.3), p.homeX - 80.0, p.homeX);
+            double dropX = clamp(lerp(lineX, ownGoalXFor(p.team), 0.3), p.homeX - 80.0, p.homeX);
             c.push_back({ dropX, p.homeY, "cover" });
             c.push_back({ dropX - fd * 20.0, p.homeY, "cover" });
         }
@@ -994,7 +993,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     }
 
     if (!my) {
-        c.push_back({ clamp((b.x + ((p.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X)) / 2.0, p.homeX - 80.0, p.homeX + 20.0), p.homeY, "cover" });
+        c.push_back({ clamp((b.x + (ownGoalXFor(p.team))) / 2.0, p.homeX - 80.0, p.homeX + 20.0), p.homeY, "cover" });
         double bf2 = (b.y < PITCH_H / 2.0) ? -1.0 : 1.0;
         c.push_back({ clamp(p.homeX - fd * 30.0, 40.0, PITCH_W - 40.0), clamp(p.homeY + bf2 * 25.0, 40.0, PITCH_H - 40.0), "cover" });
         if (p.role == "FB" && std::abs(b.y - p.homeY) > 200.0) {
@@ -1010,7 +1009,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             if (d2 < 50.0) sf -= (50.0 - d2) / 50.0;
         }
         double tac = my ? (cn.x - p.homeX) * fd / PITCH_W * 0.5 : -(cn.x - p.homeX) * fd / PITCH_W * 0.25;
-        double og2 = (p.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
+        double og2 = ownGoalXFor(p.team);
         double db = !my ? clamp(((b.x - cn.x) * fd) / (std::abs(b.x - og2) + 1.0), 0.0, 0.30) : 0.0;
         double bp2 = std::sqrt((cn.x - b.x) * (cn.x - b.x) + (cn.y - b.y) * (cn.y - b.y)) / 600.0 * 0.08;
         double ob = (cn.pur == "observe") ? 0.10 :
@@ -1059,7 +1058,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
 
     Action& best = a[0];
     bool ic = (engine.state.ball.controllerId == player.id);
-    double gx = (player.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+    double gx = goalXFor(player.team);
     bool nearGoal = std::abs(player.x - gx) < 220.0;
     bool inBox    = std::abs(player.x - gx) < 150.0;
 
@@ -1154,7 +1153,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         stunLockTicks = 20;
     }
     else if (a.type == "dribble") {
-        p.targetX = (a.posX != 0) ? a.posX : ((p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X);
+        p.targetX = (a.posX != 0) ? a.posX : (goalXFor(p.team));
         p.targetY = (a.posY != 0) ? a.posY : p.y;
 
         double wobbleAngle = std::sin(engine.state.clockMs * 0.008 + p.id * 1.7) * 0.3;
@@ -1187,7 +1186,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         p.dribbleType = dribbleType;
         if (dribbleType == 3 && newEpisode) engine.knockBallAhead(p, p.targetX, p.targetY);
 
-        double oppGoalX = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
+        double oppGoalX = goalXFor(p.team);
         double fd = (p.team == "home") ? 1.0 : -1.0;
         if ((fd == 1.0 && p.targetX < p.x - 10.0) || (fd == -1.0 && p.targetX > p.x + 10.0)) {
             if (std::abs(p.x - oppGoalX) < 300.0) {
@@ -1219,7 +1218,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
     else if (a.type == "mark" && a.target) {
         double leadX = a.target->x + a.target->vx * 0.3;
         double leadY = a.target->y + a.target->vy * 0.3;
-        double ownGx = (p.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
+        double ownGx = ownGoalXFor(p.team);
         p.targetX = clamp(lerp(leadX, ownGx, 0.15), leadX - 80.0, leadX + 40.0);
         p.targetY = clamp(leadY + std::sin(engine.state.clockMs * 0.004 + p.id) * 8.0, 30.0, PITCH_H - 30.0);
     }
@@ -1257,7 +1256,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
                 p.targetX = clamp(p.x + (p.x - closestOpp->x) * 0.5, 35.0, PITCH_W - 35.0);
                 p.targetY = clamp(p.y + (p.y - closestOpp->y) * 0.5, 35.0, PITCH_H - 35.0);
             } else {
-                p.targetX = clamp((p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X, 40.0, PITCH_W - 40.0);
+                p.targetX = clamp(goalXFor(p.team), 40.0, PITCH_W - 40.0);
                 p.targetY = clamp(p.y + (engine.rng.random() - 0.5) * 20.0, 40.0, PITCH_H - 40.0);
             }
         }
@@ -1382,7 +1381,7 @@ void PlayerAI::applyMovement(double sdt) {
 
     double bdx = engine.state.ball.x - p.x, bdy = engine.state.ball.y - p.y;
     double bd  = std::sqrt(bdx * bdx + bdy * bdy);
-    double ownGoalX = (p.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
+    double ownGoalX = ownGoalXFor(p.team);
 
     bool carrierCornered = (engine.state.ball.x < 80.0 || engine.state.ball.x > PITCH_W - 80.0)
                         && (engine.state.ball.y < 80.0 || engine.state.ball.y > PITCH_H - 80.0);
@@ -1565,7 +1564,7 @@ void PlayerAI::auditDefensiveMovement(const Action& choice) {
     double currentDistance = dist(player.x, player.y, controller->x, controller->y);
     double targetDistance = std::hypot(targetX - controller->x, targetY - controller->y);
 
-    double ownGoalX = (player.team == "home") ? HOME_GOAL_X : AWAY_GOAL_X;
+    double ownGoalX = ownGoalXFor(player.team);
     bool danger = std::abs(controller->x - ownGoalX) < 240.0;
 
     if (!danger && targetDistance <= currentDistance + 12.0) return;
