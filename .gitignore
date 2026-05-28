@@ -8,3 +8,5 @@ seed102_stuck.log
 native/*.exe
 native/*.obj
 native/*.ifc
+*.bin
+__pycache__/

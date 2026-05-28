@@ -73,23 +73,22 @@ inline bool GameEngine::checkGoal(){
 inline bool GameEngine::checkOutOfPlay() {
     auto& b = state.ball;
     Team lt = b.lastTouchTeam;
-    if (b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
+    auto clearState = [&]() {
         resolveKnockAhead(nullptr, "out_of_play");
         pendingPass.active = false;
         trackedShot = false;
         trackedShotPreventable = false;
         lastLooseOrigin.clear();
+    };
+    if (b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
+        clearState();
         awardThrowIn(std::string(to_string(lt)), b.y < 0 ? 0 : PITCH_H);
         return true;
     }
     if (b.x + BALL_R < HOME_GOAL_X) {
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2;
         if (!inGoal) {
-            resolveKnockAhead(nullptr, "out_of_play");
-            pendingPass.active = false;
-            trackedShot = false;
-            trackedShotPreventable = false;
-            lastLooseOrigin.clear();
+            clearState();
             awardSetPiece("goal_kick", std::string(to_string(lt == Team::Away ? Team::Home : Team::Away)));
             return true;
         }
@@ -97,11 +96,7 @@ inline bool GameEngine::checkOutOfPlay() {
     if (b.x - BALL_R > AWAY_GOAL_X) {
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2;
         if (!inGoal) {
-            resolveKnockAhead(nullptr, "out_of_play");
-            pendingPass.active = false;
-            trackedShot = false;
-            trackedShotPreventable = false;
-            lastLooseOrigin.clear();
+            clearState();
             awardSetPiece("goal_kick", std::string(to_string(lt == Team::Home ? Team::Away : Team::Home)));
             return true;
         }
