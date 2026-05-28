@@ -158,9 +158,6 @@ public:
         for(auto& o:state.players) if(&o!=&p && dist(p.x,p.y,o.x,o.y)<range) r.push_back(&o);
         return r;
     }
-    [[nodiscard]] bool isPreparingPass(int) const { return false; }
-    [[nodiscard]] bool isRecentFinishingDeliveryReceiver(int) const { return false; }
-    [[nodiscard]] bool isRecentThroughBallReceiver(int) const { return false; }
     [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
     bool canContestBall(Player& player) {
         if(setPieceArmed&&state.ball.controllerId<0)return false;
@@ -509,7 +506,6 @@ public:
         };
         state.players.insert(state.players.end(), away.begin(), away.end());
     }
-    void createTeams();
     void startMatch(){state.matchState="running";state.clockMs=0;kickoff("home");}
     void kickoff(std::string t);
     void update(double dM);
@@ -541,42 +537,6 @@ public:
 #include "agent.hpp"
 
 // ── Engine method implementations ──
-inline void GameEngine::createTeams() {
-    auto mk = [&](int id, std::string t, std::string r, double hx, double hy) {
-        return Player{
-            id, std::format("{}{}", t, id), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
-            {static_cast<double>(rng.randomInt(35, 90)), static_cast<double>(rng.randomInt(35, 90)),
-             static_cast<double>(rng.randomInt(35, 90)), static_cast<double>(rng.randomInt(35, 90)),
-             static_cast<double>(rng.randomInt(35, 90)), static_cast<double>(rng.randomInt(35, 90)),
-             static_cast<double>(rng.randomInt(60, 95))},
-            t == "home" ? 0.0 : 3.141592653589793
-        };
-    };
-    state.players = {
-        mk(1, "home", "GK", 80, 340),
-        mk(2, "home", "FB", 180, 80),
-        mk(3, "home", "CB", 200, 230),
-        mk(4, "home", "CB", 200, 450),
-        mk(5, "home", "FB", 180, 600),
-        mk(6, "home", "CM", 380, 200),
-        mk(7, "home", "CM", 380, 480),
-        mk(8, "home", "WM", 420, 80),
-        mk(9, "home", "CF", 500, 340),
-        mk(10, "home", "WM", 420, 600),
-        mk(11, "home", "CM", 380, 340),
-        mk(12, "away", "GK", 970, 340),
-        mk(13, "away", "FB", 870, 80),
-        mk(14, "away", "CB", 850, 230),
-        mk(15, "away", "CB", 850, 450),
-        mk(16, "away", "FB", 870, 600),
-        mk(17, "away", "CM", 670, 200),
-        mk(18, "away", "CM", 670, 480),
-        mk(19, "away", "WM", 630, 80),
-        mk(20, "away", "CF", 550, 340),
-        mk(21, "away", "WM", 630, 600),
-        mk(22, "away", "CM", 670, 340),
-    };
-}
 inline bool GameEngine::knockBallAhead(Player& carrier,double targetX,double targetY){
     auto& b=state.ball;
     if(b.controllerId!=carrier.id||!canKnockBallAhead(carrier.id))return false;

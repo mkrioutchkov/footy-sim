@@ -270,15 +270,6 @@ inline void PlayerAgent::tick(double sdt) {
     if (ic) ht++;
     else    ht = 0;
 
-    // isPreparingPass always returns false (stub) — early return disabled
-    // if (ic && engine.isPreparingPass(player.id)) {
-    //     player.targetX = player.x;
-    //     player.targetY = player.y;
-    //     lx = player.x;
-    //     ly = player.y;
-    //     return;
-    // }
-
     if (ch.has_value() && ch->ballControllerId != engine.state.ball.controllerId) {
         if (ch->ballIsLoose
             && engine.state.ball.controllerId >= 0
@@ -678,7 +669,7 @@ inline std::vector<Action> PlayerAgent::cp(const Perception& per, const GameCont
             sc += attrFactor(p.attrs.creativity) * 0.10;
 
         // one-two return
-        auto& bb = engine.blackboards[p.team];
+        auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
         if (bb.oneTwo.has_value()
             && bb.oneTwo->from == t.id
             && bb.oneTwo->to == p.id
@@ -765,12 +756,8 @@ inline Action PlayerAgent::cs(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 70.0  && credibleOpening) sc += 0.28;
     if (shotDistance < 40.0)  sc += 0.18;
 
-    bool recentFinishingDelivery = engine.isRecentFinishingDeliveryReceiver(p.id);
-    // recentFinishingDelivery is always false (stub returns false) — bonus disabled
-    // if (shotDistance < 230.0 && angleDeg > 5.0 && recentFinishingDelivery) sc += 0.52;
-    if (p.crossCollected > 0.0 && shotDistance < 230.0 && !recentFinishingDelivery) sc += 0.35;
-    // isRecentThroughBallReceiver always returns false (stub) — bonus disabled
-    // if (shotDistance < 220.0 && engine.isRecentThroughBallReceiver(p.id)) sc += 0.32;
+    // recentFinishingDelivery and isRecentThroughBallReceiver are stubs (always false)
+    if (p.crossCollected > 0.0 && shotDistance < 230.0) sc += 0.35;
 
     return Action{"shoot", clamp(sc, 0.0, 1.0), nullptr, 0, 0, "", audit};
 }
@@ -1168,20 +1155,13 @@ inline std::vector<Action> PlayerAgent::bp(const Perception& per, const GameCont
         c.push_back({ p.homeX + fd * 50.0 + pu, p.homeY + 35.0, "space" });
 
         // one-two: sprint forward
-        auto& bb2 = engine.blackboards[p.team];
+        auto& bb2 = engine.blackboards[GameEngine::teamIndex(p.team)];
         if (bb2.oneTwo.has_value() && bb2.oneTwo->from == p.id && engine.state.clockMs < bb2.oneTwo->expires) {
             double oppGoalX = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
             c.push_back({ clamp(p.x + fd * 80.0, p.homeX + fd * 40.0, oppGoalX), p.y, "space" });
             c.push_back({ clamp(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y - 30.0, 40.0, PITCH_H - 40.0), "space" });
             c.push_back({ clamp(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y + 30.0, 40.0, PITCH_H - 40.0), "space" });
         }
-
-        // counter-attack (disabled: teamPhaseFor always returns "possession")
-        // if (phase == "attacking_transition" && (p.role == "CF" || p.role == "WM" || p.role == "CM")) {
-        //     double oppGoalX = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
-        //     c.push_back({ clamp(lerp(p.x, oppGoalX, 0.6), p.x + fd * 50.0, oppGoalX), p.homeY, "space" });
-        //     c.push_back({ clamp(lerp(p.x, oppGoalX, 0.5), p.x + fd * 40.0, oppGoalX), p.homeY - 30.0, "space" });
-        // }
 
         // box runs
         if (ba > 0.6 && (p.role == "CF" || p.role == "CM" || p.role == "WM")) {
@@ -1397,7 +1377,7 @@ inline Action PlayerAgent::rc(std::vector<Action>& a) {
     if (ic && best.score < (inBox ? 0.05 : nearGoal ? 0.10 : 0.22))
         return Action{"hold", 1.0};
 
-    auto& bb = engine.blackboards[player.team];
+    auto& bb = engine.blackboards[GameEngine::teamIndex(player.team)];
 
     if (best.type == "tackle" && best.target) {
         bool isSelf = (bb.pressingPlayerId == player.id || bb.pressingPlayerId2 == player.id);
@@ -1472,7 +1452,7 @@ inline void PlayerAgent::ex(Action& a, double sdt, std::vector<Action>& actions)
             recentPassTarget = a.target->id;
             recentPassTime = engine.state.clockMs;
             engine.emitEvent("pass", p.x, p.y);
-            auto& bb = engine.blackboards[p.team];
+            auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
             bb.oneTwo = TeamBlackboard::OneTwo{ p.id, a.target->id, engine.state.clockMs + 2000.0 };
             sl = 50 + static_cast<int>(engine.rng.random() * 21); // 0.8-1.2s cooldown
         } else {
@@ -1817,9 +1797,9 @@ inline void PlayerAgent::tryCollectAfterChase() {
 
     if (!engine.collectBall(p, intended ? "intended_chase_reception" : "chase_collection", reach)) return;
 
-    bool firstTimeChance = engine.isRecentFinishingDeliveryReceiver(p.id);
-    sl = firstTimeChance ? 0 : 45;
-    sc = firstTimeChance ? 0 : 15;
+    // isRecentFinishingDeliveryReceiver is a stub (always false)
+    sl = 45;
+    sc = 15;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
