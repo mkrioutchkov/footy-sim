@@ -246,9 +246,23 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     bool fromBehind=approachDot<-0.30;
     bool carrierShielded=isCarrierShielded(carrier.id);
     double dribbleBonus=carrier.dribbleType==3?0.10:carrier.dribbleType==1?-0.10:0;
+
+    // Carrier facing vs tackler position: shielding detection
+    double carrierFacingX=std::cos(carrier.facing);
+    double carrierFacingY=std::sin(carrier.facing);
+    double toTacklerX=contactDist>0?(tackler.x-carrier.x)/contactDist:0;
+    double toTacklerY=contactDist>0?(tackler.y-carrier.y)/contactDist:0;
+    double facingDot=carrierFacingX*toTacklerX+carrierFacingY*toTacklerY;
+
+    // Shielding: carrier has back turned to tackler → harder to tackle
+    // Front exposed: carrier facing tackler → easier to tackle
+    double shieldingBonus=0.0;
+    if(facingDot<-0.5) shieldingBonus=-0.10;       // back turned: shield (reduced from -0.15)
+    else if(facingDot>0.5) shieldingBonus=0.08;     // front exposed: vulnerable (reduced from 0.10)
+
     double chance=clamp(0.18+tackleSkill*0.35-carrierControl*0.15+facingBonus
         -(carrierShielded?0.20:0)-(fromBehind?0.14:0)
-        +(approachDot>0.3&&approachDot<0.85?0.06:0)+dribbleBonus,0.06,0.72);
+        +(approachDot>0.3&&approachDot<0.85?0.06:0)+dribbleBonus+shieldingBonus,0.06,0.72);
     if(rng.random()>=chance){
         double foulChance=fromBehind?0.34:0.10;
         if(rng.random()<foulChance){

@@ -1224,25 +1224,32 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         p.targetX = (a.posX != 0) ? a.posX : (goalXFor(p.team));
         p.targetY = (a.posY != 0) ? a.posY : p.y;
 
-        double wobbleAngle = std::sin(engine.state.clockMs * 0.008 + p.id * 1.7) * 0.3;
-        double wobbleDist  = std::sin(engine.state.clockMs * 0.012 + p.id * 2.3) * 12.0;
-        p.targetX += std::cos(wobbleAngle) * wobbleDist;
-        p.targetY += std::sin(wobbleAngle) * wobbleDist;
-
-        double distToTarget = std::sqrt((p.targetX - p.x) * (p.targetX - p.x)
-                                      + (p.targetY - p.y) * (p.targetY - p.y));
-
+        // Count nearby opponents first to decide wobble/shielding
         int nearbyOpps = 0;
         double nearestOppDist = 1e9;
-        int oppsInPath = 0;
-        double fd = (p.team == Team::Home) ? 1.0 : -1.0;
-        double aheadX = p.x + fd * 200.0;
         for (auto& o : engine.state.players) {
             if (o.team != p.team && o.role != Role::GK) {
                 double d = dist(p.x, p.y, o.x, o.y);
                 nearestOppDist = std::min(nearestOppDist, d);
                 if (d < 55.0) nearbyOpps++;
-                // Count opponents in the path ahead
+            }
+        }
+
+        // Wobble only in open space — suppress under pressure
+        if (nearestOppDist > 80.0) {
+            double wobbleAngle = std::sin(engine.state.clockMs * 0.008 + p.id * 1.7) * 0.3;
+            double wobbleDist  = std::sin(engine.state.clockMs * 0.012 + p.id * 2.3) * 12.0;
+            p.targetX += std::cos(wobbleAngle) * wobbleDist;
+            p.targetY += std::sin(wobbleAngle) * wobbleDist;
+        }
+
+        double distToTarget = std::sqrt((p.targetX - p.x) * (p.targetX - p.x)
+                                      + (p.targetY - p.y) * (p.targetY - p.y));
+
+        int oppsInPath = 0;
+        double fd = (p.team == Team::Home) ? 1.0 : -1.0;
+        for (auto& o : engine.state.players) {
+            if (o.team != p.team && o.role != Role::GK) {
                 double pathDist = std::abs(o.x - p.x);
                 double lateralDist = std::abs(o.y - p.y);
                 if (pathDist < 200.0 && lateralDist < 40.0 && ((fd > 0 && o.x > p.x) || (fd < 0 && o.x < p.x)))
@@ -1500,6 +1507,12 @@ void PlayerAI::applyMovement(double sdt) {
         ? DRIBBLE_FAST_SPEED
         : (lastActionType == ActionType::Chase || committedPress ? SPEED_SPRINT : SPEED_RUN);
 
+    // Shielding: slow down when near opponents with ball
+    bool isController = (engine.state.ball.controllerId == p.id);
+    if (isController && bd < 60.0) {
+        baseSpeed *= 0.80; // 20% slower when shielding
+    }
+
     double df = (committedChase || committedPress) ? 1.0 : std::min(d / 120.0, 1.5);
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
 
@@ -1529,9 +1542,26 @@ void PlayerAI::applyMovement(double sdt) {
     double spdAfter = std::sqrt(p.vx * p.vx + p.vy * p.vy);
     bool ic = (engine.state.ball.controllerId == p.id);
     if (ic) {
-        auto& b = engine.state.ball;
-        double bs = std::hypot(b.vx, b.vy);
-        if(bs > 0.5) facing = facing + std::atan2(std::sin(std::atan2(-b.vy, -b.vx) - facing), std::cos(std::atan2(-b.vy, -b.vx) - facing)) * 0.05;
+        // Find nearest opponent for shielding
+        double nearOppDist = 1e9;
+        double nearOppX = 0, nearOppY = 0;
+        for (auto& o : engine.state.players) {
+            if (o.team != p.team && o.role != Role::GK) {
+                double d = dist(p.x, p.y, o.x, o.y);
+                if (d < nearOppDist) { nearOppDist = d; nearOppX = o.x; nearOppY = o.y; }
+            }
+        }
+
+        if (nearOppDist < 60.0) {
+            // Shielding: face AWAY from nearest opponent (slow lerp to avoid spinning)
+            double awayAngle = std::atan2(p.y - nearOppY, p.x - nearOppX);
+            facing = facing + std::atan2(std::sin(awayAngle - facing), std::cos(awayAngle - facing)) * 0.04;
+        } else {
+            // Open field: face toward ball velocity (movement direction)
+            auto& b = engine.state.ball;
+            double bs = std::hypot(b.vx, b.vy);
+            if(bs > 0.5) facing = facing + std::atan2(std::sin(std::atan2(-b.vy, -b.vx) - facing), std::cos(std::atan2(-b.vy, -b.vx) - facing)) * 0.05;
+        }
     } else if (engine.state.ball.controllerId < 0 && bd < 80.0) {
         double ballAngle = std::atan2(bdy, bdx);
         facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.15;
