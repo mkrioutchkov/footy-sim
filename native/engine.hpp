@@ -14,7 +14,8 @@ class GameEngine {
 public:
     mutable SeededRNG rng;
     EngineState state;
-    std::unordered_map<std::string, TeamBlackboard> blackboards;
+    TeamBlackboard blackboards[2]; // [0]=home, [1]=away
+    static int teamIndex(const std::string& team) { return team == "home" ? 0 : 1; }
     StatsCollector stats;
     std::vector<PlayerAgent> agents;
     std::array<Player*, 22> playerLookup = {};
@@ -463,7 +464,7 @@ public:
         // JS order: homeMgr(6) → homeTeam(shuffle 29 + attrs 77) → awayMgr(6) → awayTeam(shuffle 29 + attrs 77)
         // We create all teams at once (154 randomInt calls). Need to interleave dummy calls.
         // Strategy: createTeams() does 154 randomInt. We split: 77 home then dummy then 77 away.
-        blackboards["home"]={}; blackboards["away"]={};
+        blackboards[0]={}; blackboards[1]={};
     }
 
     void initWithSeed(int seed) {
@@ -744,7 +745,7 @@ inline void GameEngine::fixedUpdate(double sdt) {
         if (checkOutOfPlay()) return;
         checkBallPlayerCollision(sec);
     }
-    for (auto& [_, bb] : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; }
+    for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; }
     updateTeamAssignments();
     tickAgents(sdt, true);
     if (gkDistributeTimer > 0) {
