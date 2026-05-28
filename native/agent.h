@@ -43,7 +43,6 @@ struct GameContext {
     int    scoreDiff = 0;
     double timeLeft  = 0;
     int    half      = 1;
-    double urgency   = 0;
 };
 
 struct Perception {

@@ -94,14 +94,8 @@ GameContext PlayerAI::buildContext() {
     int my = (player.team == "home") ? ms : os;
     int op = (player.team == "home") ? os : ms;
     int d  = my - op;
-    double tl = std::max(0.0, 90.0 * 60.0 * 1000.0 - engine.state.clockMs);
-    double u;
-    if (tl < 5.0 * 60.0 * 1000.0) {
-        u = (d < 0) ? 1.0 : (d == 0) ? 0.7 : 0.3;
-    } else {
-        u = (d < 0) ? 0.6 : (d == 0) ? 0.3 : 0.0;
-    }
-    return { d, tl, (engine.state.clockMs < 45.0 * 60.0 * 1000.0) ? 1 : 2, u };
+    double tl = std::max(0.0, MATCH_DURATION - engine.state.clockMs);
+    return { d, tl, (engine.state.clockMs < MATCH_DURATION / 2.0) ? 1 : 2 };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -305,8 +299,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
 
         sc -= bl * 0.06;
         if (fp > 0.0) {
-            sc += 0.08 + (ctx.urgency > 0.5 ? 0.10 : 0.0)
-                + (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.20;
+            sc += 0.08 + (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.20;
         } else {
             sc -= (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.15;
         }
@@ -335,17 +328,6 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
                 if (oppsNearCarrier >= 3 && oppsNearTarget <= 1)      sc += 0.18;
                 else if (oppsNearCarrier >= 2 && oppsNearTarget <= 2) sc += 0.10;
             }
-        }
-
-        if (ctx.urgency > 0.6) {
-            if (pur == "build")   sc += 0.20;
-            if (pur == "switch")  sc += 0.15;
-            if (pur == "keep")    sc -= 0.05;
-        } else if (ctx.urgency < 0.3) {
-            if (pur == "keep")    sc += 0.15;
-            if (pur == "switch")  sc += 0.12;
-        } else {
-            if (pur == "switch")  sc += 0.10;
         }
 
         double cr = attrFactor(p.attrs.creativity);
@@ -477,7 +459,6 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (p.role == "CM") sc -= 0.03;
     if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= 0.08;
     sc -= std::min(0.24, per.pressureCount * 0.09);
-    if (ctx.urgency > 0.6 && shotDistance < 240.0) sc += 0.08;
 
     bool credibleOpening = angleDeg >= 7.5 || shotDistance < 115.0;
     if (shotDistance < 200.0 && credibleOpening) sc += 0.30;
@@ -1019,11 +1000,6 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         if (p.role == "FB" && std::abs(b.y - p.homeY) > 200.0) {
             c.push_back({ clamp(p.homeX - fd * 20.0, 40.0, PITCH_W - 40.0), clamp(lerp(p.homeY, PITCH_H / 2.0, 0.5), 40.0, PITCH_H - 40.0), "cover" });
         }
-    }
-
-    if (ctx.urgency > 0.6 && my) {
-        c.push_back({ p.homeX + fd * 120.0 + pu, p.homeY, "offer" });
-        c.push_back({ p.homeX + fd * 90.0 + pu, p.homeY - 40.0, "space" });
     }
 
     std::vector<Action> options;
