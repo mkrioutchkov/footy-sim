@@ -10,7 +10,7 @@ if (-not (Test-Path -LiteralPath $vsDevCmd)) {
 
 Push-Location $native
 try {
-    $compile = "call `"$vsDevCmd`" -arch=x64 >nul && cl /nologo /std:c++20 /EHsc /O2 main.cpp /Fo:benchmark.obj /Fe:benchmark.exe"
+    $compile = "call `"$vsDevCmd`" -arch=x64 >nul && cl /nologo /std:c++20 /EHsc /O2 main.cpp agent.cpp /Fe:benchmark.exe"
     cmd.exe /d /c $compile
     if ($LASTEXITCODE -ne 0) {
         throw "Native build failed with exit code $LASTEXITCODE"

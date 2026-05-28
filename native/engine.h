@@ -532,10 +532,6 @@ public:
     std::string getJSON() const;
 };
 
-// ── Agent implementations ──
-#define AGENT_H_IMPL
-#include "agent.h"
-
 // ── Engine method implementations ──
 inline bool GameEngine::knockBallAhead(Player& carrier,double targetX,double targetY){
     auto& b=state.ball;
