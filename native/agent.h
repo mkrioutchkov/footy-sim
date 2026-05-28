@@ -86,30 +86,6 @@ struct ShotSelectionAudit {
     double bestPassCompletion = 0;
 };
 
-struct AgentManagerConfig {
-    double aggression        = 50.0;
-    double passingDirectness = 50.0;
-};
-
-struct AgentTeamAssignment {
-    std::string role;
-    double targetX = 0;
-    double targetY = 0;
-    int    opponentId = -1;
-};
-
-struct AgentCommitRun {
-    double targetX = 0;
-    double targetY = 0;
-};
-
-struct AgentRecentPass {
-    double bx = 0, by = 0;
-    double vx = 0, vy = 0;
-    std::string team;
-    double clockMs = 0;
-};
-
 // ══════════════════════════════════════════════════════════════════════════════
 // PlayerAgent class
 // ══════════════════════════════════════════════════════════════════════════════
@@ -131,42 +107,42 @@ public:
     double dizzyWindowStartMs = 0;
 
 private:
-    int    sl = 0;
-    int    sc = 0;
-    int    pa = 0;
-    std::optional<Perception> ch;
+    int    stunLockTicks = 0;
+    int    shotCooldown = 0;
+    int    perceptionAge = 0;
+    std::optional<Perception> cachedPerception;
 
-    int    ht = 0;
-    double lx = 0, ly = 0;
+    int    holdTicks = 0;
+    double lastPosX = 0, lastPosY = 0;
 
-    std::string la;
+    std::string lastActionType;
     std::string lastPurpose;
-    int    lt = -1;
-    int    lp = -1;
+    int    lastTargetId = -1;
+    int    lastPassTargetId = -1;
 
     double facing = 0;
 
     int    recentPassTarget = -1;
     double recentPassTime   = 0;
 
-    double ballMemX   = 0;
-    double ballMemY   = 0;
-    int    ballMemAge = 0;
+    double ballMemoryX   = 0;
+    double ballMemoryY   = 0;
+    int    ballMemoryAge = 0;
 
-    GameContext           ctx();
-    std::vector<Action>   ev(const Perception& per, bool ic, const GameContext& ctx);
-    std::vector<Action>   cp(const Perception& per, const GameContext& ctx);
-    Action                cs(const Perception& per, const GameContext& ctx);
-    Action                cd(const Perception& per, const GameContext& ctx);
-    Action                ct(const Perception& per, const GameContext& ctx);
-    Action                cm(const Perception& per, const GameContext& ctx);
-    Action                cc(const Perception& per);
-    std::vector<Action>   bp(const Perception& per, const GameContext& ctx);
-    Action                rc(std::vector<Action>& a);
-    void                  ex(Action& a, double sdt, std::vector<Action>& actions);
-    Perception            gp();
-    Perception            pr();
-    void                  am(double sdt);
+    GameContext           buildContext();
+    std::vector<Action>   evaluateActions(const Perception& per, bool isController, const GameContext& ctx);
+    std::vector<Action>   scorePass(const Perception& per, const GameContext& ctx);
+    Action                scoreShot(const Perception& per, const GameContext& ctx);
+    Action                scoreDribble(const Perception& per, const GameContext& ctx);
+    Action                scoreTackle(const Perception& per, const GameContext& ctx);
+    Action                scoreMark(const Perception& per, const GameContext& ctx);
+    Action                scoreChase(const Perception& per);
+    std::vector<Action>   scorePositioning(const Perception& per, const GameContext& ctx);
+    Action                resolveChoice(std::vector<Action>& actions);
+    void                  executeAction(Action& action, double sdt, std::vector<Action>& actions);
+    Perception            getCachedPerception();
+    Perception            perceive();
+    void                  applyMovement(double sdt);
     void                  tryCollectAfterChase();
     void                  auditDefensiveMovement(const Action& choice);
     PassSelectionAudit    passSelectionAudit(const Action& choice, const std::vector<Action>& actions);

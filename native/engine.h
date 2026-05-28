@@ -233,7 +233,7 @@ public:
         state.ball.y=clamp(kicker.y+dy/d*maxOffset,5.0,PITCH_H-5.0);
     }
     void passBallTo(Player& f,Player& t) { passBallTo(f,t,false,false,nullptr); }
-    bool passBallTo(Player& f,Player& t,bool throughBall,bool,void* selectionAudit) {
+    bool passBallTo(Player& f,Player& t,bool throughBall,bool lob,const PassSelectionAudit* selectionAudit) {
         double rawDx=t.x-f.x,rawDy=t.y-f.y,rawDist=std::hypot(rawDx,rawDy);
         if(rawDist<1)return false;
         double speed=(PASS_SPEED_BASE+rawDist*PASS_SPEED_DIST)*(0.92+rng.random()*0.16);
@@ -279,8 +279,8 @@ public:
         if(rawDist>240)b.vz=speed*0.55;
         if(blockers>0&&rawDist>120)b.vz=std::max(b.vz,speed*0.70);
         if(rawDist>350)b.vz=std::max(b.vz,speed);
-        const auto* audit=static_cast<const PassSelectionAudit*>(selectionAudit);
-        double goalX=f.team=="home"?AWAY_GOAL_X:HOME_GOAL_X;
+        const auto* audit=selectionAudit;
+        double goalX=goalXFor(f.team);
         bool fromWide=std::abs(f.y-PITCH_H/2)>180;
         bool intoBox=std::abs(predX-goalX)<200&&std::abs(predY-PITCH_H/2)<140;
         bool selectedCross=audit&&audit->purpose=="cross"&&fromWide&&(f.role=="WM"||f.role=="FB")&&!throughBall;
@@ -302,7 +302,7 @@ public:
         }
         return true;
     }
-    void forcePassTo(Player&f,Player&t,void*) {
+    void forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
         double dx=t.x-f.x,dy=t.y-f.y,rawDist=std::hypot(dx,dy);
         if(rawDist<1)return;
         double tdx=dx+(rng.random()-0.5)*rawDist*0.2;
@@ -402,7 +402,7 @@ public:
         carrier.vx=carrier.vy=0;
         return true;
     }
-    void shootBall(Player&s,void* selectionAudit){
+    void shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         stats.recordShot(s.team,false);
         double gx=(s.team=="home")?AWAY_GOAL_X:HOME_GOAL_X;
         double accuracy=attrFactor(s.attrs.shooting);
@@ -414,7 +414,7 @@ public:
         double angleDeg=goalOpeningAngleDeg(s.x,s.y,gx);
         bool outsideGoalLane=std::abs(s.y-goalCenterY)>GOAL_W/2+20;
         bool acuteGeometry=outsideGoalLane&&angleDeg<7.5&&shotDistance>150;
-        const auto* audit=static_cast<const ShotSelectionAudit*>(selectionAudit);
+        const auto* audit=selectionAudit;
         if(audit){
             bool betterPassFlag=audit->bestPassTargetId>=0&&audit->bestPassScore>audit->score+0.12;
             bool tightAngleFlag=audit->angleDeg<8.0&&audit->distance>120.0;

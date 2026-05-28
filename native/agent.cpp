@@ -10,38 +10,38 @@ void PlayerAI::tick(double sdt) {
     if (player.role == "GK") return;
     facing = player.facing;
 
-    sl = std::max(0, sl - 1);
-    sc = std::max(0, sc - 1);
+    stunLockTicks = std::max(0, stunLockTicks - 1);
+    shotCooldown = std::max(0, shotCooldown - 1);
 
-    if (ballMemAge == 0 && ballMemX == 0 && ballMemY == 0) {
-        ballMemX = engine.state.ball.x;
-        ballMemY = engine.state.ball.y;
+    if (ballMemoryAge == 0 && ballMemoryX == 0 && ballMemoryY == 0) {
+        ballMemoryX = engine.state.ball.x;
+        ballMemoryY = engine.state.ball.y;
     }
 
     bool ic = (engine.state.ball.controllerId == player.id);
-    if (ic) ht++;
-    else    ht = 0;
+    if (ic) holdTicks++;
+    else    holdTicks = 0;
 
-    if (ch.has_value() && ch->ballControllerId != engine.state.ball.controllerId) {
-        if (ch->ballIsLoose
+    if (cachedPerception.has_value() && cachedPerception->ballControllerId != engine.state.ball.controllerId) {
+        if (cachedPerception->ballIsLoose
             && engine.state.ball.controllerId >= 0
             && dist(player.x, player.y, engine.state.ball.x, engine.state.ball.y) <= PRE_CONTACT_CHASE_REACH)
         {
             engine.notePreventedStaleGrab(player);
         }
-        ch.reset();
+        cachedPerception.reset();
     }
 
-    if (engine.state.ball.intendedReceiverId == player.id) ch.reset();
+    if (engine.state.ball.intendedReceiverId == player.id) cachedPerception.reset();
 
-    Perception per = gp();
+    Perception per = getCachedPerception();
 
-    GameContext gctx = ctx();
-    std::vector<Action> aff = ev(per, ic, gctx);
-    Action choice = rc(aff);
+    GameContext gctx = buildContext();
+    std::vector<Action> aff = evaluateActions(per, ic, gctx);
+    Action choice = resolveChoice(aff);
 
     auditDefensiveMovement(choice);
-    ex(choice, sdt, aff);
+    executeAction(choice, sdt, aff);
 
     if (std::fmod(engine.state.clockMs, 500.0) < 20.0) {
         std::vector<Action> top = aff;
@@ -82,14 +82,14 @@ void PlayerAI::tick(double sdt) {
         }
     }
 
-    lx = player.x;
-    ly = player.y;
+    lastPosX = player.x;
+    lastPosY = player.y;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ctx() — game context
 // ══════════════════════════════════════════════════════════════════════════════
-GameContext PlayerAI::ctx() {
+GameContext PlayerAI::buildContext() {
     int ms = engine.state.homeScore, os = engine.state.awayScore;
     int my = (player.team == "home") ? ms : os;
     int op = (player.team == "home") ? os : ms;
@@ -107,10 +107,10 @@ GameContext PlayerAI::ctx() {
 // ══════════════════════════════════════════════════════════════════════════════
 // ev() — evaluate actions
 // ══════════════════════════════════════════════════════════════════════════════
-std::vector<Action> PlayerAI::ev(const Perception& per, bool ic, const GameContext& ctx) {
+std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, const GameContext& ctx) {
     std::vector<Action> a;
     if (ic) {
-        if (sl > 0) {
+        if (stunLockTicks > 0) {
             double angle = engine.state.clockMs * 0.005 + player.id * 1.7;
             double tx = player.x + std::cos(angle) * 3.0;
             double ty = player.y + std::sin(angle) * 3.0;
@@ -131,29 +131,29 @@ std::vector<Action> PlayerAI::ev(const Perception& per, bool ic, const GameConte
                     if (dot > 0.65) { quickPassAvailable = true; break; }
                 }
                 if (!quickPassAvailable) {
-                    sl = 8 + static_cast<int>(engine.rng.random() * 10);
+                    stunLockTicks = 8 + static_cast<int>(engine.rng.random() * 10);
                     return { Action{"hold", 1.0} };
                 }
             }
         }
-        if (sc > 0) {
+        if (shotCooldown > 0) {
             double gx = (player.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
             if (std::abs(player.x - gx) < 150.0) {
-                auto cpv = this->cp(per, ctx);
-                auto csv = this->cs(per, ctx);
-                auto cdv = this->cd(per, ctx);
+                auto cpv = this->scorePass(per, ctx);
+                auto csv = this->scoreShot(per, ctx);
+                auto cdv = this->scoreDribble(per, ctx);
                 a = cpv;
                 a.push_back(csv);
                 a.push_back(cdv);
             } else {
-                Action d = this->cd(per, ctx);
+                Action d = this->scoreDribble(per, ctx);
                 d.score = 0.6;
                 return { d };
             }
         } else {
-            auto cpv = this->cp(per, ctx);
-            auto csv = this->cs(per, ctx);
-            auto cdv = this->cd(per, ctx);
+            auto cpv = this->scorePass(per, ctx);
+            auto csv = this->scoreShot(per, ctx);
+            auto cdv = this->scoreDribble(per, ctx);
             a = cpv;
             a.push_back(csv);
             a.push_back(cdv);
@@ -167,20 +167,12 @@ std::vector<Action> PlayerAI::ev(const Perception& per, bool ic, const GameConte
             if (x.type == "dribble" && pc >= 3) x.score -= 0.10;
         }
 
-        auto bestPassIt = std::max_element(a.begin(), a.end(),
-            [](const Action& x, const Action& y) {
-                if (x.type != "pass") return true;
-                if (y.type != "pass") return false;
-                return x.score < y.score;
-            });
         Action* bestPass = nullptr;
         for (auto& x : a) {
             if (x.type == "pass") {
                 if (!bestPass || x.score > bestPass->score) bestPass = &x;
             }
         }
-        if (bestPass && bestPass->score > 0.20) bestPass->score += 0.00;
-        if (player.role == "CM" && bestPass && bestPass->score > 0.15) bestPass->score += 0.00;
 
         if (player.role == "CM") {
             Action* bestDribble = nullptr;
@@ -202,10 +194,10 @@ std::vector<Action> PlayerAI::ev(const Perception& per, bool ic, const GameConte
             }
         }
     } else {
-        a.push_back(this->ct(per, ctx));
-        a.push_back(this->cm(per, ctx));
-        a.push_back(this->cc(per));
-        auto bpv = this->bp(per, ctx);
+        a.push_back(this->scoreTackle(per, ctx));
+        a.push_back(this->scoreMark(per, ctx));
+        a.push_back(this->scoreChase(per));
+        auto bpv = this->scorePositioning(per, ctx);
         a.insert(a.end(), bpv.begin(), bpv.end());
     }
 
@@ -219,7 +211,7 @@ std::vector<Action> PlayerAI::ev(const Perception& per, bool ic, const GameConte
     }
 
     for (auto& x : a) {
-        if (x.type == la && x.target && x.target->id == lt) x.score += ic ? 0.12 : 0.05;
+        if (x.type == lastActionType && x.target && x.target->id == lastTargetId) x.score += ic ? 0.12 : 0.05;
 
         if (x.type == "position" && x.posX != 0 && x.posY != 0) {
             double td = std::sqrt((x.posX - player.targetX) * (x.posX - player.targetX)
@@ -236,7 +228,7 @@ std::vector<Action> PlayerAI::ev(const Perception& per, bool ic, const GameConte
 // ══════════════════════════════════════════════════════════════════════════════
 // cp() — can-pass
 // ══════════════════════════════════════════════════════════════════════════════
-std::vector<Action> PlayerAI::cp(const Perception& per, const GameContext& ctx) {
+std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     double fd = (p.team == "home") ? 1.0 : -1.0;
     std::vector<Action> r;
@@ -285,7 +277,7 @@ std::vector<Action> PlayerAI::cp(const Perception& per, const GameContext& ctx) 
         double progression = clamp(fp / 240.0, -0.5, 1.0);
         double turnoverCost = ((p.team == "home") ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
         double sc = completion * (0.38 + std::max(0.0, progression) * 0.34) - (1.0 - completion) * turnoverCost;
-        if (t.id == lp) sc -= 0.18;
+        if (t.id == lastPassTargetId) sc -= 0.18;
 
         if (recentPassTarget == t.id && engine.state.clockMs - recentPassTime < 3000.0) sc -= 0.10;
 
@@ -397,7 +389,7 @@ std::vector<Action> PlayerAI::cp(const Perception& per, const GameContext& ctx) 
             if (onsideGap < 8.0) sc += engine.rng.random() * 0.04;
         }
 
-        sc += std::min(ht / 200.0, 0.35);
+        sc += std::min(holdTicks / 200.0, 0.35);
 
         if (receiverPressure >= 2) sc -= 0.25;
         if (per.pressureCount >= 2 && bl == 0) sc += 0.10;
@@ -430,7 +422,7 @@ std::vector<Action> PlayerAI::cp(const Perception& per, const GameContext& ctx) 
 // ══════════════════════════════════════════════════════════════════════════════
 // cs() — can-shoot
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAI::cs(const Perception& per, const GameContext& ctx) {
+Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     double gx = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
     double shotDistance = std::hypot(p.x - gx, p.y - PITCH_H / 2.0);
@@ -501,7 +493,7 @@ Action PlayerAI::cs(const Perception& per, const GameContext& ctx) {
 // ══════════════════════════════════════════════════════════════════════════════
 // cd() — can-dribble
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAI::cd(const Perception& per, const GameContext& /*ctx*/) {
+Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/) {
     const auto& p = player;
     double gx = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
     double tx = gx, ty = p.y;
@@ -532,9 +524,9 @@ Action PlayerAI::cd(const Perception& per, const GameContext& /*ctx*/) {
     if (per.nearestOpponentDist < 40.0) sc -= 0.10;
     if (std::abs(p.x - gx) < 200.0) sc += 0.10;
 
-    double m = std::sqrt((p.x - lx) * (p.x - lx) + (p.y - ly) * (p.y - ly));
-    if (ht > 60 && m < 3.0)  sc -= 0.20;
-    if (ht > 180)            sc -= 0.30;
+    double m = std::sqrt((p.x - lastPosX) * (p.x - lastPosX) + (p.y - lastPosY) * (p.y - lastPosY));
+    if (holdTicks > 60 && m < 3.0)  sc -= 0.20;
+    if (holdTicks > 180)            sc -= 0.30;
 
     int ndCount = 0;
     for (auto* o : per.nearbyOpponents) {
@@ -568,7 +560,7 @@ Action PlayerAI::cd(const Perception& per, const GameContext& /*ctx*/) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ct() — can-tackle
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAI::ct(const Perception& per, const GameContext& /*ctx*/) {
+Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) {
     if (per.ballIsLoose || per.ballControllerTeam == player.team || per.ballControllerTeam.empty())
         return Action{"tackle", 0.0};
 
@@ -638,7 +630,7 @@ Action PlayerAI::ct(const Perception& per, const GameContext& /*ctx*/) {
 // ══════════════════════════════════════════════════════════════════════════════
 // cm() — can-mark
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAI::cm(const Perception& per, const GameContext& /*ctx*/) {
+Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
     if (player.role != "CB" && player.role != "FB") return Action{"mark", 0.0};
     if (per.ballControllerTeam == player.team && !per.ballIsLoose) return Action{"mark", 0.0};
 
@@ -688,7 +680,7 @@ Action PlayerAI::cm(const Perception& per, const GameContext& /*ctx*/) {
 // ══════════════════════════════════════════════════════════════════════════════
 // cc() — can-chase
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAI::cc(const Perception& per) {
+Action PlayerAI::scoreChase(const Perception& per) {
     auto& b = engine.state.ball;
     bool isIntendedReceiver = (player.id == b.intendedReceiverId);
     double ballSpeed = std::sqrt(b.vx * b.vx + b.vy * b.vy);
@@ -795,7 +787,7 @@ Action PlayerAI::cc(const Perception& per) {
 // ══════════════════════════════════════════════════════════════════════════════
 // bp() — best-position (off-ball positioning)
 // ══════════════════════════════════════════════════════════════════════════════
-std::vector<Action> PlayerAI::bp(const Perception& per, const GameContext& ctx) {
+std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     auto& b = engine.state.ball;
     double fd = (p.team == "home") ? 1.0 : -1.0;
@@ -1083,7 +1075,7 @@ std::vector<Action> PlayerAI::bp(const Perception& per, const GameContext& ctx) 
 // ══════════════════════════════════════════════════════════════════════════════
 // rc() — resolve choice
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAI::rc(std::vector<Action>& a) {
+Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     std::sort(a.begin(), a.end(),
               [](const Action& x, const Action& y) { return x.score > y.score; });
 
@@ -1148,13 +1140,13 @@ Action PlayerAI::rc(std::vector<Action>& a) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ex() — execute chosen action
 // ══════════════════════════════════════════════════════════════════════════════
-void PlayerAI::ex(Action& a, double sdt, std::vector<Action>& actions) {
+void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions) {
     auto& p = player;
     auto& b = engine.state.ball;
 
-    la = a.type;
+    lastActionType = a.type;
     lastPurpose = a.purpose;
-    lt = a.target ? a.target->id : -1;
+    lastTargetId = a.target ? a.target->id : -1;
 
     if (a.type != "dribble") p.dribbleType = 0;
 
@@ -1168,22 +1160,22 @@ void PlayerAI::ex(Action& a, double sdt, std::vector<Action>& actions) {
             released = engine.passBallTo(p, *a.target, a.purpose == "through", false, &audit);
         }
         if (released) {
-            lp = a.target->id;
+            lastPassTargetId = a.target->id;
             recentPassTarget = a.target->id;
             recentPassTime = engine.state.clockMs;
             engine.emitEvent("pass", p.x, p.y);
             auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
             bb.oneTwo = TeamBlackboard::OneTwo{ p.id, a.target->id, engine.state.clockMs + 2000.0 };
-            sl = 50 + static_cast<int>(engine.rng.random() * 21);
+            stunLockTicks = 50 + static_cast<int>(engine.rng.random() * 21);
         } else {
-            sl = 4;
+            stunLockTicks = 4;
         }
     }
     else if (a.type == "shoot") {
         ShotSelectionAudit audit = shotSelectionAudit(a, actions);
         engine.shootBall(p, &audit);
         engine.emitEvent("shot", p.x, p.y);
-        sl = 20;
+        stunLockTicks = 20;
     }
     else if (a.type == "dribble") {
         p.targetX = (a.posX != 0) ? a.posX : ((p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X);
@@ -1296,7 +1288,7 @@ void PlayerAI::ex(Action& a, double sdt, std::vector<Action>& actions) {
     }
 
     if (engine.state.ball.controllerId != p.id) {
-        am(sdt);
+        applyMovement(sdt);
         if (a.type == "chase") tryCollectAfterChase();
     }
 }
@@ -1304,18 +1296,18 @@ void PlayerAI::ex(Action& a, double sdt, std::vector<Action>& actions) {
 // ══════════════════════════════════════════════════════════════════════════════
 // gp() — get perception (cached)
 // ══════════════════════════════════════════════════════════════════════════════
-Perception PlayerAI::gp() {
-    pa++;
-    if (ch.has_value() && pa < 3) return ch.value();
-    ch = pr();
-    pa = 0;
-    return ch.value();
+Perception PlayerAI::getCachedPerception() {
+    perceptionAge++;
+    if (cachedPerception.has_value() && perceptionAge < 3) return cachedPerception.value();
+    cachedPerception = perceive();
+    perceptionAge = 0;
+    return cachedPerception.value();
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // pr() — perceive surroundings
 // ══════════════════════════════════════════════════════════════════════════════
-Perception PlayerAI::pr() {
+Perception PlayerAI::perceive() {
     const auto& p = player;
     auto& b = engine.state.ball;
     double dx = b.x - p.x, dy = b.y - p.y, bd = std::sqrt(dx * dx + dy * dy);
@@ -1389,7 +1381,7 @@ Perception PlayerAI::pr() {
 // ══════════════════════════════════════════════════════════════════════════════
 // am() — apply movement
 // ══════════════════════════════════════════════════════════════════════════════
-void PlayerAI::am(double sdt) {
+void PlayerAI::applyMovement(double sdt) {
     auto& p = player;
     if (p.role == "GK") return;
 
@@ -1408,9 +1400,9 @@ void PlayerAI::am(double sdt) {
 
     bool pressTask      = (lastPurpose == "task:primary_press");
     bool secondaryPress = (lastPurpose == "task:secondary_press");
-    bool committedChase = (la == "chase" && engine.state.ball.controllerId < 0)
-                       || (la == "chase" && lastPurpose == "receive_ball")
-                       || (la == "chase" && lastPurpose == "recover_loose_ball");
+    bool committedChase = (lastActionType == "chase" && engine.state.ball.controllerId < 0)
+                       || (lastActionType == "chase" && lastPurpose == "receive_ball")
+                       || (lastActionType == "chase" && lastPurpose == "recover_loose_ball");
 
     double bdx = engine.state.ball.x - p.x, bdy = engine.state.ball.y - p.y;
     double bd  = std::sqrt(bdx * bdx + bdy * bdy);
@@ -1431,7 +1423,7 @@ void PlayerAI::am(double sdt) {
 
     double baseSpeed = engine.isActiveKnockAheadRunner(p.id)
         ? DRIBBLE_FAST_SPEED
-        : (la == "chase" || committedPress ? SPEED_SPRINT : SPEED_RUN);
+        : (lastActionType == "chase" || committedPress ? SPEED_SPRINT : SPEED_RUN);
 
     double df = (committedChase || committedPress) ? 1.0 : std::min(d / 120.0, 1.5);
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
@@ -1452,11 +1444,11 @@ void PlayerAI::am(double sdt) {
     double bDiff  = std::abs(bAngle - facing);
     double bNorm  = (bDiff > 3.141592653589793) ? 2.0 * 3.141592653589793 - bDiff : bDiff;
     if (bNorm < 3.141592653589793 / 3.0) {
-        ballMemX = engine.state.ball.x;
-        ballMemY = engine.state.ball.y;
-        ballMemAge = 0;
+        ballMemoryX = engine.state.ball.x;
+        ballMemoryY = engine.state.ball.y;
+        ballMemoryAge = 0;
     } else {
-        ballMemAge++;
+        ballMemoryAge++;
     }
 
     double spdAfter = std::sqrt(p.vx * p.vx + p.vy * p.vy);
@@ -1471,8 +1463,8 @@ void PlayerAI::am(double sdt) {
     } else if (spdAfter > 5.0) {
         double moveAngle = std::atan2(p.vy, p.vx);
         facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.06;
-    } else if (ballMemAge > 30) {
-        double memAngle = std::atan2(ballMemY - p.y, ballMemX - p.x);
+    } else if (ballMemoryAge > 30) {
+        double memAngle = std::atan2(ballMemoryY - p.y, ballMemoryX - p.x);
         facing = facing + std::atan2(std::sin(memAngle - facing), std::cos(memAngle - facing)) * 0.02;
     }
 
@@ -1508,8 +1500,8 @@ void PlayerAI::tryCollectAfterChase() {
 
     if (!engine.collectBall(p, intended ? "intended_chase_reception" : "chase_collection", reach)) return;
 
-    sl = 45;
-    sc = 15;
+    stunLockTicks = 45;
+    shotCooldown = 15;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
