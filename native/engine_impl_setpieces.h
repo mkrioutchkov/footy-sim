@@ -67,6 +67,13 @@ inline void GameEngine::awardThrowIn(std::string lt, double y) {
         b.controllerId = best->id;
         b.lastTouchTeam = best->team;
         b.lastToucherId = best->id;
+        // Move player to throw-in location so ball follows naturally
+        best->x = b.x;
+        best->y = b.y;
+        best->targetX = b.x;
+        best->targetY = b.y;
+        best->vx = 0;
+        best->vy = 0;
     }
 }
 inline void GameEngine::awardSetPiece(std::string t, std::string tm) {

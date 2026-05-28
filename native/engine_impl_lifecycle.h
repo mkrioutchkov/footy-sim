@@ -139,16 +139,18 @@ inline void GameEngine::fixedUpdate(double sdt) {
         looseBallSpeedSamples++;
         stats.recordBallSpeedSample(speed);
     }
-    // Ball jump detection: flag if ball moved further than velocity could account for
+    // Ball jump detection: flag if loose ball moved further than velocity could account for
     double jumpDx = state.ball.x - prevBallX;
     double jumpDy = state.ball.y - prevBallY;
     double jumpDist = std::hypot(jumpDx, jumpDy);
     double expectedMax = std::hypot(state.ball.vx, state.ball.vy) * sec + 20.0;
-    if (jumpDist > expectedMax && jumpDist > 50.0 && !setPieceArmed && !kickoffPhase) {
+    if (jumpDist > expectedMax && jumpDist > 50.0 && !setPieceArmed && !kickoffPhase
+        && prevControllerId < 0 && state.ball.controllerId < 0) {
         stats.recordBallJump();
     }
     prevBallX = state.ball.x;
     prevBallY = state.ball.y;
+    prevControllerId = state.ball.controllerId;
 }
 inline void GameEngine::tickAgents(double sdt, bool ic) {
     for (auto& a : agents) {
