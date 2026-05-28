@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <format>
+#include "json.hpp"
 
 // ── Event-driven stats collector ──
 // Every game event calls a typed method. At match end, summaryJSON() provides benchmark output.
@@ -165,69 +166,120 @@ inline void StatsCollector::recordShotOnTarget() {
 }
 
 inline std::string StatsCollector::summaryJSON() const {
-    int totalShots=shotsHome+shotsAway;
-    int totalGoals=goalsHome+goalsAway;
-    double completionPct=passesAttempted>0?passesCompleted*100.0/passesAttempted:0;
-    double possessionTotal=possessionHome+possessionAway;
-    double posPct=possessionTotal>0?possessionHome*100.0/possessionTotal:50;
-    double looseAvg=ballSpeedSamples>0?ballSpeedTotal/ballSpeedSamples:0;
-    double passAvg=passLaunchCount>0?passLaunchTotal/passLaunchCount:0;
-    double shotAvg=shotLaunchCount>0?shotLaunchTotal/shotLaunchCount:0;
-    return std::format(
-        R"({{"passes":{},"passesCompleted":{},"passesIntercepted":{},"passCompletionPct":{:.1f},"offsides":{},"homeShots":{},"awayShots":{},"shots":{},"shotsOnTarget":{},"saves":{},)"
-        R"("stuckCarrierAlerts":{},"simulationFreezes":{},"dizzySpins":{},"teammatePingPongs":{},)"
-        R"("slideTackleDistanceAlerts":{},"slideTackleOobAlerts":{},"ownPassGoals":{},"unknownLooseGoals":{},)"
-        R"("shotsByDistance":{{"close":{},"medium":{},"long":{},"average":{},"questionable":{}}},)"
-        R"("goalsByDistance":{{"close":{},"medium":{},"long":{}}},)"
-        R"("untrackedGoals":{},"directDeliveryGoals":{},"directCrossGoals":{},)"
-        R"("tackleDeflectionGoals":{},"goalkeeperParryGoals":{},"shotDeflectionGoals":{},"ownPassGoals":{},"lostShotGoals":{},"unknownLooseGoals":{},"knockAheadGoals":{},)"
-        R"("goalkeeping":{{"assessedShots":{},"unlikelySaves":{},"preventableGoals":{}}},)"
-        R"("tackles":{{"attempts":{},"wins":{},"cleanControls":{},"looseDeflections":{},"fouls":{}}},)"
-        R"("dribbleTypes":{{"fast":{},"medium":{},"close":{},"knockAheads":{},"recovered":{},"retainedByTeammate":{},"turnovers":{},"outOfPlay":{},"risky":{},"riskyTurnovers":{},"launchSpeedAvg":{:.1f},"pending":{}}},)"
-        R"("carrierTurns":{{"samples":{},"requestedSharp":{},"appliedSharp":{},"limitedFrames":{},"over15":{},"over30":{},"avgAppliedDeg":{:.1f}}},)"
-        R"("passSelection":{{"audited":{},"risky":{},"saferIgnored":{},"avgDistance":{:.0f},"avgExpectedCompletionPct":{:.1f},"pressuredReceptions":{},"pressuredReceptionFailures":{}}},)"
-        R"("shotSelection":{{"audited":{},"betterPassAvailable":{},"tightAngle":{},"avgAngleDeg":{:.1f},"avgPressure":{:.2f},"cfCredibleWindowSamples":{},"cfDeferredSamples":{},"cfDeferredForPass":{},"cfDeferredForDribble":{},"cfCloseWindowSamples":{},"cfCloseDeferredSamples":{}}},)"
-        R"("marking":{{"pressSamples":{},"questionablePress":{},"avgPrimaryPressDistance":{:.0f},"backLineSamples":{},"singleDropSamples":{},"singleDropPct":{:.1f},"avgBackLineGap":{:.0f},"avgSingleDropGap":{:.0f},"maxBackLineGap":{:.0f},"laneBlockSingleDrops":{},"finalThirdSamples":{},"unmarkedFinalThird":{},"unmarkedPct":{:.1f},"avgNearestCb":{:.0f},"avgNearestDefender":{:.0f}}})"
-        R"(,"qualityFlags":{{"player_stuck":{},"simulation_freeze":{},"dizzy_spin":{},"slide_tackle_distance":{},"slide_tackle_oob":{},"own_pass_goal":{},"unknown_loose_goal":{},"questionable_shot_choice":{},"questionable_press_assignment":{},"unmarked_final_third":{},"risky_pass_choice":{},"teammate_pingpong":{}}})"
-        R"(,"ballSpeed":{{"peak":{:.0f},"looseSampleAvg":{:.0f},"looseSamples":{},"passLaunchAvg":{:.0f},"passLaunches":{},"shotLaunchAvg":{:.0f},"shotLaunches":{}}})"
-        R"(,"events":[])"
-        R"(,"possessionPct":{:.1f}}})",
-        passesAttempted,passesCompleted,passesIntercepted,completionPct,offsidesTotal,shotsHome,shotsAway,totalShots,shotsOnTarget,saves,
-        stuckAlerts,simFreezes,dizzySpins,teammatePingPongs,
-        slideTackleDistance,slideTackleOob,ownPassGoals,unknownLooseGoals,
-        shotDistClose,shotDistMedium,shotDistLong,totalShots>0?shotDistTotal/totalShots:0,questionableShots,
-        goalDistClose,goalDistMedium,goalDistLong,
-        untrackedGoals,directDeliveryGoals,directCrossGoals,
-        tackleDeflectionGoals,goalkeeperParryGoals,shotDeflectionGoals,ownPassGoals,lostShotGoals,unknownLooseGoals,knockAheadGoals,
-        gkAssessed,unlikelySaves,preventableGoals,
-        tackleAttempts,tackleWins,tackleClean,tackleLoose,tackleFouls,
-        dribbleFast,dribbleMedium,dribbleClose,knockAheads,knockAheadRecovered,knockAheadRetained,knockAheadTurnovers,knockAheadOutOfPlay,riskyKnockAheads,riskyKnockAheadTurnovers,
-        knockAheads>0?knockAheadSpeedTotal/knockAheads:0,0,
-        carrierSamples,carrierSharp,0,carrierLimited,carrierOver15,carrierOver30,
-        carrierSamples>0?carrierDegTotal/carrierSamples:0,
-        passAudits,riskyPassChoices,saferPassIgnored,
-        passAudits>0?passDistTotal/passAudits:0,
-        passAudits>0?passExpectedTotal/passAudits*100:0,
-        pressuredReceptions,pressuredReceptionFails,
-        shotAudits,betterPassShots,tightAngleShots,
-        shotAudits>0?shotAngleTotal/shotAudits:0,
-        shotAudits>0?shotPressureTotal/shotAudits:0,
-        cfCredibleWindows,cfDeferred,cfDeferredPass,cfDeferredDribble,
-        cfCloseWindows,cfCloseDeferred,
-        pressSamples,questionPress,
-        pressSamples>0?pressDistTotal/pressSamples:0,
-        backLineSamples,backLineSingleDrop,
-        backLineSamples>0?backLineSingleDrop*100.0/backLineSamples:0,
-        backLineSamples>0?backLineGapTotal/backLineSamples:0,
-        backLineSingleDrop>0?backLineSingleDropGapTotal/backLineSingleDrop:0,
-        backLineGapMax,backLineLaneBlockSingleDrop,
-        finalThirdSamples,finalThirdUnmarked,
-        finalThirdSamples>0?finalThirdUnmarked*100.0/finalThirdSamples:0,
-        finalThirdSamples>0?finalThirdCbTotal/finalThirdSamples:0,
-        finalThirdSamples>0?finalThirdDefTotal/finalThirdSamples:0,
-        stuckAlerts,simFreezes,dizzySpins,slideTackleDistance,slideTackleOob,
-        ownPassGoals,unknownLooseGoals,questionableShots,questionPress,finalThirdUnmarked,riskyPassChoices,teammatePingPongs,
-        ballSpeedPeak,looseAvg,ballSpeedSamples,passAvg,passLaunchCount,shotAvg,shotLaunchCount,
-        posPct
-    );
+    int totalShots = shotsHome + shotsAway;
+    int totalGoals = goalsHome + goalsAway;
+    double completionPct = passesAttempted > 0 ? passesCompleted * 100.0 / passesAttempted : 0;
+    double possessionTotal = possessionHome + possessionAway;
+    double posPct = possessionTotal > 0 ? possessionHome * 100.0 / possessionTotal : 50;
+    double looseAvg = ballSpeedSamples > 0 ? ballSpeedTotal / ballSpeedSamples : 0;
+    double passAvg = passLaunchCount > 0 ? passLaunchTotal / passLaunchCount : 0;
+    double shotAvg = shotLaunchCount > 0 ? shotLaunchTotal / shotLaunchCount : 0;
+
+    nlohmann::json j;
+    j["passes"] = passesAttempted;
+    j["passesCompleted"] = passesCompleted;
+    j["passesIntercepted"] = passesIntercepted;
+    j["passCompletionPct"] = std::round(completionPct * 10) / 10;
+    j["offsides"] = offsidesTotal;
+    j["homeShots"] = shotsHome;
+    j["awayShots"] = shotsAway;
+    j["shots"] = totalShots;
+    j["shotsOnTarget"] = shotsOnTarget;
+    j["saves"] = saves;
+
+    j["stuckCarrierAlerts"] = stuckAlerts;
+    j["simulationFreezes"] = simFreezes;
+    j["dizzySpins"] = dizzySpins;
+    j["teammatePingPongs"] = teammatePingPongs;
+    j["slideTackleDistanceAlerts"] = slideTackleDistance;
+    j["slideTackleOobAlerts"] = slideTackleOob;
+    j["ownPassGoals"] = ownPassGoals;
+    j["unknownLooseGoals"] = unknownLooseGoals;
+
+    j["shotsByDistance"] = {
+        {"close", shotDistClose}, {"medium", shotDistMedium}, {"long", shotDistLong},
+        {"average", totalShots > 0 ? std::round(shotDistTotal / totalShots * 10) / 10 : 0},
+        {"questionable", questionableShots}
+    };
+    j["goalsByDistance"] = {{"close", goalDistClose}, {"medium", goalDistMedium}, {"long", goalDistLong}};
+
+    j["untrackedGoals"] = untrackedGoals;
+    j["directDeliveryGoals"] = directDeliveryGoals;
+    j["directCrossGoals"] = directCrossGoals;
+    j["tackleDeflectionGoals"] = tackleDeflectionGoals;
+    j["goalkeeperParryGoals"] = goalkeeperParryGoals;
+    j["shotDeflectionGoals"] = shotDeflectionGoals;
+    j["ownPassGoals"] = ownPassGoals;
+    j["lostShotGoals"] = lostShotGoals;
+    j["unknownLooseGoals"] = unknownLooseGoals;
+    j["knockAheadGoals"] = knockAheadGoals;
+
+    j["goalkeeping"] = {{"assessedShots", gkAssessed}, {"unlikelySaves", unlikelySaves}, {"preventableGoals", preventableGoals}};
+    j["tackles"] = {{"attempts", tackleAttempts}, {"wins", tackleWins}, {"cleanControls", tackleClean}, {"looseDeflections", tackleLoose}, {"fouls", tackleFouls}};
+
+    j["dribbleTypes"] = {
+        {"fast", dribbleFast}, {"medium", dribbleMedium}, {"close", dribbleClose},
+        {"knockAheads", knockAheads}, {"recovered", knockAheadRecovered}, {"retainedByTeammate", knockAheadRetained},
+        {"turnovers", knockAheadTurnovers}, {"outOfPlay", knockAheadOutOfPlay},
+        {"risky", riskyKnockAheads}, {"riskyTurnovers", riskyKnockAheadTurnovers},
+        {"launchSpeedAvg", std::round((knockAheads > 0 ? knockAheadSpeedTotal / knockAheads : 0) * 10) / 10},
+        {"pending", 0}
+    };
+
+    j["carrierTurns"] = {
+        {"samples", carrierSamples}, {"requestedSharp", carrierSharp}, {"appliedSharp", 0},
+        {"limitedFrames", carrierLimited}, {"over15", carrierOver15}, {"over30", carrierOver30},
+        {"avgAppliedDeg", std::round((carrierSamples > 0 ? carrierDegTotal / carrierSamples : 0) * 10) / 10}
+    };
+
+    j["passSelection"] = {
+        {"audited", passAudits}, {"risky", riskyPassChoices}, {"saferIgnored", saferPassIgnored},
+        {"avgDistance", std::round(passAudits > 0 ? passDistTotal / passAudits : 0)},
+        {"avgExpectedCompletionPct", std::round((passAudits > 0 ? passExpectedTotal / passAudits * 100 : 0) * 10) / 10},
+        {"pressuredReceptions", pressuredReceptions}, {"pressuredReceptionFailures", pressuredReceptionFails}
+    };
+
+    j["shotSelection"] = {
+        {"audited", shotAudits}, {"betterPassAvailable", betterPassShots}, {"tightAngle", tightAngleShots},
+        {"avgAngleDeg", std::round((shotAudits > 0 ? shotAngleTotal / shotAudits : 0) * 10) / 10},
+        {"avgPressure", std::round((shotAudits > 0 ? shotPressureTotal / shotAudits : 0) * 100) / 100},
+        {"cfCredibleWindowSamples", cfCredibleWindows}, {"cfDeferredSamples", cfDeferred},
+        {"cfDeferredForPass", cfDeferredPass}, {"cfDeferredForDribble", cfDeferredDribble},
+        {"cfCloseWindowSamples", cfCloseWindows}, {"cfCloseDeferredSamples", cfCloseDeferred}
+    };
+
+    j["marking"] = {
+        {"pressSamples", pressSamples}, {"questionablePress", questionPress},
+        {"avgPrimaryPressDistance", std::round(pressSamples > 0 ? pressDistTotal / pressSamples : 0)},
+        {"backLineSamples", backLineSamples}, {"singleDropSamples", backLineSingleDrop},
+        {"singleDropPct", std::round((backLineSamples > 0 ? backLineSingleDrop * 100.0 / backLineSamples : 0) * 10) / 10},
+        {"avgBackLineGap", std::round(backLineSamples > 0 ? backLineGapTotal / backLineSamples : 0)},
+        {"avgSingleDropGap", std::round(backLineSingleDrop > 0 ? backLineSingleDropGapTotal / backLineSingleDrop : 0)},
+        {"maxBackLineGap", std::round(backLineGapMax)},
+        {"laneBlockSingleDrops", backLineLaneBlockSingleDrop},
+        {"finalThirdSamples", finalThirdSamples}, {"unmarkedFinalThird", finalThirdUnmarked},
+        {"unmarkedPct", std::round((finalThirdSamples > 0 ? finalThirdUnmarked * 100.0 / finalThirdSamples : 0) * 10) / 10},
+        {"avgNearestCb", std::round(finalThirdSamples > 0 ? finalThirdCbTotal / finalThirdSamples : 0)},
+        {"avgNearestDefender", std::round(finalThirdSamples > 0 ? finalThirdDefTotal / finalThirdSamples : 0)}
+    };
+
+    j["qualityFlags"] = {
+        {"player_stuck", stuckAlerts}, {"simulation_freeze", simFreezes}, {"dizzy_spin", dizzySpins},
+        {"slide_tackle_distance", slideTackleDistance}, {"slide_tackle_oob", slideTackleOob},
+        {"own_pass_goal", ownPassGoals}, {"unknown_loose_goal", unknownLooseGoals},
+        {"questionable_shot_choice", questionableShots}, {"questionable_press_assignment", questionPress},
+        {"unmarked_final_third", finalThirdUnmarked}, {"risky_pass_choice", riskyPassChoices},
+        {"teammate_pingpong", teammatePingPongs}
+    };
+
+    j["ballSpeed"] = {
+        {"peak", std::round(ballSpeedPeak)}, {"looseSampleAvg", std::round(looseAvg)},
+        {"looseSamples", ballSpeedSamples}, {"passLaunchAvg", std::round(passAvg)},
+        {"passLaunches", passLaunchCount}, {"shotLaunchAvg", std::round(shotAvg)}, {"shotLaunches", shotLaunchCount}
+    };
+
+    j["events"] = nlohmann::json::array();
+    j["possessionPct"] = std::round(posPct * 10) / 10;
+
+    return j.dump();
 }
