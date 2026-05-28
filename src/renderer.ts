@@ -5,7 +5,7 @@ import {
   GOAL_W, GOAL_DEPTH,
   PENALTY_AREA_W, PENALTY_AREA_H,
   GOAL_AREA_W, GOAL_AREA_H,
-  CENTER_CIRCLE_R, CORNER_ARC_R, PENALTY_SPOT_DIST,
+  CENTER_CIRCLE_R, CORNER_ARC_R,
   clamp, lerp,
 } from './constants';
 import type { EngineState } from './types';

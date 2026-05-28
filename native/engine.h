@@ -1,10 +1,10 @@
 #pragma once
-#include "rng.hpp"
-#include "constants.hpp"
-#include "types.hpp"
-#include "agent.hpp"
-#include "stats.hpp"
-#include "json.hpp"
+#include "rng.h"
+#include "constants.h"
+#include "types.h"
+#include "agent.h"
+#include "stats.h"
+#include "json.h"
 #include <format>
 #include <algorithm>
 #include <unordered_map>
@@ -533,8 +533,8 @@ public:
 };
 
 // ── Agent implementations ──
-#define AGENT_HPP_IMPL
-#include "agent.hpp"
+#define AGENT_H_IMPL
+#include "agent.h"
 
 // ── Engine method implementations ──
 inline bool GameEngine::knockBallAhead(Player& carrier,double targetX,double targetY){

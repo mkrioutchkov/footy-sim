@@ -1,21 +1,21 @@
 // agent.hpp — PlayerAgent for footy-sim C++ engine
 //
 // Include strategy (engine.hpp):
-//   1. #include "agent.hpp"          — gets PlayerAgent class declaration
+//   1. #include "agent.h"            — gets PlayerAgent class declaration
 //   2. class GameEngine { ... };     — full engine definition
-//   3. #define AGENT_HPP_IMPL
-//   4. #include "agent.hpp"          — gets method implementations
-//   5. #undef AGENT_HPP_IMPL
+//   3. #define AGENT_H_IMPL
+//   4. #include "agent.h"            — gets method implementations
+//   5. #undef AGENT_H_IMPL
 //
 // The agent stores GameEngine& and calls engine methods freely.
 // All engine callbacks needed are listed in comments below.
 
-#ifndef AGENT_HPP_DECL
-#define AGENT_HPP_DECL
+#ifndef AGENT_H_DECL
+#define AGENT_H_DECL
 
-#include "types.hpp"
-#include "constants.hpp"
-#include "rng.hpp"
+#include "types.h"
+#include "constants.h"
+#include "rng.h"
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -173,7 +173,7 @@ private:
     double ballMemY   = 0;
     int    ballMemAge = 0;
 
-    // ---- helper methods (signatures only; bodies follow in AGENT_HPP_IMPL) ----
+    // ---- helper methods (signatures only; bodies follow in AGENT_H_IMPL) ----
     GameContext           ctx();
     std::vector<Action>   ev(const Perception& per, bool ic, const GameContext& ctx);
     std::vector<Action>   cp(const Perception& per, const GameContext& ctx);
@@ -194,12 +194,12 @@ private:
     ShotSelectionAudit    shotSelectionAudit(const Action& choice, const std::vector<Action>& actions);
 };
 
-#endif // AGENT_HPP_DECL
+#endif // AGENT_H_DECL
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Method implementations  (compiled only after GameEngine is fully defined)
 // ══════════════════════════════════════════════════════════════════════════════
-#ifdef AGENT_HPP_IMPL
+#ifdef AGENT_H_IMPL
 
 #include <limits>
 #include <numeric>
@@ -1903,4 +1903,4 @@ inline void PlayerAgent::auditDefensiveMovement(const Action& choice) {
                                  8000.0, "why_player_running_direction:" + player.team);
 }
 
-#endif // AGENT_HPP_IMPL
+#endif // AGENT_H_IMPL

@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include "types.hpp"
+#include "types.h"
 
 // ── Binary trace format for deterministic replay and analysis ──
 //
