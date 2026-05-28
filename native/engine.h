@@ -17,7 +17,7 @@ public:
     mutable SeededRNG rng;
     EngineState state;
     TeamBlackboard blackboards[2]; // [0]=home, [1]=away
-    static int teamIndex(const std::string& team) { return team == "home" ? 0 : 1; }
+    static int teamIndex(Team team) { return static_cast<int>(team); }
     StatsCollector stats;
     std::vector<std::unique_ptr<PlayerAI>> agents;
     std::array<Player*, 22> playerLookup = {};
@@ -28,13 +28,14 @@ public:
     double peakBallSpeed = 0, looseBallSpeedTotal = 0;
     double passLaunchSpeedTotal = 0, shotLaunchSpeedTotal = 0;
     int looseBallSpeedSamples = 0, passLaunchCount = 0, shotLaunchCount = 0;
-    std::string lastGoalSource = "none", lastGoalScoringTeam, lastGoalTouchTeam;
+    std::string lastGoalSource = "none";
+    Team lastGoalScoringTeam = Team::Home, lastGoalTouchTeam = Team::Home;
     int lastGoalToucherId = -1;
     double lastGoalBallSpeed = 0;
     int stuckCarrierAlerts = 0;
     int teammatePingPongs = 0;
     double lastSameTeamCollectionMs = 0;
-    std::string lastCollectionTeam;
+    std::optional<Team> lastCollectionTeam;
     int simulationFreezes = 0;
     double freezeWatchMs = 0;
     double freezeBallX = 0, freezeBallY = 0;
@@ -49,11 +50,11 @@ public:
     double actionTimer = 0; bool setPieceArmed = false;
     std::string setPieceType, setPieceTeam;
     int half = 1; double halfTimePause = 0;
-    std::string nextKickoffTeam = "home";
+    Team nextKickoffTeam = Team::Home;
     bool shotActive = false;
     bool trackedShot = false;
     bool trackedShotPreventable = false;
-    std::string trackedShotTeam;
+    Team trackedShotTeam = Team::Home;
     int trackedShooterId = -1;
     double shotOriginX = 0, shotOriginY = 0;
     double gkDistributeTimer = 0;
@@ -63,13 +64,13 @@ public:
     struct PendingPass {
         bool active = false;
         int fromId = -1, toId = -1;
-        std::string team;
+        Team team = Team::Home;
         bool isCross = false;
     } pendingPass;
     struct ActiveKnockAhead {
         bool active = false;
         int playerId = -1;
-        std::string team;
+        Team team = Team::Home;
         double launchedAt = 0;
         int nearestOpponentId = -1;
         double nearestOpponentDistance = 0;
@@ -79,11 +80,11 @@ public:
     std::string lastLooseOrigin;
 
     // ── Agent-accessible state ──
-    struct RecentPass { double bx=525,by=340,vx=0,vy=0; std::string team; double clockMs=0; };
+    struct RecentPass { double bx=525,by=340,vx=0,vy=0; Team team=Team::Home; double clockMs=0; };
     RecentPass qRecentPassVal;
     RecentPass* qRecentPass() { return &qRecentPassVal; }
     [[nodiscard]] int clockMs() const { return static_cast<int>(state.clockMs); }
-    [[nodiscard]] std::string teamInPossession() const { return state.ball.lastTouchTeam.empty() ? "home" : state.ball.lastTouchTeam; }
+    [[nodiscard]] Team teamInPossession() const { return state.ball.lastTouchTeam; }
 
     // ── Tactical callbacks ──
     struct Config {
@@ -91,9 +92,9 @@ public:
         double midfieldFreedom=50, defensiveLineHeight=50;
     };
     Config homeConfig, awayConfig;
-    [[nodiscard]] Config configFor(const std::string& team) const { return team=="home" ? homeConfig : awayConfig; }
-    [[nodiscard]] double offsideLineFor(const std::string& t) const {
-        const double fd = t=="home" ? 1.0 : -1.0;
+    [[nodiscard]] Config configFor(Team team) const { return team==Team::Home ? homeConfig : awayConfig; }
+    [[nodiscard]] double offsideLineFor(Team t) const {
+        const double fd = t==Team::Home ? 1.0 : -1.0;
         const Player* d1=nullptr,*d2=nullptr;
         double v1=fd==1?-1e9:1e9, v2=v1;
         for(auto&p:state.players){
@@ -102,10 +103,10 @@ public:
             if(v<v1){if(v1!=v2)v2=v1;else v2=v;v1=v;d2=d1;d1=&p;}
             else if(v<v2){v2=v;d2=&p;}
         }
-        return d2 ? d2->x : (t=="home"?0.0:PITCH_W);
+        return d2 ? d2->x : (t==Team::Home?0.0:PITCH_W);
     }
     [[nodiscard]] bool checkOffside(const Player& receiver, const Player& passer) const {
-        const double fd = passer.team=="home" ? 1.0 : -1.0;
+        const double fd = passer.team==Team::Home ? 1.0 : -1.0;
         if(fd==1){if(receiver.x<=HALF_X||receiver.x<=passer.x+OFFSIDE_TOLERANCE)return false;}
         else{if(receiver.x>=HALF_X||receiver.x>=passer.x-OFFSIDE_TOLERANCE)return false;}
         const Player* d1=nullptr,*d2=nullptr;
@@ -204,7 +205,7 @@ public:
     }
     void auditStuckCarrier(double sdt);
     void updateTeamAssignments();
-    void assignDefensiveRoles(const std::string& team, Player& carrier);
+    void assignDefensiveRoles(Team team, Player& carrier);
     void setAssignment(Player& player, const std::string& role, double x, double y, int opponentId=-1);
     void auditTacticalCoverage(Player& carrier);
     void auditCredibleShotWindow(const Player& player, double distance, double angleDeg,
@@ -221,7 +222,7 @@ public:
     void placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset=CONTROL_DIST+PLAYER_R+10) {
         double d=std::hypot(dx,dy);
         if(d<0.001){
-            double fd=kicker.team=="home"?1.0:-1.0;
+            double fd=kicker.team==Team::Home?1.0:-1.0;
             state.ball.x=clamp(kicker.x+fd*maxOffset,5.0,PITCH_W-5.0);
             state.ball.y=kicker.y;
             return;
@@ -236,7 +237,7 @@ public:
         double speed=(PASS_SPEED_BASE+rawDist*PASS_SPEED_DIST)*(0.92+rng.random()*0.16);
         double travelTime=rawDist/std::max(speed,1.0);
         double receiverSpeed=std::hypot(t.vx,t.vy);
-        double fd=f.team=="home"?1.0:-1.0;
+        double fd=f.team==Team::Home?1.0:-1.0;
         bool movingForward=t.vx*fd>5;
         double leadFactor=movingForward&&receiverSpeed>20?0.80:0.45;
         double throughLead=throughBall?fd*(32+attrFactor(f.attrs.creativity)*62):0;
@@ -250,7 +251,7 @@ public:
         double tdy=dy+(rng.random()-0.5)*inacc;
         double tDist=std::hypot(tdx,tdy);
         double ownGoalX=ownGoalXFor(f.team);
-        bool towardOwnGoal=f.team=="home"?tdx<0:tdx>0;
+        bool towardOwnGoal=f.team==Team::Home?tdx<0:tdx>0;
         bool defendingOwnBox=std::abs(f.x-ownGoalX)<PITCH_W/3.0;
         if(towardOwnGoal&&defendingOwnBox){
             double travel=(ownGoalX-f.x)/tdx;
@@ -268,7 +269,7 @@ public:
         b.z=0; b.vz=0;
         int blockers=0;
         for(auto&o:state.players){
-            if(o.team==f.team||o.role=="GK")continue;
+            if(o.team==f.team||o.role==Role::GK)continue;
             double along=clamp(((o.x-f.x)*dx+(o.y-f.y)*dy)/(adjDist*adjDist),0.0,1.0);
             double perp=std::hypot(o.x-f.x-along*dx,o.y-f.y-along*dy);
             if(perp<35&&along>0.1&&along<0.9)blockers++;
@@ -280,8 +281,8 @@ public:
         double goalX=goalXFor(f.team);
         bool fromWide=std::abs(f.y-PITCH_H/2)>180;
         bool intoBox=std::abs(predX-goalX)<200&&std::abs(predY-PITCH_H/2)<140;
-        bool selectedCross=audit&&audit->purpose=="cross"&&fromWide&&(f.role=="WM"||f.role=="FB")&&!throughBall;
-        bool whippedCross=fromWide&&intoBox&&(f.role=="WM"||f.role=="FB")&&!throughBall
+        bool selectedCross=audit&&audit->purpose=="cross"&&fromWide&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall;
+        bool whippedCross=fromWide&&intoBox&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall
             &&(!audit||(audit->purpose!="cutback"&&audit->purpose!="through"&&audit->purpose!="cross"));
         if(whippedCross){
             b.vx*=1.30; b.vy*=1.30;
@@ -294,7 +295,7 @@ public:
         beginTrackedPass(f,t,selectedCross||whippedCross);
         if(checkOffside(t,f)){
             stats.recordOffside();
-            awardOffsideFreeKick(f.team=="home"?"away":"home",t);
+            awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
             return true;
         }
         return true;
@@ -318,7 +319,7 @@ public:
         beginTrackedPass(f,t);
         if(checkOffside(t,f)){
             stats.recordOffside();
-            awardOffsideFreeKick(f.team=="home"?"away":"home",t);
+            awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
         }
     }
     bool attemptTackle(Player& tackler,Player& carrier){
@@ -329,9 +330,9 @@ public:
         stats.recordTackleAttempt();
         double tackleSkill=attrFactor(tackler.attrs.tackling);
         double carrierControl=attrFactor(carrier.attrs.positioning)*0.35+attrFactor(carrier.attrs.speed)*0.15;
-        double facingBonus=(tackler.team=="home"?tackler.vx>0:tackler.vx<0)?0.08:-0.05;
+        double facingBonus=(tackler.team==Team::Home?tackler.vx>0:tackler.vx<0)?0.08:-0.05;
         double carrierSpeed=std::hypot(carrier.vx,carrier.vy);
-        double forwardX=carrierSpeed>8?carrier.vx/carrierSpeed:(carrier.team=="home"?1.0:-1.0);
+        double forwardX=carrierSpeed>8?carrier.vx/carrierSpeed:(carrier.team==Team::Home?1.0:-1.0);
         double forwardY=carrierSpeed>8?carrier.vy/carrierSpeed:0;
         double approachDot=contactDist>0
             ? ((tackler.x-carrier.x)*forwardX+(tackler.y-carrier.y)*forwardY)/contactDist
@@ -400,14 +401,14 @@ public:
         return true;
     }
     void shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
-        stats.recordShot(s.team,false);
+        stats.recordShot(std::string(to_string(s.team)),false);
         double gx=goalXFor(s.team);
         double accuracy=attrFactor(s.attrs.shooting);
         double goalCenterY=PITCH_H/2.0;
         double shotDistance=std::hypot(gx-s.x,goalCenterY-s.y);
         stats.recordShotDistance(shotDistance);
         int pressureCount=0;
-        for(auto&o:state.players)if(o.team!=s.team&&o.role!="GK"&&dist(o.x,o.y,s.x,s.y)<PRESSURE_RANGE)pressureCount++;
+        for(auto&o:state.players)if(o.team!=s.team&&o.role!=Role::GK&&dist(o.x,o.y,s.x,s.y)<PRESSURE_RANGE)pressureCount++;
         double angleDeg=goalOpeningAngleDeg(s.x,s.y,gx);
         bool outsideGoalLane=std::abs(s.y-goalCenterY)>GOAL_W/2+20;
         bool acuteGeometry=outsideGoalLane&&angleDeg<7.5&&shotDistance>150;
@@ -479,7 +480,7 @@ public:
             if(p.id>=0&&p.id<22)playerLookup[p.id]=&p;
         }
         for(auto&p:state.players) {
-            if (p.role == "GK")
+            if (p.role == Role::GK)
                 agents.push_back(std::make_unique<GKPlayerAI>(p, *this));
             else
                 agents.push_back(std::make_unique<PlayerAI>(p, *this));
@@ -487,31 +488,31 @@ public:
     }
 
     void createHomeTeam() {
-        auto mk=[&](int id,std::string t,std::string r,double hx,double hy){return Player{id,std::format("{}{}",t,id),t,r,hx,hy,0,0,hx,hy,hx,hy,100.0,{static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(60,95))},t=="home"?0.0:3.141592653589793};};
+        auto mk=[&](int id,Team t,Role r,double hx,double hy){return Player{id,std::format("{}{}",to_string(t),id),t,r,hx,hy,0,0,hx,hy,hx,hy,100.0,{static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(60,95))},t==Team::Home?0.0:3.141592653589793};};
         std::vector<Player> home = {
-            mk(0,"home","GK",31.5,340),mk(1,"home","FB",157.5,81.6),
-            mk(2,"home","CB",189,226.6667),mk(3,"home","CB",189,453.3333),
-            mk(4,"home","FB",157.5,598.4),mk(5,"home","CM",420,170),
-            mk(6,"home","CM",420,340),mk(7,"home","CM",420,510),
-            mk(8,"home","WM",441,81.6),mk(9,"home","CF",756,340),
-            mk(10,"home","WM",441,598.4)
+            mk(0,Team::Home,Role::GK,31.5,340),mk(1,Team::Home,Role::FB,157.5,81.6),
+            mk(2,Team::Home,Role::CB,189,226.6667),mk(3,Team::Home,Role::CB,189,453.3333),
+            mk(4,Team::Home,Role::FB,157.5,598.4),mk(5,Team::Home,Role::CM,420,170),
+            mk(6,Team::Home,Role::CM,420,340),mk(7,Team::Home,Role::CM,420,510),
+            mk(8,Team::Home,Role::WM,441,81.6),mk(9,Team::Home,Role::CF,756,340),
+            mk(10,Team::Home,Role::WM,441,598.4)
         };
         state.players.insert(state.players.end(), home.begin(), home.end());
     }
     void createAwayTeam() {
-        auto mk=[&](int id,std::string t,std::string r,double hx,double hy){return Player{id,std::format("{}{}",t,id),t,r,hx,hy,0,0,hx,hy,hx,hy,100.0,{static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(60,95))},t=="home"?0.0:3.141592653589793};};
+        auto mk=[&](int id,Team t,Role r,double hx,double hy){return Player{id,std::format("{}{}",to_string(t),id),t,r,hx,hy,0,0,hx,hy,hx,hy,100.0,{static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(60,95))},t==Team::Home?0.0:3.141592653589793};};
         std::vector<Player> away = {
-            mk(11,"away","GK",1018.5,340),mk(12,"away","FB",892.5,81.6),
-            mk(13,"away","CB",861,226.6667),mk(14,"away","CB",861,453.3333),
-            mk(15,"away","FB",892.5,598.4),mk(16,"away","CM",630,170),
-            mk(17,"away","CM",630,340),mk(18,"away","CM",630,510),
-            mk(19,"away","WM",609,81.6),mk(20,"away","CF",294,340),
-            mk(21,"away","WM",609,598.4)
+            mk(11,Team::Away,Role::GK,1018.5,340),mk(12,Team::Away,Role::FB,892.5,81.6),
+            mk(13,Team::Away,Role::CB,861,226.6667),mk(14,Team::Away,Role::CB,861,453.3333),
+            mk(15,Team::Away,Role::FB,892.5,598.4),mk(16,Team::Away,Role::CM,630,170),
+            mk(17,Team::Away,Role::CM,630,340),mk(18,Team::Away,Role::CM,630,510),
+            mk(19,Team::Away,Role::WM,609,81.6),mk(20,Team::Away,Role::CF,294,340),
+            mk(21,Team::Away,Role::WM,609,598.4)
         };
         state.players.insert(state.players.end(), away.begin(), away.end());
     }
-    void startMatch(){state.matchState="running";state.clockMs=0;kickoff("home");}
-    void kickoff(std::string t);
+    void startMatch(){state.matchState="running";state.clockMs=0;kickoff(Team::Home);}
+    void kickoff(Team t);
     void update(double dM);
     void fixedUpdate(double sdt);
     void tickAgents(double sdt,bool ic);

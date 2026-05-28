@@ -12,7 +12,7 @@ void GKPlayerAI::tick(double sdt) {
         Player* best = nullptr;
         double bestD = 1e9;
         for (auto& p : engine.state.players) {
-            if (p.team != player.team || p.id == player.id || p.role == "GK") continue;
+            if (p.team != player.team || p.id == player.id || p.role == Role::GK) continue;
             double d = dist(player.x, player.y, p.x, p.y);
             if (d < bestD) { bestD = d; best = &p; }
         }

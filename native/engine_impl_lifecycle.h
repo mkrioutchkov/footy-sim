@@ -1,8 +1,8 @@
 #pragma once
 // engine_impl_lifecycle.h — kickoff, update, fixedUpdate, tickAgents, auditStuckCarrier
 
-inline void GameEngine::kickoff(std::string t){
-    nextKickoffTeam=(t=="home")?"away":"home";
+inline void GameEngine::kickoff(Team t){
+    nextKickoffTeam=(t==Team::Home)?Team::Away:Team::Home;
     contestBlockedUntil.clear();
     receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
     pendingPass.active=false;
@@ -13,7 +13,7 @@ inline void GameEngine::kickoff(std::string t){
     lastLooseOrigin.clear();
     for(auto&p:state.players){
         double margin=(p.team==t)?30.0:45.0;
-        p.x=p.team=="home"
+        p.x=p.team==Team::Home
             ? clamp(p.homeX,25.0,HALF_X-margin)
             : clamp(p.homeX,HALF_X+margin,PITCH_W-25.0);
         p.y=p.homeY;
@@ -25,7 +25,7 @@ inline void GameEngine::kickoff(std::string t){
     b.vx=b.vy=b.z=b.vz=0;
     b.controllerId=-1; b.intendedReceiverId=-1;
     for(auto&p:state.players){
-        if(p.team==t&&p.role=="CF"){
+        if(p.team==t&&p.role==Role::CF){
             p.x=HALF_X; p.y=PITCH_H/2;
             p.targetX=p.x; p.targetY=p.y;
             b.controllerId=p.id;
@@ -69,7 +69,7 @@ inline void GameEngine::fixedUpdate(double sdt) {
     }
     auto* c = playerById(state.ball.controllerId);
     if (c) {
-        if (c->team == "home") possessionHome += sdt;
+        if (c->team == Team::Home) possessionHome += sdt;
         else possessionAway += sdt;
     }
     stats.recordPossession(possessionHome, possessionAway);
@@ -173,7 +173,7 @@ inline void GameEngine::auditStuckCarrier(double sdt){
         watchedCarrierMs=0;
         return;
     }
-    double fd=carrier->team=="home"?1.0:-1.0;
+    double fd=carrier->team==Team::Home?1.0:-1.0;
     double forwardProgress=(carrier->x-watchedCarrierX)*fd;
     if(forwardProgress>30.0){
         watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
@@ -182,18 +182,18 @@ inline void GameEngine::auditStuckCarrier(double sdt){
     }
     int nearbyOpponents=0;
     for(auto& p:state.players){
-        if(p.team!=carrier->team&&p.role!="GK"&&dist(p.x,p.y,carrier->x,carrier->y)<PRESSURE_RANGE)nearbyOpponents++;
+        if(p.team!=carrier->team&&p.role!=Role::GK&&dist(p.x,p.y,carrier->x,carrier->y)<PRESSURE_RANGE)nearbyOpponents++;
     }
-    bool deep=carrier->team=="home"?carrier->x<PITCH_W*0.28:carrier->x>PITCH_W*0.72;
+    bool deep=carrier->team==Team::Home?carrier->x<PITCH_W*0.28:carrier->x>PITCH_W*0.72;
     if(watchedCarrierMs>STUCK_CARRIER_TIMEOUT_MS){
         Player* best=nullptr; double bestD=1e9;
         for(auto&p:state.players){
-            if(p.team!=carrier->team||p.id==carrier->id||p.role=="GK")continue;
+            if(p.team!=carrier->team||p.id==carrier->id||p.role==Role::GK)continue;
             double d=dist(carrier->x,carrier->y,p.x,p.y);
             if(d<bestD){bestD=d; best=&p;}
         }
         if(best)forcePassTo(*carrier,*best,nullptr);
-        else{auto&b=state.ball;b.controllerId=-1;b.vx=carrier->team=="home"?300:-300;b.vy=0;b.vz=80;b.z=0;}
+        else{auto&b=state.ball;b.controllerId=-1;b.vx=carrier->team==Team::Home?300:-300;b.vy=0;b.vz=80;b.z=0;}
         setPieceArmed=false;setPieceType.clear();setPieceTeam.clear();
         watchedCarrierMs=0;watchedCarrierX=carrier->x;watchedCarrierY=carrier->y;
         if(state.clockMs-lastStuckAlertMs>8000){

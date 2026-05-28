@@ -18,14 +18,14 @@ inline std::string GameEngine::getJSON() const {
         {"z", std::round(b.z * 10) / 10},
         {"controllerId", b.controllerId >= 0 ? nlohmann::json(b.controllerId) : nlohmann::json(nullptr)},
         {"intendedReceiverId", b.intendedReceiverId >= 0 ? nlohmann::json(b.intendedReceiverId) : nlohmann::json(nullptr)},
-        {"lastTouchTeam", b.lastTouchTeam.empty() ? nlohmann::json(nullptr) : nlohmann::json(b.lastTouchTeam)},
+        {"lastTouchTeam", std::string(to_string(b.lastTouchTeam))},
         {"lastToucherId", b.lastToucherId >= 0 ? nlohmann::json(b.lastToucherId) : nlohmann::json(nullptr)}
     };
 
     j["players"] = nlohmann::json::array();
     for (auto& p : state.players) {
         j["players"].push_back({
-            {"id", p.id}, {"name", p.name}, {"team", p.team}, {"role", p.role},
+            {"id", p.id}, {"name", p.name}, {"team", std::string(to_string(p.team))}, {"role", std::string(to_string(p.role))},
             {"x", std::round(p.x * 10) / 10}, {"y", std::round(p.y * 10) / 10},
             {"vx", std::round(p.vx * 10) / 10}, {"vy", std::round(p.vy * 10) / 10},
             {"targetX", std::round(p.targetX * 10) / 10}, {"targetY", std::round(p.targetY * 10) / 10},

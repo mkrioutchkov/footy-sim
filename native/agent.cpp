@@ -6,7 +6,7 @@
 // tick()
 // ══════════════════════════════════════════════════════════════════════════════
 void PlayerAI::tick(double sdt) {
-    if (player.role == "GK") return;
+    if (player.role == Role::GK) return;
     facing = player.facing;
 
     stunLockTicks = std::max(0, stunLockTicks - 1);
@@ -51,21 +51,21 @@ void PlayerAI::tick(double sdt) {
                                  top, player.x, player.y, choice.purpose);
         if (ic) {
             auto shootOpt = std::find_if(aff.begin(), aff.end(),
-                                         [](const Action& x) { return x.type == "shoot" && x.score >= 0.0; });
+                                         [](const Action& x) { return x.type == ActionType::Shoot && x.score >= 0.0; });
             if (shootOpt != aff.end()) {
                 engine.auditCredibleShotWindow(player, shootOpt->audit.distance,
-                    shootOpt->audit.angleDeg, per.pressureCount, choice.type);
+                    shootOpt->audit.angleDeg, per.pressureCount, std::string(to_string(choice.type)));
             }
         }
     }
 
-    if (ic && per.pressureCount == 0 && choice.type != "shoot" && choice.type != "hold"
+    if (ic && per.pressureCount == 0 && choice.type != ActionType::Shoot && choice.type != ActionType::Hold
         && std::fmod(engine.state.clockMs, 500.0) < 20.0)
     {
         double gx = goalXFor(player.team);
         if (std::abs(player.x - gx) < 120.0) {
             auto shootOpt = std::find_if(aff.begin(), aff.end(),
-                                         [](const Action& x) { return x.type == "shoot"; });
+                                         [](const Action& x) { return x.type == ActionType::Shoot; });
             if (shootOpt != aff.end() && shootOpt->score > 0.20) {
                 double distance = shootOpt->audit.distance;
                 if (distance == 0.0) distance = std::hypot(player.x - gx, player.y - PITCH_H / 2.0);
@@ -76,7 +76,7 @@ void PlayerAI::tick(double sdt) {
                 engine.captureDecisionMoment("why_no_shoot", player,
                     choice.type, choice.score, shootOpt->score,
                     distance, angleDeg, per.pressureCount,
-                    8000.0, "why_no_shoot:" + player.team);
+                    8000.0, std::string("why_no_shoot:") + std::string(to_string(player.team)));
             }
         }
     }
@@ -90,8 +90,8 @@ void PlayerAI::tick(double sdt) {
 // ══════════════════════════════════════════════════════════════════════════════
 GameContext PlayerAI::buildContext() {
     int ms = engine.state.homeScore, os = engine.state.awayScore;
-    int my = (player.team == "home") ? ms : os;
-    int op = (player.team == "home") ? os : ms;
+    int my = (player.team == Team::Home) ? ms : os;
+    int op = (player.team == Team::Home) ? os : ms;
     int d  = my - op;
     double tl = std::max(0.0, MATCH_DURATION - engine.state.clockMs);
     return { d, tl, (engine.state.clockMs < MATCH_DURATION / 2.0) ? 1 : 2 };
@@ -107,16 +107,16 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
             double angle = engine.state.clockMs * 0.005 + player.id * 1.7;
             double tx = player.x + std::cos(angle) * 3.0;
             double ty = player.y + std::sin(angle) * 3.0;
-            return { Action{"dribble", 1.0, nullptr, tx, ty, "hold"} };
+            return { Action{ActionType::Dribble, 1.0, nullptr, tx, ty, "hold"} };
         }
         if (per.pressureCount == 0) {
-            bool inOppHalf = player.team == "home" ? player.x > HALF_X : player.x < HALF_X;
+            bool inOppHalf = player.team == Team::Home ? player.x > HALF_X : player.x < HALF_X;
             if (inOppHalf) {
                 bool quickPassAvailable = false;
                 double facingRad = player.facing;
                 double fx = std::cos(facingRad), fy = std::sin(facingRad);
                 for (auto& t : engine.state.players) {
-                    if (t.team != player.team || t.id == player.id || t.role == "GK") continue;
+                    if (t.team != player.team || t.id == player.id || t.role == Role::GK) continue;
                     double dx = t.x - player.x, dy = t.y - player.y;
                     double d = std::hypot(dx, dy);
                     if (d > 150.0) continue;
@@ -125,7 +125,7 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
                 }
                 if (!quickPassAvailable) {
                     stunLockTicks = 8 + static_cast<int>(engine.rng.random() * 10);
-                    return { Action{"hold", 1.0} };
+                    return { Action{ActionType::Hold, 1.0} };
                 }
             }
         }
@@ -154,23 +154,23 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
 
         int pc = per.pressureCount;
         for (auto& x : a) {
-            if (x.type == "pass")    x.score += pc * 0.04;
-            if (x.type == "shoot")   x.score += pc * 0.03;
-            if (x.type == "dribble" && pc == 1) x.score += 0.10;
-            if (x.type == "dribble" && pc >= 3) x.score -= 0.10;
+            if (x.type == ActionType::Pass)    x.score += pc * 0.04;
+            if (x.type == ActionType::Shoot)   x.score += pc * 0.03;
+            if (x.type == ActionType::Dribble && pc == 1) x.score += 0.10;
+            if (x.type == ActionType::Dribble && pc >= 3) x.score -= 0.10;
         }
 
         Action* bestPass = nullptr;
         for (auto& x : a) {
-            if (x.type == "pass") {
+            if (x.type == ActionType::Pass) {
                 if (!bestPass || x.score > bestPass->score) bestPass = &x;
             }
         }
 
-        if (player.role == "CM") {
+        if (player.role == Role::CM) {
             Action* bestDribble = nullptr;
             for (auto& x : a) {
-                if (x.type == "dribble") {
+                if (x.type == ActionType::Dribble) {
                     if (!bestDribble || x.score > bestDribble->score) bestDribble = &x;
                 }
             }
@@ -178,12 +178,12 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
         }
 
         if (pc == 0) {
-            for (auto& x : a) { if (x.type == "dribble") x.score += 0.10; }
-            if (player.role == "CM") {
-                for (auto& x : a) { if (x.type == "dribble") x.score += 0.08; if (x.type == "pass") x.score += 0.02; }
+            for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.10; }
+            if (player.role == Role::CM) {
+                for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.08; if (x.type == ActionType::Pass) x.score += 0.02; }
             }
-            if (player.role == "WM") {
-                for (auto& x : a) { if (x.type == "dribble") x.score += 0.12; if (x.type == "pass") x.score += 0.04; }
+            if (player.role == Role::WM) {
+                for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.12; if (x.type == ActionType::Pass) x.score += 0.04; }
             }
         }
     } else {
@@ -197,16 +197,16 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
     double gx = goalXFor(player.team);
     if (std::abs(player.x - gx) < 280.0) {
         for (auto& x : a) {
-            if (x.type == "shoot")                                  x.score += 0.06;
-            if (x.type == "pass" && x.purpose == "through")        x.score += 0.04;
-            if (x.type == "dribble" && x.purpose == "space")       x.score += 0.04;
+            if (x.type == ActionType::Shoot)                                  x.score += 0.06;
+            if (x.type == ActionType::Pass && x.purpose == "through")        x.score += 0.04;
+            if (x.type == ActionType::Dribble && x.purpose == "space")       x.score += 0.04;
         }
     }
 
     for (auto& x : a) {
         if (x.type == lastActionType && x.target && x.target->id == lastTargetId) x.score += ic ? 0.12 : 0.05;
 
-        if (x.type == "position" && x.posX != 0 && x.posY != 0) {
+        if (x.type == ActionType::Position && x.posX != 0 && x.posY != 0) {
             double td = std::sqrt((x.posX - player.targetX) * (x.posX - player.targetX)
                                 + (x.posY - player.targetY) * (x.posY - player.targetY));
             if (td < 50.0) x.score += 0.07;
@@ -223,11 +223,11 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
 // ══════════════════════════════════════════════════════════════════════════════
 std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
-    double fd = (p.team == "home") ? 1.0 : -1.0;
+    double fd = (p.team == Team::Home) ? 1.0 : -1.0;
     std::vector<Action> r;
 
     for (auto& t : engine.state.players) {
-        if (t.team != p.team || t.id == p.id || t.role == "GK") continue;
+        if (t.team != p.team || t.id == p.id || t.role == Role::GK) continue;
         double d = dist(p.x, p.y, t.x, t.y);
         if (d < 30.0 || d > 550.0) continue;
         if (engine.isOffsideTarget(p, t)) continue;
@@ -244,7 +244,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (ls < 1.0) continue;
 
         for (auto& o : engine.state.players) {
-            if (o.team == p.team || o.role == "GK") continue;
+            if (o.team == p.team || o.role == Role::GK) continue;
             double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
             double perp = std::sqrt((o.x - p.x - t2 * dx) * (o.x - p.x - t2 * dx)
                                   + (o.y - p.y - t2 * dy) * (o.y - p.y - t2 * dy));
@@ -257,7 +257,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
 
         int receiverPressure = 0;
         for (auto& o : engine.state.players) {
-            if (o.team != p.team && o.role != "GK" && dist(o.x, o.y, t.x, t.y) < 45.0) receiverPressure++;
+            if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < 45.0) receiverPressure++;
         }
         if (receiverPressure >= 3) continue;
 
@@ -268,7 +268,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (completion < 0.06) continue;
 
         double progression = clamp(fp / 240.0, -0.5, 1.0);
-        double turnoverCost = ((p.team == "home") ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
+        double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
         double sc = completion * (0.38 + std::max(0.0, progression) * 0.34) - (1.0 - completion) * turnoverCost;
         if (t.id == lastPassTargetId) sc -= 0.18;
 
@@ -282,7 +282,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (dg2 < 200.0 && fp > 0.0 && d < 150.0) sc += 0.10;
 
         double dgW = dg2;
-        bool isWideDelivery = (p.role == "WM" || p.role == "FB")
+        bool isWideDelivery = (p.role == Role::WM || p.role == Role::FB)
             && dgW < 315.0
             && std::abs(p.y - PITCH_H / 2.0) > 90.0
             && std::abs(t.x - (goalXFor(p.team))) < 235.0
@@ -292,9 +292,9 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         bool isCross   = isWideDelivery && std::abs(p.y - PITCH_H / 2.0) > 180.0 && fp > 0.0;
         bool isCutback = isWideDelivery && !isCross;
 
-        if (p.role == "WM" && dgW < 380.0 && t.role == "CF" && std::abs(t.y - PITCH_H / 2.0) < 200.0) sc += 0.28;
-        if (p.role == "WM" && fp > 50.0 && std::abs(p.y - PITCH_H / 2.0) > 120.0 && bl <= 2) sc += 0.20;
-        if (p.role == "FB" && fp > 35.0 && std::abs(p.y - PITCH_H / 2.0) > 90.0 && dgW < 360.0) sc += 0.18;
+        if (p.role == Role::WM && dgW < 380.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 200.0) sc += 0.28;
+        if (p.role == Role::WM && fp > 50.0 && std::abs(p.y - PITCH_H / 2.0) > 120.0 && bl <= 2) sc += 0.20;
+        if (p.role == Role::FB && fp > 35.0 && std::abs(p.y - PITCH_H / 2.0) > 90.0 && dgW < 360.0) sc += 0.18;
 
         sc -= bl * 0.06;
         if (fp > 0.0) {
@@ -318,7 +318,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
                 int oppsNearCarrier = 0;
                 int oppsNearTarget  = 0;
                 for (auto& o : engine.state.players) {
-                    if (o.team == p.team || o.role == "GK") continue;
+                    if (o.team == p.team || o.role == Role::GK) continue;
                     bool onCarrierSide = (carrierSide == "top") ? o.y < PITCH_H / 2.0 : o.y >= PITCH_H / 2.0;
                     if (onCarrierSide && dist(p.x, p.y, o.x, o.y) < 250.0) oppsNearCarrier++;
                     bool onTargetSide = (targetSide == "top") ? o.y < PITCH_H / 2.0 : o.y >= PITCH_H / 2.0;
@@ -333,28 +333,28 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (pur == "build" && bl > 0) sc += cr * 0.12;
         if (pur == "clear")           sc -= cr * 0.10;
 
-        using RoleList = std::vector<std::string>;
-        static const std::unordered_map<std::string, RoleList> rcMap = {
-            {"GK", {}},
-            {"CB", {"CM", "FB", "WM", "CF"}},
-            {"FB", {"CM", "WM", "CB"}},
-            {"CM", {"CF", "WM", "FB"}},
-            {"WM", {"CF", "CM"}},
-            {"CF", {"CM", "WM"}},
+        using RoleList = std::vector<Role>;
+        static const std::unordered_map<Role, RoleList> rcMap = {
+            {Role::GK, {}},
+            {Role::CB, {Role::CM, Role::FB, Role::WM, Role::CF}},
+            {Role::FB, {Role::CM, Role::WM, Role::CB}},
+            {Role::CM, {Role::CF, Role::WM, Role::FB}},
+            {Role::WM, {Role::CF, Role::CM}},
+            {Role::CF, {Role::CM, Role::WM}},
         };
         auto it = rcMap.find(p.role);
         const RoleList& pref = (it != rcMap.end()) ? it->second : RoleList{};
         auto rii = std::find(pref.begin(), pref.end(), t.role);
         if (rii == pref.begin())           sc += 0.12;
         else if (rii == pref.begin() + 1)  sc += 0.06;
-        if (t.role == p.role) sc -= (p.role == "CB" || p.role == "FB") ? 0.30 : 0.20;
+        if (t.role == p.role) sc -= (p.role == Role::CB || p.role == Role::FB) ? 0.30 : 0.20;
 
-        if ((p.role == "CB" || p.role == "FB") && (t.role == "CM" || t.role == "WM") && fp > 0.0) sc += 0.08;
+        if ((p.role == Role::CB || p.role == Role::FB) && (t.role == Role::CM || t.role == Role::WM) && fp > 0.0) sc += 0.08;
 
         auto* assignment = engine.assignmentFor(t.id);
         if (assignment) {
             if (assignment->role == "run_ahead")        sc += 0.12;
-            if (assignment->role == "overlap" && p.role != "CB") sc += 0.11;
+            if (assignment->role == "overlap" && p.role != Role::CB) sc += 0.11;
             if (assignment->role == "advance_midfield") sc += 0.09;
             if (assignment->role == "hold_width" && std::abs(t.y - p.y) > 120.0) sc += 0.08;
         }
@@ -363,7 +363,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         double onsideGap = std::isnan(offsideLine) ? 1e9 : (offsideLine - t.x) * fd;
 
         bool releasedRunner = (assignment && (assignment->role == "run_ahead" || assignment->role == "overlap"))
-                              || (p.role == "CM" && (t.role == "CF" || t.role == "WM"));
+                              || (p.role == Role::CM && (t.role == Role::CF || t.role == Role::WM));
         if (!isWideDelivery && releasedRunner && fp > 30.0 && onsideGap > -25.0 && onsideGap < 170.0 && bl <= 2) {
             pur = "through";
             sc += 0.18 + attrFactor(p.attrs.creativity) * 0.12;
@@ -376,7 +376,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (per.pressureCount >= 2 && bl == 0) sc += 0.10;
         if (per.pressureCount >= 2 && bl >= 2) sc -= 0.15;
 
-        if (p.role == "CM" && t.role == "CF" && receiverPressure >= 1 && bl <= 1)
+        if (p.role == Role::CM && t.role == Role::CF && receiverPressure >= 1 && bl <= 1)
             sc += attrFactor(p.attrs.creativity) * 0.10;
 
         auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
@@ -388,7 +388,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
 
         if (sc > 0.0) {
             r.push_back(Action{
-                "pass",
+                ActionType::Pass,
                 clamp(sc, 0.0, 1.0),
                 &t,
                 0, 0,
@@ -418,23 +418,23 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     bool acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150.0;
 
     if (shotDistance > 225.0 || acuteGeometry)
-        return Action{"shoot", -1.0, nullptr, 0, 0, "", audit};
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
     if (shotDistance > 200.0 && angleDeg < 9.0)
-        return Action{"shoot", -1.0, nullptr, 0, 0, "", audit};
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
-    static const std::unordered_map<std::string, double> roleMax = {
-        {"CF", 225.0}, {"CM", 205.0}, {"WM", 200.0}, {"FB", 165.0}, {"CB", 140.0}
+    static const std::unordered_map<Role, double> roleMax = {
+        {Role::CF, 225.0}, {Role::CM, 205.0}, {Role::WM, 200.0}, {Role::FB, 165.0}, {Role::CB, 140.0}
     };
     double hardMax = 220.0;
     auto rit = roleMax.find(p.role);
     if (rit != roleMax.end()) hardMax = rit->second;
     if (shotDistance > hardMax)
-        return Action{"shoot", -1.0, nullptr, 0, 0, "", audit};
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
     double mr = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
     if (shotDistance > std::min(mr, hardMax))
-        return Action{"shoot", -1.0, nullptr, 0, 0, "", audit};
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
     double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.35;
     if (shotDistance < 90.0)  sc = std::max(sc, 0.35);
@@ -443,7 +443,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 
     Player* gk = nullptr;
     for (auto& o : engine.state.players) {
-        if (o.team != p.team && o.role == "GK") { gk = &o; break; }
+        if (o.team != p.team && o.role == Role::GK) { gk = &o; break; }
     }
     if (gk) {
         double gkOffCenter = std::abs(p.y - gk->y);
@@ -454,8 +454,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 
     if (shotDistance < 100.0) sc += 0.14;
     if (shotDistance < 60.0)  sc += 0.12;
-    if (p.role == "CF") sc += 0.13;
-    if (p.role == "CM") sc -= 0.03;
+    if (p.role == Role::CF) sc += 0.13;
+    if (p.role == Role::CM) sc -= 0.03;
     if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= 0.08;
     sc -= std::min(0.24, per.pressureCount * 0.09);
 
@@ -467,7 +467,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 
     if (p.crossCollected > 0.0 && shotDistance < 230.0) sc += 0.35;
 
-    return Action{"shoot", clamp(sc, 0.0, 1.0), nullptr, 0, 0, "", audit};
+    return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, "", audit};
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -515,8 +515,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     if (ndCount >= 3) sc -= 0.15;
     if (ndCount >= 5) sc -= 0.20;
 
-    if (p.role == "WM" && std::abs(p.y - PITCH_H / 2.0) > 120.0) sc += 0.08;
-    if (p.role == "WM") {
+    if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) > 120.0) sc += 0.08;
+    if (p.role == Role::WM) {
         bool inWide = std::abs(p.y - PITCH_H / 2.0) > 140.0;
         bool nearOppBox = std::abs(p.x - gx) < 350.0;
         if (inWide) {
@@ -529,10 +529,10 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
             ty = lerp(ty, PITCH_H / 2.0, 0.3);
         }
     }
-    if (p.role == "CM" && per.nearestOpponentDist > 60.0) sc += 0.12;
-    if (p.role == "CM" && std::abs(p.x - gx) < 250.0) sc += 0.06;
+    if (p.role == Role::CM && per.nearestOpponentDist > 60.0) sc += 0.12;
+    if (p.role == Role::CM && std::abs(p.x - gx) < 250.0) sc += 0.06;
 
-    return Action{"dribble", clamp(sc, 0.0, 1.0), nullptr,
+    return Action{ActionType::Dribble, clamp(sc, 0.0, 1.0), nullptr,
                   clamp(tx, 35.0, PITCH_W - 35.0),
                   clamp(ty, 35.0, PITCH_H - 35.0)};
 }
@@ -541,41 +541,41 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 // ct() — can-tackle
 // ══════════════════════════════════════════════════════════════════════════════
 Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) {
-    if (per.ballIsLoose || per.ballControllerTeam == player.team || per.ballControllerTeam.empty())
-        return Action{"tackle", 0.0};
+    if (per.ballIsLoose || per.ballControllerTeam == player.team)
+        return Action{ActionType::Tackle, 0.0};
 
     Player* ctrl = engine.playerById(per.ballControllerId);
-    if (!ctrl) return Action{"tackle", 0.0};
+    if (!ctrl) return Action{ActionType::Tackle, 0.0};
 
     double d = dist(player.x, player.y, ctrl->x, ctrl->y);
-    if (d > TACKLE_RANGE + 30.0) return Action{"tackle", 0.0};
+    if (d > TACKLE_RANGE + 30.0) return Action{ActionType::Tackle, 0.0};
 
-    bool isDef = (player.role == "CB" || player.role == "FB");
+    bool isDef = (player.role == Role::CB || player.role == Role::FB);
     if (isDef) {
-        if (player.role == "CB") {
-            double fd = (player.team == "home") ? 1.0 : -1.0;
+        if (player.role == Role::CB) {
+            double fd = (player.team == Team::Home) ? 1.0 : -1.0;
             bool inOwnHalf = (fd == 1.0) ? ctrl->x < PITCH_W * 0.5 : ctrl->x > PITCH_W * 0.5;
-            if (!inOwnHalf) return Action{"tackle", 0.0};
+            if (!inOwnHalf) return Action{ActionType::Tackle, 0.0};
         }
-        if (player.role == "FB") {
+        if (player.role == Role::FB) {
             bool onMyFlank = std::abs(ctrl->y - player.homeY) < 250.0;
-            bool isAttacker = ctrl->role == "WM" || ctrl->role == "CF" || ctrl->role == "CM";
-            if (!onMyFlank || !isAttacker) return Action{"tackle", 0.0};
+            bool isAttacker = ctrl->role == Role::WM || ctrl->role == Role::CF || ctrl->role == Role::CM;
+            if (!onMyFlank || !isAttacker) return Action{ActionType::Tackle, 0.0};
         }
     }
 
     double sc;
-    if (player.role == "FB") {
+    if (player.role == Role::FB) {
         sc = 0.50 - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.18;
-    } else if (player.role == "CB") {
+    } else if (player.role == Role::CB) {
         sc = 0.68 - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.22;
     } else {
         sc = 0.60 - (d / 60.0) * 0.40 + attrFactor(player.attrs.tackling) * 0.20;
     }
 
-    if (player.role == "CM") sc += 0.06;
-    if (player.role == "CF") sc -= 0.15;
-    if (player.role == "WM") sc -= 0.04;
+    if (player.role == Role::CM) sc += 0.06;
+    if (player.role == Role::CF) sc -= 0.15;
+    if (player.role == Role::WM) sc -= 0.04;
     if (d < TACKLE_RANGE + 10.0) sc += 0.15;
 
     auto* defensiveTask = engine.assignmentFor(player.id);
@@ -599,38 +599,38 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     }
     if (std::abs(ctrl->x - ownGoalX) < 300.0 && oppsClose < 2) sc += 0.08;
 
-    bool oppFacingAway = (ctrl->team == "home") ? ctrl->vx < 0.0 : ctrl->vx > 0.0;
+    bool oppFacingAway = (ctrl->team == Team::Home) ? ctrl->vx < 0.0 : ctrl->vx > 0.0;
     if (oppFacingAway && d < TACKLE_RANGE + 20.0) sc += 0.10;
 
     sc += (engine.configFor(player.team).aggression / 100.0) * 0.10;
 
-    return Action{"tackle", clamp(sc, 0.0, 1.0), ctrl};
+    return Action{ActionType::Tackle, clamp(sc, 0.0, 1.0), ctrl};
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // cm() — can-mark
 // ══════════════════════════════════════════════════════════════════════════════
 Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
-    if (player.role != "CB" && player.role != "FB") return Action{"mark", 0.0};
-    if (per.ballControllerTeam == player.team && !per.ballIsLoose) return Action{"mark", 0.0};
+    if (player.role != Role::CB && player.role != Role::FB) return Action{ActionType::Mark, 0.0};
+    if (per.ballControllerTeam == player.team && !per.ballIsLoose) return Action{ActionType::Mark, 0.0};
 
     if (per.ballIsLoose && per.intendedId >= 0) {
         Player* t = engine.playerById(per.intendedId);
-        if (t && t->team != player.team && (t->role == "CF" || t->role == "WM")) {
+        if (t && t->team != player.team && (t->role == Role::CF || t->role == Role::WM)) {
             double d = dist(player.x, player.y, t->x, t->y);
-            if (d < 300.0) return Action{"mark", clamp(0.65 - (d / 300.0) * 0.3, 0.0, 1.0), t};
+            if (d < 300.0) return Action{ActionType::Mark, clamp(0.65 - (d / 300.0) * 0.3, 0.0, 1.0), t};
         }
     }
 
     Player* best = nullptr;
     double bd = 1e9;
     double ownGx = ownGoalXFor(player.team);
-    bool isFb = (player.role == "FB");
+    bool isFb = (player.role == Role::FB);
 
     for (auto& o : engine.state.players) {
-        if (o.team == player.team || o.role == "GK") continue;
-        if (isFb && o.role != "WM" && (o.role != "CM" || std::abs(o.y - player.homeY) > 200.0)) continue;
-        if (!isFb && o.role != "CF" && o.role != "CM") continue;
+        if (o.team == player.team || o.role == Role::GK) continue;
+        if (isFb && o.role != Role::WM && (o.role != Role::CM || std::abs(o.y - player.homeY) > 200.0)) continue;
+        if (!isFb && o.role != Role::CF && o.role != Role::CM) continue;
 
         double d = dist(player.x, player.y, o.x, o.y);
         double danger = std::abs(o.x - ownGx);
@@ -638,23 +638,23 @@ Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
 
         if (isFb) {
             bool onFlank = std::abs(o.y - player.homeY) < 220.0;
-            if (onFlank && o.role == "WM")      score -= 80.0;
-            else if (!onFlank && o.role == "WM") score += 20.0;
-            else if (o.role == "CM")             score -= 15.0;
+            if (onFlank && o.role == Role::WM)      score -= 80.0;
+            else if (!onFlank && o.role == Role::WM) score += 20.0;
+            else if (o.role == Role::CM)             score -= 15.0;
         }
         if (!isFb) {
-            if (o.role == "CF")      score -= 60.0;
-            else if (o.role == "CM") score -= 20.0;
+            if (o.role == Role::CF)      score -= 60.0;
+            else if (o.role == Role::CM) score -= 20.0;
         }
 
         if (score < bd && d < 300.0) { bd = score; best = &o; }
     }
 
-    if (!best) return Action{"mark", 0.0};
+    if (!best) return Action{ActionType::Mark, 0.0};
 
     double dangerDist = dist(player.x, player.y, best->x, best->y);
     double baseScore = isFb ? 0.60 : 0.50;
-    return Action{"mark", clamp(baseScore + attrFactor(player.attrs.positioning) * 0.25 - (dangerDist / 300.0) * 0.25, 0.0, 1.0), best};
+    return Action{ActionType::Mark, clamp(baseScore + attrFactor(player.attrs.positioning) * 0.25 - (dangerDist / 300.0) * 0.25, 0.0, 1.0), best};
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -668,52 +668,52 @@ Action PlayerAI::scoreChase(const Perception& per) {
 
     if (!per.ballIsLoose || !engine.canContestBall(player)
         || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery))
-        return Action{"chase", 0.0};
+        return Action{ActionType::Chase, 0.0};
 
     if (isIntendedReceiver) {
         double lead = ballSpeed > 30.0 ? 0.2 + std::min(ballSpeed / 300.0, 0.5) : 0.0;
-        return Action{"chase", 1.0, nullptr,
+        return Action{ActionType::Chase, 1.0, nullptr,
                       clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
                       clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
                       "receive_ball"};
     }
 
     if (needsRecovery) {
-        return Action{"chase", 1.0, nullptr,
+        return Action{ActionType::Chase, 1.0, nullptr,
                       clamp(b.x, 10.0, PITCH_W - 10.0),
                       clamp(b.y, 10.0, PITCH_H - 10.0),
                       "recover_loose_ball"};
     }
 
-    bool isDef = (player.role == "CB" || player.role == "FB");
+    bool isDef = (player.role == Role::CB || player.role == Role::FB);
     if (isDef) {
-        if (player.role == "FB") {
+        if (player.role == Role::FB) {
             bool onMyFlank = (player.homeY < PITCH_H / 2.0)
                 ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
-            if (per.ballDist > 100.0 && !onMyFlank) return Action{"chase", 0.0};
+            if (per.ballDist > 100.0 && !onMyFlank) return Action{ActionType::Chase, 0.0};
         }
-        if (player.role == "CB") {
-            bool ballInOwnHalf = (player.team == "home")
+        if (player.role == Role::CB) {
+            bool ballInOwnHalf = (player.team == Team::Home)
                 ? b.x < PITCH_W * 0.6 : b.x > PITCH_W * 0.4;
-            if (per.ballDist > 120.0 && !ballInOwnHalf) return Action{"chase", 0.0};
+            if (per.ballDist > 120.0 && !ballInOwnHalf) return Action{ActionType::Chase, 0.0};
         }
     }
 
-    if (player.role == "CM" && per.ballDist > 100.0) {
+    if (player.role == Role::CM && per.ballDist > 100.0) {
         bool ballInMiddle = b.x > PITCH_W * 0.25 && b.x < PITCH_W * 0.75;
-        if (!ballInMiddle) return Action{"chase", 0.0};
+        if (!ballInMiddle) return Action{ActionType::Chase, 0.0};
     }
 
-    if (player.role == "WM" && per.ballDist > 80.0) {
+    if (player.role == Role::WM && per.ballDist > 80.0) {
         bool onMyFlank = (player.homeY < PITCH_H / 2.0)
             ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
-        if (!onMyFlank) return Action{"chase", 0.0};
+        if (!onMyFlank) return Action{ActionType::Chase, 0.0};
     }
 
-    if (player.role == "CF" && per.ballDist > 80.0) {
+    if (player.role == Role::CF && per.ballDist > 80.0) {
         double oppGx = goalXFor(player.team);
         bool ballNearOppGoal = std::abs(b.x - oppGx) < 200.0;
-        if (!ballNearOppGoal) return Action{"chase", 0.0};
+        if (!ballNearOppGoal) return Action{ActionType::Chase, 0.0};
     }
 
     double sc = per.ballDist < 50.0 ? 0.90 : per.ballDist < 100.0 ? 0.75 : 0.55;
@@ -759,7 +759,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
         if (std::abs(b.x - ownGoalX) < 150.0) sc += 0.15;
     }
 
-    return Action{"chase", clamp(sc, 0.0, 1.0), nullptr,
+    return Action{ActionType::Chase, clamp(sc, 0.0, 1.0), nullptr,
                   clamp(b.x + b.vx * la, 10.0, PITCH_W - 10.0),
                   clamp(b.y + b.vy * la, 10.0, PITCH_H - 10.0)};
 }
@@ -770,12 +770,12 @@ Action PlayerAI::scoreChase(const Perception& per) {
 std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     auto& b = engine.state.ball;
-    double fd = (p.team == "home") ? 1.0 : -1.0;
-    std::string ip = engine.teamInPossession();
+    double fd = (p.team == Team::Home) ? 1.0 : -1.0;
+    Team ip = engine.teamInPossession();
     bool my = (per.ballControllerTeam == p.team);
     double ba = (fd == 1.0) ? b.x / PITCH_W : 1.0 - b.x / PITCH_W;
     double pu = my ? ba * 180.0 : 0.0;
-    bool iw = (p.role == "FB" || p.role == "WM");
+    bool iw = (p.role == Role::FB || p.role == Role::WM);
     double wp = (iw && my) ? ba * 60.0 : 0.0;
 
     struct Candidate { double x, y; std::string pur; };
@@ -797,7 +797,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     int openFlank = (topCount < botCount) ? -1 : 1;
     c.push_back({ p.homeX + pu, clamp(p.homeY + openFlank * 50.0, 40.0, PITCH_H - 40.0), "cover" });
 
-    if (!my && !per.ballIsLoose && !per.ballControllerTeam.empty()) {
+    if (!my && !per.ballIsLoose) {
         double og = ownGoalXFor(p.team);
         double rx = clamp(lerp(p.x, og, 0.5), og, p.x);
         c.push_back({ rx, p.homeY, "cover" });
@@ -805,7 +805,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         c.push_back({ rx, p.homeY + 30.0, "cover" });
 
         bool ballPastUs = (fd == 1.0) ? b.x > p.x + 20.0 : b.x < p.x - 20.0;
-        if (ballPastUs && (p.role == "CB" || p.role == "FB" || p.role == "CM")) {
+        if (ballPastUs && (p.role == Role::CB || p.role == Role::FB || p.role == Role::CM)) {
             c.push_back({ rx - fd * 30.0, p.homeY, "cover" });
             c.push_back({ rx - fd * 30.0, p.homeY - 25.0, "cover" });
         }
@@ -814,11 +814,11 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     if (per.ballDist > 150.0) {
         if (my && ip == p.team) {
             c.push_back({ p.homeX + fd * 60.0 + pu, clamp(p.homeY + ((p.homeY < PITCH_H / 2.0) ? 40.0 : -40.0), 50.0, PITCH_H - 50.0), "offer" });
-            if (p.role == "WM" || p.role == "FB")
+            if (p.role == Role::WM || p.role == Role::FB)
                 c.push_back({ p.homeX + fd * 40.0 + pu, clamp(p.homeY + ((p.homeY < PITCH_H / 2.0) ? -50.0 : 50.0), 40.0, PITCH_H - 40.0), "space" });
         } else if (!my) {
             c.push_back({ p.homeX - fd * 40.0, p.homeY, "cover" });
-            if (p.role == "CM" || p.role == "CF")
+            if (p.role == Role::CM || p.role == Role::CF)
                 c.push_back({ lerp(p.homeX, b.x, 0.3), lerp(p.homeY, b.y, 0.2), "cover" });
         }
     }
@@ -833,7 +833,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         if (carrier && carrier->team == p.team) {
             int carrierPressure = 0;
             for (auto& o : engine.state.players) {
-                if (o.team != p.team && o.role != "GK" && dist(o.x, o.y, carrier->x, carrier->y) < 60.0) carrierPressure++;
+                if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, carrier->x, carrier->y) < 60.0) carrierPressure++;
             }
             if (carrierPressure >= 2) {
                 c.push_back({ lerp(p.x, carrier->x, 0.3), lerp(p.y, carrier->y, 0.25), "offer" });
@@ -862,19 +862,19 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             c.push_back({ clamp(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y + 30.0, 40.0, PITCH_H - 40.0), "space" });
         }
 
-        if (ba > 0.6 && (p.role == "CF" || p.role == "CM" || p.role == "WM")) {
+        if (ba > 0.6 && (p.role == Role::CF || p.role == Role::CM || p.role == Role::WM)) {
             double bGoalX = goalXFor(p.team);
             c.push_back({ bGoalX - fd * (30.0 + engine.rng.random() * 70.0),                           clamp(PITCH_H / 2.0 + (p.homeY - PITCH_H / 2.0) * 0.4, PITCH_H * 0.25, PITCH_H * 0.75), "space" });
             c.push_back({ bGoalX - fd * (50.0 + engine.rng.random() * 50.0),                           clamp(PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 80.0, PITCH_H * 0.20, PITCH_H * 0.80), "space" });
         }
 
-        if (p.role == "CM") {
+        if (p.role == Role::CM) {
             double midSum = 0, defSum = 0;
             int midCount = 0, defCount = 0;
             for (auto& o : engine.state.players) {
                 if (o.team == p.team) continue;
-                if (o.role == "CM" || o.role == "WM") { midSum += o.x; midCount++; }
-                if (o.role == "CB" || o.role == "FB") { defSum += o.x; defCount++; }
+                if (o.role == Role::CM || o.role == Role::WM) { midSum += o.x; midCount++; }
+                if (o.role == Role::CB || o.role == Role::FB) { defSum += o.x; defCount++; }
             }
             if (midCount > 0 && defCount > 0) {
                 double midLine = midSum / midCount;
@@ -891,7 +891,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             c.push_back({ clamp(p.homeX + fd * 30.0 + pu, 60.0, PITCH_W - 60.0), clamp(p.homeY + bSide * 50.0, 40.0, PITCH_H - 40.0), "space" });
         }
 
-        if (p.role == "WM") {
+        if (p.role == Role::WM) {
             double flankY = (p.homeY < PITCH_H / 2.0) ? 18.0 : PITCH_H - 18.0;
             std::string crossPur = ba > 0.45 ? "offer" : "space";
             c.push_back({ clamp(p.homeX + fd * 80.0 + pu, 60.0, PITCH_W - 60.0), flankY, crossPur });
@@ -903,19 +903,19 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             }
         }
 
-        if (p.role == "CB" || p.role == "FB")
+        if (p.role == Role::CB || p.role == Role::FB)
             c.push_back({ p.homeX + fd * 150.0 + pu, p.homeY, "cover" });
 
         double fld = (b.y < PITCH_H / 2.0) ? -1.0 : 1.0;
         c.push_back({ p.homeX + fd * 55.0 + pu, clamp(p.homeY + fld * 50.0, 40.0, PITCH_H - 40.0), "space" });
         c.push_back({ p.homeX + fd * 40.0 + pu, clamp(p.homeY - fld * 70.0, 40.0, PITCH_H - 40.0), "switch" });
-        if (p.role == "WM" || p.role == "FB")
+        if (p.role == Role::WM || p.role == Role::FB)
             c.push_back({ p.homeX + fd * 40.0 + pu, clamp(p.homeY + ((p.homeY < PITCH_H / 2.0) ? -80.0 : 80.0), 30.0, PITCH_H - 30.0), "space" });
 
-        if (p.role == "FB" && my) {
+        if (p.role == Role::FB && my) {
             Player* wmOnMySide = nullptr;
             for (auto& o : engine.state.players) {
-                if (o.team == p.team && o.role == "WM" && std::abs(o.homeY - p.homeY) < 100.0) {
+                if (o.team == p.team && o.role == Role::WM && std::abs(o.homeY - p.homeY) < 100.0) {
                     wmOnMySide = &o; break;
                 }
             }
@@ -931,12 +931,12 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             }
         }
 
-        if (p.role == "CF") {
+        if (p.role == Role::CF) {
             double oppGoalX = goalXFor(p.team);
             double ld = (fd == 1.0) ? -1e9 : 1e9;
             bool anyDefenders = false;
             for (auto& o : engine.state.players) {
-                if (o.team != p.team && o.role != "GK") {
+                if (o.team != p.team && o.role != Role::GK) {
                     anyDefenders = true;
                     ld = (fd == 1.0) ? std::max(ld, o.x) : std::min(ld, o.x);
                 }
@@ -960,16 +960,16 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         }
     }
 
-    if (!my && (p.role == "CB" || p.role == "FB")) {
+    if (!my && (p.role == Role::CB || p.role == Role::FB)) {
         double sumX = 0;
         int count = 0;
-        double deepestX = (p.team == "home") ? 0.0 : PITCH_W;
+        double deepestX = (p.team == Team::Home) ? 0.0 : PITCH_W;
         for (auto& t : engine.state.players) {
-            if (t.team != p.team || t.role == "GK") continue;
-            if (t.role == "CB" || t.role == "FB") {
+            if (t.team != p.team || t.role == Role::GK) continue;
+            if (t.role == Role::CB || t.role == Role::FB) {
                 sumX += t.x; count++;
-                double tx = (p.team == "home") ? t.x : PITCH_W - t.x;
-                double rev = (p.team == "home") ? deepestX : PITCH_W - deepestX;
+                double tx = (p.team == Team::Home) ? t.x : PITCH_W - t.x;
+                double rev = (p.team == Team::Home) ? deepestX : PITCH_W - deepestX;
                 if (tx < rev) deepestX = t.x;
             }
         }
@@ -996,7 +996,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         c.push_back({ clamp((b.x + (ownGoalXFor(p.team))) / 2.0, p.homeX - 80.0, p.homeX + 20.0), p.homeY, "cover" });
         double bf2 = (b.y < PITCH_H / 2.0) ? -1.0 : 1.0;
         c.push_back({ clamp(p.homeX - fd * 30.0, 40.0, PITCH_W - 40.0), clamp(p.homeY + bf2 * 25.0, 40.0, PITCH_H - 40.0), "cover" });
-        if (p.role == "FB" && std::abs(b.y - p.homeY) > 200.0) {
+        if (p.role == Role::FB && std::abs(b.y - p.homeY) > 200.0) {
             c.push_back({ clamp(p.homeX - fd * 20.0, 40.0, PITCH_W - 40.0), clamp(lerp(p.homeY, PITCH_H / 2.0, 0.5), 40.0, PITCH_H - 40.0), "cover" });
         }
     }
@@ -1013,13 +1013,13 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         double db = !my ? clamp(((b.x - cn.x) * fd) / (std::abs(b.x - og2) + 1.0), 0.0, 0.30) : 0.0;
         double bp2 = std::sqrt((cn.x - b.x) * (cn.x - b.x) + (cn.y - b.y) * (cn.y - b.y)) / 600.0 * 0.08;
         double ob = (cn.pur == "observe") ? 0.10 :
-                    (cn.pur == "space" && p.role == "WM" && std::abs(cn.y - PITCH_H / 2.0) > 150.0 && ba > 0.4) ? 0.12 : 0.0;
+                    (cn.pur == "space" && p.role == Role::WM && std::abs(cn.y - PITCH_H / 2.0) > 150.0 && ba > 0.4) ? 0.12 : 0.0;
 
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;
         double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 6.0;
 
         options.push_back(Action{
-            "position",
+            ActionType::Position,
             clamp(0.15 + sf * 0.3 + tac - bp2 + db + ob, 0.0, 1.0),
             nullptr,
             clamp(cn.x + jx, 40.0, PITCH_W - 40.0),
@@ -1040,7 +1040,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         double ts = 0.80;
         auto tit = taskScores.find(task->role);
         if (tit != taskScores.end()) ts = tit->second;
-        options.push_back(Action{"position", ts, nullptr, task->targetX, task->targetY,
+        options.push_back(Action{ActionType::Position, ts, nullptr, task->targetX, task->targetY,
                                  "task:" + task->role});
     }
 
@@ -1054,7 +1054,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     std::sort(a.begin(), a.end(),
               [](const Action& x, const Action& y) { return x.score > y.score; });
 
-    if (a.empty()) return Action{"hold", 1.0};
+    if (a.empty()) return Action{ActionType::Hold, 1.0};
 
     Action& best = a[0];
     bool ic = (engine.state.ball.controllerId == player.id);
@@ -1063,20 +1063,20 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     bool inBox    = std::abs(player.x - gx) < 150.0;
 
     if (ic && best.score < (inBox ? 0.05 : nearGoal ? 0.10 : 0.22))
-        return Action{"hold", 1.0};
+        return Action{ActionType::Hold, 1.0};
 
     auto& bb = engine.blackboards[GameEngine::teamIndex(player.team)];
 
-    if (best.type == "tackle" && best.target) {
+    if (best.type == ActionType::Tackle && best.target) {
         bool isSelf = (bb.pressingPlayerId == player.id || bb.pressingPlayerId2 == player.id);
         bool slot1Free = (bb.pressingPlayerId < 0);
         bool slot2Free = (bb.pressingPlayerId2 < 0);
 
         if (!isSelf && !slot1Free && !slot2Free) {
             for (auto& x : a) {
-                if (x.type != "tackle" && x.score > 0.15) return x;
+                if (x.type != ActionType::Tackle && x.score > 0.15) return x;
             }
-            return Action{"hold", 1.0};
+            return Action{ActionType::Hold, 1.0};
         }
 
         if (!isSelf) {
@@ -1085,21 +1085,21 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
         }
     }
 
-    if (best.type == "mark" && best.target) {
+    if (best.type == ActionType::Mark && best.target) {
         auto it = bb.markedOpponents.find(best.target->id);
         if (it != bb.markedOpponents.end() && it->second != player.id) {
             for (auto& x : a) {
-                if (x.type != "mark" && x.type != "tackle" && x.score > 0.15) return x;
+                if (x.type != ActionType::Mark && x.type != ActionType::Tackle && x.score > 0.15) return x;
             }
-            return Action{"hold", 1.0};
+            return Action{ActionType::Hold, 1.0};
         }
         bb.markedOpponents[best.target->id] = player.id;
     }
 
-    if (ic && best.type == "pass" && best.audit.forwardProgress < -40.0) {
+    if (ic && best.type == ActionType::Pass && best.audit.forwardProgress < -40.0) {
         Action* fwdOpt = nullptr;
         for (auto& x : a) {
-            if (x.type == "pass" && x.audit.forwardProgress > 30.0 && x.score > best.score - 0.15) {
+            if (x.type == ActionType::Pass && x.audit.forwardProgress > 30.0 && x.score > best.score - 0.15) {
                 fwdOpt = &x; break;
             }
         }
@@ -1123,9 +1123,9 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
     lastPurpose = a.purpose;
     lastTargetId = a.target ? a.target->id : -1;
 
-    if (a.type != "dribble") p.dribbleType = 0;
+    if (a.type != ActionType::Dribble) p.dribbleType = 0;
 
-    if (a.type == "pass" && a.target) {
+    if (a.type == ActionType::Pass && a.target) {
         PassSelectionAudit audit = passSelectionAudit(a, actions);
         bool released;
         if (a.purpose == "clear") {
@@ -1146,13 +1146,13 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
             stunLockTicks = 4;
         }
     }
-    else if (a.type == "shoot") {
+    else if (a.type == ActionType::Shoot) {
         ShotSelectionAudit audit = shotSelectionAudit(a, actions);
         engine.shootBall(p, &audit);
         engine.emitEvent("shot", p.x, p.y);
         stunLockTicks = 20;
     }
-    else if (a.type == "dribble") {
+    else if (a.type == ActionType::Dribble) {
         p.targetX = (a.posX != 0) ? a.posX : (goalXFor(p.team));
         p.targetY = (a.posY != 0) ? a.posY : p.y;
 
@@ -1167,7 +1167,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         int nearbyOpps = 0;
         double nearestOppDist = 1e9;
         for (auto& o : engine.state.players) {
-            if (o.team != p.team && o.role != "GK") {
+            if (o.team != p.team && o.role != Role::GK) {
                 double d = dist(p.x, p.y, o.x, o.y);
                 nearestOppDist = std::min(nearestOppDist, d);
                 if (d < 55.0) nearbyOpps++;
@@ -1187,16 +1187,16 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         if (dribbleType == 3 && newEpisode) engine.knockBallAhead(p, p.targetX, p.targetY);
 
         double oppGoalX = goalXFor(p.team);
-        double fd = (p.team == "home") ? 1.0 : -1.0;
+        double fd = (p.team == Team::Home) ? 1.0 : -1.0;
         if ((fd == 1.0 && p.targetX < p.x - 10.0) || (fd == -1.0 && p.targetX > p.x + 10.0)) {
             if (std::abs(p.x - oppGoalX) < 300.0) {
                 int closeOpps = 0;
                 for (auto& o : engine.state.players) {
-                    if (o.team != p.team && o.role != "GK" && dist(p.x, p.y, o.x, o.y) < 60.0) closeOpps++;
+                    if (o.team != p.team && o.role != Role::GK && dist(p.x, p.y, o.x, o.y) < 60.0) closeOpps++;
                 }
                 if (closeOpps == 0) {
-                    int myScore  = (p.team == "home") ? engine.state.homeScore : engine.state.awayScore;
-                    int oppScore = (p.team == "home") ? engine.state.awayScore : engine.state.homeScore;
+                    int myScore  = (p.team == Team::Home) ? engine.state.homeScore : engine.state.awayScore;
+                    int oppScore = (p.team == Team::Home) ? engine.state.awayScore : engine.state.homeScore;
                     bool isTimeWasting = (myScore <= oppScore && engine.state.clockMs > 60000.0);
                     if (isTimeWasting) engine.logQualityFlag(isTimeWasting ? "time_wasting_dribble" : "backward_dribble",
                                           p.id, p.role, (double)p.targetX, 0.0, 0.0, "", 0.0);
@@ -1204,7 +1204,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
             }
         }
     }
-    else if (a.type == "tackle") {
+    else if (a.type == ActionType::Tackle) {
         if (a.target && dist(p.x, p.y, a.target->x, a.target->y) <= TACKLE_RANGE
             && engine.attemptTackle(p, *a.target))
         {
@@ -1215,14 +1215,14 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
             p.targetY = a.target ? a.target->y : p.y;
         }
     }
-    else if (a.type == "mark" && a.target) {
+    else if (a.type == ActionType::Mark && a.target) {
         double leadX = a.target->x + a.target->vx * 0.3;
         double leadY = a.target->y + a.target->vy * 0.3;
         double ownGx = ownGoalXFor(p.team);
         p.targetX = clamp(lerp(leadX, ownGx, 0.15), leadX - 80.0, leadX + 40.0);
         p.targetY = clamp(leadY + std::sin(engine.state.clockMs * 0.004 + p.id) * 8.0, 30.0, PITCH_H - 30.0);
     }
-    else if (a.type == "chase") {
+    else if (a.type == ActionType::Chase) {
         double tx = (a.posX != 0) ? a.posX : b.x;
         double ty = (a.posY != 0) ? a.posY : b.y;
         p.targetX = tx;
@@ -1235,13 +1235,13 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
             p.vy = lerp(p.vy, (cdy / cd) * ms, 0.15);
         }
     }
-    else if (a.type == "position") {
+    else if (a.type == ActionType::Position) {
         p.targetX = (a.posX != 0) ? a.posX : p.homeX;
         p.targetY = (a.posY != 0) ? a.posY : p.homeY;
         if (!a.purpose.empty() && a.purpose.rfind("task:", 0) == 0)
             engine.noteTaskSelection(p, a.purpose.substr(5));
     }
-    else if (a.type == "hold") {
+    else if (a.type == ActionType::Hold) {
         if (b.controllerId == p.id) {
             auto near = engine.nearPlayers(p, 60.0);
             Player* closestOpp = nullptr;
@@ -1264,7 +1264,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
 
     if (engine.state.ball.controllerId != p.id) {
         applyMovement(sdt);
-        if (a.type == "chase") tryCollectAfterChase();
+        if (a.type == ActionType::Chase) tryCollectAfterChase();
     }
 }
 
@@ -1308,8 +1308,8 @@ Perception PlayerAI::perceive() {
             double angleTo = std::atan2(o.y - p.y, o.x - p.x);
             double diff = std::abs(angleTo - facing);
             double nd = (diff > 3.141592653589793) ? 2.0 * 3.141592653589793 - diff : diff;
-            bool isOwnThird = (p.team == "home") ? b.x < PITCH_W / 3.0 : b.x > PITCH_W * 2.0 / 3.0;
-            bool defenderWide = (p.role == "CB" || p.role == "FB") && isOwnThird;
+            bool isOwnThird = (p.team == Team::Home) ? b.x < PITCH_W / 3.0 : b.x > PITCH_W * 2.0 / 3.0;
+            bool defenderWide = (p.role == Role::CB || p.role == Role::FB) && isOwnThird;
             inCone = nd < (defenderWide ? 3.141592653589793 / 2.0 : 3.141592653589793 / 3.0);
         }
         if (!inCone) continue;
@@ -1331,7 +1331,6 @@ Perception PlayerAI::perceive() {
         per.ballControllerTeam = ctrl->team;
     } else {
         per.ballControllerTeam = engine.teamInPossession();
-        if (per.ballControllerTeam.empty()) per.ballControllerTeam = "";
     }
 
     bool ac = true, ao = false;
@@ -1339,7 +1338,7 @@ Perception PlayerAI::perceive() {
     double ctd = 1e9;
 
     for (auto& o : engine.state.players) {
-        if (o.id == p.id || o.role == "GK") continue;
+        if (o.id == p.id || o.role == Role::GK) continue;
         double d = dist(o.x, o.y, b.x, b.y);
         if (o.team == p.team && d < bd) { cc++; if (d < ctd) ctd = d; }
         if (o.team != p.team && d < bd) ao = true;
@@ -1358,7 +1357,7 @@ Perception PlayerAI::perceive() {
 // ══════════════════════════════════════════════════════════════════════════════
 void PlayerAI::applyMovement(double sdt) {
     auto& p = player;
-    if (p.role == "GK") return;
+    if (p.role == Role::GK) return;
 
     double secs = sdt / 1000.0;
     double spd = std::sqrt(p.vx * p.vx + p.vy * p.vy);
@@ -1375,9 +1374,9 @@ void PlayerAI::applyMovement(double sdt) {
 
     bool pressTask      = (lastPurpose == "task:primary_press");
     bool secondaryPress = (lastPurpose == "task:secondary_press");
-    bool committedChase = (lastActionType == "chase" && engine.state.ball.controllerId < 0)
-                       || (lastActionType == "chase" && lastPurpose == "receive_ball")
-                       || (lastActionType == "chase" && lastPurpose == "recover_loose_ball");
+    bool committedChase = (lastActionType == ActionType::Chase && engine.state.ball.controllerId < 0)
+                       || (lastActionType == ActionType::Chase && lastPurpose == "receive_ball")
+                       || (lastActionType == ActionType::Chase && lastPurpose == "recover_loose_ball");
 
     double bdx = engine.state.ball.x - p.x, bdy = engine.state.ball.y - p.y;
     double bd  = std::sqrt(bdx * bdx + bdy * bdy);
@@ -1393,12 +1392,12 @@ void PlayerAI::applyMovement(double sdt) {
     bool isObserving = !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5;
 
     double cruiseMul = isObserving
-        ? (p.role == "CF" ? 0.45 : p.role == "CB" || p.role == "FB" ? 0.65 : p.role == "WM" ? 0.55 : 0.50)
+        ? (p.role == Role::CF ? 0.45 : p.role == Role::CB || p.role == Role::FB ? 0.65 : p.role == Role::WM ? 0.55 : 0.50)
         : 1.0;
 
     double baseSpeed = engine.isActiveKnockAheadRunner(p.id)
         ? DRIBBLE_FAST_SPEED
-        : (lastActionType == "chase" || committedPress ? SPEED_SPRINT : SPEED_RUN);
+        : (lastActionType == ActionType::Chase || committedPress ? SPEED_SPRINT : SPEED_RUN);
 
     double df = (committedChase || committedPress) ? 1.0 : std::min(d / 120.0, 1.5);
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
@@ -1491,7 +1490,7 @@ PassSelectionAudit PlayerAI::passSelectionAudit(const Action& choice,
     const Action* safer = nullptr;
     double saferComp = 0;
     for (auto& a : actions) {
-        if (a.type != "pass" || !a.target || a.target->id == choice.target->id) continue;
+        if (a.type != ActionType::Pass || !a.target || a.target->id == choice.target->id) continue;
         if (!a.audit.expectedCompletion || !a.audit.forwardProgress) continue;
         if (a.audit.expectedCompletion >= chosen.expectedCompletion + 0.12
             && a.audit.forwardProgress >= chosen.forwardProgress - 35.0
@@ -1530,7 +1529,7 @@ ShotSelectionAudit PlayerAI::shotSelectionAudit(const Action& choice,
 
     const Action* bestPass = nullptr;
     for (auto& a : actions) {
-        if (a.type == "pass" && a.target) {
+        if (a.type == ActionType::Pass && a.target) {
             if (!bestPass || a.score > bestPass->score) bestPass = &a;
         }
     }
@@ -1554,7 +1553,7 @@ void PlayerAI::auditDefensiveMovement(const Action& choice) {
     Player* controller = engine.playerById(engine.state.ball.controllerId);
     if (!task || !controller || controller->team == player.team) return;
     if (task->role != "primary_press" && task->role != "secondary_press") return;
-    if (choice.type == "tackle" || choice.type == "chase"
+    if (choice.type == ActionType::Tackle || choice.type == ActionType::Chase
         || (!choice.purpose.empty() && choice.purpose.rfind("task:", 0) == 0))
         return;
 
@@ -1572,10 +1571,10 @@ void PlayerAI::auditDefensiveMovement(const Action& choice) {
     engine.logQualityFlag("why_player_running_direction", player.id, task->role,
                           controller->id, choice.type, choice.purpose,
                           currentDistance, targetDistance, danger ? 1.0 : 0.0,
-                          8000.0, "why_player_running_direction:" + player.team);
+                          8000.0, std::string("why_player_running_direction:") + std::string(to_string(player.team)));
     engine.captureDecisionMoment("why_player_running_direction", player,
                                  choice.type,
                                  choice.score, 0.0, currentDistance, targetDistance,
                                  danger ? 1 : 0,
-                                 8000.0, "why_player_running_direction:" + player.team);
+                                 8000.0, std::string("why_player_running_direction:") + std::string(to_string(player.team)));
 }

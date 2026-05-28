@@ -23,7 +23,7 @@ inline bool GameEngine::checkGoal(){
     auto&b=state.ball;
     bool inOpening=std::abs(b.y-PITCH_H/2)<=GOAL_W/2&&b.z+BALL_R<=GOAL_H;
     if(!inOpening)return false;
-    auto recordGoalSource=[&](const std::string& scoringTeam){
+    auto recordGoalSource=[&](Team scoringTeam){
         lastGoalScoringTeam=scoringTeam;
         lastGoalTouchTeam=b.lastTouchTeam;
         lastGoalToucherId=b.lastToucherId;
@@ -48,38 +48,38 @@ inline bool GameEngine::checkGoal(){
             }
             return;
         }
-        if(!b.lastTouchTeam.empty()&&b.lastTouchTeam!=trackedShotTeam){
+        if(b.lastTouchTeam!=trackedShotTeam){
             lastGoalSource="shot_deflection";
         }else{
             lastGoalSource="shot";
         }
     };
     if(b.x+BALL_R<HOME_GOAL_X){
-        recordGoalSource("away");
+        recordGoalSource(Team::Away);
         double goalDist=0;
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,HOME_GOAL_X,PITCH_H/2);
         stats.recordGoal("away",lastGoalSource,goalDist,lastGoalBallSpeed);
-        state.awayScore++; shotActive=false; trackedShot=false; kickoff("home"); return true;
+        state.awayScore++; shotActive=false; trackedShot=false; kickoff(Team::Home); return true;
     }
     if(b.x-BALL_R>AWAY_GOAL_X){
-        recordGoalSource("home");
+        recordGoalSource(Team::Home);
         double goalDist=0;
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,AWAY_GOAL_X,PITCH_H/2);
         stats.recordGoal("home",lastGoalSource,goalDist,lastGoalBallSpeed);
-        state.homeScore++; shotActive=false; trackedShot=false; kickoff("away"); return true;
+        state.homeScore++; shotActive=false; trackedShot=false; kickoff(Team::Away); return true;
     }
     return false;
 }
 inline bool GameEngine::checkOutOfPlay() {
     auto& b = state.ball;
-    std::string lt = b.lastTouchTeam;
+    Team lt = b.lastTouchTeam;
     if (b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
         resolveKnockAhead(nullptr, "out_of_play");
         pendingPass.active = false;
         trackedShot = false;
         trackedShotPreventable = false;
         lastLooseOrigin.clear();
-        awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H);
+        awardThrowIn(std::string(to_string(lt)), b.y < 0 ? 0 : PITCH_H);
         return true;
     }
     if (b.x + BALL_R < HOME_GOAL_X) {
@@ -90,7 +90,7 @@ inline bool GameEngine::checkOutOfPlay() {
             trackedShot = false;
             trackedShotPreventable = false;
             lastLooseOrigin.clear();
-            awardSetPiece("goal_kick", (lt == "away") ? "home" : "away");
+            awardSetPiece("goal_kick", std::string(to_string(lt == Team::Away ? Team::Home : Team::Away)));
             return true;
         }
     }
@@ -102,7 +102,7 @@ inline bool GameEngine::checkOutOfPlay() {
             trackedShot = false;
             trackedShotPreventable = false;
             lastLooseOrigin.clear();
-            awardSetPiece("goal_kick", (lt == "home") ? "away" : "home");
+            awardSetPiece("goal_kick", std::string(to_string(lt == Team::Home ? Team::Away : Team::Home)));
             return true;
         }
     }
@@ -117,8 +117,8 @@ inline void GameEngine::checkBallPlayerCollision(double){
         double d=dist(p.x,p.y,b.x,b.y);
         if(d>r)continue;
         if(b.z>20&&p.id!=b.intendedReceiverId)continue;
-        if(p.role=="GK"){
-            double ownGoalX=p.team=="home"?HOME_GOAL_X:AWAY_GOAL_X;
+        if(p.role==Role::GK){
+            double ownGoalX=ownGoalXFor(p.team);
             bool inArea=std::abs(b.x-ownGoalX)<PENALTY_AREA_W&&std::abs(b.y-PITCH_H/2)<PENALTY_AREA_H/2;
             if(bs<220&&inArea){collectBall(p);gkDistributeTimer=400;return;}
             continue;
@@ -127,7 +127,7 @@ inline void GameEngine::checkBallPlayerCollision(double){
         if(p.id==b.intendedReceiverId&&bs<220){
             bool underPressure=false;
             for(auto& opponent:state.players){
-                if(opponent.team!=p.team&&opponent.role!="GK"
+                if(opponent.team!=p.team&&opponent.role!=Role::GK
                     &&dist(opponent.x,opponent.y,p.x,p.y)<38.0){underPressure=true;break;}
             }
             if(!underPressure){collectBall(p);return;}
@@ -169,12 +169,12 @@ inline void GameEngine::collectBall(Player& c) {
     bool teammateTarget = receiverShieldTargetId >= 0 && b.lastTouchTeam == c.team;
     resolveKnockAhead(&c);
     resolvePendingPass(c);
-    if (c.role != "GK") {
+    if (c.role != Role::GK) {
         double fdx = b.x - c.x, fdy = b.y - c.y;
         double fd = std::hypot(fdx, fdy);
         if (fd > 0.1) c.facing = std::atan2(fdy, fdx);
     }
-    if (!lastCollectionTeam.empty() && c.team == lastCollectionTeam && state.clockMs - lastSameTeamCollectionMs < 300) {
+    if (lastCollectionTeam.has_value() && c.team == *lastCollectionTeam && state.clockMs - lastSameTeamCollectionMs < 300) {
         teammatePingPongs++;
         stats.recordCollection(true);
     }

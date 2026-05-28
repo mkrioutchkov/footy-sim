@@ -9,7 +9,7 @@ inline bool GameEngine::knockBallAhead(Player& carrier,double targetX,double tar
     int nearestId=-1;
     double nearestDist=1e9;
     for(auto& opponent:state.players){
-        if(opponent.team==carrier.team||opponent.role=="GK")continue;
+        if(opponent.team==carrier.team||opponent.role==Role::GK)continue;
         double d=dist(opponent.x,opponent.y,carrier.x,carrier.y);
         if(d<nearestDist){nearestDist=d;nearestId=opponent.id;}
     }

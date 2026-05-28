@@ -5,7 +5,7 @@ inline void GameEngine::kickoffTap(){
     Player* holder=playerById(state.ball.controllerId);
     if(!holder)return;
     std::vector<Player*> mids;
-    for(auto&p:state.players)if(p.team==holder->team&&p.id!=holder->id&&p.role=="CM")mids.push_back(&p);
+    for(auto&p:state.players)if(p.team==holder->team&&p.id!=holder->id&&p.role==Role::CM)mids.push_back(&p);
     if(mids.empty())return;
     size_t pick=static_cast<size_t>(rng.random()*mids.size());
     if(pick>=mids.size())pick=mids.size()-1;
@@ -29,7 +29,7 @@ inline void GameEngine::releaseSetPiece(){
     if(!holder)return;
     std::vector<Player*> targets;
     for(auto&p:state.players){
-        if(p.team!=holder->team||p.id==holder->id||p.role=="GK")continue;
+        if(p.team!=holder->team||p.id==holder->id||p.role==Role::GK)continue;
         targets.push_back(&p);
     }
     std::sort(targets.begin(),targets.end(),[&](const Player* a,const Player* b){
@@ -43,10 +43,11 @@ inline void GameEngine::releaseSetPiece(){
 }
 inline void GameEngine::awardThrowIn(std::string lt, double y) {
     auto& b = state.ball;
-    std::string at;
-    if (lt == "home") at = "away";
-    else if (lt == "away") at = "home";
-    else at = (b.x < PITCH_W / 2) ? "away" : "home";
+    Team atTeam;
+    if (lt == "home") atTeam = Team::Away;
+    else if (lt == "away") atTeam = Team::Home;
+    else atTeam = (b.x < PITCH_W / 2) ? Team::Away : Team::Home;
+    std::string at = std::string(to_string(atTeam));
     b.x = clamp(b.x, 10., PITCH_W - 10);
     b.y = clamp(y, 10., PITCH_H - 10);
     b.vx = b.vy = b.z = b.vz = 0;
@@ -58,7 +59,7 @@ inline void GameEngine::awardThrowIn(std::string lt, double y) {
     Player* best = nullptr;
     double bd = 1e9;
     for (auto& p : state.players) {
-        if (p.team != at || p.role == "GK") continue;
+        if (p.team != atTeam || p.role == Role::GK) continue;
         double d = dist(p.x, p.y, b.x, b.y);
         if (d < bd) { bd = d; best = &p; }
     }
@@ -76,12 +77,13 @@ inline void GameEngine::awardSetPiece(std::string t, std::string tm) {
     setPieceTeam = tm;
     setPieceArmed = true;
     actionTimer = 900;
+    Team tmTeam = teamFromStr(tm);
     for (auto& p : state.players) {
-        if (p.team == tm && p.role == "GK") {
+        if (p.team == tmTeam && p.role == Role::GK) {
             b.controllerId = p.id;
-            b.lastTouchTeam = tm;
+            b.lastTouchTeam = tmTeam;
             b.lastToucherId = p.id;
-            b.x = p.x + ((tm == "home") ? CONTROL_DIST : -CONTROL_DIST);
+            b.x = p.x + ((tmTeam == Team::Home) ? CONTROL_DIST : -CONTROL_DIST);
             b.y = p.y;
             break;
         }

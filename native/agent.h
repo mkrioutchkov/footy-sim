@@ -26,7 +26,7 @@ struct ActionAudit {
 };
 
 struct Action {
-    std::string type;
+    ActionType  type    = ActionType::Hold;
     double      score   = 0;
     Player*     target  = nullptr;
     double      posX    = 0;
@@ -44,7 +44,7 @@ struct GameContext {
 struct Perception {
     double              ballDist      = 0;
     bool                ballIsLoose   = false;
-    std::string         ballControllerTeam;   // empty = null
+    Team                ballControllerTeam = Team::Home;
     int                 ballControllerId = -1;
     std::vector<Player*> nearbyTeammates;
     std::vector<Player*> nearbyOpponents;
@@ -93,7 +93,7 @@ public:
     PlayerAI(Player& p, GameEngine& e)
         : player(p), engine(e)
     {
-        facing = (player.team == "home") ? 0.0 : 3.141592653589793;
+        facing = (player.team == Team::Home) ? 0.0 : PI;
     }
 
     virtual ~PlayerAI() = default;
@@ -110,7 +110,7 @@ private:
     int    holdTicks = 0;
     double lastPosX = 0, lastPosY = 0;
 
-    std::string lastActionType;
+    ActionType lastActionType = ActionType::Hold;
     std::string lastPurpose;
     int    lastTargetId = -1;
     int    lastPassTargetId = -1;

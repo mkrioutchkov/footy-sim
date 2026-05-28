@@ -4,12 +4,12 @@
 inline void GameEngine::updateGK(double sdt){
     double secs=sdt/1000.0;
     for(auto&gk:state.players){
-        if(gk.role!="GK")continue;
-        double goalX=gk.team=="home"?HOME_GOAL_X:AWAY_GOAL_X;
-        double fd=gk.team=="home"?1.0:-1.0;
+        if(gk.role!=Role::GK)continue;
+        double goalX=ownGoalXFor(gk.team);
+        double fd=gk.team==Team::Home?1.0:-1.0;
         double bdg=std::abs(state.ball.x-goalX);
-        bool ballInOurHalf=gk.team=="home"?state.ball.x<PITCH_W*0.55:state.ball.x>PITCH_W*0.45;
-        bool towardGoal=gk.team=="home"?state.ball.vx<0:state.ball.vx>0;
+        bool ballInOurHalf=gk.team==Team::Home?state.ball.x<PITCH_W*0.55:state.ball.x>PITCH_W*0.45;
+        bool towardGoal=gk.team==Team::Home?state.ball.vx<0:state.ball.vx>0;
         double ballSpeed=std::hypot(state.ball.vx,state.ball.vy);
         bool inArea=bdg<PENALTY_AREA_W&&std::abs(state.ball.y-gk.homeY)<PENALTY_AREA_H/2;
         if(inArea&&towardGoal&&ballSpeed>100&&state.ball.controllerId<0){
@@ -35,16 +35,16 @@ inline void GameEngine::tryGKSave(){
     auto& b=state.ball;
     int shooterId=trackedShot?trackedShooterId:b.lastToucherId;
     Player* gk=nullptr;
-    std::string attacking=trackedShot?trackedShotTeam:b.lastTouchTeam;
-    std::string defending=attacking=="home"?"away":"home";
-    for(auto&p:state.players)if(p.team==defending&&p.role=="GK"){gk=&p;break;}
+    Team attacking=trackedShot?trackedShotTeam:b.lastTouchTeam;
+    Team defending=attacking==Team::Home?Team::Away:Team::Home;
+    for(auto&p:state.players)if(p.team==defending&&p.role==Role::GK){gk=&p;break;}
     if(!gk)return;
     double speed=std::hypot(b.vx,b.vy);
     if(speed<200)return;
-    double goalX=gk->team=="home"?HOME_GOAL_X:AWAY_GOAL_X;
-    bool towardGoal=gk->team=="home"?b.vx<0:b.vx>0;
+    double goalX=ownGoalXFor(gk->team);
+    bool towardGoal=gk->team==Team::Home?b.vx<0:b.vx>0;
     if(!towardGoal)return;
-    bool crossed=gk->team=="home"?b.x+BALL_R<goalX:b.x-BALL_R>goalX;
+    bool crossed=gk->team==Team::Home?b.x+BALL_R<goalX:b.x-BALL_R>goalX;
     if(crossed)return;
     double dToGoal=std::abs(b.x-goalX);
     if(dToGoal>250)return;
@@ -78,7 +78,7 @@ inline void GameEngine::tryGKSave(){
         gkDistributeTimer=400;
         return;
     }
-    double fieldDir=gk->team=="home"?1.0:-1.0;
+    double fieldDir=gk->team==Team::Home?1.0:-1.0;
     double side=gk->y-shotOriginY<0?-1.0:1.0;
     double parrySpeedX=155+speed*0.10;
     double parrySpeedY=140+rng.random()*90;

@@ -7,30 +7,30 @@ inline void GameEngine::setAssignment(Player& player,const std::string& role,dou
 inline void GameEngine::updateTeamAssignments(){
     assignmentByPlayer.clear();
     Player* carrier=playerById(state.ball.controllerId);
-    if(!carrier||carrier->role=="GK")return;
-    std::string defending=carrier->team=="home"?"away":"home";
+    if(!carrier||carrier->role==Role::GK)return;
+    Team defending=carrier->team==Team::Home?Team::Away:Team::Home;
     assignDefensiveRoles(defending,*carrier);
     auditTacticalCoverage(*carrier);
 }
 inline void GameEngine::auditCredibleShotWindow(const Player& player, double distance, double angleDeg,
                                                 int pressureCount, const std::string& choiceType){
-    if(player.role!="CF"||distance>=190.0||angleDeg<=9.0||pressureCount>1)return;
+    if(player.role!=Role::CF||distance>=190.0||angleDeg<=9.0||pressureCount>1)return;
     bool closeChance=distance<120.0;
     stats.recordShotSelection(0,0,1,choiceType=="shoot"?0:1,choiceType=="pass"?1:0,choiceType=="dribble"?1:0,closeChance?1:0,closeChance&&choiceType!="shoot"?1:0,false,false);
     if(choiceType=="shoot")return;
 }
-inline void GameEngine::assignDefensiveRoles(const std::string& team,Player& carrier){
-    double fd=team=="home"?1.0:-1.0;
-    double ownGoalX=team=="home"?HOME_GOAL_X:AWAY_GOAL_X;
+inline void GameEngine::assignDefensiveRoles(Team team,Player& carrier){
+    double fd=team==Team::Home?1.0:-1.0;
+    double ownGoalX=ownGoalXFor(team);
     bool danger=std::abs(carrier.x-ownGoalX)<DANGER_ZONE_DIST;
     Config tactics=configFor(team);
     struct Rated { Player* player; double distance; double eta; double score; };
     std::vector<Rated> ranked;
     for(auto& p:state.players){
-        if(p.team!=team||p.role=="GK")continue;
+        if(p.team!=team||p.role==Role::GK)continue;
         double distance=dist(p.x,p.y,carrier.x,carrier.y);
         double speed=std::max(18.0,attrFactor(p.attrs.speed)*SPEED_SPRINT);
-        double roleCost=p.role=="CB"?(danger?8.0:70.0):p.role=="CF"?28.0:p.role=="CM"?0.0:p.role=="WM"?6.0:14.0;
+        double roleCost=p.role==Role::CB?(danger?8.0:70.0):p.role==Role::CF?28.0:p.role==Role::CM?0.0:p.role==Role::WM?6.0:14.0;
         ranked.push_back({&p,distance,distance/speed,distance-attrFactor(p.attrs.speed)*45.0-attrFactor(p.attrs.tackling)*35.0+roleCost});
     }
     if(ranked.empty())return;
@@ -49,7 +49,7 @@ inline void GameEngine::assignDefensiveRoles(const std::string& team,Player& car
     if(tactics.aggression>=62.0){
         for(const auto& option:ranked){
             Player* p=option.player;
-            if(used(p)||p->role=="CB"||option.distance>=260.0)continue;
+            if(used(p)||p->role==Role::CB||option.distance>=260.0)continue;
             setAssignment(*p,"secondary_press",carrier.x-fd*42.0,
                 carrier.y+(p->homeY<carrier.y?-38.0:38.0),carrier.id);
             assigned.insert(p->id);
@@ -58,14 +58,14 @@ inline void GameEngine::assignDefensiveRoles(const std::string& team,Player& car
     }
     for(const auto& option:ranked){
         Player* p=option.player;
-        if(used(p)||(p->role!="CB"&&p->role!="CM"))continue;
+        if(used(p)||(p->role!=Role::CB&&p->role!=Role::CM))continue;
         setAssignment(*p,"cover",lerp(carrier.x,ownGoalX+fd*115.0,0.58),
             lerp(carrier.y,PITCH_H/2.0,0.4),carrier.id);
         assigned.insert(p->id);
         break;
     }
     for(auto& p:state.players){
-        if(p.team==team&&p.role=="CM"&&!used(&p)){
+        if(p.team==team&&p.role==Role::CM&&!used(&p)){
             setAssignment(p,"midfield_screen",lerp(carrier.x,ownGoalX+fd*175.0,0.4),
                 lerp(carrier.y,PITCH_H/2.0,0.65));
             assigned.insert(p.id);
@@ -75,11 +75,11 @@ inline void GameEngine::assignDefensiveRoles(const std::string& team,Player& car
     struct Threat { Player* player; double depth; };
     std::vector<Threat> threats;
     for(auto& attacker:state.players){
-        if(attacker.team==team||attacker.role=="GK"||attacker.id==carrier.id)continue;
+        if(attacker.team==team||attacker.role==Role::GK||attacker.id==carrier.id)continue;
         double depth=std::abs(attacker.x-ownGoalX);
-        bool threatens=(attacker.role=="CF"&&depth<(danger?300.0:245.0))
-            ||(attacker.role=="WM"&&depth<(danger?250.0:205.0)&&std::abs(attacker.y-PITCH_H/2.0)<200.0)
-            ||(attacker.role=="CM"&&depth<180.0);
+        bool threatens=(attacker.role==Role::CF&&depth<(danger?300.0:245.0))
+            ||(attacker.role==Role::WM&&depth<(danger?250.0:205.0)&&std::abs(attacker.y-PITCH_H/2.0)<200.0)
+            ||(attacker.role==Role::CM&&depth<180.0);
         if(threatens)threats.push_back({&attacker,depth});
     }
     std::sort(threats.begin(),threats.end(),[](const Threat& a,const Threat& b){return a.depth<b.depth;});
@@ -88,11 +88,11 @@ inline void GameEngine::assignDefensiveRoles(const std::string& team,Player& car
         Player* marker=nullptr;
         double best=1e9;
         for(auto& defender:state.players){
-            if(defender.team!=team||used(&defender)||(defender.role!="CB"&&defender.role!="FB"))continue;
-            if(threat.player->role=="WM"&&defender.role!="CB"
+            if(defender.team!=team||used(&defender)||(defender.role!=Role::CB&&defender.role!=Role::FB))continue;
+            if(threat.player->role==Role::WM&&defender.role!=Role::CB
                 &&std::abs(defender.homeY-threat.player->y)>=PITCH_H*0.42)continue;
-            double roleBonus=(threat.player->role=="CF"&&defender.role=="CB")
-                ||(threat.player->role=="WM"&&defender.role=="FB")?-35.0:0.0;
+            double roleBonus=(threat.player->role==Role::CF&&defender.role==Role::CB)
+                ||(threat.player->role==Role::WM&&defender.role==Role::FB)?-35.0:0.0;
             double score=dist(defender.x,defender.y,threat.player->x,threat.player->y)+roleBonus;
             if(score<best){best=score;marker=&defender;}
         }
@@ -103,23 +103,23 @@ inline void GameEngine::assignDefensiveRoles(const std::string& team,Player& car
         }
     }
     for(auto& defender:state.players){
-        if(defender.team!=team||used(&defender)||(defender.role!="CB"&&defender.role!="FB"))continue;
+        if(defender.team!=team||used(&defender)||(defender.role!=Role::CB&&defender.role!=Role::FB))continue;
         double linePush=(tactics.defensiveLineHeight-50.0)*0.9;
         double targetX=danger
-            ? ownGoalX+fd*(defender.role=="CB"?92.0:118.0)
+            ? ownGoalX+fd*(defender.role==Role::CB?92.0:118.0)
             : lerp(defender.homeX,carrier.x-fd*120.0,0.32)+fd*linePush;
-        double targetY=defender.role=="FB"
+        double targetY=defender.role==Role::FB
             ? lerp(defender.homeY,carrier.y,0.20)
             : lerp(defender.homeY,PITCH_H/2.0,0.08);
-        setAssignment(defender,defender.role=="FB"?"wide_cover":"defensive_line",targetX,targetY);
+        setAssignment(defender,defender.role==Role::FB?"wide_cover":"defensive_line",targetX,targetY);
     }
 }
 inline void GameEngine::auditTacticalCoverage(Player& carrier){
     if(state.clockMs<nextTacticalAuditMs)return;
     nextTacticalAuditMs=state.clockMs+500.0;
-    std::string defending=carrier.team=="home"?"away":"home";
-    double ownGoalX=defending=="home"?HOME_GOAL_X:AWAY_GOAL_X;
-    double fd=defending=="home"?1.0:-1.0;
+    Team defending=carrier.team==Team::Home?Team::Away:Team::Home;
+    double ownGoalX=ownGoalXFor(defending);
+    double fd=defending==Team::Home?1.0:-1.0;
     bool danger=std::abs(carrier.x-ownGoalX)<DANGER_ZONE_DIST;
     Player* primary=nullptr;
     for(const auto& [id,task]:assignmentByPlayer){
@@ -131,7 +131,7 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
         double selectedEta=selectedDistance/std::max(18.0,attrFactor(primary->attrs.speed)*SPEED_SPRINT);
         double fastestEta=1e9;
         for(auto& p:state.players){
-            if(p.team!=defending||p.role=="GK")continue;
+            if(p.team!=defending||p.role==Role::GK)continue;
             double eta=dist(p.x,p.y,carrier.x,carrier.y)/std::max(18.0,attrFactor(p.attrs.speed)*SPEED_SPRINT);
             fastestEta=std::min(fastestEta,eta);
         }
@@ -141,7 +141,7 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
     std::vector<LineMember> line;
     for(const auto& defender:state.players){
         if(defender.team!=defending)continue;
-        if(defender.role!="CB"&&defender.role!="FB")continue;
+        if(defender.role!=Role::CB&&defender.role!=Role::FB)continue;
         line.push_back({&defender,(defender.x-ownGoalX)*fd});
     }
     if(line.size()>=3){
@@ -155,14 +155,14 @@ inline void GameEngine::auditTacticalCoverage(Player& carrier){
         }
         stats.recordBackLineSample(gap,singleDrop,laneBlock);
     }
-    bool finalThird=carrier.team=="home"?carrier.x>PITCH_W*2.0/3.0:carrier.x<PITCH_W/3.0;
+    bool finalThird=carrier.team==Team::Home?carrier.x>PITCH_W*2.0/3.0:carrier.x<PITCH_W/3.0;
     if(!finalThird)return;
     double nearestCb=1e9,nearestDefender=1e9;
     for(auto& defender:state.players){
-        if(defender.team!=defending||defender.role=="GK")continue;
+        if(defender.team!=defending||defender.role==Role::GK)continue;
         double distance=dist(defender.x,defender.y,carrier.x,carrier.y);
         nearestDefender=std::min(nearestDefender,distance);
-        if(defender.role=="CB")nearestCb=std::min(nearestCb,distance);
+        if(defender.role==Role::CB)nearestCb=std::min(nearestCb,distance);
     }
     bool unmarked=nearestCb>100.0;
     stats.recordFinalThirdMarking(nearestCb,nearestDefender,unmarked);

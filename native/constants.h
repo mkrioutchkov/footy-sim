@@ -2,6 +2,7 @@
 #include <cmath>
 #include <string_view>
 #include <array>
+#include "types.h"
 
 // ── Pi ──
 inline constexpr double PI = 3.141592653589793;
@@ -62,8 +63,8 @@ inline auto dist(double ax, double ay, double bx, double by) -> double {
     return std::sqrt(dx * dx + dy * dy);
 }
 constexpr auto attrFactor(double attr) -> double { return attr / 100.0; }
-inline double goalXFor(std::string_view team) { return team == "home" ? AWAY_GOAL_X : HOME_GOAL_X; }
-inline double ownGoalXFor(std::string_view team) { return team == "home" ? HOME_GOAL_X : AWAY_GOAL_X; }
+inline double goalXFor(Team team) { return team == Team::Home ? AWAY_GOAL_X : HOME_GOAL_X; }
+inline double ownGoalXFor(Team team) { return team == Team::Home ? HOME_GOAL_X : AWAY_GOAL_X; }
 
 inline constexpr std::array<std::string_view, 6> ROLES = {"GK","CB","FB","CM","WM","CF"};
 
