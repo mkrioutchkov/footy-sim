@@ -1,8 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
-$native = Join-Path (Split-Path -Parent $PSScriptRoot) 'native'
-$built = Join-Path $native 'benchmark.exe'
-$live = Join-Path $native 'live.exe'
+$build = Join-Path (Split-Path -Parent $PSScriptRoot) 'build'
+$built = Join-Path $build 'benchmark.exe'
+$live = Join-Path $build 'live.exe'
 
 if (-not (Test-Path -LiteralPath $built)) {
     throw "Native benchmark executable not built: $built"

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 
 const PORT = Number.parseInt(process.env.CPP_PORT ?? '3000', 10);
-const CPP_ENGINE = path.resolve(process.cwd(), 'native', 'live.exe');
+const CPP_ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
 const SEED = Number.parseInt(process.env.CPP_SEED ?? '101', 10);
 const MINUTES = 90;
 const DEFAULT_FRAME_MS = 1000 / 30;

@@ -1,12 +1,9 @@
 node_modules/
 dist/
+build/
 .scratch/
-vite-dev.err.log
-vite-dev.log
-seed102_stuck.log
-.gh_pat
-native/*.exe
-native/*.obj
-native/*.ifc
 *.bin
 __pycache__/
+.gh_pat
+vite-dev.err.log
+vite-dev.log

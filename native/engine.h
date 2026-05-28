@@ -96,46 +96,10 @@ public:
     };
     Config homeConfig, awayConfig;
     [[nodiscard]] Config configFor(Team team) const { return team==Team::Home ? homeConfig : awayConfig; }
-    [[nodiscard]] double offsideLineFor(Team t) const {
-        const double fd = t==Team::Home ? 1.0 : -1.0;
-        const Player* d1=nullptr,*d2=nullptr;
-        double v1=fd==1?-1e9:1e9, v2=v1;
-        for(auto&p:state.players){
-            if(p.team==t)continue;
-            double v=fd==1?-p.x:p.x;
-            if(v<v1){if(v1!=v2)v2=v1;else v2=v;v1=v;d2=d1;d1=&p;}
-            else if(v<v2){v2=v;d2=&p;}
-        }
-        return d2 ? d2->x : (t==Team::Home?0.0:PITCH_W);
-    }
-    [[nodiscard]] bool checkOffside(const Player& receiver, const Player& passer) const {
-        const double fd = passer.team==Team::Home ? 1.0 : -1.0;
-        if(fd==1){if(receiver.x<=HALF_X||receiver.x<=passer.x+OFFSIDE_TOLERANCE)return false;}
-        else{if(receiver.x>=HALF_X||receiver.x>=passer.x-OFFSIDE_TOLERANCE)return false;}
-        const Player* d1=nullptr,*d2=nullptr;
-        double v1=fd==1?-1e9:1e9, v2=v1;
-        for(auto&p:state.players){
-            if(p.team==passer.team)continue;
-            double v=fd==1?-p.x:p.x;
-            if(v<v1){if(v1!=v2)v2=v1;else v2=v;v1=v;d2=d1;d1=&p;}
-            else if(v<v2){v2=v;d2=&p;}
-        }
-        if(!d2)return false;
-        const double line=d2->x;
-        return fd==1 ? receiver.x>line+OFFSIDE_TOLERANCE : receiver.x<line-OFFSIDE_TOLERANCE;
-    }
-    void awardOffsideFreeKick(const std::string& defendingTeam, const Player& offsidePlayer) {
-        auto& b=state.ball;
-        b.x=clamp(offsidePlayer.x,20.0,PITCH_W-20);
-        b.y=clamp(offsidePlayer.y,20.0,PITCH_H-20);
-        b.vx=b.vy=b.z=b.vz=0;
-        b.controllerId=-1; b.intendedReceiverId=-1;
-        receiverShieldTargetId=-1;
-        setPieceType="free_kick"; setPieceTeam=defendingTeam; setPieceArmed=true;
-    }
-    [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const {
-        return rng.random() < 0.20 && checkOffside(receiver, passer);
-    }
+    [[nodiscard]] double offsideLineFor(Team t) const;
+    [[nodiscard]] bool checkOffside(const Player& receiver, const Player& passer) const;
+    void awardOffsideFreeKick(const std::string& defendingTeam, const Player& offsidePlayer);
+    [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const;
     struct AgentTeamAssignment { std::string role; int opponentId=-1; double targetX=0, targetY=0; };
     std::unordered_map<int, AgentTeamAssignment> assignmentByPlayer;
     [[nodiscard]] AgentTeamAssignment* assignmentFor(int playerId) {
@@ -146,30 +110,11 @@ public:
         auto it=assignmentByPlayer.find(playerId);
         return it==assignmentByPlayer.end()?nullptr:&it->second;
     }
-    [[nodiscard]] Player* playerById(int id) {
-        if(id>=0&&id<22&&playerLookup[id])return playerLookup[id];
-        for(auto&p:state.players)if(p.id==id)return &p;
-        return nullptr;
-    }
-    [[nodiscard]] const Player* playerById(int id) const {
-        if(id>=0&&id<22&&playerLookup[id])return playerLookup[id];
-        for(auto&p:state.players)if(p.id==id)return &p;
-        return nullptr;
-    }
-    [[nodiscard]] std::vector<Player*> nearPlayers(Player& p, double range) {
-        std::vector<Player*> r;
-        for(auto& o:state.players) if(&o!=&p && dist(p.x,p.y,o.x,o.y)<range) r.push_back(&o);
-        return r;
-    }
+    [[nodiscard]] Player* playerById(int id);
+    [[nodiscard]] const Player* playerById(int id) const;
+    [[nodiscard]] std::vector<Player*> nearPlayers(Player& p, double range);
     [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
-    bool canContestBall(Player& player) {
-        if(setPieceArmed&&state.ball.controllerId<0)return false;
-        auto it=contestBlockedUntil.find(player.id);
-        if(it==contestBlockedUntil.end())return true;
-        if(it->second>state.clockMs)return false;
-        contestBlockedUntil.erase(it);
-        return true;
-    }
+    bool canContestBall(Player& player);
     [[nodiscard]] bool canKnockBallAhead(int playerId) const {
         auto it=knockAheadCooldownUntil.find(playerId);
         return !activeKnockAhead.active&&(it==knockAheadCooldownUntil.end()||it->second<=state.clockMs);
@@ -182,30 +127,10 @@ public:
     bool knockBallAhead(Player&, double, double);
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
     void emitEvent(const std::string&, double, double) {}
-    void blockReboundFor(int playerId,double ms) {
-        if(playerId<0)return;
-        contestBlockedUntil[playerId]=std::max(contestBlockedUntil[playerId],state.clockMs+ms);
-    }
-    void recordBallImpulse() {
-        double spd=std::hypot(state.ball.vx,state.ball.vy);
-        peakBallSpeed=std::max(peakBallSpeed,spd);
-        stats.recordBallSpeedSample(spd);
-    }
-    void beginTrackedPass(Player& from,Player& to,bool isCross=false) {
-        stats.recordPassAttempt();
-        lastLooseOrigin.clear();
-        double speed=std::hypot(state.ball.vx,state.ball.vy);
-        passLaunchSpeedTotal+=speed; passLaunchCount++;
-        stats.recordPassLaunch(speed);
-        recordBallImpulse();
-        pendingPass={true,from.id,to.id,from.team,isCross};
-    }
-    void resolvePendingPass(Player& receiver) {
-        if(!pendingPass.active)return;
-        if(receiver.team==pendingPass.team){stats.recordPassComplete();}
-        else {stats.recordPassIntercepted();}
-        pendingPass.active=false;
-    }
+    void blockReboundFor(int playerId, double ms);
+    void recordBallImpulse();
+    void beginTrackedPass(Player& from, Player& to, bool isCross = false);
+    void resolvePendingPass(Player& receiver);
     void auditStuckCarrier(double sdt);
     void updateTeamAssignments();
     void assignDefensiveRoles(Team team, Player& carrier);
@@ -214,243 +139,14 @@ public:
     void auditCredibleShotWindow(const Player& player, double distance, double angleDeg,
                                  int pressureCount, const std::string& choiceType);
 
-    [[nodiscard]] double goalOpeningAngleDeg(double x, double y, double gx) const {
-        double dx=gx-x;
-        double top=std::atan2(PITCH_H/2.0-GOAL_W/2.0-y,dx);
-        double bottom=std::atan2(PITCH_H/2.0+GOAL_W/2.0-y,dx);
-        double opening=std::abs(std::atan2(std::sin(bottom-top),std::cos(bottom-top)));
-        return opening*180.0/3.141592653589793;
-    }
+    [[nodiscard]] double goalOpeningAngleDeg(double x, double y, double gx) const;
 
-    void placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset=CONTROL_DIST+PLAYER_R+10) {
-        double d=std::hypot(dx,dy);
-        if(d<0.001){
-            double fd=kicker.team==Team::Home?1.0:-1.0;
-            state.ball.x=clamp(kicker.x+fd*maxOffset,5.0,PITCH_W-5.0);
-            state.ball.y=kicker.y;
-            return;
-        }
-        state.ball.x=clamp(kicker.x+dx/d*maxOffset,5.0,PITCH_W-5.0);
-        state.ball.y=clamp(kicker.y+dy/d*maxOffset,5.0,PITCH_H-5.0);
-    }
-    void passBallTo(Player& f,Player& t) { passBallTo(f,t,false,false,nullptr); }
-    bool passBallTo(Player& f,Player& t,bool throughBall,bool lob,const PassSelectionAudit* selectionAudit) {
-        double rawDx=t.x-f.x,rawDy=t.y-f.y,rawDist=std::hypot(rawDx,rawDy);
-        if(rawDist<1)return false;
-        double speed=(PASS_SPEED_BASE+rawDist*PASS_SPEED_DIST)*(0.92+rng.random()*0.16);
-        double travelTime=rawDist/std::max(speed,1.0);
-        double receiverSpeed=std::hypot(t.vx,t.vy);
-        double fd=f.team==Team::Home?1.0:-1.0;
-        bool movingForward=t.vx*fd>5;
-        double leadFactor=movingForward&&receiverSpeed>20?0.80:0.45;
-        double throughLead=throughBall?fd*(32+attrFactor(f.attrs.creativity)*62):0;
-        double predX=t.x+t.vx*travelTime*leadFactor+throughLead;
-        double predY=t.y+t.vy*travelTime*leadFactor;
-        double dx=predX-f.x,dy=predY-f.y,adjDist=std::hypot(dx,dy);
-        if(adjDist<1)return false;
-        double passSkill=attrFactor(f.attrs.passing);
-        double inacc=(1-passSkill)*rawDist*0.12;
-        double tdx=dx+(rng.random()-0.5)*inacc;
-        double tdy=dy+(rng.random()-0.5)*inacc;
-        double tDist=std::hypot(tdx,tdy);
-        double ownGoalX=ownGoalXFor(f.team);
-        bool towardOwnGoal=f.team==Team::Home?tdx<0:tdx>0;
-        bool defendingOwnBox=std::abs(f.x-ownGoalX)<PITCH_W/3.0;
-        if(towardOwnGoal&&defendingOwnBox){
-            double travel=(ownGoalX-f.x)/tdx;
-            double crossingY=f.y+tdy*travel;
-            if(travel>0&&std::abs(crossingY-PITCH_H/2)<GOAL_W/2+BALL_R+8)return false;
-        }
-        auto&b=state.ball;
-        b.controllerId=-1;
-        placeBallForRelease(f,tdx,tdy);
-        blockReboundFor(f.id,900);
-        b.lastTouchTeam=f.team; b.lastToucherId=f.id;
-        b.vx=tdx/tDist*speed; b.vy=tdy/tDist*speed;
-        b.intendedReceiverId=t.id;
-        receiverShieldTargetId=t.id;
-        b.z=0; b.vz=0;
-        int blockers=0;
-        for(auto&o:state.players){
-            if(o.team==f.team||o.role==Role::GK)continue;
-            double along=clamp(((o.x-f.x)*dx+(o.y-f.y)*dy)/(adjDist*adjDist),0.0,1.0);
-            double perp=std::hypot(o.x-f.x-along*dx,o.y-f.y-along*dy);
-            if(perp<35&&along>0.1&&along<0.9)blockers++;
-        }
-        if(rawDist>240)b.vz=speed*0.55;
-        if(blockers>0&&rawDist>120)b.vz=std::max(b.vz,speed*0.70);
-        if(rawDist>350)b.vz=std::max(b.vz,speed);
-        const auto* audit=selectionAudit;
-        double goalX=goalXFor(f.team);
-        bool fromWide=std::abs(f.y-PITCH_H/2)>180;
-        bool intoBox=std::abs(predX-goalX)<200&&std::abs(predY-PITCH_H/2)<140;
-        bool selectedCross=audit&&audit->purpose=="cross"&&fromWide&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall;
-        bool whippedCross=fromWide&&intoBox&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall
-            &&(!audit||(audit->purpose!="cutback"&&audit->purpose!="through"&&audit->purpose!="cross"));
-        if(whippedCross){
-            b.vx*=1.30; b.vy*=1.30;
-            b.vz=std::max(b.vz,speed*1.30*1.15);
-        }
-        if(audit){
-            bool riskyFlag=audit->blockers>0||audit->receiverPressure>0||audit->expectedCompletion<0.58;
-            stats.recordPassSelection(audit->distance,audit->expectedCompletion,audit->blockers,audit->receiverPressure,riskyFlag,audit->saferOptionTargetId);
-        }
-        beginTrackedPass(f,t,selectedCross||whippedCross);
-        if(checkOffside(t,f)){
-            stats.recordOffside();
-            awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
-            return true;
-        }
-        return true;
-    }
-    void forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
-        double dx=t.x-f.x,dy=t.y-f.y,rawDist=std::hypot(dx,dy);
-        if(rawDist<1)return;
-        double tdx=dx+(rng.random()-0.5)*rawDist*0.2;
-        double tdy=dy+(rng.random()-0.5)*rawDist*0.2;
-        double tDist=std::hypot(tdx,tdy);
-        double speed=PASS_SPEED_BASE+35+rawDist*(PASS_SPEED_DIST+0.05);
-        auto&b=state.ball;
-        b.controllerId=-1;
-        placeBallForRelease(f,tdx,tdy);
-        blockReboundFor(f.id,900);
-        b.lastTouchTeam=f.team; b.lastToucherId=f.id;
-        b.vx=tdx/tDist*speed; b.vy=tdy/tDist*speed;
-        b.intendedReceiverId=t.id;
-        receiverShieldTargetId=t.id;
-        b.z=0; b.vz=speed*0.40;
-        beginTrackedPass(f,t);
-        if(checkOffside(t,f)){
-            stats.recordOffside();
-            awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
-        }
-    }
-    bool attemptTackle(Player& tackler,Player& carrier){
-        double contactDist=dist(tackler.x,tackler.y,carrier.x,carrier.y);
-        auto& b=state.ball;
-        if(b.controllerId!=carrier.id||tackler.team==carrier.team||contactDist>TACKLE_RANGE)return false;
-        if(!canContestBall(tackler))return false;
-        stats.recordTackleAttempt();
-        double tackleSkill=attrFactor(tackler.attrs.tackling);
-        double carrierControl=attrFactor(carrier.attrs.positioning)*0.35+attrFactor(carrier.attrs.speed)*0.15;
-        double facingBonus=(tackler.team==Team::Home?tackler.vx>0:tackler.vx<0)?0.08:-0.05;
-        double carrierSpeed=std::hypot(carrier.vx,carrier.vy);
-        double forwardX=carrierSpeed>8?carrier.vx/carrierSpeed:(carrier.team==Team::Home?1.0:-1.0);
-        double forwardY=carrierSpeed>8?carrier.vy/carrierSpeed:0;
-        double approachDot=contactDist>0
-            ? ((tackler.x-carrier.x)*forwardX+(tackler.y-carrier.y)*forwardY)/contactDist
-            : 0;
-        bool fromBehind=approachDot<-0.30;
-        bool carrierShielded=isCarrierShielded(carrier.id);
-        double dribbleBonus=carrier.dribbleType==3?0.10:carrier.dribbleType==1?-0.10:0;
-        double chance=clamp(0.18+tackleSkill*0.35-carrierControl*0.15+facingBonus
-            -(carrierShielded?0.20:0)-(fromBehind?0.14:0)
-            +(approachDot>0.3&&approachDot<0.85?0.06:0)+dribbleBonus,0.06,0.72);
-        if(rng.random()>=chance){
-            double foulChance=fromBehind?0.34:0.10;
-            if(rng.random()<foulChance){
-                stats.recordTackleFoul();
-                // Don't use setPieceArmed — it freezes the carrier for 900ms.
-                // Just give the ball back to the carrier and let play continue.
-                b.vx=b.vy=b.z=b.vz=0;
-                b.controllerId=carrier.id;
-                b.intendedReceiverId=-1;
-                b.lastTouchTeam=carrier.team; b.lastToucherId=carrier.id;
-                lastLooseOrigin.clear();
-                blockReboundFor(tackler.id,650);
-                receiverShieldUntil=state.clockMs+300;
-                receiverShieldedPlayerId=carrier.id;
-            }else{
-                blockReboundFor(tackler.id,650);
-            }
-            return false;
-        }
-        pendingPass.active=false;
-        trackedShot=false;
-        trackedShotPreventable=false;
-        receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
-        double angle=std::atan2(b.y-tackler.y,b.x-tackler.x)+(rng.random()-0.5)*0.9;
-        double outcomeRoll=rng.random();
-        double controlChance=clamp(0.28+tackleSkill*0.35-carrierControl*0.18
-            -(fromBehind?0.20:0)+(approachDot>0.15?0.12:0)
-            -(carrier.dribbleType==3?0.08:0),0.12,0.72);
-        if(outcomeRoll<controlChance){
-            stats.recordTackleWin(true);
-            b.controllerId=tackler.id;
-            b.vx=b.vy=b.z=b.vz=0;
-            b.lastTouchTeam=tackler.team; b.lastToucherId=tackler.id;
-            b.intendedReceiverId=-1;
-            receiverShieldUntil=state.clockMs+260;
-            receiverShieldedPlayerId=tackler.id;
-            lastLooseOrigin.clear();
-            blockReboundFor(carrier.id,450);
-            carrier.vx=carrier.vy=0;
-            return true;
-        }
-        stats.recordTackleWin(false);
-        b.controllerId=-1;
-        double kickSpeed=38+outcomeRoll*72+(carrier.dribbleType==3?30:0)+(carrierSpeed>DRIBBLE_MEDIUM_SPEED?16:0);
-        b.vx=std::cos(angle)*kickSpeed; b.vy=std::sin(angle)*kickSpeed;
-        b.x=clamp(b.x,5.0,PITCH_W-5.0); b.y=clamp(b.y,5.0,PITCH_H-5.0);
-        if(kickSpeed>180){stats.recordSlideTackleDistance();}
-        if(b.x<10||b.x>PITCH_W-10||b.y<10||b.y>PITCH_H-10){stats.recordSlideTackleOob();}
-        b.lastTouchTeam=tackler.team; b.lastToucherId=tackler.id;
-        b.intendedReceiverId=-1; b.z=b.vz=0;
-        lastLooseOrigin="tackle_deflection";
-        recordBallImpulse();
-        blockReboundFor(tackler.id,250);
-        blockReboundFor(carrier.id,450);
-        carrier.vx=carrier.vy=0;
-        return true;
-    }
-    void shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
-        stats.recordShot(std::string(to_string(s.team)),false);
-        double gx=goalXFor(s.team);
-        double accuracy=attrFactor(s.attrs.shooting);
-        double goalCenterY=PITCH_H/2.0;
-        double shotDistance=std::hypot(gx-s.x,goalCenterY-s.y);
-        stats.recordShotDistance(shotDistance);
-        int pressureCount=0;
-        for(auto&o:state.players)if(o.team!=s.team&&o.role!=Role::GK&&dist(o.x,o.y,s.x,s.y)<PRESSURE_RANGE)pressureCount++;
-        double angleDeg=goalOpeningAngleDeg(s.x,s.y,gx);
-        bool outsideGoalLane=std::abs(s.y-goalCenterY)>GOAL_W/2+20;
-        bool acuteGeometry=outsideGoalLane&&angleDeg<7.5&&shotDistance>150;
-        const auto* audit=selectionAudit;
-        if(audit){
-            bool betterPassFlag=audit->bestPassTargetId>=0&&audit->bestPassScore>audit->score+0.12;
-            bool tightAngleFlag=audit->angleDeg<8.0&&audit->distance>120.0;
-            stats.recordShotSelection(audit->angleDeg,audit->pressureCount,0,0,0,0,0,0,betterPassFlag,tightAngleFlag);
-        }
-        if(shotDistance>210||acuteGeometry||(audit&&audit->bestPassScore>audit->score+0.12)){stats.recordQuestionableShot();}
-        double anglePenalty=clamp(std::abs(s.y-goalCenterY)/230,0.0,1.0);
-        double distancePenalty=clamp((shotDistance-70)/270,0.0,1.0);
-        double longRangePenalty=clamp((shotDistance-120)/130,0.0,1.0);
-        double executionError=16+(1-accuracy)*75+pressureCount*18+anglePenalty*32+distancePenalty*30+longRangePenalty*65;
-        double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(0.18+accuracy*0.13);
-        double goalY=goalCenterY+aimedPost+(rng.random()+rng.random()-1.0)*executionError;
-        if(acuteGeometry){
-            double nearPostSide=s.y<goalCenterY?-1.0:1.0;
-            double nearPostY=goalCenterY+nearPostSide*GOAL_W/2;
-            goalY=s.y+(nearPostY-s.y)*(0.30+rng.random()*0.10);
-        }
-        double dx=gx-s.x, dy=goalY-s.y;
-        double d=std::hypot(dx,dy);
-        double speed=SHOT_SPEED_BASE+accuracy*180.0-pressureCount*10;
-        auto& b=state.ball;
-        b.controllerId=-1;
-        placeBallForRelease(s,dx,dy);
-        blockReboundFor(s.id,850);
-        b.vx=dx/d*speed; b.vy=dy/d*speed;
-        b.intendedReceiverId=-1; b.z=b.vz=0;
-        b.lastTouchTeam=s.team; b.lastToucherId=s.id;
-        shotLaunchSpeedTotal+=speed; shotLaunchCount++;
-        stats.recordShotLaunch(speed);
-        recordBallImpulse();
-        pendingPass.active=false;
-        lastLooseOrigin="shot";
-        receiverShieldTargetId=-1;
-        shotActive=true; trackedShot=true; trackedShotPreventable=false; trackedShotTeam=s.team; trackedShooterId=s.id; shotOriginX=s.x; shotOriginY=s.y;
-    }
+    void placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset=CONTROL_DIST+PLAYER_R+10);
+    void passBallTo(Player& f, Player& t);
+    bool passBallTo(Player& f, Player& t, bool throughBall, bool lob, const PassSelectionAudit* selectionAudit);
+    void forcePassTo(Player& f, Player& t, const PassSelectionAudit*);
+    bool attemptTackle(Player& tackler, Player& carrier);
+    void shootBall(Player& s, const ShotSelectionAudit* selectionAudit);
     bool collectBall(Player& c, const std::string&, double allowedDist);
 
     // ── Logging (no-ops for C++) ──
@@ -460,75 +156,15 @@ public:
     template<typename...A> void auditDefensiveMovement(A&&...){}
 
     // ── Lifecycle ──
-    GameEngine() {
-        // JS order: homeMgr(6) → homeTeam(shuffle 29 + attrs 77) → awayMgr(6) → awayTeam(shuffle 29 + attrs 77)
-        // We create all teams at once (154 randomInt calls). Need to interleave dummy calls.
-        // Strategy: createTeams() does 154 randomInt. We split: 77 home then dummy then 77 away.
-        blackboards[0]={}; blackboards[1]={};
-    }
-
-    void initWithSeed(int seed) {
-        rng.setSeed(seed);
-        auto manager=[&](){
-            return Config{40+rng.random()*40,30+rng.random()*40,25+rng.random()*60,
-                          30+rng.random()*55,25+rng.random()*55};
-        };
-        homeConfig=manager();
-        awayConfig=manager();
-        for(int i=0;i<23;i++) rng.random();
-        createHomeTeam();
-        for(int i=0;i<23;i++) rng.random();
-        createAwayTeam();
-        for(auto&p:state.players){
-            if(p.id>=0&&p.id<22)playerLookup[p.id]=&p;
-        }
-        for(auto&p:state.players) {
-            if (p.role == Role::GK)
-                agents.push_back(std::make_unique<GKPlayerAI>(p, *this));
-            else if (p.role == Role::CF)
-                agents.push_back(std::make_unique<CFPlayerAI>(p, *this));
-            else if (p.role == Role::WM)
-                agents.push_back(std::make_unique<WMPlayerAI>(p, *this));
-            else if (p.role == Role::CM)
-                agents.push_back(std::make_unique<CMPlayerAI>(p, *this));
-            else if (p.role == Role::CB)
-                agents.push_back(std::make_unique<CBPlayerAI>(p, *this));
-            else if (p.role == Role::FB)
-                agents.push_back(std::make_unique<FBPlayerAI>(p, *this));
-            else
-                agents.push_back(std::make_unique<PlayerAI>(p, *this));
-        }
-    }
-
-    void createHomeTeam() {
-        auto mk=[&](int id,Team t,Role r,double hx,double hy){return Player{id,std::format("{}{}",to_string(t),id),t,r,hx,hy,0,0,hx,hy,hx,hy,100.0,{static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(60,95))},t==Team::Home?0.0:3.141592653589793};};
-        std::vector<Player> home = {
-            mk(0,Team::Home,Role::GK,31.5,340),mk(1,Team::Home,Role::FB,157.5,81.6),
-            mk(2,Team::Home,Role::CB,189,226.6667),mk(3,Team::Home,Role::CB,189,453.3333),
-            mk(4,Team::Home,Role::FB,157.5,598.4),mk(5,Team::Home,Role::CM,420,170),
-            mk(6,Team::Home,Role::CM,420,340),mk(7,Team::Home,Role::CM,420,510),
-            mk(8,Team::Home,Role::WM,441,81.6),mk(9,Team::Home,Role::CF,756,340),
-            mk(10,Team::Home,Role::WM,441,598.4)
-        };
-        state.players.insert(state.players.end(), home.begin(), home.end());
-    }
-    void createAwayTeam() {
-        auto mk=[&](int id,Team t,Role r,double hx,double hy){return Player{id,std::format("{}{}",to_string(t),id),t,r,hx,hy,0,0,hx,hy,hx,hy,100.0,{static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(60,95))},t==Team::Home?0.0:3.141592653589793};};
-        std::vector<Player> away = {
-            mk(11,Team::Away,Role::GK,1018.5,340),mk(12,Team::Away,Role::FB,892.5,81.6),
-            mk(13,Team::Away,Role::CB,861,226.6667),mk(14,Team::Away,Role::CB,861,453.3333),
-            mk(15,Team::Away,Role::FB,892.5,598.4),mk(16,Team::Away,Role::CM,630,170),
-            mk(17,Team::Away,Role::CM,630,340),mk(18,Team::Away,Role::CM,630,510),
-            mk(19,Team::Away,Role::WM,609,81.6),mk(20,Team::Away,Role::CF,294,340),
-            mk(21,Team::Away,Role::WM,609,598.4)
-        };
-        state.players.insert(state.players.end(), away.begin(), away.end());
-    }
+    GameEngine();
+    void initWithSeed(int seed);
+    void createHomeTeam();
+    void createAwayTeam();
     void startMatch(){state.matchState="running";state.clockMs=0;kickoff(Team::Home);}
     void kickoff(Team t);
     void update(double dM);
     void fixedUpdate(double sdt);
-    void tickAgents(double sdt,bool ic);
+    void tickAgents(double sdt, bool ic);
     void kickoffTap();
     void releaseSetPiece();
 
@@ -538,23 +174,14 @@ public:
     bool checkGoal();
     bool checkOutOfPlay();
     void checkBallPlayerCollision(double);
-    void collectBall(Player&c);
+    void collectBall(Player& c);
     void updateControlledBall(double secs);
     void moveBallCarrier(double sdt);
     void updateGK(double sdt);
     void tryGKSave();
-    void awardThrowIn(std::string lt,double y);
-    void awardSetPiece(std::string t,std::string tm);
+    void awardThrowIn(std::string lt, double y);
+    void awardSetPiece(std::string t, std::string tm);
 
     std::string getSummaryJSON() const { return stats.summaryJSON(); }
     std::string getJSON() const;
 };
-
-// ── Engine method implementations (split by domain) ──
-#include "engine_impl_dribble.h"
-#include "engine_impl_lifecycle.h"
-#include "engine_impl_tactical.h"
-#include "engine_impl_setpieces.h"
-#include "engine_impl_physics.h"
-#include "engine_impl_goalkeeper.h"
-#include "engine_impl_json.h"

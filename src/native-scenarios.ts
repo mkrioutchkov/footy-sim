@@ -12,7 +12,7 @@ interface Summary {
   marking?: { finalThirdSamples: number };
 }
 
-const executable = path.resolve(process.cwd(), 'native', 'benchmark.exe');
+const executable = path.resolve(process.cwd(), 'build', 'benchmark.exe');
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
