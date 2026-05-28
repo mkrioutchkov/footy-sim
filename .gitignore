@@ -3,6 +3,8 @@ dist/
 .scratch/
 vite-dev.err.log
 vite-dev.log
+seed102_stuck.log
 .gh_pat
 native/*.exe
 native/*.obj
+native/*.ifc
