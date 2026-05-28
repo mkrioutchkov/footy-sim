@@ -49,6 +49,7 @@ inline std::string GameEngine::getJSON() const {
     j["stuckCarrierAlerts"] = summary["stuckCarrierAlerts"];
     j["simulationFreezes"] = summary["simulationFreezes"];
     j["dizzySpins"] = summary["dizzySpins"];
+    j["ballJumps"] = summary["ballJumps"];
     j["teammatePingPongs"] = summary["teammatePingPongs"];
     j["slideTackleDistanceAlerts"] = summary["slideTackleDistanceAlerts"];
     j["slideTackleOobAlerts"] = summary["slideTackleOobAlerts"];

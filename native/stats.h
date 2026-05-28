@@ -62,6 +62,7 @@ public:
     void recordStuckCarrier()           { stuckAlerts++; }
     void recordSimulationFreeze()       { simFreezes++; }
     void recordDizzySpin()              { dizzySpins++; }
+    void recordBallJump()               { ballJumps++; }
     void recordQuestionableShot()       { questionableShots++; }
     void recordQuestionablePress(double dist) { questionPress++; pressDistTotal+=dist; }
 
@@ -107,6 +108,7 @@ private:
     int stuckAlerts=0;
     int simFreezes=0;
     int dizzySpins=0;
+    int ballJumps=0;
     int teammatePingPongs=0;
     int questionableShots=0;
     int gkAssessed=0, unlikelySaves=0, preventableGoals=0;
@@ -190,6 +192,7 @@ inline std::string StatsCollector::summaryJSON() const {
     j["stuckCarrierAlerts"] = stuckAlerts;
     j["simulationFreezes"] = simFreezes;
     j["dizzySpins"] = dizzySpins;
+    j["ballJumps"] = ballJumps;
     j["teammatePingPongs"] = teammatePingPongs;
     j["slideTackleDistanceAlerts"] = slideTackleDistance;
     j["slideTackleOobAlerts"] = slideTackleOob;
@@ -265,6 +268,7 @@ inline std::string StatsCollector::summaryJSON() const {
 
     j["qualityFlags"] = {
         {"player_stuck", stuckAlerts}, {"simulation_freeze", simFreezes}, {"dizzy_spin", dizzySpins},
+        {"ball_jump", ballJumps},
         {"slide_tackle_distance", slideTackleDistance}, {"slide_tackle_oob", slideTackleOob},
         {"own_pass_goal", ownPassGoals}, {"unknown_loose_goal", unknownLooseGoals},
         {"questionable_shot_choice", questionableShots}, {"questionable_press_assignment", questionPress},

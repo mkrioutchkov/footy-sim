@@ -49,6 +49,7 @@ public:
 
     double lastKickoffMs = 0; bool kickoffPhase = false;
     double actionTimer = 0; bool setPieceArmed = false;
+    double prevBallX = 525, prevBallY = 340;
     std::string setPieceType, setPieceTeam;
     int half = 1; double halfTimePause = 0;
     Team nextKickoffTeam = Team::Home;
