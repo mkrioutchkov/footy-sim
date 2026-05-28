@@ -95,4 +95,9 @@ function localDebugLogPlugin() {
 
 export default defineConfig({
   plugins: [localDebugLogPlugin()],
+  server: {
+    watch: {
+      ignored: ['**/native/**'],
+    },
+  },
 });
