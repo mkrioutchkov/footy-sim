@@ -214,7 +214,7 @@ inline bool GameEngine::collectBall(Player& c, const std::string&, double allowe
 }
 inline void GameEngine::updateControlledBall(double) {
     Player* c = playerById(state.ball.controllerId);
-    if (!c || kickoffPhase) return;
+    if (!c || kickoffPhase || setPieceArmed) return;
     double dx = std::cos(c->facing), dy = std::sin(c->facing);
     state.ball.x = clamp(c->x + dx * CONTROL_DIST, 5.0, PITCH_W - 5.0);
     state.ball.y = clamp(c->y + dy * CONTROL_DIST, 5.0, PITCH_H - 5.0);
