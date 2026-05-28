@@ -114,18 +114,19 @@ struct AgentRecentPass {
 // PlayerAgent class
 // ══════════════════════════════════════════════════════════════════════════════
 
-class PlayerAgent {
+class PlayerAI {
 public:
     Player&     player;
     GameEngine& engine;
 
-    PlayerAgent(Player& p, GameEngine& e)
+    PlayerAI(Player& p, GameEngine& e)
         : player(p), engine(e)
     {
         facing = (player.team == "home") ? 0.0 : 3.141592653589793;
     }
 
-    void tick(double sdt);
+    virtual ~PlayerAI() = default;
+    virtual void tick(double sdt);
     double dizzyRotationAccum = 0;
     double dizzyWindowStartMs = 0;
 

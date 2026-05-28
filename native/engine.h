@@ -3,12 +3,14 @@
 #include "constants.h"
 #include "types.h"
 #include "agent.h"
+#include "gk_ai.h"
 #include "stats.h"
 #include "json.h"
 #include <format>
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
+#include <memory>
 
 class GameEngine {
 public:
@@ -17,7 +19,7 @@ public:
     TeamBlackboard blackboards[2]; // [0]=home, [1]=away
     static int teamIndex(const std::string& team) { return team == "home" ? 0 : 1; }
     StatsCollector stats;
-    std::vector<PlayerAgent> agents;
+    std::vector<std::unique_ptr<PlayerAI>> agents;
     std::array<Player*, 22> playerLookup = {};
     double accumulator = 0.0;
 
@@ -479,7 +481,12 @@ public:
         for(auto&p:state.players){
             if(p.id>=0&&p.id<22)playerLookup[p.id]=&p;
         }
-        for(auto&p:state.players)agents.emplace_back(p,*this);
+        for(auto&p:state.players) {
+            if (p.role == "GK")
+                agents.push_back(std::make_unique<GKPlayerAI>(p, *this));
+            else
+                agents.push_back(std::make_unique<PlayerAI>(p, *this));
+        }
     }
 
     void createHomeTeam() {

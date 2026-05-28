@@ -6,7 +6,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 // tick()
 // ══════════════════════════════════════════════════════════════════════════════
-void PlayerAgent::tick(double sdt) {
+void PlayerAI::tick(double sdt) {
     if (player.role == "GK") return;
     facing = player.facing;
 
@@ -89,7 +89,7 @@ void PlayerAgent::tick(double sdt) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ctx() — game context
 // ══════════════════════════════════════════════════════════════════════════════
-GameContext PlayerAgent::ctx() {
+GameContext PlayerAI::ctx() {
     int ms = engine.state.homeScore, os = engine.state.awayScore;
     int my = (player.team == "home") ? ms : os;
     int op = (player.team == "home") ? os : ms;
@@ -107,7 +107,7 @@ GameContext PlayerAgent::ctx() {
 // ══════════════════════════════════════════════════════════════════════════════
 // ev() — evaluate actions
 // ══════════════════════════════════════════════════════════════════════════════
-std::vector<Action> PlayerAgent::ev(const Perception& per, bool ic, const GameContext& ctx) {
+std::vector<Action> PlayerAI::ev(const Perception& per, bool ic, const GameContext& ctx) {
     std::vector<Action> a;
     if (ic) {
         if (sl > 0) {
@@ -236,7 +236,7 @@ std::vector<Action> PlayerAgent::ev(const Perception& per, bool ic, const GameCo
 // ══════════════════════════════════════════════════════════════════════════════
 // cp() — can-pass
 // ══════════════════════════════════════════════════════════════════════════════
-std::vector<Action> PlayerAgent::cp(const Perception& per, const GameContext& ctx) {
+std::vector<Action> PlayerAI::cp(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     double fd = (p.team == "home") ? 1.0 : -1.0;
     std::vector<Action> r;
@@ -430,7 +430,7 @@ std::vector<Action> PlayerAgent::cp(const Perception& per, const GameContext& ct
 // ══════════════════════════════════════════════════════════════════════════════
 // cs() — can-shoot
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAgent::cs(const Perception& per, const GameContext& ctx) {
+Action PlayerAI::cs(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     double gx = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
     double shotDistance = std::hypot(p.x - gx, p.y - PITCH_H / 2.0);
@@ -501,7 +501,7 @@ Action PlayerAgent::cs(const Perception& per, const GameContext& ctx) {
 // ══════════════════════════════════════════════════════════════════════════════
 // cd() — can-dribble
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAgent::cd(const Perception& per, const GameContext& /*ctx*/) {
+Action PlayerAI::cd(const Perception& per, const GameContext& /*ctx*/) {
     const auto& p = player;
     double gx = (p.team == "home") ? AWAY_GOAL_X : HOME_GOAL_X;
     double tx = gx, ty = p.y;
@@ -568,7 +568,7 @@ Action PlayerAgent::cd(const Perception& per, const GameContext& /*ctx*/) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ct() — can-tackle
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAgent::ct(const Perception& per, const GameContext& /*ctx*/) {
+Action PlayerAI::ct(const Perception& per, const GameContext& /*ctx*/) {
     if (per.ballIsLoose || per.ballControllerTeam == player.team || per.ballControllerTeam.empty())
         return Action{"tackle", 0.0};
 
@@ -638,7 +638,7 @@ Action PlayerAgent::ct(const Perception& per, const GameContext& /*ctx*/) {
 // ══════════════════════════════════════════════════════════════════════════════
 // cm() — can-mark
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAgent::cm(const Perception& per, const GameContext& /*ctx*/) {
+Action PlayerAI::cm(const Perception& per, const GameContext& /*ctx*/) {
     if (player.role != "CB" && player.role != "FB") return Action{"mark", 0.0};
     if (per.ballControllerTeam == player.team && !per.ballIsLoose) return Action{"mark", 0.0};
 
@@ -688,7 +688,7 @@ Action PlayerAgent::cm(const Perception& per, const GameContext& /*ctx*/) {
 // ══════════════════════════════════════════════════════════════════════════════
 // cc() — can-chase
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAgent::cc(const Perception& per) {
+Action PlayerAI::cc(const Perception& per) {
     auto& b = engine.state.ball;
     bool isIntendedReceiver = (player.id == b.intendedReceiverId);
     double ballSpeed = std::sqrt(b.vx * b.vx + b.vy * b.vy);
@@ -795,7 +795,7 @@ Action PlayerAgent::cc(const Perception& per) {
 // ══════════════════════════════════════════════════════════════════════════════
 // bp() — best-position (off-ball positioning)
 // ══════════════════════════════════════════════════════════════════════════════
-std::vector<Action> PlayerAgent::bp(const Perception& per, const GameContext& ctx) {
+std::vector<Action> PlayerAI::bp(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     auto& b = engine.state.ball;
     double fd = (p.team == "home") ? 1.0 : -1.0;
@@ -1083,7 +1083,7 @@ std::vector<Action> PlayerAgent::bp(const Perception& per, const GameContext& ct
 // ══════════════════════════════════════════════════════════════════════════════
 // rc() — resolve choice
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAgent::rc(std::vector<Action>& a) {
+Action PlayerAI::rc(std::vector<Action>& a) {
     std::sort(a.begin(), a.end(),
               [](const Action& x, const Action& y) { return x.score > y.score; });
 
@@ -1148,7 +1148,7 @@ Action PlayerAgent::rc(std::vector<Action>& a) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ex() — execute chosen action
 // ══════════════════════════════════════════════════════════════════════════════
-void PlayerAgent::ex(Action& a, double sdt, std::vector<Action>& actions) {
+void PlayerAI::ex(Action& a, double sdt, std::vector<Action>& actions) {
     auto& p = player;
     auto& b = engine.state.ball;
 
@@ -1304,7 +1304,7 @@ void PlayerAgent::ex(Action& a, double sdt, std::vector<Action>& actions) {
 // ══════════════════════════════════════════════════════════════════════════════
 // gp() — get perception (cached)
 // ══════════════════════════════════════════════════════════════════════════════
-Perception PlayerAgent::gp() {
+Perception PlayerAI::gp() {
     pa++;
     if (ch.has_value() && pa < 3) return ch.value();
     ch = pr();
@@ -1315,7 +1315,7 @@ Perception PlayerAgent::gp() {
 // ══════════════════════════════════════════════════════════════════════════════
 // pr() — perceive surroundings
 // ══════════════════════════════════════════════════════════════════════════════
-Perception PlayerAgent::pr() {
+Perception PlayerAI::pr() {
     const auto& p = player;
     auto& b = engine.state.ball;
     double dx = b.x - p.x, dy = b.y - p.y, bd = std::sqrt(dx * dx + dy * dy);
@@ -1389,7 +1389,7 @@ Perception PlayerAgent::pr() {
 // ══════════════════════════════════════════════════════════════════════════════
 // am() — apply movement
 // ══════════════════════════════════════════════════════════════════════════════
-void PlayerAgent::am(double sdt) {
+void PlayerAI::am(double sdt) {
     auto& p = player;
     if (p.role == "GK") return;
 
@@ -1489,7 +1489,7 @@ void PlayerAgent::am(double sdt) {
 // ══════════════════════════════════════════════════════════════════════════════
 // tryCollectAfterChase()
 // ══════════════════════════════════════════════════════════════════════════════
-void PlayerAgent::tryCollectAfterChase() {
+void PlayerAI::tryCollectAfterChase() {
     auto& p = player;
     auto& b = engine.state.ball;
 
@@ -1515,7 +1515,7 @@ void PlayerAgent::tryCollectAfterChase() {
 // ══════════════════════════════════════════════════════════════════════════════
 // passSelectionAudit()
 // ══════════════════════════════════════════════════════════════════════════════
-PassSelectionAudit PlayerAgent::passSelectionAudit(const Action& choice,
+PassSelectionAudit PlayerAI::passSelectionAudit(const Action& choice,
                                                    const std::vector<Action>& actions)
 {
     const auto& chosen = choice.audit;
@@ -1555,7 +1555,7 @@ PassSelectionAudit PlayerAgent::passSelectionAudit(const Action& choice,
 // ══════════════════════════════════════════════════════════════════════════════
 // shotSelectionAudit()
 // ══════════════════════════════════════════════════════════════════════════════
-ShotSelectionAudit PlayerAgent::shotSelectionAudit(const Action& choice,
+ShotSelectionAudit PlayerAI::shotSelectionAudit(const Action& choice,
                                                     const std::vector<Action>& actions)
 {
     const auto& shot = choice.audit;
@@ -1582,7 +1582,7 @@ ShotSelectionAudit PlayerAgent::shotSelectionAudit(const Action& choice,
 // ══════════════════════════════════════════════════════════════════════════════
 // auditDefensiveMovement()
 // ══════════════════════════════════════════════════════════════════════════════
-void PlayerAgent::auditDefensiveMovement(const Action& choice) {
+void PlayerAI::auditDefensiveMovement(const Action& choice) {
     auto* task = engine.assignmentFor(player.id);
     Player* controller = engine.playerById(engine.state.ball.controllerId);
     if (!task || !controller || controller->team == player.team) return;

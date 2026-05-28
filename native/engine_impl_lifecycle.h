@@ -142,15 +142,14 @@ inline void GameEngine::fixedUpdate(double sdt) {
 }
 inline void GameEngine::tickAgents(double sdt, bool ic) {
     for (auto& a : agents) {
-        int id = a.player.id;
-        if (a.player.role == "GK") continue;
+        int id = a->player.id;
         if (id == state.ball.controllerId && !ic) continue;
-        a.tick(sdt);
-        if (a.dizzyRotationAccum > 720.0) {
+        a->tick(sdt);
+        if (a->dizzyRotationAccum > 720.0) {
             dizzySpins++;
             stats.recordDizzySpin();
-            a.dizzyRotationAccum = 0;
-            a.dizzyWindowStartMs = state.clockMs;
+            a->dizzyRotationAccum = 0;
+            a->dizzyWindowStartMs = state.clockMs;
         }
     }
 }
