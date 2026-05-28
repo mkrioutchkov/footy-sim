@@ -1171,16 +1171,50 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
 
         int nearbyOpps = 0;
         double nearestOppDist = 1e9;
+        int oppsInPath = 0;
+        double fd = (p.team == Team::Home) ? 1.0 : -1.0;
+        double aheadX = p.x + fd * 200.0;
         for (auto& o : engine.state.players) {
             if (o.team != p.team && o.role != Role::GK) {
                 double d = dist(p.x, p.y, o.x, o.y);
                 nearestOppDist = std::min(nearestOppDist, d);
                 if (d < 55.0) nearbyOpps++;
+                // Count opponents in the path ahead
+                double pathDist = std::abs(o.x - p.x);
+                double lateralDist = std::abs(o.y - p.y);
+                if (pathDist < 200.0 && lateralDist < 40.0 && ((fd > 0 && o.x > p.x) || (fd < 0 && o.x < p.x)))
+                    oppsInPath++;
             }
         }
 
-        bool openBurst       = distToTarget > 130.0 && nearestOppDist > 120.0;
-        bool speculativeBurst = distToTarget > 175.0 && nearestOppDist > 95.0 && p.attrs.creativity >= 84.0;
+        // Knock-ahead: only in opponent's half, clear path, space to run into
+        bool pastCenter = (fd > 0 && p.x > HALF_X) || (fd < 0 && p.x < HALF_X);
+        bool clearPath = oppsInPath == 0;
+        bool spaceAhead = nearestOppDist > 100.0;
+        bool longDistToTarget = distToTarget > 150.0;
+
+        // Check if a teammate can collect (within ~150px of launch point)
+        bool teammateSupport = false;
+        double launchX = p.x + fd * DRIBBLE_KNOCK_OFFSET;
+        double launchY = p.y;
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team && o.id != p.id && o.role != Role::GK) {
+                double d = dist(launchX, launchY, o.x, o.y);
+                if (d < 150.0) { teammateSupport = true; break; }
+            }
+        }
+
+        // Flank bonus: knock-aheads on the flank are safer (less central traffic)
+        bool onFlank = std::abs(p.y - PITCH_H / 2.0) > 120.0;
+
+        // Open burst: space + clear path + past center + (teammate nearby OR on flank)
+        bool openBurst = longDistToTarget && spaceAhead && clearPath && pastCenter
+                        && (teammateSupport || onFlank);
+
+        // Speculative burst: creative player with some space, past center
+        bool speculativeBurst = distToTarget > 200.0 && nearestOppDist > 80.0 && clearPath
+                               && pastCenter && p.attrs.creativity >= 84.0 && teammateSupport;
+
         bool mayBurst = engine.canKnockBallAhead(p.id) && (openBurst || speculativeBurst);
         int dribbleType = mayBurst ? 3 : (nearbyOpps >= 2 ? 1 : 2);
 
@@ -1192,7 +1226,6 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         if (dribbleType == 3 && newEpisode) engine.knockBallAhead(p, p.targetX, p.targetY);
 
         double oppGoalX = goalXFor(p.team);
-        double fd = (p.team == Team::Home) ? 1.0 : -1.0;
         if ((fd == 1.0 && p.targetX < p.x - 10.0) || (fd == -1.0 && p.targetX > p.x + 10.0)) {
             if (std::abs(p.x - oppGoalX) < 300.0) {
                 int closeOpps = 0;
