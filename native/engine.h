@@ -4,6 +4,7 @@
 #include "types.h"
 #include "agent.h"
 #include "gk_ai.h"
+#include "role_ai.h"
 #include "stats.h"
 #include "json.h"
 #include <format>
@@ -482,6 +483,16 @@ public:
         for(auto&p:state.players) {
             if (p.role == Role::GK)
                 agents.push_back(std::make_unique<GKPlayerAI>(p, *this));
+            else if (p.role == Role::CF)
+                agents.push_back(std::make_unique<CFPlayerAI>(p, *this));
+            else if (p.role == Role::WM)
+                agents.push_back(std::make_unique<WMPlayerAI>(p, *this));
+            else if (p.role == Role::CM)
+                agents.push_back(std::make_unique<CMPlayerAI>(p, *this));
+            else if (p.role == Role::CB)
+                agents.push_back(std::make_unique<CBPlayerAI>(p, *this));
+            else if (p.role == Role::FB)
+                agents.push_back(std::make_unique<FBPlayerAI>(p, *this));
             else
                 agents.push_back(std::make_unique<PlayerAI>(p, *this));
         }

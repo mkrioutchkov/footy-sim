@@ -215,7 +215,12 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
         x.score += (engine.rng.random() - 0.5) * 0.03;
     }
 
+    adjustActionScores(a, ic);
     return a;
+}
+
+void PlayerAI::adjustActionScores(std::vector<Action>&, bool) {
+    // Default: no role-specific adjustments. Subclasses override.
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

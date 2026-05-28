@@ -127,12 +127,13 @@ private:
     GameContext           buildContext();
     std::vector<Action>   evaluateActions(const Perception& per, bool isController, const GameContext& ctx);
     std::vector<Action>   scorePass(const Perception& per, const GameContext& ctx);
-    Action                scoreShot(const Perception& per, const GameContext& ctx);
-    Action                scoreDribble(const Perception& per, const GameContext& ctx);
-    Action                scoreTackle(const Perception& per, const GameContext& ctx);
+    virtual Action        scoreShot(const Perception& per, const GameContext& ctx);
+    virtual Action        scoreDribble(const Perception& per, const GameContext& ctx);
+    virtual Action        scoreTackle(const Perception& per, const GameContext& ctx);
     Action                scoreMark(const Perception& per, const GameContext& ctx);
     Action                scoreChase(const Perception& per);
-    std::vector<Action>   scorePositioning(const Perception& per, const GameContext& ctx);
+    virtual std::vector<Action> scorePositioning(const Perception& per, const GameContext& ctx);
+    virtual void          adjustActionScores(std::vector<Action>& actions, bool isController);
     Action                resolveChoice(std::vector<Action>& actions);
     void                  executeAction(Action& action, double sdt, std::vector<Action>& actions);
     Perception            getCachedPerception();
