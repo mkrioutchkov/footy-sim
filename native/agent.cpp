@@ -441,10 +441,11 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance > std::min(mr, hardMax))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
-    double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.35;
-    if (shotDistance < 90.0)  sc = std::max(sc, 0.35);
-    if (shotDistance < 50.0)  sc = std::max(sc, 0.52);
-    if (shotDistance < 30.0)  sc = std::max(sc, 0.70);
+    double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.55;
+    if (shotDistance < 120.0) sc = std::max(sc, 0.30);
+    if (shotDistance < 90.0)  sc = std::max(sc, 0.45);
+    if (shotDistance < 50.0)  sc = std::max(sc, 0.58);
+    if (shotDistance < 30.0)  sc = std::max(sc, 0.75);
 
     Player* gk = nullptr;
     for (auto& o : engine.state.players) {
@@ -1177,6 +1178,23 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                                           8000.0, "backpass:" + std::to_string(player.id));
     }
 
+    // CF near goal: bias toward shooting unless teammate has a clear tap-in
+    if (ic && player.role == Role::CF && nearGoal && best.type != ActionType::Shoot) {
+        Action* shotOpt = nullptr;
+        Action* passToTapIn = nullptr;
+        for (auto& x : a) {
+            if (x.type == ActionType::Shoot) shotOpt = &x;
+            if (x.type == ActionType::Pass && x.target) {
+                double tGoalDist = std::abs(goalXFor(player.team) - x.target->x);
+                if (tGoalDist < 80.0) passToTapIn = &x;
+            }
+        }
+        // If shot exists and passes don't go to a tap-in, prefer shot
+        if (shotOpt && !passToTapIn && shotOpt->score > best.score - 0.08) {
+            return *shotOpt;
+        }
+    }
+
     return best;
 }
 
@@ -1605,8 +1623,16 @@ void PlayerAI::tryCollectAfterChase() {
 
     if (!engine.collectBall(p, intended ? "intended_chase_reception" : "chase_collection", reach)) return;
 
-    stunLockTicks = 45;
-    shotCooldown = 15;
+    // Position-based stun lock: short in opponent's final third, long elsewhere
+    double gx = goalXFor(p.team);
+    bool inFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+    if (inFinalThird) {
+        stunLockTicks = 12;  // ~200ms — react quickly near goal
+        shotCooldown = 0;    // can shoot immediately in the box
+    } else {
+        stunLockTicks = 45;  // ~750ms — settle time in midfield
+        shotCooldown = 15;   // ~250ms — brief cooldown after collect
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
