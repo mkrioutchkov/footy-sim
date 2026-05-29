@@ -25,6 +25,8 @@ export class MatchRenderer {
   private versionText: Text = null!;
   private uiVersion = '';
   private eventGfx: Graphics;
+  private commentaryContainer: Container;
+  private commentaryTexts: { text: Text; age: number }[] = [];
   private scale = 1;
   private offsetX = 0;
   private offsetY = 0;
@@ -45,6 +47,7 @@ export class MatchRenderer {
     this.ballBody = new Graphics();
     this.ballGlow = new Graphics();
     this.eventGfx = new Graphics();
+    this.commentaryContainer = new Container();
     this.hudText = new Text({ text: '', style: new TextStyle({ fill: 0xff4444, fontSize: 20, fontFamily: 'monospace', fontWeight: 'bold' }) });
 
     // pre-draw football (white with black pentagon pattern)
@@ -87,6 +90,7 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
     this.pitchContainer.addChild(this.eventGfx);
+    this.pitchContainer.addChild(this.commentaryContainer);
     this.app.stage.sortableChildren = true;
     this.app.stage.addChild(this.hudText);
     this.hudText.zIndex = 9999;
@@ -124,8 +128,8 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ringGfx);
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
-    this.pitchContainer.addChild(this.eventGfx);
-    for (const t of this.trailPool) this.pitchContainer.addChild(t);
+     this.pitchContainer.addChild(this.eventGfx);
+     this.pitchContainer.addChild(this.commentaryContainer);
 
     const g = new Graphics();
     g.rect(-GOAL_DEPTH, 0, PITCH_W + GOAL_DEPTH * 2, PITCH_H); g.fill(PITCH_GREEN);
@@ -348,7 +352,6 @@ export class MatchRenderer {
     // ── events ──
     this.eventGfx.clear();
     for (const ev of (state.events ?? [])) {
-      if (ev.type === 'pass') continue;
       const lifetime = ev.type === 'header' ? 600 : 2000;
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
@@ -356,6 +359,41 @@ export class MatchRenderer {
       const ec = ev.type === 'goal' ? 0xffdd44 : ev.type === 'save' ? 0x44ddff : ev.type === 'tackle' ? 0xff6644 : ev.type === 'intercept' ? 0xffb347 : ev.type === 'header' ? 0xfff1a8 : 0xffffff;
       this.eventGfx.circle(ev.x, ev.y, er);
       this.eventGfx.stroke({ width: ev.type === 'header' ? 3 : 2, color: ec, alpha });
+    }
+
+    // ── Commentary feed ──
+    this.commentaryContainer.removeChildren();
+    // Add new events to commentary queue with age tracking
+    for (const ev of (state.events ?? [])) {
+      if (!ev.playerId && !ev.playerName) continue; // skip unnamed
+      const playerTeam = ev.playerName?.startsWith('home') ? 'home' : 'away';
+      const color = playerTeam === 'home' ? 0x88aaff : 0xff8866;
+      let msg = '';
+      if (ev.type === 'pass') {
+        msg = `${ev.playerName} passes to ${ev.targetName ?? 'teammate'}`;
+      } else if (ev.type === 'shot') {
+        msg = `${ev.playerName} shoots!`;
+      } else if (ev.type === 'tackle') {
+        msg = `${ev.playerName} tackles ${ev.targetName ?? 'opponent'}`;
+      } else {
+        msg = `${ev.playerName} ${ev.type}`;
+      }
+      if (msg) {
+        const t = new Text({ text: msg, style: new TextStyle({ fill: color, fontSize: 13, fontFamily: 'monospace' }) });
+        this.commentaryTexts.push({ text: t, age: 0 });
+      }
+    }
+    // Cap commentary at 5 messages, fade old ones
+    if (this.commentaryTexts.length > 5) this.commentaryTexts = this.commentaryTexts.slice(-5);
+    let yOff = this.app.screen.height - 190;
+    for (const ct of this.commentaryTexts) {
+      ct.age++;
+      const alpha = clamp(1 - ct.age / 200, 0, 1);
+      if (alpha <= 0) continue;
+      ct.text.alpha = alpha;
+      ct.text.position.set(10, yOff);
+      this.commentaryContainer.addChild(ct.text);
+      yOff -= 22;
     }
 
     // ── HUD ──

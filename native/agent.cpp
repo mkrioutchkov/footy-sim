@@ -1224,7 +1224,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
             lastPassTargetId = a.target->id;
             recentPassTarget = a.target->id;
             recentPassTime = engine.state.clockMs;
-            engine.emitEvent("pass", p.x, p.y);
+            engine.emitEvent("pass", p.x, p.y, p.id, a.target->id);
             auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
             bb.oneTwo = TeamBlackboard::OneTwo{ p.id, a.target->id, engine.state.clockMs + 2000.0 };
             stunLockTicks = 50 + static_cast<int>(engine.rng.random() * 21);
@@ -1235,7 +1235,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
     else if (a.type == ActionType::Shoot) {
         ShotSelectionAudit audit = shotSelectionAudit(a, actions);
         engine.shootBall(p, &audit);
-        engine.emitEvent("shot", p.x, p.y);
+        engine.emitEvent("shot", p.x, p.y, p.id);
         stunLockTicks = 20;
     }
     else if (a.type == ActionType::Dribble) {
@@ -1334,7 +1334,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         if (a.target && dist(p.x, p.y, a.target->x, a.target->y) <= TACKLE_RANGE
             && engine.attemptTackle(p, *a.target))
         {
-            engine.emitEvent("tackle", (p.x + a.target->x) / 2.0, (p.y + a.target->y) / 2.0);
+            engine.emitEvent("tackle", (p.x + a.target->x) / 2.0, (p.y + a.target->y) / 2.0, p.id, a.target->id);
             p.tackleAnim = 800.0;
         } else {
             p.targetX = a.target ? a.target->x : p.x;

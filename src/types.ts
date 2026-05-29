@@ -65,10 +65,14 @@ export interface EngineState {
 }
 
 export interface MatchEvent {
-  type: 'pass' | 'shot' | 'tackle' | 'intercept' | 'save' | 'goal' | 'header';
+  type: string;
   x: number;
   y: number;
   age: number;
+  playerId?: number;
+  playerName?: string;
+  targetId?: number;
+  targetName?: string;
 }
 
 export interface Formation {
