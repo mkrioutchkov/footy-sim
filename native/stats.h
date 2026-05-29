@@ -12,6 +12,8 @@ public:
     void recordPassAttempt()           { passesAttempted++; }
     void recordPassComplete()          { passesCompleted++; }
     void recordPassIntercepted()      { passesIntercepted++; }
+    void recordPassIntendedReceived() { passesIntended++; }
+    void recordPassWrongTeammate()    { wrongTeammate++; }
     void recordOffside()              { offsidesTotal++; }
     void recordPassSelection(double dist, double expectedCompletion, int blockers, double pressure, bool risky, int saferId) {
         passAudits++; passDistTotal+=dist; passExpectedTotal+=expectedCompletion;
@@ -95,7 +97,7 @@ public:
     std::string summaryJSON() const;
 
 private:
-    int passesAttempted=0, passesCompleted=0, passesIntercepted=0;
+    int passesAttempted=0, passesCompleted=0, passesIntercepted=0, passesIntended=0, wrongTeammate=0;
     int offsidesTotal=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;
     int goalsHome=0, goalsAway=0;

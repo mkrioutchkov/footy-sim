@@ -108,7 +108,11 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross) {
 
 void GameEngine::resolvePendingPass(Player& receiver) {
     if(!pendingPass.active)return;
-    if(receiver.team==pendingPass.team){stats.recordPassComplete();}
+    if(receiver.team==pendingPass.team){
+        stats.recordPassComplete();
+        if(receiver.id == pendingPass.toId) stats.recordPassIntendedReceived();
+        else stats.recordPassWrongTeammate();
+    }
     else {stats.recordPassIntercepted();}
     pendingPass.active=false;
 }
@@ -1333,6 +1337,8 @@ std::string GameEngine::getJSON() const {
     j["passes"] = summary["passes"];
     j["passesCompleted"] = summary["passesCompleted"];
     j["passesIntercepted"] = summary["passesIntercepted"];
+    j["passesIntendedReceived"] = summary["passesIntendedReceived"];
+    j["wrongTeammateTouches"] = summary["wrongTeammate"];
     j["passCompletionPct"] = summary["passCompletionPct"];
     j["offsides"] = summary["offsides"];
     j["homeShots"] = summary["homeShots"];

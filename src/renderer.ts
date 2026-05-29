@@ -90,8 +90,9 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
     this.pitchContainer.addChild(this.eventGfx);
-    this.pitchContainer.addChild(this.commentaryContainer);
     this.app.stage.sortableChildren = true;
+    this.app.stage.addChild(this.commentaryContainer);
+    this.commentaryContainer.zIndex = 1000;
     this.app.stage.addChild(this.hudText);
     this.hudText.zIndex = 9999;
     // version display — engine + UI
@@ -129,7 +130,6 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
      this.pitchContainer.addChild(this.eventGfx);
-     this.pitchContainer.addChild(this.commentaryContainer);
 
     const g = new Graphics();
     g.rect(-GOAL_DEPTH, 0, PITCH_W + GOAL_DEPTH * 2, PITCH_H); g.fill(PITCH_GREEN);
@@ -385,13 +385,14 @@ export class MatchRenderer {
     }
     // Cap commentary at 5 messages, fade old ones
     if (this.commentaryTexts.length > 5) this.commentaryTexts = this.commentaryTexts.slice(-5);
-    let yOff = this.app.screen.height - 190;
+    const commentX = Math.max(4, this.offsetX - 170);  // left of pitch
+    let yOff = this.offsetY + 20;
     for (const ct of this.commentaryTexts) {
       ct.age++;
       const alpha = clamp(1 - ct.age / 200, 0, 1);
       if (alpha <= 0) continue;
       ct.text.alpha = alpha;
-      ct.text.position.set(10, yOff);
+      ct.text.position.set(commentX, yOff);
       this.commentaryContainer.addChild(ct.text);
       yOff -= 22;
     }
