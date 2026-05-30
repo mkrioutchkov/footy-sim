@@ -3,6 +3,8 @@ dist/
 build/
 .scratch/
 *.bin
+*.jsonl
+*.jsonl.gz
 __pycache__/
 .gh_pat
 vite-dev.err.log
