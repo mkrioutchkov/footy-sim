@@ -126,11 +126,7 @@ public:
     void noteTaskSelection(Player&, const std::string&) {}
     bool knockBallAhead(Player&, double, double);
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
-    struct GameEvent { std::string type; double x, y; int playerId=-1; int targetId=-1; double age=0; };
-    mutable std::vector<GameEvent> events;
-    void emitEvent(const std::string& t, double x, double y, int pid=-1, int tid=-1) {
-        events.push_back({t, x, y, pid, tid, 0.0});
-    }
+    void emitEvent(const std::string&, double, double, int=-1, int=-1) {}
     void blockReboundFor(int playerId, double ms);
     void recordBallImpulse();
     void beginTrackedPass(Player& from, Player& to, bool isCross = false);

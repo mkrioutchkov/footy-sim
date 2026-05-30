@@ -1374,32 +1374,7 @@ std::string GameEngine::getJSON() const {
     j["marking"] = summary["marking"];
     j["qualityFlags"] = summary["qualityFlags"];
     j["ballSpeed"] = summary["ballSpeed"];
-
-    // Live events with player names for commentary
-    auto liveEvents = nlohmann::json::array();
-    for (auto& ev : events) {
-        std::string playerName = "";
-        for (auto& p : state.players) {
-            if (p.id == ev.playerId) { playerName = p.name; break; }
-        }
-        std::string targetName = "";
-        for (auto& p : state.players) {
-            if (p.id == ev.targetId) { targetName = p.name; break; }
-        }
-        liveEvents.push_back({
-            {"type", ev.type},
-            {"x", std::round(ev.x)},
-            {"y", std::round(ev.y)},
-            {"playerId", ev.playerId},
-            {"playerName", playerName},
-            {"targetId", ev.targetId},
-            {"targetName", targetName},
-            {"age", ev.age}
-        });
-    }
-    j["events"] = liveEvents;
-    events.clear();  // Events handled, clear for next frame
-
+    j["events"] = summary["events"];
     j["possessionPct"] = summary["possessionPct"];
 
     return j.dump();
