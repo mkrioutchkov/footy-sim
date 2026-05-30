@@ -147,14 +147,14 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     double receiverSpeed=std::hypot(t.vx,t.vy);
     double fd=f.team==Team::Home?1.0:-1.0;
     bool movingForward=t.vx*fd>5;
-    double leadFactor=movingForward&&receiverSpeed>20?0.80:0.45;
+    double leadFactor=movingForward&&receiverSpeed>20?0.90:0.55;
     double throughLead=throughBall?fd*(32+attrFactor(f.attrs.creativity)*62):0;
     double predX=t.x+t.vx*travelTime*leadFactor+throughLead;
     double predY=t.y+t.vy*travelTime*leadFactor;
     double dx=predX-f.x,dy=predY-f.y,adjDist=std::hypot(dx,dy);
     if(adjDist<1)return false;
     double passSkill=attrFactor(f.attrs.passing);
-    double inacc=(1-passSkill)*rawDist*0.12;
+    double inacc=(1-passSkill)*rawDist*0.08;
     double tdx=dx+(rng.random()-0.5)*inacc;
     double tdy=dy+(rng.random()-0.5)*inacc;
     double tDist=std::hypot(tdx,tdy);
@@ -1038,11 +1038,37 @@ void GameEngine::checkBallPlayerCollision(double){
     auto&b=state.ball;
     double bs=std::hypot(b.vx,b.vy);
     const double r=COLLECT_DIST;
+
+    // Intended receiver gets priority with larger collection radius
+    if(b.intendedReceiverId>=0&&bs<220){
+        Player* intended=playerById(b.intendedReceiverId);
+        if(intended&&intended->role!=Role::GK){
+            double d=dist(intended->x,intended->y,b.x,b.y);
+            if(d<=INTENDED_COLLECT_DIST&&b.z<=20){
+                if(canContestBall(*intended)){
+                    bool underPressure=false;
+                    for(auto& opponent:state.players){
+                        if(opponent.team!=intended->team&&opponent.role!=Role::GK
+                            &&dist(opponent.x,opponent.y,intended->x,intended->y)<38.0){underPressure=true;break;}
+                    }
+                    if(!underPressure){collectBall(*intended);return;}
+                    double trapChance=clamp(0.34+attrFactor(intended->attrs.positioning)*0.30
+                        +attrFactor(intended->attrs.passing)*0.14-clamp((bs-80.0)/300.0,0.0,0.25),0.18,0.82);
+                    if(rng.random()<trapChance){stats.recordPressuredReception(false);collectBall(*intended);return;}
+                    stats.recordPressuredReception(true);
+                    b.intendedReceiverId=-1;
+                    receiverShieldTargetId=-1;
+                    blockReboundFor(intended->id,150);
+                }
+            }
+        }
+    }
+
     for(auto&p:state.players){
         if(!canContestBall(p))continue;
         double d=dist(p.x,p.y,b.x,b.y);
         if(d>r)continue;
-        if(b.z>20&&p.id!=b.intendedReceiverId)continue;
+        if(b.z>20)continue;
         if(p.role==Role::GK){
             double ownGoalX=ownGoalXFor(p.team);
             bool inArea=std::abs(b.x-ownGoalX)<PENALTY_AREA_W&&std::abs(b.y-PITCH_H/2)<PENALTY_AREA_H/2;
@@ -1050,24 +1076,9 @@ void GameEngine::checkBallPlayerCollision(double){
             continue;
         }
         bool failedPressuredReception=false;
-        if(p.id==b.intendedReceiverId&&bs<220){
-            bool underPressure=false;
-            for(auto& opponent:state.players){
-                if(opponent.team!=p.team&&opponent.role!=Role::GK
-                    &&dist(opponent.x,opponent.y,p.x,p.y)<38.0){underPressure=true;break;}
-            }
-            if(!underPressure){collectBall(p);return;}
-            double trapChance=clamp(0.34+attrFactor(p.attrs.positioning)*0.30
-                +attrFactor(p.attrs.passing)*0.14-clamp((bs-80.0)/300.0,0.0,0.25),0.18,0.82);
-            if(rng.random()<trapChance){stats.recordPressuredReception(false);collectBall(p);return;}
-            stats.recordPressuredReception(true);
-            b.intendedReceiverId=-1;
-            receiverShieldTargetId=-1;
-            blockReboundFor(p.id,150);
-            failedPressuredReception=true;
-        }
+        // Intended receiver already handled above — skip them here
+        if(p.id==b.intendedReceiverId)continue;
         if(bs<130){
-            if(failedPressuredReception){b.vx*=0.72;b.vy*=0.72;continue;}
             collectBall(p);
             return;
         }
