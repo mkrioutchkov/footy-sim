@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite",
     "native:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-native.ps1",
-    "native:deploy": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-native.ps1",
-    "preserver": "npm run native:build && npm run native:deploy",
+    "preserver": "npm run native:build",
     "server": "tsx src/cpp-server.ts",
     "cpp-server": "tsx src/cpp-server.ts",
     "prebatch": "npm run native:build",

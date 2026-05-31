@@ -16,7 +16,7 @@ if (-not (Test-Path -LiteralPath $outDir)) {
 Push-Location $native
 try {
     $outDirFwd = $outDir -replace '\\','/'
-$compile = "call `"$vsDevCmd`" -arch=x64 >nul && cl /nologo /std:c++20 /EHsc /O2 main.cpp engine.cpp agent.cpp gk_ai.cpp role_ai.cpp stats.cpp /Fo`"$outDirFwd/`" /Fe`"$outDirFwd/benchmark.exe`""
+$compile = "call `"$vsDevCmd`" -arch=x64 >nul && cl /nologo /std:c++20 /EHsc /O2 main.cpp engine.cpp agent.cpp gk_ai.cpp role_ai.cpp stats.cpp /Fo`"$outDirFwd/`" /Fe`"$outDirFwd/live.exe`""
     cmd.exe /d /c $compile
     if ($LASTEXITCODE -ne 0) {
         throw "Native build failed with exit code $LASTEXITCODE"

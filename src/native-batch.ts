@@ -59,7 +59,7 @@ function round(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-const executable = path.resolve(process.cwd(), 'build', 'benchmark.exe');
+const executable = path.resolve(process.cwd(), 'build', 'live.exe');
 
 function runMatch(seed: number, minutes: number): Promise<Summary & { seed: number }> {
   return new Promise((resolve, reject) => {
