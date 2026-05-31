@@ -441,6 +441,15 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance > std::min(mr, hardMax))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
+    double toGoalX = gx - p.x;
+    double toGoalY = PITCH_H / 2.0 - p.y;
+    double toGoalDist = std::hypot(toGoalX, toGoalY);
+    if (toGoalDist < 1.0) toGoalDist = 1.0;
+    double facingDot = (std::cos(p.facing) * toGoalX + std::sin(p.facing) * toGoalY) / toGoalDist;
+    if (facingDot < 0.15) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
+    if (facingDot < 0.45 && shotDistance > 120.0)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
+
     double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.55;
     if (shotDistance < 120.0) sc = std::max(sc, 0.30);
     if (shotDistance < 90.0)  sc = std::max(sc, 0.45);
