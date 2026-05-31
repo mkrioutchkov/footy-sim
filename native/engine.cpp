@@ -1333,7 +1333,7 @@ void GameEngine::checkBallPlayerCollision(double){
         if(p.role==Role::GK){
             double ownGoalX=ownGoalXFor(p.team);
             bool inArea=std::abs(b.x-ownGoalX)<PENALTY_AREA_W&&std::abs(b.y-PITCH_H/2)<PENALTY_AREA_H/2;
-            if(bs<220&&inArea){collectBall(p);gkDistributeTimer=400;return;}
+            if(bs<220&&inArea&&d<INTENDED_COLLECT_DIST+22.0){collectBall(p);gkDistributeTimer=400;return;}
             continue;
         }
         bool failedPressuredReception=false;
