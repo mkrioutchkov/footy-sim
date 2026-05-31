@@ -771,7 +771,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         double linePush = (tactics.defensiveLineHeight - 50.0) * 0.9;
         double targetX = danger
             ? ownGoalX + fd * (defender.role == Role::CB ? 92.0 : 118.0)
-            : lerp(defender.homeX, carrier.x - fd * 120.0, 0.32) + fd * linePush;
+            : lerp(defender.homeX, carrier.x - fd * 108.0, 0.38) + fd * linePush;
         double targetY = defender.role == Role::FB
             ? lerp(defender.homeY, carrier.y, 0.20)
             : lerp(defender.homeY, PITCH_H / 2.0, 0.08);
