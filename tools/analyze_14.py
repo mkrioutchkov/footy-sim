@@ -7,7 +7,7 @@ PLAYER_STATE_SIZE = 4 + 8*8 + 4 + 2*8
 FRAME_SIZE = 8 + BALL_STATE_SIZE + 22*PLAYER_STATE_SIZE + 4 + 4 + 8 + 8
 HEADER_SIZE = 4+4+4+8+32; FOOTER_SIZE = 4+4
 
-with open('build/s101_new.bin','rb') as f: data = f.read()
+with open('build/s101_v6.bin','rb') as f: data = f.read()
 o = HEADER_SIZE; fc = 0; end = len(data) - FOOTER_SIZE
 
 while o + FRAME_SIZE <= end:

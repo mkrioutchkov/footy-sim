@@ -1569,7 +1569,7 @@ void PlayerAI::applyMovement(double sdt) {
         baseSpeed *= 0.80; // 20% slower when shielding
     }
 
-    double df = (committedChase || committedPress) ? 1.0 : std::min(d / 120.0, 1.5);
+    double df = (committedChase || committedPress || defendSprint) ? 1.0 : std::min(d / 120.0, 1.5);
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
 
     double px = p.x, py = p.y;

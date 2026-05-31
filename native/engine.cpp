@@ -806,7 +806,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     for (auto& defender : state.players) {
         if (defender.team != team || defender.role != Role::CB) continue;
         double cbDist = dist(defender.x, defender.y, carrier.x, carrier.y);
-        bool carrierInHalf = (fd == 1.0) ? carrier.x > HALF_X : carrier.x < HALF_X;
+        bool carrierInHalf = (fd == 1.0) ? carrier.x < HALF_X : carrier.x > HALF_X;
         if (!danger && carrierInHalf && cbDist < 200.0) {
             double goalCenterY = PITCH_H / 2.0;
             double cutX = lerp(carrier.x, ownGoalX + fd * 40.0, 0.55);
