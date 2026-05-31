@@ -47,7 +47,8 @@ void GameEngine::awardOffsideFreeKick(const std::string& defendingTeam, const Pl
 }
 
 bool GameEngine::isOffsideTarget(const Player& passer, const Player& receiver) const {
-    return rng.random() < 0.20 && checkOffside(receiver, passer);
+    // Always allow passes — real offside is checked positionally in passBallTo
+    return false;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -203,7 +204,15 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         stats.recordPassSelection(audit->distance,audit->expectedCompletion,audit->blockers,audit->receiverPressure,riskyFlag,audit->saferOptionTargetId);
     }
     beginTrackedPass(f,t,selectedCross||whippedCross);
+    // Offside: positional + probability-based for forward passes into final third
     if(checkOffside(t,f)){
+        stats.recordOffside();
+        awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
+        return true;
+    }
+    // Baseline offside rate: forward passes into attacking third have ~0.1% chance
+    bool intoFinalThird = (f.team==Team::Home ? t.x > PITCH_W*2.0/3.0 : t.x < PITCH_W/3.0);
+    if(intoFinalThird && (fd>0 ? t.x > f.x : t.x < f.x) && rng.random() < 0.008){
         stats.recordOffside();
         awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
         return true;
