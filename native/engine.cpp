@@ -1063,7 +1063,7 @@ void GameEngine::checkBallPlayerCollision(double){
                             &&dist(opponent.x,opponent.y,intended->x,intended->y)<38.0){underPressure=true;break;}
                     }
                     if(!underPressure){collectBall(*intended);return;}
-                    double trapChance=clamp(0.34+attrFactor(intended->attrs.positioning)*0.30
+                    double trapChance=clamp(0.45+attrFactor(intended->attrs.positioning)*0.30
                         +attrFactor(intended->attrs.passing)*0.14-clamp((bs-80.0)/300.0,0.0,0.25),0.18,0.82);
                     if(rng.random()<trapChance){stats.recordPressuredReception(false);collectBall(*intended);return;}
                     stats.recordPressuredReception(true);
