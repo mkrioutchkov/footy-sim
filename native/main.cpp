@@ -7,13 +7,13 @@ int main(int argc, char* argv[]) {
     int seed = 101;
     int minutes = 5;
     bool summaryOnly = false;
-    bool debugMode = false;
+    bool debugMode = true;
     std::string tracePath;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--summary") summaryOnly = true;
-        else if (arg == "--debug") debugMode = true;
+        else if (arg == "--no-debug") debugMode = false;
         else if (arg == "--trace" && i + 1 < argc) tracePath = argv[++i];
         else if (i == 1) seed = std::atoi(argv[i]);
         else if (i == 2) minutes = std::atoi(argv[i]);

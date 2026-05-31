@@ -63,7 +63,7 @@ const executable = path.resolve(process.cwd(), 'build', 'live.exe');
 
 function runMatch(seed: number, minutes: number): Promise<Summary & { seed: number }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, [String(seed), String(minutes), '--summary']);
+    const child = spawn(executable, [String(seed), String(minutes), '--summary', '--no-debug']);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', data => { stdout += data.toString(); });

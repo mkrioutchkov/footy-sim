@@ -19,7 +19,7 @@ function assert(condition: boolean, message: string): void {
 }
 
 function summary(seed: number, minutes: number): Summary {
-  const result = spawnSync(executable, [String(seed), String(minutes), '--summary'], {
+  const result = spawnSync(executable, [String(seed), String(minutes), '--summary', '--no-debug'], {
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
   });
