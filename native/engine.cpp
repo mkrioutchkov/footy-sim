@@ -836,10 +836,16 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         bool carrierInFinalThird = (fd == 1.0) ? carrier.x > PITCH_W * 2.0 / 3.0 : carrier.x < PITCH_W / 3.0;
         bool carrierInHalf = (fd == 1.0) ? carrier.x > HALF_X : carrier.x < HALF_X;
         if (defender.role == Role::CB && !danger && carrierInHalf && cbDist < 200.0) {
-            double closeX = lerp(carrier.x, ownGoalX + fd * 80.0, 0.35);
-            double closeY = lerp(carrier.y, defender.homeY, 0.25);
-            targetX = closeX;
-            targetY = closeY;
+            // Cut off the carrier's path toward goal: position between carrier and goal
+            double goalCenterY = PITCH_H / 2.0;
+            double cutX = lerp(carrier.x, ownGoalX + fd * 40.0, 0.55);
+            double cutY = lerp(carrier.y, goalCenterY, 0.35);
+            // Offset laterally to cut passing lanes (slightly ahead of carrier's Y)
+            double side = (defender.y < carrier.y) ? -1.0 : 1.0;
+            cutY += side * 30.0;
+            cutY = clamp(cutY, 40.0, PITCH_H - 40.0);
+            targetX = cutX;
+            targetY = cutY;
             role = "close_down";
         }
         setAssignment(defender, role, targetX, targetY);
