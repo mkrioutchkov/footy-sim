@@ -39,7 +39,7 @@ inline constexpr double MIN_BALL_SPEED = 3.0;
 // ── Interaction distances ──
 inline constexpr double TACKLE_RANGE   = 24.0;
 inline constexpr double OFFSIDE_TOLERANCE = 1.0;
-inline constexpr double COLLECT_DIST   = 20.0;
+inline constexpr double COLLECT_DIST   = 8.0;
 inline constexpr double INTENDED_COLLECT_DIST = 28.0;
 inline constexpr double CONTROL_DIST   = 12.0;
 inline constexpr double PLAYER_AWARE_RANGE = 120.0;
