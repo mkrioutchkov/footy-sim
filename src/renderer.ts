@@ -29,6 +29,8 @@ export class MatchRenderer {
   pitchContainer: Container;
   private playerLayer: Container;
   private trailPool: Graphics[] = [];
+  private shotTrailGfx: Graphics;
+  private shotTrailBuffer: { x: number; y: number }[] = [];
   private playerEntries: Map<number, PlayerEntry> = new Map();
   private ringGfx: Graphics;
   private ballBody: Graphics;
@@ -84,6 +86,10 @@ export class MatchRenderer {
       this.pitchContainer.addChild(t);
       this.trailPool.push(t);
     }
+
+    // shot trail
+    this.shotTrailGfx = new Graphics();
+    this.pitchContainer.addChild(this.shotTrailGfx);
   }
 
   async init(): Promise<void> {
@@ -197,6 +203,30 @@ export class MatchRenderer {
         t.fill({ color: 0xffdd44, alpha });
       } else {
         t.visible = false;
+      }
+    }
+
+    // ── shot trail ──
+    const SHOT_SPEED_THRESHOLD = 350;
+    const SHOT_TRAIL_LENGTH = 24;
+    if (b.controllerId === null && ballSpeed > SHOT_SPEED_THRESHOLD) {
+      this.shotTrailBuffer.push({ x: vb.x, y: vb.y });
+    } else if (ballSpeed < SHOT_SPEED_THRESHOLD * 0.5) {
+      this.shotTrailBuffer = [];
+    }
+    while (this.shotTrailBuffer.length > SHOT_TRAIL_LENGTH) this.shotTrailBuffer.shift();
+
+    this.shotTrailGfx.clear();
+    if (this.shotTrailBuffer.length >= 2) {
+      for (let i = 0; i < this.shotTrailBuffer.length - 1; i++) {
+        const a = this.shotTrailBuffer[i];
+        const b2 = this.shotTrailBuffer[i + 1];
+        const progress = (i + 1) / this.shotTrailBuffer.length;
+        const alpha = progress * 0.85;
+        const width = BALL_R * 0.4 + progress * BALL_R * 1.2;
+        this.shotTrailGfx.moveTo(a.x, a.y);
+        this.shotTrailGfx.lineTo(b2.x, b2.y);
+        this.shotTrailGfx.stroke({ width, color: 0xff4422, alpha });
       }
     }
 
