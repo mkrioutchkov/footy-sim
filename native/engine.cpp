@@ -103,6 +103,8 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross) {
     passLaunchSpeedTotal+=speed; passLaunchCount++;
     stats.recordPassLaunch(speed);
     recordBallImpulse();
+    double fd = from.team==Team::Home ? 1.0 : -1.0;
+    stats.recordPassDirection((to.x - from.x) * fd);
     pendingPass={true,from.id,to.id,from.team,isCross};
 }
 
@@ -818,7 +820,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
         nearestDefender = std::min(nearestDefender, distance);
         if (defender.role == Role::CB) nearestCb = std::min(nearestCb, distance);
     }
-    bool unmarked = nearestCb > 100.0;
+    bool unmarked = nearestCb > 80.0;
     stats.recordFinalThirdMarking(nearestCb, nearestDefender, unmarked);
 }
 
@@ -1291,12 +1293,13 @@ void GameEngine::tryGKSave() {
     }
     double fieldDir = gk->team == Team::Home ? 1.0 : -1.0;
     double side = gk->y - shotOriginY < 0 ? -1.0 : 1.0;
-    double parrySpeedX = 155 + speed * 0.10;
-    double parrySpeedY = 140 + rng.random() * 90;
+    double parryDampen = 0.40 + rng.random() * 0.55; // 40-95% velocity reduction
+    double parrySpeed = speed * (1.0 - parryDampen);
+    double parryAngle = -0.4 + rng.random() * 0.8; // slightly lateral
     b.x = clamp(gk->x + fieldDir * 28, 10.0, PITCH_W - 10.0);
     b.y = clamp(gk->y + side * 24, 18.0, PITCH_H - 18.0);
-    b.vx = fieldDir * parrySpeedX;
-    b.vy = side * parrySpeedY;
+    b.vx = fieldDir * std::cos(parryAngle) * parrySpeed;
+    b.vy = side * std::abs(std::sin(parryAngle)) * parrySpeed;
     b.z = b.vz = 0;
     b.intendedReceiverId = -1;
     blockReboundFor(shooterId, 1400);
@@ -1350,6 +1353,9 @@ std::string GameEngine::getJSON() const {
     j["passesIntercepted"] = summary["passesIntercepted"];
     j["passesIntendedReceived"] = summary["passesIntendedReceived"];
     j["wrongTeammateTouches"] = summary["wrongTeammate"];
+    j["forwardPasses"] = summary["forwardPasses"];
+    j["backwardPasses"] = summary["backwardPasses"];
+    j["sidewaysPasses"] = summary["sidewaysPasses"];
     j["passCompletionPct"] = summary["passCompletionPct"];
     j["offsides"] = summary["offsides"];
     j["homeShots"] = summary["homeShots"];
