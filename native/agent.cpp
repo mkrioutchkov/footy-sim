@@ -1544,13 +1544,24 @@ void PlayerAI::applyMovement(double sdt) {
 
     bool isObserving = !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5;
 
+    // Defenders sprint when carrier is in their half
+    bool defendSprint = false;
+    if ((p.role == Role::CB || p.role == Role::FB) && !isObserving) {
+        auto* task = engine.assignmentFor(p.id);
+        if (task && task->role == "close_down") defendSprint = true;
+        else if (engine.state.ball.controllerId >= 0) {
+            Player* carrier = engine.playerById(engine.state.ball.controllerId);
+            if (carrier && carrier->team != p.team && bd < 200.0) defendSprint = true;
+        }
+    }
+
     double cruiseMul = isObserving
         ? (p.role == Role::CF ? 0.45 : p.role == Role::CB || p.role == Role::FB ? 0.65 : p.role == Role::WM ? 0.55 : 0.50)
         : 1.0;
 
     double baseSpeed = (engine.isActiveKnockAheadRunner(p.id) || p.dribbleType == 3)
         ? DRIBBLE_FAST_SPEED
-        : (lastActionType == ActionType::Chase || committedPress ? SPEED_SPRINT : SPEED_RUN);
+        : (lastActionType == ActionType::Chase || committedPress || defendSprint ? SPEED_SPRINT : SPEED_RUN);
 
     // Shielding: slow down when near opponents with ball
     bool isController = (engine.state.ball.controllerId == p.id);

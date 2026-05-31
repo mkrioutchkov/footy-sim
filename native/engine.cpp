@@ -834,7 +834,8 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         std::string role = defender.role == Role::FB ? "wide_cover" : "defensive_line";
         double cbDist = dist(defender.x, defender.y, carrier.x, carrier.y);
         bool carrierInFinalThird = (fd == 1.0) ? carrier.x > PITCH_W * 2.0 / 3.0 : carrier.x < PITCH_W / 3.0;
-        if (defender.role == Role::CB && !danger && carrierInFinalThird && cbDist < 130.0) {
+        bool carrierInHalf = (fd == 1.0) ? carrier.x > HALF_X : carrier.x < HALF_X;
+        if (defender.role == Role::CB && !danger && carrierInHalf && cbDist < 200.0) {
             double closeX = lerp(carrier.x, ownGoalX + fd * 80.0, 0.35);
             double closeY = lerp(carrier.y, defender.homeY, 0.25);
             targetX = closeX;
