@@ -422,16 +422,16 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     bool outsideGoalLane = std::abs(p.y - PITCH_H / 2.0) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150.0;
 
-    if (shotDistance > 225.0 || acuteGeometry)
+    if (shotDistance > 260.0 || acuteGeometry)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
-    if (shotDistance > 200.0 && angleDeg < 9.0)
+    if (shotDistance > 240.0 && angleDeg < 7.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
     static const std::unordered_map<Role, double> roleMax = {
-        {Role::CF, 225.0}, {Role::CM, 205.0}, {Role::WM, 200.0}, {Role::FB, 165.0}, {Role::CB, 140.0}
+        {Role::CF, 265.0}, {Role::CM, 245.0}, {Role::WM, 240.0}, {Role::FB, 205.0}, {Role::CB, 180.0}
     };
-    double hardMax = 220.0;
+    double hardMax = 260.0;
     auto rit = roleMax.find(p.role);
     if (rit != roleMax.end()) hardMax = rit->second;
     if (shotDistance > hardMax)
