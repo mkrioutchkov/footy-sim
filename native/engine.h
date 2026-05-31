@@ -167,6 +167,7 @@ public:
     void tickAgents(double sdt, bool ic);
     void kickoffTap();
     void releaseSetPiece();
+    void releaseGoalkeeperDistribution(Player& holder);
 
     // ── Physics ──
     void applyBallPhysics(double s);

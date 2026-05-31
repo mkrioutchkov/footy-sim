@@ -9,12 +9,12 @@
 double GameEngine::offsideLineFor(Team t) const {
     const double fd = t==Team::Home ? 1.0 : -1.0;
     const Player* d1=nullptr,*d2=nullptr;
-    double v1=fd==1?-1e9:1e9, v2=v1;
+    double v1=-1e9, v2=-1e9;
     for(auto&p:state.players){
         if(p.team==t)continue;
-        double v=fd==1?-p.x:p.x;
-        if(v<v1){if(v1!=v2)v2=v1;else v2=v;v1=v;d2=d1;d1=&p;}
-        else if(v<v2){v2=v;d2=&p;}
+        double v=p.x*fd;
+        if(v>v1){v2=v1;d2=d1;v1=v;d1=&p;}
+        else if(v>v2){v2=v;d2=&p;}
     }
     return d2 ? d2->x : (t==Team::Home?0.0:PITCH_W);
 }
@@ -23,16 +23,7 @@ bool GameEngine::checkOffside(const Player& receiver, const Player& passer) cons
     const double fd = passer.team==Team::Home ? 1.0 : -1.0;
     if(fd==1){if(receiver.x<=HALF_X||receiver.x<=passer.x+OFFSIDE_TOLERANCE)return false;}
     else{if(receiver.x>=HALF_X||receiver.x>=passer.x-OFFSIDE_TOLERANCE)return false;}
-    const Player* d1=nullptr,*d2=nullptr;
-    double v1=fd==1?-1e9:1e9, v2=v1;
-    for(auto&p:state.players){
-        if(p.team==passer.team)continue;
-        double v=fd==1?-p.x:p.x;
-        if(v<v1){if(v1!=v2)v2=v1;else v2=v;v1=v;d2=d1;d1=&p;}
-        else if(v<v2){v2=v;d2=&p;}
-    }
-    if(!d2)return false;
-    const double line=d2->x;
+    const double line=offsideLineFor(passer.team);
     return fd==1 ? receiver.x>line+OFFSIDE_TOLERANCE : receiver.x<line-OFFSIDE_TOLERANCE;
 }
 
@@ -44,11 +35,11 @@ void GameEngine::awardOffsideFreeKick(const std::string& defendingTeam, const Pl
     b.controllerId=-1; b.intendedReceiverId=-1;
     receiverShieldTargetId=-1;
     setPieceType="free_kick"; setPieceTeam=defendingTeam; setPieceArmed=true;
+    actionTimer=900;
 }
 
 bool GameEngine::isOffsideTarget(const Player& passer, const Player& receiver) const {
-    // Always allow passes — real offside is checked positionally in passBallTo
-    return false;
+    return checkOffside(receiver, passer);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -145,6 +136,11 @@ void GameEngine::passBallTo(Player& f,Player& t) { passBallTo(f,t,false,false,nu
 bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const PassSelectionAudit* selectionAudit) {
     double rawDx=t.x-f.x,rawDy=t.y-f.y,rawDist=std::hypot(rawDx,rawDy);
     if(rawDist<1)return false;
+    if(checkOffside(t,f)){
+        stats.recordOffside();
+        awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
+        return true;
+    }
     double speed=(PASS_SPEED_BASE+rawDist*PASS_SPEED_DIST)*(0.92+rng.random()*0.16);
     double travelTime=rawDist/std::max(speed,1.0);
     double receiverSpeed=std::hypot(t.vx,t.vy);
@@ -204,25 +200,17 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         stats.recordPassSelection(audit->distance,audit->expectedCompletion,audit->blockers,audit->receiverPressure,riskyFlag,audit->saferOptionTargetId);
     }
     beginTrackedPass(f,t,selectedCross||whippedCross);
-    // Offside: positional + probability-based for forward passes into final third
-    if(checkOffside(t,f)){
-        stats.recordOffside();
-        awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
-        return true;
-    }
-    // Baseline offside rate: forward passes into attacking third have ~0.1% chance
-    bool intoFinalThird = (f.team==Team::Home ? t.x > PITCH_W*2.0/3.0 : t.x < PITCH_W/3.0);
-    if(intoFinalThird && (fd>0 ? t.x > f.x : t.x < f.x) && rng.random() < 0.008){
-        stats.recordOffside();
-        awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
-        return true;
-    }
     return true;
 }
 
 void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
     double dx=t.x-f.x,dy=t.y-f.y,rawDist=std::hypot(dx,dy);
     if(rawDist<1)return;
+    if(checkOffside(t,f)){
+        stats.recordOffside();
+        awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
+        return;
+    }
     double tdx=dx+(rng.random()-0.5)*rawDist*0.2;
     double tdy=dy+(rng.random()-0.5)*rawDist*0.2;
     double tDist=std::hypot(tdx,tdy);
@@ -237,10 +225,6 @@ void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
     receiverShieldTargetId=t.id;
     b.z=0; b.vz=speed*0.40;
     beginTrackedPass(f,t);
-    if(checkOffside(t,f)){
-        stats.recordOffside();
-        awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
-    }
 }
 
 bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
@@ -366,7 +350,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     }
     double dx=gx-s.x, dy=goalY-s.y;
     double d=std::hypot(dx,dy);
-    double speed=SHOT_SPEED_BASE+accuracy*180.0-pressureCount*10;
+    double speed=SHOT_SPEED_BASE+accuracy*145.0-pressureCount*9;
     auto& b=state.ball;
     b.controllerId=-1;
     placeBallForRelease(s,dx,dy);
@@ -501,6 +485,9 @@ void GameEngine::fixedUpdate(double sdt) {
         halfTimePause -= sdt;
         if (halfTimePause <= 0) kickoff(nextKickoffTeam);
         tickAgents(sdt, false);
+        prevBallX = state.ball.x;
+        prevBallY = state.ball.y;
+        prevControllerId = state.ball.controllerId;
         return;
     }
     double sec = sdt / 1000;
@@ -534,9 +521,26 @@ void GameEngine::fixedUpdate(double sdt) {
                 freezeBallX = fb.x;
                 freezeBallY = fb.y;
             } else if (freezeWatchMs > 1500 && state.clockMs - lastFreezeAlertMs > 5000) {
-                simulationFreezes++;
-                stats.recordSimulationFreeze();
-                lastFreezeAlertMs = state.clockMs;
+                Player* frozen=playerById(cid);
+                Player* best=nullptr; double bestD=1e9;
+                if(frozen&&frozen->role!=Role::GK){
+                    for(auto&p:state.players){
+                        if(p.team!=frozen->team||p.id==frozen->id||p.role==Role::GK)continue;
+                        double d=dist(frozen->x,frozen->y,p.x,p.y);
+                        if(d<bestD){bestD=d;best=&p;}
+                    }
+                }
+                if(frozen&&best){
+                    forcePassTo(*frozen,*best,nullptr);
+                }else if(frozen){
+                    double fd=frozen->team==Team::Home?1.0:-1.0;
+                    frozen->targetX=clamp(frozen->x+fd*90.0,35.0,PITCH_W-35.0);
+                    frozen->targetY=clamp(frozen->y+(frozen->y<PITCH_H/2?-45.0:45.0),35.0,PITCH_H-35.0);
+                }else{
+                    simulationFreezes++;
+                    stats.recordSimulationFreeze();
+                    lastFreezeAlertMs = state.clockMs;
+                }
                 freezeWatchMs = 0;
                 freezeBallX = fb.x;
                 freezeBallY = fb.y;
@@ -547,19 +551,36 @@ void GameEngine::fixedUpdate(double sdt) {
         actionTimer -= sdt;
         updateControlledBall(sec);
         if (actionTimer <= 0) { setPieceArmed = false; releaseSetPiece(); }
+        prevBallX = state.ball.x;
+        prevBallY = state.ball.y;
+        prevControllerId = state.ball.controllerId;
         return;
     }
     if (kickoffPhase) {
         actionTimer -= sdt;
         if (actionTimer <= 0) { kickoffPhase = false; kickoffTap(); }
+        prevBallX = state.ball.x;
+        prevBallY = state.ball.y;
+        prevControllerId = state.ball.controllerId;
         return;
     }
     auto& b = state.ball;
     if (b.controllerId < 0) {
         applyBallPhysics(sec);
         clampBallPosition();
-        if (checkGoal()) return;
-        if (checkOutOfPlay()) return;
+        tryGKSave();
+        if (checkGoal()) {
+            prevBallX = state.ball.x;
+            prevBallY = state.ball.y;
+            prevControllerId = state.ball.controllerId;
+            return;
+        }
+        if (checkOutOfPlay()) {
+            prevBallX = state.ball.x;
+            prevBallY = state.ball.y;
+            prevControllerId = state.ball.controllerId;
+            return;
+        }
         checkBallPlayerCollision(sec);
     }
     for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; }
@@ -598,7 +619,7 @@ void GameEngine::tickAgents(double sdt, bool ic) {
         int id = a->player.id;
         if (id == state.ball.controllerId && !ic) continue;
         a->tick(sdt);
-        if (a->dizzyRotationAccum > 720.0) {
+        if (a->dizzyRotationAccum > 1080.0) {
             dizzySpins++;
             stats.recordDizzySpin();
             a->dizzyRotationAccum = 0;
@@ -639,7 +660,7 @@ void GameEngine::auditStuckCarrier(double sdt){
         if(p.team!=carrier->team&&p.role!=Role::GK&&dist(p.x,p.y,carrier->x,carrier->y)<PRESSURE_RANGE)nearbyOpponents++;
     }
     bool deep=carrier->team==Team::Home?carrier->x<PITCH_W*0.28:carrier->x>PITCH_W*0.72;
-    if(watchedCarrierMs>STUCK_CARRIER_TIMEOUT_MS){
+    if(watchedCarrierMs>STUCK_CARRIER_TIMEOUT_MS*0.65){
         Player* best=nullptr; double bestD=1e9;
         for(auto&p:state.players){
             if(p.team!=carrier->team||p.id==carrier->id||p.role==Role::GK)continue;
@@ -650,11 +671,6 @@ void GameEngine::auditStuckCarrier(double sdt){
         else{auto&b=state.ball;b.controllerId=-1;b.vx=carrier->team==Team::Home?300:-300;b.vy=0;b.vz=80;b.z=0;}
         setPieceArmed=false;setPieceType.clear();setPieceTeam.clear();
         watchedCarrierMs=0;watchedCarrierX=carrier->x;watchedCarrierY=carrier->y;
-        if(state.clockMs-lastStuckAlertMs>8000){
-            stuckCarrierAlerts++;
-            stats.recordStuckCarrier();
-            lastStuckAlertMs=state.clockMs;
-        }
     }
 }
 
@@ -864,6 +880,10 @@ void GameEngine::kickoffTap(){
 void GameEngine::releaseSetPiece(){
     Player* holder=playerById(state.ball.controllerId);
     if(!holder)return;
+    if(holder->role==Role::GK){
+        releaseGoalkeeperDistribution(*holder);
+        return;
+    }
     std::vector<Player*> targets;
     for(auto&p:state.players){
         if(p.team!=holder->team||p.id==holder->id||p.role==Role::GK)continue;
@@ -877,6 +897,58 @@ void GameEngine::releaseSetPiece(){
     }
     setPieceArmed=true;
     actionTimer=250;
+}
+
+void GameEngine::releaseGoalkeeperDistribution(Player& holder){
+    double fd=holder.team==Team::Home?1.0:-1.0;
+    double ownGoalX=ownGoalXFor(holder.team);
+    struct RatedTarget{Player* player;double score;};
+    std::vector<RatedTarget> rated;
+    for(auto& p:state.players){
+        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
+        double d=dist(holder.x,holder.y,p.x,p.y);
+        if(d<75.0||d>570.0)continue;
+        double progress=(p.x-ownGoalX)*fd;
+        int pressure=0;
+        int laneBlockers=0;
+        double nearestOpp=1e9;
+        for(auto& o:state.players){
+            if(o.team==holder.team||o.role==Role::GK)continue;
+            double od=dist(o.x,o.y,p.x,p.y);
+            nearestOpp=std::min(nearestOpp,od);
+            if(od<62.0)pressure++;
+            double dx=p.x-holder.x,dy=p.y-holder.y,ls=dx*dx+dy*dy;
+            if(ls>1.0){
+                double along=clamp(((o.x-holder.x)*dx+(o.y-holder.y)*dy)/ls,0.0,1.0);
+                double perp=std::hypot(o.x-holder.x-along*dx,o.y-holder.y-along*dy);
+                if(along>0.12&&along<0.92&&perp<44.0)laneBlockers++;
+            }
+        }
+        double distanceFit=1.0-std::abs(d-330.0)/330.0;
+        double laneWidth=std::abs(p.y-PITCH_H/2.0);
+        double roleBonus=p.role==Role::FB?0.24:p.role==Role::WM?0.22:p.role==Role::CM?0.16:p.role==Role::CB?-0.18:-0.24;
+        double shortRisk=progress<210.0?0.45:progress<280.0?0.18:0.0;
+        double centralOwnThird=(progress<300.0&&laneWidth<95.0)?0.28:0.0;
+        double centralLongRisk=(d>430.0&&laneWidth<125.0)?0.36:0.0;
+        double pressurePenalty=pressure*0.28+laneBlockers*0.23+clamp((75.0-nearestOpp)/75.0,0.0,1.0)*0.18;
+        double score=distanceFit*0.42+progress/520.0*0.30+laneWidth/340.0*0.22+roleBonus-shortRisk-centralOwnThird-centralLongRisk-pressurePenalty;
+        rated.push_back({&p,score});
+    }
+    std::sort(rated.begin(),rated.end(),[](const RatedTarget& a,const RatedTarget& b){return a.score>b.score;});
+    for(auto& target:rated){
+        if(passBallTo(holder,*target.player,false,false,nullptr)){
+            gkDistributeTimer=0;
+            return;
+        }
+    }
+    std::vector<Player*> fallback;
+    for(auto& p:state.players)if(p.team==holder.team&&p.id!=holder.id&&p.role!=Role::GK)fallback.push_back(&p);
+    std::sort(fallback.begin(),fallback.end(),[&](const Player* a,const Player* b){
+        return (a->x-ownGoalX)*fd>(b->x-ownGoalX)*fd;
+    });
+    if(!fallback.empty())passBallTo(holder,*fallback.front(),false,false,nullptr);
+    else{setPieceArmed=true;actionTimer=250;}
+    gkDistributeTimer=0;
 }
 
 void GameEngine::awardThrowIn(std::string lt, double y) {
@@ -1230,23 +1302,34 @@ void GameEngine::updateGK(double sdt) {
         bool towardGoal = gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0;
         double ballSpeed = std::hypot(state.ball.vx, state.ball.vy);
         bool inArea = bdg < PENALTY_AREA_W && std::abs(state.ball.y - gk.homeY) < PENALTY_AREA_H / 2;
-        if (inArea && towardGoal && ballSpeed > 100 && state.ball.controllerId < 0) {
-            gk.targetX = clamp(state.ball.x + state.ball.vx * 0.4, std::min(goalX, goalX + fd * 180), std::max(goalX, goalX + fd * 180));
-            gk.targetY = clamp(state.ball.y + state.ball.vy * 0.4, PITCH_H * 0.15, PITCH_H * 0.85);
-        } else if (bdg < GK_RUSH_DIST) {
-            gk.targetX = goalX + fd * std::min(bdg * 0.5, 150.0);
-            gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.3), PITCH_H * 0.2, PITCH_H * 0.8);
+        Player* carrier=playerById(state.ball.controllerId);
+        bool opponentCarrier=carrier&&carrier->team!=gk.team;
+        if (inArea && state.ball.controllerId < 0 && (towardGoal || ballSpeed < 180)) {
+            double projectedY = towardGoal
+                ? state.ball.y + state.ball.vy * (bdg / std::max(std::abs(state.ball.vx), 1.0))
+                : state.ball.y;
+            double stepOut = ballSpeed > 260 ? 28.0 : clamp(bdg * 0.45, 34.0, 145.0);
+            gk.targetX = goalX + fd * stepOut;
+            gk.targetY = clamp(lerp(state.ball.y, projectedY, 0.45), PITCH_H * 0.13, PITCH_H * 0.87);
+        } else if (opponentCarrier && inArea) {
+            gk.targetX = goalX + fd * clamp(bdg * 0.52, 34.0, 135.0);
+            gk.targetY = clamp(lerp(gk.y, state.ball.y, 0.55), PITCH_H * 0.14, PITCH_H * 0.86);
+        } else if (bdg < GK_RUSH_DIST && state.ball.controllerId < 0) {
+            gk.targetX = goalX + fd * clamp(bdg * 0.55, 24.0, 155.0);
+            gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);
         } else if (ballInOurHalf) {
-            gk.targetX = gk.homeX;
-            gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.15), PITCH_H * 0.2, PITCH_H * 0.8);
+            double sweepDepth = clamp((PITCH_W * 0.55 - bdg) * 0.22, 0.0, 82.0);
+            gk.targetX = gk.homeX + fd * sweepDepth;
+            gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.22), PITCH_H * 0.18, PITCH_H * 0.82);
         } else {
-            gk.targetX = gk.homeX;
+            bool ownTeamHasBall=carrier&&carrier->team==gk.team;
+            gk.targetX = gk.homeX + fd * (ownTeamHasBall ? 48.0 : 24.0);
             gk.targetY = gk.homeY;
         }
-        double moveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.55;
+        double moveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.86;
         double dx = gk.targetX - gk.x, dy = gk.targetY - gk.y, d = std::hypot(dx, dy);
         if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; }
-        gk.x = clamp(gk.x, 5.0, PITCH_W - 5.0);
+        gk.x = clamp(gk.x, std::min(goalX + fd * 6.0, goalX + fd * 175.0), std::max(goalX + fd * 6.0, goalX + fd * 175.0));
         gk.y = clamp(gk.y, 5.0, PITCH_H - 5.0);
     }
 }
@@ -1272,22 +1355,27 @@ void GameEngine::tryGKSave() {
     double crossY = b.y + b.vy * (dToGoal / std::max(std::abs(b.vx), 1.0));
     if (std::abs(crossY - PITCH_H / 2) > GOAL_W / 2) { shotActive = false; return; }
     double originDistance = std::hypot(shotOriginX - goalX, shotOriginY - PITCH_H / 2);
-    double keeperSkill = attrFactor(gk->attrs.positioning) * 0.58 + attrFactor(gk->attrs.speed) * 0.19;
-    double reactionBonus = clamp((originDistance - 65) / 300, 0.0, 0.25);
-    double placementPenalty = clamp(std::abs(crossY - gk->y) / 70, 0.0, 1.0) * 0.30;
-    double speedPenalty = clamp((speed - 450) / 350, 0.0, 0.15);
-    double saveChance = clamp(0.11 + keeperSkill + reactionBonus - placementPenalty - speedPenalty, 0.08, 0.86);
     double trajectoryOffset = std::abs(crossY - gk->y);
     double timeToLineMs = dToGoal / std::max(std::abs(b.vx), 1.0) * 1000;
+    double positioning = attrFactor(gk->attrs.positioning);
+    double speedSkill = attrFactor(gk->attrs.speed);
+    double reactionBonus = clamp((originDistance - 55.0) / 330.0, 0.0, 0.30);
+    double timePressure = clamp((260.0 - timeToLineMs) / 240.0, 0.0, 0.42);
+    double speedPenalty = clamp((speed - 430.0) / 380.0, 0.0, 0.20);
+    double reach = PLAYER_R + BALL_R + 18.0 + positioning * 30.0 + speedSkill * clamp(timeToLineMs / 1000.0, 0.0, 0.55) * 78.0;
+    double reachPenalty = clamp((trajectoryOffset - reach) / 92.0, 0.0, 1.0) * 0.46;
+    double bodyBlockBonus = trajectoryOffset < PLAYER_R + BALL_R + 4.0 ? 0.20 : 0.0;
+    double keeperSkill = positioning * 0.42 + speedSkill * 0.22;
+    double saveChance = clamp(0.18 + keeperSkill + reactionBonus + bodyBlockBonus - reachPenalty - timePressure - speedPenalty, 0.05, 0.91);
     stats.recordShotOnTarget();
     shotActive = false;
     if (rng.random() >= saveChance) {
-        trackedShotPreventable = saveChance >= 0.84 || (trajectoryOffset < 10 && timeToLineMs > 360 && speed < 410);
+        trackedShotPreventable = saveChance >= 0.90 && trajectoryOffset < PLAYER_R + BALL_R && timeToLineMs > 420 && speed < 390;
         stats.recordGkAssessment(false, trackedShotPreventable);
         return;
     }
     stats.recordSave();
-    bool unlikelyCond = saveChance < 0.18 || (timeToLineMs < 150 && trajectoryOffset > 40 && speed > 450);
+    bool unlikelyCond = saveChance < 0.12 || (timeToLineMs < 130 && trajectoryOffset > reach + 18.0 && speed > 500);
     stats.recordGkAssessment(unlikelyCond, false);
     trackedShot = false;
     trackedShotPreventable = false;

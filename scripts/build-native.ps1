@@ -13,6 +13,21 @@ if (-not (Test-Path -LiteralPath $outDir)) {
     New-Item -ItemType Directory -Path $outDir | Out-Null
 }
 
+$exe = Join-Path $outDir 'live.exe'
+$sourceFiles = @(
+    Get-ChildItem -LiteralPath $native -File | Where-Object { $_.Extension -in '.cpp', '.h' }
+    Get-Item -LiteralPath $PSCommandPath
+)
+
+if ((Test-Path -LiteralPath $exe) -and $sourceFiles.Count -gt 0) {
+    $newestSource = ($sourceFiles | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
+    $exeTime = (Get-Item -LiteralPath $exe).LastWriteTimeUtc
+    if ($exeTime -ge $newestSource) {
+        Write-Host "Native build up to date: $exe"
+        exit 0
+    }
+}
+
 Push-Location $native
 try {
     $outDirFwd = $outDir -replace '\\','/'

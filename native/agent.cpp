@@ -1284,33 +1284,35 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
             }
         }
 
-        // Knock-ahead: only in opponent's half, clear path, space to run into
-        bool pastCenter = (fd > 0 && p.x > HALF_X) || (fd < 0 && p.x < HALF_X);
+        // Knock-ahead: clear lanes with enough grass to run into.
+        bool advancedEnough = (fd > 0 && p.x > HALF_X - 70.0) || (fd < 0 && p.x < HALF_X + 70.0);
         bool clearPath = oppsInPath == 0;
-        bool spaceAhead = nearestOppDist > 100.0;
-        bool longDistToTarget = distToTarget > 150.0;
+        bool spaceAhead = nearestOppDist > 88.0;
+        bool openGrass = nearestOppDist > 145.0;
+        bool longDistToTarget = distToTarget > 120.0;
 
-        // Check if a teammate can collect (within ~150px of launch point)
+        // Check if a teammate can collect (within ~175px of launch point)
         bool teammateSupport = false;
         double launchX = p.x + fd * DRIBBLE_KNOCK_OFFSET;
         double launchY = p.y;
         for (auto& o : engine.state.players) {
             if (o.team == p.team && o.id != p.id && o.role != Role::GK) {
                 double d = dist(launchX, launchY, o.x, o.y);
-                if (d < 150.0) { teammateSupport = true; break; }
+                if (d < 175.0) { teammateSupport = true; break; }
             }
         }
 
         // Flank bonus: knock-aheads on the flank are safer (less central traffic)
         bool onFlank = std::abs(p.y - PITCH_H / 2.0) > 120.0;
 
-        // Open burst: space + clear path + past center + (teammate nearby OR on flank)
-        bool openBurst = longDistToTarget && spaceAhead && clearPath && pastCenter
-                        && (teammateSupport || onFlank);
+        // Open burst: clear path with support, flank safety, or very obvious space.
+        bool openBurst = longDistToTarget && spaceAhead && clearPath && advancedEnough
+                        && (teammateSupport || onFlank || openGrass);
 
-        // Speculative burst: creative player with some space, past center
-        bool speculativeBurst = distToTarget > 200.0 && nearestOppDist > 80.0 && clearPath
-                               && pastCenter && p.attrs.creativity >= 84.0 && teammateSupport;
+        // Speculative burst: creative player with some space, advanced enough.
+        bool speculativeBurst = distToTarget > 190.0 && nearestOppDist > 95.0 && clearPath
+                               && advancedEnough && p.attrs.creativity >= 78.0
+                               && (teammateSupport || onFlank);
 
         bool mayBurst = engine.canKnockBallAhead(p.id) && (openBurst || speculativeBurst);
         int dribbleType = mayBurst ? 3 : (nearbyOpps >= 2 ? 1 : 2);
@@ -1530,7 +1532,7 @@ void PlayerAI::applyMovement(double sdt) {
         ? (p.role == Role::CF ? 0.45 : p.role == Role::CB || p.role == Role::FB ? 0.65 : p.role == Role::WM ? 0.55 : 0.50)
         : 1.0;
 
-    double baseSpeed = engine.isActiveKnockAheadRunner(p.id)
+    double baseSpeed = (engine.isActiveKnockAheadRunner(p.id) || p.dribbleType == 3)
         ? DRIBBLE_FAST_SPEED
         : (lastActionType == ActionType::Chase || committedPress ? SPEED_SPRINT : SPEED_RUN);
 
@@ -1607,6 +1609,7 @@ void PlayerAI::applyMovement(double sdt) {
         dizzyWindowStartMs = engine.state.clockMs;
         dizzyRotationAccum = facingDelta * 180.0 / 3.141592653589793;
     }
+    facing = std::atan2(std::sin(facing), std::cos(facing));
     p.facing = facing;
 }
 

@@ -14,6 +14,11 @@ public:
     void recordPassIntercepted()      { passesIntercepted++; }
     void recordPassIntendedReceived() { passesIntended++; }
     void recordPassWrongTeammate()    { wrongTeammate++; }
+    void recordPassDirection(double forwardProgress) {
+        if(forwardProgress > 30.0) forwardPasses++;
+        else if(forwardProgress < -30.0) backwardPasses++;
+        else sidewaysPasses++;
+    }
     void recordOffside()              { offsidesTotal++; }
     void recordPassSelection(double dist, double expectedCompletion, int blockers, double pressure, bool risky, int saferId) {
         passAudits++; passDistTotal+=dist; passExpectedTotal+=expectedCompletion;
@@ -98,6 +103,7 @@ public:
 
 private:
     int passesAttempted=0, passesCompleted=0, passesIntercepted=0, passesIntended=0, wrongTeammate=0;
+    int forwardPasses=0, backwardPasses=0, sidewaysPasses=0;
     int offsidesTotal=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;
     int goalsHome=0, goalsAway=0;

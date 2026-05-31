@@ -10,14 +10,26 @@ import {
 } from './constants';
 import type { EngineState } from './types';
 
-const TRAIL_LENGTH = 12;
+const TRAIL_LENGTH = 16;
+
+type PlayerEntry = {
+  body: Graphics;
+  arrow: Graphics;
+  label: Text;
+  drawn: boolean;
+  wasSliding: boolean;
+  hadBall: boolean;
+  slideAngle: number;
+  lastDribbleType: number;
+  wasSprinting: boolean;
+};
 
 export class MatchRenderer {
   app: Application;
   pitchContainer: Container;
   private playerLayer: Container;
   private trailPool: Graphics[] = [];
-  private playerEntries: Map<number, { body: Graphics; arrow: Graphics; label: Text; drawn: boolean; wasSliding: boolean; hadBall: boolean; slideAngle: number }> = new Map();
+  private playerEntries: Map<number, PlayerEntry> = new Map();
   private ringGfx: Graphics;
   private ballBody: Graphics;
   private ballGlow: Graphics;
@@ -164,7 +176,7 @@ export class MatchRenderer {
     const vb = this.smoothBall(b.x, b.y, b.z ?? 0);
 
     // ── trail ──
-    if (b.controllerId === null && ballSpeed > 30) {
+    if (b.controllerId === null && ballSpeed > 20) {
       this.trailBuffer.push({ x: vb.x, y: vb.y });
     } else {
       this.trailBuffer = [];
@@ -179,8 +191,8 @@ export class MatchRenderer {
         t.visible = true;
         t.position.set(pt.x, pt.y);
         t.clear();
-        const alpha = (i / TRAIL_LENGTH) * 0.35;
-        const r = BALL_R * (0.3 + (1 - i / TRAIL_LENGTH) * 0.5);
+        const alpha = (i / TRAIL_LENGTH) * 0.48;
+        const r = BALL_R * (0.4 + (1 - i / TRAIL_LENGTH) * 0.75);
         t.circle(0, 0, r);
         t.fill({ color: 0xffdd44, alpha });
       } else {
@@ -202,7 +214,17 @@ export class MatchRenderer {
         this.playerLayer.addChild(body);
         this.playerLayer.addChild(arrow);
         this.playerLayer.addChild(label);
-        entry = { body, arrow, label, drawn: false, wasSliding: false, hadBall: false, slideAngle: p.team === 'home' ? 0 : Math.PI };
+        entry = {
+          body,
+          arrow,
+          label,
+          drawn: false,
+          wasSliding: false,
+          hadBall: false,
+          slideAngle: p.team === 'home' ? 0 : Math.PI,
+          lastDribbleType: p.dribbleType,
+          wasSprinting: false,
+        };
         this.playerEntries.set(p.id, entry);
       }
 
@@ -211,12 +233,18 @@ export class MatchRenderer {
       const r = PLAYER_R;
       const vp = this.smoothPlayer(p.id, p.x, p.y);
       const sliding = (p.tackleAnim ?? 0) > 0;
+      const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+      const knockDribble = p.dribbleType === 3;
+      const sprinting = knockDribble || speed > 39;
       if (sliding && !entry.wasSliding) {
         entry.slideAngle = Math.hypot(p.vx, p.vy) > 1 ? Math.atan2(p.vy, p.vx) : (p.team === 'home' ? 0 : Math.PI);
       }
-      const needsRedraw = !entry.drawn || sliding || entry.wasSliding || hasBall !== entry.hadBall;
+      const needsRedraw = !entry.drawn || sliding || entry.wasSliding || hasBall !== entry.hadBall
+        || p.dribbleType !== entry.lastDribbleType || sprinting !== entry.wasSprinting;
       entry.wasSliding = sliding;
       entry.hadBall = hasBall;
+      entry.lastDribbleType = p.dribbleType;
+      entry.wasSprinting = sprinting;
 
       entry.body.position.set(vp.x, vp.y);
       entry.body.alpha = hasBall ? 1 : 0.82; // consistent alpha: carriers pop, others uniform
@@ -240,7 +268,22 @@ export class MatchRenderer {
           entry.body.circle(0, 0, r);
           entry.body.fill({ color });
           entry.body.circle(0, 0, r);
-          entry.body.stroke({ width: hasBall ? 2.5 : 1.5, color: 0x000000 });
+          entry.body.stroke({ width: knockDribble ? 3 : hasBall ? 2.5 : 1.5, color: knockDribble ? 0xfff1a8 : 0x000000 });
+          if (sprinting) {
+            const runAngle = speed > 1 ? Math.atan2(p.vy, p.vx) : (p.team === 'home' ? 0 : Math.PI);
+            const backX = -Math.cos(runAngle);
+            const backY = -Math.sin(runAngle);
+            const sideX = -backY;
+            const sideY = backX;
+            for (let i = 0; i < 3; i++) {
+              const offset = (i - 1) * r * 0.55;
+              const startX = backX * (r * 0.95 + i * 2.6) + sideX * offset;
+              const startY = backY * (r * 0.95 + i * 2.6) + sideY * offset;
+              entry.body.moveTo(startX, startY);
+              entry.body.lineTo(startX + backX * (knockDribble ? 11 : 7), startY + backY * (knockDribble ? 11 : 7));
+            }
+            entry.body.stroke({ width: knockDribble ? 2 : 1.5, color: knockDribble ? 0xfff1a8 : 0xffffff, alpha: knockDribble ? 0.78 : 0.45 });
+          }
         }
         if (!sliding) entry.drawn = true;
       }
@@ -248,7 +291,6 @@ export class MatchRenderer {
       // arrow — redraw at relative coords
       entry.arrow.position.set(vp.x, vp.y);
       entry.arrow.clear();
-      const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
       // smooth facing: update angle when moving fast enough, otherwise scan toward ball
       const MIN_SPEED = 8;
       let angle = this.facingAngles.get(p.id);
@@ -311,6 +353,13 @@ export class MatchRenderer {
         entry.arrow.circle(forwardX * r * 1.65, forwardY * r * 1.65, r * 0.82);
         entry.arrow.stroke({ width: 2, color: 0xfff1a8, alpha: 0.75 });
       }
+      if (knockDribble) {
+        entry.arrow.moveTo(forwardX * r * 1.18 + feetSideX * r * 0.56, forwardY * r * 1.18 + feetSideY * r * 0.56);
+        entry.arrow.lineTo(forwardX * r * 2.0 + feetSideX * r * 0.56, forwardY * r * 2.0 + feetSideY * r * 0.56);
+        entry.arrow.moveTo(forwardX * r * 1.18 - feetSideX * r * 0.56, forwardY * r * 1.18 - feetSideY * r * 0.56);
+        entry.arrow.lineTo(forwardX * r * 2.0 - feetSideX * r * 0.56, forwardY * r * 2.0 - feetSideY * r * 0.56);
+        entry.arrow.stroke({ width: 2, color: 0xfff1a8, alpha: 0.8 });
+      }
 
       entry.label.position.set(vp.x, vp.y + r + 3);
     }
@@ -323,8 +372,8 @@ export class MatchRenderer {
         const vc = this.visualPlayers.get(ctrl.id) ?? { x: ctrl.x, y: ctrl.y };
         const pulse = 0.25 + 0.35 * Math.sin(this.animTime * 0.08);
         const rc = ctrl.team === 'home' ? HOME_COLOR : AWAY_COLOR;
-        this.ringGfx.circle(vc.x, vc.y, PLAYER_R + 7);
-        this.ringGfx.stroke({ width: 3, color: rc, alpha: pulse });
+        this.ringGfx.circle(vc.x, vc.y, PLAYER_R + (ctrl.dribbleType === 3 ? 10 : 7));
+        this.ringGfx.stroke({ width: ctrl.dribbleType === 3 ? 4 : 3, color: rc, alpha: ctrl.dribbleType === 3 ? Math.min(0.85, pulse + 0.25) : pulse });
       }
     }
 

@@ -41,6 +41,9 @@ std::string StatsCollector::summaryJSON() const {
     j["passesIntercepted"] = passesIntercepted;
     j["passesIntendedReceived"] = passesIntended;
     j["wrongTeammate"] = wrongTeammate;
+    j["forwardPasses"] = forwardPasses;
+    j["backwardPasses"] = backwardPasses;
+    j["sidewaysPasses"] = sidewaysPasses;
     j["passCompletionPct"] = std::round(completionPct * 10) / 10;
     j["offsides"] = offsidesTotal;
     j["homeShots"] = shotsHome;
