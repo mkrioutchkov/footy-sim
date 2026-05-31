@@ -802,6 +802,22 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     }
     std::sort(threats.begin(), threats.end(), [](const Threat& a, const Threat& b) { return a.depth < b.depth; });
     if (threats.size() > (danger ? 2u : 1u)) threats.resize(danger ? 2u : 1u);
+    // Close-down: CBs intercept ball carrier in their half (before threat loop so it takes priority)
+    for (auto& defender : state.players) {
+        if (defender.team != team || defender.role != Role::CB) continue;
+        double cbDist = dist(defender.x, defender.y, carrier.x, carrier.y);
+        bool carrierInHalf = (fd == 1.0) ? carrier.x > HALF_X : carrier.x < HALF_X;
+        if (!danger && carrierInHalf && cbDist < 200.0) {
+            double goalCenterY = PITCH_H / 2.0;
+            double cutX = lerp(carrier.x, ownGoalX + fd * 40.0, 0.55);
+            double cutY = lerp(carrier.y, goalCenterY, 0.35);
+            double side = (defender.y < carrier.y) ? -1.0 : 1.0;
+            cutY = clamp(cutY + side * 30.0, 40.0, PITCH_H - 40.0);
+            setAssignment(defender, "close_down", cutX, cutY);
+            assigned.insert(defender.id);
+        }
+    }
+
     for (const auto& threat : threats) {
         Player* marker = nullptr;
         double best = 1e9;
@@ -832,22 +848,6 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             ? lerp(defender.homeY, carrier.y, 0.20)
             : lerp(defender.homeY, PITCH_H / 2.0, 0.08);
         std::string role = defender.role == Role::FB ? "wide_cover" : "defensive_line";
-        double cbDist = dist(defender.x, defender.y, carrier.x, carrier.y);
-        bool carrierInFinalThird = (fd == 1.0) ? carrier.x > PITCH_W * 2.0 / 3.0 : carrier.x < PITCH_W / 3.0;
-        bool carrierInHalf = (fd == 1.0) ? carrier.x > HALF_X : carrier.x < HALF_X;
-        if (defender.role == Role::CB && !danger && carrierInHalf && cbDist < 200.0) {
-            // Cut off the carrier's path toward goal: position between carrier and goal
-            double goalCenterY = PITCH_H / 2.0;
-            double cutX = lerp(carrier.x, ownGoalX + fd * 40.0, 0.55);
-            double cutY = lerp(carrier.y, goalCenterY, 0.35);
-            // Offset laterally to cut passing lanes (slightly ahead of carrier's Y)
-            double side = (defender.y < carrier.y) ? -1.0 : 1.0;
-            cutY += side * 30.0;
-            cutY = clamp(cutY, 40.0, PITCH_H - 40.0);
-            targetX = cutX;
-            targetY = cutY;
-            role = "close_down";
-        }
         setAssignment(defender, role, targetX, targetY);
     }
 }
