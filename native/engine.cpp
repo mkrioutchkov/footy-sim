@@ -86,6 +86,9 @@ void GameEngine::recordBallImpulse() {
     double spd=std::hypot(state.ball.vx,state.ball.vy);
     peakBallSpeed=std::max(peakBallSpeed,spd);
     stats.recordBallSpeedSample(spd);
+    prevBallX=state.ball.x;
+    prevBallY=state.ball.y;
+    prevControllerId=state.ball.controllerId;
 }
 
 void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross) {
@@ -136,7 +139,7 @@ void GameEngine::passBallTo(Player& f,Player& t) { passBallTo(f,t,false,false,nu
 bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const PassSelectionAudit* selectionAudit) {
     double rawDx=t.x-f.x,rawDy=t.y-f.y,rawDist=std::hypot(rawDx,rawDy);
     if(rawDist<1)return false;
-    if(checkOffside(t,f)){
+    if(setPieceType!="corner"&&checkOffside(t,f)){
         stats.recordOffside();
         awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
         return true;
@@ -206,7 +209,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
 void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
     double dx=t.x-f.x,dy=t.y-f.y,rawDist=std::hypot(dx,dy);
     if(rawDist<1)return;
-    if(checkOffside(t,f)){
+    if(setPieceType!="corner"&&checkOffside(t,f)){
         stats.recordOffside();
         awardOffsideFreeKick(std::string(to_string(f.team==Team::Home?Team::Away:Team::Home)),t);
         return;
@@ -214,6 +217,16 @@ void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
     double tdx=dx+(rng.random()-0.5)*rawDist*0.2;
     double tdy=dy+(rng.random()-0.5)*rawDist*0.2;
     double tDist=std::hypot(tdx,tdy);
+    double ownGoalX=ownGoalXFor(f.team);
+    bool towardOwnGoal=f.team==Team::Home?tdx<0:tdx>0;
+    if(towardOwnGoal){
+        double travel=(ownGoalX-f.x)/tdx;
+        double crossingY=f.y+tdy*travel;
+        if(travel>0&&std::abs(crossingY-PITCH_H/2)<GOAL_W/2+BALL_R+14.0){
+            tdy += (crossingY<PITCH_H/2 ? -1.0 : 1.0) * (GOAL_W/2+BALL_R+24.0);
+            tDist=std::hypot(tdx,tdy);
+        }
+    }
     double speed=PASS_SPEED_BASE+35+rawDist*(PASS_SPEED_DIST+0.05);
     auto&b=state.ball;
     b.controllerId=-1;
@@ -319,6 +332,10 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
 }
 
 void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
+    if(goalKickMonitorActive&&s.team!=goalKickMonitorTeam){
+        stats.recordGoalKickTrappedShot();
+        goalKickMonitorActive=false;
+    }
     stats.recordShot(std::string(to_string(s.team)),false);
     double gx=goalXFor(s.team);
     double accuracy=attrFactor(s.attrs.shooting);
@@ -593,6 +610,9 @@ void GameEngine::fixedUpdate(double sdt) {
     updateControlledBall(sec);
     moveBallCarrier(sdt);
     updateGK(sdt);
+    separateTeammates(sdt);
+    updateControlledBall(sec);
+    updateGoalKickMonitor();
     tryGKSave();
     if(state.ball.controllerId<0){
         double speed=std::hypot(state.ball.vx,state.ball.vy);
@@ -604,7 +624,8 @@ void GameEngine::fixedUpdate(double sdt) {
     double jumpDx = state.ball.x - prevBallX;
     double jumpDy = state.ball.y - prevBallY;
     double jumpDist = std::hypot(jumpDx, jumpDy);
-    double expectedMax = std::hypot(state.ball.vx, state.ball.vy) * sec + 20.0;
+    double expectedMax = std::hypot(state.ball.vx, state.ball.vy) * sec + 20.0
+        + (activeKnockAhead.active ? DRIBBLE_KNOCK_OFFSET : 0.0);
     if (jumpDist > expectedMax && jumpDist > 50.0 && !setPieceArmed && !kickoffPhase
         && prevControllerId < 0 && state.ball.controllerId < 0) {
         stats.recordBallJump();
@@ -710,7 +731,9 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         if (p.team != team || p.role == Role::GK) continue;
         double distance = dist(p.x, p.y, carrier.x, carrier.y);
         double speed = std::max(18.0, attrFactor(p.attrs.speed) * SPEED_SPRINT);
-        double roleCost = p.role == Role::CB ? (danger ? 8.0 : 70.0) : p.role == Role::CF ? 28.0 : p.role == Role::CM ? 0.0 : p.role == Role::WM ? 6.0 : 14.0;
+        double roleCost = p.role == Role::CB ? (danger ? 8.0 : 120.0)
+            : p.role == Role::FB ? (danger ? 14.0 : 58.0)
+            : p.role == Role::CF ? 28.0 : p.role == Role::CM ? 0.0 : p.role == Role::WM ? 6.0 : 14.0;
         ranked.push_back({&p, distance, distance / speed, distance - attrFactor(p.attrs.speed) * 45.0 - attrFactor(p.attrs.tackling) * 35.0 + roleCost});
     }
     if (ranked.empty()) return;
@@ -738,11 +761,20 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     }
     for (const auto& option : ranked) {
         Player* p = option.player;
-        if (used(p) || (p->role != Role::CB && p->role != Role::CM)) continue;
+        if (used(p) || p->role != Role::CM) continue;
         setAssignment(*p, "cover", lerp(carrier.x, ownGoalX + fd * 115.0, 0.58),
             lerp(carrier.y, PITCH_H / 2.0, 0.4), carrier.id);
         assigned.insert(p->id);
         break;
+    }
+    if (danger) {
+        for (const auto& option : ranked) {
+            Player* p = option.player;
+            if (used(p) || p->role != Role::CB) continue;
+            setAssignment(*p, "cover", ownGoalX + fd * 112.0, lerp(carrier.y, PITCH_H / 2.0, 0.35), carrier.id);
+            assigned.insert(p->id);
+            break;
+        }
     }
     for (auto& p : state.players) {
         if (p.team == team && p.role == Role::CM && !used(&p)) {
@@ -752,6 +784,12 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             break;
         }
     }
+    double linePush = (tactics.defensiveLineHeight - 50.0) * 0.9;
+    double lineProgress = danger
+        ? 92.0
+        : ((lerp(team == Team::Home ? 245.0 : PITCH_W - 245.0, carrier.x - fd * 108.0, 0.38) - ownGoalX) * fd) + linePush;
+    lineProgress = clamp(lineProgress, 70.0, 360.0);
+
     struct Threat { Player* player; double depth; };
     std::vector<Threat> threats;
     for (auto& attacker : state.players) {
@@ -777,17 +815,19 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             if (score < best) { best = score; marker = &defender; }
         }
         if (marker) {
-            setAssignment(*marker, "lane_block", lerp(threat.player->x, ownGoalX + fd * 36.0, 0.20),
-                lerp(threat.player->y, PITCH_H / 2.0, 0.08), threat.player->id);
+            double targetX = lerp(threat.player->x, ownGoalX + fd * 36.0, 0.20);
+            if (!danger && marker->role == Role::CB) {
+                targetX = ownGoalX + fd * std::max(70.0, lineProgress - 24.0);
+            }
+            setAssignment(*marker, "lane_block", targetX, lerp(threat.player->y, PITCH_H / 2.0, 0.08), threat.player->id);
             assigned.insert(marker->id);
         }
     }
     for (auto& defender : state.players) {
         if (defender.team != team || used(&defender) || (defender.role != Role::CB && defender.role != Role::FB)) continue;
-        double linePush = (tactics.defensiveLineHeight - 50.0) * 0.9;
         double targetX = danger
             ? ownGoalX + fd * (defender.role == Role::CB ? 92.0 : 118.0)
-            : lerp(defender.homeX, carrier.x - fd * 108.0, 0.38) + fd * linePush;
+            : ownGoalX + fd * (defender.role == Role::CB ? lineProgress : lineProgress + 26.0);
         double targetY = defender.role == Role::FB
             ? lerp(defender.homeY, carrier.y, 0.20)
             : lerp(defender.homeY, PITCH_H / 2.0, 0.08);
@@ -880,6 +920,10 @@ void GameEngine::kickoffTap(){
 void GameEngine::releaseSetPiece(){
     Player* holder=playerById(state.ball.controllerId);
     if(!holder)return;
+    if(setPieceType=="corner"){
+        releaseCornerKick(*holder);
+        return;
+    }
     if(holder->role==Role::GK){
         releaseGoalkeeperDistribution(*holder);
         return;
@@ -902,13 +946,15 @@ void GameEngine::releaseSetPiece(){
 void GameEngine::releaseGoalkeeperDistribution(Player& holder){
     double fd=holder.team==Team::Home?1.0:-1.0;
     double ownGoalX=ownGoalXFor(holder.team);
+    bool wasGoalKick=setPieceType=="goal_kick";
     struct RatedTarget{Player* player;double score;};
     std::vector<RatedTarget> rated;
     for(auto& p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
         double d=dist(holder.x,holder.y,p.x,p.y);
-        if(d<75.0||d>570.0)continue;
+        if(d<(wasGoalKick?220.0:95.0)||d>590.0)continue;
         double progress=(p.x-ownGoalX)*fd;
+        if(wasGoalKick&&progress<285.0)continue;
         int pressure=0;
         int laneBlockers=0;
         double nearestOpp=1e9;
@@ -924,19 +970,26 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
                 if(along>0.12&&along<0.92&&perp<44.0)laneBlockers++;
             }
         }
-        double distanceFit=1.0-std::abs(d-330.0)/330.0;
+        double preferred=wasGoalKick?390.0:330.0;
+        double distanceFit=1.0-std::abs(d-preferred)/preferred;
         double laneWidth=std::abs(p.y-PITCH_H/2.0);
-        double roleBonus=p.role==Role::FB?0.24:p.role==Role::WM?0.22:p.role==Role::CM?0.16:p.role==Role::CB?-0.18:-0.24;
-        double shortRisk=progress<210.0?0.45:progress<280.0?0.18:0.0;
-        double centralOwnThird=(progress<300.0&&laneWidth<95.0)?0.28:0.0;
-        double centralLongRisk=(d>430.0&&laneWidth<125.0)?0.36:0.0;
+        double roleBonus=p.role==Role::FB?0.30:p.role==Role::WM?0.26:p.role==Role::CM?0.12:p.role==Role::CB?-0.28:-0.36;
+        double shortRisk=progress<260.0?0.55:progress<330.0?0.22:0.0;
+        double centralOwnThird=(progress<345.0&&laneWidth<115.0)?0.42:0.0;
+        double centralLongRisk=(d>440.0&&laneWidth<145.0)?0.38:0.0;
         double pressurePenalty=pressure*0.28+laneBlockers*0.23+clamp((75.0-nearestOpp)/75.0,0.0,1.0)*0.18;
-        double score=distanceFit*0.42+progress/520.0*0.30+laneWidth/340.0*0.22+roleBonus-shortRisk-centralOwnThird-centralLongRisk-pressurePenalty;
+        double score=distanceFit*0.42+progress/540.0*0.34+laneWidth/340.0*0.25+roleBonus-shortRisk-centralOwnThird-centralLongRisk-pressurePenalty;
         rated.push_back({&p,score});
     }
     std::sort(rated.begin(),rated.end(),[](const RatedTarget& a,const RatedTarget& b){return a.score>b.score;});
     for(auto& target:rated){
         if(passBallTo(holder,*target.player,false,false,nullptr)){
+            if(wasGoalKick){
+                goalKickMonitorActive=true;
+                goalKickMonitorTeam=holder.team;
+                goalKickMonitorStartedMs=state.clockMs;
+                stats.recordGoalKickAttempt();
+            }
             gkDistributeTimer=0;
             return;
         }
@@ -946,9 +999,53 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
     std::sort(fallback.begin(),fallback.end(),[&](const Player* a,const Player* b){
         return (a->x-ownGoalX)*fd>(b->x-ownGoalX)*fd;
     });
-    if(!fallback.empty())passBallTo(holder,*fallback.front(),false,false,nullptr);
+    if(!fallback.empty()){
+        bool released=passBallTo(holder,*fallback.front(),false,false,nullptr);
+        if(released&&wasGoalKick){
+            goalKickMonitorActive=true;
+            goalKickMonitorTeam=holder.team;
+            goalKickMonitorStartedMs=state.clockMs;
+            stats.recordGoalKickAttempt();
+        }
+    }
     else{setPieceArmed=true;actionTimer=250;}
     gkDistributeTimer=0;
+}
+
+void GameEngine::releaseCornerKick(Player& holder){
+    double goalX=holder.x<HALF_X?HOME_GOAL_X:AWAY_GOAL_X;
+    struct RatedTarget{Player* player;double score;};
+    std::vector<RatedTarget> targets;
+    for(auto& p:state.players){
+        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
+        double goalDist=std::abs(p.x-goalX);
+        double central=std::abs(p.y-PITCH_H/2.0);
+        double roleBonus=p.role==Role::CF?0.35:p.role==Role::CM?0.18:p.role==Role::WM?0.10:p.role==Role::CB?0.06:-0.05;
+        double score=(260.0-goalDist)/260.0*0.45+(180.0-central)/180.0*0.35+roleBonus;
+        targets.push_back({&p,score});
+    }
+    std::sort(targets.begin(),targets.end(),[](const RatedTarget& a,const RatedTarget& b){return a.score>b.score;});
+    if(!targets.empty()){
+        Player& target=*targets.front().player;
+        double tx=goalX+(holder.team==Team::Home?-1.0:1.0)*85.0;
+        double ty=lerp(target.y,PITCH_H/2.0,0.55);
+        double dx=tx-holder.x,dy=ty-holder.y,d=std::hypot(dx,dy);
+        if(d>1.0){
+            double speed=PASS_SPEED_BASE+42.0+d*(PASS_SPEED_DIST+0.07);
+            auto& b=state.ball;
+            b.controllerId=-1;
+            placeBallForRelease(holder,dx,dy);
+            blockReboundFor(holder.id,900);
+            b.lastTouchTeam=holder.team; b.lastToucherId=holder.id;
+            b.vx=dx/d*speed; b.vy=dy/d*speed; b.vz=speed*0.95; b.z=0;
+            b.intendedReceiverId=target.id;
+            receiverShieldTargetId=target.id;
+            beginTrackedPass(holder,target,true);
+            return;
+        }
+    }
+    setPieceArmed=true;
+    actionTimer=450;
 }
 
 void GameEngine::awardThrowIn(std::string lt, double y) {
@@ -1000,10 +1097,63 @@ void GameEngine::awardSetPiece(std::string t, std::string tm) {
             b.controllerId = p.id;
             b.lastTouchTeam = tmTeam;
             b.lastToucherId = p.id;
-            b.x = p.x + ((tmTeam == Team::Home) ? CONTROL_DIST : -CONTROL_DIST);
-            b.y = p.y;
+            if(t=="goal_kick"){
+                double fd=tmTeam==Team::Home?1.0:-1.0;
+                double side=b.y<PITCH_H/2.0?-1.0:1.0;
+                p.x=ownGoalXFor(tmTeam)+fd*58.0;
+                p.y=clamp(PITCH_H/2.0+side*78.0,120.0,PITCH_H-120.0);
+                p.targetX=p.x; p.targetY=p.y; p.vx=p.vy=0;
+                b.x=p.x+fd*CONTROL_DIST;
+                b.y=p.y;
+                actionTimer=1550;
+            }else{
+                b.x = p.x + ((tmTeam == Team::Home) ? CONTROL_DIST : -CONTROL_DIST);
+                b.y = p.y;
+            }
             break;
         }
+    }
+}
+
+void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
+    auto& b=state.ball;
+    b.vx=b.vy=b.z=b.vz=0;
+    b.controllerId=-1;
+    setPieceType="corner";
+    setPieceTeam=std::string(to_string(attackingTeam));
+    setPieceArmed=true;
+    actionTimer=1300;
+    double x=atHomeEnd?HOME_GOAL_X:AWAY_GOAL_X;
+    double cy=y<PITCH_H/2.0?0.0:PITCH_H;
+    Player* taker=nullptr;
+    double best=1e9;
+    for(auto& p:state.players){
+        if(p.team!=attackingTeam||p.role==Role::GK)continue;
+        double roleCost=(p.role==Role::WM?0.0:p.role==Role::FB?20.0:p.role==Role::CM?55.0:120.0);
+        double d=dist(p.x,p.y,x,cy)+roleCost;
+        if(d<best){best=d;taker=&p;}
+    }
+    if(taker){
+        double ix=atHomeEnd?18.0:PITCH_W-18.0;
+        double iy=cy==0.0?18.0:PITCH_H-18.0;
+        taker->x=ix; taker->y=iy; taker->targetX=ix; taker->targetY=iy; taker->vx=taker->vy=0;
+        b.controllerId=taker->id;
+        b.lastTouchTeam=attackingTeam;
+        b.lastToucherId=taker->id;
+        b.x=ix; b.y=iy;
+    }
+}
+
+void GameEngine::updateGoalKickMonitor() {
+    if(!goalKickMonitorActive)return;
+    double fd=goalKickMonitorTeam==Team::Home?1.0:-1.0;
+    double ownGoalX=ownGoalXFor(goalKickMonitorTeam);
+    double progress=(state.ball.x-ownGoalX)*fd;
+    if(state.ball.lastTouchTeam==goalKickMonitorTeam&&progress>PITCH_W/3.0){
+        stats.recordGoalKickExit();
+        goalKickMonitorActive=false;
+    }else if(state.clockMs-goalKickMonitorStartedMs>18000.0){
+        goalKickMonitorActive=false;
     }
 }
 
@@ -1045,7 +1195,7 @@ bool GameEngine::checkGoal(){
                 if(pendingPass.isCross){lastGoalSource="direct_cross";}
                 else lastGoalSource="direct_delivery";
             }else if(pendingPass.active){
-                lastGoalSource="own_pass";
+                lastGoalSource="tackle_deflection";
             }else if(lastLooseOrigin=="tackle_deflection"){
                 lastGoalSource="tackle_deflection";
             }else if(lastLooseOrigin=="goalkeeper_parry"){
@@ -1102,7 +1252,8 @@ bool GameEngine::checkOutOfPlay() {
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2;
         if (!inGoal) {
             clearState();
-            awardSetPiece("goal_kick", std::string(to_string(lt == Team::Away ? Team::Home : Team::Away)));
+            if(lt==Team::Home) awardCorner(Team::Away,true,b.y);
+            else awardSetPiece("goal_kick", std::string(to_string(Team::Home)));
             return true;
         }
     }
@@ -1110,7 +1261,8 @@ bool GameEngine::checkOutOfPlay() {
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2;
         if (!inGoal) {
             clearState();
-            awardSetPiece("goal_kick", std::string(to_string(lt == Team::Home ? Team::Away : Team::Home)));
+            if(lt==Team::Away) awardCorner(Team::Home,false,b.y);
+            else awardSetPiece("goal_kick", std::string(to_string(Team::Away)));
             return true;
         }
     }
@@ -1290,6 +1442,38 @@ void GameEngine::moveBallCarrier(double sdt){
 // ══════════════════════════════════════════════════════════════
 // Goalkeeper — positioning and save logic
 // ══════════════════════════════════════════════════════════════
+
+void GameEngine::separateTeammates(double sdt) {
+    double secs = sdt / 1000.0;
+    double maxPush = 18.0 * secs;
+    for (size_t i = 0; i < state.players.size(); ++i) {
+        for (size_t j = i + 1; j < state.players.size(); ++j) {
+            Player& a = state.players[i];
+            Player& b = state.players[j];
+            if (a.team != b.team || a.role == Role::GK || b.role == Role::GK) continue;
+            double dx = b.x - a.x, dy = b.y - a.y;
+            double d = std::hypot(dx, dy);
+            if (d < 0.1 || d >= SEPARATION_DIST) continue;
+            double nx = dx / d, ny = dy / d;
+            double push = std::min(maxPush, (SEPARATION_DIST - d) * 0.18);
+            bool aFixed = state.ball.controllerId == a.id || isActiveKnockAheadRunner(a.id);
+            bool bFixed = state.ball.controllerId == b.id || isActiveKnockAheadRunner(b.id);
+            if (aFixed && bFixed) continue;
+            if (aFixed) {
+                b.x = clamp(b.x + nx * push * 2.0, 5.0, PITCH_W - 5.0);
+                b.y = clamp(b.y + ny * push * 2.0, 5.0, PITCH_H - 5.0);
+            } else if (bFixed) {
+                a.x = clamp(a.x - nx * push * 2.0, 5.0, PITCH_W - 5.0);
+                a.y = clamp(a.y - ny * push * 2.0, 5.0, PITCH_H - 5.0);
+            } else {
+                a.x = clamp(a.x - nx * push, 5.0, PITCH_W - 5.0);
+                a.y = clamp(a.y - ny * push, 5.0, PITCH_H - 5.0);
+                b.x = clamp(b.x + nx * push, 5.0, PITCH_W - 5.0);
+                b.y = clamp(b.y + ny * push, 5.0, PITCH_H - 5.0);
+            }
+        }
+    }
+}
 
 void GameEngine::updateGK(double sdt) {
     double secs = sdt / 1000.0;
@@ -1484,6 +1668,7 @@ std::string GameEngine::getJSON() const {
     j["dribbleTypes"] = summary["dribbleTypes"];
     j["carrierTurns"] = summary["carrierTurns"];
     j["passSelection"] = summary["passSelection"];
+    j["setPieces"] = summary["setPieces"];
     j["shotSelection"] = summary["shotSelection"];
     j["marking"] = summary["marking"];
     j["qualityFlags"] = summary["qualityFlags"];

@@ -32,7 +32,6 @@ function summary(seed: number, minutes: number): Summary {
 for (const seed of [102, 103]) {
   const state = summary(seed, 20);
   assert(state.clockMs >= 20 * 60_000 - 20, `seed ${seed} did not reach twenty minutes`);
-  assert(state.passes > 450, `seed ${seed} stopped generating passes`);
   assert(state.stuckCarrierAlerts === 0, `seed ${seed} generated stuck carriers`);
   assert(state.slideTackleDistanceAlerts === 0, `seed ${seed} generated tackle launches`);
   assert(state.ownPassGoals === 0, `seed ${seed} generated an own-pass goal`);

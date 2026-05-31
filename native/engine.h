@@ -61,6 +61,9 @@ public:
     int trackedShooterId = -1;
     double shotOriginX = 0, shotOriginY = 0;
     double gkDistributeTimer = 0;
+    bool goalKickMonitorActive = false;
+    Team goalKickMonitorTeam = Team::Home;
+    double goalKickMonitorStartedMs = 0;
     std::unordered_map<int,double> contestBlockedUntil;
     int receiverShieldTargetId = -1, receiverShieldedPlayerId = -1;
     double receiverShieldUntil = 0;
@@ -141,7 +144,7 @@ public:
 
     [[nodiscard]] double goalOpeningAngleDeg(double x, double y, double gx) const;
 
-    void placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset=CONTROL_DIST+PLAYER_R+10);
+    void placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset=CONTROL_DIST+BALL_R+4.0);
     void passBallTo(Player& f, Player& t);
     bool passBallTo(Player& f, Player& t, bool throughBall, bool lob, const PassSelectionAudit* selectionAudit);
     void forcePassTo(Player& f, Player& t, const PassSelectionAudit*);
@@ -168,6 +171,7 @@ public:
     void kickoffTap();
     void releaseSetPiece();
     void releaseGoalkeeperDistribution(Player& holder);
+    void releaseCornerKick(Player& holder);
 
     // ── Physics ──
     void applyBallPhysics(double s);
@@ -178,10 +182,13 @@ public:
     void collectBall(Player& c);
     void updateControlledBall(double secs);
     void moveBallCarrier(double sdt);
+    void separateTeammates(double sdt);
     void updateGK(double sdt);
     void tryGKSave();
     void awardThrowIn(std::string lt, double y);
     void awardSetPiece(std::string t, std::string tm);
+    void awardCorner(Team attackingTeam, bool atHomeEnd, double y);
+    void updateGoalKickMonitor();
 
     std::string getSummaryJSON() const { return stats.summaryJSON(); }
     std::string getJSON() const;

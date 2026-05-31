@@ -105,6 +105,11 @@ std::string StatsCollector::summaryJSON() const {
         {"pressuredReceptions", pressuredReceptions}, {"pressuredReceptionFailures", pressuredReceptionFails}
     };
 
+    j["setPieces"] = {
+        {"goalKickAttempts", goalKickAttempts}, {"goalKickExitedOwnThird", goalKickExited},
+        {"goalKickTrappedShots", goalKickTrappedShots}, {"goalKickPending", goalKickActive}
+    };
+
     j["shotSelection"] = {
         {"audited", shotAudits}, {"betterPassAvailable", betterPassShots}, {"tightAngle", tightAngleShots},
         {"avgAngleDeg", std::round((shotAudits > 0 ? shotAngleTotal / shotAudits : 0) * 10) / 10},

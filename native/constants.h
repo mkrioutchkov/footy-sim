@@ -27,8 +27,8 @@ inline constexpr double SPEED_SPRINT  = 68.0;
 inline constexpr double MAX_PLAYER_SPEED = 50.0;
 
 // ── Ball speed / physics ──
-inline constexpr double PASS_SPEED_BASE = 150.0;
-inline constexpr double PASS_SPEED_DIST = 0.12;
+inline constexpr double PASS_SPEED_BASE = 136.0;
+inline constexpr double PASS_SPEED_DIST = 0.105;
 inline constexpr double SHOT_SPEED_BASE = 380.0;
 inline constexpr double TACKLE_KICK_SPEED = 140.0;
 inline constexpr double BALL_FRICTION  = 0.70;
@@ -77,8 +77,8 @@ inline constexpr double STAMINA_SLOW_THRESHOLD = 0.35;
 inline constexpr double DRIBBLE_CLOSE_SPEED  = SPEED_SPRINT * 0.58;
 inline constexpr double DRIBBLE_MEDIUM_SPEED = SPEED_RUN;
 inline constexpr double DRIBBLE_FAST_SPEED   = SPEED_SPRINT * 0.95;
-inline constexpr double DRIBBLE_KNOCK_SPEED_ADVANTAGE = 16.0;
-inline constexpr double DRIBBLE_KNOCK_OFFSET = CONTROL_DIST + BALL_R + 3.5;
+inline constexpr double DRIBBLE_KNOCK_SPEED_ADVANTAGE = 24.0;
+inline constexpr double DRIBBLE_KNOCK_OFFSET = CONTROL_DIST + BALL_R + 10.0;
 
 // ── Collect ──
 inline constexpr double COLLECT_SPEED_MAX       = 80.0;

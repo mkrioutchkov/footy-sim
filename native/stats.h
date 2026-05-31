@@ -29,6 +29,9 @@ public:
         pressuredReceptions++;
         if(failed) pressuredReceptionFails++;
     }
+    void recordGoalKickAttempt()       { goalKickAttempts++; goalKickActive++; }
+    void recordGoalKickExit()          { goalKickExited++; if(goalKickActive>0) goalKickActive--; }
+    void recordGoalKickTrappedShot()   { goalKickTrappedShots++; if(goalKickActive>0) goalKickActive--; }
 
     // ── Shot events ──
     void recordShot(const std::string& team, bool onTarget);
@@ -139,6 +142,7 @@ private:
     int passAudits=0, riskyPassChoices=0, saferPassIgnored=0;
     double passDistTotal=0, passExpectedTotal=0;
     int pressuredReceptions=0, pressuredReceptionFails=0;
+    int goalKickAttempts=0, goalKickExited=0, goalKickTrappedShots=0, goalKickActive=0;
     int shotAudits=0, betterPassShots=0, tightAngleShots=0;
     double shotAngleTotal=0, shotPressureTotal=0;
     int cfCredibleWindows=0, cfDeferred=0, cfDeferredPass=0, cfDeferredDribble=0;

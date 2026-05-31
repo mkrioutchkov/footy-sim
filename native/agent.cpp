@@ -109,26 +109,6 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
             double ty = player.y + std::sin(angle) * 3.0;
             return { Action{ActionType::Dribble, 1.0, nullptr, tx, ty, "hold"} };
         }
-        if (per.pressureCount == 0) {
-            bool inOppHalf = player.team == Team::Home ? player.x > HALF_X : player.x < HALF_X;
-            if (inOppHalf) {
-                bool quickPassAvailable = false;
-                double facingRad = player.facing;
-                double fx = std::cos(facingRad), fy = std::sin(facingRad);
-                for (auto& t : engine.state.players) {
-                    if (t.team != player.team || t.id == player.id || t.role == Role::GK) continue;
-                    double dx = t.x - player.x, dy = t.y - player.y;
-                    double d = std::hypot(dx, dy);
-                    if (d > 150.0) continue;
-                    double dot = (dx * fx + dy * fy) / d;
-                    if (dot > 0.65) { quickPassAvailable = true; break; }
-                }
-                if (!quickPassAvailable) {
-                    stunLockTicks = 8 + static_cast<int>(engine.rng.random() * 10);
-                    return { Action{ActionType::Hold, 1.0} };
-                }
-            }
-        }
         if (shotCooldown > 0) {
             double gx = goalXFor(player.team);
             if (std::abs(player.x - gx) < 150.0) {
@@ -234,7 +214,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
     for (auto& t : engine.state.players) {
         if (t.team != p.team || t.id == p.id || t.role == Role::GK) continue;
         double d = dist(p.x, p.y, t.x, t.y);
-        if (d < 30.0 || d > 550.0) continue;
+        if (d < 42.0 || d > 550.0) continue;
         if (engine.isOffsideTarget(p, t)) continue;
 
         if (d > 40.0) {
@@ -274,14 +254,16 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
 
         double progression = clamp(fp / 240.0, -0.5, 1.0);
         double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
-        double sc = completion * (0.38 + std::max(0.0, progression) * 0.34) - (1.0 - completion) * turnoverCost;
+        double sc = completion * (0.34 + std::max(0.0, progression) * 0.34) - (1.0 - completion) * turnoverCost;
         if (t.id == lastPassTargetId) sc -= 0.18;
 
         if (recentPassTarget == t.id && engine.state.clockMs - recentPassTime < 3000.0) sc -= 0.10;
 
         if (bl == 0 && fp > 80.0) sc += 0.08;
-        if (fp < -30.0) sc -= 0.16;
-        if (fp < -90.0) sc -= 0.18;
+        bool carrierFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+        if (fp < -30.0) sc -= carrierFinalThird ? 0.28 : 0.16;
+        if (fp < -90.0) sc -= carrierFinalThird ? 0.30 : 0.18;
+        if (carrierFinalThird && per.pressureCount == 0 && fp < 0.0) sc -= 0.12;
 
         double dg2 = std::abs(p.x - (goalXFor(p.team)));
         if (dg2 < 200.0 && fp > 0.0 && d < 150.0) sc += 0.10;
@@ -375,7 +357,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
             if (onsideGap < 8.0) sc += engine.rng.random() * 0.04;
         }
 
-        sc += std::min(holdTicks / 200.0, 0.35);
+        sc += std::min(holdTicks / 260.0, 0.20);
 
         if (receiverPressure >= 2) sc -= 0.25;
         if (per.pressureCount >= 2 && bl == 0) sc += 0.10;
@@ -422,6 +404,9 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     bool outsideGoalLane = std::abs(p.y - PITCH_H / 2.0) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150.0;
 
+    if (angleDeg < 8.0 && shotDistance > 120.0)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
+
     if (shotDistance > 260.0 || acuteGeometry)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
@@ -446,11 +431,12 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     double toGoalDist = std::hypot(toGoalX, toGoalY);
     if (toGoalDist < 1.0) toGoalDist = 1.0;
     double facingDot = (std::cos(p.facing) * toGoalX + std::sin(p.facing) * toGoalY) / toGoalDist;
-    if (facingDot < 0.15) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
-    if (facingDot < 0.45 && shotDistance > 120.0)
+    if (facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
+    if (facingDot < 0.35 && shotDistance > 135.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
     double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.55;
+    if (shotDistance < 140.0 && per.pressureCount == 0 && angleDeg > 10.0) sc = std::max(sc, 0.38);
     if (shotDistance < 120.0) sc = std::max(sc, 0.30);
     if (shotDistance < 90.0)  sc = std::max(sc, 0.45);
     if (shotDistance < 50.0)  sc = std::max(sc, 0.58);
@@ -518,6 +504,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     // Target selection: prefer space over goal
     double distToGoal = std::abs(p.x - gx);
     bool inOwnHalf = (fd > 0 && p.x < HALF_X) || (fd < 0 && p.x > HALF_X);
+    bool finalThird = (fd > 0 && p.x > PITCH_W * 2.0 / 3.0) || (fd < 0 && p.x < PITCH_W / 3.0);
     bool nearGoal = distToGoal < 200.0;
 
     // Find open space: check density around potential targets
@@ -593,6 +580,17 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     else if (densityAtTarget == 1) sc += 0.05;
     else if (densityAtTarget >= 3) sc -= 0.10;
 
+    double aheadX = clamp(p.x + fd * 130.0, 35.0, PITCH_W - 35.0);
+    int densityAhead = densityAt(aheadX, p.y);
+    if (finalThird && per.nearestOpponentDist > 70.0 && densityAhead == 0) {
+        sc += 0.22;
+        tx = p.x + fd * 165.0;
+        ty = lerp(p.y, PITCH_H / 2.0, 0.18);
+    } else if (!inOwnHalf && per.nearestOpponentDist > 115.0 && densityAhead <= 1) {
+        sc += 0.12;
+        tx = p.x + fd * 130.0;
+    }
+
     // Role-specific
     if (p.role == Role::WM) {
         bool inWide = std::abs(p.y - PITCH_H / 2.0) > 140.0;
@@ -612,7 +610,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     return Action{ActionType::Dribble, clamp(sc, 0.0, 1.0), nullptr,
                   clamp(tx, 35.0, PITCH_W - 35.0),
-                  clamp(ty, 35.0, PITCH_H - 35.0)};
+                  clamp(ty, 35.0, PITCH_H - 35.0),
+                  "space"};
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1187,6 +1186,21 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                                           8000.0, "backpass:" + std::to_string(player.id));
     }
 
+    if (ic) {
+        double fd = player.team == Team::Home ? 1.0 : -1.0;
+        bool finalThird = fd > 0.0 ? player.x > PITCH_W * 2.0 / 3.0 : player.x < PITCH_W / 3.0;
+        if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 0.0) {
+            Action* driveOpt = nullptr;
+            Action* shootOpt = nullptr;
+            for (auto& x : a) {
+                if (x.type == ActionType::Dribble && x.purpose == "space") driveOpt = &x;
+                if (x.type == ActionType::Shoot) shootOpt = &x;
+            }
+            if (shootOpt && shootOpt->score > best.score - 0.12) return *shootOpt;
+            if (driveOpt && driveOpt->score > best.score - 0.16) return *driveOpt;
+        }
+    }
+
     // CF near goal: bias toward shooting unless teammate has a clear tap-in
     if (ic && player.role == Role::CF && nearGoal && best.type != ActionType::Shoot) {
         Action* shotOpt = nullptr;
@@ -1304,17 +1318,19 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
 
         // Flank bonus: knock-aheads on the flank are safer (less central traffic)
         bool onFlank = std::abs(p.y - PITCH_H / 2.0) > 120.0;
+        bool finalThird = (fd > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+        bool finalThirdBurst = finalThird && distToTarget > 110.0 && nearestOppDist > 95.0 && clearPath;
 
         // Open burst: clear path with support, flank safety, or very obvious space.
         bool openBurst = longDistToTarget && spaceAhead && clearPath && advancedEnough
-                        && (teammateSupport || onFlank || openGrass);
+                        && (teammateSupport || onFlank || openGrass || finalThirdBurst);
 
         // Speculative burst: creative player with some space, advanced enough.
         bool speculativeBurst = distToTarget > 190.0 && nearestOppDist > 95.0 && clearPath
                                && advancedEnough && p.attrs.creativity >= 78.0
                                && (teammateSupport || onFlank);
 
-        bool mayBurst = engine.canKnockBallAhead(p.id) && (openBurst || speculativeBurst);
+        bool mayBurst = engine.canKnockBallAhead(p.id) && (openBurst || speculativeBurst || finalThirdBurst);
         int dribbleType = mayBurst ? 3 : (nearbyOpps >= 2 ? 1 : 2);
 
         bool newEpisode = (p.dribbleType != dribbleType);
