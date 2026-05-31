@@ -161,6 +161,7 @@ public:
     // ── Lifecycle ──
     GameEngine();
     void initWithSeed(int seed);
+    void equalizeAttributes(int val);
     void createHomeTeam();
     void createAwayTeam();
     void startMatch(){state.matchState="running";state.clockMs=0;kickoff(Team::Home);}

@@ -78,7 +78,7 @@ inline constexpr double DRIBBLE_CLOSE_SPEED  = SPEED_SPRINT * 0.58;
 inline constexpr double DRIBBLE_MEDIUM_SPEED = SPEED_RUN;
 inline constexpr double DRIBBLE_FAST_SPEED   = SPEED_SPRINT * 0.95;
 inline constexpr double DRIBBLE_KNOCK_SPEED_ADVANTAGE = 24.0;
-inline constexpr double DRIBBLE_KNOCK_OFFSET = CONTROL_DIST + BALL_R + 10.0;
+inline constexpr double DRIBBLE_KNOCK_OFFSET = CONTROL_DIST + BALL_R + 35.0;
 
 // ── Collect ──
 inline constexpr double COLLECT_SPEED_MAX       = 80.0;

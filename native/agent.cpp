@@ -1112,7 +1112,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             {"lane_block", 0.68}, {"defensive_line", 0.62}, {"wide_cover", 0.62},
             {"midfield_screen", 0.60}, {"support_outlet", 0.47}, {"advance_midfield", 0.60},
             {"run_ahead", 0.64}, {"inside_run", 0.62}, {"hold_width", 0.56},
-            {"overlap", 0.66}, {"rest_defence", 0.56},
+            {"overlap", 0.66}, {"rest_defence", 0.56}, {"close_down", 0.75},
         };
         double ts = 0.80;
         auto tit = taskScores.find(task->role);
@@ -1299,11 +1299,11 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         }
 
         // Knock-ahead: clear lanes with enough grass to run into.
-        bool advancedEnough = (fd > 0 && p.x > HALF_X - 70.0) || (fd < 0 && p.x < HALF_X + 70.0);
+        bool advancedEnough = (fd > 0 && p.x > HALF_X - 100.0) || (fd < 0 && p.x < HALF_X + 100.0);
         bool clearPath = oppsInPath == 0;
-        bool spaceAhead = nearestOppDist > 88.0;
-        bool openGrass = nearestOppDist > 145.0;
-        bool longDistToTarget = distToTarget > 120.0;
+        bool spaceAhead = nearestOppDist > 70.0;
+        bool openGrass = nearestOppDist > 130.0;
+        bool longDistToTarget = distToTarget > 90.0;
 
         // Check if a teammate can collect (within ~175px of launch point)
         bool teammateSupport = false;
@@ -1326,9 +1326,9 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
                         && (teammateSupport || onFlank || openGrass || finalThirdBurst);
 
         // Speculative burst: creative player with some space, advanced enough.
-        bool speculativeBurst = distToTarget > 190.0 && nearestOppDist > 95.0 && clearPath
-                               && advancedEnough && p.attrs.creativity >= 78.0
-                               && (teammateSupport || onFlank);
+        bool speculativeBurst = distToTarget > 150.0 && nearestOppDist > 75.0 && clearPath
+                               && advancedEnough && p.attrs.creativity >= 65.0
+                               && (teammateSupport || onFlank || openGrass);
 
         bool mayBurst = engine.canKnockBallAhead(p.id) && (openBurst || speculativeBurst || finalThirdBurst);
         int dribbleType = mayBurst ? 3 : (nearbyOpps >= 2 ? 1 : 2);

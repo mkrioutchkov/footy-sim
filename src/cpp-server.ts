@@ -9,6 +9,7 @@ const PORT = Number.parseInt(process.env.CPP_PORT ?? '3000', 10);
 const CPP_ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
 const SEED = Number.parseInt(process.env.CPP_SEED ?? '101', 10);
 const MINUTES = 90;
+const DEBUG = process.env.CPP_DEBUG === '1' || process.env.CPP_DEBUG === 'true';
 const DEFAULT_FRAME_MS = 1000 / 30;
 const MIN_SPEED = 0.5;
 const MAX_SPEED = 60;
@@ -112,7 +113,9 @@ function stopEngine(): void {
 function startEngine(): void {
   stopEngine();
   const thisGeneration = generation;
-  const child = spawn(CPP_ENGINE, [String(SEED), String(MINUTES)], {
+  const args = [String(SEED), String(MINUTES)];
+  if (DEBUG) args.push('--debug');
+  const child = spawn(CPP_ENGINE, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   engine = child;

@@ -831,7 +831,17 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         double targetY = defender.role == Role::FB
             ? lerp(defender.homeY, carrier.y, 0.20)
             : lerp(defender.homeY, PITCH_H / 2.0, 0.08);
-        setAssignment(defender, defender.role == Role::FB ? "wide_cover" : "defensive_line", targetX, targetY);
+        std::string role = defender.role == Role::FB ? "wide_cover" : "defensive_line";
+        double cbDist = dist(defender.x, defender.y, carrier.x, carrier.y);
+        bool carrierInFinalThird = (fd == 1.0) ? carrier.x > PITCH_W * 2.0 / 3.0 : carrier.x < PITCH_W / 3.0;
+        if (defender.role == Role::CB && !danger && carrierInFinalThird && cbDist < 130.0) {
+            double closeX = lerp(carrier.x, ownGoalX + fd * 80.0, 0.35);
+            double closeY = lerp(carrier.y, defender.homeY, 0.25);
+            targetX = closeX;
+            targetY = closeY;
+            role = "close_down";
+        }
+        setAssignment(defender, role, targetX, targetY);
     }
 }
 
@@ -1008,7 +1018,23 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
             stats.recordGoalKickAttempt();
         }
     }
-    else{setPieceArmed=true;actionTimer=250;}
+    if(fallback.empty()||!wasGoalKick){
+        setPieceArmed=true;actionTimer=250;
+    } else if(wasGoalKick){
+        double fd=holder.team==Team::Home?1.0:-1.0;
+        double speed=PASS_SPEED_BASE+60+350*(PASS_SPEED_DIST+0.07);
+        auto& b=state.ball;
+        b.controllerId=-1;
+        placeBallForRelease(holder,fd*1.0,0.0);
+        b.lastTouchTeam=holder.team; b.lastToucherId=holder.id;
+        b.vx=fd*speed; b.vy=(rng.random()-0.5)*speed*0.25; b.vz=speed*0.85; b.z=0;
+        b.intendedReceiverId=-1;
+        blockReboundFor(holder.id,600);
+        goalKickMonitorActive=true;
+        goalKickMonitorTeam=holder.team;
+        goalKickMonitorStartedMs=state.clockMs;
+        stats.recordGoalKickAttempt();
+    }
     gkDistributeTimer=0;
 }
 
@@ -1717,6 +1743,18 @@ void GameEngine::initWithSeed(int seed) {
             agents.push_back(std::make_unique<FBPlayerAI>(p, *this));
         else
             agents.push_back(std::make_unique<PlayerAI>(p, *this));
+    }
+}
+
+void GameEngine::equalizeAttributes(int val) {
+    for (auto& p : state.players) {
+        p.attrs.speed = val;
+        p.attrs.passing = val;
+        p.attrs.shooting = val;
+        p.attrs.tackling = val;
+        p.attrs.positioning = val;
+        p.attrs.creativity = val;
+        p.attrs.stamina = val;
     }
 }
 
