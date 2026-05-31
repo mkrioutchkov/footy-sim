@@ -1588,18 +1588,24 @@ void GameEngine::tryGKSave() {
     trackedShotPreventable = false;
     double handling = attrFactor(gk->attrs.positioning);
     double catchChance = clamp(0.22 + handling * 0.38 - std::max(0.0, speed - 520) / 900, 0.12, 0.58);
-    if (rng.random() < catchChance) {
-        b.x = gk->x;
-        b.y = gk->y;
-        collectBall(*gk);
-        gkDistributeTimer = 400;
-        return;
-    }
+    bool caught = rng.random() < catchChance;
     double fieldDir = gk->team == Team::Home ? 1.0 : -1.0;
     double side = gk->y - shotOriginY < 0 ? -1.0 : 1.0;
-    double parryDampen = 0.40 + rng.random() * 0.55; // 40-95% velocity reduction
+    if (caught) {
+        b.x = clamp(gk->x + fieldDir * 6.0, 10.0, PITCH_W - 10.0);
+        b.y = clamp(gk->y + side * 4.0, 18.0, PITCH_H - 18.0);
+        b.vx = b.vy = b.vz = b.z = 0;
+        b.intendedReceiverId = -1;
+        blockReboundFor(shooterId, 250);
+        b.lastTouchTeam = gk->team; b.lastToucherId = gk->id;
+        gkDistributeTimer = 250;
+        lastLooseOrigin = "goalkeeper_catch";
+        recordBallImpulse();
+        return;
+    }
+    double parryDampen = 0.40 + rng.random() * 0.55;
     double parrySpeed = speed * (1.0 - parryDampen);
-    double parryAngle = -0.4 + rng.random() * 0.8; // slightly lateral
+    double parryAngle = -0.4 + rng.random() * 0.8;
     b.x = clamp(gk->x + fieldDir * 28, 10.0, PITCH_W - 10.0);
     b.y = clamp(gk->y + side * 24, 18.0, PITCH_H - 18.0);
     b.vx = fieldDir * std::cos(parryAngle) * parrySpeed;
@@ -1607,8 +1613,7 @@ void GameEngine::tryGKSave() {
     b.z = b.vz = 0;
     b.intendedReceiverId = -1;
     blockReboundFor(shooterId, 1400);
-    b.lastTouchTeam = gk->team;
-    b.lastToucherId = gk->id;
+    b.lastTouchTeam = gk->team; b.lastToucherId = gk->id;
     lastLooseOrigin = "goalkeeper_parry";
     recordBallImpulse();
 }
