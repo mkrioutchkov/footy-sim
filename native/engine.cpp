@@ -650,7 +650,14 @@ void GameEngine::fixedUpdate(double sdt) {
                     state.ball.controllerId = taker->id;
                     state.ball.lastTouchTeam = taker->team;
                     state.ball.lastToucherId = taker->id;
-                    actionTimer = 1500;
+                    // Immediately release throw-in — don't let taker dribble
+                    for (auto& a : agents) {
+                        if (a->player.id == setPieceTakerId) { a->setPieceHold = false; break; }
+                    }
+                    setPieceArmed = false;
+                    setPieceTakerId = -1;
+                    setPieceTakerArrived = false;
+                    releaseSetPiece();
                 }
             }
         }
