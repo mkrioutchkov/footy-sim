@@ -176,6 +176,7 @@ public:
     void releaseSetPiece();
     void releaseGoalkeeperDistribution(Player& holder);
     void releaseCornerKick(Player& holder);
+    void releaseThrowIn(Player& holder);
 
     // ── Physics ──
     void applyBallPhysics(double s);

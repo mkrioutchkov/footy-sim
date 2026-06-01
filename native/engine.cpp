@@ -635,21 +635,6 @@ void GameEngine::fixedUpdate(double sdt) {
                     state.ball.controllerId = taker->id;
                     state.ball.lastTouchTeam = taker->team;
                     state.ball.lastToucherId = taker->id;
-                    actionTimer = 1500;
-                }
-            }
-        }
-
-        // Check taker arrival
-        if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
-            Player* taker = playerById(setPieceTakerId);
-            if (taker) {
-                double d = dist(taker->x, taker->y, state.ball.x, state.ball.y);
-                if (d < 15.0) {
-                    setPieceTakerArrived = true;
-                    state.ball.controllerId = taker->id;
-                    state.ball.lastTouchTeam = taker->team;
-                    state.ball.lastToucherId = taker->id;
                     // Immediately release throw-in — don't let taker dribble
                     for (auto& a : agents) {
                         if (a->player.id == setPieceTakerId) { a->setPieceHold = false; break; }
@@ -1062,8 +1047,14 @@ void GameEngine::kickoffTap(){
 void GameEngine::releaseSetPiece(){
     Player* holder=playerById(state.ball.controllerId);
     if(!holder)return;
+    // Clear setPieceHold for all agents
+    for(auto&a:agents) a->setPieceHold=false;
     if(setPieceType=="corner"){
         releaseCornerKick(*holder);
+        return;
+    }
+    if(setPieceType=="throw_in"){
+        releaseThrowIn(*holder);
         return;
     }
     if(holder->role==Role::GK){
@@ -1168,6 +1159,35 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         stats.recordGoalKickAttempt();
     }
     gkDistributeTimer=0;
+}
+
+void GameEngine::releaseThrowIn(Player& holder){
+    struct RatedTarget{Player* player;double score;};
+    std::vector<RatedTarget> targets;
+    for(auto&p:state.players){
+        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
+        double d=dist(holder.x,holder.y,p.x,p.y);
+        if(d<30.0||d>400.0)continue;
+        double score=1.0-d/400.0;
+        targets.push_back({&p,score});
+    }
+    std::sort(targets.begin(),targets.end(),[](const RatedTarget& a,const RatedTarget& b){return a.score>b.score;});
+    for(auto& target:targets){
+        Player& t=*target.player;
+        double dx=t.x-holder.x,dy=t.y-holder.y,d=std::hypot(dx,dy);
+        if(d<30.0)continue;
+        double speed=120.0+d*0.15;
+        auto& b=state.ball;
+        b.controllerId=-1;
+        placeBallForRelease(holder,dx,dy);
+        blockReboundFor(holder.id,600);
+        b.lastTouchTeam=holder.team; b.lastToucherId=holder.id;
+        b.vx=dx/d*speed; b.vy=dy/d*speed; b.vz=speed*1.4; b.z=0;
+        b.intendedReceiverId=t.id;
+        receiverShieldTargetId=t.id;
+        beginTrackedPass(holder,t,false);
+        return;
+    }
 }
 
 void GameEngine::releaseCornerKick(Player& holder){
