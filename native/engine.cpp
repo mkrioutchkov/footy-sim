@@ -35,11 +35,27 @@ void GameEngine::awardOffsideFreeKick(const std::string& defendingTeam, const Pl
     b.controllerId=-1; b.intendedReceiverId=-1;
     receiverShieldTargetId=-1;
     setPieceType="free_kick"; setPieceTeam=defendingTeam; setPieceArmed=true;
-    actionTimer=900;
+    actionTimer=5000;
+    setPieceSpotX=b.x; setPieceSpotY=b.y;
+    setPieceTakerArrived=false;
+    Team defTeam = teamFromStr(defendingTeam);
+    Player* best=nullptr; double bd=1e9;
+    for(auto& p:state.players){
+        if(p.team!=defTeam||p.role==Role::GK)continue;
+        double d=dist(p.x,p.y,b.x,b.y);
+        if(d<bd){bd=d;best=&p;}
+    }
+    setPieceTakerId=best?best->id:-1;
 }
 
 bool GameEngine::isOffsideTarget(const Player& passer, const Player& receiver) const {
-    return checkOffside(receiver, passer);
+    // Pass filtering: use generous tolerance so AI doesn't attempt clearly offside passes
+    const double fd = passer.team==Team::Home ? 1.0 : -1.0;
+    if(fd==1){if(receiver.x<=HALF_X||receiver.x<=passer.x)return false;}
+    else{if(receiver.x>=HALF_X||receiver.x>=passer.x)return false;}
+    const double line=offsideLineFor(passer.team);
+    const double TOLERANCE = 40.0;
+    return fd==1 ? receiver.x>line+TOLERANCE : receiver.x<line-TOLERANCE;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -279,14 +295,19 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         double foulChance=fromBehind?0.34:0.10;
         if(rng.random()<foulChance){
             stats.recordTackleFoul();
+            double foulX = carrier.x;
+            double foulY = carrier.y;
             b.vx=b.vy=b.z=b.vz=0;
-            b.controllerId=carrier.id;
+            b.controllerId=-1;
             b.intendedReceiverId=-1;
             b.lastTouchTeam=carrier.team; b.lastToucherId=carrier.id;
             lastLooseOrigin.clear();
             blockReboundFor(tackler.id,650);
-            receiverShieldUntil=state.clockMs+300;
-            receiverShieldedPlayerId=carrier.id;
+            awardSetPiece("free_kick", std::string(to_string(carrier.team)));
+            b.x = clamp(foulX, 20.0, PITCH_W - 20.0);
+            b.y = clamp(foulY, 20.0, PITCH_H - 20.0);
+            setPieceSpotX = b.x;
+            setPieceSpotY = b.y;
         }else{
             blockReboundFor(tackler.id,650);
         }
@@ -566,8 +587,53 @@ void GameEngine::fixedUpdate(double sdt) {
     }
     if (setPieceArmed) {
         actionTimer -= sdt;
+        Team spTeam = teamFromStr(setPieceTeam);
+        for (auto& a : agents) {
+            a->setPiecePositioning(setPieceType, spTeam);
+        }
+        tickAgents(sdt, false);
+        moveBallCarrier(sdt);
+        separateTeammates(sdt);
+
+        // Check taker arrival
+        if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
+            Player* taker = playerById(setPieceTakerId);
+            if (taker) {
+                double d = dist(taker->x, taker->y, state.ball.x, state.ball.y);
+                if (d < 15.0) {
+                    setPieceTakerArrived = true;
+                    state.ball.controllerId = taker->id;
+                    state.ball.lastTouchTeam = taker->team;
+                    state.ball.lastToucherId = taker->id;
+                    actionTimer = 1500;
+                }
+            }
+        }
+
+        // Release when taker has ball and timer expires, or forced by max wait
+        if (setPieceTakerArrived && actionTimer <= 0) {
+            setPieceArmed = false;
+            setPieceTakerId = -1;
+            setPieceTakerArrived = false;
+            releaseSetPiece();
+        } else if (!setPieceTakerArrived && actionTimer <= 0) {
+            // Taker never arrived — force ball to nearest teammate
+            if (setPieceTakerId >= 0) {
+                Player* taker = playerById(setPieceTakerId);
+                if (taker) {
+                    state.ball.controllerId = taker->id;
+                    state.ball.lastTouchTeam = taker->team;
+                    state.ball.lastToucherId = taker->id;
+                    taker->x = state.ball.x;
+                    taker->y = state.ball.y;
+                }
+            }
+            setPieceArmed = false;
+            setPieceTakerId = -1;
+            setPieceTakerArrived = false;
+            releaseSetPiece();
+        }
         updateControlledBall(sec);
-        if (actionTimer <= 0) { setPieceArmed = false; releaseSetPiece(); }
         prevBallX = state.ball.x;
         prevBallY = state.ball.y;
         prevControllerId = state.ball.controllerId;
@@ -1095,7 +1161,10 @@ void GameEngine::awardThrowIn(std::string lt, double y) {
     setPieceType = "throw_in";
     setPieceTeam = at;
     setPieceArmed = true;
-    actionTimer = 900;
+    actionTimer = 5000;
+    setPieceSpotX = b.x;
+    setPieceSpotY = b.y;
+    setPieceTakerArrived = false;
     Player* best = nullptr;
     double bd = 1e9;
     for (auto& p : state.players) {
@@ -1103,17 +1172,7 @@ void GameEngine::awardThrowIn(std::string lt, double y) {
         double d = dist(p.x, p.y, b.x, b.y);
         if (d < bd) { bd = d; best = &p; }
     }
-    if (best) {
-        b.controllerId = best->id;
-        b.lastTouchTeam = best->team;
-        b.lastToucherId = best->id;
-        best->x = b.x;
-        best->y = b.y;
-        best->targetX = b.x;
-        best->targetY = b.y;
-        best->vx = 0;
-        best->vy = 0;
-    }
+    setPieceTakerId = best ? best->id : -1;
 }
 
 void GameEngine::awardSetPiece(std::string t, std::string tm) {
@@ -1123,29 +1182,42 @@ void GameEngine::awardSetPiece(std::string t, std::string tm) {
     setPieceType = t;
     setPieceTeam = tm;
     setPieceArmed = true;
-    actionTimer = 900;
+    setPieceSpotX = b.x;
+    setPieceSpotY = b.y;
+    setPieceTakerArrived = false;
     Team tmTeam = teamFromStr(tm);
-    for (auto& p : state.players) {
-        if (p.team == tmTeam && p.role == Role::GK) {
-            b.controllerId = p.id;
-            b.lastTouchTeam = tmTeam;
-            b.lastToucherId = p.id;
-            if(t=="goal_kick"){
-                double fd=tmTeam==Team::Home?1.0:-1.0;
-                double side=b.y<PITCH_H/2.0?-1.0:1.0;
-                p.x=ownGoalXFor(tmTeam)+fd*58.0;
-                p.y=clamp(PITCH_H/2.0+side*78.0,120.0,PITCH_H-120.0);
-                p.targetX=p.x; p.targetY=p.y; p.vx=p.vy=0;
-                b.x=p.x+fd*CONTROL_DIST;
-                b.y=p.y;
-                actionTimer=1550;
-            }else{
-                b.x = p.x + ((tmTeam == Team::Home) ? CONTROL_DIST : -CONTROL_DIST);
+
+    if (t == "goal_kick") {
+        actionTimer = 1550;
+        setPieceTakerId = -1;
+        for (auto& p : state.players) {
+            if (p.team == tmTeam && p.role == Role::GK) {
+                b.controllerId = p.id;
+                b.lastTouchTeam = tmTeam;
+                b.lastToucherId = p.id;
+                double fd = tmTeam == Team::Home ? 1.0 : -1.0;
+                double side = b.y < PITCH_H / 2.0 ? -1.0 : 1.0;
+                p.x = ownGoalXFor(tmTeam) + fd * 58.0;
+                p.y = clamp(PITCH_H / 2.0 + side * 78.0, 120.0, PITCH_H - 120.0);
+                p.targetX = p.x; p.targetY = p.y; p.vx = p.vy = 0;
+                b.x = p.x + fd * CONTROL_DIST;
                 b.y = p.y;
+                break;
             }
-            break;
         }
+        return;
     }
+
+    // Free kick: nearest outfield player runs to ball
+    actionTimer = 5000;
+    Player* best = nullptr;
+    double bd = 1e9;
+    for (auto& p : state.players) {
+        if (p.team != tmTeam || p.role == Role::GK) continue;
+        double d = dist(p.x, p.y, b.x, b.y);
+        if (d < bd) { bd = d; best = &p; }
+    }
+    setPieceTakerId = best ? best->id : -1;
 }
 
 void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
@@ -1155,26 +1227,23 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
     setPieceType="corner";
     setPieceTeam=std::string(to_string(attackingTeam));
     setPieceArmed=true;
-    actionTimer=1300;
+    actionTimer=5000;
+    setPieceTakerArrived=false;
     double x=atHomeEnd?HOME_GOAL_X:AWAY_GOAL_X;
     double cy=y<PITCH_H/2.0?0.0:PITCH_H;
+    double ix=atHomeEnd?18.0:PITCH_W-18.0;
+    double iy=cy==0.0?18.0:PITCH_H-18.0;
+    b.x=ix; b.y=iy;
+    setPieceSpotX=ix; setPieceSpotY=iy;
     Player* taker=nullptr;
     double best=1e9;
     for(auto& p:state.players){
         if(p.team!=attackingTeam||p.role==Role::GK)continue;
         double roleCost=(p.role==Role::WM?0.0:p.role==Role::FB?20.0:p.role==Role::CM?55.0:120.0);
-        double d=dist(p.x,p.y,x,cy)+roleCost;
+        double d=dist(p.x,p.y,ix,iy)+roleCost;
         if(d<best){best=d;taker=&p;}
     }
-    if(taker){
-        double ix=atHomeEnd?18.0:PITCH_W-18.0;
-        double iy=cy==0.0?18.0:PITCH_H-18.0;
-        taker->x=ix; taker->y=iy; taker->targetX=ix; taker->targetY=iy; taker->vx=taker->vy=0;
-        b.controllerId=taker->id;
-        b.lastTouchTeam=attackingTeam;
-        b.lastToucherId=taker->id;
-        b.x=ix; b.y=iy;
-    }
+    setPieceTakerId=taker?taker->id:-1;
 }
 
 void GameEngine::updateGoalKickMonitor() {
@@ -1712,6 +1781,18 @@ std::string GameEngine::getJSON() const {
     j["ballSpeed"] = summary["ballSpeed"];
     j["events"] = summary["events"];
     j["possessionPct"] = summary["possessionPct"];
+
+    if (setPieceArmed) {
+        j["setPieceState"] = {
+            {"type", setPieceType},
+            {"team", setPieceTeam},
+            {"takerId", setPieceTakerId},
+            {"takerArrived", setPieceTakerArrived},
+            {"spotX", setPieceSpotX},
+            {"spotY", setPieceSpotY},
+            {"timerMs", actionTimer}
+        };
+    }
 
     return j.dump();
 }

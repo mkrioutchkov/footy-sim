@@ -143,4 +143,6 @@ private:
     void                  auditDefensiveMovement(const Action& choice);
     PassSelectionAudit    passSelectionAudit(const Action& choice, const std::vector<Action>& actions);
     ShotSelectionAudit    shotSelectionAudit(const Action& choice, const std::vector<Action>& actions);
+public:
+    virtual void          setPiecePositioning(const std::string& spType, Team spTeam);
 };

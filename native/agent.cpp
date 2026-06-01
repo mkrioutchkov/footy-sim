@@ -203,6 +203,84 @@ void PlayerAI::adjustActionScores(std::vector<Action>&, bool) {
     // Default: no role-specific adjustments. Subclasses override.
 }
 
+void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
+    auto& p = player;
+    if (p.role == Role::GK) return;
+    bool attacking = (p.team == spTeam);
+    double fd = (p.team == Team::Home) ? 1.0 : -1.0;
+    double ownGoalX = (p.team == Team::Home) ? 0.0 : PITCH_W;
+    double oppGoalX = (p.team == Team::Home) ? PITCH_W : 0.0;
+
+    if (attacking) {
+        if (spType == "corner") {
+            double bx = engine.state.ball.x;
+            double by = engine.state.ball.y;
+            bool nearPost = by < PITCH_H / 2.0;
+            if (p.role == Role::CF) {
+                p.targetX = oppGoalX - fd * (80.0 + (engine.rng.random() - 0.5) * 40.0);
+                p.targetY = PITCH_H / 2.0 + (nearPost ? -40.0 : 40.0) + (engine.rng.random() - 0.5) * 30.0;
+            } else if (p.role == Role::WM || p.role == Role::FB) {
+                p.targetX = oppGoalX - fd * (50.0 + (engine.rng.random() - 0.5) * 30.0);
+                p.targetY = nearPost ? PITCH_H * 0.25 : PITCH_H * 0.75;
+            } else if (p.role == Role::CM) {
+                p.targetX = oppGoalX - fd * (120.0 + (engine.rng.random() - 0.5) * 40.0);
+                p.targetY = PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 80.0;
+            } else {
+                p.targetX = lerp(p.x, oppGoalX - fd * 150.0, 0.6);
+                p.targetY = lerp(p.y, PITCH_H / 2.0, 0.3);
+            }
+        } else if (spType == "free_kick") {
+            double bx = engine.state.ball.x;
+            double by = engine.state.ball.y;
+            if (p.role == Role::CF) {
+                p.targetX = oppGoalX - fd * (60.0 + (engine.rng.random() - 0.5) * 30.0);
+                p.targetY = PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 60.0;
+            } else if (p.role == Role::CM || p.role == Role::WM) {
+                p.targetX = bx + fd * (engine.rng.random() * 80.0 + 20.0);
+                p.targetY = by + (engine.rng.random() - 0.5) * 120.0;
+            } else {
+                p.targetX = lerp(p.x, bx, 0.3);
+                p.targetY = lerp(p.y, PITCH_H / 2.0, 0.2);
+            }
+        } else if (spType == "throw_in") {
+            double bx = engine.state.ball.x;
+            double by = engine.state.ball.y;
+            p.targetX = bx + fd * (engine.rng.random() * 60.0 + 20.0);
+            p.targetY = by + (engine.rng.random() - 0.5) * 100.0;
+        }
+    } else {
+        if (spType == "corner") {
+            if (p.role == Role::CB || p.role == Role::FB) {
+                p.targetX = ownGoalX + fd * (60.0 + (engine.rng.random() - 0.5) * 30.0);
+                p.targetY = PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 120.0;
+            } else if (p.role == Role::CM) {
+                p.targetX = ownGoalX + fd * 120.0;
+                p.targetY = PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 80.0;
+            } else {
+                p.targetX = lerp(p.x, ownGoalX + fd * 180.0, 0.5);
+                p.targetY = lerp(p.y, PITCH_H / 2.0, 0.3);
+            }
+        } else if (spType == "free_kick") {
+            double bx = engine.state.ball.x;
+            double goalDist = std::abs(bx - ownGoalX);
+            if (goalDist < 250.0 && (p.role == Role::CB || p.role == Role::FB)) {
+                double wallY = PITCH_H / 2.0 + (p.id % 2 == 0 ? -15.0 : 15.0);
+                p.targetX = bx + fd * 30.0;
+                p.targetY = wallY;
+            } else {
+                p.targetX = lerp(p.x, ownGoalX + fd * 100.0, 0.4);
+                p.targetY = lerp(p.y, PITCH_H / 2.0, 0.2);
+            }
+        } else {
+            p.targetX = lerp(p.x, ownGoalX + fd * 120.0, 0.3);
+            p.targetY = lerp(p.y, PITCH_H / 2.0, 0.15);
+        }
+    }
+
+    p.targetX = clamp(p.targetX, 35.0, PITCH_W - 35.0);
+    p.targetY = clamp(p.targetY, 35.0, PITCH_H - 35.0);
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // cp() — can-pass
 // ══════════════════════════════════════════════════════════════════════════════

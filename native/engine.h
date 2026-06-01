@@ -52,6 +52,9 @@ public:
     double prevBallX = 525, prevBallY = 340;
     int prevControllerId = -1;
     std::string setPieceType, setPieceTeam;
+    int setPieceTakerId = -1;
+    double setPieceSpotX = 0, setPieceSpotY = 0;
+    bool setPieceTakerArrived = false;
     int half = 1; double halfTimePause = 0;
     Team nextKickoffTeam = Team::Home;
     bool shotActive = false;
