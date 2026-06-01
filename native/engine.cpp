@@ -35,8 +35,9 @@ bool GameEngine::checkOffside(const Player& receiver, const Player& passer) cons
 
 void GameEngine::awardOffsideFreeKick(const std::string& defendingTeam, const Player& offsidePlayer) {
     auto& b=state.ball;
-    b.x=clamp(offsidePlayer.x,20.0,PITCH_W-20);
-    b.y=clamp(offsidePlayer.y,20.0,PITCH_H-20);
+    (void)offsidePlayer;
+    b.x=clamp(b.x,20.0,PITCH_W-20);
+    b.y=clamp(b.y,20.0,PITCH_H-20);
     b.vx=b.vy=b.z=b.vz=0;
     b.controllerId=-1; b.intendedReceiverId=-1;
     receiverShieldTargetId=-1;
@@ -133,6 +134,9 @@ void GameEngine::resolvePendingPass(Player& receiver) {
         else stats.recordPassWrongTeammate();
     }
     else {stats.recordPassIntercepted();}
+    if (pendingPass.isCross && receiver.team == pendingPass.team) {
+        receiver.crossCollected = 1500.0;
+    }
     pendingPass.active=false;
 }
 
@@ -741,6 +745,13 @@ void GameEngine::fixedUpdate(double sdt) {
     if (gkDistributeTimer > 0) {
         gkDistributeTimer -= sdt;
         if (gkDistributeTimer <= 0) releaseSetPiece();
+    }
+    if (b.intendedReceiverId >= 0 && b.controllerId < 0) {
+        Player* receiver = playerById(b.intendedReceiverId);
+        if (receiver) {
+            receiver->targetX = b.x;
+            receiver->targetY = b.y;
+        }
     }
     updateControlledBall(sec);
     moveBallCarrier(sdt);
@@ -1487,7 +1498,7 @@ bool GameEngine::checkOutOfPlay() {
         trackedShotPreventable = false;
         lastLooseOrigin.clear();
     };
-    if (b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
+    if (b.y < 0 || b.y > PITCH_H || b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
         clearState();
         awardThrowIn(std::string(to_string(lt)), b.y < 0 ? 0 : PITCH_H);
         return true;

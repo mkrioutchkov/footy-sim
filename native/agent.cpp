@@ -828,9 +828,29 @@ Action PlayerAI::scoreChase(const Perception& per) {
     double ballSpeed = std::sqrt(b.vx * b.vx + b.vy * b.vy);
     bool needsRecovery = b.z <= 20.0 && ballSpeed < 30.0 && per.amClosestToBall;
 
-    if (!per.ballIsLoose || !engine.canContestBall(player)
-        || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery))
+    bool canContest = engine.canContestBall(player);
+    double toPlayerDist = std::max(per.ballDist, 1.0);
+    double approachDot = ballSpeed > 1.0
+        ? (b.vx * (player.x - b.x) + b.vy * (player.y - b.y)) / (ballSpeed * toPlayerDist)
+        : 0.0;
+    double arrivalTime = per.ballDist / std::max(ballSpeed, 1.0);
+    bool incomingLooseBall = b.z <= 20.0 && ballSpeed > 20.0 && per.ballDist < 100.0
+        && approachDot > 0.35 && arrivalTime < 1.25;
+    bool deadBallRecoveryRun = !canContest && b.z <= 20.0 && ballSpeed < 35.0 && per.ballDist < 70.0;
+    bool closeLooseBall = canContest && b.z <= 20.0 && per.ballDist < 45.0;
+    bool urgentLooseBallRun = incomingLooseBall || deadBallRecoveryRun || closeLooseBall;
+
+    if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun)
+        || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery && !urgentLooseBallRun))
         return Action{ActionType::Chase, 0.0};
+
+    if (urgentLooseBallRun) {
+        double lead = incomingLooseBall ? std::min(arrivalTime * 0.35, 0.22) : 0.0;
+        return Action{ActionType::Chase, 1.0, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      incomingLooseBall ? "meet_incoming_ball" : "recover_loose_ball"};
+    }
 
     if (isIntendedReceiver) {
         double lead = ballSpeed > 30.0 ? 0.2 + std::min(ballSpeed / 300.0, 0.5) : 0.0;
