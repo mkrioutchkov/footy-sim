@@ -8,15 +8,21 @@
 
 double GameEngine::offsideLineFor(Team t) const {
     const double fd = t==Team::Home ? 1.0 : -1.0;
-    const Player* d1=nullptr,*d2=nullptr;
+    const Player* d1=nullptr,*d2=nullptr,*gk=nullptr;
     double v1=-1e9, v2=-1e9;
     for(auto&p:state.players){
         if(p.team==t)continue;
+        if(p.role==Role::GK){gk=&p;continue;}
         double v=p.x*fd;
         if(v>v1){v2=v1;d2=d1;v1=v;d1=&p;}
         else if(v>v2){v2=v;d2=&p;}
     }
-    return d2 ? d2->x : (t==Team::Home?0.0:PITCH_W);
+    if(d2)return d2->x;
+    if(d1&&gk){
+        double dv=d1->x*fd, gv=gk->x*fd;
+        return (dv<gv?d1:gk)->x;
+    }
+    return d1 ? d1->x : (t==Team::Home?0.0:PITCH_W);
 }
 
 bool GameEngine::checkOffside(const Player& receiver, const Player& passer) const {
@@ -366,6 +372,18 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     int pressureCount=0;
     for(auto&o:state.players)if(o.team!=s.team&&o.role!=Role::GK&&dist(o.x,o.y,s.x,s.y)<PRESSURE_RANGE)pressureCount++;
     double angleDeg=goalOpeningAngleDeg(s.x,s.y,gx);
+    int laneBlockers=0;
+    double dxGoal=gx-s.x, dyGoal=goalCenterY-s.y, laneLenSq=dxGoal*dxGoal+dyGoal*dyGoal;
+    if(laneLenSq>1.0){
+        for(auto&o:state.players){
+            if(o.team==s.team||o.role==Role::GK)continue;
+            double along=((o.x-s.x)*dxGoal+(o.y-s.y)*dyGoal)/laneLenSq;
+            if(along<=0.06||along>=0.92)continue;
+            double perp=std::hypot(o.x-s.x-along*dxGoal,o.y-s.y-along*dyGoal);
+            double bodyWidth=shotDistance>180.0?38.0:30.0;
+            if(perp<bodyWidth)laneBlockers++;
+        }
+    }
     bool outsideGoalLane=std::abs(s.y-goalCenterY)>GOAL_W/2+20;
     bool acuteGeometry=outsideGoalLane&&angleDeg<7.5&&shotDistance>150;
     const auto* audit=selectionAudit;
@@ -378,7 +396,9 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double anglePenalty=clamp(std::abs(s.y-goalCenterY)/230,0.0,1.0);
     double distancePenalty=clamp((shotDistance-70)/270,0.0,1.0);
     double longRangePenalty=clamp((shotDistance-120)/130,0.0,1.0);
-    double executionError=16+(1-accuracy)*75+pressureCount*18+anglePenalty*32+distancePenalty*30+longRangePenalty*65;
+    double closePressure = shotDistance < 130.0 ? pressureCount * 46.0 : 0.0;
+    double executionError=28+(1-accuracy)*105+pressureCount*56+closePressure+laneBlockers*78
+        +anglePenalty*48+distancePenalty*58+longRangePenalty*185;
     double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(0.18+accuracy*0.13);
     double goalY=goalCenterY+aimedPost+(rng.random()+rng.random()-1.0)*executionError;
     if(acuteGeometry){
@@ -388,7 +408,8 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     }
     double dx=gx-s.x, dy=goalY-s.y;
     double d=std::hypot(dx,dy);
-    double speed=SHOT_SPEED_BASE+accuracy*145.0-pressureCount*9;
+    double speed=SHOT_SPEED_BASE+accuracy*128.0-pressureCount*28-laneBlockers*34-longRangePenalty*52;
+    speed=std::max(230.0,speed);
     auto& b=state.ball;
     b.controllerId=-1;
     placeBallForRelease(s,dx,dy);
@@ -635,14 +656,18 @@ void GameEngine::fixedUpdate(double sdt) {
                     state.ball.controllerId = taker->id;
                     state.ball.lastTouchTeam = taker->team;
                     state.ball.lastToucherId = taker->id;
-                    // Immediately release throw-in — don't let taker dribble
-                    for (auto& a : agents) {
-                        if (a->player.id == setPieceTakerId) { a->setPieceHold = false; break; }
+                    if (setPieceType == "throw_in") {
+                        // Throw-ins must release immediately; other set pieces can use setup time.
+                        for (auto& a : agents) {
+                            if (a->player.id == setPieceTakerId) { a->setPieceHold = false; break; }
+                        }
+                        setPieceArmed = false;
+                        setPieceTakerId = -1;
+                        setPieceTakerArrived = false;
+                        releaseSetPiece();
+                    } else {
+                        actionTimer = 900;
                     }
-                    setPieceArmed = false;
-                    setPieceTakerId = -1;
-                    setPieceTakerArrived = false;
-                    releaseSetPiece();
                 }
             }
         }
@@ -859,10 +884,10 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     Player* primary = ranked.front().player;
     setAssignment(*primary, "primary_press", carrier.x - fd * 16.0, carrier.y, carrier.id);
     assigned.insert(primary->id);
-    if (tactics.aggression >= 62.0) {
+    if (tactics.aggression >= 62.0 || danger) {
         for (const auto& option : ranked) {
             Player* p = option.player;
-            if (used(p) || p->role == Role::CB || option.distance >= 260.0) continue;
+            if (used(p) || p->role == Role::CB || option.distance >= (danger ? 300.0 : 250.0)) continue;
             setAssignment(*p, "secondary_press", carrier.x - fd * 42.0,
                 carrier.y + (p->homeY < carrier.y ? -38.0 : 38.0), carrier.id);
             assigned.insert(p->id);
@@ -911,21 +936,26 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         if (threatens) threats.push_back({&attacker, depth});
     }
     std::sort(threats.begin(), threats.end(), [](const Threat& a, const Threat& b) { return a.depth < b.depth; });
-    if (threats.size() > (danger ? 2u : 1u)) threats.resize(danger ? 2u : 1u);
-    // Close-down: CBs intercept ball carrier in their half (before threat loop so it takes priority)
-    for (auto& defender : state.players) {
-        if (defender.team != team || defender.role != Role::CB) continue;
-        double cbDist = dist(defender.x, defender.y, carrier.x, carrier.y);
-        bool carrierInHalf = (fd == 1.0) ? carrier.x < HALF_X : carrier.x > HALF_X;
-        if (!danger && carrierInHalf && cbDist < 200.0) {
-            double goalCenterY = PITCH_H / 2.0;
-            double cutX = lerp(carrier.x, ownGoalX + fd * 40.0, 0.25);
-            double cutY = lerp(carrier.y, goalCenterY, 0.20);
-            double side = (defender.y < carrier.y) ? -1.0 : 1.0;
-            cutY = clamp(cutY + side * 30.0, 40.0, PITCH_H - 40.0);
-            setAssignment(defender, "close_down", cutX, cutY);
-            assigned.insert(defender.id);
+    if (threats.size() > (danger ? 3u : 2u)) threats.resize(danger ? 3u : 2u);
+    // Close-down: send one CB only; the partner must stay available for the CF lane.
+    Player* closeCb = nullptr;
+    double closeCbDist = 1e9;
+    bool carrierInHalf = (fd == 1.0) ? carrier.x < HALF_X : carrier.x > HALF_X;
+    if (!danger && carrierInHalf) {
+        for (auto& defender : state.players) {
+            if (defender.team != team || defender.role != Role::CB || used(&defender)) continue;
+            double cbDist = dist(defender.x, defender.y, carrier.x, carrier.y);
+            if (cbDist < 190.0 && cbDist < closeCbDist) { closeCbDist = cbDist; closeCb = &defender; }
         }
+    }
+    if (closeCb) {
+        double goalCenterY = PITCH_H / 2.0;
+        double cutX = lerp(carrier.x, ownGoalX + fd * 40.0, 0.25);
+        double cutY = lerp(carrier.y, goalCenterY, 0.20);
+        double side = (closeCb->y < carrier.y) ? -1.0 : 1.0;
+        cutY = clamp(cutY + side * 30.0, 40.0, PITCH_H - 40.0);
+        setAssignment(*closeCb, "close_down", cutX, cutY);
+        assigned.insert(closeCb->id);
     }
 
     for (const auto& threat : threats) {
@@ -942,10 +972,13 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         }
         if (marker) {
             double targetX = lerp(threat.player->x, ownGoalX + fd * 36.0, 0.20);
-            if (!danger && marker->role == Role::CB) {
-                targetX = ownGoalX + fd * std::max(70.0, lineProgress - 24.0);
+            double threatDistanceToGoal = std::abs(threat.player->x - ownGoalX);
+            bool receiverThreat = state.ball.intendedReceiverId == threat.player->id;
+            if (!danger && marker->role == Role::CB && !receiverThreat && threatDistanceToGoal > 170.0) {
+                targetX = ownGoalX + fd * std::max(70.0, lineProgress - 18.0);
             }
-            setAssignment(*marker, "lane_block", targetX, lerp(threat.player->y, PITCH_H / 2.0, 0.08), threat.player->id);
+            double markTightness = danger || receiverThreat || threatDistanceToGoal < 170.0 ? 0.03 : 0.08;
+            setAssignment(*marker, "lane_block", targetX, lerp(threat.player->y, PITCH_H / 2.0, markTightness), threat.player->id);
             assigned.insert(marker->id);
         }
     }
@@ -1164,15 +1197,31 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
 void GameEngine::releaseThrowIn(Player& holder){
     struct RatedTarget{Player* player;double score;};
     std::vector<RatedTarget> targets;
+    double fd=holder.team==Team::Home?1.0:-1.0;
     for(auto&p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
         double d=dist(holder.x,holder.y,p.x,p.y);
         if(d<30.0||d>400.0)continue;
-        double score=1.0-d/400.0;
+        double nearestOpp=1e9;
+        int laneBlockers=0;
+        for(auto&o:state.players){
+            if(o.team==holder.team||o.role==Role::GK)continue;
+            nearestOpp=std::min(nearestOpp,dist(o.x,o.y,p.x,p.y));
+            double dx=p.x-holder.x,dy=p.y-holder.y,ls=dx*dx+dy*dy;
+            if(ls>1.0){
+                double along=clamp(((o.x-holder.x)*dx+(o.y-holder.y)*dy)/ls,0.0,1.0);
+                double perp=std::hypot(o.x-holder.x-along*dx,o.y-holder.y-along*dy);
+                if(along>0.12&&along<0.92&&perp<32.0)laneBlockers++;
+            }
+        }
+        double progress=(p.x-holder.x)*fd;
+        double score=1.0-d/420.0+clamp(progress/180.0,-0.15,0.20);
+        score-=laneBlockers*0.32+clamp((70.0-nearestOpp)/70.0,0.0,1.0)*0.35;
         targets.push_back({&p,score});
     }
     std::sort(targets.begin(),targets.end(),[](const RatedTarget& a,const RatedTarget& b){return a.score>b.score;});
     for(auto& target:targets){
+        if(target.score < 0.05)continue;
         Player& t=*target.player;
         double dx=t.x-holder.x,dy=t.y-holder.y,d=std::hypot(dx,dy);
         if(d<30.0)continue;
@@ -1188,6 +1237,18 @@ void GameEngine::releaseThrowIn(Player& holder){
         beginTrackedPass(holder,t,false);
         return;
     }
+    auto& b=state.ball;
+    double side = holder.y < PITCH_H / 2.0 ? 1.0 : -1.0;
+    double dx=fd*80.0, dy=side*130.0, d=std::hypot(dx,dy);
+    double speed=155.0;
+    b.controllerId=-1;
+    placeBallForRelease(holder,dx,dy);
+    blockReboundFor(holder.id,600);
+    b.lastTouchTeam=holder.team; b.lastToucherId=holder.id;
+    b.vx=dx/d*speed; b.vy=dy/d*speed; b.vz=speed*0.95; b.z=0;
+    b.intendedReceiverId=-1;
+    receiverShieldTargetId=-1;
+    pendingPass.active=false;
 }
 
 void GameEngine::releaseCornerKick(Player& holder){
@@ -1386,6 +1447,8 @@ bool GameEngine::checkGoal(){
             }else if(lastLooseOrigin=="knock_ahead"){
                 resolveKnockAhead(nullptr,"goal");
                 lastGoalSource="knock_ahead";
+            }else if(b.lastTouchTeam==scoringTeam&&b.lastToucherId>=0){
+                lastGoalSource="shot_state_lost";
             }else{
                 lastGoalSource="loose_unclassified";
             }

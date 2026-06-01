@@ -210,6 +210,8 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
     double fd = (p.team == Team::Home) ? 1.0 : -1.0;
     double ownGoalX = (p.team == Team::Home) ? 0.0 : PITCH_W;
     double oppGoalX = (p.team == Team::Home) ? PITCH_W : 0.0;
+    double slotA = std::sin(p.id * 2.17);
+    double slotB = std::cos(p.id * 1.61);
 
     if (attacking) {
         if (spType == "corner") {
@@ -217,14 +219,14 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
             double by = engine.state.ball.y;
             bool nearPost = by < PITCH_H / 2.0;
             if (p.role == Role::CF) {
-                p.targetX = oppGoalX - fd * (80.0 + (engine.rng.random() - 0.5) * 40.0);
-                p.targetY = PITCH_H / 2.0 + (nearPost ? -40.0 : 40.0) + (engine.rng.random() - 0.5) * 30.0;
+                p.targetX = oppGoalX - fd * (80.0 + slotA * 20.0);
+                p.targetY = PITCH_H / 2.0 + (nearPost ? -40.0 : 40.0) + slotB * 15.0;
             } else if (p.role == Role::WM || p.role == Role::FB) {
-                p.targetX = oppGoalX - fd * (50.0 + (engine.rng.random() - 0.5) * 30.0);
+                p.targetX = oppGoalX - fd * (50.0 + slotA * 15.0);
                 p.targetY = nearPost ? PITCH_H * 0.25 : PITCH_H * 0.75;
             } else if (p.role == Role::CM) {
-                p.targetX = oppGoalX - fd * (120.0 + (engine.rng.random() - 0.5) * 40.0);
-                p.targetY = PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 80.0;
+                p.targetX = oppGoalX - fd * (120.0 + slotA * 20.0);
+                p.targetY = PITCH_H / 2.0 + slotB * 40.0;
             } else {
                 p.targetX = lerp(p.x, oppGoalX - fd * 150.0, 0.6);
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.3);
@@ -233,11 +235,11 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
             double bx = engine.state.ball.x;
             double by = engine.state.ball.y;
             if (p.role == Role::CF) {
-                p.targetX = oppGoalX - fd * (60.0 + (engine.rng.random() - 0.5) * 30.0);
-                p.targetY = PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 60.0;
+                p.targetX = oppGoalX - fd * (60.0 + slotA * 15.0);
+                p.targetY = PITCH_H / 2.0 + slotB * 30.0;
             } else if (p.role == Role::CM || p.role == Role::WM) {
-                p.targetX = bx + fd * (engine.rng.random() * 80.0 + 20.0);
-                p.targetY = by + (engine.rng.random() - 0.5) * 120.0;
+                p.targetX = bx + fd * (60.0 + slotA * 40.0);
+                p.targetY = by + slotB * 60.0;
             } else {
                 p.targetX = lerp(p.x, bx, 0.3);
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.2);
@@ -245,17 +247,17 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
         } else if (spType == "throw_in") {
             double bx = engine.state.ball.x;
             double by = engine.state.ball.y;
-            p.targetX = bx + fd * (engine.rng.random() * 60.0 + 20.0);
-            p.targetY = by + (engine.rng.random() - 0.5) * 100.0;
+            p.targetX = bx + fd * (50.0 + slotA * 30.0);
+            p.targetY = by + slotB * 50.0;
         }
     } else {
         if (spType == "corner") {
             if (p.role == Role::CB || p.role == Role::FB) {
-                p.targetX = ownGoalX + fd * (60.0 + (engine.rng.random() - 0.5) * 30.0);
-                p.targetY = PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 120.0;
+                p.targetX = ownGoalX + fd * (60.0 + slotA * 15.0);
+                p.targetY = PITCH_H / 2.0 + slotB * 60.0;
             } else if (p.role == Role::CM) {
                 p.targetX = ownGoalX + fd * 120.0;
-                p.targetY = PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 80.0;
+                p.targetY = PITCH_H / 2.0 + slotB * 40.0;
             } else {
                 p.targetX = lerp(p.x, ownGoalX + fd * 180.0, 0.5);
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.3);
@@ -515,10 +517,10 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 
     double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.55;
     if (shotDistance < 140.0 && per.pressureCount == 0 && angleDeg > 10.0) sc = std::max(sc, 0.38);
-    if (shotDistance < 120.0) sc = std::max(sc, 0.30);
-    if (shotDistance < 90.0)  sc = std::max(sc, 0.45);
-    if (shotDistance < 50.0)  sc = std::max(sc, 0.58);
-    if (shotDistance < 30.0)  sc = std::max(sc, 0.75);
+    if (shotDistance < 120.0 && per.pressureCount == 0) sc = std::max(sc, 0.30);
+    if (shotDistance < 90.0 && per.pressureCount == 0)  sc = std::max(sc, 0.45);
+    if (shotDistance < 50.0 && per.pressureCount <= 1)  sc = std::max(sc, 0.50);
+    if (shotDistance < 30.0 && per.pressureCount <= 1)  sc = std::max(sc, 0.68);
 
     Player* gk = nullptr;
     for (auto& o : engine.state.players) {
@@ -536,13 +538,13 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (p.role == Role::CF) sc += 0.13;
     if (p.role == Role::CM) sc -= 0.03;
     if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= 0.08;
-    sc -= std::min(0.24, per.pressureCount * 0.09);
+    sc -= std::min(0.42, per.pressureCount * 0.16);
 
     bool credibleOpening = angleDeg >= 7.5 || shotDistance < 115.0;
-    if (shotDistance < 200.0 && credibleOpening) sc += 0.30;
-    if (shotDistance < 120.0 && credibleOpening) sc += 0.38;
-    if (shotDistance < 70.0  && credibleOpening) sc += 0.28;
-    if (shotDistance < 40.0)  sc += 0.18;
+    if (shotDistance < 200.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.30 : 0.12;
+    if (shotDistance < 120.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.38 : 0.12;
+    if (shotDistance < 70.0  && credibleOpening) sc += per.pressureCount <= 1 ? 0.22 : 0.05;
+    if (shotDistance < 40.0)  sc += per.pressureCount <= 1 ? 0.18 : 0.04;
 
     if (p.crossCollected > 0.0 && shotDistance < 230.0) sc += 0.35;
 
@@ -735,8 +737,13 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 
     auto* defensiveTask = engine.assignmentFor(player.id);
     if (defensiveTask) {
+        bool shapeTask = defensiveTask->role != "primary_press" && defensiveTask->role != "secondary_press"
+            && defensiveTask->role != "close_down";
+        if (shapeTask && d > TACKLE_RANGE * 0.75) return Action{ActionType::Tackle, 0.0};
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == "primary_press")   sc += 0.20;
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == "secondary_press") sc += 0.10;
+        if (shapeTask)
+            sc -= 0.58;
         if (defensiveTask->role != "primary_press" && defensiveTask->role != "secondary_press"
             && std::abs(ctrl->x - (ownGoalXFor(player.team))) > 170.0)
             sc -= 0.20;
@@ -773,7 +780,7 @@ Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
         Player* t = engine.playerById(per.intendedId);
         if (t && t->team != player.team && (t->role == Role::CF || t->role == Role::WM)) {
             double d = dist(player.x, player.y, t->x, t->y);
-            if (d < 300.0) return Action{ActionType::Mark, clamp(0.65 - (d / 300.0) * 0.3, 0.0, 1.0), t};
+            if (d < 340.0) return Action{ActionType::Mark, clamp(0.80 - (d / 340.0) * 0.25, 0.0, 1.0), t};
         }
     }
 
@@ -808,7 +815,7 @@ Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
     if (!best) return Action{ActionType::Mark, 0.0};
 
     double dangerDist = dist(player.x, player.y, best->x, best->y);
-    double baseScore = isFb ? 0.60 : 0.50;
+    double baseScore = isFb ? 0.68 : 0.66;
     return Action{ActionType::Mark, clamp(baseScore + attrFactor(player.attrs.positioning) * 0.25 - (dangerDist / 300.0) * 0.25, 0.0, 1.0), best};
 }
 
@@ -1186,11 +1193,11 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     auto* task = engine.assignmentFor(p.id);
     if (task) {
         static const std::unordered_map<std::string, double> taskScores = {
-            {"primary_press", 0.82}, {"secondary_press", 0.70}, {"cover", 0.62},
-            {"lane_block", 0.68}, {"defensive_line", 0.62}, {"wide_cover", 0.62},
+            {"primary_press", 0.86}, {"secondary_press", 0.72}, {"cover", 0.66},
+            {"lane_block", 0.82}, {"defensive_line", 0.70}, {"wide_cover", 0.68},
             {"midfield_screen", 0.60}, {"support_outlet", 0.47}, {"advance_midfield", 0.60},
             {"run_ahead", 0.64}, {"inside_run", 0.62}, {"hold_width", 0.56},
-            {"overlap", 0.66}, {"rest_defence", 0.56}, {"close_down", 0.75},
+            {"overlap", 0.66}, {"rest_defence", 0.56}, {"close_down", 0.84},
         };
         double ts = 0.80;
         auto tit = taskScores.find(task->role);
@@ -1379,8 +1386,8 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         // Knock-ahead: clear lanes with enough grass to run into.
         bool advancedEnough = (fd > 0 && p.x > HALF_X - 100.0) || (fd < 0 && p.x < HALF_X + 100.0);
         bool clearPath = oppsInPath == 0;
-        bool spaceAhead = nearestOppDist > 70.0;
-        bool openGrass = nearestOppDist > 130.0;
+        bool spaceAhead = nearestOppDist > 180.0;
+        bool openGrass = nearestOppDist > 220.0;
         bool longDistToTarget = distToTarget > 90.0;
 
         // Check if a teammate can collect (within ~175px of launch point)
@@ -1397,7 +1404,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         // Flank bonus: knock-aheads on the flank are safer (less central traffic)
         bool onFlank = std::abs(p.y - PITCH_H / 2.0) > 120.0;
         bool finalThird = (fd > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
-        bool finalThirdBurst = finalThird && distToTarget > 110.0 && nearestOppDist > 95.0 && clearPath;
+        bool finalThirdBurst = finalThird && distToTarget > 110.0 && nearestOppDist > 180.0 && clearPath;
 
         // Open burst: clear path with support, flank safety, or very obvious space.
         bool openBurst = longDistToTarget && spaceAhead && clearPath && advancedEnough
@@ -1447,11 +1454,12 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         }
     }
     else if (a.type == ActionType::Mark && a.target) {
-        double leadX = a.target->x + a.target->vx * 0.3;
-        double leadY = a.target->y + a.target->vy * 0.3;
+        double leadX = a.target->x + a.target->vx * 0.45;
+        double leadY = a.target->y + a.target->vy * 0.45;
         double ownGx = ownGoalXFor(p.team);
-        p.targetX = clamp(lerp(leadX, ownGx, 0.15), leadX - 80.0, leadX + 40.0);
-        p.targetY = clamp(leadY + std::sin(engine.state.clockMs * 0.004 + p.id) * 8.0, 30.0, PITCH_H - 30.0);
+        double goalSide = p.team == Team::Home ? -1.0 : 1.0;
+        p.targetX = clamp(leadX + goalSide * 18.0, leadX - 45.0, leadX + 45.0);
+        p.targetY = clamp(leadY, 30.0, PITCH_H - 30.0);
     }
     else if (a.type == ActionType::Chase) {
         double tx = (a.posX != 0) ? a.posX : b.x;

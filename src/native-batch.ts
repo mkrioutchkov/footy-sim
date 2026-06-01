@@ -22,7 +22,7 @@ interface Summary {
   unknownLooseGoals: number;
   shotsByDistance: { questionable: number };
   tackles: { attempts: number; wins: number };
-  dribbleTypes: { knockAheads: number; turnovers: number; riskyTurnovers: number };
+  dribbleTypes: { knockAheads: number; turnovers: number; riskyTurnovers: number; recovered: number; retainedByTeammate: number; outOfPlay: number };
   passSelection: { risky: number; saferIgnored: number; pressuredReceptions: number; pressuredReceptionFailures: number };
   shotSelection: {
     betterPassAvailable: number;
@@ -114,7 +114,10 @@ console.log(JSON.stringify({
     tackleWinPct: round(results.reduce((sum, result) => sum + result.tackles.wins, 0)
       / Math.max(1, results.reduce((sum, result) => sum + result.tackles.attempts, 0)) * 100),
     knockAheadsPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.knockAheads, 0) / matches),
+    knockAheadRetainedPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.recovered, 0) / matches),
+    knockAheadTeammatePerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.retainedByTeammate, 0) / matches),
     knockAheadTurnoversPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.turnovers, 0) / matches),
+    knockAheadOutOfPlayPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.outOfPlay, 0) / matches),
     questionableShotsPerMatch: round(results.reduce((sum, result) => sum + result.shotsByDistance.questionable, 0) / matches),
     cfCredibleWindowSamplesPerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfCredibleWindowSamples, 0) / matches),
     cfDeferredSamplesPerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfDeferredSamples, 0) / matches),
