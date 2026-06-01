@@ -591,6 +591,16 @@ void GameEngine::fixedUpdate(double sdt) {
         for (auto& a : agents) {
             a->setPiecePositioning(setPieceType, spTeam);
         }
+
+        // Override: taker runs directly to the ball
+        if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
+            Player* taker = playerById(setPieceTakerId);
+            if (taker) {
+                taker->targetX = state.ball.x;
+                taker->targetY = state.ball.y;
+            }
+        }
+
         tickAgents(sdt, false);
         moveBallCarrier(sdt);
         separateTeammates(sdt);
