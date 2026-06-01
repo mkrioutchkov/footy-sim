@@ -145,4 +145,6 @@ private:
     ShotSelectionAudit    shotSelectionAudit(const Action& choice, const std::vector<Action>& actions);
 public:
     virtual void          setPiecePositioning(const std::string& spType, Team spTeam);
+    void                  stunLock(int ticks) { stunLockTicks = std::max(stunLockTicks, ticks); }
+    bool                  setPieceHold = false;
 };

@@ -1589,6 +1589,7 @@ Perception PlayerAI::perceive() {
 void PlayerAI::applyMovement(double sdt) {
     auto& p = player;
     if (p.role == Role::GK) return;
+    if (setPieceHold) return;
 
     double secs = sdt / 1000.0;
     double spd = std::sqrt(p.vx * p.vx + p.vy * p.vy);

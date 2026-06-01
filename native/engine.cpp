@@ -592,18 +592,53 @@ void GameEngine::fixedUpdate(double sdt) {
             a->setPiecePositioning(setPieceType, spTeam);
         }
 
-        // Override: taker runs directly to the ball
+        // Set piece hold: taker agent skips movement
         if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
-            Player* taker = playerById(setPieceTakerId);
-            if (taker) {
-                taker->targetX = state.ball.x;
-                taker->targetY = state.ball.y;
+            for (auto& a : agents) {
+                if (a->player.id == setPieceTakerId) {
+                    a->setPieceHold = true;
+                    break;
+                }
             }
         }
 
         tickAgents(sdt, false);
         moveBallCarrier(sdt);
         separateTeammates(sdt);
+
+        // Force taker toward ball (only movement source for taker)
+        if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
+            Player* taker = playerById(setPieceTakerId);
+            if (taker) {
+                double dx = state.ball.x - taker->x;
+                double dy = state.ball.y - taker->y;
+                double d = std::hypot(dx, dy);
+                if (d > 1.0) {
+                    double speed = attrFactor(taker->attrs.speed) * SPEED_SPRINT;
+                    double step = std::min(speed * (sdt / 1000.0), d);
+                    taker->x += (dx / d) * step;
+                    taker->y += (dy / d) * step;
+                    taker->facing = std::atan2(dy, dx);
+                }
+                taker->targetX = state.ball.x;
+                taker->targetY = state.ball.y;
+            }
+        }
+
+        // Check taker arrival
+        if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
+            Player* taker = playerById(setPieceTakerId);
+            if (taker) {
+                double d = dist(taker->x, taker->y, state.ball.x, state.ball.y);
+                if (d < 15.0) {
+                    setPieceTakerArrived = true;
+                    state.ball.controllerId = taker->id;
+                    state.ball.lastTouchTeam = taker->team;
+                    state.ball.lastToucherId = taker->id;
+                    actionTimer = 1500;
+                }
+            }
+        }
 
         // Check taker arrival
         if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
@@ -622,6 +657,10 @@ void GameEngine::fixedUpdate(double sdt) {
 
         // Release when taker has ball and timer expires, or forced by max wait
         if (setPieceTakerArrived && actionTimer <= 0) {
+            // Clear hold flag for taker
+            for (auto& a : agents) {
+                if (a->player.id == setPieceTakerId) { a->setPieceHold = false; break; }
+            }
             setPieceArmed = false;
             setPieceTakerId = -1;
             setPieceTakerArrived = false;
@@ -631,6 +670,9 @@ void GameEngine::fixedUpdate(double sdt) {
             if (setPieceTakerId >= 0) {
                 Player* taker = playerById(setPieceTakerId);
                 if (taker) {
+                    for (auto& a : agents) {
+                        if (a->player.id == setPieceTakerId) { a->setPieceHold = false; break; }
+                    }
                     state.ball.controllerId = taker->id;
                     state.ball.lastTouchTeam = taker->team;
                     state.ball.lastToucherId = taker->id;
