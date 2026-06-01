@@ -1226,6 +1226,27 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
                                  "task:" + task->role});
     }
 
+    Player* carrier = engine.playerById(per.ballControllerId);
+    if (!my && carrier && carrier->team != p.team && carrier->role != Role::GK) {
+        double carrierDist = dist(p.x, p.y, carrier->x, carrier->y);
+        double ownGx = ownGoalXFor(p.team);
+        bool inOwnHalf = (p.team == Team::Home) ? carrier->x < HALF_X : carrier->x > HALF_X;
+        bool inOwnThird = std::abs(carrier->x - ownGx) < PITCH_W * 0.36;
+        bool roleCanStep = p.role == Role::CM || p.role == Role::FB || p.role == Role::CB
+            || (p.role == Role::WM && std::abs(carrier->y - p.y) < 170.0);
+        bool localPressure = roleCanStep && inOwnHalf
+            && (carrierDist < (inOwnThird ? 118.0 : 86.0));
+        if (localPressure) {
+            double goalSide = (p.team == Team::Home) ? -1.0 : 1.0;
+            double containX = clamp(carrier->x + goalSide * 18.0, 35.0, PITCH_W - 35.0);
+            double side = (p.y < carrier->y) ? -1.0 : 1.0;
+            double containY = clamp(carrier->y + side * 10.0, 35.0, PITCH_H - 35.0);
+            double score = clamp(0.96 - carrierDist / 700.0, 0.72, 0.94);
+            options.push_back(Action{ActionType::Position, score, carrier, containX, containY,
+                                     "local_close_down"});
+        }
+    }
+
     return options;
 }
 
@@ -1467,7 +1488,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
             && engine.attemptTackle(p, *a.target))
         {
             engine.emitEvent("tackle", (p.x + a.target->x) / 2.0, (p.y + a.target->y) / 2.0, p.id, a.target->id);
-            p.tackleAnim = 800.0;
+            p.tackleAnim = engine.state.ball.controllerId == p.id ? 220.0 : 800.0;
         } else {
             p.targetX = a.target ? a.target->x : p.x;
             p.targetY = a.target ? a.target->y : p.y;
@@ -1724,6 +1745,15 @@ void PlayerAI::applyMovement(double sdt) {
             auto& b = engine.state.ball;
             double bs = std::hypot(b.vx, b.vy);
             if(bs > 0.5) facing = facing + std::atan2(std::sin(std::atan2(-b.vy, -b.vx) - facing), std::cos(std::atan2(-b.vy, -b.vx) - facing)) * 0.05;
+        }
+    } else if (engine.state.ball.controllerId >= 0) {
+        Player* carrier = engine.playerById(engine.state.ball.controllerId);
+        if (carrier && carrier->team != p.team && bd < 170.0) {
+            double ballAngle = std::atan2(bdy, bdx);
+            facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.18;
+        } else if (spdAfter > 5.0) {
+            double moveAngle = std::atan2(p.vy, p.vx);
+            facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.06;
         }
     } else if (engine.state.ball.controllerId < 0 && bd < 80.0) {
         double ballAngle = std::atan2(bdy, bdx);
