@@ -1610,13 +1610,15 @@ void GameEngine::tryGKSave() {
         recordBallImpulse();
         return;
     }
-    double parryDampen = 0.40 + rng.random() * 0.55;
+    double parryDampen = 0.50 + rng.random() * 0.40;
     double parrySpeed = speed * (1.0 - parryDampen);
-    double parryAngle = -0.4 + rng.random() * 0.8;
+    double parryAngle = -0.8 + rng.random() * 1.6;
+    double cornerY = (gk->y < PITCH_H / 2.0) ? 18.0 : PITCH_H - 18.0;
+    parryAngle += (cornerY - gk->y) * 0.003;
     b.x = clamp(gk->x + fieldDir * 28, 10.0, PITCH_W - 10.0);
-    b.y = clamp(gk->y + side * 24, 18.0, PITCH_H - 18.0);
+    b.y = clamp(gk->y - side * 24, 18.0, PITCH_H - 18.0);
     b.vx = fieldDir * std::cos(parryAngle) * parrySpeed;
-    b.vy = side * std::abs(std::sin(parryAngle)) * parrySpeed;
+    b.vy = -side * std::abs(std::sin(parryAngle)) * parrySpeed;
     b.z = b.vz = 0;
     b.intendedReceiverId = -1;
     blockReboundFor(shooterId, 1400);
