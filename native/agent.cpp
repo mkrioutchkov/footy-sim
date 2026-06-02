@@ -176,6 +176,10 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
             if (x.type == ActionType::Shoot)   x.score += pc * 0.03;
             if (x.type == ActionType::Dribble && pc == 1) x.score += 0.10;
             if (x.type == ActionType::Dribble && pc >= 3) x.score -= 0.10;
+            if (pc == 0 && x.type == ActionType::Pass && x.purpose != "cross" && x.purpose != "through") {
+                if (holdTicks < 12) x.score -= 0.18;
+                else if (holdTicks < 24) x.score -= 0.10;
+            }
         }
 
         Action* bestPass = nullptr;
@@ -275,9 +279,15 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
             if (p.role == Role::CF) {
                 p.targetX = oppGoalX - fd * (60.0 + slotA * 15.0);
                 p.targetY = PITCH_H / 2.0 + slotB * 30.0;
-            } else if (p.role == Role::CM || p.role == Role::WM) {
-                p.targetX = bx + fd * (60.0 + slotA * 40.0);
-                p.targetY = by + slotB * 60.0;
+            } else if (p.role == Role::CM) {
+                p.targetX = bx - fd * (35.0 + std::abs(slotA) * 55.0);
+                p.targetY = by + slotB * 80.0;
+            } else if (p.role == Role::WM) {
+                p.targetX = bx + fd * (25.0 + slotA * 35.0);
+                p.targetY = by + slotB * 115.0;
+            } else if (p.role == Role::FB || p.role == Role::CB) {
+                p.targetX = bx - fd * (75.0 + std::abs(slotA) * 60.0);
+                p.targetY = by + slotB * 95.0;
             } else {
                 p.targetX = lerp(p.x, bx, 0.3);
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.2);
@@ -351,8 +361,9 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
             double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
             double perp = std::sqrt((o.x - p.x - t2 * dx) * (o.x - p.x - t2 * dx)
                                   + (o.y - p.y - t2 * dy) * (o.y - p.y - t2 * dy));
-            if (perp < 30.0) bl++;
+            if (perp < 36.0) bl++;
         }
+        if (bl >= 3) continue;
 
         double fp = (t.x - p.x) * fd;
         double rs = attrFactor(p.attrs.passing);
@@ -365,10 +376,10 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (receiverPressure >= 3) continue;
 
         double completion = clamp(
-            0.89 + rs * 0.10 + rr * 0.06 - d / 850.0 * 0.28 - bl * 0.21
-                - receiverPressure * 0.12 - (fp > 130.0 ? 0.05 : 0.0),
+            0.89 + rs * 0.10 + rr * 0.06 - d / 850.0 * 0.28 - bl * 0.23
+                - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),
             0.08, 0.98);
-        if (completion < 0.06) continue;
+        if (completion < 0.44) continue;
 
         double progression = clamp(fp / 240.0, -0.5, 1.0);
         double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
@@ -388,20 +399,23 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
 
         double dgW = dg2;
         bool isWideDelivery = (p.role == Role::WM || p.role == Role::FB)
-            && dgW < 315.0
-            && std::abs(p.y - PITCH_H / 2.0) > 90.0
-            && std::abs(t.x - (goalXFor(p.team))) < 235.0
-            && std::abs(t.y - PITCH_H / 2.0) < 135.0
-            && fp > -80.0;
+            && dgW < 430.0
+            && std::abs(p.y - PITCH_H / 2.0) > 75.0
+            && std::abs(t.x - (goalXFor(p.team))) < 310.0
+            && std::abs(t.y - PITCH_H / 2.0) < 210.0
+            && fp > -120.0;
 
-        bool isCross   = isWideDelivery && std::abs(p.y - PITCH_H / 2.0) > 180.0 && fp > 0.0;
+        bool isCross   = isWideDelivery && std::abs(p.y - PITCH_H / 2.0) > 120.0 && fp > -45.0;
         bool isCutback = isWideDelivery && !isCross;
 
-        if (p.role == Role::WM && dgW < 380.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 200.0) sc += 0.28;
-        if (p.role == Role::WM && fp > 50.0 && std::abs(p.y - PITCH_H / 2.0) > 120.0 && bl <= 2) sc += 0.20;
-        if (p.role == Role::FB && fp > 35.0 && std::abs(p.y - PITCH_H / 2.0) > 90.0 && dgW < 360.0) sc += 0.18;
+        if (isCross) sc += 0.48;
+        if (isCutback) sc += 0.18;
+        if (p.role == Role::WM && dgW < 450.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 230.0) sc += 0.42;
+        if (p.role == Role::WM && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.32;
+        if (p.role == Role::FB && fp > 0.0 && std::abs(p.y - PITCH_H / 2.0) > 75.0 && dgW < 430.0) sc += 0.30;
 
-        sc -= bl * 0.06;
+        if (completion < 0.62) sc -= (0.62 - completion) * 0.55;
+        sc -= bl * 0.12;
         if (fp > 0.0) {
             sc += 0.08 + (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.20;
         } else {
@@ -502,6 +516,36 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
             });
         }
     }
+    double goalX = goalXFor(p.team);
+    bool crossingCarrier = (p.role == Role::WM || p.role == Role::FB)
+        && std::abs(p.y - PITCH_H / 2.0) > 75.0
+        && std::abs(p.x - goalX) < 520.0;
+    if (crossingCarrier) {
+        Player* bestRunner = nullptr;
+        double bestScore = -1e9;
+        for (auto& t : engine.state.players) {
+            if (t.team != p.team || t.id == p.id || t.role == Role::GK) continue;
+            if (engine.isOffsideTarget(p, t)) continue;
+            double targetGoalDist = std::abs(t.x - goalX);
+            if (targetGoalDist > 430.0 || std::abs(t.y - PITCH_H / 2.0) > 255.0) continue;
+            double d = dist(p.x, p.y, t.x, t.y);
+            if (d < 65.0 || d > 520.0) continue;
+            int pressure = 0;
+            for (auto& o : engine.state.players) {
+                if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < 48.0) pressure++;
+            }
+            double central = 1.0 - std::abs(t.y - PITCH_H / 2.0) / 230.0;
+            double roleBonus = t.role == Role::CF ? 0.34 : t.role == Role::CM ? 0.18 : t.role == Role::WM ? 0.10 : 0.0;
+            double score = central + roleBonus + (320.0 - targetGoalDist) / 420.0 - pressure * 0.25 - d / 900.0;
+            if (score > bestScore) { bestScore = score; bestRunner = &t; }
+        }
+        if (bestRunner && bestScore > -0.05) {
+            double d = dist(p.x, p.y, bestRunner->x, bestRunner->y);
+            double fp = (bestRunner->x - p.x) * fd;
+            r.push_back(Action{ActionType::Pass, clamp(0.78 + bestScore * 0.20, 0.0, 0.98), bestRunner, 0, 0,
+                               "cross", ActionAudit{d, fp, 0.72, 0, 0, 0, 0}});
+        }
+    }
     return r;
 }
 
@@ -540,6 +584,10 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (rit != roleMax.end()) hardMax = rit->second;
     if (shotDistance > hardMax)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
+    if (p.role == Role::CM && shotDistance > 205.0 && (angleDeg < 10.0 || per.pressureCount > 1))
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
+    if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) > 180.0 && shotDistance > 155.0)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
     double mr = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
     if (shotDistance > std::min(mr, hardMax))
@@ -576,9 +624,10 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 
     if (shotDistance < 100.0) sc += 0.14;
     if (shotDistance < 60.0)  sc += 0.12;
-    if (p.role == Role::CF) sc += 0.13;
-    if (p.role == Role::CM) sc -= 0.03;
-    if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= 0.08;
+    if (p.role == Role::CF) sc += 0.20;
+    if (p.role == Role::CM) sc -= 0.07;
+    if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) < 140.0) sc += 0.08;
+    if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= p.role == Role::WM ? 0.04 : 0.08;
     sc -= std::min(0.42, per.pressureCount * 0.16);
     sc -= clamp(cp.score - 0.55, 0.0, 0.75) * 0.18;
     if (cp.exposed > 0.45 && shotDistance > 85.0) sc -= 0.12;
@@ -757,6 +806,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 // ct() — can-tackle
 // ══════════════════════════════════════════════════════════════════════════════
 Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) {
+    if (engine.setPieceArmed) return Action{ActionType::Tackle, 0.0};
     if (per.ballIsLoose || per.ballControllerTeam == player.team)
         return Action{ActionType::Tackle, 0.0};
 
@@ -1016,9 +1066,9 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     Team ip = engine.teamInPossession();
     bool my = (per.ballControllerTeam == p.team);
     double ba = (fd == 1.0) ? b.x / PITCH_W : 1.0 - b.x / PITCH_W;
-    double pu = my ? ba * 180.0 : 0.0;
+    double pu = my ? ba * 220.0 : 0.0;
     bool iw = (p.role == Role::FB || p.role == Role::WM);
-    double wp = (iw && my) ? ba * 60.0 : 0.0;
+    double wp = (iw && my) ? ba * 85.0 : 0.0;
 
     struct Candidate { double x, y; std::string pur; };
     std::vector<Candidate> c = {
@@ -1050,6 +1100,16 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         if (ballPastUs && (p.role == Role::CB || p.role == Role::FB || p.role == Role::CM)) {
             c.push_back({ rx - fd * 30.0, p.homeY, "cover" });
             c.push_back({ rx - fd * 30.0, p.homeY - 25.0, "cover" });
+        }
+
+        double carrierDepth = (b.x - og) * fd;
+        bool immediateDanger = carrierDepth < 260.0;
+        if (!immediateDanger && p.role == Role::CF) {
+            c.push_back({ clamp(HALF_X + fd * 95.0, 60.0, PITCH_W - 60.0), p.homeY, "counter_outlet" });
+            c.push_back({ clamp(HALF_X + fd * 70.0, 60.0, PITCH_W - 60.0), clamp(p.homeY + ((b.y < PITCH_H / 2.0) ? 45.0 : -45.0), 80.0, PITCH_H - 80.0), "counter_outlet" });
+        }
+        if (!immediateDanger && p.role == Role::WM && std::abs(p.homeY - b.y) > 190.0) {
+            c.push_back({ clamp(HALF_X + fd * 45.0, 60.0, PITCH_W - 60.0), p.homeY, "rest_forward" });
         }
     }
 
@@ -1131,12 +1191,15 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             }
             double bSide = (b.y < PITCH_H / 2.0) ? -1.0 : 1.0;
             c.push_back({ clamp(p.homeX + fd * 30.0 + pu, 60.0, PITCH_W - 60.0), clamp(p.homeY + bSide * 50.0, 40.0, PITCH_H - 40.0), "space" });
+            c.push_back({ clamp(p.homeX + fd * 110.0 + pu, 60.0, PITCH_W - 60.0), clamp(PITCH_H / 2.0 + bSide * 55.0, 50.0, PITCH_H - 50.0), "offer" });
+            c.push_back({ clamp(b.x + fd * 90.0, 60.0, PITCH_W - 60.0), clamp(p.homeY + bSide * 35.0, 45.0, PITCH_H - 45.0), "space" });
         }
 
         if (p.role == Role::WM) {
             double flankY = (p.homeY < PITCH_H / 2.0) ? 18.0 : PITCH_H - 18.0;
             std::string crossPur = ba > 0.45 ? "offer" : "space";
             c.push_back({ clamp(p.homeX + fd * 80.0 + pu, 60.0, PITCH_W - 60.0), flankY, crossPur });
+            c.push_back({ clamp(b.x + fd * 115.0, p.homeX + fd * 80.0, goalXFor(p.team) - fd * 45.0), flankY, "cross_lane" });
             double runBehindY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.3 : PITCH_H * 0.7;
             c.push_back({ clamp(p.homeX + fd * 140.0 + pu, 60.0, AWAY_GOAL_X - fd * 20.0), runBehindY, "space" });
             if (std::abs(b.y - p.homeY) > 200.0) {
@@ -1170,6 +1233,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             } else {
                 double wmHomeY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.12 : PITCH_H * 0.88;
                 c.push_back({ p.homeX + fd * 120.0 + pu, clamp(wmHomeY, 40.0, PITCH_H - 40.0), "space" });
+                c.push_back({ clamp(p.homeX + fd * 185.0 + pu, 60.0, PITCH_W - 60.0), clamp(wmHomeY, 40.0, PITCH_H - 40.0), "overlap" });
             }
         }
 
@@ -1250,11 +1314,14 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             double d2 = std::sqrt((cn.x - o->x) * (cn.x - o->x) + (cn.y - o->y) * (cn.y - o->y));
             if (d2 < 50.0) sf -= (50.0 - d2) / 50.0;
         }
-        double tac = my ? (cn.x - p.homeX) * fd / PITCH_W * 0.5 : -(cn.x - p.homeX) * fd / PITCH_W * 0.25;
+        bool counterOutlet = cn.pur == "counter_outlet" || cn.pur == "rest_forward";
+        double tac = my ? (cn.x - p.homeX) * fd / PITCH_W * 0.5 : counterOutlet ? 0.0 : -(cn.x - p.homeX) * fd / PITCH_W * 0.25;
         double og2 = ownGoalXFor(p.team);
         double db = !my ? clamp(((b.x - cn.x) * fd) / (std::abs(b.x - og2) + 1.0), 0.0, 0.30) : 0.0;
         double bp2 = std::sqrt((cn.x - b.x) * (cn.x - b.x) + (cn.y - b.y) * (cn.y - b.y)) / 600.0 * 0.08;
-        double ob = (cn.pur == "observe") ? 0.10 :
+        double ob = counterOutlet ? 0.44 :
+                    (cn.pur == "cross_lane" || cn.pur == "overlap") ? 0.24 :
+                    (cn.pur == "observe") ? 0.10 :
                     (cn.pur == "space" && p.role == Role::WM && std::abs(cn.y - PITCH_H / 2.0) > 150.0 && ba > 0.4) ? 0.12 : 0.0;
 
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;

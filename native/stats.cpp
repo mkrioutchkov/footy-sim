@@ -1,7 +1,14 @@
 #include "stats.h"
 
-void StatsCollector::recordGoal(const std::string& team, const std::string& source, double distance, double speed) {
+void StatsCollector::recordGoal(const std::string& team, const std::string& source, double distance, double speed, const std::string& scorerRole) {
     if(team=="home") goalsHome++; else goalsAway++;
+    if(scorerRole=="GK") goalsGK++;
+    else if(scorerRole=="CB") goalsCB++;
+    else if(scorerRole=="FB") goalsFB++;
+    else if(scorerRole=="CM") goalsCM++;
+    else if(scorerRole=="WM") goalsWM++;
+    else if(scorerRole=="CF") goalsCF++;
+    else goalsUnknownRole++;
     if(source=="direct_cross") directCrossGoals++;
     else if(source=="direct_delivery") directDeliveryGoals++;
     else if(source=="shot") /* tracked shot goal */;
@@ -16,8 +23,15 @@ void StatsCollector::recordGoal(const std::string& team, const std::string& sour
     if(distance<100) goalDistClose++; else if(distance<200) goalDistMedium++; else goalDistLong++;
 }
 
-void StatsCollector::recordShot(const std::string& team, bool onTarget) {
+void StatsCollector::recordShot(const std::string& team, bool onTarget, const std::string& shooterRole) {
     if(team=="home") shotsHome++; else shotsAway++;
+    if(shooterRole=="GK") shotsGK++;
+    else if(shooterRole=="CB") shotsCB++;
+    else if(shooterRole=="FB") shotsFB++;
+    else if(shooterRole=="CM") shotsCM++;
+    else if(shooterRole=="WM") shotsWM++;
+    else if(shooterRole=="CF") shotsCF++;
+    else shotsUnknownRole++;
     if(onTarget) shotsOnTarget++;
 }
 
@@ -67,7 +81,15 @@ std::string StatsCollector::summaryJSON() const {
         {"average", totalShots > 0 ? std::round(shotDistTotal / totalShots * 10) / 10 : 0},
         {"questionable", questionableShots}
     };
+    j["shotsByRole"] = {
+        {"GK", shotsGK}, {"CB", shotsCB}, {"FB", shotsFB},
+        {"CM", shotsCM}, {"WM", shotsWM}, {"CF", shotsCF}, {"unknown", shotsUnknownRole}
+    };
     j["goalsByDistance"] = {{"close", goalDistClose}, {"medium", goalDistMedium}, {"long", goalDistLong}};
+    j["goalsByRole"] = {
+        {"GK", goalsGK}, {"CB", goalsCB}, {"FB", goalsFB},
+        {"CM", goalsCM}, {"WM", goalsWM}, {"CF", goalsCF}, {"unknown", goalsUnknownRole}
+    };
 
     j["untrackedGoals"] = untrackedGoals;
     j["directDeliveryGoals"] = directDeliveryGoals;

@@ -21,6 +21,8 @@ interface Summary {
   ownPassGoals: number;
   unknownLooseGoals: number;
   shotsByDistance: { questionable: number };
+  shotsByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
+  goalsByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
   tackles: { attempts: number; wins: number };
   dribbleTypes: { knockAheads: number; turnovers: number; riskyTurnovers: number; recovered: number; retainedByTeammate: number; outOfPlay: number };
   passSelection: { risky: number; saferIgnored: number; pressuredReceptions: number; pressuredReceptionFailures: number };
@@ -44,6 +46,8 @@ interface Summary {
     laneBlockSingleDrops: number;
     finalThirdSamples: number;
     unmarkedFinalThird: number;
+    avgNearestCb: number;
+    avgNearestDefender: number;
   };
   carrierTurns: { over30: number };
 }
@@ -92,6 +96,7 @@ const total = <K extends keyof Summary>(key: K): number => results.reduce((sum, 
 const passes = total('passes');
 const shots = total('shots');
 const goals = results.reduce((sum, result) => sum + result.homeScore + result.awayScore, 0);
+const goalRoles = ['GK', 'CB', 'FB', 'CM', 'WM', 'CF', 'unknown'] as const;
 const markingSamples = results.reduce((sum, result) => sum + result.marking.finalThirdSamples, 0);
 const unmarked = results.reduce((sum, result) => sum + result.marking.unmarkedFinalThird, 0);
 const backLineSamples = results.reduce((sum, result) => sum + result.marking.backLineSamples, 0);
@@ -102,13 +107,25 @@ console.log(JSON.stringify({
   config: { matches, minutes, seeds: results.map(result => result.seed), engine: 'native' },
   aggregate: {
     goalsPerMatch: round(goals / matches),
+    goalsPer90: round(goals / Math.max(1, matches * minutes) * 90),
     shotsPerMatch: round(shots / matches),
+    shotsPer90: round(shots / Math.max(1, matches * minutes) * 90),
     shotsOnTargetPct: round(total('shotsOnTarget') / Math.max(1, shots) * 100),
     savesPerMatch: round(total('saves') / matches),
     goalsPerShotPct: round(goals / Math.max(1, shots) * 100),
+    shotsByRole: Object.fromEntries(goalRoles.map(role => [
+      role,
+      results.reduce((sum, result) => sum + (result.shotsByRole?.[role] ?? 0), 0),
+    ])),
+    goalsByRole: Object.fromEntries(goalRoles.map(role => [
+      role,
+      results.reduce((sum, result) => sum + (result.goalsByRole?.[role] ?? 0), 0),
+    ])),
     passesPerMatch: round(passes / matches),
     passCompletionPct: round(total('passesCompleted') / Math.max(1, passes) * 100),
     interceptedPassesPerMatch: round(total('passesIntercepted') / matches),
+    interceptedPassPct: round(total('passesIntercepted') / Math.max(1, passes) * 100),
+    interceptedPassesPer90: round(total('passesIntercepted') / Math.max(1, matches * minutes) * 90),
     offsidesPerMatch: round(total('offsides') / matches),
     tacklesAttemptedPerMatch: round(results.reduce((sum, result) => sum + result.tackles.attempts, 0) / matches),
     tackleWinPct: round(results.reduce((sum, result) => sum + result.tackles.wins, 0)
@@ -134,6 +151,8 @@ console.log(JSON.stringify({
     avgSingleDropGap: round(results.reduce((sum, result) => sum + result.marking.avgSingleDropGap * result.marking.singleDropSamples, 0) / Math.max(1, singleDrops)),
     maxBackLineGap: round(results.reduce((max, result) => Math.max(max, result.marking.maxBackLineGap), 0)),
     unmarkedFinalThirdPct: round(unmarked / Math.max(1, markingSamples) * 100),
+    avgFinalThirdNearestCb: round(results.reduce((sum, result) => sum + result.marking.avgNearestCb * result.marking.finalThirdSamples, 0) / Math.max(1, markingSamples)),
+    avgFinalThirdNearestDefender: round(results.reduce((sum, result) => sum + result.marking.avgNearestDefender * result.marking.finalThirdSamples, 0) / Math.max(1, markingSamples)),
     carrierTurnsOver30PerMatch: round(results.reduce((sum, result) => sum + result.carrierTurns.over30, 0) / matches),
     teammatePingPongsPerMatch: round(results.reduce((sum, result) => sum + result.teammatePingPongs, 0) / matches),
   },

@@ -34,11 +34,11 @@ public:
     void recordGoalKickTrappedShot()   { goalKickTrappedShots++; if(goalKickActive>0) goalKickActive--; }
 
     // ── Shot events ──
-    void recordShot(const std::string& team, bool onTarget);
+    void recordShot(const std::string& team, bool onTarget, const std::string& shooterRole);
     void recordShotDistance(double distance) { shotDistTotal+=distance; if(distance<100)shotDistClose++; else if(distance<200)shotDistMedium++; else shotDistLong++; }
     void recordShotOnTarget();
     void recordSave() { saves++; }
-    void recordGoal(const std::string& team, const std::string& source, double distance, double speed);
+    void recordGoal(const std::string& team, const std::string& source, double distance, double speed, const std::string& scorerRole);
     void recordGkAssessment(bool unlikely, bool preventable) { gkAssessed++; if(unlikely) unlikelySaves++; if(preventable) preventableGoals++; }
     void recordShotSelection(double angle, double pressure, int credibleWindows, int deferred, int deferredPass, int deferredDribble, int closeWindows, int closeDeferred, bool betterPass, bool tightAngle) {
         shotAudits++; shotAngleTotal+=angle; shotPressureTotal+=pressure;
@@ -109,11 +109,13 @@ private:
     int forwardPasses=0, backwardPasses=0, sidewaysPasses=0;
     int offsidesTotal=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;
+    int shotsGK=0, shotsCB=0, shotsFB=0, shotsCM=0, shotsWM=0, shotsCF=0, shotsUnknownRole=0;
     int goalsHome=0, goalsAway=0;
     int homeScore=0, awayScore=0;
     int untrackedGoals=0, directDeliveryGoals=0, directCrossGoals=0;
     int tackleDeflectionGoals=0, goalkeeperParryGoals=0, shotDeflectionGoals=0;
     int ownPassGoals=0, lostShotGoals=0, unknownLooseGoals=0, knockAheadGoals=0;
+    int goalsGK=0, goalsCB=0, goalsFB=0, goalsCM=0, goalsWM=0, goalsCF=0, goalsUnknownRole=0;
     int tackleAttempts=0, tackleWins=0, tackleClean=0, tackleLoose=0, tackleFouls=0;
     int slideTackleDistance=0, slideTackleOob=0;
     int stuckAlerts=0;

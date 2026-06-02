@@ -154,6 +154,8 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
     }
     if (pendingPass.isCross && receiver.team == pendingPass.team) {
         receiver.crossCollected = 1500.0;
+        receiver.headingAnim = 520.0;
+        emitEvent("header", receiver.x, receiver.y, receiver.id, pendingPass.fromId);
     }
     pendingPass.active=false;
     return false;
@@ -229,11 +231,15 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     if(rawDist>350)b.vz=std::max(b.vz,speed);
     const auto* audit=selectionAudit;
     double goalX=goalXFor(f.team);
-    bool fromWide=std::abs(f.y-PITCH_H/2)>180;
-    bool intoBox=std::abs(predX-goalX)<200&&std::abs(predY-PITCH_H/2)<140;
+    bool fromWide=std::abs(f.y-PITCH_H/2)>130;
+    bool intoBox=std::abs(predX-goalX)<270&&std::abs(predY-PITCH_H/2)<190;
     bool selectedCross=audit&&audit->purpose=="cross"&&fromWide&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall;
     bool whippedCross=fromWide&&intoBox&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall
         &&(!audit||(audit->purpose!="cutback"&&audit->purpose!="through"&&audit->purpose!="cross"));
+    if(selectedCross){
+        b.vx*=1.15; b.vy*=1.15;
+        b.vz=std::max(b.vz,speed*0.95);
+    }
     if(whippedCross){
         b.vx*=1.30; b.vy*=1.30;
         b.vz=std::max(b.vz,speed*1.30*1.15);
@@ -278,6 +284,7 @@ void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
 bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     double contactDist=dist(tackler.x,tackler.y,carrier.x,carrier.y);
     auto& b=state.ball;
+    if(setPieceArmed)return false;
     if(b.controllerId!=carrier.id||tackler.team==carrier.team||contactDist>TACKLE_RANGE)return false;
     if(carrier.role==Role::GK)return false;
     if(!canContestBall(tackler))return false;
@@ -381,7 +388,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         stats.recordGoalKickTrappedShot();
         goalKickMonitorActive=false;
     }
-    stats.recordShot(std::string(to_string(s.team)),false);
+    stats.recordShot(std::string(to_string(s.team)), false, std::string(to_string(s.role)));
     double gx=goalXFor(s.team);
     double accuracy=attrFactor(s.attrs.shooting);
     double goalCenterY=PITCH_H/2.0;
@@ -644,6 +651,27 @@ void GameEngine::fixedUpdate(double sdt) {
             taker.vx = taker.vy = 0;
             taker.facing = std::atan2(setPieceSpotY - taker.y, setPieceSpotX - taker.x);
         };
+        auto enforceRestartDistance = [&]() {
+            double minDist = setPieceType == "throw_in" ? 42.0 : setPieceType == "corner" ? 58.0 : 78.0;
+            Team restartTeam = teamFromStr(setPieceTeam);
+            for (auto& p : state.players) {
+                if (p.team == restartTeam || p.role == Role::GK) continue;
+                double dx = p.x - setPieceSpotX;
+                double dy = p.y - setPieceSpotY;
+                double d = std::hypot(dx, dy);
+                if (d >= minDist) continue;
+                if (d < 1.0) {
+                    double fd = p.team == Team::Home ? 1.0 : -1.0;
+                    dx = -fd; dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
+                    d = std::hypot(dx, dy);
+                }
+                p.x = clamp(setPieceSpotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
+                p.y = clamp(setPieceSpotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
+                p.targetX = p.x;
+                p.targetY = p.y;
+                p.vx = p.vy = 0;
+            }
+        };
 
         // Set piece hold: taker agent skips movement until the restart is released.
         if (setPieceTakerId >= 0) {
@@ -658,6 +686,7 @@ void GameEngine::fixedUpdate(double sdt) {
         tickAgents(sdt, false);
         moveBallCarrier(sdt);
         separateTeammates(sdt);
+        enforceRestartDistance();
 
         // Force taker toward ball (only movement source for taker)
         if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
@@ -701,6 +730,7 @@ void GameEngine::fixedUpdate(double sdt) {
             }
             Player* taker = playerById(setPieceTakerId);
             if (taker) placeTakerForRestart(*taker, true);
+            enforceRestartDistance();
             state.ball.x = setPieceSpotX;
             state.ball.y = setPieceSpotY;
             state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
@@ -1083,7 +1113,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
         nearestDefender = std::min(nearestDefender, distance);
         if (defender.role == Role::CB) nearestCb = std::min(nearestCb, distance);
     }
-    bool unmarked = nearestCb > 80.0;
+    bool unmarked = nearestDefender > 55.0 && nearestCb > 90.0;
     stats.recordFinalThirdMarking(nearestCb, nearestDefender, unmarked);
 }
 
@@ -1167,7 +1197,7 @@ void GameEngine::releaseSetPiece(){
     std::vector<Player*> targets;
     for(auto&p:state.players){
         if(p.team!=holder->team||p.id==holder->id||p.role==Role::GK)continue;
-        if(setPieceType=="free_kick"&&dist(holder->x,holder->y,p.x,p.y)<85.0)continue;
+        if(setPieceType=="free_kick"&&dist(holder->x,holder->y,p.x,p.y)<55.0)continue;
         targets.push_back(&p);
     }
     std::sort(targets.begin(),targets.end(),[&](const Player* a,const Player* b){
@@ -1177,14 +1207,24 @@ void GameEngine::releaseSetPiece(){
             double progress=(p->x-holder->x)*fd;
             double width=std::abs(p->y-PITCH_H/2.0);
             int laneBlockers=0;
+            double closestOpp=999.0;
             double dx=p->x-holder->x,dy=p->y-holder->y,ls=dx*dx+dy*dy;
             if(ls>1.0){
                 for(auto& o:state.players){
                     if(o.team==holder->team||o.role==Role::GK)continue;
+                    closestOpp=std::min(closestOpp,dist(o.x,o.y,p->x,p->y));
                     double along=clamp(((o.x-holder->x)*dx+(o.y-holder->y)*dy)/ls,0.0,1.0);
                     double perp=std::hypot(o.x-holder->x-along*dx,o.y-holder->y-along*dy);
                     if(along>0.12&&along<0.92&&perp<34.0)laneBlockers++;
                 }
+            }
+            if(setPieceType=="free_kick"){
+                double distanceFit=1.0-std::abs(d-145.0)/210.0;
+                double pressureScore=clamp((closestOpp-35.0)/95.0,-0.60,0.75);
+                double resetBonus=progress<-25.0?0.55:std::abs(progress)<45.0?0.30:-0.18;
+                double roleBonus=p->role==Role::CM?0.24:p->role==Role::FB?0.20:p->role==Role::CB?0.16:p->role==Role::WM?0.06:p->role==Role::CF?-0.16:0.0;
+                double centerSupport=1.0-std::abs(p->y-PITCH_H/2.0)/PITCH_H;
+                return distanceFit+pressureScore+resetBonus+roleBonus+centerSupport*0.22-laneBlockers*0.70;
             }
             double distanceFit=1.0-std::abs(d-210.0)/260.0;
             double roleBonus=p->role==Role::WM?0.22:p->role==Role::CF?0.16:p->role==Role::CM?0.08:p->role==Role::FB?0.04:-0.08;
@@ -1604,14 +1644,18 @@ bool GameEngine::checkGoal(){
         recordGoalSource(Team::Away);
         double goalDist=0;
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,HOME_GOAL_X,PITCH_H/2);
-        stats.recordGoal("away",lastGoalSource,goalDist,lastGoalBallSpeed);
+        Player* scorer=playerById(lastGoalToucherId);
+        std::string scorerRole=scorer?std::string(to_string(scorer->role)):"unknown";
+        stats.recordGoal("away",lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole);
         state.awayScore++; shotActive=false; trackedShot=false; kickoff(Team::Home); return true;
     }
     if(b.x-BALL_R>AWAY_GOAL_X){
         recordGoalSource(Team::Home);
         double goalDist=0;
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,AWAY_GOAL_X,PITCH_H/2);
-        stats.recordGoal("home",lastGoalSource,goalDist,lastGoalBallSpeed);
+        Player* scorer=playerById(lastGoalToucherId);
+        std::string scorerRole=scorer?std::string(to_string(scorer->role)):"unknown";
+        stats.recordGoal("home",lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole);
         state.homeScore++; shotActive=false; trackedShot=false; kickoff(Team::Away); return true;
     }
     return false;
@@ -1656,10 +1700,11 @@ bool GameEngine::checkOutOfPlay() {
 void GameEngine::checkBallPlayerCollision(double){
     auto&b=state.ball;
     double bs=std::hypot(b.vx,b.vy);
-    const double r=COLLECT_DIST;
+    const double collectRadius=COLLECT_DIST;
+    const double fastContactRadius=PLAYER_R+BALL_R-3.0;
 
     // Intended receiver gets priority with larger collection radius
-    if(b.intendedReceiverId>=0&&bs<220){
+    if(b.intendedReceiverId>=0&&bs<250){
         Player* intended=playerById(b.intendedReceiverId);
         if(intended&&intended->role!=Role::GK){
             double d=dist(intended->x,intended->y,b.x,b.y);
@@ -1671,8 +1716,8 @@ void GameEngine::checkBallPlayerCollision(double){
                             &&dist(opponent.x,opponent.y,intended->x,intended->y)<38.0){underPressure=true;break;}
                     }
                     if(!underPressure){collectBall(*intended);return;}
-                    double trapChance=clamp(0.45+attrFactor(intended->attrs.positioning)*0.30
-                        +attrFactor(intended->attrs.passing)*0.14-clamp((bs-80.0)/300.0,0.0,0.25),0.18,0.82);
+                    double trapChance=clamp(0.56+attrFactor(intended->attrs.positioning)*0.30
+                        +attrFactor(intended->attrs.passing)*0.16-clamp((bs-95.0)/360.0,0.0,0.20),0.28,0.90);
                     if(rng.random()<trapChance){stats.recordPressuredReception(false);collectBall(*intended);return;}
                     stats.recordPressuredReception(true);
                     b.intendedReceiverId=-1;
@@ -1686,6 +1731,7 @@ void GameEngine::checkBallPlayerCollision(double){
     for(auto&p:state.players){
         if(!canContestBall(p))continue;
         double d=dist(p.x,p.y,b.x,b.y);
+        double r=(bs>80.0&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
         if(d>r)continue;
         if(b.z>20)continue;
         if(p.role==Role::GK){
@@ -1706,9 +1752,10 @@ void GameEngine::checkBallPlayerCollision(double){
             b.x=p.x+nx*r;b.y=p.y+ny*r;
             double dot=b.vx*nx+b.vy*ny;
             if(dot<0){b.vx-=1.3*dot*nx;b.vy-=1.3*dot*ny;}
-            double damp=(b.lastTouchTeam==p.team)?0.18:0.25;
+            double damp=(b.lastTouchTeam==p.team)?0.18:0.36;
             b.vx*=damp;b.vy*=damp;
-            b.vx+=ny*bs*.02;b.vy+=-nx*bs*.02;
+            double glance=(b.lastTouchTeam==p.team)?0.02:0.045;
+            b.vx+=ny*bs*glance;b.vy+=-nx*bs*glance;
             b.lastTouchTeam=p.team;b.lastToucherId=p.id;
             if(p.team==lastCollectionTeam)lastSameTeamCollectionMs=state.clockMs-500;
             blockReboundFor(p.id,600);
@@ -2054,7 +2101,9 @@ std::string GameEngine::getJSON() const {
     j["ownPassGoals"] = summary["ownPassGoals"];
     j["unknownLooseGoals"] = summary["unknownLooseGoals"];
     j["shotsByDistance"] = summary["shotsByDistance"];
+    j["shotsByRole"] = summary["shotsByRole"];
     j["goalsByDistance"] = summary["goalsByDistance"];
+    j["goalsByRole"] = summary["goalsByRole"];
     j["untrackedGoals"] = summary["untrackedGoals"];
     j["directDeliveryGoals"] = summary["directDeliveryGoals"];
     j["directCrossGoals"] = summary["directCrossGoals"];
