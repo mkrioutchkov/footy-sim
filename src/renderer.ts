@@ -39,6 +39,9 @@ export class MatchRenderer {
   private versionText: Text = null!;
   private uiVersion = '';
   private eventGfx: Graphics;
+  private eventLabels: Text[] = [];
+  private setPieceGfx: Graphics;
+  private setPieceText: Text;
   private scale = 1;
   private offsetX = 0;
   private offsetY = 0;
@@ -59,6 +62,8 @@ export class MatchRenderer {
     this.ballBody = new Graphics();
     this.ballGlow = new Graphics();
     this.eventGfx = new Graphics();
+    this.setPieceGfx = new Graphics();
+    this.setPieceText = new Text({ text: '', style: new TextStyle({ fill: 0xffffff, fontSize: 15, fontFamily: 'monospace', fontWeight: 'bold' }) });
     this.hudText = new Text({ text: '', style: new TextStyle({ fill: 0xff4444, fontSize: 20, fontFamily: 'monospace', fontWeight: 'bold' }) });
 
     // pre-draw football (white with black pentagon pattern)
@@ -87,6 +92,13 @@ export class MatchRenderer {
       this.trailPool.push(t);
     }
 
+    for (let i = 0; i < 10; i++) {
+      const label = new Text({ text: '', style: new TextStyle({ fill: 0xffffff, fontSize: 13, fontFamily: 'monospace', fontWeight: 'bold' }) });
+      label.anchor.set(0.5, 0.5);
+      label.visible = false;
+      this.eventLabels.push(label);
+    }
+
     // shot trail
     this.shotTrailGfx = new Graphics();
     this.pitchContainer.addChild(this.shotTrailGfx);
@@ -104,7 +116,10 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ringGfx);
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
-     this.pitchContainer.addChild(this.eventGfx);
+    this.pitchContainer.addChild(this.eventGfx);
+    for (const label of this.eventLabels) this.pitchContainer.addChild(label);
+    this.pitchContainer.addChild(this.setPieceGfx);
+    this.pitchContainer.addChild(this.setPieceText);
      this.app.stage.sortableChildren = true;
     this.app.stage.addChild(this.hudText);
     this.hudText.zIndex = 9999;
@@ -142,7 +157,10 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ringGfx);
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
-     this.pitchContainer.addChild(this.eventGfx);
+    this.pitchContainer.addChild(this.eventGfx);
+    for (const label of this.eventLabels) this.pitchContainer.addChild(label);
+    this.pitchContainer.addChild(this.setPieceGfx);
+    this.pitchContainer.addChild(this.setPieceText);
 
     const g = new Graphics();
     g.rect(-GOAL_DEPTH, 0, PITCH_W + GOAL_DEPTH * 2, PITCH_H); g.fill(PITCH_GREEN);
@@ -425,15 +443,49 @@ export class MatchRenderer {
 
     // ── events ──
     this.eventGfx.clear();
+    for (const label of this.eventLabels) label.visible = false;
+    let labelIdx = 0;
     for (const ev of (state.events ?? [])) {
-      if (ev.type === 'pass') continue;
-      const lifetime = ev.type === 'header' ? 600 : 2000;
+      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : 2200;
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
+      if (ev.type === 'pass') {
+        const target = state.players.find(p => p.id === ev.targetId);
+        if (target) {
+          this.eventGfx.moveTo(ev.x, ev.y);
+          this.eventGfx.lineTo(target.x, target.y);
+          this.eventGfx.stroke({ width: 2, color: 0x9ed7ff, alpha: alpha * 0.75 });
+        }
+        continue;
+      }
       const er = 14 + (ev.age / lifetime) * (ev.type === 'header' ? 15 : 30);
-      const ec = ev.type === 'goal' ? 0xffdd44 : ev.type === 'save' ? 0x44ddff : ev.type === 'tackle' ? 0xff6644 : ev.type === 'intercept' ? 0xffb347 : ev.type === 'header' ? 0xfff1a8 : 0xffffff;
+      const ec = this.eventColor(ev.type);
       this.eventGfx.circle(ev.x, ev.y, er);
       this.eventGfx.stroke({ width: ev.type === 'header' ? 3 : 2, color: ec, alpha });
+      if (labelIdx < this.eventLabels.length) {
+        const label = this.eventLabels[labelIdx++];
+        label.text = this.eventLabel(ev.type);
+        label.position.set(ev.x, Math.max(18, ev.y - er - 12));
+        label.style.fill = ec;
+        label.alpha = clamp(1 - ev.age / lifetime, 0, 1);
+        label.visible = true;
+      }
+    }
+
+    this.setPieceGfx.clear();
+    this.setPieceText.visible = false;
+    const restart = state.setPieceState;
+    if (restart) {
+      const label = this.restartLabel(restart.reason ?? restart.type);
+      const teamLabel = restart.team === 'home' ? 'HOME' : 'AWAY';
+      this.setPieceGfx.circle(restart.spotX, restart.spotY, 18);
+      this.setPieceGfx.stroke({ width: 3, color: restart.team === 'home' ? HOME_COLOR : AWAY_COLOR, alpha: 0.95 });
+      this.setPieceGfx.circle(restart.spotX, restart.spotY, 4);
+      this.setPieceGfx.fill({ color: 0xffffff, alpha: 0.95 });
+      this.setPieceText.text = `${label} ${teamLabel}`;
+      this.setPieceText.position.set(restart.spotX, Math.max(22, restart.spotY - 30));
+      this.setPieceText.anchor.set(0.5, 0.5);
+      this.setPieceText.visible = true;
     }
 
     // ── HUD ──
@@ -442,9 +494,55 @@ export class MatchRenderer {
     const sec = String(Math.floor((halfMs % 60000) / 1000)).padStart(2, '0');
     const sl = (state.speed ?? 1) >= 1 ? `${state.speed ?? 1}x` : `${(state.speed ?? 1).toFixed(1)}x`;
     const pct = (state.possessionPct ?? 50).toFixed(0);
-    this.hudText.text = `HOME ${state.homeScore ?? 0}-${state.awayScore ?? 0} AWAY    H${state.half ?? 1} ${min}:${sec} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}`;
+    const restartHud = state.setPieceState
+      ? `    ${this.restartLabel(state.setPieceState.reason ?? state.setPieceState.type)} ${(state.setPieceState.team ?? '').toUpperCase()}`
+      : '';
+    this.hudText.text = `HOME ${state.homeScore ?? 0}-${state.awayScore ?? 0} AWAY    H${state.half ?? 1} ${min}:${sec} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}${restartHud}`;
     this.hudText.visible = true;
     console.log('[HUD] text set:', this.hudText.text.substring(0, 30));
+  }
+
+  private restartLabel(type: string): string {
+    switch (type) {
+      case 'offside': return 'OFFSIDE';
+      case 'free_kick': return 'FREE KICK';
+      case 'throw_in': return 'THROW IN';
+      case 'corner': return 'CORNER';
+      case 'goal_kick': return 'GOAL KICK';
+      default: return type.replace(/_/g, ' ').toUpperCase();
+    }
+  }
+
+  private eventLabel(type: string): string {
+    switch (type) {
+      case 'offside': return 'OFFSIDE';
+      case 'foul': return 'FOUL';
+      case 'intercept': return 'INTERCEPTION';
+      case 'tackle_won': return 'TACKLE WON';
+      case 'tackle_loose': return 'TACKLE LOOSE';
+      case 'tackle': return 'TACKLE';
+      case 'save': return 'SAVE';
+      case 'goal': return 'GOAL';
+      case 'shot': return 'SHOT';
+      case 'header': return 'HEADER';
+      default: return type.replace(/_/g, ' ').toUpperCase();
+    }
+  }
+
+  private eventColor(type: string): number {
+    switch (type) {
+      case 'goal': return 0xffdd44;
+      case 'save': return 0x44ddff;
+      case 'foul': return 0xff4444;
+      case 'offside': return 0xfff1a8;
+      case 'intercept': return 0xffb347;
+      case 'tackle_won': return 0x66ff99;
+      case 'tackle_loose':
+      case 'tackle': return 0xff6644;
+      case 'shot': return 0xffffff;
+      case 'header': return 0xfff1a8;
+      default: return 0xffffff;
+    }
   }
 
   private smoothPlayer(id: number, x: number, y: number): { x: number; y: number } {

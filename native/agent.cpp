@@ -2,6 +2,44 @@
 #include "agent.h"
 #include <limits>
 
+namespace {
+struct CarrierPressure {
+    int count = 0;
+    double nearest = 1e9;
+    double exposed = 0.0;
+    double goalSide = 0.0;
+    double score = 0.0;
+    Player* nearestPlayer = nullptr;
+};
+
+CarrierPressure assessCarrierPressure(GameEngine& engine, const Player& p) {
+    CarrierPressure cp;
+    auto& b = engine.state.ball;
+    double ballDx = b.x - p.x, ballDy = b.y - p.y;
+    double ballD = std::hypot(ballDx, ballDy);
+    double ballUx = ballD > 0.1 ? ballDx / ballD : std::cos(p.facing);
+    double ballUy = ballD > 0.1 ? ballDy / ballD : std::sin(p.facing);
+    for (auto& o : engine.state.players) {
+        if (o.team == p.team || o.role == Role::GK) continue;
+        double dx = o.x - p.x, dy = o.y - p.y;
+        double d = std::hypot(dx, dy);
+        if (d > 70.0) continue;
+        if (d < cp.nearest) { cp.nearest = d; cp.nearestPlayer = &o; }
+        if (d < 48.0) cp.count++;
+        double ux = d > 0.1 ? dx / d : 0.0;
+        double uy = d > 0.1 ? dy / d : 0.0;
+        cp.exposed = std::max(cp.exposed, ballUx * ux + ballUy * uy);
+        double goalSideDir = p.team == Team::Home ? -1.0 : 1.0;
+        if ((o.x - p.x) * goalSideDir > 0.0) cp.goalSide = std::max(cp.goalSide, 1.0 - d / 70.0);
+    }
+    cp.score = clamp((70.0 - cp.nearest) / 70.0, 0.0, 1.0)
+        + std::max(0, cp.count - 1) * 0.18
+        + clamp(cp.exposed, 0.0, 1.0) * 0.38
+        + cp.goalSide * 0.22;
+    return cp;
+}
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // tick()
 // ══════════════════════════════════════════════════════════════════════════════
@@ -480,6 +518,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     audit.distance = shotDistance;
     audit.angleDeg = angleDeg;
     audit.pressureCount = per.pressureCount;
+    CarrierPressure cp = assessCarrierPressure(engine, p);
 
     bool outsideGoalLane = std::abs(p.y - PITCH_H / 2.0) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150.0;
@@ -514,6 +553,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
     if (facingDot < 0.35 && shotDistance > 135.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
+    if (cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
     double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.55;
     if (shotDistance < 140.0 && per.pressureCount == 0 && angleDeg > 10.0) sc = std::max(sc, 0.38);
@@ -539,6 +580,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (p.role == Role::CM) sc -= 0.03;
     if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= 0.08;
     sc -= std::min(0.42, per.pressureCount * 0.16);
+    sc -= clamp(cp.score - 0.55, 0.0, 0.75) * 0.18;
+    if (cp.exposed > 0.45 && shotDistance > 85.0) sc -= 0.12;
 
     bool credibleOpening = angleDeg >= 7.5 || shotDistance < 115.0;
     if (shotDistance < 200.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.30 : 0.12;
@@ -559,6 +602,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     double gx = goalXFor(p.team);
     double fd = (p.team == Team::Home) ? 1.0 : -1.0;
     double tx = gx, ty = p.y;
+    CarrierPressure cp = assessCarrierPressure(engine, p);
 
     // Evade nearest opponent if close
     if (per.nearestOpponentDist < 50.0 && !per.nearbyOpponents.empty()) {
@@ -631,6 +675,9 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     if (per.nearestOpponentDist > 100.0) sc += 0.15;
     else if (per.nearestOpponentDist > 60.0) sc += 0.05;
     else if (per.nearestOpponentDist < 30.0) sc -= 0.20;
+    if (cp.score > 0.70) sc -= 0.16;
+    if (cp.score > 1.05) sc -= 0.18;
+    if (cp.exposed > 0.35 && per.nearestOpponentDist < 42.0) sc -= 0.12;
 
     // Traffic penalty: crowded area = don't dribble
     int oppsInPath = 0;
@@ -688,6 +735,18 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     if (p.role == Role::CM && per.nearestOpponentDist > 80.0) sc += 0.08;
     if (p.role == Role::CF && nearGoal) sc += 0.10;
 
+    if (cp.score > 0.70 && cp.nearestPlayer) {
+        double ax = p.x - cp.nearestPlayer->x;
+        double ay = p.y - cp.nearestPlayer->y;
+        double ad = std::hypot(ax, ay);
+        if (ad > 1.0) {
+            double side = ay >= 0.0 ? 1.0 : -1.0;
+            double retreat = cp.exposed > 0.35 ? -fd * 34.0 : 0.0;
+            tx = p.x + ax / ad * 44.0 + retreat;
+            ty = p.y + side * 48.0;
+        }
+    }
+
     return Action{ActionType::Dribble, clamp(sc, 0.0, 1.0), nullptr,
                   clamp(tx, 35.0, PITCH_W - 35.0),
                   clamp(ty, 35.0, PITCH_H - 35.0),
@@ -703,6 +762,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 
     Player* ctrl = engine.playerById(per.ballControllerId);
     if (!ctrl) return Action{ActionType::Tackle, 0.0};
+    if (ctrl->role == Role::GK) return Action{ActionType::Tackle, 0.0};
 
     double d = dist(player.x, player.y, ctrl->x, ctrl->y);
     if (d > TACKLE_RANGE + 30.0) return Action{ActionType::Tackle, 0.0};
@@ -1313,6 +1373,24 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     }
 
     if (ic) {
+        CarrierPressure cp = assessCarrierPressure(engine, player);
+        if (cp.score > 0.85) {
+            Action* safePass = nullptr;
+            for (auto& x : a) {
+                if (x.type != ActionType::Pass || !x.target) continue;
+                bool safe = x.audit.expectedCompletion > 0.66 && x.audit.blockers <= 1
+                    && x.audit.receiverPressure <= 1 && x.audit.distance < 300.0;
+                if (!safe) continue;
+                if (!safePass || x.score > safePass->score) safePass = &x;
+            }
+            if (safePass && (best.type == ActionType::Shoot || best.type == ActionType::Dribble)
+                && safePass->score > best.score - (cp.exposed > 0.35 ? 0.22 : 0.14)) {
+                return *safePass;
+            }
+        }
+    }
+
+    if (ic) {
         double fd = player.team == Team::Home ? 1.0 : -1.0;
         bool finalThird = fd > 0.0 ? player.x > PITCH_W * 2.0 / 3.0 : player.x < PITCH_W / 3.0;
         if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 0.0) {
@@ -1394,6 +1472,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         // Count nearby opponents first to decide wobble/shielding
         int nearbyOpps = 0;
         double nearestOppDist = 1e9;
+        CarrierPressure cp = assessCarrierPressure(engine, p);
         for (auto& o : engine.state.players) {
             if (o.team != p.team && o.role != Role::GK) {
                 double d = dist(p.x, p.y, o.x, o.y);
@@ -1401,6 +1480,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
                 if (d < 55.0) nearbyOpps++;
             }
         }
+        if (cp.score > 0.80) nearbyOpps = std::max(nearbyOpps, 2);
 
         // Wobble only in open space — suppress under pressure
         if (nearestOppDist > 80.0) {
@@ -1456,7 +1536,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
                                && advancedEnough && p.attrs.creativity >= 65.0
                                && (teammateSupport || onFlank || openGrass);
 
-        bool mayBurst = engine.canKnockBallAhead(p.id) && (openBurst || speculativeBurst || finalThirdBurst);
+        bool mayBurst = engine.canKnockBallAhead(p.id) && cp.score < 0.65 && (openBurst || speculativeBurst || finalThirdBurst);
         int dribbleType = mayBurst ? 3 : (nearbyOpps >= 2 ? 1 : 2);
 
         bool newEpisode = (p.dribbleType != dribbleType);

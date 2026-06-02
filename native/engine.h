@@ -55,6 +55,7 @@ public:
     int setPieceTakerId = -1;
     double setPieceSpotX = 0, setPieceSpotY = 0;
     bool setPieceTakerArrived = false;
+    std::string setPieceReason;
     int half = 1; double halfTimePause = 0;
     Team nextKickoffTeam = Team::Home;
     bool shotActive = false;
@@ -75,6 +76,9 @@ public:
         int fromId = -1, toId = -1;
         Team team = Team::Home;
         bool isCross = false;
+        bool offsideExempt = false;
+        double passerX = 0.0;
+        double offsideLine = 0.0;
     } pendingPass;
     struct ActiveKnockAhead {
         bool active = false;
@@ -87,6 +91,12 @@ public:
     } activeKnockAhead;
     std::unordered_map<int,double> knockAheadCooldownUntil;
     std::string lastLooseOrigin;
+    struct VisualEvent {
+        std::string type;
+        double x = 0, y = 0, clockMs = 0;
+        int playerId = -1, targetId = -1;
+    };
+    std::vector<VisualEvent> visualEvents;
 
     // ── Agent-accessible state ──
     struct RecentPass { double bx=525,by=340,vx=0,vy=0; Team team=Team::Home; double clockMs=0; };
@@ -132,11 +142,11 @@ public:
     void noteTaskSelection(Player&, const std::string&) {}
     bool knockBallAhead(Player&, double, double);
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
-    void emitEvent(const std::string&, double, double, int=-1, int=-1) {}
+    void emitEvent(const std::string&, double, double, int=-1, int=-1);
     void blockReboundFor(int playerId, double ms);
     void recordBallImpulse();
     void beginTrackedPass(Player& from, Player& to, bool isCross = false);
-    void resolvePendingPass(Player& receiver);
+    bool resolvePendingPass(Player& receiver);
     void auditStuckCarrier(double sdt);
     void updateTeamAssignments();
     void assignDefensiveRoles(Team team, Player& carrier);

@@ -62,13 +62,27 @@ export interface EngineState {
   possessionPct: number;
   half: number;
   version: string;
+  setPieceState?: SetPieceState;
+}
+
+export interface SetPieceState {
+  type: 'free_kick' | 'throw_in' | 'corner' | 'goal_kick' | string;
+  reason?: 'offside' | 'free_kick' | 'throw_in' | 'corner' | 'goal_kick' | string;
+  team: Team;
+  takerId: number | null;
+  takerArrived: boolean;
+  spotX: number;
+  spotY: number;
+  timerMs: number;
 }
 
 export interface MatchEvent {
-  type: 'pass' | 'shot' | 'tackle' | 'intercept' | 'save' | 'goal' | 'header';
+  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'foul' | 'offside' | 'intercept' | 'save' | 'goal' | 'header';
   x: number;
   y: number;
   age: number;
+  playerId?: number | null;
+  targetId?: number | null;
 }
 
 export interface Formation {
