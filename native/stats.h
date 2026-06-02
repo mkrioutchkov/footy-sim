@@ -25,6 +25,9 @@ public:
         if(risky) riskyPassChoices++;
         if(saferId>=0) saferPassIgnored++;
     }
+    void recordCrossAttempt() { crossesAttempted++; }
+    void recordCrossComplete() { crossesCompleted++; }
+    void recordHeader() { headers++; }
     void recordPressuredReception(bool failed) {
         pressuredReceptions++;
         if(failed) pressuredReceptionFails++;
@@ -58,6 +61,7 @@ public:
 
     // ── Collection events ──
     void recordCollection(bool sameTeamRecent) { if(sameTeamRecent) teammatePingPongs++; }
+    void recordControlledTouch(const std::string& role);
 
     // ── Dribble / knock-ahead ──
     void recordDribble(int type) { if(type==1) dribbleClose++; else if(type==2) dribbleMedium++; else if(type==3) dribbleFast++; }
@@ -106,10 +110,12 @@ public:
 
 private:
     int passesAttempted=0, passesCompleted=0, passesIntercepted=0, passesIntended=0, wrongTeammate=0;
+    int crossesAttempted=0, crossesCompleted=0, headers=0;
     int forwardPasses=0, backwardPasses=0, sidewaysPasses=0;
     int offsidesTotal=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;
     int shotsGK=0, shotsCB=0, shotsFB=0, shotsCM=0, shotsWM=0, shotsCF=0, shotsUnknownRole=0;
+    int touchesGK=0, touchesCB=0, touchesFB=0, touchesCM=0, touchesWM=0, touchesCF=0, touchesUnknownRole=0;
     int goalsHome=0, goalsAway=0;
     int homeScore=0, awayScore=0;
     int untrackedGoals=0, directDeliveryGoals=0, directCrossGoals=0;

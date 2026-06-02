@@ -408,7 +408,12 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         bool isCross   = isWideDelivery && std::abs(p.y - PITCH_H / 2.0) > 120.0 && fp > -45.0;
         bool isCutback = isWideDelivery && !isCross;
 
-        if (isCross) sc += 0.48;
+        if (isCross) {
+            sc += 0.48;
+            if (t.role == Role::CF) sc += 0.30;
+            else if (t.role == Role::WM) sc += 0.10;
+            else if (t.role == Role::CM) sc -= 0.34;
+        }
         if (isCutback) sc += 0.18;
         if (p.role == Role::WM && dgW < 450.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 230.0) sc += 0.42;
         if (p.role == Role::WM && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.32;
@@ -469,6 +474,14 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (t.role == p.role) sc -= (p.role == Role::CB || p.role == Role::FB) ? 0.30 : 0.20;
 
         if ((p.role == Role::CB || p.role == Role::FB) && (t.role == Role::CM || t.role == Role::WM) && fp > 0.0) sc += 0.08;
+
+        bool passerFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+        double targetGoalDist = std::abs(t.x - goalXFor(p.team));
+        if (passerFinalThird && targetGoalDist < 230.0) {
+            if (t.role == Role::CF) sc += 0.24;
+            else if (t.role == Role::WM && std::abs(t.y - PITCH_H / 2.0) < 210.0) sc += 0.10;
+            else if (t.role == Role::CM) sc -= 0.16;
+        }
 
         auto* assignment = engine.assignmentFor(t.id);
         if (assignment) {
@@ -535,7 +548,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
                 if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < 48.0) pressure++;
             }
             double central = 1.0 - std::abs(t.y - PITCH_H / 2.0) / 230.0;
-            double roleBonus = t.role == Role::CF ? 0.34 : t.role == Role::CM ? 0.18 : t.role == Role::WM ? 0.10 : 0.0;
+            double roleBonus = t.role == Role::CF ? 0.52 : t.role == Role::WM ? 0.20 : t.role == Role::CM ? 0.06 : 0.0;
             double score = central + roleBonus + (320.0 - targetGoalDist) / 420.0 - pressure * 0.25 - d / 900.0;
             if (score > bestScore) { bestScore = score; bestRunner = &t; }
         }
@@ -563,17 +576,18 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     audit.angleDeg = angleDeg;
     audit.pressureCount = per.pressureCount;
     CarrierPressure cp = assessCarrierPressure(engine, p);
+    bool freshCross = p.crossCollected > 0.0 && shotDistance < 230.0;
 
     bool outsideGoalLane = std::abs(p.y - PITCH_H / 2.0) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150.0;
 
-    if (angleDeg < 8.0 && shotDistance > 120.0)
+    if (!freshCross && angleDeg < 8.0 && shotDistance > 120.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
-    if (shotDistance > 260.0 || acuteGeometry)
+    if (shotDistance > 260.0 || (!freshCross && acuteGeometry))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
-    if (shotDistance > 240.0 && angleDeg < 7.0)
+    if (!freshCross && shotDistance > 240.0 && angleDeg < 7.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
     static const std::unordered_map<Role, double> roleMax = {
@@ -598,10 +612,10 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     double toGoalDist = std::hypot(toGoalX, toGoalY);
     if (toGoalDist < 1.0) toGoalDist = 1.0;
     double facingDot = (std::cos(p.facing) * toGoalX + std::sin(p.facing) * toGoalY) / toGoalDist;
-    if (facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
-    if (facingDot < 0.35 && shotDistance > 135.0)
+    if (!freshCross && facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
+    if (!freshCross && facingDot < 0.35 && shotDistance > 135.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
-    if (cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)
+    if (!freshCross && cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
     double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.55;
@@ -625,7 +639,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 100.0) sc += 0.14;
     if (shotDistance < 60.0)  sc += 0.12;
     if (p.role == Role::CF) sc += 0.20;
-    if (p.role == Role::CM) sc -= 0.07;
+    if (p.role == Role::CM) sc -= shotDistance > 110.0 ? 0.12 : 0.07;
     if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) < 140.0) sc += 0.08;
     if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= p.role == Role::WM ? 0.04 : 0.08;
     sc -= std::min(0.42, per.pressureCount * 0.16);
@@ -638,7 +652,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 70.0  && credibleOpening) sc += per.pressureCount <= 1 ? 0.22 : 0.05;
     if (shotDistance < 40.0)  sc += per.pressureCount <= 1 ? 0.18 : 0.04;
 
-    if (p.crossCollected > 0.0 && shotDistance < 230.0) sc += 0.35;
+    if (freshCross) sc += p.role == Role::CF ? 0.62 : 0.42;
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, "", audit};
 }
@@ -1164,10 +1178,25 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             c.push_back({ clamp(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y + 30.0, 40.0, PITCH_H - 40.0), "space" });
         }
 
-        if (ba > 0.6 && (p.role == Role::CF || p.role == Role::CM || p.role == Role::WM)) {
+        if (ba > 0.6 && p.role == Role::CF) {
             double bGoalX = goalXFor(p.team);
-            c.push_back({ bGoalX - fd * (30.0 + engine.rng.random() * 70.0),                           clamp(PITCH_H / 2.0 + (p.homeY - PITCH_H / 2.0) * 0.4, PITCH_H * 0.25, PITCH_H * 0.75), "space" });
-            c.push_back({ bGoalX - fd * (50.0 + engine.rng.random() * 50.0),                           clamp(PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 80.0, PITCH_H * 0.20, PITCH_H * 0.80), "space" });
+            c.push_back({ bGoalX - fd * (35.0 + engine.rng.random() * 55.0),
+                          clamp(PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 90.0, PITCH_H * 0.25, PITCH_H * 0.75), "space" });
+            c.push_back({ bGoalX - fd * (70.0 + engine.rng.random() * 65.0),
+                          clamp(PITCH_H / 2.0 + (p.homeY - PITCH_H / 2.0) * 0.25, PITCH_H * 0.25, PITCH_H * 0.75), "offer" });
+        } else if (ba > 0.6 && p.role == Role::WM) {
+            double bGoalX = goalXFor(p.team);
+            double farPostY = p.homeY < PITCH_H / 2.0 ? PITCH_H * 0.62 : PITCH_H * 0.38;
+            double insideY = clamp(PITCH_H / 2.0 + (p.homeY - PITCH_H / 2.0) * 0.32, PITCH_H * 0.24, PITCH_H * 0.76);
+            c.push_back({ bGoalX - fd * (70.0 + engine.rng.random() * 75.0), farPostY, "space" });
+            c.push_back({ bGoalX - fd * (125.0 + engine.rng.random() * 85.0), insideY, "offer" });
+        } else if (ba > 0.6 && p.role == Role::CM) {
+            double bGoalX = goalXFor(p.team);
+            double bSide = (b.y < PITCH_H / 2.0) ? -1.0 : 1.0;
+            c.push_back({ bGoalX - fd * (150.0 + engine.rng.random() * 85.0),
+                          clamp(PITCH_H / 2.0 - bSide * 55.0, PITCH_H * 0.25, PITCH_H * 0.75), "offer" });
+            c.push_back({ bGoalX - fd * (180.0 + engine.rng.random() * 90.0),
+                          clamp(PITCH_H / 2.0 + bSide * 70.0, PITCH_H * 0.24, PITCH_H * 0.76), "space" });
         }
 
         if (p.role == Role::CM) {
@@ -1460,6 +1489,16 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     if (ic) {
         double fd = player.team == Team::Home ? 1.0 : -1.0;
         bool finalThird = fd > 0.0 ? player.x > PITCH_W * 2.0 / 3.0 : player.x < PITCH_W / 3.0;
+        if (finalThird && player.role == Role::CM && best.type == ActionType::Shoot) {
+            Action* frontLinePass = nullptr;
+            for (auto& x : a) {
+                if (x.type != ActionType::Pass || !x.target) continue;
+                if (x.target->role != Role::CF && x.target->role != Role::WM) continue;
+                if (x.audit.expectedCompletion < 0.66 || x.audit.blockers > 1 || x.audit.receiverPressure > 1) continue;
+                if (!frontLinePass || x.score > frontLinePass->score) frontLinePass = &x;
+            }
+            if (frontLinePass && frontLinePass->score > best.score - 0.18) return *frontLinePass;
+        }
         if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 0.0) {
             Action* driveOpt = nullptr;
             Action* shootOpt = nullptr;

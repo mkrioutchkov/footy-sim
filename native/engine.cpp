@@ -153,6 +153,8 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         emitEvent("intercept", receiver.x, receiver.y, receiver.id, pendingPass.toId);
     }
     if (pendingPass.isCross && receiver.team == pendingPass.team) {
+        stats.recordCrossComplete();
+        stats.recordHeader();
         receiver.crossCollected = 1500.0;
         receiver.headingAnim = 520.0;
         emitEvent("header", receiver.x, receiver.y, receiver.id, pendingPass.fromId);
@@ -236,6 +238,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     bool selectedCross=audit&&audit->purpose=="cross"&&fromWide&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall;
     bool whippedCross=fromWide&&intoBox&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall
         &&(!audit||(audit->purpose!="cutback"&&audit->purpose!="through"&&audit->purpose!="cross"));
+    if(selectedCross||whippedCross)stats.recordCrossAttempt();
     if(selectedCross){
         b.vx*=1.15; b.vy*=1.15;
         b.vz=std::max(b.vz,speed*0.95);
@@ -393,6 +396,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double accuracy=attrFactor(s.attrs.shooting);
     double goalCenterY=PITCH_H/2.0;
     double shotDistance=std::hypot(gx-s.x,goalCenterY-s.y);
+    bool freshCross=s.crossCollected>0.0&&shotDistance<230.0;
     stats.recordShotDistance(shotDistance);
     int pressureCount=0;
     for(auto&o:state.players)if(o.team!=s.team&&o.role!=Role::GK&&dist(o.x,o.y,s.x,s.y)<PRESSURE_RANGE)pressureCount++;
@@ -421,9 +425,12 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double anglePenalty=clamp(std::abs(s.y-goalCenterY)/230,0.0,1.0);
     double distancePenalty=clamp((shotDistance-70)/270,0.0,1.0);
     double longRangePenalty=clamp((shotDistance-120)/130,0.0,1.0);
-    double closePressure = shotDistance < 130.0 ? pressureCount * 46.0 : 0.0;
-    double executionError=28+(1-accuracy)*105+pressureCount*56+closePressure+laneBlockers*78
+    double closePressure = shotDistance < 130.0 ? pressureCount * (freshCross?30.0:46.0) : 0.0;
+    double roleError = s.role==Role::CF ? -18.0 : (s.role==Role::CM ? (freshCross?70.0:(shotDistance>130.0?30.0:0.0)) : 0.0);
+    double executionError=28+(1-accuracy)*105+pressureCount*(freshCross?38.0:56.0)+closePressure+laneBlockers*(freshCross?52.0:78.0)
         +anglePenalty*48+distancePenalty*58+longRangePenalty*185;
+    executionError=std::max(16.0,executionError+roleError);
+    if(freshCross)executionError*=s.role==Role::CF?0.72:(s.role==Role::WM?0.92:1.08);
     double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(0.18+accuracy*0.13);
     double goalY=goalCenterY+aimedPost+(rng.random()+rng.random()-1.0)*executionError;
     if(acuteGeometry){
@@ -1780,6 +1787,7 @@ void GameEngine::collectBall(Player& c) {
         teammatePingPongs++;
         stats.recordCollection(true);
     }
+    stats.recordControlledTouch(std::string(to_string(c.role)));
     lastCollectionTeam = c.team;
     lastSameTeamCollectionMs = state.clockMs;
     trackedShot = false;
@@ -2081,6 +2089,9 @@ std::string GameEngine::getJSON() const {
     j["passesIntercepted"] = summary["passesIntercepted"];
     j["passesIntendedReceived"] = summary["passesIntendedReceived"];
     j["wrongTeammateTouches"] = summary["wrongTeammate"];
+    j["crossesAttempted"] = summary["crossesAttempted"];
+    j["crossesCompleted"] = summary["crossesCompleted"];
+    j["headers"] = summary["headers"];
     j["forwardPasses"] = summary["forwardPasses"];
     j["backwardPasses"] = summary["backwardPasses"];
     j["sidewaysPasses"] = summary["sidewaysPasses"];
@@ -2102,6 +2113,7 @@ std::string GameEngine::getJSON() const {
     j["unknownLooseGoals"] = summary["unknownLooseGoals"];
     j["shotsByDistance"] = summary["shotsByDistance"];
     j["shotsByRole"] = summary["shotsByRole"];
+    j["controlledTouchesByRole"] = summary["controlledTouchesByRole"];
     j["goalsByDistance"] = summary["goalsByDistance"];
     j["goalsByRole"] = summary["goalsByRole"];
     j["untrackedGoals"] = summary["untrackedGoals"];

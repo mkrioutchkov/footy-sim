@@ -8,6 +8,9 @@ interface Summary {
   passesCompleted: number;
   passesIntercepted: number;
   passCompletionPct: number;
+  crossesAttempted: number;
+  crossesCompleted: number;
+  headers: number;
   offsides: number;
   shots: number;
   shotsOnTarget: number;
@@ -22,6 +25,7 @@ interface Summary {
   unknownLooseGoals: number;
   shotsByDistance: { questionable: number };
   shotsByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
+  controlledTouchesByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
   goalsByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
   tackles: { attempts: number; wins: number };
   dribbleTypes: { knockAheads: number; turnovers: number; riskyTurnovers: number; recovered: number; retainedByTeammate: number; outOfPlay: number };
@@ -117,6 +121,10 @@ console.log(JSON.stringify({
       role,
       results.reduce((sum, result) => sum + (result.shotsByRole?.[role] ?? 0), 0),
     ])),
+    controlledTouchesByRole: Object.fromEntries(goalRoles.map(role => [
+      role,
+      results.reduce((sum, result) => sum + (result.controlledTouchesByRole?.[role] ?? 0), 0),
+    ])),
     goalsByRole: Object.fromEntries(goalRoles.map(role => [
       role,
       results.reduce((sum, result) => sum + (result.goalsByRole?.[role] ?? 0), 0),
@@ -126,6 +134,9 @@ console.log(JSON.stringify({
     interceptedPassesPerMatch: round(total('passesIntercepted') / matches),
     interceptedPassPct: round(total('passesIntercepted') / Math.max(1, passes) * 100),
     interceptedPassesPer90: round(total('passesIntercepted') / Math.max(1, matches * minutes) * 90),
+    crossesPerMatch: round(total('crossesAttempted') / matches),
+    crossCompletionPct: round(total('crossesCompleted') / Math.max(1, total('crossesAttempted')) * 100),
+    headersPerMatch: round(total('headers') / matches),
     offsidesPerMatch: round(total('offsides') / matches),
     tacklesAttemptedPerMatch: round(results.reduce((sum, result) => sum + result.tackles.attempts, 0) / matches),
     tackleWinPct: round(results.reduce((sum, result) => sum + result.tackles.wins, 0)

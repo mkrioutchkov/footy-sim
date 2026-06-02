@@ -39,6 +39,16 @@ void StatsCollector::recordShotOnTarget() {
     shotsOnTarget++;
 }
 
+void StatsCollector::recordControlledTouch(const std::string& role) {
+    if(role=="GK") touchesGK++;
+    else if(role=="CB") touchesCB++;
+    else if(role=="FB") touchesFB++;
+    else if(role=="CM") touchesCM++;
+    else if(role=="WM") touchesWM++;
+    else if(role=="CF") touchesCF++;
+    else touchesUnknownRole++;
+}
+
 std::string StatsCollector::summaryJSON() const {
     int totalShots = shotsHome + shotsAway;
     int totalGoals = goalsHome + goalsAway;
@@ -55,6 +65,9 @@ std::string StatsCollector::summaryJSON() const {
     j["passesIntercepted"] = passesIntercepted;
     j["passesIntendedReceived"] = passesIntended;
     j["wrongTeammate"] = wrongTeammate;
+    j["crossesAttempted"] = crossesAttempted;
+    j["crossesCompleted"] = crossesCompleted;
+    j["headers"] = headers;
     j["forwardPasses"] = forwardPasses;
     j["backwardPasses"] = backwardPasses;
     j["sidewaysPasses"] = sidewaysPasses;
@@ -84,6 +97,10 @@ std::string StatsCollector::summaryJSON() const {
     j["shotsByRole"] = {
         {"GK", shotsGK}, {"CB", shotsCB}, {"FB", shotsFB},
         {"CM", shotsCM}, {"WM", shotsWM}, {"CF", shotsCF}, {"unknown", shotsUnknownRole}
+    };
+    j["controlledTouchesByRole"] = {
+        {"GK", touchesGK}, {"CB", touchesCB}, {"FB", touchesFB},
+        {"CM", touchesCM}, {"WM", touchesWM}, {"CF", touchesCF}, {"unknown", touchesUnknownRole}
     };
     j["goalsByDistance"] = {{"close", goalDistClose}, {"medium", goalDistMedium}, {"long", goalDistLong}};
     j["goalsByRole"] = {
