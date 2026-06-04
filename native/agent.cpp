@@ -977,6 +977,7 @@ Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
 Action PlayerAI::scoreChase(const Perception& per) {
     auto& b = engine.state.ball;
     bool isIntendedReceiver = (player.id == b.intendedReceiverId);
+    bool activeKnockAheadRunner = engine.isActiveKnockAheadRunner(player.id);
     double ballSpeed = std::sqrt(b.vx * b.vx + b.vy * b.vy);
     bool needsRecovery = b.z <= 20.0 && ballSpeed < 30.0 && per.amClosestToBall;
 
@@ -991,6 +992,14 @@ Action PlayerAI::scoreChase(const Perception& per) {
     bool deadBallRecoveryRun = !canContest && b.z <= 20.0 && ballSpeed < 35.0 && per.ballDist < 70.0;
     bool closeLooseBall = canContest && b.z <= 20.0 && per.ballDist < 45.0;
     bool urgentLooseBallRun = incomingLooseBall || deadBallRecoveryRun || closeLooseBall;
+
+    if (activeKnockAheadRunner && per.ballIsLoose && b.z <= 20.0) {
+        double lead = ballSpeed > 8.0 ? std::min(ballSpeed / 180.0, 0.35) : 0.0;
+        return Action{ActionType::Chase, 1.0, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      "recover_loose_ball"};
+    }
 
     if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun)
         || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery && !urgentLooseBallRun))
@@ -1930,7 +1939,9 @@ void PlayerAI::applyMovement(double sdt) {
 
     bool pressTask      = (lastPurpose == "task:primary_press");
     bool secondaryPress = (lastPurpose == "task:secondary_press");
-    bool committedChase = (lastActionType == ActionType::Chase && engine.state.ball.controllerId < 0)
+    bool activeKnockAheadRunner = engine.isActiveKnockAheadRunner(p.id);
+    bool committedChase = activeKnockAheadRunner
+                       || (lastActionType == ActionType::Chase && engine.state.ball.controllerId < 0)
                        || (lastActionType == ActionType::Chase && lastPurpose == "receive_ball")
                        || (lastActionType == ActionType::Chase && lastPurpose == "recover_loose_ball");
 
@@ -1975,7 +1986,7 @@ void PlayerAI::applyMovement(double sdt) {
         ? (p.role == Role::CF ? 0.45 : p.role == Role::CB || p.role == Role::FB ? 0.65 : p.role == Role::WM ? 0.55 : 0.50)
         : 1.0;
 
-    double baseSpeed = (engine.isActiveKnockAheadRunner(p.id) || p.dribbleType == 3)
+    double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)
         ? DRIBBLE_FAST_SPEED
         : (lastActionType == ActionType::Chase || committedPress || defendSprint ? SPEED_SPRINT : SPEED_RUN);
 
