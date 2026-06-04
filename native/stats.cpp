@@ -1,7 +1,8 @@
 #include "stats.h"
 
-void StatsCollector::recordGoal(const std::string& team, const std::string& source, double distance, double speed, const std::string& scorerRole) {
+void StatsCollector::recordGoal(const std::string& team, const std::string& source, double distance, double speed, const std::string& scorerRole, bool headedGoal) {
     if(team=="home") goalsHome++; else goalsAway++;
+    if(headedGoal) headedGoals++;
     if(scorerRole=="GK") goalsGK++;
     else if(scorerRole=="CB") goalsCB++;
     else if(scorerRole=="FB") goalsFB++;
@@ -65,9 +66,12 @@ std::string StatsCollector::summaryJSON() const {
     j["passesIntercepted"] = passesIntercepted;
     j["passesIntendedReceived"] = passesIntended;
     j["wrongTeammate"] = wrongTeammate;
+    j["throughBallsAttempted"] = throughBallsAttempted;
+    j["throughBallsCompleted"] = throughBallsCompleted;
     j["crossesAttempted"] = crossesAttempted;
     j["crossesCompleted"] = crossesCompleted;
     j["headers"] = headers;
+    j["headedShots"] = headedShots;
     j["forwardPasses"] = forwardPasses;
     j["backwardPasses"] = backwardPasses;
     j["sidewaysPasses"] = sidewaysPasses;
@@ -111,6 +115,7 @@ std::string StatsCollector::summaryJSON() const {
     j["untrackedGoals"] = untrackedGoals;
     j["directDeliveryGoals"] = directDeliveryGoals;
     j["directCrossGoals"] = directCrossGoals;
+    j["headedGoals"] = headedGoals;
     j["tackleDeflectionGoals"] = tackleDeflectionGoals;
     j["goalkeeperParryGoals"] = goalkeeperParryGoals;
     j["shotDeflectionGoals"] = shotDeflectionGoals;

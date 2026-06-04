@@ -8,9 +8,12 @@ interface Summary {
   passesCompleted: number;
   passesIntercepted: number;
   passCompletionPct: number;
+  throughBallsAttempted: number;
+  throughBallsCompleted: number;
   crossesAttempted: number;
   crossesCompleted: number;
   headers: number;
+  headedShots: number;
   offsides: number;
   shots: number;
   shotsOnTarget: number;
@@ -23,6 +26,7 @@ interface Summary {
   slideTackleOobAlerts: number;
   ownPassGoals: number;
   unknownLooseGoals: number;
+  headedGoals: number;
   shotsByDistance: { questionable: number };
   shotsByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
   controlledTouchesByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
@@ -134,9 +138,13 @@ console.log(JSON.stringify({
     interceptedPassesPerMatch: round(total('passesIntercepted') / matches),
     interceptedPassPct: round(total('passesIntercepted') / Math.max(1, passes) * 100),
     interceptedPassesPer90: round(total('passesIntercepted') / Math.max(1, matches * minutes) * 90),
+    throughBallsPerMatch: round(total('throughBallsAttempted') / matches),
+    throughBallCompletionPct: round(total('throughBallsCompleted') / Math.max(1, total('throughBallsAttempted')) * 100),
     crossesPerMatch: round(total('crossesAttempted') / matches),
     crossCompletionPct: round(total('crossesCompleted') / Math.max(1, total('crossesAttempted')) * 100),
     headersPerMatch: round(total('headers') / matches),
+    headedShotsPerMatch: round(total('headedShots') / matches),
+    headedGoals: total('headedGoals'),
     offsidesPerMatch: round(total('offsides') / matches),
     tacklesAttemptedPerMatch: round(results.reduce((sum, result) => sum + result.tackles.attempts, 0) / matches),
     tackleWinPct: round(results.reduce((sum, result) => sum + result.tackles.wins, 0)

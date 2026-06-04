@@ -61,6 +61,7 @@ public:
     bool shotActive = false;
     bool trackedShot = false;
     bool trackedShotPreventable = false;
+    bool trackedShotHeader = false;
     Team trackedShotTeam = Team::Home;
     int trackedShooterId = -1;
     double shotOriginX = 0, shotOriginY = 0;
@@ -76,6 +77,7 @@ public:
         int fromId = -1, toId = -1;
         Team team = Team::Home;
         bool isCross = false;
+        bool isThrough = false;
         bool offsideExempt = false;
         double passerX = 0.0;
         double offsideLine = 0.0;
@@ -145,7 +147,7 @@ public:
     void emitEvent(const std::string&, double, double, int=-1, int=-1);
     void blockReboundFor(int playerId, double ms);
     void recordBallImpulse();
-    void beginTrackedPass(Player& from, Player& to, bool isCross = false);
+    void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false);
     bool resolvePendingPass(Player& receiver);
     void auditStuckCarrier(double sdt);
     void updateTeamAssignments();
@@ -184,6 +186,7 @@ public:
     void tickAgents(double sdt, bool ic);
     void kickoffTap();
     void releaseSetPiece();
+    void releaseGoalKick(Player& holder);
     void releaseGoalkeeperDistribution(Player& holder);
     void releaseCornerKick(Player& holder);
     void releaseThrowIn(Player& holder);

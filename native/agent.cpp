@@ -1080,11 +1080,14 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     Team ip = engine.teamInPossession();
     bool my = (per.ballControllerTeam == p.team);
     double ba = (fd == 1.0) ? b.x / PITCH_W : 1.0 - b.x / PITCH_W;
-    double pu = my ? ba * 220.0 : 0.0;
+    double pu = my ? fd * ba * 220.0 : 0.0;
     bool iw = (p.role == Role::FB || p.role == Role::WM);
-    double wp = (iw && my) ? ba * 85.0 : 0.0;
+    double wp = (iw && my) ? fd * ba * 85.0 : 0.0;
 
     struct Candidate { double x, y; std::string pur; };
+    auto clampRange = [](double v, double a, double b) {
+        return clamp(v, std::min(a, b), std::max(a, b));
+    };
     std::vector<Candidate> c = {
         { p.homeX + pu + wp, p.homeY, "cover" },
         { p.homeX + fd * 30.0 + pu + wp, p.homeY, "cover" },
@@ -1155,6 +1158,33 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
                 c.push_back({ lerp(p.x, carrier->x, 0.3), lerp(p.y, carrier->y, 0.25), "offer" });
                 c.push_back({ lerp(p.x, carrier->x, 0.2), clamp(lerp(p.y, carrier->y, 0.15), 40.0, PITCH_H - 40.0), "offer" });
             }
+            if (p.role == Role::WM) {
+                bool sameSide = std::abs(carrier->y - p.homeY) < 190.0;
+                double flankY = (p.homeY < PITCH_H / 2.0) ? 24.0 : PITCH_H - 24.0;
+                double insideY = clamp(PITCH_H / 2.0 + (p.homeY - PITCH_H / 2.0) * 0.42, 65.0, PITCH_H - 65.0);
+                double oppGoalX = goalXFor(p.team);
+                if (sameSide && carrier->role != Role::WM) {
+                    c.push_back({ clamp(carrier->x + fd * 150.0, 55.0, PITCH_W - 55.0), flankY, "run_ahead" });
+                    c.push_back({ clamp(carrier->x + fd * 120.0, 55.0, PITCH_W - 55.0), insideY, "inside_run" });
+                    c.push_back({ clamp(oppGoalX - fd * 175.0, 55.0, PITCH_W - 55.0), flankY, "hold_width" });
+                } else if (!sameSide && ba > 0.42) {
+                    double farPostY = p.homeY < PITCH_H / 2.0 ? PITCH_H * 0.62 : PITCH_H * 0.38;
+                    c.push_back({ clamp(oppGoalX - fd * 115.0, 55.0, PITCH_W - 55.0), farPostY, "inside_run" });
+                    c.push_back({ clamp(oppGoalX - fd * 185.0, 55.0, PITCH_W - 55.0), flankY, "hold_width" });
+                }
+            }
+            if (p.role == Role::CF) {
+                double oppGoalX = goalXFor(p.team);
+                bool carrierWide = std::abs(carrier->y - PITCH_H / 2.0) > 130.0;
+                bool carrierAdvanced = (carrier->x - ownGoalXFor(p.team)) * fd > PITCH_W * 0.48;
+                if (carrierWide && carrierAdvanced) {
+                    double nearPostY = carrier->y < PITCH_H / 2.0 ? PITCH_H * 0.35 : PITCH_H * 0.65;
+                    double farPostY = carrier->y < PITCH_H / 2.0 ? PITCH_H * 0.65 : PITCH_H * 0.35;
+                    c.push_back({ clamp(oppGoalX - fd * 58.0, 55.0, PITCH_W - 55.0), nearPostY, "inside_run" });
+                    c.push_back({ clamp(oppGoalX - fd * 86.0, 55.0, PITCH_W - 55.0), farPostY, "inside_run" });
+                    c.push_back({ clamp(oppGoalX - fd * 125.0, 55.0, PITCH_W - 55.0), PITCH_H / 2.0, "offer" });
+                }
+            }
         }
     }
 
@@ -1173,9 +1203,9 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         auto& bb2 = engine.blackboards[GameEngine::teamIndex(p.team)];
         if (bb2.oneTwo.has_value() && bb2.oneTwo->from == p.id && engine.state.clockMs < bb2.oneTwo->expires) {
             double oppGoalX = goalXFor(p.team);
-            c.push_back({ clamp(p.x + fd * 80.0, p.homeX + fd * 40.0, oppGoalX), p.y, "space" });
-            c.push_back({ clamp(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y - 30.0, 40.0, PITCH_H - 40.0), "space" });
-            c.push_back({ clamp(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y + 30.0, 40.0, PITCH_H - 40.0), "space" });
+            c.push_back({ clampRange(p.x + fd * 80.0, p.homeX + fd * 40.0, oppGoalX), p.y, "space" });
+            c.push_back({ clampRange(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y - 30.0, 40.0, PITCH_H - 40.0), "space" });
+            c.push_back({ clampRange(p.x + fd * 120.0, p.homeX + fd * 60.0, oppGoalX), clamp(p.y + 30.0, 40.0, PITCH_H - 40.0), "space" });
         }
 
         if (ba > 0.6 && p.role == Role::CF) {
@@ -1228,9 +1258,9 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             double flankY = (p.homeY < PITCH_H / 2.0) ? 18.0 : PITCH_H - 18.0;
             std::string crossPur = ba > 0.45 ? "offer" : "space";
             c.push_back({ clamp(p.homeX + fd * 80.0 + pu, 60.0, PITCH_W - 60.0), flankY, crossPur });
-            c.push_back({ clamp(b.x + fd * 115.0, p.homeX + fd * 80.0, goalXFor(p.team) - fd * 45.0), flankY, "cross_lane" });
+            c.push_back({ clampRange(b.x + fd * 115.0, p.homeX + fd * 80.0, goalXFor(p.team) - fd * 45.0), flankY, "cross_lane" });
             double runBehindY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.3 : PITCH_H * 0.7;
-            c.push_back({ clamp(p.homeX + fd * 140.0 + pu, 60.0, AWAY_GOAL_X - fd * 20.0), runBehindY, "space" });
+            c.push_back({ clamp(p.homeX + fd * 140.0 + pu, 60.0, PITCH_W - 60.0), runBehindY, "space" });
             if (std::abs(b.y - p.homeY) > 200.0) {
                 c.push_back({ clamp(p.homeX + fd * 100.0 + pu, 60.0, PITCH_W - 60.0), clamp(lerp(p.y, PITCH_H / 2.0, 0.3), 40.0, PITCH_H - 40.0), "space" });
                 c.push_back({ clamp(p.homeX + fd * 80.0 + pu, 60.0, PITCH_W - 60.0), clamp(PITCH_H / 2.0 + ((p.homeY < PITCH_H / 2.0) ? 80.0 : -80.0), 40.0, PITCH_H - 40.0), "space" });
@@ -1255,9 +1285,9 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             }
             bool wmHasBall = wmOnMySide && engine.state.ball.controllerId == wmOnMySide->id;
             if (wmHasBall) {
-                c.push_back({ clamp(wmOnMySide->x + fd * 80.0, p.homeX + fd * 80.0, AWAY_GOAL_X - fd * 20.0),
+                c.push_back({ clampRange(wmOnMySide->x + fd * 80.0, p.homeX + fd * 80.0, goalXFor(p.team) - fd * 20.0),
                               clamp((p.homeY < PITCH_H / 2.0) ? 35.0 : PITCH_H - 35.0, 35.0, PITCH_H - 35.0), "space" });
-                c.push_back({ clamp(wmOnMySide->x + fd * 50.0, p.homeX + fd * 50.0, AWAY_GOAL_X),
+                c.push_back({ clampRange(wmOnMySide->x + fd * 50.0, p.homeX + fd * 50.0, goalXFor(p.team)),
                               clamp((p.homeY < PITCH_H / 2.0) ? 55.0 : PITCH_H - 55.0, 40.0, PITCH_H - 40.0), "space" });
             } else {
                 double wmHomeY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.12 : PITCH_H * 0.88;
@@ -1277,11 +1307,11 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
                 }
             }
             if (anyDefenders) {
-                double defLine = clamp(ld, p.homeX - 40.0, oppGoalX + fd * 20.0);
+                double defLine = clampRange(ld, p.homeX - fd * 40.0, oppGoalX + fd * 20.0);
                 double pushX = (fd == 1.0) ? std::min(p.homeX + fd * 100.0, ld - 15.0) : std::max(p.homeX + fd * 100.0, ld + 15.0);
                 c.push_back({ pushX, p.homeY, "offer" });
                 double runY = clamp(p.homeY + ((engine.rng.random() > 0.5) ? 40.0 : -40.0), PITCH_H * 0.2, PITCH_H * 0.8);
-                c.push_back({ clamp(defLine - fd * 10.0, p.homeX + fd * 40.0, oppGoalX), runY, "space" });
+                c.push_back({ clampRange(defLine - fd * 10.0, p.homeX + fd * 40.0, oppGoalX), runY, "space" });
             }
             if (ba < 0.5 && my) {
                 c.push_back({ clamp(p.homeX - fd * 20.0, p.homeX - 60.0, PITCH_W - 60.0), p.homeY, "offer" });
@@ -1310,29 +1340,39 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         }
         double meanLine = count > 0 ? sumX / count : p.homeX;
         double lineX = clamp(meanLine, p.homeX - 70.0, p.homeX + 70.0);
+        if (p.role == Role::FB) {
+            double ownGx = ownGoalXFor(p.team);
+            double lineProgress = (lineX - ownGx) * fd;
+            double minProgress = std::max(72.0, lineProgress - 12.0);
+            double maxProgress = lineProgress + 34.0;
+            lineX = clampRange(lineX, ownGx + fd * minProgress, ownGx + fd * maxProgress);
+        }
         c.push_back({ lineX, p.homeY, "cover" });
-        c.push_back({ lineX - fd * 15.0, p.homeY, "cover" });
+        c.push_back({ lineX - fd * (p.role == Role::FB ? 6.0 : 15.0), p.homeY, "cover" });
         if (ba < 0.35)
             c.push_back({ clamp(p.homeX + fd * 180.0, lineX + fd * 40.0, PITCH_W - 50.0), p.homeY, "cover" });
 
         bool ballPastUs = (fd == 1.0) ? b.x > lineX + 20.0 : b.x < lineX - 20.0;
         if (ballPastUs) {
-            double dropX = clamp(lerp(lineX, ownGoalXFor(p.team), 0.3), p.homeX - 80.0, p.homeX);
+            double dropAmount = p.role == Role::FB ? 10.0 : 20.0;
+            double dropX = lineX - fd * dropAmount;
             c.push_back({ dropX, p.homeY, "cover" });
-            c.push_back({ dropX - fd * 20.0, p.homeY, "cover" });
+            if (p.role == Role::CB) c.push_back({ dropX - fd * 20.0, p.homeY, "cover" });
         }
         double bSide2 = (b.y < PITCH_H / 2.0) ? -1.0 : 1.0;
         c.push_back({ lineX - fd * 10.0, clamp(p.homeY + bSide2 * 25.0, 40.0, PITCH_H - 40.0), "cover" });
         if (ba < 0.4)
-            c.push_back({ clamp(p.homeX + fd * 220.0, p.homeX + 50.0, PITCH_W - 50.0), p.homeY, "cover" });
+            c.push_back({ clampRange(p.homeX + fd * 220.0, p.homeX + fd * 50.0, goalXFor(p.team) - fd * 50.0), p.homeY, "cover" });
     }
 
     if (!my) {
-        c.push_back({ clamp((b.x + (ownGoalXFor(p.team))) / 2.0, p.homeX - 80.0, p.homeX + 20.0), p.homeY, "cover" });
+        if (p.role != Role::FB && p.role != Role::CB) {
+            c.push_back({ clamp((b.x + (ownGoalXFor(p.team))) / 2.0, p.homeX - 80.0, p.homeX + 20.0), p.homeY, "cover" });
+        }
         double bf2 = (b.y < PITCH_H / 2.0) ? -1.0 : 1.0;
-        c.push_back({ clamp(p.homeX - fd * 30.0, 40.0, PITCH_W - 40.0), clamp(p.homeY + bf2 * 25.0, 40.0, PITCH_H - 40.0), "cover" });
+        c.push_back({ clamp(p.homeX - fd * (p.role == Role::FB ? 4.0 : 30.0), 40.0, PITCH_W - 40.0), clamp(p.homeY + bf2 * 25.0, 40.0, PITCH_H - 40.0), "cover" });
         if (p.role == Role::FB && std::abs(b.y - p.homeY) > 200.0) {
-            c.push_back({ clamp(p.homeX - fd * 20.0, 40.0, PITCH_W - 40.0), clamp(lerp(p.homeY, PITCH_H / 2.0, 0.5), 40.0, PITCH_H - 40.0), "cover" });
+            c.push_back({ clamp(p.homeX + fd * 6.0, 40.0, PITCH_W - 40.0), clamp(lerp(p.homeY, PITCH_H / 2.0, 0.5), 40.0, PITCH_H - 40.0), "cover" });
         }
     }
 
@@ -1349,7 +1389,10 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         double db = !my ? clamp(((b.x - cn.x) * fd) / (std::abs(b.x - og2) + 1.0), 0.0, 0.30) : 0.0;
         double bp2 = std::sqrt((cn.x - b.x) * (cn.x - b.x) + (cn.y - b.y) * (cn.y - b.y)) / 600.0 * 0.08;
         double ob = counterOutlet ? 0.44 :
+                    (cn.pur == "inside_run" && p.role == Role::WM && ba > 0.55) ? 0.17 :
+                    (cn.pur == "run_ahead" && p.role == Role::WM) ? 0.14 :
                     (cn.pur == "cross_lane" || cn.pur == "overlap") ? 0.24 :
+                    (cn.pur == "hold_width" && p.role == Role::WM && ba > 0.45) ? 0.10 :
                     (cn.pur == "observe") ? 0.10 :
                     (cn.pur == "space" && p.role == Role::WM && std::abs(cn.y - PITCH_H / 2.0) > 150.0 && ba > 0.4) ? 0.12 : 0.0;
 
@@ -1495,9 +1538,11 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                 if (x.type != ActionType::Pass || !x.target) continue;
                 if (x.target->role != Role::CF && x.target->role != Role::WM) continue;
                 if (x.audit.expectedCompletion < 0.66 || x.audit.blockers > 1 || x.audit.receiverPressure > 1) continue;
+                double targetGoalDist = std::abs(goalXFor(player.team) - x.target->x);
+                if (targetGoalDist > 230.0 && x.audit.forwardProgress < 40.0) continue;
                 if (!frontLinePass || x.score > frontLinePass->score) frontLinePass = &x;
             }
-            if (frontLinePass && frontLinePass->score > best.score - 0.18) return *frontLinePass;
+            if (frontLinePass && frontLinePass->score > best.score - 0.22) return *frontLinePass;
         }
         if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 0.0) {
             Action* driveOpt = nullptr;
@@ -1523,7 +1568,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
             }
         }
         // If shot exists and passes don't go to a tap-in, prefer shot
-        if (shotOpt && !passToTapIn && shotOpt->score > best.score - 0.08) {
+        if (shotOpt && !passToTapIn && shotOpt->score > best.score - 0.16) {
             return *shotOpt;
         }
     }

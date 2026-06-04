@@ -25,9 +25,12 @@ public:
         if(risky) riskyPassChoices++;
         if(saferId>=0) saferPassIgnored++;
     }
+    void recordThroughBallAttempt() { throughBallsAttempted++; }
+    void recordThroughBallComplete() { throughBallsCompleted++; }
     void recordCrossAttempt() { crossesAttempted++; }
     void recordCrossComplete() { crossesCompleted++; }
     void recordHeader() { headers++; }
+    void recordHeadedShot() { headedShots++; }
     void recordPressuredReception(bool failed) {
         pressuredReceptions++;
         if(failed) pressuredReceptionFails++;
@@ -41,7 +44,7 @@ public:
     void recordShotDistance(double distance) { shotDistTotal+=distance; if(distance<100)shotDistClose++; else if(distance<200)shotDistMedium++; else shotDistLong++; }
     void recordShotOnTarget();
     void recordSave() { saves++; }
-    void recordGoal(const std::string& team, const std::string& source, double distance, double speed, const std::string& scorerRole);
+    void recordGoal(const std::string& team, const std::string& source, double distance, double speed, const std::string& scorerRole, bool headedGoal);
     void recordGkAssessment(bool unlikely, bool preventable) { gkAssessed++; if(unlikely) unlikelySaves++; if(preventable) preventableGoals++; }
     void recordShotSelection(double angle, double pressure, int credibleWindows, int deferred, int deferredPass, int deferredDribble, int closeWindows, int closeDeferred, bool betterPass, bool tightAngle) {
         shotAudits++; shotAngleTotal+=angle; shotPressureTotal+=pressure;
@@ -110,7 +113,8 @@ public:
 
 private:
     int passesAttempted=0, passesCompleted=0, passesIntercepted=0, passesIntended=0, wrongTeammate=0;
-    int crossesAttempted=0, crossesCompleted=0, headers=0;
+    int throughBallsAttempted=0, throughBallsCompleted=0;
+    int crossesAttempted=0, crossesCompleted=0, headers=0, headedShots=0;
     int forwardPasses=0, backwardPasses=0, sidewaysPasses=0;
     int offsidesTotal=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;
@@ -119,6 +123,7 @@ private:
     int goalsHome=0, goalsAway=0;
     int homeScore=0, awayScore=0;
     int untrackedGoals=0, directDeliveryGoals=0, directCrossGoals=0;
+    int headedGoals=0;
     int tackleDeflectionGoals=0, goalkeeperParryGoals=0, shotDeflectionGoals=0;
     int ownPassGoals=0, lostShotGoals=0, unknownLooseGoals=0, knockAheadGoals=0;
     int goalsGK=0, goalsCB=0, goalsFB=0, goalsCM=0, goalsWM=0, goalsCF=0, goalsUnknownRole=0;
