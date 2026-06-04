@@ -880,14 +880,22 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     if (player.role == Role::WM) sc -= 0.04;
     if (d < TACKLE_RANGE + 10.0) sc += 0.15;
 
+    double ownGoalX = ownGoalXFor(player.team);
+    bool emergencyBoxChallenge = std::abs(ctrl->x - ownGoalX) < 230.0
+        && std::abs(ctrl->y - PITCH_H / 2.0) < 210.0
+        && d < TACKLE_RANGE + 18.0
+        && (player.role == Role::CB || player.role == Role::FB || player.role == Role::CM);
+
     auto* defensiveTask = engine.assignmentFor(player.id);
     if (defensiveTask) {
         bool shapeTask = defensiveTask->role != "primary_press" && defensiveTask->role != "secondary_press"
             && defensiveTask->role != "close_down";
-        if (shapeTask && d > TACKLE_RANGE * 0.75) return Action{ActionType::Tackle, 0.0};
+        if (shapeTask && !emergencyBoxChallenge && d > TACKLE_RANGE * 0.75) return Action{ActionType::Tackle, 0.0};
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == "primary_press")   sc += 0.20;
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == "secondary_press") sc += 0.10;
-        if (shapeTask)
+        if (shapeTask && emergencyBoxChallenge)
+            sc += 0.26;
+        else if (shapeTask)
             sc -= 0.58;
         if (defensiveTask->role != "primary_press" && defensiveTask->role != "secondary_press"
             && std::abs(ctrl->x - (ownGoalXFor(player.team))) > 170.0)
@@ -896,7 +904,6 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 
     if (engine.isCarrierShielded(ctrl->id)) sc -= 0.20;
 
-    double ownGoalX = ownGoalXFor(player.team);
     if (std::abs(ctrl->x - ownGoalX) < 220.0) sc += 0.18;
     if (std::abs(ctrl->x - ownGoalX) < 120.0) sc += 0.12;
 
@@ -1463,18 +1470,23 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
                 || existingTask->role == "cross_lane"
                 || existingTask->role == "defensive_line" || existingTask->role == "wide_cover"
                 || existingTask->role == "midfield_screen" || existingTask->role == "box_screen");
+        bool emergencyCloseDown = mustHoldShape && inOwnThird
+            && std::abs(carrier->y - PITCH_H / 2.0) < 215.0
+            && carrierDist < 62.0;
         bool roleCanStep = p.role == Role::CM || p.role == Role::FB || p.role == Role::CB
             || (p.role == Role::WM && std::abs(carrier->y - p.y) < 170.0);
-        bool localPressure = !mustHoldShape && roleCanStep && inOwnHalf
+        bool localPressure = (!mustHoldShape || emergencyCloseDown) && roleCanStep && inOwnHalf
             && (carrierDist < (inOwnThird ? 118.0 : 86.0));
         if (localPressure) {
             double goalSide = (p.team == Team::Home) ? -1.0 : 1.0;
             double containX = clamp(carrier->x + goalSide * 18.0, 35.0, PITCH_W - 35.0);
             double side = (p.y < carrier->y) ? -1.0 : 1.0;
             double containY = clamp(carrier->y + side * 10.0, 35.0, PITCH_H - 35.0);
-            double score = clamp(0.96 - carrierDist / 700.0, 0.72, 0.94);
+            double score = emergencyCloseDown
+                ? clamp(0.97 - carrierDist / 900.0, 0.90, 0.96)
+                : clamp(0.96 - carrierDist / 700.0, 0.72, 0.94);
             options.push_back(Action{ActionType::Position, score, carrier, containX, containY,
-                                     "local_close_down"});
+                                     emergencyCloseDown ? "emergency_close_down" : "local_close_down"});
         }
     }
 
