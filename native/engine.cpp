@@ -1004,6 +1004,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     }
     double carrierGoalDist = std::abs(carrier.x - ownGoalX);
     bool shootingRange = carrierGoalDist < 310.0 && std::abs(carrier.y - PITCH_H / 2.0) < 235.0;
+    bool wideDanger = carrierGoalDist < 360.0 && std::abs(carrier.y - PITCH_H / 2.0) > 135.0;
     if (shootingRange) {
         Player* lane = nullptr;
         double bestLane = 1e9;
@@ -1018,6 +1019,22 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         if (lane) {
             setAssignment(*lane, "shot_lane", laneX, laneY, carrier.id);
             assigned.insert(lane->id);
+        }
+    }
+    if (wideDanger) {
+        Player* crossLane = nullptr;
+        double bestCrossLane = 1e9;
+        double crossX = lerp(carrier.x, ownGoalX + fd * 62.0, danger ? 0.42 : 0.34);
+        double crossY = lerp(carrier.y, PITCH_H / 2.0, 0.44);
+        for (auto& p : state.players) {
+            if (p.team != team || used(&p) || p.role == Role::GK || p.role == Role::CF) continue;
+            double roleCost = p.role == Role::FB ? 0.0 : p.role == Role::CM ? 10.0 : p.role == Role::WM ? 18.0 : 38.0;
+            double score = dist(p.x, p.y, crossX, crossY) + roleCost;
+            if (score < bestCrossLane) { bestCrossLane = score; crossLane = &p; }
+        }
+        if (crossLane) {
+            setAssignment(*crossLane, "cross_lane", crossX, crossY, carrier.id);
+            assigned.insert(crossLane->id);
         }
     }
     for (const auto& option : ranked) {
@@ -1066,7 +1083,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         if (threatens) threats.push_back({&attacker, depth});
     }
     std::sort(threats.begin(), threats.end(), [](const Threat& a, const Threat& b) { return a.depth < b.depth; });
-    if (threats.size() > (danger ? 4u : 3u)) threats.resize(danger ? 4u : 3u);
+    if (threats.size() > (danger ? 5u : 3u)) threats.resize(danger ? 5u : 3u);
     // Close-down: send one CB only; the partner must stay available for the CF lane.
     Player* closeCb = nullptr;
     double closeCbDist = 1e9;
@@ -1094,12 +1111,14 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         for (auto& defender : state.players) {
             if (defender.team != team || used(&defender)
                 || (defender.role != Role::CB && defender.role != Role::FB
-                    && !(danger && defender.role == Role::CM && threat.player->role == Role::CM))) continue;
+                    && !(danger && defender.role == Role::CM
+                        && (threat.player->role == Role::CM || threat.player->role == Role::CF)))) continue;
             if (threat.player->role == Role::WM && defender.role != Role::CB
                 && std::abs(defender.homeY - threat.player->y) >= PITCH_H * 0.42) continue;
             double roleBonus = (threat.player->role == Role::CF && defender.role == Role::CB)
                 || (threat.player->role == Role::WM && defender.role == Role::FB)
                 || (threat.player->role == Role::CM && defender.role == Role::CM) ? -35.0 : 0.0;
+            if (danger && threat.player->role == Role::CF && defender.role == Role::CM) roleBonus -= 18.0;
             double score = dist(defender.x, defender.y, threat.player->x, threat.player->y) + roleBonus;
             if (score < best) { best = score; marker = &defender; }
         }
@@ -1129,8 +1148,10 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             if (threat.player->role == Role::CF) { guardY = lerp(threat.player->y, PITCH_H / 2.0, 0.45); break; }
         }
         for (auto& defender : state.players) {
-            if (defender.team != team || used(&defender) || defender.role != Role::CB) continue;
-            double score = dist(defender.x, defender.y, ownGoalX + fd * 96.0, guardY);
+            if (defender.team != team || used(&defender)
+                || (defender.role != Role::CB && defender.role != Role::CM && defender.role != Role::FB)) continue;
+            double roleCost = defender.role == Role::CB ? 0.0 : defender.role == Role::CM ? 18.0 : 28.0;
+            double score = dist(defender.x, defender.y, ownGoalX + fd * 96.0, guardY) + roleCost;
             if (score < bestGuard) { bestGuard = score; guard = &defender; }
         }
         if (guard) {
@@ -1138,10 +1159,30 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             assigned.insert(guard->id);
         }
     }
+    if (danger || shootingRange) {
+        Player* cutbackGuard = nullptr;
+        double bestCutback = 1e9;
+        double cutbackY = lerp(carrier.y, PITCH_H / 2.0, danger ? 0.72 : 0.62);
+        double cutbackX = ownGoalX + fd * (danger ? 132.0 : 155.0);
+        for (auto& defender : state.players) {
+            if (defender.team != team || used(&defender)
+                || (defender.role != Role::CM && defender.role != Role::FB && defender.role != Role::CB)) continue;
+            double roleCost = defender.role == Role::CM ? 0.0 : defender.role == Role::FB ? 18.0 : 32.0;
+            double score = dist(defender.x, defender.y, cutbackX, cutbackY) + roleCost;
+            if (score < bestCutback) { bestCutback = score; cutbackGuard = &defender; }
+        }
+        if (cutbackGuard) {
+            setAssignment(*cutbackGuard, "cutback_guard", cutbackX, cutbackY, carrier.id);
+            assigned.insert(cutbackGuard->id);
+        }
+    }
     if (danger && std::abs(carrier.y - PITCH_H / 2.0) > 125.0) {
         Player* farGuard = nullptr;
+        Player* nearGuard = nullptr;
         double bestFar = 1e9;
+        double bestNear = 1e9;
         double farY = carrier.y < PITCH_H / 2.0 ? PITCH_H * 0.66 : PITCH_H * 0.34;
+        double nearY = carrier.y < PITCH_H / 2.0 ? PITCH_H * 0.34 : PITCH_H * 0.66;
         for (auto& defender : state.players) {
             if (defender.team != team || used(&defender) || (defender.role != Role::FB && defender.role != Role::CM)) continue;
             double score = dist(defender.x, defender.y, ownGoalX + fd * 108.0, farY);
@@ -1150,6 +1191,15 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         if (farGuard) {
             setAssignment(*farGuard, "far_post_guard", ownGoalX + fd * 108.0, farY);
             assigned.insert(farGuard->id);
+        }
+        for (auto& defender : state.players) {
+            if (defender.team != team || used(&defender) || (defender.role != Role::CB && defender.role != Role::FB)) continue;
+            double score = dist(defender.x, defender.y, ownGoalX + fd * 64.0, nearY);
+            if (score < bestNear) { bestNear = score; nearGuard = &defender; }
+        }
+        if (nearGuard) {
+            setAssignment(*nearGuard, "near_post_guard", ownGoalX + fd * 64.0, nearY);
+            assigned.insert(nearGuard->id);
         }
     }
     if (danger) {

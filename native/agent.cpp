@@ -1433,8 +1433,9 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     auto* task = engine.assignmentFor(p.id);
     if (task) {
         static const std::unordered_map<std::string, double> taskScores = {
-            {"primary_press", 0.86}, {"secondary_press", 0.72}, {"shot_lane", 0.84}, {"cover", 0.66},
-            {"lane_block", 0.86}, {"box_guard", 0.86}, {"far_post_guard", 0.80}, {"defensive_line", 0.72}, {"wide_cover", 0.70},
+            {"primary_press", 0.86}, {"secondary_press", 0.72}, {"shot_lane", 0.88}, {"cover", 0.66},
+            {"cross_lane", 0.87}, {"lane_block", 0.87}, {"box_guard", 0.88}, {"far_post_guard", 0.84},
+            {"near_post_guard", 0.86}, {"cutback_guard", 0.84}, {"defensive_line", 0.72}, {"wide_cover", 0.70},
             {"midfield_screen", 0.72}, {"box_screen", 0.80}, {"support_outlet", 0.47}, {"advance_midfield", 0.60},
             {"run_ahead", 0.64}, {"inside_run", 0.62}, {"hold_width", 0.56},
             {"overlap", 0.66}, {"rest_defence", 0.56}, {"close_down", 0.84},
@@ -1456,7 +1457,10 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         bool mustHoldShape = existingTask
             && (existingTask->role == "lane_block" || existingTask->role == "box_guard"
                 || existingTask->role == "far_post_guard"
+                || existingTask->role == "near_post_guard"
+                || existingTask->role == "cutback_guard"
                 || existingTask->role == "shot_lane"
+                || existingTask->role == "cross_lane"
                 || existingTask->role == "defensive_line" || existingTask->role == "wide_cover"
                 || existingTask->role == "midfield_screen" || existingTask->role == "box_screen");
         bool roleCanStep = p.role == Role::CM || p.role == Role::FB || p.role == Role::CB
@@ -1937,7 +1941,10 @@ void PlayerAI::applyMovement(double sdt) {
         auto* task = engine.assignmentFor(p.id);
         if (task && task->role == "close_down") defendSprint = true;
         else if (task && (task->role == "lane_block" || task->role == "box_guard" || task->role == "far_post_guard"
+            || task->role == "near_post_guard"
+            || task->role == "cutback_guard"
             || task->role == "shot_lane"
+            || task->role == "cross_lane"
             || task->role == "midfield_screen" || task->role == "box_screen" || task->role == "defensive_line"
             || task->role == "wide_cover")) {
             Player* carrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
