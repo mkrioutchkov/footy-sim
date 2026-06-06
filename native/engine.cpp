@@ -337,9 +337,20 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             b.lastTouchTeam=carrier.team; b.lastToucherId=carrier.id;
             lastLooseOrigin.clear();
             blockReboundFor(tackler.id,650);
-            awardSetPiece("free_kick", std::string(to_string(carrier.team)));
-            b.x = clamp(foulX, 20.0, PITCH_W - 20.0);
-            b.y = clamp(foulY, 20.0, PITCH_H - 20.0);
+            double defendingGoalX = ownGoalXFor(tackler.team);
+            double defendingFd = tackler.team == Team::Home ? 1.0 : -1.0;
+            bool foulInBox = std::abs(foulX - defendingGoalX) < PENALTY_AREA_W
+                && std::abs(foulY - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+            if (foulInBox) {
+                b.x = defendingGoalX + defendingFd * 110.0;
+                b.y = PITCH_H / 2.0;
+                awardSetPiece("penalty", std::string(to_string(carrier.team)));
+                setPieceReason = "penalty";
+            } else {
+                b.x = clamp(foulX, 20.0, PITCH_W - 20.0);
+                b.y = clamp(foulY, 20.0, PITCH_H - 20.0);
+                awardSetPiece("free_kick", std::string(to_string(carrier.team)));
+            }
             setPieceSpotX = b.x;
             setPieceSpotY = b.y;
         }else{
@@ -657,7 +668,7 @@ void GameEngine::fixedUpdate(double sdt) {
         }
         auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
             double fd = taker.team == Team::Home ? 1.0 : -1.0;
-            double standBack = setPieceType == "throw_in" ? 0.0 : setPieceType == "corner" ? 7.0 : 14.0;
+            double standBack = setPieceType == "throw_in" ? 0.0 : setPieceType == "corner" ? 7.0 : setPieceType == "penalty" ? 18.0 : 14.0;
             double px = releaseSpot ? setPieceSpotX : setPieceSpotX - fd * standBack;
             double py = setPieceSpotY;
             taker.x = clamp(px, 5.0, PITCH_W - 5.0);
@@ -668,7 +679,7 @@ void GameEngine::fixedUpdate(double sdt) {
             taker.facing = std::atan2(setPieceSpotY - taker.y, setPieceSpotX - taker.x);
         };
         auto enforceRestartDistance = [&]() {
-            double minDist = setPieceType == "throw_in" ? 42.0 : setPieceType == "corner" ? 58.0 : 78.0;
+            double minDist = setPieceType == "throw_in" ? 42.0 : setPieceType == "corner" ? 58.0 : setPieceType == "penalty" ? 96.0 : 78.0;
             Team restartTeam = teamFromStr(setPieceTeam);
             for (auto& p : state.players) {
                 if (p.team == restartTeam || p.role == Role::GK) continue;
@@ -743,7 +754,7 @@ void GameEngine::fixedUpdate(double sdt) {
                     state.ball.controllerId = taker->id;
                     state.ball.lastTouchTeam = taker->team;
                     state.ball.lastToucherId = taker->id;
-                    actionTimer = setPieceType == "throw_in" ? 650 : 1500;
+                    actionTimer = setPieceType == "throw_in" ? 650 : setPieceType == "penalty" ? 1800 : 1500;
                 }
             }
         }
@@ -777,7 +788,7 @@ void GameEngine::fixedUpdate(double sdt) {
                     taker->targetX = state.ball.x;
                     taker->targetY = state.ball.y;
                     setPieceTakerArrived = true;
-                    actionTimer = setPieceType == "throw_in" ? 650 : 1500;
+                    actionTimer = setPieceType == "throw_in" ? 650 : setPieceType == "penalty" ? 1800 : 1500;
                 }
             }
         }
@@ -1329,6 +1340,12 @@ void GameEngine::releaseSetPiece(){
         clearReleasedSetPiece();
         return;
     }
+    if(setPieceType=="penalty"){
+        emitEvent("shot", holder->x, holder->y, holder->id);
+        shootBall(*holder,nullptr);
+        clearReleasedSetPiece();
+        return;
+    }
     if(holder->role==Role::GK){
         releaseGoalkeeperDistribution(*holder);
         clearReleasedSetPiece();
@@ -1754,6 +1771,20 @@ void GameEngine::awardSetPiece(std::string t, std::string tm) {
                 break;
             }
         }
+        return;
+    }
+
+    if (t == "penalty") {
+        actionTimer = 5000;
+        Player* best = nullptr;
+        double bestScore = -1e9;
+        for (auto& p : state.players) {
+            if (p.team != tmTeam || p.role == Role::GK) continue;
+            double roleBonus = p.role == Role::CF ? 90.0 : p.role == Role::CM ? 45.0 : p.role == Role::WM ? 25.0 : 0.0;
+            double score = roleBonus + attrFactor(p.attrs.shooting) * 80.0 - dist(p.x, p.y, b.x, b.y) * 0.15;
+            if (score > bestScore) { bestScore = score; best = &p; }
+        }
+        setPieceTakerId = best ? best->id : -1;
         return;
     }
 

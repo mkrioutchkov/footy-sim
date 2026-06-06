@@ -1,7 +1,7 @@
 import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js';
 import {
   PITCH_W, PITCH_H, PLAYER_R, BALL_R,
-  LINE_COLOR, PITCH_GREEN, HOME_COLOR, AWAY_COLOR, GOAL_COLOR,
+  LINE_COLOR, PITCH_GREEN, HOME_COLOR, AWAY_COLOR, HOME_GK_COLOR, AWAY_GK_COLOR, GOAL_COLOR,
   GOAL_W, GOAL_DEPTH,
   PENALTY_AREA_W, PENALTY_AREA_H,
   GOAL_AREA_W, GOAL_AREA_H,
@@ -188,7 +188,10 @@ export class MatchRenderer {
   sync(state: EngineState): void {
     if (this.animTime === 0) console.log('[HUD] first sync, state keys:', Object.keys(state).filter(k => ['homeScore','homeShots','possessionPct','clockMs','matchState'].includes(k)).map(k => `${k}=${(state as any)[k]}`).join(', '));
     this.animTime++;
-    if (state.version) this.versionText.text = `eng:${state.version} ${this.uiVersion}`;
+    if (state.version) {
+      const seedText = typeof state.seed === 'number' ? `seed:${state.seed} ` : '';
+      this.versionText.text = `${seedText}eng:${state.version} ${this.uiVersion}`;
+    }
     const b = state.ball;
     const ballSpeed = Math.sqrt(b.vx ** 2 + b.vy ** 2);
     if (b.controllerId !== this.lastControllerId) {
@@ -276,7 +279,9 @@ export class MatchRenderer {
         this.playerEntries.set(p.id, entry);
       }
 
-      const color = p.team === 'home' ? HOME_COLOR : AWAY_COLOR;
+      const color = p.role === 'GK'
+        ? (p.team === 'home' ? HOME_GK_COLOR : AWAY_GK_COLOR)
+        : (p.team === 'home' ? HOME_COLOR : AWAY_COLOR);
       const hasBall = b.controllerId === p.id;
       const r = PLAYER_R;
       const vp = this.smoothPlayer(p.id, p.x, p.y);
@@ -506,6 +511,7 @@ export class MatchRenderer {
     switch (type) {
       case 'offside': return 'OFFSIDE';
       case 'free_kick': return 'FREE KICK';
+      case 'penalty': return 'PENALTY';
       case 'throw_in': return 'THROW IN';
       case 'corner': return 'CORNER';
       case 'goal_kick': return 'GOAL KICK';

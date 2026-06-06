@@ -18,6 +18,7 @@ interface NativeState {
   clockMs: number;
   matchState: string;
   speed: number;
+  seed?: number;
   [key: string]: unknown;
 }
 
@@ -41,6 +42,7 @@ let paused = false;
 function broadcast(state: NativeState): void {
   const visibleState = {
     ...state,
+    seed: SEED,
     speed: playbackSpeed,
     matchState: paused ? 'paused' : state.matchState,
   };

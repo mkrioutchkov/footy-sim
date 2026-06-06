@@ -62,12 +62,13 @@ export interface EngineState {
   possessionPct: number;
   half: number;
   version: string;
+  seed?: number;
   setPieceState?: SetPieceState;
 }
 
 export interface SetPieceState {
-  type: 'free_kick' | 'throw_in' | 'corner' | 'goal_kick' | string;
-  reason?: 'offside' | 'free_kick' | 'throw_in' | 'corner' | 'goal_kick' | string;
+  type: 'free_kick' | 'penalty' | 'throw_in' | 'corner' | 'goal_kick' | string;
+  reason?: 'offside' | 'free_kick' | 'penalty' | 'throw_in' | 'corner' | 'goal_kick' | string;
   team: Team;
   takerId: number | null;
   takerArrived: boolean;

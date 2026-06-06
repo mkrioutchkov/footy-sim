@@ -17,6 +17,8 @@ export const CORNER_ARC_R = 10;
 
 export const HOME_COLOR = 0xe63946;
 export const AWAY_COLOR = 0x457b9d;
+export const HOME_GK_COLOR = 0xffc857;
+export const AWAY_GK_COLOR = 0x7bd389;
 export const PITCH_GREEN = 0x2d8a1e;
 export const LINE_COLOR = 0xffffff;
 export const GOAL_COLOR = 0xffffff;

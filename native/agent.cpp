@@ -273,6 +273,14 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
                 p.targetX = lerp(p.x, oppGoalX - fd * 150.0, 0.6);
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.3);
             }
+        } else if (spType == "penalty") {
+            if (p.role == Role::CF || p.role == Role::CM) {
+                p.targetX = engine.state.ball.x - fd * (45.0 + std::abs(slotA) * 55.0);
+                p.targetY = PITCH_H / 2.0 + slotB * 110.0;
+            } else {
+                p.targetX = engine.state.ball.x - fd * (90.0 + std::abs(slotA) * 80.0);
+                p.targetY = p.homeY;
+            }
         } else if (spType == "free_kick") {
             double bx = engine.state.ball.x;
             double by = engine.state.ball.y;
@@ -318,6 +326,17 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
             } else {
                 p.targetX = ownGoalX + fd * 185.0;
                 p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.25);
+            }
+        } else if (spType == "penalty") {
+            if (p.role == Role::GK) {
+                p.targetX = ownGoalX;
+                p.targetY = PITCH_H / 2.0;
+            } else if (p.role == Role::CB || p.role == Role::FB) {
+                p.targetX = engine.state.ball.x + fd * (45.0 + std::abs(slotA) * 55.0);
+                p.targetY = PITCH_H / 2.0 + slotB * 120.0;
+            } else {
+                p.targetX = engine.state.ball.x + fd * (75.0 + std::abs(slotA) * 75.0);
+                p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.35);
             }
         } else if (spType == "free_kick") {
             double bx = engine.state.ball.x;
@@ -436,6 +455,13 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
             else if (t.role == Role::CM) sc -= 0.34;
         }
         if (isCutback) sc += 0.18;
+        double boxTargetGoalDist = std::abs(t.x - goalXFor(p.team));
+        if (carrierFinalThird && boxTargetGoalDist < 150.0 && receiverPressure <= 1 && bl <= 1) {
+            if (t.role == Role::CF) sc += 0.16;
+            else if (t.role == Role::WM) sc += 0.12;
+            else if (t.role == Role::CM && std::abs(t.y - PITCH_H / 2.0) < 150.0) sc += 0.06;
+        }
+        if ((isCross || isCutback) && receiverPressure <= 1 && bl <= 1) sc += 0.08;
         if (p.role == Role::WM && dgW < 450.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 230.0) sc += 0.42;
         if (p.role == Role::WM && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.32;
         if (p.role == Role::FB && fp > 0.0 && std::abs(p.y - PITCH_H / 2.0) > 75.0 && dgW < 430.0) sc += 0.30;
@@ -916,6 +942,22 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     bool oppFacingAway = (ctrl->team == Team::Home) ? ctrl->vx < 0.0 : ctrl->vx > 0.0;
     if (oppFacingAway && d < TACKLE_RANGE + 20.0) sc += 0.10;
 
+    double carrierSpeed = std::hypot(ctrl->vx, ctrl->vy);
+    double forwardX = carrierSpeed > 8.0 ? ctrl->vx / carrierSpeed : std::cos(ctrl->facing);
+    double forwardY = carrierSpeed > 8.0 ? ctrl->vy / carrierSpeed : std::sin(ctrl->facing);
+    double toTacklerX = d > 1.0 ? (player.x - ctrl->x) / d : 0.0;
+    double toTacklerY = d > 1.0 ? (player.y - ctrl->y) / d : 0.0;
+    double exposedDot = forwardX * toTacklerX + forwardY * toTacklerY;
+    if (exposedDot > 0.35 && d < TACKLE_RANGE + 22.0) sc += 0.12;
+    if (exposedDot < -0.35 && !emergencyBoxChallenge) sc -= 0.18;
+
+    double goalDx = ownGoalX - ctrl->x;
+    double goalDy = PITCH_H / 2.0 - ctrl->y;
+    double goalDist = std::max(1.0, std::hypot(goalDx, goalDy));
+    double drivingAtGoal = (forwardX * goalDx + forwardY * goalDy) / goalDist;
+    if (drivingAtGoal > 0.38 && d < TACKLE_RANGE + 24.0 && std::abs(ctrl->x - ownGoalX) < 300.0) sc += 0.14;
+    if (drivingAtGoal < -0.25 && !emergencyBoxChallenge) sc -= 0.06;
+
     sc += (engine.configFor(player.team).aggression / 100.0) * 0.10;
 
     return Action{ActionType::Tackle, clamp(sc, 0.0, 1.0), ctrl};
@@ -980,6 +1022,9 @@ Action PlayerAI::scoreChase(const Perception& per) {
     bool activeKnockAheadRunner = engine.isActiveKnockAheadRunner(player.id);
     double ballSpeed = std::sqrt(b.vx * b.vx + b.vy * b.vy);
     bool needsRecovery = b.z <= 20.0 && ballSpeed < 30.0 && per.amClosestToBall;
+    bool selfLooseTouch = b.controllerId < 0 && b.intendedReceiverId < 0
+        && b.lastToucherId == player.id && b.z <= 20.0
+        && ballSpeed < 90.0 && per.ballDist < 85.0;
 
     bool canContest = engine.canContestBall(player);
     double toPlayerDist = std::max(per.ballDist, 1.0);
@@ -999,6 +1044,14 @@ Action PlayerAI::scoreChase(const Perception& per) {
                       clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
                       clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
                       "recover_loose_ball"};
+    }
+
+    if (selfLooseTouch) {
+        double lead = ballSpeed > 8.0 ? std::min(ballSpeed / 160.0, 0.34) : 0.0;
+        return Action{ActionType::Chase, 1.12, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      "recover_own_touch"};
     }
 
     if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun)
@@ -1795,8 +1848,13 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         double cdx = tx - p.x, cdy = ty - p.y;
         double cd = std::sqrt(cdx * cdx + cdy * cdy);
         if (cd > 1.0) {
-            p.vx = lerp(p.vx, (cdx / cd) * ms, 0.15);
-            p.vy = lerp(p.vy, (cdy / cd) * ms, 0.15);
+            bool urgentChase = a.purpose == "recover_own_touch"
+                             || a.purpose == "recover_loose_ball"
+                             || a.purpose == "meet_incoming_ball"
+                             || a.purpose == "receive_ball";
+            double steer = urgentChase ? 0.34 : 0.15;
+            p.vx = lerp(p.vx, (cdx / cd) * ms, steer);
+            p.vy = lerp(p.vy, (cdy / cd) * ms, steer);
         }
     }
     else if (a.type == ActionType::Position) {
@@ -1927,12 +1985,19 @@ void PlayerAI::applyMovement(double sdt) {
     double secs = sdt / 1000.0;
     double spd = std::sqrt(p.vx * p.vx + p.vy * p.vy);
 
+    double staminaSkill = attrFactor(p.attrs.stamina);
     if (spd > SPEED_SPRINT * 0.5)
-        p.stamina = std::max(0.0, p.stamina - STAMINA_DRAIN_SPRINT);
+        p.stamina = std::max(0.0, p.stamina - STAMINA_DRAIN_SPRINT * (1.12 - staminaSkill * 0.35));
     else if (spd < 15.0)
-        p.stamina = std::min(100.0, p.stamina + STAMINA_RECOVER);
+        p.stamina = std::min(100.0, p.stamina + STAMINA_RECOVER * (0.80 + staminaSkill * 0.45));
 
-    double sf = (p.stamina < STAMINA_SLOW_THRESHOLD * 100.0) ? p.stamina / 100.0 : 1.0;
+    double slowThreshold = STAMINA_SLOW_THRESHOLD * 100.0;
+    double fatigueFloor = 0.54 + staminaSkill * 0.20;
+    double sf = 1.0;
+    if (p.stamina < slowThreshold) {
+        double fatigueBlend = clamp(p.stamina / std::max(1.0, slowThreshold), 0.0, 1.0);
+        sf = lerp(fatigueFloor, 1.0, fatigueBlend);
+    }
 
     double dx = p.targetX - p.x, dy = p.targetY - p.y;
     double d = std::sqrt(dx * dx + dy * dy);
@@ -1943,6 +2008,7 @@ void PlayerAI::applyMovement(double sdt) {
     bool committedChase = activeKnockAheadRunner
                        || (lastActionType == ActionType::Chase && engine.state.ball.controllerId < 0)
                        || (lastActionType == ActionType::Chase && lastPurpose == "receive_ball")
+                       || (lastActionType == ActionType::Chase && lastPurpose == "recover_own_touch")
                        || (lastActionType == ActionType::Chase && lastPurpose == "recover_loose_ball");
 
     double bdx = engine.state.ball.x - p.x, bdy = engine.state.ball.y - p.y;
