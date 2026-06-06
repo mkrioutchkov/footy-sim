@@ -344,6 +344,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             if (foulInBox) {
                 b.x = defendingGoalX + defendingFd * 110.0;
                 b.y = PITCH_H / 2.0;
+                stats.recordPenaltyAwarded();
                 awardSetPiece("penalty", std::string(to_string(carrier.team)));
                 setPieceReason = "penalty";
             } else {
@@ -362,6 +363,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     trackedShot=false;
     trackedShotPreventable=false;
     trackedShotHeader=false;
+    trackedPenaltyShot=false;
     receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
     double angle=std::atan2(b.y-tackler.y,b.x-tackler.x)+(rng.random()-0.5)*0.9;
     double outcomeRoll=rng.random();
@@ -410,7 +412,8 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double accuracy=attrFactor(s.attrs.shooting);
     double goalCenterY=PITCH_H/2.0;
     double shotDistance=std::hypot(gx-s.x,goalCenterY-s.y);
-    bool freshCross=s.crossCollected>0.0&&shotDistance<230.0;
+    double freshCrossMax=s.role==Role::CF?285.0:(s.role==Role::WM?270.0:250.0);
+    bool freshCross=s.crossCollected>0.0&&shotDistance<freshCrossMax;
     if(freshCross)stats.recordHeadedShot();
     stats.recordShotDistance(shotDistance);
     int pressureCount=0;
@@ -1342,6 +1345,8 @@ void GameEngine::releaseSetPiece(){
     }
     if(setPieceType=="penalty"){
         emitEvent("shot", holder->x, holder->y, holder->id);
+        stats.recordPenaltyTaken();
+        trackedPenaltyShot=true;
         shootBall(*holder,nullptr);
         clearReleasedSetPiece();
         return;
@@ -1898,7 +1903,7 @@ bool GameEngine::checkGoal(){
         if(b.lastTouchTeam!=trackedShotTeam){
             lastGoalSource="shot_deflection";
         }else{
-            lastGoalSource="shot";
+            lastGoalSource=trackedPenaltyShot ? "penalty" : "shot";
         }
     };
     if(b.x+BALL_R<HOME_GOAL_X){
@@ -1907,8 +1912,9 @@ bool GameEngine::checkGoal(){
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,HOME_GOAL_X,PITCH_H/2);
         Player* scorer=playerById(lastGoalToucherId);
         std::string scorerRole=scorer?std::string(to_string(scorer->role)):"unknown";
+        if(lastGoalSource=="penalty")stats.recordPenaltyGoal();
         stats.recordGoal("away",lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole,trackedShotHeader);
-        state.awayScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; kickoff(Team::Home); return true;
+        state.awayScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; trackedPenaltyShot=false; kickoff(Team::Home); return true;
     }
     if(b.x-BALL_R>AWAY_GOAL_X){
         recordGoalSource(Team::Home);
@@ -1916,8 +1922,9 @@ bool GameEngine::checkGoal(){
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,AWAY_GOAL_X,PITCH_H/2);
         Player* scorer=playerById(lastGoalToucherId);
         std::string scorerRole=scorer?std::string(to_string(scorer->role)):"unknown";
+        if(lastGoalSource=="penalty")stats.recordPenaltyGoal();
         stats.recordGoal("home",lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole,trackedShotHeader);
-        state.homeScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; kickoff(Team::Away); return true;
+        state.homeScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; trackedPenaltyShot=false; kickoff(Team::Away); return true;
     }
     return false;
 }
@@ -1931,6 +1938,7 @@ bool GameEngine::checkOutOfPlay() {
         trackedShot = false;
         trackedShotPreventable = false;
         trackedShotHeader = false;
+        trackedPenaltyShot = false;
         lastLooseOrigin.clear();
     };
     if (b.y < 0 || b.y > PITCH_H || b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
@@ -2048,6 +2056,7 @@ void GameEngine::collectBall(Player& c) {
     trackedShot = false;
     trackedShotPreventable = false;
     trackedShotHeader = false;
+    trackedPenaltyShot = false;
     lastLooseOrigin.clear();
     b.controllerId = c.id;
     b.intendedReceiverId = -1;
@@ -2267,6 +2276,7 @@ void GameEngine::tryGKSave() {
     trackedShot = false;
     trackedShotPreventable = false;
     trackedShotHeader = false;
+    trackedPenaltyShot = false;
     double handling = attrFactor(gk->attrs.positioning);
     double catchChance = clamp(0.22 + handling * 0.38 - std::max(0.0, speed - 520) / 900, 0.12, 0.58);
     bool caught = rng.random() < catchChance;
@@ -2391,6 +2401,7 @@ std::string GameEngine::getJSON() const {
     j["carrierTurns"] = summary["carrierTurns"];
     j["passSelection"] = summary["passSelection"];
     j["setPieces"] = summary["setPieces"];
+    j["penaltyGoals"] = summary["setPieces"]["penaltiesScored"];
     j["shotSelection"] = summary["shotSelection"];
     j["marking"] = summary["marking"];
     j["qualityFlags"] = summary["qualityFlags"];

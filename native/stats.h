@@ -38,6 +38,9 @@ public:
     void recordGoalKickAttempt()       { goalKickAttempts++; goalKickActive++; }
     void recordGoalKickExit()          { goalKickExited++; if(goalKickActive>0) goalKickActive--; }
     void recordGoalKickTrappedShot()   { goalKickTrappedShots++; if(goalKickActive>0) goalKickActive--; }
+    void recordPenaltyAwarded()        { penaltiesAwarded++; }
+    void recordPenaltyTaken()          { penaltiesTaken++; }
+    void recordPenaltyGoal()           { penaltiesScored++; }
 
     // ── Shot events ──
     void recordShot(const std::string& team, bool onTarget, const std::string& shooterRole);
@@ -128,6 +131,7 @@ private:
     int ownPassGoals=0, lostShotGoals=0, unknownLooseGoals=0, knockAheadGoals=0;
     int goalsGK=0, goalsCB=0, goalsFB=0, goalsCM=0, goalsWM=0, goalsCF=0, goalsUnknownRole=0;
     int tackleAttempts=0, tackleWins=0, tackleClean=0, tackleLoose=0, tackleFouls=0;
+    int penaltiesAwarded=0, penaltiesTaken=0, penaltiesScored=0;
     int slideTackleDistance=0, slideTackleOob=0;
     int stuckAlerts=0;
     int simFreezes=0;

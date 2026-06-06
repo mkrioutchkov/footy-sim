@@ -62,6 +62,7 @@ public:
     bool trackedShot = false;
     bool trackedShotPreventable = false;
     bool trackedShotHeader = false;
+    bool trackedPenaltyShot = false;
     Team trackedShotTeam = Team::Home;
     int trackedShooterId = -1;
     double shotOriginX = 0, shotOriginY = 0;

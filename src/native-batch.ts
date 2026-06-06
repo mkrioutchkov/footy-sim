@@ -34,6 +34,15 @@ interface Summary {
   tackles: { attempts: number; wins: number };
   dribbleTypes: { knockAheads: number; turnovers: number; riskyTurnovers: number; recovered: number; retainedByTeammate: number; outOfPlay: number };
   passSelection: { risky: number; saferIgnored: number; pressuredReceptions: number; pressuredReceptionFailures: number };
+  setPieces: {
+    goalKickAttempts: number;
+    goalKickExitedOwnThird: number;
+    goalKickTrappedShots: number;
+    goalKickPending: number;
+    penaltiesAwarded: number;
+    penaltiesTaken: number;
+    penaltiesScored: number;
+  };
   shotSelection: {
     betterPassAvailable: number;
     tightAngle: number;
@@ -145,6 +154,11 @@ console.log(JSON.stringify({
     headersPerMatch: round(total('headers') / matches),
     headedShotsPerMatch: round(total('headedShots') / matches),
     headedGoals: total('headedGoals'),
+    penaltiesAwardedPerMatch: round(results.reduce((sum, result) => sum + (result.setPieces?.penaltiesAwarded ?? 0), 0) / matches),
+    penaltiesTakenPerMatch: round(results.reduce((sum, result) => sum + (result.setPieces?.penaltiesTaken ?? 0), 0) / matches),
+    penaltyGoals: results.reduce((sum, result) => sum + (result.setPieces?.penaltiesScored ?? 0), 0),
+    penaltyConversionPct: round(results.reduce((sum, result) => sum + (result.setPieces?.penaltiesScored ?? 0), 0)
+      / Math.max(1, results.reduce((sum, result) => sum + (result.setPieces?.penaltiesTaken ?? 0), 0)) * 100),
     offsidesPerMatch: round(total('offsides') / matches),
     tacklesAttemptedPerMatch: round(results.reduce((sum, result) => sum + result.tackles.attempts, 0) / matches),
     tackleWinPct: round(results.reduce((sum, result) => sum + result.tackles.wins, 0)
@@ -193,6 +207,7 @@ console.log(JSON.stringify({
     completionPct: result.passCompletionPct,
     shots: result.shots,
     goals: result.homeScore + result.awayScore,
+    penalties: result.setPieces?.penaltiesAwarded ?? 0,
     tackles: result.tackles.attempts,
     stuck: result.stuckCarrierAlerts,
     singleDropPct: round(result.marking.singleDropSamples / Math.max(1, result.marking.backLineSamples) * 100),

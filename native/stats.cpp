@@ -151,7 +151,9 @@ std::string StatsCollector::summaryJSON() const {
 
     j["setPieces"] = {
         {"goalKickAttempts", goalKickAttempts}, {"goalKickExitedOwnThird", goalKickExited},
-        {"goalKickTrappedShots", goalKickTrappedShots}, {"goalKickPending", goalKickActive}
+        {"goalKickTrappedShots", goalKickTrappedShots}, {"goalKickPending", goalKickActive},
+        {"penaltiesAwarded", penaltiesAwarded}, {"penaltiesTaken", penaltiesTaken},
+        {"penaltiesScored", penaltiesScored}
     };
 
     j["shotSelection"] = {
