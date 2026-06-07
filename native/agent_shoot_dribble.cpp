@@ -149,7 +149,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     };
 
     // Consider flank targets for CM/FB
-    if (p.role == Role::CM || p.role == Role::FB) {
+    if (canUseFlankTargets()) {
         double topFlank = std::max(80.0, p.y - 100.0);
         double botFlank = std::min(PITCH_H - 80.0, p.y + 100.0);
         double topDensity = densityAt(p.x + fd * 60.0, topFlank);
@@ -231,7 +231,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     double aheadX = clamp(p.x + fd * 130.0, 35.0, PITCH_W - 35.0);
     int densityAhead = densityAt(aheadX, p.y);
-    if ((p.role == Role::CM || p.role == Role::FB) && !finalThird && per.nearestOpponentDist > 78.0) {
+    if (canUseOpenLane() && !finalThird && per.nearestOpponentDist > 78.0) {
         double laneY = p.y;
         double topDensity = densityAt(p.x + fd * 145.0, clamp(p.y - 75.0, 45.0, PITCH_H - 45.0));
         double midDensity = densityAt(p.x + fd * 145.0, p.y);
@@ -240,8 +240,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         else if (botDensity < midDensity) laneY = clamp(p.y + 75.0, 45.0, PITCH_H - 45.0);
         int laneDensity = std::min({ topDensity, midDensity, botDensity });
         if (laneDensity <= 1) {
-            sc += p.role == Role::CM ? 0.18 : 0.12;
-            tx = clamp(p.x + fd * (p.role == Role::CM ? 165.0 : 135.0), 35.0, PITCH_W - 35.0);
+            sc += openLaneDribbleBonus();
+            tx = clamp(p.x + fd * openLaneDribbleDistance(), 35.0, PITCH_W - 35.0);
             ty = laneY;
         }
     }
@@ -255,7 +255,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     }
 
     // Role-specific
-    if (p.role == Role::WM) {
+    if (canUseWideDribble()) {
         bool inWide = std::abs(p.y - PITCH_H / 2.0) > 140.0;
         bool nearOppBox = distToGoal < 350.0;
         if (inWide) {

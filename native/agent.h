@@ -126,6 +126,12 @@ public:
     virtual double  nearGoalDribbleBonus(bool nearGoal, double distToGoal) const { (void)nearGoal; (void)distToGoal; return 0.0; }
     virtual bool    isAttackerRole() const { return false; }
     virtual double  nearGoalShotBiasMargin() const { return -1.0; }
+    virtual bool    canUseFlankTargets() const { return false; }
+    virtual bool    canUseOpenLane() const { return false; }
+    virtual double  openLaneDribbleBonus() const { return 0.0; }
+    virtual double  openLaneDribbleDistance() const { return 0.0; }
+    virtual bool    canUseWideDribble() const { return false; }
+    virtual bool    shouldSearchForPassOverShot() const { return false; }
     virtual PitchArea currentPitchArea() const;
     double dizzyRotationAccum = 0;
     double dizzyWindowStartMs = 0;

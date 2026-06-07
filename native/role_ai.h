@@ -30,6 +30,7 @@ public:
     double finalThirdShotMaxDistance() const override { return 175.0; }
     double dribbleOwnHalfExtraPenalty() const override { return 0.0; }
     bool   isAttackerRole() const override { return true; }
+    bool   canUseWideDribble() const override { return true; }
 };
 
 class CMPlayerAI : public PlayerAI {
@@ -43,6 +44,11 @@ public:
     double shotDistancePenalty(double shotDistance) const override { return shotDistance > 110.0 ? -0.12 : -0.07; }
     double finalThirdShotMinAngle() const override { return 10.0; }
     double openSpaceDribbleBonus(double nearestOppDist) const override { return nearestOppDist > 80.0 ? 0.08 : 0.0; }
+    bool   canUseFlankTargets() const override { return true; }
+    bool   canUseOpenLane() const override { return true; }
+    double openLaneDribbleBonus() const override { return 0.18; }
+    double openLaneDribbleDistance() const override { return 165.0; }
+    bool   shouldSearchForPassOverShot() const override { return true; }
 };
 
 class CBPlayerAI : public PlayerAI {
@@ -61,4 +67,8 @@ public:
     double shotMaxDistance() const override { return 205.0; }
     double tackleBaseScore() const override { return 0.50; }
     double tackleRoleAdjust() const override { return 0.0; }
+    bool   canUseFlankTargets() const override { return true; }
+    bool   canUseOpenLane() const override { return true; }
+    double openLaneDribbleBonus() const override { return 0.12; }
+    double openLaneDribbleDistance() const override { return 135.0; }
 };

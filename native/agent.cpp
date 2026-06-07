@@ -474,7 +474,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     if (ic) {
         double fd = player.team == Team::Home ? 1.0 : -1.0;
         bool finalThird = fd > 0.0 ? player.x > PITCH_W * 2.0 / 3.0 : player.x < PITCH_W / 3.0;
-        if (finalThird && player.role == Role::CM && best.type == ActionType::Shoot) {
+        if (finalThird && shouldSearchForPassOverShot() && best.type == ActionType::Shoot) {
             Action* frontLinePass = nullptr;
             for (auto& x : a) {
                 if (x.type != ActionType::Pass || !x.target) continue;
@@ -486,7 +486,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
             }
             if (frontLinePass && frontLinePass->score > best.score - 0.22) return *frontLinePass;
         }
-        if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 25.0 && (player.role == Role::CF || player.role == Role::WM)) {
+        if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 25.0 && isAttackerRole()) {
             Action* driveIn = nullptr;
             for (auto& x : a) {
                 if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space) { driveIn = &x; break; }
