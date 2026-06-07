@@ -1,0 +1,206 @@
+#include "engine.h"
+#include "agent.h"
+
+void PlayerAI::applyMovement(double sdt) {
+    auto& p = player;
+    if (p.role == Role::GK) return;
+    if (setPieceHold) return;
+
+    double secs = sdt / 1000.0;
+    double spd = std::sqrt(p.vx * p.vx + p.vy * p.vy);
+
+    double staminaSkill = attrFactor(p.attrs.stamina);
+    if (spd > SPEED_SPRINT * 0.5)
+        p.stamina = std::max(0.0, p.stamina - STAMINA_DRAIN_SPRINT * (1.12 - staminaSkill * 0.35));
+    else if (spd < 15.0)
+        p.stamina = std::min(100.0, p.stamina + STAMINA_RECOVER * (0.80 + staminaSkill * 0.45));
+
+    double slowThreshold = STAMINA_SLOW_THRESHOLD * 100.0;
+    double fatigueFloor = 0.54 + staminaSkill * 0.20;
+    double sf = 1.0;
+    if (p.stamina < slowThreshold) {
+        double fatigueBlend = clamp(p.stamina / std::max(1.0, slowThreshold), 0.0, 1.0);
+        sf = lerp(fatigueFloor, 1.0, fatigueBlend);
+    }
+
+    double dx = p.targetX - p.x, dy = p.targetY - p.y;
+    double d = std::sqrt(dx * dx + dy * dy);
+
+    auto* lastTask = engine.assignmentFor(p.id);
+    bool pressTask      = (lastActionType == ActionType::Position && lastPurpose == ActionPurpose::Task && lastTask && lastTask->role == DefensiveTask::PrimaryPress);
+    bool secondaryPress = (lastActionType == ActionType::Position && lastPurpose == ActionPurpose::Task && lastTask && lastTask->role == DefensiveTask::SecondaryPress);
+    bool activeKnockAheadRunner = engine.isActiveKnockAheadRunner(p.id);
+    bool committedChase = activeKnockAheadRunner
+                       || (lastActionType == ActionType::Chase && engine.state.ball.controllerId < 0)
+                       || (lastActionType == ActionType::Chase && lastPurpose == ActionPurpose::Receive)
+                       || (lastActionType == ActionType::Chase && lastPurpose == ActionPurpose::RecoverOwnTouch)
+                       || (lastActionType == ActionType::Chase && lastPurpose == ActionPurpose::RecoverLoose);
+
+    double bdx = engine.state.ball.x - p.x, bdy = engine.state.ball.y - p.y;
+    double bd  = std::sqrt(bdx * bdx + bdy * bdy);
+    double ownGoalX = ownGoalXFor(p.team);
+
+    bool carrierCornered = (engine.state.ball.x < 80.0 || engine.state.ball.x > PITCH_W - 80.0)
+                        && (engine.state.ball.y < 80.0 || engine.state.ball.y > PITCH_H - 80.0);
+    bool predatorial = (pressTask || secondaryPress) && carrierCornered;
+
+    bool committedPress = (pressTask && bd > 45.0 && (bd < PRESS_COMMIT_MAX_DIST || std::abs(engine.state.ball.x - ownGoalX) < DANGER_ZONE_DIST))
+                        || predatorial;
+
+    bool isObserving = !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5;
+
+    // Defenders sprint when carrier is in their half
+    bool defendSprint = false;
+    if (isDefenderLike() && !isObserving) {
+        auto* task = engine.assignmentFor(p.id);
+        if (task && task->role == DefensiveTask::CloseDown) defendSprint = true;
+        else if (task && (task->role == DefensiveTask::LaneBlock || task->role == DefensiveTask::BoxGuard || task->role == DefensiveTask::FarPostGuard
+            || task->role == DefensiveTask::NearPostGuard
+            || task->role == DefensiveTask::CutbackGuard
+            || task->role == DefensiveTask::ShotLane
+            || task->role == DefensiveTask::CrossLane
+            || task->role == DefensiveTask::MidfieldScreen || task->role == DefensiveTask::BoxScreen || task->role == DefensiveTask::DefensiveLine
+            || task->role == DefensiveTask::WideCover)) {
+            Player* carrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
+            double tdist = dist(p.x, p.y, task->targetX, task->targetY);
+            if (carrier && carrier->team != p.team && std::abs(carrier->x - ownGoalX) < PITCH_W * 0.45 && tdist > 32.0) {
+                defendSprint = true;
+            }
+        }
+        else if (engine.state.ball.controllerId >= 0) {
+            Player* carrier = engine.playerById(engine.state.ball.controllerId);
+            if (carrier && carrier->team != p.team && bd < 200.0) defendSprint = true;
+        }
+    }
+
+    double cruiseMul = isObserving
+        ? observingCruiseMul()
+        : 1.0;
+
+    double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)
+        ? DRIBBLE_FAST_SPEED
+        : (lastActionType == ActionType::Chase || committedPress || defendSprint ? SPEED_SPRINT : SPEED_RUN);
+
+    // Shielding: slow down when near opponents with ball
+    bool isController = (engine.state.ball.controllerId == p.id);
+    if (isController && bd < 60.0) {
+        baseSpeed *= 0.80; // 20% slower when shielding
+    }
+
+    double df = (committedChase || committedPress || defendSprint) ? 1.0 : std::min(d / 120.0, 1.5);
+    double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
+
+    double px = p.x, py = p.y;
+    if (d > 1.0) {
+        double sp = std::min(ms * secs, d);
+        p.x += (dx / d) * sp;
+        p.y += (dy / d) * sp;
+    }
+
+    if (secs > 0.001) {
+        p.vx = (p.x - px) / secs;
+        p.vy = (p.y - py) / secs;
+    }
+
+    double bAngle = std::atan2(engine.state.ball.y - p.y, engine.state.ball.x - p.x);
+    double bDiff  = std::abs(bAngle - facing);
+    double bNorm  = (bDiff > 3.141592653589793) ? 2.0 * 3.141592653589793 - bDiff : bDiff;
+    if (bNorm < 3.141592653589793 / 3.0) {
+        ballMemoryX = engine.state.ball.x;
+        ballMemoryY = engine.state.ball.y;
+        ballMemoryAge = 0;
+    } else {
+        ballMemoryAge++;
+    }
+
+    double spdAfter = std::sqrt(p.vx * p.vx + p.vy * p.vy);
+    bool ic = (engine.state.ball.controllerId == p.id);
+    if (ic) {
+        // Find nearest opponent for shielding
+        double nearOppDist = 1e9;
+        double nearOppX = 0, nearOppY = 0;
+        for (auto& o : engine.state.players) {
+            if (o.team != p.team && o.role != Role::GK) {
+                double d = dist(p.x, p.y, o.x, o.y);
+                if (d < nearOppDist) { nearOppDist = d; nearOppX = o.x; nearOppY = o.y; }
+            }
+        }
+
+        if (nearOppDist < 60.0) {
+            // Shielding: face AWAY from nearest opponent (slow lerp to avoid spinning)
+            double awayAngle = std::atan2(p.y - nearOppY, p.x - nearOppX);
+            facing = facing + std::atan2(std::sin(awayAngle - facing), std::cos(awayAngle - facing)) * 0.04;
+        } else {
+            // Open field: face toward ball velocity (movement direction)
+            auto& b = engine.state.ball;
+            double bs = std::hypot(b.vx, b.vy);
+            if(bs > 0.5) facing = facing + std::atan2(std::sin(std::atan2(-b.vy, -b.vx) - facing), std::cos(std::atan2(-b.vy, -b.vx) - facing)) * 0.05;
+        }
+    } else if (engine.state.ball.controllerId >= 0) {
+        Player* carrier = engine.playerById(engine.state.ball.controllerId);
+        if (carrier && carrier->team != p.team && bd < 170.0) {
+            double ballAngle = std::atan2(bdy, bdx);
+            facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.18;
+        } else if (spdAfter > 5.0) {
+            double moveAngle = std::atan2(p.vy, p.vx);
+            facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.06;
+        }
+    } else if (engine.state.ball.controllerId < 0 && bd < 80.0) {
+        double ballAngle = std::atan2(bdy, bdx);
+        facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.15;
+    } else if (spdAfter > 5.0) {
+        double moveAngle = std::atan2(p.vy, p.vx);
+        facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.06;
+    } else if (ballMemoryAge > 30) {
+        double memAngle = std::atan2(ballMemoryY - p.y, ballMemoryX - p.x);
+        facing = facing + std::atan2(std::sin(memAngle - facing), std::cos(memAngle - facing)) * 0.02;
+    }
+
+    double prevFacing = p.facing;
+    double facingDelta = std::abs(std::atan2(std::sin(facing - prevFacing), std::cos(facing - prevFacing)));
+    dizzyRotationAccum += facingDelta * 180.0 / 3.141592653589793;
+    if(engine.state.clockMs - dizzyWindowStartMs > 2000){
+        dizzyWindowStartMs = engine.state.clockMs;
+        dizzyRotationAccum = facingDelta * 180.0 / 3.141592653589793;
+    }
+    facing = std::atan2(std::sin(facing), std::cos(facing));
+    p.facing = facing;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// tryCollectAfterChase()
+// ══════════════════════════════════════════════════════════════════════════════
+void PlayerAI::tryCollectAfterChase() {
+    auto& p = player;
+    auto& b = engine.state.ball;
+
+    if (b.controllerId >= 0) return;
+
+    double distance = dist(p.x, p.y, b.x, b.y);
+    bool intended = (p.id == b.intendedReceiverId);
+    double reach = intended ? INTENDED_COLLECT_DIST : COLLECT_DIST;
+
+    if (b.z >= 20.0 || distance > reach) return;
+
+    double speed = std::hypot(b.vx, b.vy);
+    double speedLimit = intended ? COLLECT_SPEED_MAX * INTENDED_COLLECT_BONUS : COLLECT_SPEED_MAX;
+
+    if (speed >= speedLimit) return;
+
+    if (!engine.collectBall(p, intended ? "intended_chase_reception" : "chase_collection", reach)) return;
+
+    // Position-based stun lock: short in opponent's final third, long elsewhere
+    double gx = goalXFor(p.team);
+    bool inFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+    if (inFinalThird) {
+        stunLockTicks = 12;  // ~200ms — react quickly near goal
+        shotCooldown = 0;    // can shoot immediately in the box
+    } else {
+        stunLockTicks = 45;  // ~750ms — settle time in midfield
+        shotCooldown = 15;   // ~250ms — brief cooldown after collect
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// passSelectionAudit()
+// ══════════════════════════════════════════════════════════════════════════════
