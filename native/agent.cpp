@@ -242,7 +242,7 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
         for (auto& x : a) {
             if (x.type == ActionType::Shoot)                                  x.score += 0.06;
             if (x.type == ActionType::Pass && x.purpose == "through")        x.score += 0.04;
-            if (x.type == ActionType::Dribble && x.purpose == "space")       x.score += 0.04;
+            if (x.type == ActionType::Dribble && x.purpose == "space")       x.score += 0.08;
         }
     }
 
@@ -876,13 +876,13 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     // Blend toward goal only when close
     if (nearGoal) {
-        tx = lerp(tx, gx, 0.4);
+        tx = lerp(tx, gx, 0.55);
     } else {
-        tx = lerp(tx, gx, 0.15);
+        tx = lerp(tx, gx, 0.20);
     }
 
     // Scoring
-    double sc = 0.30;
+    double sc = 0.35;
     double backwardTarget = (tx - p.x) * fd;
     if (backwardTarget < -45.0) {
         sc -= 0.34;
@@ -919,10 +919,10 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     // Field position: prefer passing in own half
     if (inOwnHalf) sc -= 0.10;
-    if (inOwnHalf && p.role != Role::WM) sc -= 0.05; // CM/CB/FB: extra penalty in own half
+    if (inOwnHalf && p.role != Role::WM) sc -= 0.02; // CM/CB/FB: extra penalty in own half
 
     // Near goal bonus
-    if (nearGoal) sc += 0.10;
+    if (nearGoal) sc += 0.20;
 
     // Stuck detection
     double m = std::sqrt((p.x - lastPosX) * (p.x - lastPosX) + (p.y - lastPosY) * (p.y - lastPosY));
@@ -951,8 +951,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
             ty = laneY;
         }
     }
-    if (finalThird && per.nearestOpponentDist > 70.0 && densityAhead == 0) {
-        sc += 0.22;
+    if (finalThird && per.nearestOpponentDist > 70.0 && densityAhead <= 1) {
+        sc += 0.28;
         tx = p.x + fd * 165.0;
         ty = lerp(p.y, PITCH_H / 2.0, 0.18);
     } else if (!inOwnHalf && per.nearestOpponentDist > 115.0 && densityAhead <= 1) {
@@ -970,12 +970,12 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         }
         if (nearOppBox && per.nearestOpponentDist > 50.0) sc += 0.10;
         if (inWide && nearOppBox) {
-            tx = lerp(tx, gx, 0.5);
-            ty = lerp(ty, PITCH_H / 2.0, 0.3);
+            tx = lerp(tx, gx, 0.75);
+            ty = lerp(ty, PITCH_H / 2.0, 0.6);
         }
     }
     if (p.role == Role::CM && per.nearestOpponentDist > 80.0) sc += 0.08;
-    if (p.role == Role::CF && nearGoal) sc += 0.10;
+    if (p.role == Role::CF && nearGoal) sc += distToGoal < 120.0 ? 0.12 : 0.18;
 
     if (cp.score > 0.70 && cp.nearestPlayer) {
         double ax = p.x - cp.nearestPlayer->x;
@@ -1771,7 +1771,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     bool nearGoal = std::abs(player.x - gx) < 220.0;
     bool inBox    = std::abs(player.x - gx) < 150.0;
 
-    if (ic && best.score < (inBox ? 0.05 : nearGoal ? 0.10 : 0.22))
+    if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22))
         return Action{ActionType::Hold, 1.0};
 
     auto& bb = engine.blackboards[GameEngine::teamIndex(player.team)];
@@ -1818,9 +1818,66 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                                           8000.0, "backpass:" + std::to_string(player.id));
     }
 
+    // ── Clear path alert: relaxed — broad corridor, allow 1 blocker, wider zone ──
+    if (ic) {
+        double dx = gx - player.x;
+        double dy = PITCH_H / 2.0 - player.y;
+        double toGoalDist = std::hypot(dx, dy);
+        dx /= std::max(toGoalDist, 1.0);
+        dy /= std::max(toGoalDist, 1.0);
+        double nearestOppDist = 1e9;
+        int blockersInPath = 0;
+        for (auto& o : engine.state.players) {
+            if (o.team == player.team || o.role == Role::GK) continue;
+            double odx = o.x - player.x, ody = o.y - player.y;
+            double od = std::hypot(odx, ody);
+            double along = odx * dx + ody * dy;
+            double perp = std::abs(odx * dy - ody * dx);
+            if (along > 5.0) {
+                if (along < toGoalDist && perp < 80.0) blockersInPath++;
+                if (od < nearestOppDist) nearestOppDist = od;
+            }
+        }
+        bool clearPath = blockersInPath <= 1 && nearestOppDist > 35.0;
+        double distToGoal = std::abs(player.x - gx);
+        bool inDangerZone = distToGoal < 500.0;
+        if (clearPath && inDangerZone) {
+            // Close enough: shoot if possible, else dribble closer
+            if (distToGoal < 200.0) {
+                Action* shootAct = nullptr;
+                for (auto& x : a) {
+                    if (x.type == ActionType::Shoot && x.score > 0.0) {
+                        if (!shootAct || x.score > shootAct->score) shootAct = &x;
+                    }
+                }
+                if (shootAct) {
+                    engine.logQualityFlag("clear_path_shoot", player.id, player.role,
+                        distToGoal, shootAct->audit.angleDeg,
+                        shootAct->score, best.type, best.score);
+                    return *shootAct;
+                }
+            }
+            // Dribble toward goal — even if no shot exists yet, get closer
+            Action* driveAct = nullptr;
+            for (auto& x : a) {
+                if (x.type == ActionType::Dribble && x.purpose == "space") {
+                    if (!driveAct || x.score > driveAct->score) driveAct = &x;
+                }
+            }
+            if (driveAct) {
+                engine.logQualityFlag("clear_path_drive", player.id, player.role,
+                    distToGoal, 0,
+                    driveAct->score, best.type, best.score);
+                return *driveAct;
+            }
+        }
+    }
+
     if (ic) {
         CarrierPressure cp = assessCarrierPressure(engine, player);
         if (cp.score > 0.85) {
+            bool attackerNearGoal = (player.role == Role::CF || player.role == Role::WM) && nearGoal;
+            if (!attackerNearGoal) {
             Action* safePass = nullptr;
             for (auto& x : a) {
                 if (x.type != ActionType::Pass || !x.target) continue;
@@ -1830,8 +1887,9 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                 if (!safePass || x.score > safePass->score) safePass = &x;
             }
             if (safePass && (best.type == ActionType::Shoot || best.type == ActionType::Dribble)
-                && safePass->score > best.score - (cp.exposed > 0.35 ? 0.22 : 0.14)) {
+                && safePass->score > best.score - (cp.exposed > 0.35 ? 0.30 : 0.20)) {
                 return *safePass;
+            }
             }
         }
     }
@@ -1850,6 +1908,13 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                 if (!frontLinePass || x.score > frontLinePass->score) frontLinePass = &x;
             }
             if (frontLinePass && frontLinePass->score > best.score - 0.22) return *frontLinePass;
+        }
+        if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 25.0 && (player.role == Role::CF || player.role == Role::WM)) {
+            Action* driveIn = nullptr;
+            for (auto& x : a) {
+                if (x.type == ActionType::Dribble && x.purpose == "space") { driveIn = &x; break; }
+            }
+            if (driveIn && driveIn->score > best.score - 0.22) return *driveIn;
         }
         if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 0.0) {
             Action* driveOpt = nullptr;
