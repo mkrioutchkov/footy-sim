@@ -143,6 +143,8 @@ public:
     virtual double  defensiveLineOffsetX(bool danger, double lineProgress) const { (void)danger; return lineProgress; }
     virtual double  defensiveLineTargetY(double homeY, double pitchCenterY, double carrierY) const { (void)carrierY; return lerp(homeY, pitchCenterY, 0.08); }
     virtual DefensiveTask defensiveLineRoleTask() const { return DefensiveTask::DefensiveLine; }
+    virtual double  penaltyTakerBonus() const { return 0.0; }
+    virtual bool    isOffensiveThreat(double depth, bool danger, double yDistFromCenter) const { (void)depth; (void)danger; (void)yDistFromCenter; return false; }
     virtual PitchArea currentPitchArea() const;
     double dizzyRotationAccum = 0;
     double dizzyWindowStartMs = 0;

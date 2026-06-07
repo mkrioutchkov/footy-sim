@@ -19,6 +19,8 @@ public:
     double observingCruiseMul() const override { return 0.45; }
     double defensivePressCost(bool danger) const override { (void)danger; return 28.0; }
     double boxGuardCost() const override { return 28.0; }
+    double penaltyTakerBonus() const override { return 90.0; }
+    bool   isOffensiveThreat(double depth, bool danger, double) const override { return depth < (danger ? 340.0 : 270.0); }
 };
 
 class WMPlayerAI : public PlayerAI {
@@ -37,6 +39,8 @@ public:
     double observingCruiseMul() const override { return 0.55; }
     double defensivePressCost(bool danger) const override { (void)danger; return 6.0; }
     double crossLaneCost() const override { return 18.0; }
+    double penaltyTakerBonus() const override { return 25.0; }
+    bool   isOffensiveThreat(double depth, bool danger, double yDistFromCenter) const override { return depth < (danger ? 285.0 : 220.0) && yDistFromCenter < (danger ? 245.0 : 200.0); }
 };
 
 class CMPlayerAI : public PlayerAI {
@@ -62,6 +66,8 @@ public:
     double crossLaneCost() const override { return 10.0; }
     double boxGuardCost() const override { return 18.0; }
     double cutbackGuardCost() const override { return 0.0; }
+    double penaltyTakerBonus() const override { return 45.0; }
+    bool   isOffensiveThreat(double depth, bool danger, double) const override { return depth < (danger ? 230.0 : 190.0); }
 };
 
 class CBPlayerAI : public PlayerAI {

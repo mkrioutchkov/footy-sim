@@ -153,9 +153,8 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     for (auto& attacker : state.players) {
         if (attacker.team == team || attacker.role == Role::GK || attacker.id == carrier.id) continue;
         double depth = std::abs(attacker.x - ownGoalX);
-        bool threatens = (attacker.role == Role::CF && depth < (danger ? 340.0 : 270.0))
-            || (attacker.role == Role::WM && depth < (danger ? 285.0 : 220.0) && std::abs(attacker.y - PITCH_H / 2.0) < (danger ? 245.0 : 200.0))
-            || (attacker.role == Role::CM && depth < (danger ? 230.0 : 190.0));
+        double yDist = std::abs(attacker.y - PITCH_H / 2.0);
+        bool threatens = agentFor(attacker)->isOffensiveThreat(depth, danger, yDist);
         if (threatens) threats.push_back({&attacker, depth});
     }
     std::sort(threats.begin(), threats.end(), [](const Threat& a, const Threat& b) { return a.depth < b.depth; });

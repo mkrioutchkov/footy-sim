@@ -540,7 +540,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
         double bestScore = -1e9;
         for (auto& p : state.players) {
             if (p.team != tmTeam || p.role == Role::GK) continue;
-            double roleBonus = p.role == Role::CF ? 90.0 : p.role == Role::CM ? 45.0 : p.role == Role::WM ? 25.0 : 0.0;
+            double roleBonus = agentFor(p)->penaltyTakerBonus();
             double score = roleBonus + attrFactor(p.attrs.shooting) * 80.0 - dist(p.x, p.y, b.x, b.y) * 0.15;
             if (score > bestScore) { bestScore = score; best = &p; }
         }
