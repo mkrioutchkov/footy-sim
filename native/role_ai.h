@@ -15,6 +15,7 @@ public:
     double finalThirdShotMaxDistance() const override { return 210.0; }
     double nearGoalDribbleBonus(bool nearGoal, double distToGoal) const override { return nearGoal ? (distToGoal < 120.0 ? 0.12 : 0.18) : 0.0; }
     bool   isAttackerRole() const override { return true; }
+    bool   isCenterForward() const override { return true; }
     double nearGoalShotBiasMargin() const override { return 0.16; }
     double observingCruiseMul() const override { return 0.45; }
     double defensivePressCost(bool danger) const override { (void)danger; return 28.0; }
@@ -41,6 +42,7 @@ public:
     double finalThirdShotMaxDistance() const override { return 175.0; }
     double dribbleOwnHalfExtraPenalty() const override { return 0.0; }
     bool   isAttackerRole() const override { return true; }
+    bool   isWideMidfielder() const override { return true; }
     bool   canUseWideDribble() const override { return true; }
     double observingCruiseMul() const override { return 0.55; }
     double defensivePressCost(bool danger) const override { (void)danger; return 6.0; }
