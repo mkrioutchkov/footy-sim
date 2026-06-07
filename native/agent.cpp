@@ -8,7 +8,7 @@
 PitchArea PlayerAI::currentPitchArea() const {
     double ownGoalX = ownGoalXFor(player.team);
     double oppGoalX = goalXFor(player.team);
-    double fd = player.team == Team::Home ? 1.0 : -1.0;
+    double fd = fdFor(player.team);
     double progress = (player.x - ownGoalX) * fd;
     double halfPitch = PITCH_W * 0.5;
     double centralDist = std::abs(player.y - PITCH_H / 2.0);
@@ -342,7 +342,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     }
 
     if (ic) {
-        double fd = player.team == Team::Home ? 1.0 : -1.0;
+        double fd = fdFor(player.team);
         bool finalThird = fd > 0.0 ? player.x > PITCH_W * 2.0 / 3.0 : player.x < PITCH_W / 3.0;
         if (finalThird && shouldSearchForPassOverShot() && best.type == ActionType::Shoot) {
             Action* frontLinePass = nullptr;

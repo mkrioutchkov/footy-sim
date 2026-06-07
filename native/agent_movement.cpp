@@ -104,8 +104,8 @@ void PlayerAI::applyMovement(double sdt) {
 
     double bAngle = std::atan2(engine.state.ball.y - p.y, engine.state.ball.x - p.x);
     double bDiff  = std::abs(bAngle - facing);
-    double bNorm  = (bDiff > 3.141592653589793) ? 2.0 * 3.141592653589793 - bDiff : bDiff;
-    if (bNorm < 3.141592653589793 / 3.0) {
+    double bNorm  = (bDiff > PI) ? 2.0 * PI - bDiff : bDiff;
+    if (bNorm < PI / 3.0) {
         ballMemoryX = engine.state.ball.x;
         ballMemoryY = engine.state.ball.y;
         ballMemoryAge = 0;
@@ -158,10 +158,10 @@ void PlayerAI::applyMovement(double sdt) {
 
     double prevFacing = p.facing;
     double facingDelta = std::abs(std::atan2(std::sin(facing - prevFacing), std::cos(facing - prevFacing)));
-    dizzyRotationAccum += facingDelta * 180.0 / 3.141592653589793;
+    dizzyRotationAccum += facingDelta * 180.0 / PI;
     if(engine.state.clockMs - dizzyWindowStartMs > 2000){
         dizzyWindowStartMs = engine.state.clockMs;
-        dizzyRotationAccum = facingDelta * 180.0 / 3.141592653589793;
+        dizzyRotationAccum = facingDelta * 180.0 / PI;
     }
     facing = std::atan2(std::sin(facing), std::cos(facing));
     p.facing = facing;

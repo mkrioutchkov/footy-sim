@@ -223,7 +223,7 @@ void GameEngine::collectBall(Player& c) {
     b.lastTouchTeam = c.team;
     b.lastToucherId = c.id;
     c.dribbleType = 0;
-    double fd = c.team == Team::Home ? 1.0 : -1.0;
+    double fd = fdFor(c.team);
     c.targetX = clamp(c.x + fd * 28.0, 35.0, PITCH_W - 35.0);
     c.targetY = clamp(c.y, 35.0, PITCH_H - 35.0);
     if (intended) {

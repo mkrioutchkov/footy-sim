@@ -29,7 +29,7 @@ void GameEngine::auditCredibleShotWindow(const Player& player, double distance, 
 }
 
 void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
-    double fd = team == Team::Home ? 1.0 : -1.0;
+    double fd = fdFor(team);
     double ownGoalX = ownGoalXFor(team);
     auto progressX = [&](double x) { return (x - ownGoalX) * fd; };
     auto clampedProgressX = [&](double x, double lo, double hi) {

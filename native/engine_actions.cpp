@@ -252,7 +252,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             lastLooseOrigin.clear();
             blockReboundFor(tackler.id,650);
             double defendingGoalX = ownGoalXFor(tackler.team);
-            double defendingFd = tackler.team == Team::Home ? 1.0 : -1.0;
+            double defendingFd = fdFor(tackler.team);
             bool foulInBox = std::abs(foulX - defendingGoalX) < PENALTY_AREA_W
                 && std::abs(foulY - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
             if (foulInBox) {

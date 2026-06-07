@@ -5,7 +5,7 @@
 std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     auto& b = engine.state.ball;
-    double fd = (p.team == Team::Home) ? 1.0 : -1.0;
+    double fd = fdFor(p.team);
     Team ip = engine.teamInPossession();
     bool my = (per.ballControllerTeam == p.team);
     double ba = (fd == 1.0) ? b.x / PITCH_W : 1.0 - b.x / PITCH_W;

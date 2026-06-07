@@ -190,6 +190,7 @@ public:
     void equalizeAttributes(int val);
     void createHomeTeam();
     void createAwayTeam();
+    Player mkPlayer(int id, Team t, Role r, double hx, double hy);
     void startMatch(){state.matchState="running";state.clockMs=0;kickoff(Team::Home);}
     void kickoff(Team t);
     void update(double dM);

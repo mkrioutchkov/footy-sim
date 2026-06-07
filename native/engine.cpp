@@ -156,7 +156,7 @@ void GameEngine::updatePossessionTracking(double sdt) {
     if (c) {
         if (c->team == Team::Home) possessionHome += sdt;
         else possessionAway += sdt;
-        double fd = c->team == Team::Home ? 1.0 : -1.0;
+        double fd = fdFor(c->team);
         if (c->id != backwardCarryCarrierId) {
             backwardCarryCarrierId = c->id;
             backwardCarryStartX = c->x;
@@ -204,7 +204,7 @@ void GameEngine::detectSimulationFreeze(double sdt) {
             if(frozen&&best){
                 forcePassTo(*frozen,*best,nullptr);
             }else if(frozen){
-                double fd=frozen->team==Team::Home?1.0:-1.0;
+                double fd=fdFor(frozen->team);
                 frozen->targetX=clamp(frozen->x+fd*90.0,35.0,PITCH_W-35.0);
                 frozen->targetY=clamp(frozen->y+(frozen->y<PITCH_H/2?-45.0:45.0),35.0,PITCH_H-35.0);
             }else{
@@ -219,6 +219,25 @@ void GameEngine::detectSimulationFreeze(double sdt) {
     }
 }
 
+// ── Set piece parameter helpers ──
+static double standBackFor(SetPiece sp) {
+    if (sp == SetPiece::ThrowIn) return 0.0;
+    if (sp == SetPiece::Corner) return 7.0;
+    if (sp == SetPiece::Penalty) return 18.0;
+    return 14.0;
+}
+static double minDistFor(SetPiece sp) {
+    if (sp == SetPiece::ThrowIn) return 42.0;
+    if (sp == SetPiece::Corner) return 58.0;
+    if (sp == SetPiece::Penalty) return 96.0;
+    return 78.0;
+}
+static double actionTimerFor(SetPiece sp) {
+    if (sp == SetPiece::ThrowIn) return 650.0;
+    if (sp == SetPiece::Penalty) return 1800.0;
+    return 1500.0;
+}
+
 void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     actionTimer -= sdt;
     Team spTeam = setPieceTeamEnum;
@@ -226,8 +245,8 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         a->setPiecePositioning(setPieceTypeEnum, spTeam);
     }
     auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
-        double fd = taker.team == Team::Home ? 1.0 : -1.0;
-        double standBack = setPieceTypeEnum == SetPiece::ThrowIn ? 0.0 : setPieceTypeEnum == SetPiece::Corner ? 7.0 : setPieceTypeEnum == SetPiece::Penalty ? 18.0 : 14.0;
+        double fd = fdFor(taker.team);
+        double standBack = standBackFor(setPieceTypeEnum);
         double px = releaseSpot ? setPieceSpotX : setPieceSpotX - fd * standBack;
         double py = setPieceSpotY;
         taker.x = clamp(px, 5.0, PITCH_W - 5.0);
@@ -238,7 +257,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         taker.facing = std::atan2(setPieceSpotY - taker.y, setPieceSpotX - taker.x);
     };
     auto enforceRestartDistance = [&]() {
-        double minDist = setPieceTypeEnum == SetPiece::ThrowIn ? 42.0 : setPieceTypeEnum == SetPiece::Corner ? 58.0 : setPieceTypeEnum == SetPiece::Penalty ? 96.0 : 78.0;
+        double minDist = minDistFor(setPieceTypeEnum);
         Team restartTeam = setPieceTeamEnum;
         for (auto& p : state.players) {
             if (p.team == restartTeam || p.role == Role::GK) continue;
@@ -247,7 +266,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             double d = std::hypot(dx, dy);
             if (d >= minDist) continue;
             if (d < 1.0) {
-                double fd = p.team == Team::Home ? 1.0 : -1.0;
+                double fd = fdFor(p.team);
                 dx = -fd; dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
                 d = std::hypot(dx, dy);
             }
@@ -308,7 +327,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
                 state.ball.lastToucherId = taker->id;
-                actionTimer = setPieceTypeEnum == SetPiece::ThrowIn ? 650 : setPieceTypeEnum == SetPiece::Penalty ? 1800 : 1500;
+                actionTimer = actionTimerFor(setPieceTypeEnum);
             }
         }
     }
@@ -340,7 +359,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 taker->targetX = state.ball.x;
                 taker->targetY = state.ball.y;
                 setPieceTakerArrived = true;
-                actionTimer = setPieceTypeEnum == SetPiece::ThrowIn ? 650 : setPieceTypeEnum == SetPiece::Penalty ? 1800 : 1500;
+                actionTimer = actionTimerFor(setPieceTypeEnum);
             }
         }
     }
@@ -446,7 +465,7 @@ void GameEngine::auditStuckCarrier(double sdt){
         watchedCarrierMs=0;
         return;
     }
-    double fd=carrier->team==Team::Home?1.0:-1.0;
+    double fd=fdFor(carrier->team);
     double forwardProgress=(carrier->x-watchedCarrierX)*fd;
     if(forwardProgress>30.0){
         watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
@@ -656,28 +675,35 @@ void GameEngine::equalizeAttributes(int val) {
     }
 }
 
+Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
+    return Player{id, std::format("{}{}", to_string(t), id), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
+        {static_cast<double>(rng.randomInt(35,90)), static_cast<double>(rng.randomInt(35,90)),
+         static_cast<double>(rng.randomInt(35,90)), static_cast<double>(rng.randomInt(35,90)),
+         static_cast<double>(rng.randomInt(35,90)), static_cast<double>(rng.randomInt(35,90)),
+         static_cast<double>(rng.randomInt(60,95))},
+        t == Team::Home ? 0.0 : PI};
+}
+
 void GameEngine::createHomeTeam() {
-    auto mk=[&](int id,Team t,Role r,double hx,double hy){return Player{id,std::format("{}{}",to_string(t),id),t,r,hx,hy,0,0,hx,hy,hx,hy,100.0,{static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(60,95))},t==Team::Home?0.0:3.141592653589793};};
     std::vector<Player> home = {
-        mk(0,Team::Home,Role::GK,31.5,340),mk(1,Team::Home,Role::FB,157.5,81.6),
-        mk(2,Team::Home,Role::CB,189,226.6667),mk(3,Team::Home,Role::CB,189,453.3333),
-        mk(4,Team::Home,Role::FB,157.5,598.4),mk(5,Team::Home,Role::CM,420,170),
-        mk(6,Team::Home,Role::CM,420,340),mk(7,Team::Home,Role::CM,420,510),
-        mk(8,Team::Home,Role::WM,441,81.6),mk(9,Team::Home,Role::CF,756,340),
-        mk(10,Team::Home,Role::WM,441,598.4)
+        mkPlayer(0,Team::Home,Role::GK,31.5,340),mkPlayer(1,Team::Home,Role::FB,157.5,81.6),
+        mkPlayer(2,Team::Home,Role::CB,189,226.6667),mkPlayer(3,Team::Home,Role::CB,189,453.3333),
+        mkPlayer(4,Team::Home,Role::FB,157.5,598.4),mkPlayer(5,Team::Home,Role::CM,420,170),
+        mkPlayer(6,Team::Home,Role::CM,420,340),mkPlayer(7,Team::Home,Role::CM,420,510),
+        mkPlayer(8,Team::Home,Role::WM,441,81.6),mkPlayer(9,Team::Home,Role::CF,756,340),
+        mkPlayer(10,Team::Home,Role::WM,441,598.4)
     };
     state.players.insert(state.players.end(), home.begin(), home.end());
 }
 
 void GameEngine::createAwayTeam() {
-    auto mk=[&](int id,Team t,Role r,double hx,double hy){return Player{id,std::format("{}{}",to_string(t),id),t,r,hx,hy,0,0,hx,hy,hx,hy,100.0,{static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(35,90)),static_cast<double>(rng.randomInt(60,95))},t==Team::Home?0.0:3.141592653589793};};
     std::vector<Player> away = {
-        mk(11,Team::Away,Role::GK,1018.5,340),mk(12,Team::Away,Role::FB,892.5,81.6),
-        mk(13,Team::Away,Role::CB,861,226.6667),mk(14,Team::Away,Role::CB,861,453.3333),
-        mk(15,Team::Away,Role::FB,892.5,598.4),mk(16,Team::Away,Role::CM,630,170),
-        mk(17,Team::Away,Role::CM,630,340),mk(18,Team::Away,Role::CM,630,510),
-        mk(19,Team::Away,Role::WM,609,81.6),mk(20,Team::Away,Role::CF,294,340),
-        mk(21,Team::Away,Role::WM,609,598.4)
+        mkPlayer(11,Team::Away,Role::GK,1018.5,340),mkPlayer(12,Team::Away,Role::FB,892.5,81.6),
+        mkPlayer(13,Team::Away,Role::CB,861,226.6667),mkPlayer(14,Team::Away,Role::CB,861,453.3333),
+        mkPlayer(15,Team::Away,Role::FB,892.5,598.4),mkPlayer(16,Team::Away,Role::CM,630,170),
+        mkPlayer(17,Team::Away,Role::CM,630,340),mkPlayer(18,Team::Away,Role::CM,630,510),
+        mkPlayer(19,Team::Away,Role::WM,609,81.6),mkPlayer(20,Team::Away,Role::CF,294,340),
+        mkPlayer(21,Team::Away,Role::WM,609,598.4)
     };
     state.players.insert(state.players.end(), away.begin(), away.end());
 }

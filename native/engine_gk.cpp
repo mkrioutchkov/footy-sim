@@ -43,7 +43,7 @@ void GameEngine::updateGK(double sdt) {
     for (auto& gk : state.players) {
         if (gk.role != Role::GK) continue;
         double goalX = ownGoalXFor(gk.team);
-        double fd = gk.team == Team::Home ? 1.0 : -1.0;
+        double fd = fdFor(gk.team);
         double bdg = std::abs(state.ball.x - goalX);
         bool ballInOurHalf = gk.team == Team::Home ? state.ball.x < PITCH_W * 0.55 : state.ball.x > PITCH_W * 0.45;
         bool towardGoal = gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0;
@@ -131,7 +131,7 @@ void GameEngine::tryGKSave() {
     double handling = attrFactor(gk->attrs.positioning);
     double catchChance = clamp(0.22 + handling * 0.38 - std::max(0.0, speed - 520) / 900, 0.12, 0.58);
     bool caught = rng.random() < catchChance;
-    double fieldDir = gk->team == Team::Home ? 1.0 : -1.0;
+    double fieldDir = fdFor(gk->team);
     double side = gk->y - shotOriginY < 0 ? -1.0 : 1.0;
     if (caught) {
         b.x = clamp(gk->x + fieldDir * 6.0, 10.0, PITCH_W - 10.0);

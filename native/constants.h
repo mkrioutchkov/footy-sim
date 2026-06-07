@@ -63,6 +63,7 @@ inline auto dist(double ax, double ay, double bx, double by) -> double {
     return std::sqrt(dx * dx + dy * dy);
 }
 constexpr auto attrFactor(double attr) -> double { return attr / 100.0; }
+constexpr auto fdFor(Team team) -> double { return team == Team::Home ? 1.0 : -1.0; }
 inline double goalXFor(Team team) { return team == Team::Home ? AWAY_GOAL_X : HOME_GOAL_X; }
 inline double ownGoalXFor(Team team) { return team == Team::Home ? HOME_GOAL_X : AWAY_GOAL_X; }
 
