@@ -2,15 +2,17 @@
 #include "rng.h"
 #include "constants.h"
 #include "types.h"
-#include "agent.h"
-#include "gk_ai.h"
-#include "role_ai.h"
 #include "stats.h"
 #include <format>
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
+
+// Forward declarations — full includes only in .cpp files that need them
+class PlayerAI;
+struct PassSelectionAudit;
+struct ShotSelectionAudit;
 
 class GameEngine {
 public:
@@ -20,6 +22,8 @@ public:
     static int teamIndex(Team team) { return static_cast<int>(team); }
     StatsCollector stats;
     std::vector<std::unique_ptr<PlayerAI>> agents;
+
+    ~GameEngine();
     std::array<Player*, 22> playerLookup = {};
     double accumulator = 0.0;
 
@@ -215,6 +219,6 @@ public:
     void awardCorner(Team attackingTeam, bool atHomeEnd, double y);
     void updateGoalKickMonitor();
 
-    std::string getSummaryJSON() const { return stats.summaryJSON(); }
+    std::string getSummaryJSON() const;
     std::string getJSON() const;
 };

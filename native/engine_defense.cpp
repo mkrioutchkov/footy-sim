@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "agent.h"
 #include <cmath>
 #include <numbers>
 
@@ -59,7 +60,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     if (danger) {
         for (const auto& option : ranked) {
             Player* p = option.player;
-            if (p->role == Role::CB) continue;
+            if (agentFor(*p)->isCenterBack()) continue;
             if (option.distance > 190.0 || option.eta > ranked.front().eta + 0.18) continue;
             primary = p;
             break;
@@ -70,7 +71,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     if (tactics.aggression >= 62.0 || danger) {
         for (const auto& option : ranked) {
             Player* p = option.player;
-            if (used(p) || p->role == Role::CB || (danger && p->role == Role::FB && std::abs(p->homeY - carrier.y) > 210.0)
+            if (used(p) || agentFor(*p)->isCenterBack() || (danger && agentFor(*p)->isFullBack() && std::abs(p->homeY - carrier.y) > 210.0)
                 || option.distance >= (danger ? 285.0 : 250.0)) continue;
             setAssignment(*p, DefensiveTask::SecondaryPress, carrier.x - fd * 42.0,
                 carrier.y + (p->homeY < carrier.y ? -38.0 : 38.0), carrier.id);
@@ -196,13 +197,13 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             double targetX = lerp(threat.player->x, ownGoalX + fd * 36.0, danger ? 0.18 : 0.20);
             double threatDistanceToGoal = std::abs(threat.player->x - ownGoalX);
             bool receiverThreat = state.ball.intendedReceiverId == threat.player->id;
-            if (danger && marker->role == Role::CB && threat.player->role == Role::CF) {
+            if (danger && agentFor(*marker)->isCenterBack() && threat.player->role == Role::CF) {
                 targetX = clampedProgressX(targetX, 58.0, 116.0);
             }
-            if (!danger && marker->role == Role::CB && !receiverThreat && threatDistanceToGoal > 170.0) {
+            if (!danger && agentFor(*marker)->isCenterBack() && !receiverThreat && threatDistanceToGoal > 170.0) {
                 targetX = ownGoalX + fd * std::max(70.0, lineProgress - 18.0);
             }
-            if (!danger && marker->role == Role::FB && !receiverThreat && threatDistanceToGoal > 150.0) {
+            if (!danger && agentFor(*marker)->isFullBack() && !receiverThreat && threatDistanceToGoal > 150.0) {
                 targetX = ownGoalX + fd * (lineProgress + 18.0);
             }
             double markTightness = danger || receiverThreat || threatDistanceToGoal < 170.0 ? 0.015 : 0.08;
@@ -339,7 +340,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
         if (defender.team != defending || defender.role == Role::GK) continue;
         double distance = dist(defender.x, defender.y, carrier.x, carrier.y);
         nearestDefender = std::min(nearestDefender, distance);
-        if (defender.role == Role::CB) nearestCb = std::min(nearestCb, distance);
+        if (agentFor(defender)->isCenterBack()) nearestCb = std::min(nearestCb, distance);
     }
     bool unmarked = nearestDefender > 55.0 && nearestCb > 90.0;
     stats.recordFinalThirdMarking(nearestCb, nearestDefender, unmarked);

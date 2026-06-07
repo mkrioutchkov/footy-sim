@@ -1,5 +1,8 @@
 #include "engine.h"
 #include "nlohmann/json.hpp"
+#include "agent.h"
+#include "role_ai.h"
+#include "gk_ai.h"
 #include <cmath>
 #include <numbers>
 
@@ -474,6 +477,8 @@ void GameEngine::auditStuckCarrier(double sdt){
 // JSON serialization
 // ══════════════════════════════════════════════════════════════
 
+std::string GameEngine::getSummaryJSON() const { return stats.summaryJSON(); }
+
 std::string GameEngine::getJSON() const {
     auto& b = state.ball;
     nlohmann::json j;
@@ -600,6 +605,8 @@ std::string GameEngine::getJSON() const {
 // ══════════════════════════════════════════════════════════════
 // Lifecycle — constructor, initWithSeed, createHomeTeam, createAwayTeam
 // ══════════════════════════════════════════════════════════════
+
+GameEngine::~GameEngine() = default;
 
 GameEngine::GameEngine() {
     blackboards[0]={}; blackboards[1]={};
