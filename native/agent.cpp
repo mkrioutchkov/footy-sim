@@ -165,32 +165,15 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
             }
         }
 
-        Action* bestPass = nullptr;
-        for (auto& x : a) {
-            if (x.type == ActionType::Pass) {
-                if (!bestPass || x.score > bestPass->score) bestPass = &x;
-            }
-        }
-
+        adjustActionScores(a, ic);
+        for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.10; }
         if (player.role == Role::CM) {
-            Action* bestDribble = nullptr;
-            for (auto& x : a) {
-                if (x.type == ActionType::Dribble) {
-                    if (!bestDribble || x.score > bestDribble->score) bestDribble = &x;
-                }
-            }
-            if (bestDribble && bestDribble->score > 0.25) bestDribble->score += 0.08;
+            for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.08; if (x.type == ActionType::Pass) x.score += 0.02; }
         }
-
-        if (pc == 0) {
-            for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.10; }
-            if (player.role == Role::CM) {
-                for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.08; if (x.type == ActionType::Pass) x.score += 0.02; }
-            }
-            if (player.role == Role::WM) {
-                for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.12; if (x.type == ActionType::Pass) x.score += 0.04; }
-            }
+        if (player.role == Role::WM) {
+            for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.12; if (x.type == ActionType::Pass) x.score += 0.04; }
         }
+        return a;
     } else {
         a.push_back(this->scoreTackle(per, ctx));
         a.push_back(this->scoreMark(per, ctx));

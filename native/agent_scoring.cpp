@@ -206,16 +206,16 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         else if (isCutback)                   pur = ActionPurpose::Cutback;
 
         if (pur == ActionPurpose::Switch) {
-            std::string carrierSide = (p.y < PITCH_H / 2.0) ? "top" : "bottom";
-            std::string targetSide  = (t.y < PITCH_H / 2.0) ? "top" : "bottom";
-            if (carrierSide != targetSide) {
+            bool carrierTop = (p.y < PITCH_H / 2.0);
+            bool targetTop  = (t.y < PITCH_H / 2.0);
+            if (carrierTop != targetTop) {
                 int oppsNearCarrier = 0;
                 int oppsNearTarget  = 0;
                 for (auto& o : engine.state.players) {
                     if (o.team == p.team || o.role == Role::GK) continue;
-                    bool onCarrierSide = (carrierSide == "top") ? o.y < PITCH_H / 2.0 : o.y >= PITCH_H / 2.0;
+                    bool onCarrierSide = carrierTop ? o.y < PITCH_H / 2.0 : o.y >= PITCH_H / 2.0;
                     if (onCarrierSide && dist(p.x, p.y, o.x, o.y) < 250.0) oppsNearCarrier++;
-                    bool onTargetSide = (targetSide == "top") ? o.y < PITCH_H / 2.0 : o.y >= PITCH_H / 2.0;
+                    bool onTargetSide = targetTop ? o.y < PITCH_H / 2.0 : o.y >= PITCH_H / 2.0;
                     if (onTargetSide && dist(o.x, o.y, t.x, t.y) < 200.0) oppsNearTarget++;
                 }
                 if (oppsNearCarrier >= 3 && oppsNearTarget <= 1)      sc += 0.18;
