@@ -166,13 +166,6 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
         }
 
         adjustActionScores(a, ic);
-        for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.10; }
-        if (player.role == Role::CM) {
-            for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.08; if (x.type == ActionType::Pass) x.score += 0.02; }
-        }
-        if (player.role == Role::WM) {
-            for (auto& x : a) { if (x.type == ActionType::Dribble) x.score += 0.12; if (x.type == ActionType::Pass) x.score += 0.04; }
-        }
         return a;
     } else {
         a.push_back(this->scoreTackle(per, ctx));
@@ -207,8 +200,11 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
     return a;
 }
 
-void PlayerAI::adjustActionScores(std::vector<Action>&, bool) {
-    // Default: no role-specific adjustments. Subclasses override.
+void PlayerAI::adjustActionScores(std::vector<Action>& actions, bool isController) {
+    if (!isController) return;
+    for (auto& a : actions) {
+        if (a.type == ActionType::Dribble) a.score += 0.10;
+    }
 }
 
 void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {

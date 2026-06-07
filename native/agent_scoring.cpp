@@ -674,18 +674,14 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         }
     }
 
-    double sc;
+    double sc = tackleBaseScore() - (d / 60.0) * 0.40 + attrFactor(player.attrs.tackling) * 0.20;
     if (player.role == Role::FB) {
-        sc = 0.50 - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.18;
+        sc = tackleBaseScore() - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.18;
     } else if (player.role == Role::CB) {
-        sc = 0.68 - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.22;
-    } else {
-        sc = 0.60 - (d / 60.0) * 0.40 + attrFactor(player.attrs.tackling) * 0.20;
+        sc = tackleBaseScore() - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.22;
     }
 
-    if (player.role == Role::CM) sc += 0.06;
-    if (player.role == Role::CF) sc -= 0.15;
-    if (player.role == Role::WM) sc -= 0.04;
+    sc += tackleRoleAdjust();
     if (d < TACKLE_RANGE + 10.0) sc += 0.15;
 
     // Carrier holding still — easy tackle target

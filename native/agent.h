@@ -152,8 +152,10 @@ private:
     Action                scoreMark(const Perception& per, const GameContext& ctx);
     Action                scoreChase(const Perception& per);
     virtual std::vector<Action> scorePositioning(const Perception& per, const GameContext& ctx);
+protected:
     virtual void          adjustActionScores(std::vector<Action>& actions, bool isController);
     Action                resolveChoice(std::vector<Action>& actions);
+private:
     void                  executeAction(Action& action, double sdt, std::vector<Action>& actions);
     Perception            getCachedPerception();
     Perception            perceive();
