@@ -127,6 +127,7 @@ public:
     virtual bool    isAttackerRole() const { return false; }
     virtual bool    isCenterBack() const { return false; }
     virtual bool    isFullBack() const { return false; }
+    virtual bool    isCentralMidfielder() const { return false; }
     virtual double  nearGoalShotBiasMargin() const { return -1.0; }
     virtual bool    canUseFlankTargets() const { return false; }
     virtual bool    canUseOpenLane() const { return false; }

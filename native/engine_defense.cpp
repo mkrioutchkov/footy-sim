@@ -133,7 +133,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     }
     int screenCount = 0;
     for (auto& p : state.players) {
-        if (p.team == team && p.role == Role::CM && !used(&p)) {
+        if (p.team == team && agentFor(p)->isCentralMidfielder() && !used(&p)) {
             double screenDepth = danger ? 122.0 + screenCount * 26.0 : 175.0 + screenCount * 22.0;
             double screenY = screenCount == 0
                 ? lerp(carrier.y, PITCH_H / 2.0, danger ? 0.78 : 0.65)
@@ -166,7 +166,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     bool carrierInHalf = (fd == 1.0) ? carrier.x < HALF_X : carrier.x > HALF_X;
     if (!danger && carrierInHalf) {
         for (auto& defender : state.players) {
-            if (defender.team != team || defender.role != Role::CB || used(&defender)) continue;
+            if (defender.team != team || !agentFor(defender)->isCenterBack() || used(&defender)) continue;
             double cbDist = dist(defender.x, defender.y, carrier.x, carrier.y);
             if (cbDist < 190.0 && cbDist < closeCbDist) { closeCbDist = cbDist; closeCb = &defender; }
         }
@@ -220,7 +220,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         }
         for (auto& defender : state.players) {
             if (defender.team != team || used(&defender)
-                || (defender.role != Role::CB && defender.role != Role::CM && defender.role != Role::FB)) continue;
+                || (!agentFor(defender)->isCenterBack() && !agentFor(defender)->isCentralMidfielder() && !agentFor(defender)->isFullBack())) continue;
             double roleCost = agentFor(defender)->boxGuardCost();
             double score = dist(defender.x, defender.y, ownGoalX + fd * 96.0, guardY) + roleCost;
             if (score < bestGuard) { bestGuard = score; guard = &defender; }
@@ -237,7 +237,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         double cutbackX = ownGoalX + fd * (danger ? 132.0 : 155.0);
         for (auto& defender : state.players) {
             if (defender.team != team || used(&defender)
-                || (defender.role != Role::CM && defender.role != Role::FB && defender.role != Role::CB)) continue;
+                || (!agentFor(defender)->isCentralMidfielder() && !agentFor(defender)->isFullBack() && !agentFor(defender)->isCenterBack())) continue;
             double roleCost = agentFor(defender)->cutbackGuardCost();
             double score = dist(defender.x, defender.y, cutbackX, cutbackY) + roleCost;
             if (score < bestCutback) { bestCutback = score; cutbackGuard = &defender; }
@@ -255,7 +255,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         double farY = carrier.y < PITCH_H / 2.0 ? PITCH_H * 0.66 : PITCH_H * 0.34;
         double nearY = carrier.y < PITCH_H / 2.0 ? PITCH_H * 0.34 : PITCH_H * 0.66;
         for (auto& defender : state.players) {
-            if (defender.team != team || used(&defender) || (defender.role != Role::FB && defender.role != Role::CM)) continue;
+            if (defender.team != team || used(&defender) || (!agentFor(defender)->isFullBack() && !agentFor(defender)->isCentralMidfielder())) continue;
             double score = dist(defender.x, defender.y, ownGoalX + fd * 108.0, farY);
             if (score < bestFar) { bestFar = score; farGuard = &defender; }
         }
@@ -264,7 +264,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             assigned.insert(farGuard->id);
         }
         for (auto& defender : state.players) {
-            if (defender.team != team || used(&defender) || (defender.role != Role::CB && defender.role != Role::FB)) continue;
+            if (defender.team != team || used(&defender) || (!agentFor(defender)->isCenterBack() && !agentFor(defender)->isFullBack())) continue;
             double score = dist(defender.x, defender.y, ownGoalX + fd * 64.0, nearY);
             if (score < bestNear) { bestNear = score; nearGuard = &defender; }
         }
@@ -275,7 +275,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     }
     if (danger) {
         for (auto& p : state.players) {
-            if (p.team != team || used(&p) || p.role != Role::CM) continue;
+            if (p.team != team || used(&p) || !agentFor(p)->isCentralMidfielder()) continue;
             double sideY = carrier.y < PITCH_H / 2.0 ? PITCH_H * 0.62 : PITCH_H * 0.38;
             setAssignment(p, DefensiveTask::BoxScreen, ownGoalX + fd * 142.0, sideY);
             assigned.insert(p.id);
@@ -319,7 +319,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
     std::vector<LineMember> line;
     for (const auto& defender : state.players) {
         if (defender.team != defending) continue;
-        if (defender.role != Role::CB && defender.role != Role::FB) continue;
+        if (!agentFor(defender)->isCenterBack() && !agentFor(defender)->isFullBack()) continue;
         line.push_back({&defender, (defender.x - ownGoalX) * fd});
     }
     if (line.size() >= 3) {

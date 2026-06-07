@@ -72,6 +72,7 @@ public:
     double openLaneDribbleDistance() const override { return 165.0; }
     bool   shouldSearchForPassOverShot() const override { return true; }
     bool   isDefenderLike() const override { return true; }
+    bool   isCentralMidfielder() const override { return true; }
     double observingCruiseMul() const override { return 0.50; }
     double defensivePressCost(bool danger) const override { (void)danger; return 0.0; }
     double shotLaneCost() const override { return 0.0; }
