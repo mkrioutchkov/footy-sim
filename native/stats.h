@@ -86,6 +86,17 @@ public:
     void recordBallJump()               { ballJumps++; }
     void recordQuestionableShot()       { questionableShots++; }
     void recordQuestionablePress(double dist) { questionPress++; pressDistTotal+=dist; }
+    void recordWhyNoShoot()             { whyNoShoots++; }
+    void recordQuestionableBackpass()   { questionableBackpasses++; }
+    void recordClearPathShoot()         { clearPathShoots++; }
+    void recordClearPathDrive()         { clearPathDrives++; }
+    void recordTimeWastingDribble()     { timeWastingDribbles++; }
+    void recordBackwardDribble()        { backwardDribbles++; }
+    void recordWhyPlayerRunningDir()    { whyPlayerRunningDir++; }
+    void recordDecisionMoment()         { decisionMoments++; }
+    void recordPlayerDecision()         { playerDecisions++; }
+    void recordStaleGrabPrevented()     { staleGrabs++; }
+    void recordTaskSelection(const std::string& role);
 
     // ── Marking / defensive ──
     void recordPressSample()            { pressSamples++; }
@@ -142,6 +153,11 @@ private:
     int ballJumps=0;
     int teammatePingPongs=0;
     int questionableShots=0;
+    int whyNoShoots=0, questionableBackpasses=0, clearPathShoots=0, clearPathDrives=0;
+    int timeWastingDribbles=0, backwardDribbles=0, whyPlayerRunningDir=0;
+    int decisionMoments=0, playerDecisions=0, staleGrabs=0;
+    int taskSelectionsTotal=0, taskSelectionsPrimary=0, taskSelectionsSecondary=0;
+    int taskSelectionsCover=0, taskSelectionsLine=0, taskSelectionsScreen=0;
     int gkAssessed=0, unlikelySaves=0, preventableGoals=0;
     int pressSamples=0, questionPress=0;
     double pressDistTotal=0;

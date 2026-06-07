@@ -41,6 +41,15 @@ void StatsCollector::recordShotOnTarget() {
     shotsOnTarget++;
 }
 
+void StatsCollector::recordTaskSelection(const std::string& role) {
+    taskSelectionsTotal++;
+    if(role=="primary_press") taskSelectionsPrimary++;
+    else if(role=="secondary_press") taskSelectionsSecondary++;
+    else if(role=="cover") taskSelectionsCover++;
+    else if(role=="defensive_line") taskSelectionsLine++;
+    else if(role=="midfield_screen") taskSelectionsScreen++;
+}
+
 void StatsCollector::recordControlledTouch(const std::string& role) {
     if(role=="GK") touchesGK++;
     else if(role=="CB") touchesCB++;
@@ -191,7 +200,14 @@ std::string StatsCollector::summaryJSON() const {
         {"own_pass_goal", ownPassGoals}, {"unknown_loose_goal", unknownLooseGoals},
         {"questionable_shot_choice", questionableShots}, {"questionable_press_assignment", questionPress},
         {"unmarked_final_third", finalThirdUnmarked}, {"risky_pass_choice", riskyPassChoices},
-        {"teammate_pingpong", teammatePingPongs}
+        {"teammate_pingpong", teammatePingPongs},
+        {"why_no_shoot", whyNoShoots}, {"questionable_backpass", questionableBackpasses},
+        {"clear_path_shoot", clearPathShoots}, {"clear_path_drive", clearPathDrives},
+        {"time_wasting_dribble", timeWastingDribbles}, {"backward_dribble", backwardDribbles},
+        {"why_player_running_dir", whyPlayerRunningDir}, {"decision_moments", decisionMoments},
+        {"player_decisions", playerDecisions}, {"stale_grabs_prevented", staleGrabs},
+        {"task_selections_total", taskSelectionsTotal}, {"task_primary_press", taskSelectionsPrimary},
+        {"task_secondary_press", taskSelectionsSecondary}
     };
 
     j["ballSpeed"] = {

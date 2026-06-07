@@ -153,8 +153,7 @@ public:
     [[nodiscard]] bool isActiveKnockAheadRunner(int playerId) const { return activeKnockAhead.active&&activeKnockAhead.playerId==playerId; }
 
     // ── Actions ──
-    void notePreventedStaleGrab(Player&) {}
-    void noteTaskSelection(Player&, const std::string&) {}
+
     bool knockBallAhead(Player&, double, double);
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
     void emitEvent(const std::string&, double, double, int=-1, int=-1);
@@ -180,11 +179,20 @@ public:
     void shootBall(Player& s, const ShotSelectionAudit* selectionAudit);
     bool collectBall(Player& c, const std::string&, double allowedDist);
 
-    // ── Logging (no-ops for C++) ──
-    template<typename...A> void logPlayerDecision(A&&...){}
-    template<typename...A> void logQualityFlag(A&&...){}
-    template<typename...A> void captureDecisionMoment(A&&...){}
-    template<typename...A> void auditDefensiveMovement(A&&...){}
+    // ── Quality flag logging ──
+    template<typename...A> void logQualityFlag(const std::string& tag, A&&...) {
+        if(tag=="why_no_shoot") stats.recordWhyNoShoot();
+        else if(tag=="questionable_backpass") stats.recordQuestionableBackpass();
+        else if(tag=="clear_path_shoot") stats.recordClearPathShoot();
+        else if(tag=="clear_path_drive") stats.recordClearPathDrive();
+        else if(tag=="time_wasting_dribble") stats.recordTimeWastingDribble();
+        else if(tag=="backward_dribble") stats.recordBackwardDribble();
+        else if(tag=="why_player_running_direction") stats.recordWhyPlayerRunningDir();
+    }
+    template<typename...A> void captureDecisionMoment(const std::string&, A&&...) { stats.recordDecisionMoment(); }
+    template<typename...A> void logPlayerDecision(A&&...) { stats.recordPlayerDecision(); }
+    void notePreventedStaleGrab(Player&) { stats.recordStaleGrabPrevented(); }
+    void noteTaskSelection(Player&, const std::string& role) { stats.recordTaskSelection(role); }
 
     // ── Lifecycle ──
     GameEngine();

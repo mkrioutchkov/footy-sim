@@ -216,8 +216,10 @@ void GameEngine::detectSimulationFreeze(double sdt) {
                 }
             }
             if(frozen&&best){
+                stats.recordSimulationFreeze();
                 forcePassTo(*frozen,*best,nullptr);
             }else if(frozen){
+                stats.recordSimulationFreeze();
                 double fd=fdFor(frozen->team);
                 frozen->targetX=clamp(frozen->x+fd*90.0,35.0,PITCH_W-35.0);
                 frozen->targetY=clamp(frozen->y+(frozen->y<PITCH_H/2?-45.0:45.0),35.0,PITCH_H-35.0);
@@ -438,8 +440,8 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     double jumpDist = std::hypot(jumpDx, jumpDy);
     double expectedMax = std::hypot(state.ball.vx, state.ball.vy) * sec + 20.0
         + (activeKnockAhead.active ? DRIBBLE_KNOCK_OFFSET : 0.0);
-    if (jumpDist > expectedMax && jumpDist > 50.0 && !setPieceArmed && !kickoffPhase
-        && prevControllerId < 0 && state.ball.controllerId < 0) {
+    if (jumpDist > expectedMax && jumpDist > 25.0 && !setPieceArmed && !kickoffPhase
+        && state.ball.controllerId < 0) {
         stats.recordBallJump();
     }
     cacheBallState();
@@ -486,12 +488,8 @@ void GameEngine::auditStuckCarrier(double sdt){
         watchedCarrierMs=0;
         return;
     }
-    int nearbyOpponents=0;
-    for(auto& p:state.players){
-        if(p.team!=carrier->team&&p.role!=Role::GK&&dist(p.x,p.y,carrier->x,carrier->y)<PRESSURE_RANGE)nearbyOpponents++;
-    }
-    bool deep=carrier->team==Team::Home?carrier->x<PITCH_W*0.28:carrier->x>PITCH_W*0.72;
     if(watchedCarrierMs>STUCK_CARRIER_TIMEOUT_MS*0.65){
+        stats.recordStuckCarrier();
         Player* best=nullptr; double bestD=1e9;
         for(auto&p:state.players){
             if(p.team!=carrier->team||p.id==carrier->id||p.role==Role::GK)continue;
