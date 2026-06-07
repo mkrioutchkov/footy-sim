@@ -557,7 +557,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     // Field position: prefer passing in own half
     if (inOwnHalf) sc -= 0.10;
-    if (inOwnHalf && p.role != Role::WM) sc -= 0.02; // CM/CB/FB: extra penalty in own half
+    if (inOwnHalf) sc += dribbleOwnHalfExtraPenalty(); // CM/CB/FB: extra penalty in own half
 
     // Near goal bonus
     if (nearGoal) sc += 0.20;
@@ -612,8 +612,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
             ty = lerp(ty, PITCH_H / 2.0, 0.6);
         }
     }
-    if (p.role == Role::CM && per.nearestOpponentDist > 80.0) sc += 0.08;
-    if (p.role == Role::CF && nearGoal) sc += distToGoal < 120.0 ? 0.12 : 0.18;
+    sc += openSpaceDribbleBonus(per.nearestOpponentDist);
+    sc += nearGoalDribbleBonus(nearGoal, distToGoal);
 
     if (cp.score > 0.70 && cp.nearestPlayer) {
         double ax = p.x - cp.nearestPlayer->x;

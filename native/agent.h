@@ -121,6 +121,11 @@ public:
     virtual double  freshCrossShotBonus() const { return 0.42; }
     virtual double  finalThirdShotMaxDistance() const { return 165.0; }
     virtual double  finalThirdShotMinAngle() const { return 8.0; }
+    virtual double  dribbleOwnHalfExtraPenalty() const { return -0.02; }
+    virtual double  openSpaceDribbleBonus(double nearestOppDist) const { (void)nearestOppDist; return 0.0; }
+    virtual double  nearGoalDribbleBonus(bool nearGoal, double distToGoal) const { (void)nearGoal; (void)distToGoal; return 0.0; }
+    virtual bool    isAttackerRole() const { return false; }
+    virtual double  nearGoalShotBiasMargin() const { return -1.0; }
     virtual PitchArea currentPitchArea() const;
     double dizzyRotationAccum = 0;
     double dizzyWindowStartMs = 0;

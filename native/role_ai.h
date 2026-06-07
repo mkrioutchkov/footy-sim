@@ -13,6 +13,9 @@ public:
     double shotScoreBonus() const override { return 0.20; }
     double freshCrossShotBonus() const override { return 0.62; }
     double finalThirdShotMaxDistance() const override { return 210.0; }
+    double nearGoalDribbleBonus(bool nearGoal, double distToGoal) const override { return nearGoal ? (distToGoal < 120.0 ? 0.12 : 0.18) : 0.0; }
+    bool   isAttackerRole() const override { return true; }
+    double nearGoalShotBiasMargin() const override { return 0.16; }
 };
 
 class WMPlayerAI : public PlayerAI {
@@ -25,6 +28,8 @@ public:
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return -0.04; }
     double finalThirdShotMaxDistance() const override { return 175.0; }
+    double dribbleOwnHalfExtraPenalty() const override { return 0.0; }
+    bool   isAttackerRole() const override { return true; }
 };
 
 class CMPlayerAI : public PlayerAI {
@@ -37,6 +42,7 @@ public:
     double tackleRoleAdjust() const override { return 0.06; }
     double shotDistancePenalty(double shotDistance) const override { return shotDistance > 110.0 ? -0.12 : -0.07; }
     double finalThirdShotMinAngle() const override { return 10.0; }
+    double openSpaceDribbleBonus(double nearestOppDist) const override { return nearestOppDist > 80.0 ? 0.08 : 0.0; }
 };
 
 class CBPlayerAI : public PlayerAI {

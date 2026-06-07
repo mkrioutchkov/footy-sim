@@ -453,7 +453,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     if (ic) {
         CarrierPressure cp = assessCarrierPressure(engine, player);
         if (cp.score > 0.85) {
-            bool attackerNearGoal = (player.role == Role::CF || player.role == Role::WM) && nearGoal;
+            bool attackerNearGoal = isAttackerRole() && nearGoal;
             if (!attackerNearGoal) {
             Action* safePass = nullptr;
             for (auto& x : a) {
@@ -525,7 +525,9 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     }
 
     // CF near goal: bias toward shooting unless teammate has a clear tap-in
-    if (ic && player.role == Role::CF && nearGoal && best.type != ActionType::Shoot) {
+    if (ic && nearGoal && best.type != ActionType::Shoot) {
+        double margin = nearGoalShotBiasMargin();
+        if (margin > 0.0) {
         Action* shotOpt = nullptr;
         Action* passToTapIn = nullptr;
         for (auto& x : a) {
@@ -536,8 +538,9 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
             }
         }
         // If shot exists and passes don't go to a tap-in, prefer shot
-        if (shotOpt && !passToTapIn && shotOpt->score > best.score - 0.16) {
+        if (shotOpt && !passToTapIn && shotOpt->score > best.score - margin) {
             return *shotOpt;
+        }
         }
     }
 
