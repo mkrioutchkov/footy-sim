@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "nlohmann/json.hpp"
 #include <cmath>
 #include <numbers>
 

@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "agent.h"
+#include <map>
 
 std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const GameContext& ctx) {
     const auto& p = player;

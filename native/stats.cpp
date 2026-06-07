@@ -1,4 +1,5 @@
 #include "stats.h"
+#include "nlohmann/json.hpp"
 
 void StatsCollector::recordGoal(const std::string& team, const std::string& source, double distance, double speed, const std::string& scorerRole, bool headedGoal) {
     if(team=="home") goalsHome++; else goalsAway++;

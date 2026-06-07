@@ -1,7 +1,6 @@
 #pragma once
 #include <string>
 #include <format>
-#include "json.h"
 
 // ── Event-driven stats collector ──
 // Every game event calls a typed method. At match end, summaryJSON() provides benchmark output.
