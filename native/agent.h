@@ -116,6 +116,11 @@ public:
     virtual double  freshCrossMaxDistance() const { return 250.0; }
     virtual double  tackleBaseScore() const { return 0.60; }
     virtual double  tackleRoleAdjust() const { return 0.0; }
+    virtual double  shotScoreBonus() const { return 0.0; }
+    virtual double  shotDistancePenalty(double shotDistance) const { (void)shotDistance; return 0.0; }
+    virtual double  freshCrossShotBonus() const { return 0.42; }
+    virtual double  finalThirdShotMaxDistance() const { return 165.0; }
+    virtual double  finalThirdShotMinAngle() const { return 8.0; }
     virtual PitchArea currentPitchArea() const;
     double dizzyRotationAccum = 0;
     double dizzyWindowStartMs = 0;

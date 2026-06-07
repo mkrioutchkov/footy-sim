@@ -415,8 +415,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 
     if (shotDistance < 100.0) sc += 0.14;
     if (shotDistance < 60.0)  sc += 0.12;
-    if (p.role == Role::CF) sc += 0.20;
-    if (p.role == Role::CM) sc -= shotDistance > 110.0 ? 0.12 : 0.07;
+    sc += shotScoreBonus();
+    sc += shotDistancePenalty(shotDistance);
     if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) < 140.0) sc += 0.08;
     if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= p.role == Role::WM ? 0.04 : 0.08;
     sc -= std::min(0.42, per.pressureCount * 0.16);
@@ -429,7 +429,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 70.0  && credibleOpening) sc += per.pressureCount <= 1 ? 0.22 : 0.05;
     if (shotDistance < 40.0)  sc += per.pressureCount <= 1 ? 0.18 : 0.04;
 
-    if (freshCross) sc += p.role == Role::CF ? 0.62 : 0.42;
+    if (freshCross) sc += freshCrossShotBonus();
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
 }

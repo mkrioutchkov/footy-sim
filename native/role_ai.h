@@ -10,6 +10,9 @@ public:
     double freshCrossMaxDistance() const override { return 285.0; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return -0.15; }
+    double shotScoreBonus() const override { return 0.20; }
+    double freshCrossShotBonus() const override { return 0.62; }
+    double finalThirdShotMaxDistance() const override { return 210.0; }
 };
 
 class WMPlayerAI : public PlayerAI {
@@ -21,6 +24,7 @@ public:
     double freshCrossMaxDistance() const override { return 270.0; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return -0.04; }
+    double finalThirdShotMaxDistance() const override { return 175.0; }
 };
 
 class CMPlayerAI : public PlayerAI {
@@ -31,6 +35,8 @@ public:
     double shotMaxDistance() const override { return 245.0; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return 0.06; }
+    double shotDistancePenalty(double shotDistance) const override { return shotDistance > 110.0 ? -0.12 : -0.07; }
+    double finalThirdShotMinAngle() const override { return 10.0; }
 };
 
 class CBPlayerAI : public PlayerAI {

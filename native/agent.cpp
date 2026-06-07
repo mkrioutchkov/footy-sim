@@ -514,8 +514,8 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                 }
             }
             if (shotOpt && !tapInPass) {
-                double maxDistance = player.role == Role::CF ? 210.0 : (player.role == Role::WM ? 175.0 : 165.0);
-                double minAngle = player.role == Role::CM ? 10.0 : 8.0;
+                double maxDistance = finalThirdShotMaxDistance();
+                double minAngle = finalThirdShotMinAngle();
                 bool credible = shotOpt->audit.distance < maxDistance
                     && shotOpt->audit.angleDeg > minAngle
                     && shotOpt->audit.pressureCount <= 1;
