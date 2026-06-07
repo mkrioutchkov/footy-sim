@@ -11,6 +11,17 @@
 // ── Forward declare GameEngine ────────────────────────────────────────────────
 class GameEngine;
 
+// ── Shared helpers ───────────────────────────────────────────────────────────
+struct CarrierPressure {
+    int count = 0;
+    double nearest = 1e9;
+    double exposed = 0.0;
+    double goalSide = 0.0;
+    double score = 0.0;
+    Player* nearestPlayer = nullptr;
+};
+CarrierPressure assessCarrierPressure(GameEngine& engine, const Player& p);
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Agent-internal types (mirror TS interfaces from agent.ts)
 // ══════════════════════════════════════════════════════════════════════════════
