@@ -9,16 +9,16 @@
 
 double GameEngine::offsideLineFor(Team t) const {
     const double fd = t==Team::Home ? 1.0 : -1.0;
-    const Player* d1=nullptr,*d2=nullptr,*gk=nullptr;
+    const Player* d1=nullptr,*d2=nullptr;
     double v1=-1e9, v2=-1e9;
     for(auto&p:state.players){
-        if(p.team==t)continue;
-        if(p.role==Role::GK){gk=&p;continue;}
+        if(p.team==t||p.role==Role::GK)continue;
         double v=p.x*fd;
         if(v>v1){v2=v1;d2=d1;v1=v;d1=&p;}
         else if(v>v2){v2=v;d2=&p;}
     }
     if(d2)return d2->x;
+    const Player* gk = findGK(t == Team::Home ? Team::Away : Team::Home);
     if(d1&&gk){
         double dv=d1->x*fd, gv=gk->x*fd;
         return (dv<gv?d1:gk)->x;

@@ -660,20 +660,15 @@ void GameEngine::initWithSeed(int seed) {
         if(p.id>=0&&p.id<22)playerLookup[p.id]=&p;
     }
     for(auto&p:state.players) {
-        if (p.role == Role::GK)
-            agents.push_back(std::make_unique<GKPlayerAI>(p, *this));
-        else if (p.role == Role::CF)
-            agents.push_back(std::make_unique<CFPlayerAI>(p, *this));
-        else if (p.role == Role::WM)
-            agents.push_back(std::make_unique<WMPlayerAI>(p, *this));
-        else if (p.role == Role::CM)
-            agents.push_back(std::make_unique<CMPlayerAI>(p, *this));
-        else if (p.role == Role::CB)
-            agents.push_back(std::make_unique<CBPlayerAI>(p, *this));
-        else if (p.role == Role::FB)
-            agents.push_back(std::make_unique<FBPlayerAI>(p, *this));
-        else
-            agents.push_back(std::make_unique<PlayerAI>(p, *this));
+        switch (p.role) {
+            case Role::GK: agents.push_back(std::make_unique<GKPlayerAI>(p, *this)); break;
+            case Role::CF: agents.push_back(std::make_unique<CFPlayerAI>(p, *this)); break;
+            case Role::WM: agents.push_back(std::make_unique<WMPlayerAI>(p, *this)); break;
+            case Role::CM: agents.push_back(std::make_unique<CMPlayerAI>(p, *this)); break;
+            case Role::CB: agents.push_back(std::make_unique<CBPlayerAI>(p, *this)); break;
+            case Role::FB: agents.push_back(std::make_unique<FBPlayerAI>(p, *this)); break;
+            default:       agents.push_back(std::make_unique<PlayerAI>(p, *this));  break;
+        }
     }
 }
 

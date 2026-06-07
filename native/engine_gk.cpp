@@ -1,6 +1,5 @@
 #include "engine.h"
 #include "agent.h"
-#include "gk_ai.h"
 #include <cmath>
 #include <numbers>
 
@@ -21,63 +20,62 @@ void GameEngine::updateGK(double sdt) {
 }
 
 void GameEngine::updateOneGK(Player& gk, double secs) {
-        double goalX = ownGoalXFor(gk.team);
-        double fd = fdFor(gk.team);
-        double bdg = std::abs(state.ball.x - goalX);
-        double rushFactor = agentFor(gk)->rushAggression();
-        bool ballInOurHalf = gk.team == Team::Home ? state.ball.x < PITCH_W * 0.55 : state.ball.x > PITCH_W * 0.45;
-        bool towardGoal = gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0;
-        double ballSpeed = std::hypot(state.ball.vx, state.ball.vy);
-        bool throughBall = state.ball.intendedReceiverId >= 0 && state.ball.controllerId < 0
-            && (fd == 1.0 ? state.ball.vx < 0 : state.ball.vx > 0);
-        bool inArea = bdg < PENALTY_AREA_W && std::abs(state.ball.y - gk.homeY) < PENALTY_AREA_H / 2;
-        Player* carrier=playerById(state.ball.controllerId);
-        bool opponentCarrier=carrier&&carrier->team!=gk.team;
-        if (inArea && state.ball.controllerId < 0 && (towardGoal || ballSpeed < 180)) {
-            double projectedY = towardGoal
-                ? state.ball.y + state.ball.vy * (bdg / std::max(std::abs(state.ball.vx), 1.0))
-                : state.ball.y;
-            double stepOut = ballSpeed > 260 ? 28.0 : clamp(bdg * (0.45 + rushFactor * 0.25), 34.0, 145.0 + rushFactor * 35.0);
-            gk.targetX = goalX + fd * stepOut;
-            gk.targetY = clamp(lerp(state.ball.y, projectedY, 0.45), PITCH_H * 0.13, PITCH_H * 0.87);
-        } else if (opponentCarrier && inArea) {
-            gk.targetX = goalX + fd * clamp(bdg * 0.52, 34.0, 135.0);
-            gk.targetY = clamp(lerp(gk.y, state.ball.y, 0.55), PITCH_H * 0.14, PITCH_H * 0.86);
-        } else if (bdg < GK_RUSH_DIST && state.ball.controllerId < 0) {
-            gk.targetX = goalX + fd * clamp(bdg * 0.55, 24.0, 155.0);
-            gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);
-        } else if (ballInOurHalf) {
-            double sweepBase = agentFor(gk)->sweepDepth();
-            double sweepDist = clamp(sweepBase * (PITCH_W * 0.55 - bdg) / (PITCH_W * 0.55), 0.0, sweepBase);
-            gk.targetX = gk.homeX + fd * sweepDist;
-            gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.22), PITCH_H * 0.18, PITCH_H * 0.82);
-        }
-        // Rush-out: charge at loose ball or through ball behind defense
-        double rushDist = std::abs(gk.x - state.ball.x);
-        if (state.ball.controllerId < 0 && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall)) {
-            double rushTargetX = clamp(state.ball.x - fd * (throughBall ? 18.0 : 28.0),
-                goalX + fd * 45.0, goalX + fd * 175.0);
-            double rushTargetY = clamp(lerp(gk.y, state.ball.y, 0.7), PITCH_H * 0.12, PITCH_H * 0.88);
-            double rushScore = agentFor(gk)->rushAggression() * 0.92 + 0.08;
-            if (rushScore > 0.55) {
-                gk.targetX = rushTargetX;
-                gk.targetY = rushTargetY;
-            }
-        } else {
-            bool ownTeamHasBall=carrier&&carrier->team==gk.team;
-            gk.targetX = gk.homeX + fd * (ownTeamHasBall ? 48.0 : 24.0);
-            gk.targetY = gk.homeY;
-        }
-        double moveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.86;
-        // Rush-out speed boost when charging loose ball
-        double rushDist2 = std::abs(gk.x - state.ball.x);
-        if (state.ball.controllerId < 0 && agentFor(gk)->shouldRushOut(rushDist2, ballSpeed, throughBall)) {
-            moveSpeed += agentFor(gk)->rushOutSpeed();
-        }
-        double dx = gk.targetX - gk.x, dy = gk.targetY - gk.y, d = std::hypot(dx, dy);
-        if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; }
-        gk.x = clamp(gk.x, std::min(goalX + fd * 6.0, goalX + fd * 175.0), std::max(goalX + fd * 6.0, goalX + fd * 175.0));
-        gk.y = clamp(gk.y, 5.0, PITCH_H - 5.0);
+    double goalX = ownGoalXFor(gk.team);
+    double fd = fdFor(gk.team);
+    double bdg = std::abs(state.ball.x - goalX);
+    double rushFactor = agentFor(gk)->rushAggression();
+    bool ballInOurHalf = gk.team == Team::Home ? state.ball.x < PITCH_W * 0.55 : state.ball.x > PITCH_W * 0.45;
+    bool towardGoal = gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0;
+    double ballSpeed = std::hypot(state.ball.vx, state.ball.vy);
+    bool throughBall = state.ball.intendedReceiverId >= 0 && state.ball.controllerId < 0
+        && (fd == 1.0 ? state.ball.vx < 0 : state.ball.vx > 0);
+    bool inArea = bdg < PENALTY_AREA_W && std::abs(state.ball.y - gk.homeY) < PENALTY_AREA_H / 2;
+    Player* carrier = playerById(state.ball.controllerId);
+    bool opponentCarrier = carrier && carrier->team != gk.team;
+    bool ballLoose = state.ball.controllerId < 0;
+
+    if (inArea && ballLoose && (towardGoal || ballSpeed < 180)) {
+        double projectedY = towardGoal
+            ? state.ball.y + state.ball.vy * (bdg / std::max(std::abs(state.ball.vx), 1.0))
+            : state.ball.y;
+        double stepOut = ballSpeed > 260 ? 28.0 : clamp(bdg * (0.45 + rushFactor * 0.25), 34.0, 145.0 + rushFactor * 35.0);
+        gk.targetX = goalX + fd * stepOut;
+        gk.targetY = clamp(lerp(state.ball.y, projectedY, 0.45), PITCH_H * 0.13, PITCH_H * 0.87);
+    } else if (opponentCarrier && inArea) {
+        gk.targetX = goalX + fd * clamp(bdg * 0.52, 34.0, 135.0);
+        gk.targetY = clamp(lerp(gk.y, state.ball.y, 0.55), PITCH_H * 0.14, PITCH_H * 0.86);
+    } else if (bdg < GK_RUSH_DIST && ballLoose) {
+        gk.targetX = goalX + fd * clamp(bdg * 0.55, 24.0, 155.0);
+        gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);
+    } else if (ballInOurHalf) {
+        double sweepBase = agentFor(gk)->sweepDepth();
+        double sweepDist = clamp(sweepBase * (PITCH_W * 0.55 - bdg) / (PITCH_W * 0.55), 0.0, sweepBase);
+        gk.targetX = gk.homeX + fd * sweepDist;
+        gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.22), PITCH_H * 0.18, PITCH_H * 0.82);
+    }
+
+    // Rush-out: charge at loose ball or through ball behind defense
+    double rushDist = std::abs(gk.x - state.ball.x);
+    bool rushing = ballLoose && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall);
+    if (rushing) {
+        double rushTargetX = clamp(state.ball.x - fd * (throughBall ? 18.0 : 28.0),
+            goalX + fd * 45.0, goalX + fd * 175.0);
+        double rushTargetY = clamp(lerp(gk.y, state.ball.y, 0.7), PITCH_H * 0.12, PITCH_H * 0.88);
+        gk.targetX = rushTargetX;
+        gk.targetY = rushTargetY;
+    } else if (!ballLoose || !ballInOurHalf) {
+        bool ownTeamHasBall = carrier && carrier->team == gk.team;
+        gk.targetX = gk.homeX + fd * (ownTeamHasBall ? 48.0 : 24.0);
+        gk.targetY = gk.homeY;
+    }
+
+    double moveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.86;
+    if (rushing) moveSpeed += agentFor(gk)->rushOutSpeed();
+
+    double dx = gk.targetX - gk.x, dy = gk.targetY - gk.y, d = std::hypot(dx, dy);
+    if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; }
+    gk.x = clamp(gk.x, std::min(goalX + fd * 6.0, goalX + fd * 175.0), std::max(goalX + fd * 6.0, goalX + fd * 175.0));
+    gk.y = clamp(gk.y, 5.0, PITCH_H - 5.0);
 }
 
 void GameEngine::tryGKSave() {
