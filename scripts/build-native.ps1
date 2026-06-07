@@ -13,28 +13,72 @@ if (-not (Test-Path -LiteralPath $outDir)) {
     New-Item -ItemType Directory -Path $outDir | Out-Null
 }
 
-$exe = Join-Path $outDir 'live.exe'
-$sourceFiles = @(
-    Get-ChildItem -LiteralPath $native -File | Where-Object { $_.Extension -in '.cpp', '.h' }
-    Get-Item -LiteralPath $PSCommandPath
-)
+# ── Collect all header files for dependency tracking ──
+$headerFiles = @(Get-ChildItem -LiteralPath $native -File | Where-Object { $_.Extension -eq '.h' })
+$newestHeader  = if ($headerFiles.Count -gt 0) { ($headerFiles | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc } else { [DateTime]::MinValue }
+$sourceFiles   = @(Get-ChildItem -LiteralPath $native -File | Where-Object { $_.Extension -eq '.cpp' })
 
-if ((Test-Path -LiteralPath $exe) -and $sourceFiles.Count -gt 0) {
-    $newestSource = ($sourceFiles | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
-    $exeTime = (Get-Item -LiteralPath $exe).LastWriteTimeUtc
-    if ($exeTime -ge $newestSource) {
-        Write-Host "Native build up to date: $exe"
-        exit 0
-    }
-}
+$exe = Join-Path $outDir 'live.exe'
+$outDirFwd = $outDir -replace '\\', '/'
+$anyCompiled = $false
 
 Push-Location $native
 try {
-    $outDirFwd = $outDir -replace '\\','/'
-$compile = "call `"$vsDevCmd`" -arch=x64 >nul && cl /nologo /std:c++20 /EHsc /O2 main.cpp engine.cpp agent.cpp agent_scoring.cpp agent_pass.cpp agent_shoot_dribble.cpp agent_defend.cpp agent_positioning.cpp agent_setpiece.cpp agent_perception.cpp agent_movement.cpp gk_ai.cpp role_ai.cpp stats.cpp /Fo`"$outDirFwd/`" /Fe`"$outDirFwd/live.exe`""
-    cmd.exe /d /c $compile
-    if ($LASTEXITCODE -ne 0) {
-        throw "Native build failed with exit code $LASTEXITCODE"
+    foreach ($src in $sourceFiles) {
+        $objFile = Join-Path $outDir "$($src.BaseName).obj"
+        $srcTime = $src.LastWriteTimeUtc
+
+        $needCompile = $false
+        if (-not (Test-Path -LiteralPath $objFile)) {
+            $needCompile = $true
+        } else {
+            $objTime = (Get-Item -LiteralPath $objFile).LastWriteTimeUtc
+            if ($objTime -lt $srcTime) { $needCompile = $true }
+            elseif ($objTime -lt $newestHeader) { $needCompile = $true }
+            elseif ($objTime -lt (Get-Item -LiteralPath $PSCommandPath).LastWriteTimeUtc) { $needCompile = $true }
+        }
+
+        if ($needCompile) {
+            Write-Host "Compiling $($src.Name) ..."
+            $cmd = "call `"$vsDevCmd`" -arch=x64 >nul && cl /nologo /std:c++20 /EHsc /O2 /c $($src.Name) /Fo`"$outDirFwd/`""
+            cmd.exe /d /c $cmd
+            if ($LASTEXITCODE -ne 0) {
+                throw "Compilation of $($src.Name) failed with exit code $LASTEXITCODE"
+            }
+            $anyCompiled = $true
+        }
+    }
+
+    # ── Link step ──
+    $needLink = $false
+    if (-not (Test-Path -LiteralPath $exe)) {
+        $needLink = $true
+    } elseif ($anyCompiled) {
+        $needLink = $true
+    } else {
+        # Check if any .obj is newer than the exe (shouldn't happen normally)
+        $exeTime = (Get-Item -LiteralPath $exe).LastWriteTimeUtc
+        foreach ($src in $sourceFiles) {
+            $objFile = Join-Path $outDir "$($src.BaseName).obj"
+            if (Test-Path -LiteralPath $objFile) {
+                if ((Get-Item -LiteralPath $objFile).LastWriteTimeUtc -gt $exeTime) {
+                    $needLink = $true
+                    break
+                }
+            }
+        }
+    }
+
+    if ($needLink) {
+        $objList = ($sourceFiles | ForEach-Object { "`"$outDirFwd/$($_.BaseName).obj`"" }) -join ' '
+        Write-Host "Linking ..."
+        $cmd = "call `"$vsDevCmd`" -arch=x64 >nul && cl /nologo /std:c++20 /EHsc /O2 $objList /Fe`"$outDirFwd/live.exe`" /link"
+        cmd.exe /d /c $cmd
+        if ($LASTEXITCODE -ne 0) {
+            throw "Link failed with exit code $LASTEXITCODE"
+        }
+    } else {
+        Write-Host "Native build up to date: $exe"
     }
 } finally {
     Pop-Location

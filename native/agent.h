@@ -135,6 +135,14 @@ public:
     virtual bool    isDefenderRole() const { return false; }
     virtual bool    isDefenderLike() const { return false; }
     virtual double  observingCruiseMul() const { return 0.50; }
+    virtual double  defensivePressCost(bool danger) const { (void)danger; return 14.0; }
+    virtual double  shotLaneCost() const { return 34.0; }
+    virtual double  crossLaneCost() const { return 38.0; }
+    virtual double  boxGuardCost() const { return 28.0; }
+    virtual double  cutbackGuardCost() const { return 32.0; }
+    virtual double  defensiveLineOffsetX(bool danger, double lineProgress) const { (void)danger; return lineProgress; }
+    virtual double  defensiveLineTargetY(double homeY, double pitchCenterY, double carrierY) const { (void)carrierY; return lerp(homeY, pitchCenterY, 0.08); }
+    virtual DefensiveTask defensiveLineRoleTask() const { return DefensiveTask::DefensiveLine; }
     virtual PitchArea currentPitchArea() const;
     double dizzyRotationAccum = 0;
     double dizzyWindowStartMs = 0;

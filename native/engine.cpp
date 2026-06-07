@@ -88,6 +88,14 @@ Player* GameEngine::findNearestOutfieldPlayer(Team team, double x, double y) {
     return best;
 }
 
+PlayerAI* GameEngine::agentFor(const Player& p) {
+    return agents[p.id].get();
+}
+
+const PlayerAI* GameEngine::agentFor(const Player& p) const {
+    return agents[p.id].get();
+}
+
 bool GameEngine::canContestBall(Player& player) {
     if(setPieceArmed&&state.ball.controllerId<0)return false;
     if(activeKnockAhead.active&&activeKnockAhead.playerId==player.id)return true;
@@ -999,9 +1007,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         if (p.team != team || p.role == Role::GK) continue;
         double distance = dist(p.x, p.y, carrier.x, carrier.y);
         double speed = std::max(18.0, attrFactor(p.attrs.speed) * SPEED_SPRINT);
-        double roleCost = p.role == Role::CB ? (danger ? 8.0 : 120.0)
-            : p.role == Role::FB ? (danger ? 14.0 : 58.0)
-            : p.role == Role::CF ? 28.0 : p.role == Role::CM ? 0.0 : p.role == Role::WM ? 6.0 : 14.0;
+        double roleCost = agentFor(p)->defensivePressCost(danger);
         ranked.push_back({&p, distance, distance / speed, distance - attrFactor(p.attrs.speed) * 45.0 - attrFactor(p.attrs.tackling) * 35.0 + roleCost});
     }
     if (ranked.empty()) return;
@@ -1047,7 +1053,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         double laneY = lerp(carrier.y, PITCH_H / 2.0, danger ? 0.34 : 0.24);
         for (auto& p : state.players) {
             if (p.team != team || used(&p) || p.role == Role::GK || p.role == Role::CF || p.role == Role::WM) continue;
-            double roleCost = p.role == Role::CM ? 0.0 : p.role == Role::FB ? 12.0 : 34.0;
+            double roleCost = agentFor(p)->shotLaneCost();
             double score = dist(p.x, p.y, laneX, laneY) + roleCost;
             if (score < bestLane) { bestLane = score; lane = &p; }
         }
@@ -1063,7 +1069,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         double crossY = lerp(carrier.y, PITCH_H / 2.0, 0.44);
         for (auto& p : state.players) {
             if (p.team != team || used(&p) || p.role == Role::GK || p.role == Role::CF) continue;
-            double roleCost = p.role == Role::FB ? 0.0 : p.role == Role::CM ? 10.0 : p.role == Role::WM ? 18.0 : 38.0;
+            double roleCost = agentFor(p)->crossLaneCost();
             double score = dist(p.x, p.y, crossX, crossY) + roleCost;
             if (score < bestCrossLane) { bestCrossLane = score; crossLane = &p; }
         }
@@ -1185,7 +1191,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         for (auto& defender : state.players) {
             if (defender.team != team || used(&defender)
                 || (defender.role != Role::CB && defender.role != Role::CM && defender.role != Role::FB)) continue;
-            double roleCost = defender.role == Role::CB ? 0.0 : defender.role == Role::CM ? 18.0 : 28.0;
+            double roleCost = agentFor(defender)->boxGuardCost();
             double score = dist(defender.x, defender.y, ownGoalX + fd * 96.0, guardY) + roleCost;
             if (score < bestGuard) { bestGuard = score; guard = &defender; }
         }
@@ -1202,7 +1208,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         for (auto& defender : state.players) {
             if (defender.team != team || used(&defender)
                 || (defender.role != Role::CM && defender.role != Role::FB && defender.role != Role::CB)) continue;
-            double roleCost = defender.role == Role::CM ? 0.0 : defender.role == Role::FB ? 18.0 : 32.0;
+            double roleCost = agentFor(defender)->cutbackGuardCost();
             double score = dist(defender.x, defender.y, cutbackX, cutbackY) + roleCost;
             if (score < bestCutback) { bestCutback = score; cutbackGuard = &defender; }
         }
@@ -1249,12 +1255,10 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     for (auto& defender : state.players) {
         if (defender.team != team || used(&defender) || (defender.role != Role::CB && defender.role != Role::FB)) continue;
         double targetX = danger
-            ? ownGoalX + fd * (defender.role == Role::CB ? 92.0 : 112.0)
-            : ownGoalX + fd * (defender.role == Role::CB ? lineProgress : lineProgress + 16.0);
-        double targetY = defender.role == Role::FB
-            ? lerp(defender.homeY, carrier.y, 0.20)
-            : lerp(defender.homeY, PITCH_H / 2.0, 0.08);
-        setAssignment(defender, (defender.role == Role::FB ? DefensiveTask::WideCover : DefensiveTask::DefensiveLine), targetX, targetY);
+            ? ownGoalX + fd * agentFor(defender)->defensiveLineOffsetX(true, lineProgress)
+            : ownGoalX + fd * agentFor(defender)->defensiveLineOffsetX(false, lineProgress);
+        double targetY = agentFor(defender)->defensiveLineTargetY(defender.homeY, PITCH_H / 2.0, carrier.y);
+        setAssignment(defender, agentFor(defender)->defensiveLineRoleTask(), targetX, targetY);
     }
 }
 

@@ -17,6 +17,8 @@ public:
     bool   isAttackerRole() const override { return true; }
     double nearGoalShotBiasMargin() const override { return 0.16; }
     double observingCruiseMul() const override { return 0.45; }
+    double defensivePressCost(bool danger) const override { (void)danger; return 28.0; }
+    double boxGuardCost() const override { return 28.0; }
 };
 
 class WMPlayerAI : public PlayerAI {
@@ -33,6 +35,8 @@ public:
     bool   isAttackerRole() const override { return true; }
     bool   canUseWideDribble() const override { return true; }
     double observingCruiseMul() const override { return 0.55; }
+    double defensivePressCost(bool danger) const override { (void)danger; return 6.0; }
+    double crossLaneCost() const override { return 18.0; }
 };
 
 class CMPlayerAI : public PlayerAI {
@@ -53,6 +57,11 @@ public:
     bool   shouldSearchForPassOverShot() const override { return true; }
     bool   isDefenderLike() const override { return true; }
     double observingCruiseMul() const override { return 0.50; }
+    double defensivePressCost(bool danger) const override { (void)danger; return 0.0; }
+    double shotLaneCost() const override { return 0.0; }
+    double crossLaneCost() const override { return 10.0; }
+    double boxGuardCost() const override { return 18.0; }
+    double cutbackGuardCost() const override { return 0.0; }
 };
 
 class CBPlayerAI : public PlayerAI {
@@ -65,6 +74,12 @@ public:
     bool   isDefenderRole() const override { return true; }
     bool   isDefenderLike() const override { return true; }
     double observingCruiseMul() const override { return 0.65; }
+    double defensivePressCost(bool danger) const override { return danger ? 8.0 : 120.0; }
+    double shotLaneCost() const override { return 34.0; }
+    double crossLaneCost() const override { return 38.0; }
+    double boxGuardCost() const override { return 0.0; }
+    double cutbackGuardCost() const override { return 32.0; }
+    double defensiveLineOffsetX(bool danger, double lineProgress) const override { return danger ? 92.0 : lineProgress; }
 };
 
 class FBPlayerAI : public PlayerAI {
@@ -81,4 +96,12 @@ public:
     bool   isDefenderRole() const override { return true; }
     bool   isDefenderLike() const override { return true; }
     double observingCruiseMul() const override { return 0.65; }
+    double defensivePressCost(bool danger) const override { return danger ? 14.0 : 58.0; }
+    double shotLaneCost() const override { return 12.0; }
+    double crossLaneCost() const override { return 0.0; }
+    double boxGuardCost() const override { return 28.0; }
+    double cutbackGuardCost() const override { return 18.0; }
+    double defensiveLineOffsetX(bool danger, double lineProgress) const override { return danger ? 112.0 : lineProgress + 16.0; }
+    double defensiveLineTargetY(double homeY, double, double carrierY) const override { return lerp(homeY, carrierY, 0.20); }
+    DefensiveTask defensiveLineRoleTask() const override { return DefensiveTask::WideCover; }
 };
