@@ -6,6 +6,38 @@
 // Physics — ball physics, collision, collection, movement
 // ══════════════════════════════════════════════════════════════
 
+void GameEngine::separateTeammates(double sdt) {
+    double secs = sdt / 1000.0;
+    double maxPush = 18.0 * secs;
+    for (size_t i = 0; i < state.players.size(); ++i) {
+        for (size_t j = i + 1; j < state.players.size(); ++j) {
+            Player& a = state.players[i];
+            Player& b = state.players[j];
+            if (a.team != b.team || a.role == Role::GK || b.role == Role::GK) continue;
+            double dx = b.x - a.x, dy = b.y - a.y;
+            double d = std::hypot(dx, dy);
+            if (d < 0.1 || d >= SEPARATION_DIST) continue;
+            double nx = dx / d, ny = dy / d;
+            double push = std::min(maxPush, (SEPARATION_DIST - d) * 0.18);
+            bool aFixed = state.ball.controllerId == a.id || isActiveKnockAheadRunner(a.id);
+            bool bFixed = state.ball.controllerId == b.id || isActiveKnockAheadRunner(b.id);
+            if (aFixed && bFixed) continue;
+            if (aFixed) {
+                b.x = clamp(b.x + nx * push * 2.0, 5.0, PITCH_W - 5.0);
+                b.y = clamp(b.y + ny * push * 2.0, 5.0, PITCH_H - 5.0);
+            } else if (bFixed) {
+                a.x = clamp(a.x - nx * push * 2.0, 5.0, PITCH_W - 5.0);
+                a.y = clamp(a.y - ny * push * 2.0, 5.0, PITCH_H - 5.0);
+            } else {
+                a.x = clamp(a.x - nx * push, 5.0, PITCH_W - 5.0);
+                a.y = clamp(a.y - ny * push, 5.0, PITCH_H - 5.0);
+                b.x = clamp(b.x + nx * push, 5.0, PITCH_W - 5.0);
+                b.y = clamp(b.y + ny * push, 5.0, PITCH_H - 5.0);
+            }
+        }
+    }
+}
+
 void GameEngine::applyBallPhysics(double s) {
     auto& b = state.ball;
     double friction = std::pow(BALL_FRICTION, s);

@@ -48,6 +48,20 @@ const PlayerAI* GameEngine::agentFor(const Player& p) const {
     return agents[p.id].get();
 }
 
+Player* GameEngine::findGK(Team team) {
+    for (auto& p : state.players) {
+        if (p.team == team && p.role == Role::GK) return &p;
+    }
+    return nullptr;
+}
+
+const Player* GameEngine::findGK(Team team) const {
+    for (auto& p : state.players) {
+        if (p.team == team && p.role == Role::GK) return &p;
+    }
+    return nullptr;
+}
+
 bool GameEngine::canContestBall(Player& player) {
     if(setPieceArmed&&state.ball.controllerId<0)return false;
     if(activeKnockAhead.active&&activeKnockAhead.playerId==player.id)return true;

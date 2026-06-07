@@ -1,4 +1,6 @@
 #include "engine.h"
+#include "agent.h"
+#include "gk_ai.h"
 #include <cmath>
 #include <numbers>
 
@@ -6,45 +8,23 @@
 // Goalkeeper — positioning and save logic
 // ══════════════════════════════════════════════════════════════
 
-void GameEngine::separateTeammates(double sdt) {
+void GameEngine::updateGK(double sdt) {
     double secs = sdt / 1000.0;
-    double maxPush = 18.0 * secs;
-    for (size_t i = 0; i < state.players.size(); ++i) {
-        for (size_t j = i + 1; j < state.players.size(); ++j) {
-            Player& a = state.players[i];
-            Player& b = state.players[j];
-            if (a.team != b.team || a.role == Role::GK || b.role == Role::GK) continue;
-            double dx = b.x - a.x, dy = b.y - a.y;
-            double d = std::hypot(dx, dy);
-            if (d < 0.1 || d >= SEPARATION_DIST) continue;
-            double nx = dx / d, ny = dy / d;
-            double push = std::min(maxPush, (SEPARATION_DIST - d) * 0.18);
-            bool aFixed = state.ball.controllerId == a.id || isActiveKnockAheadRunner(a.id);
-            bool bFixed = state.ball.controllerId == b.id || isActiveKnockAheadRunner(b.id);
-            if (aFixed && bFixed) continue;
-            if (aFixed) {
-                b.x = clamp(b.x + nx * push * 2.0, 5.0, PITCH_W - 5.0);
-                b.y = clamp(b.y + ny * push * 2.0, 5.0, PITCH_H - 5.0);
-            } else if (bFixed) {
-                a.x = clamp(a.x - nx * push * 2.0, 5.0, PITCH_W - 5.0);
-                a.y = clamp(a.y - ny * push * 2.0, 5.0, PITCH_H - 5.0);
-            } else {
-                a.x = clamp(a.x - nx * push, 5.0, PITCH_W - 5.0);
-                a.y = clamp(a.y - ny * push, 5.0, PITCH_H - 5.0);
-                b.x = clamp(b.x + nx * push, 5.0, PITCH_W - 5.0);
-                b.y = clamp(b.y + ny * push, 5.0, PITCH_H - 5.0);
-            }
-        }
+    Player* gk = findGK(Team::Home);
+    if (gk) {
+        updateOneGK(*gk, secs);
+    }
+    gk = findGK(Team::Away);
+    if (gk) {
+        updateOneGK(*gk, secs);
     }
 }
 
-void GameEngine::updateGK(double sdt) {
-    double secs = sdt / 1000.0;
-    for (auto& gk : state.players) {
-        if (gk.role != Role::GK) continue;
+void GameEngine::updateOneGK(Player& gk, double secs) {
         double goalX = ownGoalXFor(gk.team);
         double fd = fdFor(gk.team);
         double bdg = std::abs(state.ball.x - goalX);
+        double rushFactor = agentFor(gk)->rushAggression();
         bool ballInOurHalf = gk.team == Team::Home ? state.ball.x < PITCH_W * 0.55 : state.ball.x > PITCH_W * 0.45;
         bool towardGoal = gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0;
         double ballSpeed = std::hypot(state.ball.vx, state.ball.vy);
@@ -55,7 +35,7 @@ void GameEngine::updateGK(double sdt) {
             double projectedY = towardGoal
                 ? state.ball.y + state.ball.vy * (bdg / std::max(std::abs(state.ball.vx), 1.0))
                 : state.ball.y;
-            double stepOut = ballSpeed > 260 ? 28.0 : clamp(bdg * 0.45, 34.0, 145.0);
+            double stepOut = ballSpeed > 260 ? 28.0 : clamp(bdg * (0.45 + rushFactor * 0.25), 34.0, 145.0 + rushFactor * 35.0);
             gk.targetX = goalX + fd * stepOut;
             gk.targetY = clamp(lerp(state.ball.y, projectedY, 0.45), PITCH_H * 0.13, PITCH_H * 0.87);
         } else if (opponentCarrier && inArea) {
@@ -65,8 +45,9 @@ void GameEngine::updateGK(double sdt) {
             gk.targetX = goalX + fd * clamp(bdg * 0.55, 24.0, 155.0);
             gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);
         } else if (ballInOurHalf) {
-            double sweepDepth = clamp((PITCH_W * 0.55 - bdg) * 0.22, 0.0, 82.0);
-            gk.targetX = gk.homeX + fd * sweepDepth;
+            double sweepBase = agentFor(gk)->sweepDepth();
+            double sweepDist = clamp(sweepBase * (PITCH_W * 0.55 - bdg) / (PITCH_W * 0.55), 0.0, sweepBase);
+            gk.targetX = gk.homeX + fd * sweepDist;
             gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.22), PITCH_H * 0.18, PITCH_H * 0.82);
         } else {
             bool ownTeamHasBall=carrier&&carrier->team==gk.team;
@@ -78,17 +59,15 @@ void GameEngine::updateGK(double sdt) {
         if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; }
         gk.x = clamp(gk.x, std::min(goalX + fd * 6.0, goalX + fd * 175.0), std::max(goalX + fd * 6.0, goalX + fd * 175.0));
         gk.y = clamp(gk.y, 5.0, PITCH_H - 5.0);
-    }
 }
 
 void GameEngine::tryGKSave() {
     if (!shotActive) return;
     auto& b = state.ball;
     int shooterId = trackedShot ? trackedShooterId : b.lastToucherId;
-    Player* gk = nullptr;
     Team attacking = trackedShot ? trackedShotTeam : b.lastTouchTeam;
     Team defending = attacking == Team::Home ? Team::Away : Team::Home;
-    for (auto& p : state.players) if (p.team == defending && p.role == Role::GK) { gk = &p; break; }
+    Player* gk = findGK(defending);
     if (!gk) return;
     double speed = std::hypot(b.vx, b.vy);
     if (speed < 200) return;
@@ -128,8 +107,7 @@ void GameEngine::tryGKSave() {
     trackedShotPreventable = false;
     trackedShotHeader = false;
     trackedPenaltyShot = false;
-    double handling = attrFactor(gk->attrs.positioning);
-    double catchChance = clamp(0.22 + handling * 0.38 - std::max(0.0, speed - 520) / 900, 0.12, 0.58);
+    double catchChance = clamp(agentFor(*gk)->catchThreshold() - std::max(0.0, speed - 520) / 900, 0.12, 0.58);
     bool caught = rng.random() < catchChance;
     double fieldDir = fdFor(gk->team);
     double side = gk->y - shotOriginY < 0 ? -1.0 : 1.0;

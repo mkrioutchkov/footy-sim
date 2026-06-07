@@ -140,6 +140,8 @@ public:
     [[nodiscard]] const Player* playerById(int id) const;
     [[nodiscard]] PlayerAI* agentFor(const Player& p);
     [[nodiscard]] const PlayerAI* agentFor(const Player& p) const;
+    [[nodiscard]] Player* findGK(Team team);
+    [[nodiscard]] const Player* findGK(Team team) const;
     [[nodiscard]] std::vector<Player*> nearPlayers(Player& p, double range);
     [[nodiscard]] Player* findNearestOutfieldPlayer(Team team, double x, double y);
     [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
@@ -223,6 +225,7 @@ public:
     void moveBallCarrier(double sdt);
     void separateTeammates(double sdt);
     void updateGK(double sdt);
+    void updateOneGK(Player& gk, double secs);
     void tryGKSave();
     void awardThrowIn(std::string lt, double y);
     void awardSetPiece(SetPiece t, Team tm);

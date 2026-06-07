@@ -149,6 +149,9 @@ public:
     virtual double  defensiveLineTargetY(double homeY, double pitchCenterY, double carrierY) const { (void)carrierY; return lerp(homeY, pitchCenterY, 0.08); }
     virtual DefensiveTask defensiveLineRoleTask() const { return DefensiveTask::DefensiveLine; }
     virtual double  penaltyTakerBonus() const { return 0.0; }
+    virtual double  catchThreshold() const { return 0.22; }
+    virtual double  rushAggression() const { return 0.0; }
+    virtual double  sweepDepth() const { return 0.0; }
     virtual bool    isOffensiveThreat(double depth, bool danger, double yDistFromCenter) const { (void)depth; (void)danger; (void)yDistFromCenter; return false; }
     virtual double  markerRoleBonus(const PlayerAI& defender, bool danger) const { (void)defender; (void)danger; return 1e9; }
     virtual PitchArea currentPitchArea() const;
