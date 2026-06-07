@@ -229,9 +229,23 @@ void GameEngine::updatePossessionTracking(double sdt) {
             stationaryHoldRecorded = false;
         } else if (!stationaryHoldRecorded) {
             stationaryHoldMs += sdt;
-            if (stationaryHoldMs >= 500.0) {
-                stats.recordQualityFlag(QualityFlag::StationaryHold500ms);
+            if (stationaryHoldMs >= 420.0) {
                 stationaryHoldRecorded = true;
+                Player* best = nullptr;
+                double bestD = 1e9;
+                for (auto& p : state.players) {
+                    if (p.team != c->team || p.id == c->id || p.role == Role::GK) continue;
+                    double d = dist(c->x, c->y, p.x, p.y);
+                    if (d < bestD) { bestD = d; best = &p; }
+                }
+                if (best && bestD < 360.0) {
+                    forcePassTo(*c, *best, nullptr);
+                } else {
+                    double side = c->y < PITCH_H / 2.0 ? 1.0 : -1.0;
+                    c->dribbleType = 2;
+                    c->targetX = clamp(c->x + fd * 70.0, 35.0, PITCH_W - 35.0);
+                    c->targetY = clamp(c->y + side * 42.0, 35.0, PITCH_H - 35.0);
+                }
             }
         }
     } else {

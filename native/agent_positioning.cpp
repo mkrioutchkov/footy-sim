@@ -129,6 +129,24 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         c.push_back({ p.homeX + fd * 50.0 + pu, p.homeY - 35.0, ActionPurpose::Space });
         c.push_back({ p.homeX + fd * 50.0 + pu, p.homeY + 35.0, ActionPurpose::Space });
 
+        if ((isCenterForward() || isWideMidfielder()) && !per.iAmController) {
+            double line = engine.offsideLineFor(p.team);
+            if (!std::isnan(line)) {
+                double legalShoulder = fd > 0.0 ? std::max(line, b.x) - 14.0 : std::min(line, b.x) + 14.0;
+                double checkBackX = fd > 0.0 ? std::min(p.x - 28.0, legalShoulder - 18.0) : std::max(p.x + 28.0, legalShoulder + 18.0);
+                double insideY = clamp(lerp(p.y, PITCH_H / 2.0, isCenterForward() ? 0.28 : 0.18), 50.0, PITCH_H - 50.0);
+                c.push_back({ clamp(legalShoulder, 55.0, PITCH_W - 55.0), p.y, ActionPurpose::Offer });
+                c.push_back({ clamp(checkBackX, 55.0, PITCH_W - 55.0), insideY, ActionPurpose::Offer });
+                if (isCenterForward() && ba > 0.54) {
+                    double cutbackX = clamp(goalXFor(p.team) - fd * 155.0, 55.0, PITCH_W - 55.0);
+                    bool cutbackOffside = fd > 0.0 ? cutbackX > legalShoulder : cutbackX < legalShoulder;
+                    if (cutbackOffside) cutbackX = legalShoulder;
+                    c.push_back({ cutbackX, PITCH_H / 2.0, ActionPurpose::Offer });
+                    c.push_back({ cutbackX, clamp(PITCH_H / 2.0 + (p.homeY < PITCH_H / 2.0 ? -38.0 : 38.0), PITCH_H * 0.28, PITCH_H * 0.72), ActionPurpose::Space });
+                }
+            }
+        }
+
         auto& bb2 = engine.blackboards[GameEngine::teamIndex(p.team)];
         if (bb2.oneTwo.has_value() && bb2.oneTwo->from == p.id && engine.state.clockMs < bb2.oneTwo->expires) {
             double oppGoalX = goalXFor(p.team);
@@ -298,10 +316,13 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         double sumX = 0;
         int count = 0;
         double deepestX = (p.team == Team::Home) ? 0.0 : PITCH_W;
+        struct LineMate { double progress; int id; };
+        std::vector<LineMate> lineMates;
         for (auto& t : engine.state.players) {
             if (t.team != p.team || t.role == Role::GK) continue;
             if (engine.agentFor(t)->isDefenderRole()) {
                 sumX += t.x; count++;
+                lineMates.push_back({ (t.x - ownGoalXFor(p.team)) * fd, t.id });
                 double tx = (p.team == Team::Home) ? t.x : PITCH_W - t.x;
                 double rev = (p.team == Team::Home) ? deepestX : PITCH_W - deepestX;
                 if (tx < rev) deepestX = t.x;
@@ -315,6 +336,20 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             double minProgress = std::max(72.0, lineProgress - 12.0);
             double maxProgress = lineProgress + 34.0;
             lineX = clampRange(lineX, ownGx + fd * minProgress, ownGx + fd * maxProgress);
+        }
+        if (lineMates.size() >= 3) {
+            std::sort(lineMates.begin(), lineMates.end(), [](const LineMate& a, const LineMate& b) { return a.progress < b.progress; });
+            double myProgress = (p.x - ownGoalXFor(p.team)) * fd;
+            bool iAmDeepest = lineMates.front().id == p.id;
+            double gapToLine = lineMates[1].progress - lineMates[0].progress;
+            bool ballBeyondMe = (b.x - p.x) * fd > 25.0;
+            if (iAmDeepest && gapToLine > 75.0 && !ballBeyondMe) {
+                double recoverProgress = clamp(lineMates[1].progress - 32.0, 70.0, 360.0);
+                double recoverX = ownGoalXFor(p.team) + fd * recoverProgress;
+                c.push_back({ recoverX, p.homeY, ActionPurpose::Cover });
+                if (myProgress < recoverProgress - 40.0)
+                    c.push_back({ ownGoalXFor(p.team) + fd * (recoverProgress - 12.0), clamp(p.homeY + ((b.y < PITCH_H / 2.0) ? -18.0 : 18.0), 40.0, PITCH_H - 40.0), ActionPurpose::Cover });
+            }
         }
         c.push_back({ lineX, p.homeY, ActionPurpose::Cover });
         c.push_back({ lineX - fd * (isFullBack() ? 6.0 : 15.0), p.homeY, ActionPurpose::Cover });
@@ -347,16 +382,38 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
 
     std::vector<Action> options;
     for (auto& cn : c) {
+        double targetX = cn.x;
+        double targetY = cn.y;
+        double onsideScoreAdjust = 0.0;
+        if (my && !per.iAmController && (isCenterForward() || isWideMidfielder())) {
+            double line = engine.offsideLineFor(p.team);
+            if (!std::isnan(line)) {
+                bool beyondHalf = fd > 0.0 ? targetX > HALF_X : targetX < HALF_X;
+                bool beyondBall = fd > 0.0 ? targetX > b.x + OFFSIDE_TOLERANCE : targetX < b.x - OFFSIDE_TOLERANCE;
+                bool beyondLine = fd > 0.0 ? targetX > line + OFFSIDE_TOLERANCE : targetX < line - OFFSIDE_TOLERANCE;
+                if (beyondHalf && beyondBall && beyondLine) {
+                    double legalShoulder = fd > 0.0 ? std::max(line, b.x) - 12.0 : std::min(line, b.x) + 12.0;
+                    double overrun = std::abs(targetX - legalShoulder);
+                    bool timedRun = (cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::RunAhead || cn.pur == ActionPurpose::CrossLane)
+                        && ba > 0.58 && overrun < 95.0;
+                    if (!timedRun) targetX = clamp(legalShoulder, 45.0, PITCH_W - 45.0);
+                    onsideScoreAdjust -= timedRun ? 0.18 : 0.04;
+                    if (cn.pur == ActionPurpose::Offer) onsideScoreAdjust += 0.16;
+                } else if (std::abs(targetX - line) < 45.0 && beyondHalf) {
+                    onsideScoreAdjust += 0.06;
+                }
+            }
+        }
         double sf = 0;
         for (auto* o : per.nearbyOpponents) {
-            double d2 = std::sqrt((cn.x - o->x) * (cn.x - o->x) + (cn.y - o->y) * (cn.y - o->y));
+            double d2 = std::sqrt((targetX - o->x) * (targetX - o->x) + (targetY - o->y) * (targetY - o->y));
             if (d2 < 50.0) sf -= (50.0 - d2) / 50.0;
         }
         bool counterOutlet = cn.pur == ActionPurpose::CounterOutlet || cn.pur == ActionPurpose::RestForward;
-        double tac = my ? (cn.x - p.homeX) * fd / PITCH_W * 0.5 : counterOutlet ? 0.0 : -(cn.x - p.homeX) * fd / PITCH_W * 0.25;
+        double tac = my ? (targetX - p.homeX) * fd / PITCH_W * 0.5 : counterOutlet ? 0.0 : -(targetX - p.homeX) * fd / PITCH_W * 0.25;
         double og2 = ownGoalXFor(p.team);
-        double db = !my ? clamp(((b.x - cn.x) * fd) / (std::abs(b.x - og2) + 1.0), 0.0, 0.30) : 0.0;
-        double bp2 = std::sqrt((cn.x - b.x) * (cn.x - b.x) + (cn.y - b.y) * (cn.y - b.y)) / 600.0 * 0.08;
+        double db = !my ? clamp(((b.x - targetX) * fd) / (std::abs(b.x - og2) + 1.0), 0.0, 0.30) : 0.0;
+        double bp2 = std::sqrt((targetX - b.x) * (targetX - b.x) + (targetY - b.y) * (targetY - b.y)) / 600.0 * 0.08;
         double ob = counterOutlet ? 0.44 :
                     (cn.pur == ActionPurpose::InsideRun && isWideMidfielder() && ba > 0.42) ? 0.20 :
                     (cn.pur == ActionPurpose::RunAhead && isWideMidfielder()) ? 0.14 :
@@ -370,10 +427,10 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
 
         options.push_back(Action{
             ActionType::Position,
-            clamp(0.15 + sf * 0.3 + tac - bp2 + db + ob, 0.0, 1.0),
+            clamp(0.15 + sf * 0.3 + tac - bp2 + db + ob + onsideScoreAdjust, 0.0, 1.0),
             nullptr,
-            clamp(cn.x + jx, 40.0, PITCH_W - 40.0),
-            clamp(cn.y + jy, 40.0, PITCH_H - 40.0),
+            clamp(targetX + jx, 40.0, PITCH_W - 40.0),
+            clamp(targetY + jy, 40.0, PITCH_H - 40.0),
             cn.pur
         });
     }

@@ -226,8 +226,25 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     bool nearGoal = std::abs(player.x - gx) < 220.0;
     bool inBox    = std::abs(player.x - gx) < 150.0;
 
-    if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22))
+    if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22)) {
+        Action* passOpt = nullptr;
+        Action* dribbleOpt = nullptr;
+        for (auto& x : a) {
+            if (x.type == ActionType::Pass && (!passOpt || x.score > passOpt->score)) passOpt = &x;
+            if (x.type == ActionType::Dribble && (!dribbleOpt || x.score > dribbleOpt->score)) dribbleOpt = &x;
+        }
+        if (passOpt && passOpt->score > 0.05) return *passOpt;
+        if (dribbleOpt && dribbleOpt->score > 0.04) return *dribbleOpt;
+        if (player.role != Role::GK) {
+            double fd = fdFor(player.team);
+            double side = player.y < PITCH_H / 2.0 ? 1.0 : -1.0;
+            return Action{ActionType::Dribble, 0.20, nullptr,
+                          clamp(player.x + fd * 55.0, 35.0, PITCH_W - 35.0),
+                          clamp(player.y + side * 34.0, 35.0, PITCH_H - 35.0),
+                          ActionPurpose::Space};
+        }
         return Action{ActionType::Hold, 1.0};
+    }
 
     if (ic && engine.carryTrackerId == player.id) {
         double carryDistance = engine.carryPathDistance;
