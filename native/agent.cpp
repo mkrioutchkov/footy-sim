@@ -445,13 +445,13 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (d < 42.0 || d > (keeperOutlet ? 455.0 : 550.0)) continue;
         if (!keeperOutlet && engine.isOffsideTarget(p, t)) continue;
 
-        if (d > 40.0 && holdTicks >= 30) {
-            // Vision cone: only apply after ~1s of possession (holdTicks >= 30).
-            // Freshly-possessing players can see all teammates regardless of facing.
+        if (d > 40.0) {
             double angleTo = std::atan2(t.y - p.y, t.x - p.x);
             double aDiff = std::abs(angleTo - facing);
             double na = (aDiff > 3.141592653589793) ? 2.0 * 3.141592653589793 - aDiff : aDiff;
-            double visionLimit = keeperOutlet ? 3.141592653589793 * 0.82 : 3.141592653589793 / 3.0;
+            // Fresh possession: wider vision for ~0.7s after gaining the ball (holdTicks < 20)
+            double visionLimit = keeperOutlet ? 3.141592653589793 * 0.82
+                : (holdTicks < 20 ? 3.141592653589793 * 0.82 : 3.141592653589793 / 3.0);
             if (na > visionLimit) continue;
         }
 
