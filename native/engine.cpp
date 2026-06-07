@@ -239,9 +239,9 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     double goalX=goalXFor(f.team);
     bool fromWide=std::abs(f.y-PITCH_H/2)>130;
     bool intoBox=std::abs(predX-goalX)<270&&std::abs(predY-PITCH_H/2)<190;
-    bool selectedCross=audit&&audit->purpose=="cross"&&fromWide&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall;
+    bool selectedCross=audit&&audit->purpose==ActionPurpose::Cross&&fromWide&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall;
     bool whippedCross=fromWide&&intoBox&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall
-        &&(!audit||(audit->purpose!="cutback"&&audit->purpose!="through"&&audit->purpose!="cross"));
+        &&(!audit||(audit->purpose!=ActionPurpose::Cutback&&audit->purpose!=ActionPurpose::Through&&audit->purpose!=ActionPurpose::Cross));
     if(selectedCross||whippedCross)stats.recordCrossAttempt();
     if(selectedCross){
         b.vx*=1.15; b.vy*=1.15;

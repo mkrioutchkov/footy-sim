@@ -31,7 +31,7 @@ struct Action {
     Player*     target  = nullptr;
     double      posX    = 0;
     double      posY    = 0;
-    std::string purpose;
+    ActionPurpose purpose = ActionPurpose::Keep;
     ActionAudit audit;
 };
 
@@ -64,7 +64,7 @@ struct PassSelectionAudit {
     double expectedCompletion = 0;
     int    blockers           = 0;
     int    receiverPressure   = 0;
-    std::string purpose;
+    ActionPurpose purpose = ActionPurpose::Keep;
     int    saferOptionTargetId   = -1;
     double saferOptionScore      = 0;
     double saferOptionCompletion = 0;
@@ -119,7 +119,7 @@ private:
     double lastPosX = 0, lastPosY = 0;
 
     ActionType lastActionType = ActionType::Hold;
-    std::string lastPurpose;
+    ActionPurpose lastPurpose = ActionPurpose::Keep;
     int    lastTargetId = -1;
     int    lastPassTargetId = -1;
 

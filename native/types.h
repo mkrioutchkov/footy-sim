@@ -11,7 +11,7 @@
 enum class Team : uint8_t { Home = 0, Away = 1 };
 enum class Role : uint8_t { GK = 0, CB, FB, CM, WM, CF };
 enum class ActionType : uint8_t { Pass, Shoot, Dribble, Tackle, Mark, Chase, Position, Hold };
-enum class ActionPurpose : uint8_t { Keep, Build, Cross, Cutback, Through, Clear, Switch, Space, Offer, Cover };
+enum class ActionPurpose : uint8_t { Keep=0, Build, Cross, Cutback, Through, Clear, Switch, Space, Offer, Cover, KeeperBackpass, RecoverLoose, RecoverOwnTouch, MeetIncoming, Receive, CounterOutlet, RestForward, Observe, RunAhead, InsideRun, HoldWidth, Overlap, CrossLane, EmergCloseDown, LocalCloseDown, Task };
 
 // ── Defensive task role (was string) ──
 enum class DefensiveTask : uint8_t {
@@ -55,6 +55,22 @@ inline constexpr std::string_view to_string(ActionPurpose p) {
         case ActionPurpose::Through: return "through"; case ActionPurpose::Clear: return "clear";
         case ActionPurpose::Switch: return "switch"; case ActionPurpose::Space: return "space";
         case ActionPurpose::Offer: return "offer"; case ActionPurpose::Cover: return "cover";
+        case ActionPurpose::KeeperBackpass: return "keeper_backpass";
+        case ActionPurpose::RecoverLoose: return "recover_loose_ball";
+        case ActionPurpose::RecoverOwnTouch: return "recover_own_touch";
+        case ActionPurpose::MeetIncoming: return "meet_incoming_ball";
+        case ActionPurpose::Receive: return "receive_ball";
+        case ActionPurpose::CounterOutlet: return "counter_outlet";
+        case ActionPurpose::RestForward: return "rest_forward";
+        case ActionPurpose::Observe: return "observe";
+        case ActionPurpose::RunAhead: return "run_ahead";
+        case ActionPurpose::InsideRun: return "inside_run";
+        case ActionPurpose::HoldWidth: return "hold_width";
+        case ActionPurpose::Overlap: return "overlap";
+        case ActionPurpose::CrossLane: return "cross_lane";
+        case ActionPurpose::EmergCloseDown: return "emergency_close_down";
+        case ActionPurpose::LocalCloseDown: return "local_close_down";
+        case ActionPurpose::Task: return "task";
     }
     return "keep";
 }
