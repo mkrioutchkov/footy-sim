@@ -1,6 +1,8 @@
 #pragma once
 #include <string>
 #include <format>
+#include <optional>
+#include "types.h"
 
 // ── Event-driven stats collector ──
 // Every game event calls a typed method. At match end, summaryJSON() provides benchmark output.
@@ -44,11 +46,11 @@ public:
     void recordPenaltyGoal()           { penaltiesScored++; }
 
     // ── Shot events ──
-    void recordShot(const std::string& team, bool onTarget, const std::string& shooterRole);
+    void recordShot(Team team, bool onTarget, Role shooterRole);
     void recordShotDistance(double distance) { shotDistTotal+=distance; if(distance<100)shotDistClose++; else if(distance<200)shotDistMedium++; else shotDistLong++; }
     void recordShotOnTarget();
     void recordSave() { saves++; }
-    void recordGoal(const std::string& team, const std::string& source, double distance, double speed, const std::string& scorerRole, bool headedGoal);
+    void recordGoal(Team team, const std::string& source, double distance, double speed, std::optional<Role> scorerRole, bool headedGoal);
     void recordGkAssessment(bool unlikely, bool preventable) { gkAssessed++; if(unlikely) unlikelySaves++; if(preventable) preventableGoals++; }
     void recordShotSelection(double angle, double pressure, int credibleWindows, int deferred, int deferredPass, int deferredDribble, int closeWindows, int closeDeferred, bool betterPass, bool tightAngle) {
         shotAudits++; shotAngleTotal+=angle; shotPressureTotal+=pressure;
@@ -68,10 +70,12 @@ public:
 
     // ── Collection events ──
     void recordCollection(bool sameTeamRecent) { if(sameTeamRecent) teammatePingPongs++; }
-    void recordControlledTouch(const std::string& role);
+    void recordControlledTouch(Role role);
 
     // ── Dribble / knock-ahead ──
     void recordDribble(int type) { if(type==1) dribbleClose++; else if(type==2) dribbleMedium++; else if(type==3) dribbleFast++; }
+    void recordDribble20mShot() { dribble20mShots++; }
+    void recordDribble20mGoal() { dribble20mGoals++; }
     void recordKnockAhead(double speed) { knockAheads++; knockAheadSpeedTotal+=speed; }
     void recordKnockAheadRecovered()    { knockAheadRecovered++; }
     void recordKnockAheadRetained()     { knockAheadRetained++; }
@@ -93,10 +97,13 @@ public:
     void recordTimeWastingDribble()     { timeWastingDribbles++; }
     void recordBackwardDribble()        { backwardDribbles++; }
     void recordWhyPlayerRunningDir()    { whyPlayerRunningDir++; }
+    void recordStationaryHold500ms()    { stationaryHold500ms++; }
+    void recordUnknownQualityFlag()     { unknownQualityFlags++; }
+    void recordQualityFlag(QualityFlag flag);
     void recordDecisionMoment()         { decisionMoments++; }
     void recordPlayerDecision()         { playerDecisions++; }
     void recordStaleGrabPrevented()     { staleGrabs++; }
-    void recordTaskSelection(const std::string& role);
+    void recordTaskSelection(DefensiveTask role);
 
     // ── Marking / defensive ──
     void recordPressSample()            { pressSamples++; }
@@ -155,6 +162,8 @@ private:
     int questionableShots=0;
     int whyNoShoots=0, questionableBackpasses=0, clearPathShoots=0, clearPathDrives=0;
     int timeWastingDribbles=0, backwardDribbles=0, whyPlayerRunningDir=0;
+    int stationaryHold500ms=0;
+    int unknownQualityFlags=0;
     int decisionMoments=0, playerDecisions=0, staleGrabs=0;
     int taskSelectionsTotal=0, taskSelectionsPrimary=0, taskSelectionsSecondary=0;
     int taskSelectionsCover=0, taskSelectionsLine=0, taskSelectionsScreen=0;
@@ -169,6 +178,7 @@ private:
     double shotDistTotal=0;
     int goalDistClose=0, goalDistMedium=0, goalDistLong=0;
     int dribbleClose=0, dribbleMedium=0, dribbleFast=0;
+    int dribble20mShots=0, dribble20mGoals=0;
     int knockAheads=0, knockAheadRecovered=0, knockAheadRetained=0;
     int knockAheadTurnovers=0, knockAheadOutOfPlay=0;
     int riskyKnockAheads=0, riskyKnockAheadTurnovers=0;

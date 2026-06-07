@@ -100,20 +100,22 @@ bool GameEngine::checkGoal(){
         double goalDist=0;
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,HOME_GOAL_X,PITCH_H/2);
         Player* scorer=playerById(lastGoalToucherId);
-        std::string scorerRole=scorer?std::string(to_string(scorer->role)):"unknown";
+        std::optional<Role> scorerRole=scorer?std::optional<Role>(scorer->role):std::nullopt;
         if(lastGoalSource=="penalty")stats.recordPenaltyGoal();
-        stats.recordGoal("away",lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole,trackedShotHeader);
-        state.awayScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; trackedPenaltyShot=false; kickoff(Team::Home); return true;
+        if(trackedShotDribble20m&&lastGoalSource=="shot")stats.recordDribble20mGoal();
+        stats.recordGoal(Team::Away,lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole,trackedShotHeader);
+        state.awayScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; trackedPenaltyShot=false; trackedShotDribble20m=false; kickoff(Team::Home); return true;
     }
     if(b.x-BALL_R>AWAY_GOAL_X){
         recordGoalSource(Team::Home);
         double goalDist=0;
         if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,AWAY_GOAL_X,PITCH_H/2);
         Player* scorer=playerById(lastGoalToucherId);
-        std::string scorerRole=scorer?std::string(to_string(scorer->role)):"unknown";
+        std::optional<Role> scorerRole=scorer?std::optional<Role>(scorer->role):std::nullopt;
         if(lastGoalSource=="penalty")stats.recordPenaltyGoal();
-        stats.recordGoal("home",lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole,trackedShotHeader);
-        state.homeScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; trackedPenaltyShot=false; kickoff(Team::Away); return true;
+        if(trackedShotDribble20m&&lastGoalSource=="shot")stats.recordDribble20mGoal();
+        stats.recordGoal(Team::Home,lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole,trackedShotHeader);
+        state.homeScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; trackedPenaltyShot=false; trackedShotDribble20m=false; kickoff(Team::Away); return true;
     }
     return false;
 }
@@ -128,6 +130,7 @@ bool GameEngine::checkOutOfPlay() {
         trackedShotPreventable = false;
         trackedShotHeader = false;
         trackedPenaltyShot = false;
+        trackedShotDribble20m = false;
         lastLooseOrigin.clear();
     };
     if (b.y < 0 || b.y > PITCH_H || b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
@@ -239,13 +242,14 @@ void GameEngine::collectBall(Player& c) {
         teammatePingPongs++;
         stats.recordCollection(true);
     }
-    stats.recordControlledTouch(std::string(to_string(c.role)));
+    stats.recordControlledTouch(c.role);
     lastCollectionTeam = c.team;
     lastSameTeamCollectionMs = state.clockMs;
     trackedShot = false;
     trackedShotPreventable = false;
     trackedShotHeader = false;
     trackedPenaltyShot = false;
+    trackedShotDribble20m = false;
     lastLooseOrigin.clear();
     b.controllerId = c.id;
     b.intendedReceiverId = -1;

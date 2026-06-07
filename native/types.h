@@ -25,6 +25,18 @@ enum class DefensiveTask : uint8_t {
 // ── Set piece type (was string) ──
 enum class SetPiece : uint8_t { None = 0, Corner, Penalty, FreeKick, ThrowIn, GoalKick };
 
+enum class QualityFlag : uint8_t {
+    Unknown = 0,
+    WhyNoShoot,
+    QuestionableBackpass,
+    ClearPathShoot,
+    ClearPathDrive,
+    TimeWastingDribble,
+    BackwardDribble,
+    WhyPlayerRunningDirection,
+    StationaryHold500ms
+};
+
 // ── Pitch area for position-aware behavior ──  
 enum class PitchArea : uint8_t {
     OwnBox, OwnThird, MidThird, FinalThird, OppBox,
@@ -115,6 +127,20 @@ inline constexpr std::string_view to_string(SetPiece sp) {
     }
     return "none";
 }
+inline constexpr std::string_view to_string(QualityFlag flag) {
+    switch (flag) {
+        case QualityFlag::WhyNoShoot: return "why_no_shoot";
+        case QualityFlag::QuestionableBackpass: return "questionable_backpass";
+        case QualityFlag::ClearPathShoot: return "clear_path_shoot";
+        case QualityFlag::ClearPathDrive: return "clear_path_drive";
+        case QualityFlag::TimeWastingDribble: return "time_wasting_dribble";
+        case QualityFlag::BackwardDribble: return "backward_dribble";
+        case QualityFlag::WhyPlayerRunningDirection: return "why_player_running_direction";
+        case QualityFlag::StationaryHold500ms: return "stationary_hold_500ms";
+        case QualityFlag::Unknown: return "unknown";
+    }
+    return "unknown";
+}
 inline DefensiveTask defensiveTaskFromStr(std::string_view s) {
     if (s == "primary_press") return DefensiveTask::PrimaryPress;
     if (s == "secondary_press") return DefensiveTask::SecondaryPress;
@@ -147,6 +173,17 @@ inline SetPiece setPieceFromStr(std::string_view s) {
     if (s == "throw_in") return SetPiece::ThrowIn;
     if (s == "goal_kick") return SetPiece::GoalKick;
     return SetPiece::None;
+}
+inline QualityFlag qualityFlagFromStr(std::string_view s) {
+    if (s == "why_no_shoot") return QualityFlag::WhyNoShoot;
+    if (s == "questionable_backpass") return QualityFlag::QuestionableBackpass;
+    if (s == "clear_path_shoot") return QualityFlag::ClearPathShoot;
+    if (s == "clear_path_drive") return QualityFlag::ClearPathDrive;
+    if (s == "time_wasting_dribble") return QualityFlag::TimeWastingDribble;
+    if (s == "backward_dribble") return QualityFlag::BackwardDribble;
+    if (s == "why_player_running_direction") return QualityFlag::WhyPlayerRunningDirection;
+    if (s == "stationary_hold_500ms") return QualityFlag::StationaryHold500ms;
+    return QualityFlag::Unknown;
 }
 inline Team teamFromStr(std::string_view s) { return s == "home" ? Team::Home : Team::Away; }
 inline Role roleFromStr(std::string_view s) {

@@ -1,15 +1,23 @@
 #include "stats.h"
 #include "nlohmann/json.hpp"
 
-void StatsCollector::recordGoal(const std::string& team, const std::string& source, double distance, double speed, const std::string& scorerRole, bool headedGoal) {
-    if(team=="home") goalsHome++; else goalsAway++;
+namespace {
+void countRole(Role role, int& gk, int& cb, int& fb, int& cm, int& wm, int& cf) {
+    switch (role) {
+        case Role::GK: gk++; break;
+        case Role::CB: cb++; break;
+        case Role::FB: fb++; break;
+        case Role::CM: cm++; break;
+        case Role::WM: wm++; break;
+        case Role::CF: cf++; break;
+    }
+}
+}
+
+void StatsCollector::recordGoal(Team team, const std::string& source, double distance, double speed, std::optional<Role> scorerRole, bool headedGoal) {
+    if(team==Team::Home) goalsHome++; else goalsAway++;
     if(headedGoal) headedGoals++;
-    if(scorerRole=="GK") goalsGK++;
-    else if(scorerRole=="CB") goalsCB++;
-    else if(scorerRole=="FB") goalsFB++;
-    else if(scorerRole=="CM") goalsCM++;
-    else if(scorerRole=="WM") goalsWM++;
-    else if(scorerRole=="CF") goalsCF++;
+    if(scorerRole.has_value()) countRole(*scorerRole, goalsGK, goalsCB, goalsFB, goalsCM, goalsWM, goalsCF);
     else goalsUnknownRole++;
     if(source=="direct_cross") directCrossGoals++;
     else if(source=="direct_delivery") directDeliveryGoals++;
@@ -25,15 +33,9 @@ void StatsCollector::recordGoal(const std::string& team, const std::string& sour
     if(distance<100) goalDistClose++; else if(distance<200) goalDistMedium++; else goalDistLong++;
 }
 
-void StatsCollector::recordShot(const std::string& team, bool onTarget, const std::string& shooterRole) {
-    if(team=="home") shotsHome++; else shotsAway++;
-    if(shooterRole=="GK") shotsGK++;
-    else if(shooterRole=="CB") shotsCB++;
-    else if(shooterRole=="FB") shotsFB++;
-    else if(shooterRole=="CM") shotsCM++;
-    else if(shooterRole=="WM") shotsWM++;
-    else if(shooterRole=="CF") shotsCF++;
-    else shotsUnknownRole++;
+void StatsCollector::recordShot(Team team, bool onTarget, Role shooterRole) {
+    if(team==Team::Home) shotsHome++; else shotsAway++;
+    countRole(shooterRole, shotsGK, shotsCB, shotsFB, shotsCM, shotsWM, shotsCF);
     if(onTarget) shotsOnTarget++;
 }
 
@@ -41,23 +43,31 @@ void StatsCollector::recordShotOnTarget() {
     shotsOnTarget++;
 }
 
-void StatsCollector::recordTaskSelection(const std::string& role) {
-    taskSelectionsTotal++;
-    if(role=="primary_press") taskSelectionsPrimary++;
-    else if(role=="secondary_press") taskSelectionsSecondary++;
-    else if(role=="cover") taskSelectionsCover++;
-    else if(role=="defensive_line") taskSelectionsLine++;
-    else if(role=="midfield_screen") taskSelectionsScreen++;
+void StatsCollector::recordQualityFlag(QualityFlag flag) {
+    switch (flag) {
+        case QualityFlag::WhyNoShoot: recordWhyNoShoot(); break;
+        case QualityFlag::QuestionableBackpass: recordQuestionableBackpass(); break;
+        case QualityFlag::ClearPathShoot: recordClearPathShoot(); break;
+        case QualityFlag::ClearPathDrive: recordClearPathDrive(); break;
+        case QualityFlag::TimeWastingDribble: recordTimeWastingDribble(); break;
+        case QualityFlag::BackwardDribble: recordBackwardDribble(); break;
+        case QualityFlag::WhyPlayerRunningDirection: recordWhyPlayerRunningDir(); break;
+        case QualityFlag::StationaryHold500ms: recordStationaryHold500ms(); break;
+        case QualityFlag::Unknown: recordUnknownQualityFlag(); break;
+    }
 }
 
-void StatsCollector::recordControlledTouch(const std::string& role) {
-    if(role=="GK") touchesGK++;
-    else if(role=="CB") touchesCB++;
-    else if(role=="FB") touchesFB++;
-    else if(role=="CM") touchesCM++;
-    else if(role=="WM") touchesWM++;
-    else if(role=="CF") touchesCF++;
-    else touchesUnknownRole++;
+void StatsCollector::recordTaskSelection(DefensiveTask role) {
+    taskSelectionsTotal++;
+    if(role==DefensiveTask::PrimaryPress) taskSelectionsPrimary++;
+    else if(role==DefensiveTask::SecondaryPress) taskSelectionsSecondary++;
+    else if(role==DefensiveTask::Cover) taskSelectionsCover++;
+    else if(role==DefensiveTask::DefensiveLine) taskSelectionsLine++;
+    else if(role==DefensiveTask::MidfieldScreen) taskSelectionsScreen++;
+}
+
+void StatsCollector::recordControlledTouch(Role role) {
+    countRole(role, touchesGK, touchesCB, touchesFB, touchesCM, touchesWM, touchesCF);
 }
 
 std::string StatsCollector::summaryJSON() const {
@@ -141,6 +151,7 @@ std::string StatsCollector::summaryJSON() const {
 
     j["dribbleTypes"] = {
         {"fast", dribbleFast}, {"medium", dribbleMedium}, {"close", dribbleClose},
+        {"dribble20mShots", dribble20mShots}, {"dribble20mGoals", dribble20mGoals},
         {"knockAheads", knockAheads}, {"recovered", knockAheadRecovered}, {"retainedByTeammate", knockAheadRetained},
         {"turnovers", knockAheadTurnovers}, {"outOfPlay", knockAheadOutOfPlay},
         {"risky", riskyKnockAheads}, {"riskyTurnovers", riskyKnockAheadTurnovers},
@@ -204,8 +215,10 @@ std::string StatsCollector::summaryJSON() const {
         {"why_no_shoot", whyNoShoots}, {"questionable_backpass", questionableBackpasses},
         {"clear_path_shoot", clearPathShoots}, {"clear_path_drive", clearPathDrives},
         {"time_wasting_dribble", timeWastingDribbles}, {"backward_dribble", backwardDribbles},
+        {"stationary_hold_500ms", stationaryHold500ms},
         {"why_player_running_dir", whyPlayerRunningDir}, {"decision_moments", decisionMoments},
         {"player_decisions", playerDecisions}, {"stale_grabs_prevented", staleGrabs},
+        {"unknown_quality_flag", unknownQualityFlags},
         {"task_selections_total", taskSelectionsTotal}, {"task_primary_press", taskSelectionsPrimary},
         {"task_secondary_press", taskSelectionsSecondary}
     };

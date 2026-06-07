@@ -34,7 +34,16 @@ interface Summary {
   controlledTouchesByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
   goalsByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
   tackles: { attempts: number; wins: number };
-  dribbleTypes: { knockAheads: number; turnovers: number; riskyTurnovers: number; recovered: number; retainedByTeammate: number; outOfPlay: number };
+  dribbleTypes: {
+    knockAheads: number;
+    turnovers: number;
+    riskyTurnovers: number;
+    recovered: number;
+    retainedByTeammate: number;
+    outOfPlay: number;
+    dribble20mShots: number;
+    dribble20mGoals: number;
+  };
   passSelection: { risky: number; saferIgnored: number; pressuredReceptions: number; pressuredReceptionFailures: number };
   setPieces: {
     goalKickAttempts: number;
@@ -69,6 +78,7 @@ interface Summary {
     avgNearestDefender: number;
   };
   carrierTurns: { over30: number; longBackwardCarries: number };
+  qualityFlags?: Record<string, number>;
 }
 
 function argNumber(name: string, fallback: number): number {
@@ -121,6 +131,7 @@ const unmarked = results.reduce((sum, result) => sum + result.marking.unmarkedFi
 const backLineSamples = results.reduce((sum, result) => sum + result.marking.backLineSamples, 0);
 const singleDrops = results.reduce((sum, result) => sum + result.marking.singleDropSamples, 0);
 const laneBlockSingleDrops = results.reduce((sum, result) => sum + result.marking.laneBlockSingleDrops, 0);
+const qualityFlagKeys = Array.from(new Set(results.flatMap(result => Object.keys(result.qualityFlags ?? {})))).sort();
 
 console.log(JSON.stringify({
   config: { matches, minutes, seeds: results.map(result => result.seed), engine: 'native' },
@@ -172,6 +183,10 @@ console.log(JSON.stringify({
     knockAheadTeammatePerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.retainedByTeammate, 0) / matches),
     knockAheadTurnoversPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.turnovers, 0) / matches),
     knockAheadOutOfPlayPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.outOfPlay, 0) / matches),
+    dribble20mShotsPerMatch: round(results.reduce((sum, result) => sum + (result.dribbleTypes.dribble20mShots ?? 0), 0) / matches),
+    dribble20mGoalsPerMatch: round(results.reduce((sum, result) => sum + (result.dribbleTypes.dribble20mGoals ?? 0), 0) / matches),
+    dribble20mGoalConversionPct: round(results.reduce((sum, result) => sum + (result.dribbleTypes.dribble20mGoals ?? 0), 0)
+      / Math.max(1, results.reduce((sum, result) => sum + (result.dribbleTypes.dribble20mShots ?? 0), 0)) * 100),
     questionableShotsPerMatch: round(results.reduce((sum, result) => sum + result.shotsByDistance.questionable, 0) / matches),
     cfCredibleWindowSamplesPerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfCredibleWindowSamples, 0) / matches),
     cfDeferredSamplesPerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfDeferredSamples, 0) / matches),
@@ -204,6 +219,10 @@ console.log(JSON.stringify({
     unknownLooseGoal: total('unknownLooseGoals'),
     betterPassShot: results.reduce((sum, result) => sum + result.shotSelection.betterPassAvailable, 0),
     tightAngleShot: results.reduce((sum, result) => sum + result.shotSelection.tightAngle, 0),
+    all: Object.fromEntries(qualityFlagKeys.map(key => [
+      key,
+      results.reduce((sum, result) => sum + (result.qualityFlags?.[key] ?? 0), 0),
+    ])),
   },
   matches: results.map(result => ({
     seed: result.seed,
@@ -212,6 +231,8 @@ console.log(JSON.stringify({
     completionPct: result.passCompletionPct,
     shots: result.shots,
     goals: result.homeScore + result.awayScore,
+    dribble20mShots: result.dribbleTypes.dribble20mShots ?? 0,
+    dribble20mGoals: result.dribbleTypes.dribble20mGoals ?? 0,
     penalties: result.setPieces?.penaltiesAwarded ?? 0,
     tackles: result.tackles.attempts,
     stuck: result.stuckCarrierAlerts,

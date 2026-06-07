@@ -278,6 +278,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     trackedShotPreventable=false;
     trackedShotHeader=false;
     trackedPenaltyShot=false;
+    trackedShotDribble20m=false;
     receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
     double angle=std::atan2(b.y-tackler.y,b.x-tackler.x)+(rng.random()-0.5)*0.9;
     double outcomeRoll=rng.random();
@@ -321,7 +322,9 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         stats.recordGoalKickTrappedShot();
         goalKickMonitorActive=false;
     }
-    stats.recordShot(std::string(to_string(s.team)), false, std::string(to_string(s.role)));
+    stats.recordShot(s.team, false, s.role);
+    bool dribble20mShot = carryTrackerId == s.id && carryPathDistance >= 200.0;
+    if (dribble20mShot) stats.recordDribble20mShot();
     double gx=goalXFor(s.team);
     double accuracy=attrFactor(s.attrs.shooting);
     double goalCenterY=PITCH_H/2.0;
@@ -391,7 +394,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     pendingPass.active=false;
     lastLooseOrigin="shot";
     receiverShieldTargetId=-1;
-    shotActive=true; trackedShot=true; trackedShotPreventable=false; trackedShotHeader=freshCross; trackedShotTeam=s.team; trackedShooterId=s.id; shotOriginX=s.x; shotOriginY=s.y;
+    shotActive=true; trackedShot=true; trackedShotPreventable=false; trackedShotHeader=freshCross; trackedShotDribble20m=dribble20mShot; trackedShotTeam=s.team; trackedShooterId=s.id; shotOriginX=s.x; shotOriginY=s.y;
 }
 
 // ══════════════════════════════════════════════════════════════

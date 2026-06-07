@@ -125,6 +125,7 @@ void GameEngine::tryGKSave() {
     trackedShotPreventable = false;
     trackedShotHeader = false;
     trackedPenaltyShot = false;
+    trackedShotDribble20m = false;
     bool canHandle = agentFor(*gk)->canUseHands();
     double catchChance = clamp(agentFor(*gk)->catchThreshold() - std::max(0.0, speed - 520) / 900, 0.12, 0.58);
     bool caught = canHandle && rng.random() < catchChance;

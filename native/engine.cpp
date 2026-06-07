@@ -86,6 +86,8 @@ void GameEngine::kickoff(Team t){
     trackedShot=false;
     trackedShotPreventable=false;
     trackedShotHeader=false;
+    trackedPenaltyShot=false;
+    trackedShotDribble20m=false;
     lastLooseOrigin.clear();
     for(auto&p:state.players){
         double margin=(p.team==t)?30.0:45.0;
@@ -171,6 +173,17 @@ void GameEngine::updatePossessionTracking(double sdt) {
         if (c->team == Team::Home) possessionHome += sdt;
         else possessionAway += sdt;
         double fd = fdFor(c->team);
+        if (c->id != carryTrackerId) {
+            carryTrackerId = c->id;
+            carryLastX = c->x;
+            carryLastY = c->y;
+            carryPathDistance = 0;
+        } else {
+            double step = dist(c->x, c->y, carryLastX, carryLastY);
+            if (step < 45.0) carryPathDistance += step;
+            carryLastX = c->x;
+            carryLastY = c->y;
+        }
         if (c->id != backwardCarryCarrierId) {
             backwardCarryCarrierId = c->id;
             backwardCarryStartX = c->x;
@@ -179,9 +192,29 @@ void GameEngine::updatePossessionTracking(double sdt) {
             stats.recordLongBackwardCarry();
             backwardCarryRecorded = true;
         }
+        double carrierSpeed = std::hypot(c->vx, c->vy);
+        double targetDistance = dist(c->x, c->y, c->targetX, c->targetY);
+        bool stationaryOutfieldHold = !setPieceArmed && !kickoffPhase && c->role != Role::GK
+            && carrierSpeed < 8.0 && (targetDistance < 8.0 || c->dribbleType == 0);
+        if (c->id != stationaryHoldCarrierId || !stationaryOutfieldHold) {
+            stationaryHoldCarrierId = stationaryOutfieldHold ? c->id : -1;
+            stationaryHoldMs = 0;
+            stationaryHoldRecorded = false;
+        } else if (!stationaryHoldRecorded) {
+            stationaryHoldMs += sdt;
+            if (stationaryHoldMs >= 500.0) {
+                stats.recordQualityFlag(QualityFlag::StationaryHold500ms);
+                stationaryHoldRecorded = true;
+            }
+        }
     } else {
         backwardCarryCarrierId = -1;
         backwardCarryRecorded = false;
+        carryTrackerId = -1;
+        carryPathDistance = 0;
+        stationaryHoldCarrierId = -1;
+        stationaryHoldMs = 0;
+        stationaryHoldRecorded = false;
     }
     stats.recordPossession(possessionHome, possessionAway);
     auditStuckCarrier(sdt);
@@ -201,6 +234,13 @@ void GameEngine::detectSimulationFreeze(double sdt) {
         freezeLastController = cid;
     } else {
         freezeWatchMs += sdt;
+        Player* movingCarrier=playerById(cid);
+        if(movingCarrier&&std::hypot(movingCarrier->vx,movingCarrier->vy)>12.0){
+            freezeWatchMs = 0;
+            freezeBallX = fb.x;
+            freezeBallY = fb.y;
+            return;
+        }
         if (dist(fb.x, fb.y, freezeBallX, freezeBallY) >= 5) {
             freezeWatchMs = 0;
             freezeBallX = fb.x;
@@ -226,8 +266,8 @@ void GameEngine::detectSimulationFreeze(double sdt) {
             }else{
                 simulationFreezes++;
                 stats.recordSimulationFreeze();
-                lastFreezeAlertMs = state.clockMs;
             }
+            lastFreezeAlertMs = state.clockMs;
             freezeWatchMs = 0;
             freezeBallX = fb.x;
             freezeBallY = fb.y;
@@ -476,6 +516,12 @@ void GameEngine::auditStuckCarrier(double sdt){
     }
     watchedCarrierMs+=sdt;
     double moved=dist(carrier->x,carrier->y,watchedCarrierX,watchedCarrierY);
+    double carrierSpeed=std::hypot(carrier->vx,carrier->vy);
+    if(carrierSpeed>12.0){
+        watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
+        watchedCarrierMs=0;
+        return;
+    }
     if(moved>STUCK_CARRIER_MOVE_THRESHOLD){
         watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
         watchedCarrierMs=0;

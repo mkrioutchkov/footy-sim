@@ -91,7 +91,7 @@ void PlayerAI::tick(double sdt) {
                 if (distance == 0.0) distance = std::hypot(player.x - gx, player.y - PITCH_H / 2.0);
                 double angleDeg = shootOpt->audit.angleDeg;
                 if (angleDeg == 0.0) angleDeg = engine.goalOpeningAngleDeg(player.x, player.y, gx);
-                engine.logQualityFlag("why_no_shoot", player.id, player.role,
+                engine.logQualityFlag(QualityFlag::WhyNoShoot, player.id, player.role,
                     distance, angleDeg, shootOpt->score, choice.type, choice.score);
                 engine.captureDecisionMoment("why_no_shoot", player,
                     choice.type, choice.score, shootOpt->score,
@@ -259,7 +259,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                 fwdOpt = &x; break;
             }
         }
-        if (fwdOpt) engine.logQualityFlag("questionable_backpass", player.id, player.role,
+        if (fwdOpt) engine.logQualityFlag(QualityFlag::QuestionableBackpass, player.id, player.role,
                                           best.audit.forwardProgress, true,
                                           fwdOpt->score, best.score,
                                           8000.0, "backpass:" + std::to_string(player.id));
@@ -298,7 +298,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                     }
                 }
                 if (shootAct) {
-                    engine.logQualityFlag("clear_path_shoot", player.id, player.role,
+                    engine.logQualityFlag(QualityFlag::ClearPathShoot, player.id, player.role,
                         distToGoal, shootAct->audit.angleDeg,
                         shootAct->score, best.type, best.score);
                     return *shootAct;
@@ -312,7 +312,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                 }
             }
             if (driveAct) {
-                engine.logQualityFlag("clear_path_drive", player.id, player.role,
+                engine.logQualityFlag(QualityFlag::ClearPathDrive, player.id, player.role,
                     distToGoal, 0,
                     driveAct->score, best.type, best.score);
                 return *driveAct;
@@ -548,8 +548,8 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
                 if (closeOpps == 0) {
                     int myScore  = (p.team == Team::Home) ? engine.state.homeScore : engine.state.awayScore;
                     int oppScore = (p.team == Team::Home) ? engine.state.awayScore : engine.state.homeScore;
-                    bool isTimeWasting = (myScore <= oppScore && engine.state.clockMs > 60000.0);
-                    if (isTimeWasting) engine.logQualityFlag(isTimeWasting ? "time_wasting_dribble" : "backward_dribble",
+                    bool isTimeWasting = (myScore > oppScore && engine.state.clockMs > 60000.0);
+                    engine.logQualityFlag(isTimeWasting ? QualityFlag::TimeWastingDribble : QualityFlag::BackwardDribble,
                                           p.id, p.role, (double)p.targetX, 0.0, 0.0, "", 0.0);
                 }
             }
@@ -597,11 +597,12 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
         p.targetY = (a.posY != 0) ? a.posY : p.homeY;
         if (a.purpose == ActionPurpose::Task) {
             auto* task = engine.assignmentFor(p.id);
-            if (task) engine.noteTaskSelection(p, std::string(to_string(task->role)));
+            if (task) engine.noteTaskSelection(p, task->role);
             }
     }
     else if (a.type == ActionType::Hold) {
         if (b.controllerId == p.id) {
+            p.dribbleType = 1;
             auto near = engine.nearPlayers(p, 60.0);
             Player* closestOpp = nullptr;
             double closestD = 1e9;
@@ -612,8 +613,18 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
                 }
             }
             if (closestOpp) {
-                p.targetX = clamp(p.x + (p.x - closestOpp->x) * 0.5, 35.0, PITCH_W - 35.0);
-                p.targetY = clamp(p.y + (p.y - closestOpp->y) * 0.5, 35.0, PITCH_H - 35.0);
+                double ax = p.x - closestOpp->x;
+                double ay = p.y - closestOpp->y;
+                double ad = std::hypot(ax, ay);
+                if (ad < 3.0) {
+                    double fd = fdFor(p.team);
+                    double side = p.y < PITCH_H / 2.0 ? 1.0 : -1.0;
+                    ax = fd * 22.0;
+                    ay = side * 52.0;
+                    ad = std::hypot(ax, ay);
+                }
+                p.targetX = clamp(p.x + ax / std::max(1.0, ad) * 58.0, 35.0, PITCH_W - 35.0);
+                p.targetY = clamp(p.y + ay / std::max(1.0, ad) * 58.0, 35.0, PITCH_H - 35.0);
             } else {
                 p.targetX = clamp(goalXFor(p.team), 40.0, PITCH_W - 40.0);
                 p.targetY = clamp(p.y + (engine.rng.random() - 0.5) * 20.0, 40.0, PITCH_H - 40.0);
@@ -717,7 +728,7 @@ void PlayerAI::auditDefensiveMovement(const Action& choice) {
 
     if (!danger && targetDistance <= currentDistance + 12.0) return;
 
-    engine.logQualityFlag("why_player_running_direction", player.id, task->role,
+    engine.logQualityFlag(QualityFlag::WhyPlayerRunningDirection, player.id, task->role,
                           controller->id, choice.type, choice.purpose,
                           currentDistance, targetDistance, danger ? 1.0 : 0.0,
                           8000.0, std::string("why_player_running_direction:") + std::string(to_string(player.team)));

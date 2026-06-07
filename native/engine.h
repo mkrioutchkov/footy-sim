@@ -52,6 +52,11 @@ public:
     int backwardCarryCarrierId = -1;
     double backwardCarryStartX = 0;
     bool backwardCarryRecorded = false;
+    int carryTrackerId = -1;
+    double carryLastX = 0, carryLastY = 0, carryPathDistance = 0;
+    int stationaryHoldCarrierId = -1;
+    double stationaryHoldMs = 0;
+    bool stationaryHoldRecorded = false;
 
     double lastKickoffMs = 0; bool kickoffPhase = false;
     double actionTimer = 0; bool setPieceArmed = false;
@@ -70,6 +75,7 @@ public:
     bool trackedShotPreventable = false;
     bool trackedShotHeader = false;
     bool trackedPenaltyShot = false;
+    bool trackedShotDribble20m = false;
     Team trackedShotTeam = Team::Home;
     int trackedShooterId = -1;
     double shotOriginX = 0, shotOriginY = 0;
@@ -180,19 +186,12 @@ public:
     bool collectBall(Player& c, const std::string&, double allowedDist);
 
     // ── Quality flag logging ──
-    template<typename...A> void logQualityFlag(const std::string& tag, A&&...) {
-        if(tag=="why_no_shoot") stats.recordWhyNoShoot();
-        else if(tag=="questionable_backpass") stats.recordQuestionableBackpass();
-        else if(tag=="clear_path_shoot") stats.recordClearPathShoot();
-        else if(tag=="clear_path_drive") stats.recordClearPathDrive();
-        else if(tag=="time_wasting_dribble") stats.recordTimeWastingDribble();
-        else if(tag=="backward_dribble") stats.recordBackwardDribble();
-        else if(tag=="why_player_running_direction") stats.recordWhyPlayerRunningDir();
-    }
+    template<typename...A> void logQualityFlag(QualityFlag flag, A&&...) { stats.recordQualityFlag(flag); }
+    template<typename...A> void logQualityFlag(const std::string& tag, A&&...) { stats.recordQualityFlag(qualityFlagFromStr(tag)); }
     template<typename...A> void captureDecisionMoment(const std::string&, A&&...) { stats.recordDecisionMoment(); }
     template<typename...A> void logPlayerDecision(A&&...) { stats.recordPlayerDecision(); }
     void notePreventedStaleGrab(Player&) { stats.recordStaleGrabPrevented(); }
-    void noteTaskSelection(Player&, const std::string& role) { stats.recordTaskSelection(role); }
+    void noteTaskSelection(Player&, DefensiveTask role) { stats.recordTaskSelection(role); }
 
     // ── Lifecycle ──
     GameEngine();
