@@ -28,6 +28,8 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         bool ballInOurHalf = gk.team == Team::Home ? state.ball.x < PITCH_W * 0.55 : state.ball.x > PITCH_W * 0.45;
         bool towardGoal = gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0;
         double ballSpeed = std::hypot(state.ball.vx, state.ball.vy);
+        bool throughBall = state.ball.intendedReceiverId >= 0 && state.ball.controllerId < 0
+            && (fd == 1.0 ? state.ball.vx < 0 : state.ball.vx > 0);
         bool inArea = bdg < PENALTY_AREA_W && std::abs(state.ball.y - gk.homeY) < PENALTY_AREA_H / 2;
         Player* carrier=playerById(state.ball.controllerId);
         bool opponentCarrier=carrier&&carrier->team!=gk.team;
@@ -49,12 +51,29 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
             double sweepDist = clamp(sweepBase * (PITCH_W * 0.55 - bdg) / (PITCH_W * 0.55), 0.0, sweepBase);
             gk.targetX = gk.homeX + fd * sweepDist;
             gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.22), PITCH_H * 0.18, PITCH_H * 0.82);
+        }
+        // Rush-out: charge at loose ball or through ball behind defense
+        double rushDist = std::abs(gk.x - state.ball.x);
+        if (state.ball.controllerId < 0 && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall)) {
+            double rushTargetX = clamp(state.ball.x - fd * (throughBall ? 18.0 : 28.0),
+                goalX + fd * 45.0, goalX + fd * 175.0);
+            double rushTargetY = clamp(lerp(gk.y, state.ball.y, 0.7), PITCH_H * 0.12, PITCH_H * 0.88);
+            double rushScore = agentFor(gk)->rushAggression() * 0.92 + 0.08;
+            if (rushScore > 0.55) {
+                gk.targetX = rushTargetX;
+                gk.targetY = rushTargetY;
+            }
         } else {
             bool ownTeamHasBall=carrier&&carrier->team==gk.team;
             gk.targetX = gk.homeX + fd * (ownTeamHasBall ? 48.0 : 24.0);
             gk.targetY = gk.homeY;
         }
         double moveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.86;
+        // Rush-out speed boost when charging loose ball
+        double rushDist2 = std::abs(gk.x - state.ball.x);
+        if (state.ball.controllerId < 0 && agentFor(gk)->shouldRushOut(rushDist2, ballSpeed, throughBall)) {
+            moveSpeed += agentFor(gk)->rushOutSpeed();
+        }
         double dx = gk.targetX - gk.x, dy = gk.targetY - gk.y, d = std::hypot(dx, dy);
         if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; }
         gk.x = clamp(gk.x, std::min(goalX + fd * 6.0, goalX + fd * 175.0), std::max(goalX + fd * 6.0, goalX + fd * 175.0));
@@ -107,8 +126,9 @@ void GameEngine::tryGKSave() {
     trackedShotPreventable = false;
     trackedShotHeader = false;
     trackedPenaltyShot = false;
+    bool canHandle = agentFor(*gk)->canUseHands();
     double catchChance = clamp(agentFor(*gk)->catchThreshold() - std::max(0.0, speed - 520) / 900, 0.12, 0.58);
-    bool caught = rng.random() < catchChance;
+    bool caught = canHandle && rng.random() < catchChance;
     double fieldDir = fdFor(gk->team);
     double side = gk->y - shotOriginY < 0 ? -1.0 : 1.0;
     if (caught) {
@@ -124,20 +144,25 @@ void GameEngine::tryGKSave() {
         recordBallImpulse();
         return;
     }
-    double parryDampen = 0.50 + rng.random() * 0.40;
-    double parrySpeed = speed * (1.0 - parryDampen);
-    double parryAngle = -0.8 + rng.random() * 1.6;
+    // Parry or punch: punch when outside area (cannot use hands) or when GK prefers to fist
+    bool punch = !canHandle;
+    double clearSpeed = punch
+        ? speed * agentFor(*gk)->punchPower()
+        : speed * (0.50 + rng.random() * 0.40);
+    double clearDir = punch
+        ? (gk->y < PITCH_H / 2.0 ? -1.4 : 1.4) + (rng.random() - 0.5) * 0.4
+        : (-0.8 + rng.random() * 1.6);
     double cornerY = (gk->y < PITCH_H / 2.0) ? 18.0 : PITCH_H - 18.0;
-    parryAngle += (cornerY - gk->y) * 0.003;
+    if (!punch) clearDir += (cornerY - gk->y) * 0.003;
     b.x = clamp(gk->x + fieldDir * 28, 10.0, PITCH_W - 10.0);
     b.y = clamp(gk->y - side * 24, 18.0, PITCH_H - 18.0);
-    b.vx = fieldDir * std::cos(parryAngle) * parrySpeed;
-    b.vy = -side * std::abs(std::sin(parryAngle)) * parrySpeed;
-    b.z = b.vz = 0;
+    b.vx = fieldDir * std::cos(clearDir) * clearSpeed;
+    b.vy = -side * std::abs(std::sin(clearDir)) * clearSpeed;
+    b.z = 0; b.vz = punch ? clearSpeed * 0.25 : 0;
     b.intendedReceiverId = -1;
-    blockReboundFor(shooterId, 1400);
+    blockReboundFor(shooterId, punch ? 900 : 1400);
     b.lastTouchTeam = gk->team; b.lastToucherId = gk->id;
-    lastLooseOrigin = "goalkeeper_parry";
+    lastLooseOrigin = punch ? "goalkeeper_punch" : "goalkeeper_parry";
     recordBallImpulse();
 }
 

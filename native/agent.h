@@ -152,6 +152,10 @@ public:
     virtual double  catchThreshold() const { return 0.22; }
     virtual double  rushAggression() const { return 0.0; }
     virtual double  sweepDepth() const { return 0.0; }
+    virtual bool    canUseHands() const { return false; }
+    virtual double  punchPower() const { return 0.0; }
+    virtual bool    shouldRushOut(double, double, bool) const { return false; }
+    virtual double  rushOutSpeed() const { return 0.0; }
     virtual bool    isOffensiveThreat(double depth, bool danger, double yDistFromCenter) const { (void)depth; (void)danger; (void)yDistFromCenter; return false; }
     virtual double  markerRoleBonus(const PlayerAI& defender, bool danger) const { (void)defender; (void)danger; return 1e9; }
     virtual PitchArea currentPitchArea() const;

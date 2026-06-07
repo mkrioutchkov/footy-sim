@@ -7,10 +7,16 @@ public:
     void tick(double sdt) override;
 
     // ── GK-specific virtual hooks ──
-    // How aggressively the GK rushes off the line (0.0 = stay, 1.0 = full rush)
     virtual double rushAggression() const;
-    // Catch threshold: above this save chance, GK tries to catch; below, parries
     virtual double catchThreshold() const;
-    // How far out the GK sweeps when ball is behind the defense
     virtual double sweepDepth() const;
+
+    // Can the GK legally handle the ball? (within own penalty area only)
+    virtual bool canUseHands() const;
+    // How powerfully the GK punches/fists the ball away (multiplier on parry speed)
+    virtual double punchPower() const;
+    // Should the GK rush out to challenge a through ball / breakaway?
+    virtual bool shouldRushOut(double threatDist, double ballSpeed, bool throughBall) const;
+    // Extra speed multiplier when rushing out
+    virtual double rushOutSpeed() const;
 };
