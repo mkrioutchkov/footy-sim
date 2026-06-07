@@ -16,6 +16,7 @@ public:
     double nearGoalDribbleBonus(bool nearGoal, double distToGoal) const override { return nearGoal ? (distToGoal < 120.0 ? 0.12 : 0.18) : 0.0; }
     bool   isAttackerRole() const override { return true; }
     double nearGoalShotBiasMargin() const override { return 0.16; }
+    double observingCruiseMul() const override { return 0.45; }
 };
 
 class WMPlayerAI : public PlayerAI {
@@ -31,6 +32,7 @@ public:
     double dribbleOwnHalfExtraPenalty() const override { return 0.0; }
     bool   isAttackerRole() const override { return true; }
     bool   canUseWideDribble() const override { return true; }
+    double observingCruiseMul() const override { return 0.55; }
 };
 
 class CMPlayerAI : public PlayerAI {
@@ -49,6 +51,8 @@ public:
     double openLaneDribbleBonus() const override { return 0.18; }
     double openLaneDribbleDistance() const override { return 165.0; }
     bool   shouldSearchForPassOverShot() const override { return true; }
+    bool   isDefenderLike() const override { return true; }
+    double observingCruiseMul() const override { return 0.50; }
 };
 
 class CBPlayerAI : public PlayerAI {
@@ -58,6 +62,9 @@ public:
     double shotMaxDistance() const override { return 180.0; }
     double tackleBaseScore() const override { return 0.68; }
     double tackleRoleAdjust() const override { return 0.0; }
+    bool   isDefenderRole() const override { return true; }
+    bool   isDefenderLike() const override { return true; }
+    double observingCruiseMul() const override { return 0.65; }
 };
 
 class FBPlayerAI : public PlayerAI {
@@ -71,4 +78,7 @@ public:
     bool   canUseOpenLane() const override { return true; }
     double openLaneDribbleBonus() const override { return 0.12; }
     double openLaneDribbleDistance() const override { return 135.0; }
+    bool   isDefenderRole() const override { return true; }
+    bool   isDefenderLike() const override { return true; }
+    double observingCruiseMul() const override { return 0.65; }
 };

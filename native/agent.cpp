@@ -1,6 +1,5 @@
 #include "engine.h"
 #include "agent.h"
-#include <limits>
 
 
 // tick()
@@ -798,7 +797,7 @@ Perception PlayerAI::perceive() {
             double diff = std::abs(angleTo - facing);
             double nd = (diff > 3.141592653589793) ? 2.0 * 3.141592653589793 - diff : diff;
             bool isOwnThird = (p.team == Team::Home) ? b.x < PITCH_W / 3.0 : b.x > PITCH_W * 2.0 / 3.0;
-            bool defenderWide = (p.role == Role::CB || p.role == Role::FB) && isOwnThird;
+            bool defenderWide = isDefenderRole() && isOwnThird;
             inCone = nd < (defenderWide ? 3.141592653589793 / 2.0 : 3.141592653589793 / 3.0);
         }
         if (!inCone) continue;
@@ -894,7 +893,7 @@ void PlayerAI::applyMovement(double sdt) {
 
     // Defenders sprint when carrier is in their half
     bool defendSprint = false;
-    if ((p.role == Role::CB || p.role == Role::FB || p.role == Role::CM) && !isObserving) {
+    if (isDefenderLike() && !isObserving) {
         auto* task = engine.assignmentFor(p.id);
         if (task && task->role == DefensiveTask::CloseDown) defendSprint = true;
         else if (task && (task->role == DefensiveTask::LaneBlock || task->role == DefensiveTask::BoxGuard || task->role == DefensiveTask::FarPostGuard
@@ -917,7 +916,7 @@ void PlayerAI::applyMovement(double sdt) {
     }
 
     double cruiseMul = isObserving
-        ? (p.role == Role::CF ? 0.45 : p.role == Role::CB || p.role == Role::FB ? 0.65 : p.role == Role::WM ? 0.55 : 0.50)
+        ? observingCruiseMul()
         : 1.0;
 
     double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)

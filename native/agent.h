@@ -132,6 +132,9 @@ public:
     virtual double  openLaneDribbleDistance() const { return 0.0; }
     virtual bool    canUseWideDribble() const { return false; }
     virtual bool    shouldSearchForPassOverShot() const { return false; }
+    virtual bool    isDefenderRole() const { return false; }
+    virtual bool    isDefenderLike() const { return false; }
+    virtual double  observingCruiseMul() const { return 0.50; }
     virtual PitchArea currentPitchArea() const;
     double dizzyRotationAccum = 0;
     double dizzyWindowStartMs = 0;

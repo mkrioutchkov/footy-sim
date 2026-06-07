@@ -3,7 +3,6 @@
 
 #include "engine.h"
 #include "agent.h"
-#include <limits>
 
 CarrierPressure assessCarrierPressure(GameEngine& engine, const Player& p) {
     CarrierPressure cp;
