@@ -118,6 +118,7 @@ void GameEngine::tryGKSave() {
         return;
     }
     stats.recordSave();
+    emitEvent("save", gk->x, gk->y, gk->id);
     bool unlikelyCond = saveChance < 0.12 || (timeToLineMs < 130 && trajectoryOffset > reach + 18.0 && speed > 500);
     stats.recordGkAssessment(unlikelyCond, false);
     trackedShot = false;
@@ -144,6 +145,7 @@ void GameEngine::tryGKSave() {
     }
     // Parry or punch: punch when outside area (cannot use hands) or when GK prefers to fist
     bool punch = !canHandle;
+    if (punch) emitEvent("punch", gk->x, gk->y, gk->id);
     double clearSpeed = punch
         ? speed * agentFor(*gk)->punchPower()
         : speed * (0.50 + rng.random() * 0.40);

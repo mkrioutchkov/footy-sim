@@ -78,7 +78,7 @@ export interface SetPieceState {
 }
 
 export interface MatchEvent {
-  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'foul' | 'offside' | 'intercept' | 'save' | 'goal' | 'header';
+  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'foul' | 'offside' | 'intercept' | 'save' | 'goal' | 'header' | 'punch';
   x: number;
   y: number;
   age: number;

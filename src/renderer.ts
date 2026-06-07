@@ -531,6 +531,7 @@ export class MatchRenderer {
       case 'goal': return 'GOAL';
       case 'shot': return 'SHOT';
       case 'header': return 'HEADER';
+      case 'punch': return 'PUNCH';
       default: return type.replace(/_/g, ' ').toUpperCase();
     }
   }
@@ -547,6 +548,7 @@ export class MatchRenderer {
       case 'tackle': return 0xff6644;
       case 'shot': return 0xffffff;
       case 'header': return 0xfff1a8;
+      case 'punch': return 0xff9944;
       default: return 0xffffff;
     }
   }
