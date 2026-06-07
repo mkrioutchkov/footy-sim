@@ -84,6 +84,10 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 120.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.38 : 0.12;
     if (shotDistance < 70.0  && credibleOpening) sc += per.pressureCount <= 1 ? 0.22 : 0.05;
     if (shotDistance < 40.0)  sc += per.pressureCount <= 1 ? 0.18 : 0.04;
+    bool longCarryShotZone = engine.carryTrackerId == p.id && engine.carryPathDistance >= 200.0
+        && shotDistance < 255.0 && angleDeg > 8.0;
+    if (longCarryShotZone && per.pressureCount <= 1) sc += 0.18;
+    else if (longCarryShotZone) sc += 0.08;
 
     if (freshCross) sc += freshCrossShotBonus();
 
@@ -137,6 +141,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     bool inOwnHalf = (fd > 0 && p.x < HALF_X) || (fd < 0 && p.x > HALF_X);
     bool finalThird = (fd > 0 && p.x > PITCH_W * 2.0 / 3.0) || (fd < 0 && p.x < PITCH_W / 3.0);
     bool nearGoal = distToGoal < 200.0;
+    bool activeLongCarry = engine.carryTrackerId == p.id && engine.carryPathDistance >= 120.0;
+    bool carryNeedsShotWindow = engine.carryTrackerId == p.id && engine.carryPathDistance >= 170.0 && distToGoal > 95.0;
 
     // Find open space: check density around potential targets
     auto densityAt = [&](double cx, double cy) {
@@ -247,11 +253,16 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     }
     if (finalThird && per.nearestOpponentDist > 70.0 && densityAhead <= 1) {
         sc += 0.28;
-        tx = p.x + fd * 165.0;
+        tx = p.x + fd * (activeLongCarry ? 190.0 : 165.0);
         ty = lerp(p.y, PITCH_H / 2.0, 0.18);
     } else if (!inOwnHalf && per.nearestOpponentDist > 115.0 && densityAhead <= 1) {
         sc += 0.12;
         tx = p.x + fd * 130.0;
+    }
+    if (carryNeedsShotWindow && per.nearestOpponentDist > 48.0 && densityAhead <= 2) {
+        sc += finalThird ? 0.18 : 0.12;
+        tx = clamp(p.x + fd * (finalThird ? 155.0 : 175.0), 35.0, PITCH_W - 35.0);
+        ty = lerp(ty, PITCH_H / 2.0, finalThird ? 0.32 : 0.18);
     }
 
     // Role-specific

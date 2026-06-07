@@ -221,6 +221,40 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22))
         return Action{ActionType::Hold, 1.0};
 
+    if (ic && engine.carryTrackerId == player.id) {
+        double carryDistance = engine.carryPathDistance;
+        double fd = fdFor(player.team);
+        double ownGoalX = ownGoalXFor(player.team);
+        double progress = (player.x - ownGoalX) * fd;
+        bool attackingHalf = progress > PITCH_W * 0.46;
+        bool finalThirdCarry = progress > PITCH_W * 0.62;
+        CarrierPressure cp = assessCarrierPressure(engine, player);
+        Action* shootOpt = nullptr;
+        Action* dribbleOpt = nullptr;
+        Action* passOpt = nullptr;
+        for (auto& x : a) {
+            if (x.type == ActionType::Shoot && x.score >= 0.0) {
+                if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
+            } else if (x.type == ActionType::Dribble) {
+                if (!dribbleOpt || x.score > dribbleOpt->score) dribbleOpt = &x;
+            } else if (x.type == ActionType::Pass) {
+                if (!passOpt || x.score > passOpt->score) passOpt = &x;
+            }
+        }
+        if (carryDistance >= 200.0 && shootOpt && shootOpt->audit.distance < 245.0
+            && shootOpt->audit.angleDeg > 8.0 && shootOpt->score > best.score - 0.18) {
+            return *shootOpt;
+        }
+        if (carryDistance >= 95.0 && dribbleOpt && attackingHalf && cp.score < 0.92) {
+            bool passClearlyBetter = passOpt && passOpt->score > dribbleOpt->score + (finalThirdCarry ? 0.24 : 0.18)
+                && passOpt->audit.forwardProgress > 30.0;
+            bool shotClearlyBetter = shootOpt && shootOpt->score > dribbleOpt->score + 0.22;
+            if (!passClearlyBetter && !shotClearlyBetter && dribbleOpt->score > best.score - 0.26) {
+                return *dribbleOpt;
+            }
+        }
+    }
+
     auto& bb = engine.blackboards[GameEngine::teamIndex(player.team)];
 
     if (best.type == ActionType::Tackle && best.target) {

@@ -208,10 +208,27 @@ void GameEngine::updatePossessionTracking(double sdt) {
             }
         }
     } else {
+        if (activeKnockAhead.active && activeKnockAhead.playerId >= 0) {
+            Player* runner = playerById(activeKnockAhead.playerId);
+            if (runner) {
+                if (carryTrackerId != runner->id) {
+                    carryTrackerId = runner->id;
+                    carryLastX = runner->x;
+                    carryLastY = runner->y;
+                    carryPathDistance = 0;
+                } else {
+                    double step = dist(runner->x, runner->y, carryLastX, carryLastY);
+                    if (step < 45.0) carryPathDistance += step;
+                    carryLastX = runner->x;
+                    carryLastY = runner->y;
+                }
+            }
+        } else {
+            carryTrackerId = -1;
+            carryPathDistance = 0;
+        }
         backwardCarryCarrierId = -1;
         backwardCarryRecorded = false;
-        carryTrackerId = -1;
-        carryPathDistance = 0;
         stationaryHoldCarrierId = -1;
         stationaryHoldMs = 0;
         stationaryHoldRecorded = false;
