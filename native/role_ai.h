@@ -129,7 +129,7 @@ public:
     double crossLaneCost() const override { return 0.0; }
     double boxGuardCost() const override { return 28.0; }
     double cutbackGuardCost() const override { return 18.0; }
-    double defensiveLineOffsetX(bool danger, double lineProgress) const override { return danger ? 112.0 : lineProgress + 16.0; }
+    double defensiveLineOffsetX(bool danger, double lineProgress) const override { return danger ? 104.0 : lineProgress + 8.0; }
     double defensiveLineTargetY(double homeY, double, double carrierY) const override { return lerp(homeY, carrierY, 0.20); }
     DefensiveTask defensiveLineRoleTask() const override { return DefensiveTask::WideCover; }
 };

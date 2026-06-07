@@ -221,6 +221,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         for (auto& defender : state.players) {
             if (defender.team != team || used(&defender)
                 || (!agentFor(defender)->isCenterBack() && !agentFor(defender)->isCentralMidfielder() && !agentFor(defender)->isFullBack())) continue;
+            if (!danger && !agentFor(defender)->isCentralMidfielder()) continue;
             double roleCost = agentFor(defender)->boxGuardCost();
             double score = dist(defender.x, defender.y, ownGoalX + fd * 96.0, guardY) + roleCost;
             if (score < bestGuard) { bestGuard = score; guard = &defender; }
@@ -238,6 +239,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         for (auto& defender : state.players) {
             if (defender.team != team || used(&defender)
                 || (!agentFor(defender)->isCentralMidfielder() && !agentFor(defender)->isFullBack() && !agentFor(defender)->isCenterBack())) continue;
+            if (!danger && !agentFor(defender)->isCentralMidfielder()) continue;
             double roleCost = agentFor(defender)->cutbackGuardCost();
             double score = dist(defender.x, defender.y, cutbackX, cutbackY) + roleCost;
             if (score < bestCutback) { bestCutback = score; cutbackGuard = &defender; }
