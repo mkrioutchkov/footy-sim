@@ -153,11 +153,19 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
         }
 
         int pc = per.pressureCount;
+        double fd = fdFor(player.team);
+        double progress = (player.x - ownGoalXFor(player.team)) * fd;
+        bool carryLaunchZone = progress > PITCH_W * 0.42 && progress < PITCH_W * 0.78;
+        bool hasGrassToCarry = per.nearestOpponentDist > 90.0 && pc == 0;
         for (auto& x : a) {
             if (x.type == ActionType::Pass)    x.score += pc * 0.04;
             if (x.type == ActionType::Shoot)   x.score += pc * 0.03;
             if (x.type == ActionType::Dribble && pc == 1) x.score += 0.10;
             if (x.type == ActionType::Dribble && pc >= 3) x.score -= 0.10;
+            if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space && carryLaunchZone && hasGrassToCarry) {
+                double roleBoost = (player.role == Role::WM || player.role == Role::CM) ? 0.18 : (player.role == Role::FB ? 0.12 : 0.08);
+                x.score += roleBoost;
+            }
             if (pc == 0 && x.type == ActionType::Pass && x.purpose != ActionPurpose::Cross && x.purpose != ActionPurpose::Through) {
                 if (holdTicks < 12) x.score -= 0.18;
                 else if (holdTicks < 24) x.score -= 0.10;
@@ -241,15 +249,16 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                 if (!passOpt || x.score > passOpt->score) passOpt = &x;
             }
         }
-        if (carryDistance >= 200.0 && shootOpt && shootOpt->audit.distance < 245.0
-            && shootOpt->audit.angleDeg > 8.0 && shootOpt->score > best.score - 0.18) {
+        if (carryDistance >= 205.0 && shootOpt && shootOpt->audit.distance < 255.0
+            && shootOpt->audit.angleDeg > 7.5 && shootOpt->score > best.score - 0.22) {
             return *shootOpt;
         }
-        if (carryDistance >= 95.0 && dribbleOpt && attackingHalf && cp.score < 0.92) {
-            bool passClearlyBetter = passOpt && passOpt->score > dribbleOpt->score + (finalThirdCarry ? 0.24 : 0.18)
+        if (carryDistance >= 80.0 && dribbleOpt && attackingHalf && cp.score < 1.05) {
+            bool passClearlyBetter = passOpt && passOpt->score > dribbleOpt->score + (finalThirdCarry ? 0.38 : 0.30)
                 && passOpt->audit.forwardProgress > 30.0;
-            bool shotClearlyBetter = shootOpt && shootOpt->score > dribbleOpt->score + 0.22;
-            if (!passClearlyBetter && !shotClearlyBetter && dribbleOpt->score > best.score - 0.26) {
+            bool shotClearlyBetter = shootOpt && shootOpt->score > dribbleOpt->score + 0.28;
+            bool needsCarryShotWindow = carryDistance < 210.0;
+            if (!passClearlyBetter && !shotClearlyBetter && dribbleOpt->score > best.score - (needsCarryShotWindow ? 0.40 : 0.32)) {
                 return *dribbleOpt;
             }
         }
@@ -423,7 +432,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
                 bool credible = shotOpt->audit.distance < maxDistance
                     && shotOpt->audit.angleDeg > minAngle
                     && shotOpt->audit.pressureCount <= 1;
-                if (credible && shotOpt->score > best.score - 0.18) return *shotOpt;
+                if (credible && shotOpt->score > best.score - 0.26) return *shotOpt;
             }
         }
     }
@@ -442,7 +451,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
             }
         }
         // If shot exists and passes don't go to a tap-in, prefer shot
-        if (shotOpt && !passToTapIn && shotOpt->score > best.score - margin) {
+        if (shotOpt && !passToTapIn && shotOpt->score > best.score - (margin + 0.06)) {
             return *shotOpt;
         }
         }
@@ -562,7 +571,11 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
                                && advancedEnough && p.attrs.creativity >= 65.0
                                && (teammateSupport || onFlank || openGrass);
 
-        bool mayBurst = engine.canKnockBallAhead(p.id) && cp.score < 0.65 && (openBurst || speculativeBurst || finalThirdBurst);
+        bool activeLongCarry = engine.carryTrackerId == p.id && engine.carryPathDistance >= 95.0;
+        bool needsCarryShotWindow = activeLongCarry && engine.carryPathDistance < 220.0 && clearPath
+            && nearestOppDist > 135.0 && distToTarget > 120.0 && advancedEnough;
+        bool mayBurst = engine.canKnockBallAhead(p.id) && cp.score < (needsCarryShotWindow ? 0.82 : 0.65)
+            && (openBurst || speculativeBurst || finalThirdBurst || needsCarryShotWindow);
         int dribbleType = mayBurst ? 3 : (nearbyOpps >= 2 ? 1 : 2);
 
         bool newEpisode = (p.dribbleType != dribbleType);
@@ -570,7 +583,7 @@ void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions
             engine.stats.recordDribble(dribbleType);
         }
         p.dribbleType = dribbleType;
-        if (dribbleType == 3 && newEpisode) engine.knockBallAhead(p, p.targetX, p.targetY);
+        if (dribbleType == 3 && (newEpisode || needsCarryShotWindow)) engine.knockBallAhead(p, p.targetX, p.targetY);
 
         double oppGoalX = goalXFor(p.team);
         if ((fd == 1.0 && p.targetX < p.x - 10.0) || (fd == -1.0 && p.targetX > p.x + 10.0)) {

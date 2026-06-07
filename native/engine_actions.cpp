@@ -18,7 +18,10 @@ void GameEngine::recordBallImpulse() {
     stats.recordBallSpeedSample(spd);
     prevBallX=state.ball.x;
     prevBallY=state.ball.y;
+    prevBallVx=state.ball.vx;
+    prevBallVy=state.ball.vy;
     prevControllerId=state.ball.controllerId;
+    ballImpulseGraceTicks=2;
 }
 
 void GameEngine::emitEvent(const std::string& type,double x,double y,int playerId,int targetId) {
@@ -58,6 +61,71 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             return true;
         }
     }
+    if (pendingPass.isCross) {
+        stats.recordHeader();
+        receiver.headingAnim = 520.0;
+        emitEvent("header", receiver.x, receiver.y, receiver.id, pendingPass.fromId);
+        double fd = fdFor(receiver.team);
+        double gx = goalXFor(receiver.team);
+        double shotDistance = std::hypot(receiver.x - gx, receiver.y - PITCH_H / 2.0);
+        if (receiver.team == pendingPass.team && shotDistance > 235.0) {
+            stats.recordPassComplete();
+            if(receiver.id == pendingPass.toId) stats.recordPassIntendedReceived();
+            else stats.recordPassWrongTeammate();
+            stats.recordCrossComplete();
+        }
+        if (receiver.team != pendingPass.team) {
+            auto& b = state.ball;
+            double clearFd = fdFor(receiver.team);
+            b.controllerId = -1;
+            b.intendedReceiverId = -1;
+            b.x = receiver.x;
+            b.y = receiver.y;
+            b.vx = clearFd * 210.0;
+            b.vy = (receiver.y < PITCH_H / 2.0 ? -1.0 : 1.0) * 55.0;
+            b.z = 18.0;
+            b.vz = 95.0;
+            b.lastTouchTeam = receiver.team;
+            b.lastToucherId = receiver.id;
+            lastLooseOrigin = "header_clearance";
+            pendingPass.active = false;
+            recordBallImpulse();
+            return true;
+        }
+        if (shotDistance > 235.0) {
+            auto& b = state.ball;
+            Player* outlet = nullptr;
+            double bestScore = -1e9;
+            for (auto& t : state.players) {
+                if (t.team != receiver.team || t.id == receiver.id || t.role == Role::GK) continue;
+                double d = dist(receiver.x, receiver.y, t.x, t.y);
+                if (d < 35.0 || d > 260.0) continue;
+                double progress = (t.x - receiver.x) * fd;
+                double score = progress * 0.4 - std::abs(t.y - receiver.y) * 0.15 - d * 0.08;
+                if (t.role == Role::CF || t.role == Role::WM) score += 35.0;
+                if (score > bestScore) { bestScore = score; outlet = &t; }
+            }
+            double tx = outlet ? outlet->x : clamp(receiver.x + fd * 95.0, 25.0, PITCH_W - 25.0);
+            double ty = outlet ? outlet->y : lerp(receiver.y, PITCH_H / 2.0, 0.25);
+            double dx = tx - receiver.x, dy = ty - receiver.y;
+            double len = std::max(1.0, std::hypot(dx, dy));
+            b.controllerId = -1;
+            b.intendedReceiverId = outlet ? outlet->id : -1;
+            receiverShieldTargetId = b.intendedReceiverId;
+            b.x = receiver.x;
+            b.y = receiver.y;
+            b.vx = dx / len * 135.0;
+            b.vy = dy / len * 135.0;
+            b.z = 12.0;
+            b.vz = 45.0;
+            b.lastTouchTeam = receiver.team;
+            b.lastToucherId = receiver.id;
+            lastLooseOrigin = "header_layoff";
+            pendingPass.active = false;
+            recordBallImpulse();
+            return true;
+        }
+    }
     if(receiver.team==pendingPass.team){
         stats.recordPassComplete();
         if(pendingPass.isThrough) stats.recordThroughBallComplete();
@@ -70,10 +138,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
     }
     if (pendingPass.isCross && receiver.team == pendingPass.team) {
         stats.recordCrossComplete();
-        stats.recordHeader();
         receiver.crossCollected = 1500.0;
-        receiver.headingAnim = 520.0;
-        emitEvent("header", receiver.x, receiver.y, receiver.id, pendingPass.fromId);
     }
     pendingPass.active=false;
     return false;
@@ -443,7 +508,7 @@ void GameEngine::resolveKnockAhead(Player* collector, const std::string& stopped
     } else if (stopped == "goal") {
     } else if (collector && collector->id == activeKnockAhead.playerId) {
         stats.recordKnockAheadRecovered();
-        knockAheadCooldownUntil[collector->id] = state.clockMs + 2600;
+        knockAheadCooldownUntil[collector->id] = state.clockMs + 1400;
     } else if (collector && collector->team == activeKnockAhead.team) {
         stats.recordKnockAheadRetained();
     } else {

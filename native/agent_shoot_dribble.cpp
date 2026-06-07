@@ -141,8 +141,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     bool inOwnHalf = (fd > 0 && p.x < HALF_X) || (fd < 0 && p.x > HALF_X);
     bool finalThird = (fd > 0 && p.x > PITCH_W * 2.0 / 3.0) || (fd < 0 && p.x < PITCH_W / 3.0);
     bool nearGoal = distToGoal < 200.0;
-    bool activeLongCarry = engine.carryTrackerId == p.id && engine.carryPathDistance >= 120.0;
-    bool carryNeedsShotWindow = engine.carryTrackerId == p.id && engine.carryPathDistance >= 170.0 && distToGoal > 95.0;
+    bool activeLongCarry = engine.carryTrackerId == p.id && engine.carryPathDistance >= 90.0;
+    bool carryNeedsShotWindow = engine.carryTrackerId == p.id && engine.carryPathDistance >= 125.0 && distToGoal > 90.0;
 
     // Find open space: check density around potential targets
     auto densityAt = [&](double cx, double cy) {
@@ -259,9 +259,11 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         sc += 0.12;
         tx = p.x + fd * 130.0;
     }
-    if (carryNeedsShotWindow && per.nearestOpponentDist > 48.0 && densityAhead <= 2) {
-        sc += finalThird ? 0.18 : 0.12;
-        tx = clamp(p.x + fd * (finalThird ? 155.0 : 175.0), 35.0, PITCH_W - 35.0);
+    if (carryNeedsShotWindow && per.nearestOpponentDist > 40.0 && densityAhead <= 2) {
+        double carryDistance = engine.carryPathDistance;
+        bool beforeMetricWindow = carryDistance < 210.0;
+        sc += finalThird ? (beforeMetricWindow ? 0.34 : 0.24) : (beforeMetricWindow ? 0.25 : 0.17);
+        tx = clamp(p.x + fd * (finalThird ? 175.0 : 195.0), 35.0, PITCH_W - 35.0);
         ty = lerp(ty, PITCH_H / 2.0, finalThird ? 0.32 : 0.18);
     }
 

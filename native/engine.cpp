@@ -131,6 +131,8 @@ void GameEngine::update(double dM) {
 void GameEngine::cacheBallState() {
     prevBallX = state.ball.x;
     prevBallY = state.ball.y;
+    prevBallVx = state.ball.vx;
+    prevBallVy = state.ball.vy;
     prevControllerId = state.ball.controllerId;
 }
 
@@ -152,6 +154,31 @@ void GameEngine::fixedUpdate(double sdt) {
     double sec = sdt / 1000;
     updatePlayerAnimations(sdt);
     updatePossessionTracking(sdt);
+    Player* possession = playerById(state.ball.controllerId);
+    if (possession && possession->role != Role::GK) {
+        Team team = possession->team;
+        double fd = fdFor(team);
+        double line = offsideLineFor(team);
+        if (!std::isnan(line)) {
+            for (auto& p : state.players) {
+                if (p.team != team || p.id == possession->id || p.role == Role::GK) continue;
+                bool beyondHalf = fd > 0.0 ? p.x > HALF_X : p.x < HALF_X;
+                bool beyondBall = fd > 0.0 ? p.x > state.ball.x + OFFSIDE_TOLERANCE : p.x < state.ball.x - OFFSIDE_TOLERANCE;
+                bool beyondLine = fd > 0.0 ? p.x > line + OFFSIDE_TOLERANCE : p.x < line - OFFSIDE_TOLERANCE;
+                if (beyondHalf && beyondBall && beyondLine) stats.recordOffsidePosition(p.role, sdt);
+            }
+        }
+    }
+    if (pendingPass.active && !pendingPass.offsideExempt) {
+        Player* receiver = playerById(pendingPass.toId);
+        if (receiver && receiver->team == pendingPass.team) {
+            double fd = fdFor(pendingPass.team);
+            bool beyondHalf = fd > 0.0 ? receiver->x > HALF_X : receiver->x < HALF_X;
+            bool beyondPasser = fd > 0.0 ? receiver->x > pendingPass.passerX + OFFSIDE_TOLERANCE : receiver->x < pendingPass.passerX - OFFSIDE_TOLERANCE;
+            bool beyondLine = fd > 0.0 ? receiver->x > pendingPass.offsideLine + OFFSIDE_TOLERANCE : receiver->x < pendingPass.offsideLine - OFFSIDE_TOLERANCE;
+            if (beyondHalf && beyondPasser && beyondLine) stats.recordOffsidePosition(receiver->role, sdt);
+        }
+    }
     detectSimulationFreeze(sdt);
 
     if (setPieceArmed) { updateSetPiecePhase(sdt, sec); return; }
@@ -495,12 +522,15 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     double jumpDx = state.ball.x - prevBallX;
     double jumpDy = state.ball.y - prevBallY;
     double jumpDist = std::hypot(jumpDx, jumpDy);
-    double expectedMax = std::hypot(state.ball.vx, state.ball.vy) * sec + 20.0
+    double expectedSpeed = std::max(std::hypot(prevBallVx, prevBallVy), std::hypot(state.ball.vx, state.ball.vy));
+    double expectedMax = expectedSpeed * sec + 20.0
         + (activeKnockAhead.active ? DRIBBLE_KNOCK_OFFSET : 0.0);
-    if (jumpDist > expectedMax && jumpDist > 25.0 && !setPieceArmed && !kickoffPhase
+    bool recentImpulse = ballImpulseGraceTicks > 0;
+    if (jumpDist > expectedMax && jumpDist > 25.0 && !recentImpulse && !setPieceArmed && !kickoffPhase
         && state.ball.controllerId < 0) {
         stats.recordBallJump();
     }
+    if (ballImpulseGraceTicks > 0) ballImpulseGraceTicks--;
     cacheBallState();
 }
 
@@ -625,6 +655,7 @@ std::string GameEngine::getJSON() const {
     j["keeperBackpasses"] = summary["keeperBackpasses"];
     j["passCompletionPct"] = summary["passCompletionPct"];
     j["offsides"] = summary["offsides"];
+    j["offsidePositionMsByRole"] = summary["offsidePositionMsByRole"];
     j["homeShots"] = summary["homeShots"];
     j["awayShots"] = summary["awayShots"];
     j["shots"] = summary["shots"];

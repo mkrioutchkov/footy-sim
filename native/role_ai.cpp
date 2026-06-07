@@ -5,7 +5,7 @@ void CFPlayerAI::adjustActionScores(std::vector<Action>& actions, bool isControl
     PlayerAI::adjustActionScores(actions, isController);
     if (!isController) return;
     for (auto& a : actions) {
-        if (a.type == ActionType::Shoot) a.score += 0.13;
+        if (a.type == ActionType::Shoot) a.score += 0.18;
     }
 }
 

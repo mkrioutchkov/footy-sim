@@ -8,17 +8,19 @@
 
 void GameEngine::separateTeammates(double sdt) {
     double secs = sdt / 1000.0;
-    double maxPush = 18.0 * secs;
+    double maxPush = 32.0 * secs;
     for (size_t i = 0; i < state.players.size(); ++i) {
         for (size_t j = i + 1; j < state.players.size(); ++j) {
             Player& a = state.players[i];
             Player& b = state.players[j];
-            if (a.team != b.team || a.role == Role::GK || b.role == Role::GK) continue;
+            if (a.role == Role::GK || b.role == Role::GK) continue;
             double dx = b.x - a.x, dy = b.y - a.y;
             double d = std::hypot(dx, dy);
-            if (d < 0.1 || d >= SEPARATION_DIST) continue;
+            double minDist = a.team == b.team ? SEPARATION_DIST : 24.0;
+            if (d < 0.1 || d >= minDist) continue;
             double nx = dx / d, ny = dy / d;
-            double push = std::min(maxPush, (SEPARATION_DIST - d) * 0.18);
+            double pushScale = a.team == b.team ? 0.24 : 0.10;
+            double push = std::min(maxPush, (minDist - d) * pushScale);
             bool aFixed = state.ball.controllerId == a.id || isActiveKnockAheadRunner(a.id);
             bool bFixed = state.ball.controllerId == b.id || isActiveKnockAheadRunner(b.id);
             if (aFixed && bFixed) continue;

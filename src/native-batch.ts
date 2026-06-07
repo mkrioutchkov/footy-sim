@@ -17,6 +17,7 @@ interface Summary {
   headers: number;
   headedShots: number;
   offsides: number;
+  offsidePositionMsByRole?: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number };
   shots: number;
   shotsOnTarget: number;
   saves: number;
@@ -175,6 +176,8 @@ console.log(JSON.stringify({
     penaltyConversionPct: round(results.reduce((sum, result) => sum + (result.setPieces?.penaltiesScored ?? 0), 0)
       / Math.max(1, results.reduce((sum, result) => sum + (result.setPieces?.penaltiesTaken ?? 0), 0)) * 100),
     offsidesPerMatch: round(total('offsides') / matches),
+    cfOffsidePositionSecondsPerMatch: round(results.reduce((sum, result) => sum + (result.offsidePositionMsByRole?.CF ?? 0), 0) / matches / 1000),
+    wmOffsidePositionSecondsPerMatch: round(results.reduce((sum, result) => sum + (result.offsidePositionMsByRole?.WM ?? 0), 0) / matches / 1000),
     tacklesAttemptedPerMatch: round(results.reduce((sum, result) => sum + result.tackles.attempts, 0) / matches),
     tackleWinPct: round(results.reduce((sum, result) => sum + result.tackles.wins, 0)
       / Math.max(1, results.reduce((sum, result) => sum + result.tackles.attempts, 0)) * 100),

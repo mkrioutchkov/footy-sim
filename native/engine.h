@@ -61,7 +61,9 @@ public:
     double lastKickoffMs = 0; bool kickoffPhase = false;
     double actionTimer = 0; bool setPieceArmed = false;
     double prevBallX = 525, prevBallY = 340;
+    double prevBallVx = 0, prevBallVy = 0;
     int prevControllerId = -1;
+    int ballImpulseGraceTicks = 0;
     SetPiece setPieceTypeEnum = SetPiece::None;
     Team setPieceTeamEnum = Team::Home;
     int setPieceTakerId = -1;

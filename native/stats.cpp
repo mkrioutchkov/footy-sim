@@ -43,6 +43,17 @@ void StatsCollector::recordShotOnTarget() {
     shotsOnTarget++;
 }
 
+void StatsCollector::recordOffsidePosition(Role role, double ms) {
+    switch (role) {
+        case Role::GK: offsidePositionMsGK += ms; break;
+        case Role::CB: offsidePositionMsCB += ms; break;
+        case Role::FB: offsidePositionMsFB += ms; break;
+        case Role::CM: offsidePositionMsCM += ms; break;
+        case Role::WM: offsidePositionMsWM += ms; break;
+        case Role::CF: offsidePositionMsCF += ms; break;
+    }
+}
+
 void StatsCollector::recordQualityFlag(QualityFlag flag) {
     switch (flag) {
         case QualityFlag::WhyNoShoot: recordWhyNoShoot(); break;
@@ -99,6 +110,11 @@ std::string StatsCollector::summaryJSON() const {
     j["keeperBackpasses"] = keeperBackpasses;
     j["passCompletionPct"] = std::round(completionPct * 10) / 10;
     j["offsides"] = offsidesTotal;
+    j["offsidePositionMsByRole"] = {
+        {"GK", std::round(offsidePositionMsGK)}, {"CB", std::round(offsidePositionMsCB)},
+        {"FB", std::round(offsidePositionMsFB)}, {"CM", std::round(offsidePositionMsCM)},
+        {"WM", std::round(offsidePositionMsWM)}, {"CF", std::round(offsidePositionMsCF)}
+    };
     j["homeShots"] = shotsHome;
     j["awayShots"] = shotsAway;
     j["shots"] = totalShots;
@@ -201,7 +217,8 @@ std::string StatsCollector::summaryJSON() const {
         {"finalThirdSamples", finalThirdSamples}, {"unmarkedFinalThird", finalThirdUnmarked},
         {"unmarkedPct", std::round((finalThirdSamples > 0 ? finalThirdUnmarked * 100.0 / finalThirdSamples : 0) * 10) / 10},
         {"avgNearestCb", std::round(finalThirdSamples > 0 ? finalThirdCbTotal / finalThirdSamples : 0)},
-        {"avgNearestDefender", std::round(finalThirdSamples > 0 ? finalThirdDefTotal / finalThirdSamples : 0)}
+        {"avgNearestDefender", std::round(finalThirdSamples > 0 ? finalThirdDefTotal / finalThirdSamples : 0)},
+        {"offsidePositionMsByRole", j["offsidePositionMsByRole"]}
     };
 
     j["qualityFlags"] = {
