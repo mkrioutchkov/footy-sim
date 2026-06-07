@@ -445,16 +445,6 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         if (d < 42.0 || d > (keeperOutlet ? 455.0 : 550.0)) continue;
         if (!keeperOutlet && engine.isOffsideTarget(p, t)) continue;
 
-        if (d > 40.0) {
-            double angleTo = std::atan2(t.y - p.y, t.x - p.x);
-            double aDiff = std::abs(angleTo - facing);
-            double na = (aDiff > 3.141592653589793) ? 2.0 * 3.141592653589793 - aDiff : aDiff;
-            // Fresh possession: wider vision for ~0.7s after gaining the ball (holdTicks < 20)
-            double visionLimit = keeperOutlet ? 3.141592653589793 * 0.82
-                : (holdTicks < 20 ? 3.141592653589793 * 0.82 : 3.141592653589793 / 3.0);
-            if (na > visionLimit) continue;
-        }
-
         int bl = 0;
         double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
         if (ls < 1.0) continue;
@@ -1060,6 +1050,9 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     if (player.role == Role::WM) sc -= 0.04;
     if (d < TACKLE_RANGE + 10.0) sc += 0.15;
 
+    // Carrier holding still — easy tackle target
+    if (ctrl->dribbleType == 0 && d < TACKLE_RANGE + 30.0) sc += 0.30;
+
     double ownGoalX = ownGoalXFor(player.team);
     bool emergencyBoxChallenge = std::abs(ctrl->x - ownGoalX) < 230.0
         && std::abs(ctrl->y - PITCH_H / 2.0) < 210.0
@@ -1071,7 +1064,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         bool closeEnoughToChallenge = d < TACKLE_RANGE + 6.0;
         bool shapeTask = defensiveTask->role != DefensiveTask::PrimaryPress && defensiveTask->role != DefensiveTask::SecondaryPress
             && defensiveTask->role != DefensiveTask::CloseDown;
-        if (shapeTask && !emergencyBoxChallenge && !closeEnoughToChallenge && d > TACKLE_RANGE * 0.75) return Action{ActionType::Tackle, 0.0};
+        if (shapeTask && !emergencyBoxChallenge && !closeEnoughToChallenge && d > TACKLE_RANGE * 0.75 && ctrl->dribbleType != 0) return Action{ActionType::Tackle, 0.0};
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::PrimaryPress)   sc += 0.20;
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::SecondaryPress) sc += 0.10;
         if (shapeTask && emergencyBoxChallenge)
