@@ -112,6 +112,12 @@ void GameEngine::update(double dM) {
     }
 }
 
+void GameEngine::cacheBallState() {
+    prevBallX = state.ball.x;
+    prevBallY = state.ball.y;
+    prevControllerId = state.ball.controllerId;
+}
+
 void GameEngine::fixedUpdate(double sdt) {
     state.clockMs += sdt;
     if (state.clockMs >= MATCH_DURATION) {
@@ -124,17 +130,28 @@ void GameEngine::fixedUpdate(double sdt) {
         halfTimePause -= sdt;
         if (halfTimePause <= 0) kickoff(nextKickoffTeam);
         tickAgents(sdt, false);
-        prevBallX = state.ball.x;
-        prevBallY = state.ball.y;
-        prevControllerId = state.ball.controllerId;
+        cacheBallState();
         return;
     }
     double sec = sdt / 1000;
+    updatePlayerAnimations(sdt);
+    updatePossessionTracking(sdt);
+    detectSimulationFreeze(sdt);
+
+    if (setPieceArmed) { updateSetPiecePhase(sdt, sec); return; }
+    if (kickoffPhase)   { updateKickoffPhase(sdt); return; }
+
+    updateOpenPlayPhase(sdt, sec);
+}
+void GameEngine::updatePlayerAnimations(double sdt) {
     for (auto& p : state.players) {
         if (p.tackleAnim > 0) p.tackleAnim = std::max(0., p.tackleAnim - sdt);
         if (p.headingAnim > 0) p.headingAnim = std::max(0., p.headingAnim - sdt);
         if (p.crossCollected > 0) p.crossCollected = std::max(0., p.crossCollected - sdt);
     }
+}
+
+void GameEngine::updatePossessionTracking(double sdt) {
     auto* c = playerById(state.ball.controllerId);
     if (c) {
         if (c->team == Team::Home) possessionHome += sdt;
@@ -154,221 +171,205 @@ void GameEngine::fixedUpdate(double sdt) {
     }
     stats.recordPossession(possessionHome, possessionAway);
     auditStuckCarrier(sdt);
-    if (!setPieceArmed && !kickoffPhase) {
-        auto& fb = state.ball;
-        int cid = fb.controllerId;
-        if (cid < 0) {
-            freezeWatchMs = 0;
-            freezeLastController = -1;
-        } else if (cid != freezeLastController) {
+}
+
+void GameEngine::detectSimulationFreeze(double sdt) {
+    if (setPieceArmed || kickoffPhase) return;
+    auto& fb = state.ball;
+    int cid = fb.controllerId;
+    if (cid < 0) {
+        freezeWatchMs = 0;
+        freezeLastController = -1;
+    } else if (cid != freezeLastController) {
+        freezeWatchMs = 0;
+        freezeBallX = fb.x;
+        freezeBallY = fb.y;
+        freezeLastController = cid;
+    } else {
+        freezeWatchMs += sdt;
+        if (dist(fb.x, fb.y, freezeBallX, freezeBallY) >= 5) {
             freezeWatchMs = 0;
             freezeBallX = fb.x;
             freezeBallY = fb.y;
-            freezeLastController = cid;
-        } else {
-            freezeWatchMs += sdt;
-            if (dist(fb.x, fb.y, freezeBallX, freezeBallY) >= 5) {
-                freezeWatchMs = 0;
-                freezeBallX = fb.x;
-                freezeBallY = fb.y;
-            } else if (freezeWatchMs > 1500 && state.clockMs - lastFreezeAlertMs > 5000) {
-                Player* frozen=playerById(cid);
-                Player* best=nullptr; double bestD=1e9;
-                if(frozen&&frozen->role!=Role::GK){
-                    for(auto&p:state.players){
-                        if(p.team!=frozen->team||p.id==frozen->id||p.role==Role::GK)continue;
-                        double d=dist(frozen->x,frozen->y,p.x,p.y);
-                        if(d<bestD){bestD=d;best=&p;}
-                    }
+        } else if (freezeWatchMs > 1500 && state.clockMs - lastFreezeAlertMs > 5000) {
+            Player* frozen=playerById(cid);
+            Player* best=nullptr; double bestD=1e9;
+            if(frozen&&frozen->role!=Role::GK){
+                for(auto&p:state.players){
+                    if(p.team!=frozen->team||p.id==frozen->id||p.role==Role::GK)continue;
+                    double d=dist(frozen->x,frozen->y,p.x,p.y);
+                    if(d<bestD){bestD=d;best=&p;}
                 }
-                if(frozen&&best){
-                    forcePassTo(*frozen,*best,nullptr);
-                }else if(frozen){
-                    double fd=frozen->team==Team::Home?1.0:-1.0;
-                    frozen->targetX=clamp(frozen->x+fd*90.0,35.0,PITCH_W-35.0);
-                    frozen->targetY=clamp(frozen->y+(frozen->y<PITCH_H/2?-45.0:45.0),35.0,PITCH_H-35.0);
-                }else{
-                    simulationFreezes++;
-                    stats.recordSimulationFreeze();
-                    lastFreezeAlertMs = state.clockMs;
-                }
-                freezeWatchMs = 0;
-                freezeBallX = fb.x;
-                freezeBallY = fb.y;
+            }
+            if(frozen&&best){
+                forcePassTo(*frozen,*best,nullptr);
+            }else if(frozen){
+                double fd=frozen->team==Team::Home?1.0:-1.0;
+                frozen->targetX=clamp(frozen->x+fd*90.0,35.0,PITCH_W-35.0);
+                frozen->targetY=clamp(frozen->y+(frozen->y<PITCH_H/2?-45.0:45.0),35.0,PITCH_H-35.0);
+            }else{
+                simulationFreezes++;
+                stats.recordSimulationFreeze();
+                lastFreezeAlertMs = state.clockMs;
+            }
+            freezeWatchMs = 0;
+            freezeBallX = fb.x;
+            freezeBallY = fb.y;
+        }
+    }
+}
+
+void GameEngine::updateSetPiecePhase(double sdt, double sec) {
+    actionTimer -= sdt;
+    Team spTeam = setPieceTeamEnum;
+    for (auto& a : agents) {
+        a->setPiecePositioning(setPieceTypeEnum, spTeam);
+    }
+    auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
+        double fd = taker.team == Team::Home ? 1.0 : -1.0;
+        double standBack = setPieceTypeEnum == SetPiece::ThrowIn ? 0.0 : setPieceTypeEnum == SetPiece::Corner ? 7.0 : setPieceTypeEnum == SetPiece::Penalty ? 18.0 : 14.0;
+        double px = releaseSpot ? setPieceSpotX : setPieceSpotX - fd * standBack;
+        double py = setPieceSpotY;
+        taker.x = clamp(px, 5.0, PITCH_W - 5.0);
+        taker.y = clamp(py, 5.0, PITCH_H - 5.0);
+        taker.targetX = setPieceSpotX;
+        taker.targetY = setPieceSpotY;
+        taker.vx = taker.vy = 0;
+        taker.facing = std::atan2(setPieceSpotY - taker.y, setPieceSpotX - taker.x);
+    };
+    auto enforceRestartDistance = [&]() {
+        double minDist = setPieceTypeEnum == SetPiece::ThrowIn ? 42.0 : setPieceTypeEnum == SetPiece::Corner ? 58.0 : setPieceTypeEnum == SetPiece::Penalty ? 96.0 : 78.0;
+        Team restartTeam = setPieceTeamEnum;
+        for (auto& p : state.players) {
+            if (p.team == restartTeam || p.role == Role::GK) continue;
+            double dx = p.x - setPieceSpotX;
+            double dy = p.y - setPieceSpotY;
+            double d = std::hypot(dx, dy);
+            if (d >= minDist) continue;
+            if (d < 1.0) {
+                double fd = p.team == Team::Home ? 1.0 : -1.0;
+                dx = -fd; dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
+                d = std::hypot(dx, dy);
+            }
+            p.x = clamp(setPieceSpotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
+            p.y = clamp(setPieceSpotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
+            p.targetX = p.x;
+            p.targetY = p.y;
+            p.vx = p.vy = 0;
+        }
+    };
+
+    if (setPieceTakerId >= 0) {
+        for (auto& a : agents) {
+            if (a->player.id == setPieceTakerId) {
+                a->setPieceHold = true;
+                break;
             }
         }
     }
-    if (setPieceArmed) {
-        actionTimer -= sdt;
-        Team spTeam = setPieceTeamEnum;
+
+    tickAgents(sdt, false);
+    moveBallCarrier(sdt);
+    separateTeammates(sdt);
+    enforceRestartDistance();
+
+    if (setPieceTypeEnum == SetPiece::GoalKick && actionTimer <= 0) {
+        setPieceArmed = false;
+        setPieceReason.clear();
+        releaseSetPiece();
+        cacheBallState();
+        return;
+    }
+
+    if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
+        Player* taker = playerById(setPieceTakerId);
+        if (taker) {
+            double dx = state.ball.x - taker->x;
+            double dy = state.ball.y - taker->y;
+            double d = std::hypot(dx, dy);
+            if (d > 1.0) {
+                double speed = attrFactor(taker->attrs.speed) * SPEED_SPRINT;
+                double step = std::min(speed * (sdt / 1000.0), d);
+                taker->x += (dx / d) * step;
+                taker->y += (dy / d) * step;
+                taker->facing = std::atan2(dy, dx);
+            }
+            taker->targetX = state.ball.x;
+            taker->targetY = state.ball.y;
+        }
+    }
+
+    if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
+        Player* taker = playerById(setPieceTakerId);
+        if (taker) {
+            double d = dist(taker->x, taker->y, state.ball.x, state.ball.y);
+            if (d < 15.0) {
+                setPieceTakerArrived = true;
+                state.ball.controllerId = taker->id;
+                state.ball.lastTouchTeam = taker->team;
+                state.ball.lastToucherId = taker->id;
+                actionTimer = setPieceTypeEnum == SetPiece::ThrowIn ? 650 : setPieceTypeEnum == SetPiece::Penalty ? 1800 : 1500;
+            }
+        }
+    }
+
+    if (setPieceTakerArrived && actionTimer <= 0) {
         for (auto& a : agents) {
-            a->setPiecePositioning(setPieceTypeEnum, spTeam);
+            if (a->player.id == setPieceTakerId) { a->setPieceHold = false; break; }
         }
-        auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
-            double fd = taker.team == Team::Home ? 1.0 : -1.0;
-            double standBack = setPieceTypeEnum == SetPiece::ThrowIn ? 0.0 : setPieceTypeEnum == SetPiece::Corner ? 7.0 : setPieceTypeEnum == SetPiece::Penalty ? 18.0 : 14.0;
-            double px = releaseSpot ? setPieceSpotX : setPieceSpotX - fd * standBack;
-            double py = setPieceSpotY;
-            taker.x = clamp(px, 5.0, PITCH_W - 5.0);
-            taker.y = clamp(py, 5.0, PITCH_H - 5.0);
-            taker.targetX = setPieceSpotX;
-            taker.targetY = setPieceSpotY;
-            taker.vx = taker.vy = 0;
-            taker.facing = std::atan2(setPieceSpotY - taker.y, setPieceSpotX - taker.x);
-        };
-        auto enforceRestartDistance = [&]() {
-            double minDist = setPieceTypeEnum == SetPiece::ThrowIn ? 42.0 : setPieceTypeEnum == SetPiece::Corner ? 58.0 : setPieceTypeEnum == SetPiece::Penalty ? 96.0 : 78.0;
-            Team restartTeam = setPieceTeamEnum;
-            for (auto& p : state.players) {
-                if (p.team == restartTeam || p.role == Role::GK) continue;
-                double dx = p.x - setPieceSpotX;
-                double dy = p.y - setPieceSpotY;
-                double d = std::hypot(dx, dy);
-                if (d >= minDist) continue;
-                if (d < 1.0) {
-                    double fd = p.team == Team::Home ? 1.0 : -1.0;
-                    dx = -fd; dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
-                    d = std::hypot(dx, dy);
-                }
-                p.x = clamp(setPieceSpotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
-                p.y = clamp(setPieceSpotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
-                p.targetX = p.x;
-                p.targetY = p.y;
-                p.vx = p.vy = 0;
-            }
-        };
-
-        // Set piece hold: taker agent skips movement until the restart is released.
-        if (setPieceTakerId >= 0) {
-            for (auto& a : agents) {
-                if (a->player.id == setPieceTakerId) {
-                    a->setPieceHold = true;
-                    break;
-                }
-            }
-        }
-
-        tickAgents(sdt, false);
-        moveBallCarrier(sdt);
-        separateTeammates(sdt);
+        Player* taker = playerById(setPieceTakerId);
+        if (taker) placeTakerForRestart(*taker, true);
         enforceRestartDistance();
-
-        if (setPieceTypeEnum == SetPiece::GoalKick && actionTimer <= 0) {
-            setPieceArmed = false;
-            setPieceReason.clear();
-            releaseSetPiece();
-            prevBallX = state.ball.x;
-            prevBallY = state.ball.y;
-            prevControllerId = state.ball.controllerId;
-            return;
-        }
-
-        // Force taker toward ball (only movement source for taker)
-        if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
+        state.ball.x = setPieceSpotX;
+        state.ball.y = setPieceSpotY;
+        state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
+        setPieceArmed = false;
+        setPieceReason.clear();
+        setPieceTakerId = -1;
+        setPieceTakerArrived = false;
+        releaseSetPiece();
+    } else if (!setPieceTakerArrived && actionTimer <= 0) {
+        if (setPieceTakerId >= 0) {
             Player* taker = playerById(setPieceTakerId);
             if (taker) {
-                double dx = state.ball.x - taker->x;
-                double dy = state.ball.y - taker->y;
-                double d = std::hypot(dx, dy);
-                if (d > 1.0) {
-                    double speed = attrFactor(taker->attrs.speed) * SPEED_SPRINT;
-                    double step = std::min(speed * (sdt / 1000.0), d);
-                    taker->x += (dx / d) * step;
-                    taker->y += (dy / d) * step;
-                    taker->facing = std::atan2(dy, dx);
-                }
+                state.ball.controllerId = taker->id;
+                state.ball.lastTouchTeam = taker->team;
+                state.ball.lastToucherId = taker->id;
+                taker->x = state.ball.x;
+                taker->y = state.ball.y;
                 taker->targetX = state.ball.x;
                 taker->targetY = state.ball.y;
+                setPieceTakerArrived = true;
+                actionTimer = setPieceTypeEnum == SetPiece::ThrowIn ? 650 : setPieceTypeEnum == SetPiece::Penalty ? 1800 : 1500;
             }
         }
-
-        // Check taker arrival
-        if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
-            Player* taker = playerById(setPieceTakerId);
-            if (taker) {
-                double d = dist(taker->x, taker->y, state.ball.x, state.ball.y);
-                if (d < 15.0) {
-                    setPieceTakerArrived = true;
-                    state.ball.controllerId = taker->id;
-                    state.ball.lastTouchTeam = taker->team;
-                    state.ball.lastToucherId = taker->id;
-                    actionTimer = setPieceTypeEnum == SetPiece::ThrowIn ? 650 : setPieceTypeEnum == SetPiece::Penalty ? 1800 : 1500;
-                }
-            }
-        }
-
-        // Release when taker has ball and timer expires, or forced by max wait
-        if (setPieceTakerArrived && actionTimer <= 0) {
-            // Clear hold flag for taker
-            for (auto& a : agents) {
-                if (a->player.id == setPieceTakerId) { a->setPieceHold = false; break; }
-            }
-            Player* taker = playerById(setPieceTakerId);
-            if (taker) placeTakerForRestart(*taker, true);
-            enforceRestartDistance();
-            state.ball.x = setPieceSpotX;
-            state.ball.y = setPieceSpotY;
-            state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
-            setPieceArmed = false;
-            setPieceReason.clear();
-            setPieceTakerId = -1;
-            setPieceTakerArrived = false;
-            releaseSetPiece();
-        } else if (!setPieceTakerArrived && actionTimer <= 0) {
-            if (setPieceTakerId >= 0) {
-                Player* taker = playerById(setPieceTakerId);
-                if (taker) {
-                    state.ball.controllerId = taker->id;
-                    state.ball.lastTouchTeam = taker->team;
-                    state.ball.lastToucherId = taker->id;
-                    taker->x = state.ball.x;
-                    taker->y = state.ball.y;
-                    taker->targetX = state.ball.x;
-                    taker->targetY = state.ball.y;
-                    setPieceTakerArrived = true;
-                    actionTimer = setPieceTypeEnum == SetPiece::ThrowIn ? 650 : setPieceTypeEnum == SetPiece::Penalty ? 1800 : 1500;
-                }
-            }
-        }
-        updateControlledBall(sec);
-        if (setPieceTakerArrived) {
-            Player* taker = playerById(setPieceTakerId);
-            if (taker) placeTakerForRestart(*taker, false);
-            state.ball.x = setPieceSpotX;
-            state.ball.y = setPieceSpotY;
-            state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
-        }
-        prevBallX = state.ball.x;
-        prevBallY = state.ball.y;
-        prevControllerId = state.ball.controllerId;
-        return;
     }
-    if (kickoffPhase) {
-        actionTimer -= sdt;
-        if (actionTimer <= 0) { kickoffPhase = false; kickoffTap(); }
-        prevBallX = state.ball.x;
-        prevBallY = state.ball.y;
-        prevControllerId = state.ball.controllerId;
-        return;
+    updateControlledBall(sec);
+    if (setPieceTakerArrived) {
+        Player* taker = playerById(setPieceTakerId);
+        if (taker) placeTakerForRestart(*taker, false);
+        state.ball.x = setPieceSpotX;
+        state.ball.y = setPieceSpotY;
+        state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
     }
+    cacheBallState();
+}
+
+void GameEngine::updateKickoffPhase(double sdt) {
+    actionTimer -= sdt;
+    if (actionTimer <= 0) { kickoffPhase = false; kickoffTap(); }
+    cacheBallState();
+}
+
+void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     auto& b = state.ball;
     if (b.controllerId >= 0) contestBlockedUntil.erase(b.controllerId);
     if (b.controllerId < 0) {
         applyBallPhysics(sec);
         clampBallPosition();
         tryGKSave();
-        if (checkGoal()) {
-            prevBallX = state.ball.x;
-            prevBallY = state.ball.y;
-            prevControllerId = state.ball.controllerId;
-            return;
-        }
-        if (checkOutOfPlay()) {
-            prevBallX = state.ball.x;
-            prevBallY = state.ball.y;
-            prevControllerId = state.ball.controllerId;
-            return;
-        }
+        if (checkGoal()) { cacheBallState(); return; }
+        if (checkOutOfPlay()) { cacheBallState(); return; }
         checkBallPlayerCollision(sec);
     }
     for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; }
@@ -408,9 +409,7 @@ void GameEngine::fixedUpdate(double sdt) {
         && prevControllerId < 0 && state.ball.controllerId < 0) {
         stats.recordBallJump();
     }
-    prevBallX = state.ball.x;
-    prevBallY = state.ball.y;
-    prevControllerId = state.ball.controllerId;
+    cacheBallState();
 }
 
 void GameEngine::tickAgents(double sdt, bool ic) {

@@ -195,6 +195,15 @@ public:
     void update(double dM);
     void fixedUpdate(double sdt);
     void tickAgents(double sdt, bool ic);
+private:
+    void cacheBallState();
+    void updatePlayerAnimations(double sdt);
+    void updatePossessionTracking(double sdt);
+    void detectSimulationFreeze(double sdt);
+    void updateSetPiecePhase(double sdt, double sec);
+    void updateKickoffPhase(double sdt);
+    void updateOpenPlayPhase(double sdt, double sec);
+public:
     void kickoffTap();
     void releaseSetPiece();
     void releaseGoalKick(Player& holder);

@@ -1,0 +1,221 @@
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+
+interface Summary {
+  homeScore: number;
+  awayScore: number;
+  passes: number;
+  passesCompleted: number;
+  passesIntercepted: number;
+  longBackwardPasses: number;
+  keeperBackpasses: number;
+  passCompletionPct: number;
+  throughBallsAttempted: number;
+  throughBallsCompleted: number;
+  crossesAttempted: number;
+  crossesCompleted: number;
+  headers: number;
+  headedShots: number;
+  offsides: number;
+  shots: number;
+  shotsOnTarget: number;
+  saves: number;
+  stuckCarrierAlerts: number;
+  simulationFreezes: number;
+  dizzySpins: number;
+  teammatePingPongs: number;
+  slideTackleDistanceAlerts: number;
+  slideTackleOobAlerts: number;
+  ownPassGoals: number;
+  unknownLooseGoals: number;
+  headedGoals: number;
+  shotsByDistance: { questionable: number };
+  shotsByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
+  controlledTouchesByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
+  goalsByRole: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number; unknown: number };
+  tackles: { attempts: number; wins: number };
+  dribbleTypes: { knockAheads: number; turnovers: number; riskyTurnovers: number; recovered: number; retainedByTeammate: number; outOfPlay: number };
+  passSelection: { risky: number; saferIgnored: number; pressuredReceptions: number; pressuredReceptionFailures: number };
+  setPieces: {
+    goalKickAttempts: number;
+    goalKickExitedOwnThird: number;
+    goalKickTrappedShots: number;
+    goalKickPending: number;
+    penaltiesAwarded: number;
+    penaltiesTaken: number;
+    penaltiesScored: number;
+  };
+  shotSelection: {
+    betterPassAvailable: number;
+    tightAngle: number;
+    cfCredibleWindowSamples: number;
+    cfDeferredSamples: number;
+    cfDeferredForPass: number;
+    cfDeferredForDribble: number;
+    cfCloseWindowSamples: number;
+    cfCloseDeferredSamples: number;
+  };
+  marking: {
+    questionablePress: number;
+    backLineSamples: number;
+    singleDropSamples: number;
+    avgBackLineGap: number;
+    avgSingleDropGap: number;
+    maxBackLineGap: number;
+    laneBlockSingleDrops: number;
+    finalThirdSamples: number;
+    unmarkedFinalThird: number;
+    avgNearestCb: number;
+    avgNearestDefender: number;
+  };
+  carrierTurns: { over30: number; longBackwardCarries: number };
+}
+
+function argNumber(name: string, fallback: number): number {
+  const index = process.argv.indexOf(name);
+  if (index < 0) return fallback;
+  const value = Number(process.argv[index + 1]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function round(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+const executable = path.resolve(process.cwd(), 'build', 'live.exe');
+
+function runMatch(seed: number, minutes: number): Promise<Summary & { seed: number }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, [String(seed), String(minutes), '--summary', '--no-debug']);
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', data => { stdout += data.toString(); });
+    child.stderr.on('data', data => { stderr += data.toString(); });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code !== 0) {
+        reject(new Error(stderr || `Native match ${seed} exited ${code}`));
+        return;
+      }
+      const output = stdout.trim().split(/\r?\n/).at(-1);
+      if (!output) {
+        reject(new Error(`Native match ${seed} produced no summary`));
+        return;
+      }
+      resolve({ seed, ...JSON.parse(output) as Summary });
+    });
+  });
+}
+
+const matches = Math.floor(argNumber('--matches', 8));
+const minutes = argNumber('--minutes', 10);
+const firstSeed = Math.floor(argNumber('--seed', 101));
+const results = await Promise.all(Array.from({ length: matches }, (_, index) => runMatch(firstSeed + index, minutes)));
+const total = <K extends keyof Summary>(key: K): number => results.reduce((sum, result) => sum + (result[key] as number), 0);
+const passes = total('passes');
+const shots = total('shots');
+const goals = results.reduce((sum, result) => sum + result.homeScore + result.awayScore, 0);
+const goalRoles = ['GK', 'CB', 'FB', 'CM', 'WM', 'CF', 'unknown'] as const;
+const markingSamples = results.reduce((sum, result) => sum + result.marking.finalThirdSamples, 0);
+const unmarked = results.reduce((sum, result) => sum + result.marking.unmarkedFinalThird, 0);
+const backLineSamples = results.reduce((sum, result) => sum + result.marking.backLineSamples, 0);
+const singleDrops = results.reduce((sum, result) => sum + result.marking.singleDropSamples, 0);
+const laneBlockSingleDrops = results.reduce((sum, result) => sum + result.marking.laneBlockSingleDrops, 0);
+
+console.log(JSON.stringify({
+  config: { matches, minutes, seeds: results.map(result => result.seed), engine: 'native' },
+  aggregate: {
+    goalsPerMatch: round(goals / matches),
+    goalsPer90: round(goals / Math.max(1, matches * minutes) * 90),
+    shotsPerMatch: round(shots / matches),
+    shotsPer90: round(shots / Math.max(1, matches * minutes) * 90),
+    shotsOnTargetPct: round(total('shotsOnTarget') / Math.max(1, shots) * 100),
+    savesPerMatch: round(total('saves') / matches),
+    goalsPerShotPct: round(goals / Math.max(1, shots) * 100),
+    shotsByRole: Object.fromEntries(goalRoles.map(role => [
+      role,
+      results.reduce((sum, result) => sum + (result.shotsByRole?.[role] ?? 0), 0),
+    ])),
+    controlledTouchesByRole: Object.fromEntries(goalRoles.map(role => [
+      role,
+      results.reduce((sum, result) => sum + (result.controlledTouchesByRole?.[role] ?? 0), 0),
+    ])),
+    goalsByRole: Object.fromEntries(goalRoles.map(role => [
+      role,
+      results.reduce((sum, result) => sum + (result.goalsByRole?.[role] ?? 0), 0),
+    ])),
+    passesPerMatch: round(passes / matches),
+    passCompletionPct: round(total('passesCompleted') / Math.max(1, passes) * 100),
+    interceptedPassesPerMatch: round(total('passesIntercepted') / matches),
+    interceptedPassPct: round(total('passesIntercepted') / Math.max(1, passes) * 100),
+    interceptedPassesPer90: round(total('passesIntercepted') / Math.max(1, matches * minutes) * 90),
+    longBackwardPassesPerMatch: round(total('longBackwardPasses') / matches),
+    keeperBackpassesPerMatch: round(total('keeperBackpasses') / matches),
+    throughBallsPerMatch: round(total('throughBallsAttempted') / matches),
+    throughBallCompletionPct: round(total('throughBallsCompleted') / Math.max(1, total('throughBallsAttempted')) * 100),
+    crossesPerMatch: round(total('crossesAttempted') / matches),
+    crossCompletionPct: round(total('crossesCompleted') / Math.max(1, total('crossesAttempted')) * 100),
+    headersPerMatch: round(total('headers') / matches),
+    headedShotsPerMatch: round(total('headedShots') / matches),
+    headedGoals: total('headedGoals'),
+    penaltiesAwardedPerMatch: round(results.reduce((sum, result) => sum + (result.setPieces?.penaltiesAwarded ?? 0), 0) / matches),
+    penaltiesTakenPerMatch: round(results.reduce((sum, result) => sum + (result.setPieces?.penaltiesTaken ?? 0), 0) / matches),
+    penaltyGoals: results.reduce((sum, result) => sum + (result.setPieces?.penaltiesScored ?? 0), 0),
+    penaltyConversionPct: round(results.reduce((sum, result) => sum + (result.setPieces?.penaltiesScored ?? 0), 0)
+      / Math.max(1, results.reduce((sum, result) => sum + (result.setPieces?.penaltiesTaken ?? 0), 0)) * 100),
+    offsidesPerMatch: round(total('offsides') / matches),
+    tacklesAttemptedPerMatch: round(results.reduce((sum, result) => sum + result.tackles.attempts, 0) / matches),
+    tackleWinPct: round(results.reduce((sum, result) => sum + result.tackles.wins, 0)
+      / Math.max(1, results.reduce((sum, result) => sum + result.tackles.attempts, 0)) * 100),
+    knockAheadsPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.knockAheads, 0) / matches),
+    knockAheadRetainedPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.recovered, 0) / matches),
+    knockAheadTeammatePerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.retainedByTeammate, 0) / matches),
+    knockAheadTurnoversPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.turnovers, 0) / matches),
+    knockAheadOutOfPlayPerMatch: round(results.reduce((sum, result) => sum + result.dribbleTypes.outOfPlay, 0) / matches),
+    questionableShotsPerMatch: round(results.reduce((sum, result) => sum + result.shotsByDistance.questionable, 0) / matches),
+    cfCredibleWindowSamplesPerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfCredibleWindowSamples, 0) / matches),
+    cfDeferredSamplesPerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfDeferredSamples, 0) / matches),
+    cfDeferredForPassPerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfDeferredForPass, 0) / matches),
+    cfDeferredForDribblePerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfDeferredForDribble, 0) / matches),
+    cfCloseWindowSamplesPerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfCloseWindowSamples, 0) / matches),
+    cfCloseDeferredSamplesPerMatch: round(results.reduce((sum, result) => sum + result.shotSelection.cfCloseDeferredSamples, 0) / matches),
+    riskyPassSelectionsPerMatch: round(results.reduce((sum, result) => sum + result.passSelection.risky, 0) / matches),
+    pressuredReceptionFailuresPerMatch: round(results.reduce((sum, result) => sum + result.passSelection.pressuredReceptionFailures, 0) / matches),
+    questionablePressSelectionsPerMatch: round(results.reduce((sum, result) => sum + result.marking.questionablePress, 0) / matches),
+    singleDefenderDropPct: round(singleDrops / Math.max(1, backLineSamples) * 100),
+    laneBlockSingleDropsPerMatch: round(laneBlockSingleDrops / matches),
+    avgBackLineGap: round(results.reduce((sum, result) => sum + result.marking.avgBackLineGap * result.marking.backLineSamples, 0) / Math.max(1, backLineSamples)),
+    avgSingleDropGap: round(results.reduce((sum, result) => sum + result.marking.avgSingleDropGap * result.marking.singleDropSamples, 0) / Math.max(1, singleDrops)),
+    maxBackLineGap: round(results.reduce((max, result) => Math.max(max, result.marking.maxBackLineGap), 0)),
+    unmarkedFinalThirdPct: round(unmarked / Math.max(1, markingSamples) * 100),
+    avgFinalThirdNearestCb: round(results.reduce((sum, result) => sum + result.marking.avgNearestCb * result.marking.finalThirdSamples, 0) / Math.max(1, markingSamples)),
+    avgFinalThirdNearestDefender: round(results.reduce((sum, result) => sum + result.marking.avgNearestDefender * result.marking.finalThirdSamples, 0) / Math.max(1, markingSamples)),
+    carrierTurnsOver30PerMatch: round(results.reduce((sum, result) => sum + result.carrierTurns.over30, 0) / matches),
+    longBackwardCarriesPerMatch: round(results.reduce((sum, result) => sum + result.carrierTurns.longBackwardCarries, 0) / matches),
+    teammatePingPongsPerMatch: round(results.reduce((sum, result) => sum + result.teammatePingPongs, 0) / matches),
+  },
+  qualityFlags: {
+    stuckCarrier: total('stuckCarrierAlerts'),
+    simulationFreeze: total('simulationFreezes'),
+    dizzySpin: total('dizzySpins'),
+    slideTackleDistance: total('slideTackleDistanceAlerts'),
+    slideTackleOob: total('slideTackleOobAlerts'),
+    ownPassGoal: total('ownPassGoals'),
+    unknownLooseGoal: total('unknownLooseGoals'),
+    betterPassShot: results.reduce((sum, result) => sum + result.shotSelection.betterPassAvailable, 0),
+    tightAngleShot: results.reduce((sum, result) => sum + result.shotSelection.tightAngle, 0),
+  },
+  matches: results.map(result => ({
+    seed: result.seed,
+    score: `${result.homeScore}-${result.awayScore}`,
+    passes: result.passes,
+    completionPct: result.passCompletionPct,
+    shots: result.shots,
+    goals: result.homeScore + result.awayScore,
+    penalties: result.setPieces?.penaltiesAwarded ?? 0,
+    tackles: result.tackles.attempts,
+    stuck: result.stuckCarrierAlerts,
+    singleDropPct: round(result.marking.singleDropSamples / Math.max(1, result.marking.backLineSamples) * 100),
+    unmarkedFinalThirdPct: round(result.marking.unmarkedFinalThird / Math.max(1, result.marking.finalThirdSamples) * 100),
+  })),
+}, null, 2));
