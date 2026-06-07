@@ -184,16 +184,11 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         Player* marker = nullptr;
         double best = 1e9;
         for (auto& defender : state.players) {
-            if (defender.team != team || used(&defender)
-                || (defender.role != Role::CB && defender.role != Role::FB
-                    && !(danger && defender.role == Role::CM
-                        && (threat.player->role == Role::CM || threat.player->role == Role::CF)))) continue;
-            if (threat.player->role == Role::WM && defender.role != Role::CB
+            if (defender.team != team || used(&defender)) continue;
+            double roleBonus = agentFor(*threat.player)->markerRoleBonus(*agentFor(defender), danger);
+            if (roleBonus >= 1e8) continue;
+            if (threat.player->role == Role::WM && !agentFor(defender)->isCenterBack()
                 && std::abs(defender.homeY - threat.player->y) >= PITCH_H * 0.42) continue;
-            double roleBonus = (threat.player->role == Role::CF && defender.role == Role::CB)
-                || (threat.player->role == Role::WM && defender.role == Role::FB)
-                || (threat.player->role == Role::CM && defender.role == Role::CM) ? -35.0 : 0.0;
-            if (danger && threat.player->role == Role::CF && defender.role == Role::CM) roleBonus -= 18.0;
             double score = dist(defender.x, defender.y, threat.player->x, threat.player->y) + roleBonus;
             if (score < best) { best = score; marker = &defender; }
         }

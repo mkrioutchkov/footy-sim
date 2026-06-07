@@ -21,6 +21,12 @@ public:
     double boxGuardCost() const override { return 28.0; }
     double penaltyTakerBonus() const override { return 90.0; }
     bool   isOffensiveThreat(double depth, bool danger, double) const override { return depth < (danger ? 340.0 : 270.0); }
+    double markerRoleBonus(const PlayerAI& defender, bool danger) const override {
+        if (defender.isCenterBack()) return -35.0;
+        if (danger && defender.isDefenderLike() && !defender.isDefenderRole()) return -53.0;
+        if (defender.isFullBack()) return 0.0;
+        return 1e9;
+    }
 };
 
 class WMPlayerAI : public PlayerAI {
@@ -41,6 +47,12 @@ public:
     double crossLaneCost() const override { return 18.0; }
     double penaltyTakerBonus() const override { return 25.0; }
     bool   isOffensiveThreat(double depth, bool danger, double yDistFromCenter) const override { return depth < (danger ? 285.0 : 220.0) && yDistFromCenter < (danger ? 245.0 : 200.0); }
+    double markerRoleBonus(const PlayerAI& defender, bool danger) const override {
+        (void)danger;
+        if (defender.isFullBack()) return -35.0;
+        if (defender.isCenterBack()) return 0.0;
+        return 1e9;
+    }
 };
 
 class CMPlayerAI : public PlayerAI {
@@ -68,6 +80,11 @@ public:
     double cutbackGuardCost() const override { return 0.0; }
     double penaltyTakerBonus() const override { return 45.0; }
     bool   isOffensiveThreat(double depth, bool danger, double) const override { return depth < (danger ? 230.0 : 190.0); }
+    double markerRoleBonus(const PlayerAI& defender, bool danger) const override {
+        if (danger && defender.isDefenderLike() && !defender.isDefenderRole()) return -35.0;
+        if (defender.isCenterBack() || defender.isFullBack()) return 0.0;
+        return 1e9;
+    }
 };
 
 class CBPlayerAI : public PlayerAI {
@@ -79,6 +96,7 @@ public:
     double tackleRoleAdjust() const override { return 0.0; }
     bool   isDefenderRole() const override { return true; }
     bool   isDefenderLike() const override { return true; }
+    bool   isCenterBack() const override { return true; }
     double observingCruiseMul() const override { return 0.65; }
     double defensivePressCost(bool danger) const override { return danger ? 8.0 : 120.0; }
     double shotLaneCost() const override { return 34.0; }
@@ -101,6 +119,7 @@ public:
     double openLaneDribbleDistance() const override { return 135.0; }
     bool   isDefenderRole() const override { return true; }
     bool   isDefenderLike() const override { return true; }
+    bool   isFullBack() const override { return true; }
     double observingCruiseMul() const override { return 0.65; }
     double defensivePressCost(bool danger) const override { return danger ? 14.0 : 58.0; }
     double shotLaneCost() const override { return 12.0; }
