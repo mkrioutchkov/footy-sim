@@ -1,0 +1,309 @@
+#include "engine.h"
+#include "agent.h"
+
+Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) {
+    if (engine.setPieceArmed) return Action{ActionType::Tackle, 0.0};
+    if (per.ballIsLoose || per.ballControllerTeam == player.team)
+        return Action{ActionType::Tackle, 0.0};
+
+    Player* ctrl = engine.playerById(per.ballControllerId);
+    if (!ctrl) return Action{ActionType::Tackle, 0.0};
+    if (ctrl->role == Role::GK) return Action{ActionType::Tackle, 0.0};
+
+    double d = dist(player.x, player.y, ctrl->x, ctrl->y);
+    if (d > TACKLE_RANGE + 30.0) return Action{ActionType::Tackle, 0.0};
+
+    bool isDef = (player.role == Role::CB || player.role == Role::FB);
+    if (isDef) {
+        if (player.role == Role::CB) {
+            double fd = (player.team == Team::Home) ? 1.0 : -1.0;
+            bool inOwnHalf = (fd == 1.0) ? ctrl->x < PITCH_W * 0.5 : ctrl->x > PITCH_W * 0.5;
+            if (!inOwnHalf) return Action{ActionType::Tackle, 0.0};
+        }
+        if (player.role == Role::FB) {
+            bool onMyFlank = std::abs(ctrl->y - player.homeY) < 250.0;
+            bool isAttacker = ctrl->role == Role::WM || ctrl->role == Role::CF || ctrl->role == Role::CM;
+            if (!onMyFlank || !isAttacker) return Action{ActionType::Tackle, 0.0};
+        }
+    }
+
+    double sc = tackleBaseScore() - (d / 60.0) * 0.40 + attrFactor(player.attrs.tackling) * 0.20;
+    if (player.role == Role::FB) {
+        sc = tackleBaseScore() - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.18;
+    } else if (player.role == Role::CB) {
+        sc = tackleBaseScore() - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.22;
+    }
+
+    sc += tackleRoleAdjust();
+    if (d < TACKLE_RANGE + 10.0) sc += 0.15;
+
+    // Carrier holding still — easy tackle target
+    if (ctrl->dribbleType == 0 && d < TACKLE_RANGE + 30.0) sc += 0.30;
+
+    double ownGoalX = ownGoalXFor(player.team);
+    bool emergencyBoxChallenge = std::abs(ctrl->x - ownGoalX) < 230.0
+        && std::abs(ctrl->y - PITCH_H / 2.0) < 210.0
+        && d < TACKLE_RANGE + 18.0
+        && (player.role == Role::CB || player.role == Role::FB || player.role == Role::CM);
+
+    auto* defensiveTask = engine.assignmentFor(player.id);
+    if (defensiveTask) {
+        bool closeEnoughToChallenge = d < TACKLE_RANGE + 6.0;
+        bool shapeTask = defensiveTask->role != DefensiveTask::PrimaryPress && defensiveTask->role != DefensiveTask::SecondaryPress
+            && defensiveTask->role != DefensiveTask::CloseDown;
+        if (shapeTask && !emergencyBoxChallenge && !closeEnoughToChallenge && d > TACKLE_RANGE * 0.75 && ctrl->dribbleType != 0) return Action{ActionType::Tackle, 0.0};
+        if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::PrimaryPress)   sc += 0.20;
+        if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::SecondaryPress) sc += 0.10;
+        if (shapeTask && emergencyBoxChallenge)
+            sc += 0.26;
+        else if (shapeTask && closeEnoughToChallenge)
+            sc += 0.10;
+        else if (shapeTask)
+            sc -= 0.58;
+        if (defensiveTask->role != DefensiveTask::PrimaryPress && defensiveTask->role != DefensiveTask::SecondaryPress
+            && std::abs(ctrl->x - (ownGoalXFor(player.team))) > 170.0)
+            sc -= 0.20;
+    }
+
+    if (engine.isCarrierShielded(ctrl->id)) sc -= 0.20;
+
+    if (std::abs(ctrl->x - ownGoalX) < 220.0) sc += 0.18;
+    if (std::abs(ctrl->x - ownGoalX) < 120.0) sc += 0.12;
+
+    int oppsClose = 0;
+    for (auto* o : per.nearbyOpponents) {
+        if (dist(o->x, o->y, ctrl->x, ctrl->y) < 60.0) oppsClose++;
+    }
+    if (std::abs(ctrl->x - ownGoalX) < 300.0 && oppsClose < 2) sc += 0.08;
+    if (d < TACKLE_RANGE + 4.0 && oppsClose >= 2) sc += 0.18;
+    if (d < TACKLE_RANGE) sc += 0.14;
+
+    bool oppFacingAway = (ctrl->team == Team::Home) ? ctrl->vx < 0.0 : ctrl->vx > 0.0;
+    if (oppFacingAway && d < TACKLE_RANGE + 20.0) sc += 0.10;
+    bool carrierNearTouchline = ctrl->y < 85.0 || ctrl->y > PITCH_H - 85.0;
+    if (oppFacingAway && carrierNearTouchline && d < TACKLE_RANGE + 16.0
+        && (player.role == Role::WM || player.role == Role::CM || player.role == Role::FB)) {
+        sc += 0.24;
+    }
+
+    double carrierSpeed = std::hypot(ctrl->vx, ctrl->vy);
+    double forwardX = carrierSpeed > 8.0 ? ctrl->vx / carrierSpeed : std::cos(ctrl->facing);
+    double forwardY = carrierSpeed > 8.0 ? ctrl->vy / carrierSpeed : std::sin(ctrl->facing);
+    double toTacklerX = d > 1.0 ? (player.x - ctrl->x) / d : 0.0;
+    double toTacklerY = d > 1.0 ? (player.y - ctrl->y) / d : 0.0;
+    double exposedDot = forwardX * toTacklerX + forwardY * toTacklerY;
+    if (exposedDot > 0.35 && d < TACKLE_RANGE + 22.0) sc += 0.12;
+    if (exposedDot < -0.35 && !emergencyBoxChallenge) sc -= 0.18;
+
+    double goalDx = ownGoalX - ctrl->x;
+    double goalDy = PITCH_H / 2.0 - ctrl->y;
+    double goalDist = std::max(1.0, std::hypot(goalDx, goalDy));
+    double drivingAtGoal = (forwardX * goalDx + forwardY * goalDy) / goalDist;
+    if (drivingAtGoal > 0.38 && d < TACKLE_RANGE + 24.0 && std::abs(ctrl->x - ownGoalX) < 300.0) sc += 0.14;
+    if (drivingAtGoal < -0.25 && !emergencyBoxChallenge) sc -= 0.06;
+
+    sc += (engine.configFor(player.team).aggression / 100.0) * 0.10;
+
+    return Action{ActionType::Tackle, clamp(sc, 0.0, 1.0), ctrl};
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// cm() — can-mark
+// ══════════════════════════════════════════════════════════════════════════════
+Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
+    if (player.role != Role::CB && player.role != Role::FB) return Action{ActionType::Mark, 0.0};
+    if (per.ballControllerTeam == player.team && !per.ballIsLoose) return Action{ActionType::Mark, 0.0};
+
+    if (per.ballIsLoose && per.intendedId >= 0) {
+        Player* t = engine.playerById(per.intendedId);
+        if (t && t->team != player.team && (t->role == Role::CF || t->role == Role::WM)) {
+            double d = dist(player.x, player.y, t->x, t->y);
+            if (d < 340.0) return Action{ActionType::Mark, clamp(0.80 - (d / 340.0) * 0.25, 0.0, 1.0), t};
+        }
+    }
+
+    Player* best = nullptr;
+    double bd = 1e9;
+    double ownGx = ownGoalXFor(player.team);
+    bool isFb = (player.role == Role::FB);
+
+    for (auto& o : engine.state.players) {
+        if (o.team == player.team || o.role == Role::GK) continue;
+        if (isFb && o.role != Role::WM && (o.role != Role::CM || std::abs(o.y - player.homeY) > 200.0)) continue;
+        if (!isFb && o.role != Role::CF && o.role != Role::CM) continue;
+
+        double d = dist(player.x, player.y, o.x, o.y);
+        double danger = std::abs(o.x - ownGx);
+        double score = d * 0.6 + danger * 0.4;
+
+        if (isFb) {
+            bool onFlank = std::abs(o.y - player.homeY) < 220.0;
+            if (onFlank && o.role == Role::WM)      score -= 80.0;
+            else if (!onFlank && o.role == Role::WM) score += 20.0;
+            else if (o.role == Role::CM)             score -= 15.0;
+        }
+        if (!isFb) {
+            if (o.role == Role::CF)      score -= 60.0;
+            else if (o.role == Role::CM) score -= 20.0;
+        }
+
+        if (score < bd && d < 300.0) { bd = score; best = &o; }
+    }
+
+    if (!best) return Action{ActionType::Mark, 0.0};
+
+    double dangerDist = dist(player.x, player.y, best->x, best->y);
+    double baseScore = isFb ? 0.68 : 0.66;
+    return Action{ActionType::Mark, clamp(baseScore + attrFactor(player.attrs.positioning) * 0.25 - (dangerDist / 300.0) * 0.25, 0.0, 1.0), best};
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// cc() — can-chase
+// ══════════════════════════════════════════════════════════════════════════════
+Action PlayerAI::scoreChase(const Perception& per) {
+    auto& b = engine.state.ball;
+    bool isIntendedReceiver = (player.id == b.intendedReceiverId);
+    bool activeKnockAheadRunner = engine.isActiveKnockAheadRunner(player.id);
+    double ballSpeed = std::sqrt(b.vx * b.vx + b.vy * b.vy);
+    bool needsRecovery = b.z <= 20.0 && ballSpeed < 30.0 && per.amClosestToBall;
+    bool selfLooseTouch = b.controllerId < 0 && b.intendedReceiverId < 0
+        && b.lastToucherId == player.id && b.z <= 20.0
+        && ballSpeed < 90.0 && per.ballDist < 85.0;
+
+    bool canContest = engine.canContestBall(player);
+    double toPlayerDist = std::max(per.ballDist, 1.0);
+    double approachDot = ballSpeed > 1.0
+        ? (b.vx * (player.x - b.x) + b.vy * (player.y - b.y)) / (ballSpeed * toPlayerDist)
+        : 0.0;
+    double arrivalTime = per.ballDist / std::max(ballSpeed, 1.0);
+    bool incomingLooseBall = b.z <= 20.0 && ballSpeed > 20.0 && per.ballDist < 100.0
+        && approachDot > 0.35 && arrivalTime < 1.25;
+    bool deadBallRecoveryRun = !canContest && b.z <= 20.0 && ballSpeed < 35.0 && per.ballDist < 70.0;
+    bool closeLooseBall = canContest && b.z <= 20.0 && per.ballDist < 45.0;
+    bool urgentLooseBallRun = incomingLooseBall || deadBallRecoveryRun || closeLooseBall;
+
+    if (activeKnockAheadRunner && per.ballIsLoose && b.z <= 20.0) {
+        double lead = ballSpeed > 8.0 ? std::min(ballSpeed / 180.0, 0.35) : 0.0;
+        return Action{ActionType::Chase, 1.0, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      ActionPurpose::RecoverLoose};
+    }
+
+    if (selfLooseTouch) {
+        double lead = ballSpeed > 8.0 ? std::min(ballSpeed / 160.0, 0.34) : 0.0;
+        return Action{ActionType::Chase, 1.12, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      ActionPurpose::RecoverOwnTouch};
+    }
+
+    if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun)
+        || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery && !urgentLooseBallRun))
+        return Action{ActionType::Chase, 0.0};
+
+    if (urgentLooseBallRun) {
+        double lead = incomingLooseBall ? std::min(arrivalTime * 0.35, 0.22) : 0.0;
+        return Action{ActionType::Chase, 1.0, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      incomingLooseBall ? ActionPurpose::MeetIncoming : ActionPurpose::RecoverLoose};
+    }
+
+    if (isIntendedReceiver) {
+        double lead = ballSpeed > 30.0 ? 0.2 + std::min(ballSpeed / 300.0, 0.5) : 0.0;
+        return Action{ActionType::Chase, 1.0, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      ActionPurpose::Receive};
+    }
+
+    if (needsRecovery) {
+        return Action{ActionType::Chase, 1.0, nullptr,
+                      clamp(b.x, 10.0, PITCH_W - 10.0),
+                      clamp(b.y, 10.0, PITCH_H - 10.0),
+                      ActionPurpose::RecoverLoose};
+    }
+
+    bool isDef = (player.role == Role::CB || player.role == Role::FB);
+    if (isDef) {
+        if (player.role == Role::FB) {
+            bool onMyFlank = (player.homeY < PITCH_H / 2.0)
+                ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
+            if (per.ballDist > 100.0 && !onMyFlank) return Action{ActionType::Chase, 0.0};
+        }
+        if (player.role == Role::CB) {
+            bool ballInOwnHalf = (player.team == Team::Home)
+                ? b.x < PITCH_W * 0.6 : b.x > PITCH_W * 0.4;
+            if (per.ballDist > 120.0 && !ballInOwnHalf) return Action{ActionType::Chase, 0.0};
+        }
+    }
+
+    if (player.role == Role::CM && per.ballDist > 100.0) {
+        bool ballInMiddle = b.x > PITCH_W * 0.25 && b.x < PITCH_W * 0.75;
+        if (!ballInMiddle) return Action{ActionType::Chase, 0.0};
+    }
+
+    if (player.role == Role::WM && per.ballDist > 80.0) {
+        bool onMyFlank = (player.homeY < PITCH_H / 2.0)
+            ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
+        if (!onMyFlank) return Action{ActionType::Chase, 0.0};
+    }
+
+    if (player.role == Role::CF && per.ballDist > 80.0) {
+        double oppGx = goalXFor(player.team);
+        bool ballNearOppGoal = std::abs(b.x - oppGx) < 200.0;
+        if (!ballNearOppGoal) return Action{ActionType::Chase, 0.0};
+    }
+
+    double sc = per.ballDist < 50.0 ? 0.90 : per.ballDist < 100.0 ? 0.75 : 0.55;
+    sc -= per.ballDist / 180.0 * 0.3;
+
+    if (per.amClosestToBall) sc += 0.12;
+    if (per.anyOpponentCloserToBall) {
+        double ms = attrFactor(player.attrs.speed) * SPEED_SPRINT;
+        if (per.ballDist / std::max(ms, 1.0) < 1.5) sc += 0.10;
+    }
+
+    double bs = ballSpeed;
+    double la = bs > 30.0 ? 0.3 + std::min(bs / 200.0, 0.8) : 0.0;
+
+    if (bs > 15.0 && per.ballDist > 20.0) {
+        double toMeX = player.x - b.x, toMeY = player.y - b.y;
+        double toMeDist = std::sqrt(toMeX * toMeX + toMeY * toMeY);
+        if (toMeDist > 1.0) {
+            double dot = (b.vx * toMeX + b.vy * toMeY) / (bs * toMeDist);
+            if (dot > 0.4) sc += 0.12;
+            if (dot > 0.7) sc += 0.10;
+        }
+    }
+
+    auto* rp = engine.qRecentPass();
+    if (rp && engine.state.clockMs - rp->clockMs < 800.0) {
+        if (rp->team != player.team) {
+            double rdx = rp->vx, rdy = rp->vy;
+            double rd = std::sqrt(rdx * rdx + rdy * rdy);
+            if (rd > 1.0) {
+                double toLine = ((player.x - rp->bx) * rdx + (player.y - rp->by) * rdy) / (rd * rd);
+                double perp = std::sqrt(
+                    (player.x - rp->bx - toLine * rdx) * (player.x - rp->bx - toLine * rdx)
+                  + (player.y - rp->by - toLine * rdy) * (player.y - rp->by - toLine * rdy));
+                if (perp < 60.0 && toLine > 0.1 && toLine < 1.2) sc += 0.12;
+            }
+        }
+    }
+
+    if (isDef) {
+        double ownGoalX = ownGoalXFor(player.team);
+        if (std::abs(b.x - ownGoalX) < 250.0) sc += 0.20;
+        if (std::abs(b.x - ownGoalX) < 150.0) sc += 0.15;
+    }
+
+    return Action{ActionType::Chase, clamp(sc, 0.0, 1.0), nullptr,
+                  clamp(b.x + b.vx * la, 10.0, PITCH_W - 10.0),
+                  clamp(b.y + b.vy * la, 10.0, PITCH_H - 10.0)};
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// bp() — best-position (off-ball positioning)
+// ══════════════════════════════════════════════════════════════════════════════

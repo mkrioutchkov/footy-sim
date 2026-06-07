@@ -1,0 +1,306 @@
+#include "engine.h"
+#include "agent.h"
+
+Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
+    const auto& p = player;
+    double gx = goalXFor(p.team);
+    double shotDistance = std::hypot(p.x - gx, p.y - PITCH_H / 2.0);
+    double angleDeg = engine.goalOpeningAngleDeg(p.x, p.y, gx);
+
+    ActionAudit audit;
+    audit.distance = shotDistance;
+    audit.angleDeg = angleDeg;
+    audit.pressureCount = per.pressureCount;
+    CarrierPressure cp = assessCarrierPressure(engine, p);
+    double freshCrossMax = freshCrossMaxDistance();
+    bool freshCross = p.crossCollected > 0.0 && shotDistance < freshCrossMax;
+
+    bool outsideGoalLane = std::abs(p.y - PITCH_H / 2.0) > GOAL_W / 2.0 - BALL_R + 20.0;
+    bool acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150.0;
+
+    if (!freshCross && angleDeg < 8.0 && shotDistance > 120.0)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+
+    if ((!freshCross && shotDistance > 260.0) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && acuteGeometry))
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+
+    if (!freshCross && shotDistance > 240.0 && angleDeg < 7.0)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+
+    double hardMax = shotMaxDistance();
+    if (freshCross) hardMax = std::max(hardMax, freshCrossMax);
+    if (shotDistance > hardMax)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    if (p.role == Role::CM && shotDistance > 205.0 && (angleDeg < 10.0 || per.pressureCount > 1))
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) > 180.0 && shotDistance > 155.0)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+
+    double mr = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
+    if (shotDistance > std::min(mr, hardMax))
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+
+    double toGoalX = gx - p.x;
+    double toGoalY = PITCH_H / 2.0 - p.y;
+    double toGoalDist = std::hypot(toGoalX, toGoalY);
+    if (toGoalDist < 1.0) toGoalDist = 1.0;
+    double facingDot = (std::cos(p.facing) * toGoalX + std::sin(p.facing) * toGoalY) / toGoalDist;
+    if (!freshCross && facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    if (!freshCross && facingDot < 0.35 && shotDistance > 135.0)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    if (!freshCross && cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+
+    double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.55;
+    if (shotDistance < 140.0 && per.pressureCount == 0 && angleDeg > 10.0) sc = std::max(sc, 0.38);
+    if (shotDistance < 120.0 && per.pressureCount == 0) sc = std::max(sc, 0.30);
+    if (shotDistance < 90.0 && per.pressureCount == 0)  sc = std::max(sc, 0.45);
+    if (shotDistance < 50.0 && per.pressureCount <= 1)  sc = std::max(sc, 0.50);
+    if (shotDistance < 30.0 && per.pressureCount <= 1)  sc = std::max(sc, 0.68);
+
+    Player* gk = nullptr;
+    for (auto& o : engine.state.players) {
+        if (o.team != p.team && o.role == Role::GK) { gk = &o; break; }
+    }
+    if (gk) {
+        double gkOffCenter = std::abs(p.y - gk->y);
+        if (gkOffCenter > 60.0)      sc += 0.12;
+        else if (gkOffCenter < 25.0) sc -= 0.08;
+        if (std::abs(gk->x - gx) > 50.0) sc += 0.08;
+    }
+
+    if (shotDistance < 100.0) sc += 0.14;
+    if (shotDistance < 60.0)  sc += 0.12;
+    sc += shotScoreBonus();
+    sc += shotDistancePenalty(shotDistance);
+    if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) < 140.0) sc += 0.08;
+    if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= p.role == Role::WM ? 0.04 : 0.08;
+    sc -= std::min(0.42, per.pressureCount * 0.16);
+    sc -= clamp(cp.score - 0.55, 0.0, 0.75) * 0.18;
+    if (cp.exposed > 0.45 && shotDistance > 85.0) sc -= 0.12;
+
+    bool credibleOpening = angleDeg >= 7.5 || shotDistance < 115.0;
+    if (shotDistance < 200.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.30 : 0.12;
+    if (shotDistance < 120.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.38 : 0.12;
+    if (shotDistance < 70.0  && credibleOpening) sc += per.pressureCount <= 1 ? 0.22 : 0.05;
+    if (shotDistance < 40.0)  sc += per.pressureCount <= 1 ? 0.18 : 0.04;
+
+    if (freshCross) sc += freshCrossShotBonus();
+
+    return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// cd() — can-dribble
+// ══════════════════════════════════════════════════════════════════════════════
+Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/) {
+    const auto& p = player;
+    double gx = goalXFor(p.team);
+    double fd = (p.team == Team::Home) ? 1.0 : -1.0;
+    double tx = gx, ty = p.y;
+    CarrierPressure cp = assessCarrierPressure(engine, p);
+
+    // Evade nearest opponent if close
+    if (per.nearestOpponentDist < 50.0 && !per.nearbyOpponents.empty()) {
+        Player* n = nullptr;
+        double nd = 1e9;
+        for (auto* o : per.nearbyOpponents) {
+            double d = dist(p.x, p.y, o->x, o->y);
+            if (d < nd) { nd = d; n = o; }
+        }
+        if (n) {
+            double ax = p.x - n->x, ay = p.y - n->y;
+            double ad = std::sqrt(ax * ax + ay * ay);
+            if (ad > 1.0) {
+                double ex = ax / ad;
+                double ey = ay / ad;
+                if (ex * fd < -0.25) {
+                    double side = ey >= 0.0 ? 1.0 : -1.0;
+                    tx = p.x + fd * 24.0;
+                    ty = p.y + side * 72.0;
+                } else {
+                    tx = p.x + ex * 70.0;
+                    ty = p.y + ey * 70.0;
+                }
+            }
+        }
+    }
+
+    // Keep away from pitch edges
+    if (p.y < 60.0)           ty = std::max(ty, p.y + 40.0);
+    if (p.y > PITCH_H - 60.0) ty = std::min(ty, p.y - 40.0);
+    if (p.x < 60.0)           tx = std::max(tx, p.x + 40.0);
+    if (p.x > PITCH_W - 60.0) tx = std::min(tx, p.x - 40.0);
+
+    // Target selection: prefer space over goal
+    double distToGoal = std::abs(p.x - gx);
+    bool inOwnHalf = (fd > 0 && p.x < HALF_X) || (fd < 0 && p.x > HALF_X);
+    bool finalThird = (fd > 0 && p.x > PITCH_W * 2.0 / 3.0) || (fd < 0 && p.x < PITCH_W / 3.0);
+    bool nearGoal = distToGoal < 200.0;
+
+    // Find open space: check density around potential targets
+    auto densityAt = [&](double cx, double cy) {
+        int count = 0;
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team || o.role == Role::GK) continue;
+            if (dist(cx, cy, o.x, o.y) < 80.0) count++;
+        }
+        return count;
+    };
+
+    // Consider flank targets for CM/FB
+    if (p.role == Role::CM || p.role == Role::FB) {
+        double topFlank = std::max(80.0, p.y - 100.0);
+        double botFlank = std::min(PITCH_H - 80.0, p.y + 100.0);
+        double topDensity = densityAt(p.x + fd * 60.0, topFlank);
+        double botDensity = densityAt(p.x + fd * 60.0, botFlank);
+        double centerDensity = densityAt(p.x + fd * 60.0, p.y);
+
+        // Pick the least congested direction
+        if (topDensity < centerDensity && topDensity < botDensity) {
+            ty = topFlank;
+            tx = p.x + fd * 80.0;
+        } else if (botDensity < centerDensity) {
+            ty = botFlank;
+            tx = p.x + fd * 80.0;
+        } else {
+            tx = p.x + fd * 80.0;
+        }
+    }
+
+    // Blend toward goal only when close
+    if (nearGoal) {
+        tx = lerp(tx, gx, 0.55);
+    } else {
+        tx = lerp(tx, gx, 0.20);
+    }
+
+    // Scoring
+    double sc = 0.35;
+    double backwardTarget = (tx - p.x) * fd;
+    if (backwardTarget < -45.0) {
+        sc -= 0.34;
+        tx = p.x - fd * 32.0;
+    }
+    if (engine.backwardCarryCarrierId == p.id) {
+        double possessionBackward = (p.x - engine.backwardCarryStartX) * fd;
+        bool touchlineCarry = p.y < 85.0 || p.y > PITCH_H - 85.0;
+        if (possessionBackward < -70.0 && backwardTarget < 0.0) {
+            double side = p.y < PITCH_H / 2.0 ? 1.0 : -1.0;
+            tx = p.x + fd * (touchlineCarry ? 70.0 : 48.0);
+            ty = clamp(p.y + side * (touchlineCarry ? 64.0 : 42.0), 35.0, PITCH_H - 35.0);
+            sc -= possessionBackward < -140.0 ? 0.42 : 0.24;
+        }
+    }
+
+    // Space bonus: more space = more dribble
+    if (per.nearestOpponentDist > 100.0) sc += 0.15;
+    else if (per.nearestOpponentDist > 60.0) sc += 0.05;
+    else if (per.nearestOpponentDist < 30.0) sc -= 0.20;
+    if (cp.score > 0.70) sc -= 0.16;
+    if (cp.score > 1.05) sc -= 0.18;
+    if (cp.exposed > 0.35 && per.nearestOpponentDist < 42.0) sc -= 0.12;
+
+    // Traffic penalty: crowded area = don't dribble
+    int oppsInPath = 0;
+    for (auto& o : engine.state.players) {
+        if (o.team == p.team || o.role == Role::GK) continue;
+        double d = dist(p.x, p.y, o.x, o.y);
+        if (d < 80.0) oppsInPath++;
+    }
+    if (oppsInPath >= 3) sc -= 0.20;
+    if (oppsInPath >= 5) sc -= 0.30;
+
+    // Field position: prefer passing in own half
+    if (inOwnHalf) sc -= 0.10;
+    if (inOwnHalf) sc += dribbleOwnHalfExtraPenalty(); // CM/CB/FB: extra penalty in own half
+
+    // Near goal bonus
+    if (nearGoal) sc += 0.20;
+
+    // Stuck detection
+    double m = std::sqrt((p.x - lastPosX) * (p.x - lastPosX) + (p.y - lastPosY) * (p.y - lastPosY));
+    if (holdTicks > 60 && m < 3.0)  sc -= 0.20;
+    if (holdTicks > 180)            sc -= 0.30;
+
+    // Open space ahead bonus: check if target area is clear
+    int densityAtTarget = densityAt(tx, ty);
+    if (densityAtTarget == 0) sc += 0.15;
+    else if (densityAtTarget == 1) sc += 0.05;
+    else if (densityAtTarget >= 3) sc -= 0.10;
+
+    double aheadX = clamp(p.x + fd * 130.0, 35.0, PITCH_W - 35.0);
+    int densityAhead = densityAt(aheadX, p.y);
+    if ((p.role == Role::CM || p.role == Role::FB) && !finalThird && per.nearestOpponentDist > 78.0) {
+        double laneY = p.y;
+        double topDensity = densityAt(p.x + fd * 145.0, clamp(p.y - 75.0, 45.0, PITCH_H - 45.0));
+        double midDensity = densityAt(p.x + fd * 145.0, p.y);
+        double botDensity = densityAt(p.x + fd * 145.0, clamp(p.y + 75.0, 45.0, PITCH_H - 45.0));
+        if (topDensity < midDensity && topDensity <= botDensity) laneY = clamp(p.y - 75.0, 45.0, PITCH_H - 45.0);
+        else if (botDensity < midDensity) laneY = clamp(p.y + 75.0, 45.0, PITCH_H - 45.0);
+        int laneDensity = std::min({ topDensity, midDensity, botDensity });
+        if (laneDensity <= 1) {
+            sc += p.role == Role::CM ? 0.18 : 0.12;
+            tx = clamp(p.x + fd * (p.role == Role::CM ? 165.0 : 135.0), 35.0, PITCH_W - 35.0);
+            ty = laneY;
+        }
+    }
+    if (finalThird && per.nearestOpponentDist > 70.0 && densityAhead <= 1) {
+        sc += 0.28;
+        tx = p.x + fd * 165.0;
+        ty = lerp(p.y, PITCH_H / 2.0, 0.18);
+    } else if (!inOwnHalf && per.nearestOpponentDist > 115.0 && densityAhead <= 1) {
+        sc += 0.12;
+        tx = p.x + fd * 130.0;
+    }
+
+    // Role-specific
+    if (p.role == Role::WM) {
+        bool inWide = std::abs(p.y - PITCH_H / 2.0) > 140.0;
+        bool nearOppBox = distToGoal < 350.0;
+        if (inWide) {
+            sc += 0.15;
+            if (per.nearestOpponentDist < 60.0) sc += 0.08;
+        }
+        if (nearOppBox && per.nearestOpponentDist > 50.0) sc += 0.10;
+        if (inWide && nearOppBox) {
+            tx = lerp(tx, gx, 0.75);
+            ty = lerp(ty, PITCH_H / 2.0, 0.6);
+        }
+    }
+    sc += openSpaceDribbleBonus(per.nearestOpponentDist);
+    sc += nearGoalDribbleBonus(nearGoal, distToGoal);
+
+    if (cp.score > 0.70 && cp.nearestPlayer) {
+        double ax = p.x - cp.nearestPlayer->x;
+        double ay = p.y - cp.nearestPlayer->y;
+        double ad = std::hypot(ax, ay);
+        if (ad > 1.0) {
+            double side = ay >= 0.0 ? 1.0 : -1.0;
+            double retreat = cp.exposed > 0.35 ? -fd * 34.0 : 0.0;
+            tx = p.x + ax / ad * 44.0 + retreat;
+            ty = p.y + side * 48.0;
+        }
+    }
+
+    if (engine.backwardCarryCarrierId == p.id) {
+        double possessionBackward = (p.x - engine.backwardCarryStartX) * fd;
+        double finalBackwardTarget = (tx - p.x) * fd;
+        bool touchlineCarry = p.y < 85.0 || p.y > PITCH_H - 85.0;
+        if (possessionBackward < -70.0 && finalBackwardTarget < 0.0) {
+            double side = p.y < PITCH_H / 2.0 ? 1.0 : -1.0;
+            tx = p.x + fd * (touchlineCarry ? 78.0 : 55.0);
+            ty = clamp(p.y + side * (touchlineCarry ? 70.0 : 46.0), 35.0, PITCH_H - 35.0);
+            sc -= possessionBackward < -140.0 ? 0.50 : 0.28;
+        }
+    }
+
+    return Action{ActionType::Dribble, clamp(sc, 0.0, 1.0), nullptr,
+                  clamp(tx, 35.0, PITCH_W - 35.0),
+                  clamp(ty, 35.0, PITCH_H - 35.0),
+                  ActionPurpose::Space};
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ct() — can-tackle
+// ══════════════════════════════════════════════════════════════════════════════
