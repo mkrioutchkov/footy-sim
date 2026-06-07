@@ -18,7 +18,9 @@ public:
         if(forwardProgress > 30.0) forwardPasses++;
         else if(forwardProgress < -30.0) backwardPasses++;
         else sidewaysPasses++;
+        if(forwardProgress < -200.0) longBackwardPasses++;
     }
+    void recordKeeperBackpass()       { keeperBackpasses++; }
     void recordOffside()              { offsidesTotal++; }
     void recordPassSelection(double dist, double expectedCompletion, int blockers, double pressure, bool risky, int saferId) {
         passAudits++; passDistTotal+=dist; passExpectedTotal+=expectedCompletion;
@@ -103,6 +105,7 @@ public:
         carrierSamples++; if(sharp) carrierSharp++; if(limited) carrierLimited++;
         carrierDegTotal+=deg; if(deg>15) carrierOver15++; if(deg>30) carrierOver30++;
     }
+    void recordLongBackwardCarry()    { longBackwardCarries++; }
 
     // ── Ball speed ──
     void recordBallSpeedSample(double speed) { if(speed>ballSpeedPeak) ballSpeedPeak=speed; ballSpeedTotal+=speed; ballSpeedSamples++; }
@@ -119,6 +122,7 @@ private:
     int throughBallsAttempted=0, throughBallsCompleted=0;
     int crossesAttempted=0, crossesCompleted=0, headers=0, headedShots=0;
     int forwardPasses=0, backwardPasses=0, sidewaysPasses=0;
+    int longBackwardPasses=0, keeperBackpasses=0;
     int offsidesTotal=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;
     int shotsGK=0, shotsCB=0, shotsFB=0, shotsCM=0, shotsWM=0, shotsCF=0, shotsUnknownRole=0;
@@ -155,6 +159,7 @@ private:
     int riskyKnockAheads=0, riskyKnockAheadTurnovers=0;
     double knockAheadSpeedTotal=0;
     int carrierSamples=0, carrierSharp=0, carrierLimited=0, carrierOver15=0, carrierOver30=0;
+    int longBackwardCarries=0;
     double carrierDegTotal=0;
     int passAudits=0, riskyPassChoices=0, saferPassIgnored=0;
     double passDistTotal=0, passExpectedTotal=0;

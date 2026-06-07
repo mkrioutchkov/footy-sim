@@ -43,6 +43,27 @@ CarrierPressure assessCarrierPressure(GameEngine& engine, const Player& p) {
 // ══════════════════════════════════════════════════════════════════════════════
 // tick()
 // ══════════════════════════════════════════════════════════════════════════════
+
+PitchArea PlayerAI::currentPitchArea() const {
+    double ownGoalX = ownGoalXFor(player.team);
+    double oppGoalX = goalXFor(player.team);
+    double fd = player.team == Team::Home ? 1.0 : -1.0;
+    double progress = (player.x - ownGoalX) * fd;
+    double halfPitch = PITCH_W * 0.5;
+    double centralDist = std::abs(player.y - PITCH_H / 2.0);
+    bool wide = centralDist > 140.0;
+    
+    if (std::abs(player.x - ownGoalX) < PENALTY_AREA_W && centralDist < PENALTY_AREA_H / 2.0)
+        return PitchArea::OwnBox;
+    if (progress < halfPitch * 0.33)
+        return wide ? (player.y < PITCH_H / 2.0 ? PitchArea::WideLeft : PitchArea::WideRight) : PitchArea::OwnThird;
+    if (progress < halfPitch * 0.66)
+        return wide ? (player.y < PITCH_H / 2.0 ? PitchArea::WideLeft : PitchArea::WideRight) : PitchArea::MidThird;
+    if (std::abs(player.x - oppGoalX) < PENALTY_AREA_W && centralDist < PENALTY_AREA_H / 2.0)
+        return PitchArea::OppBox;
+    return wide ? (player.y < PITCH_H / 2.0 ? PitchArea::WideLeft : PitchArea::WideRight) : PitchArea::FinalThird;
+}
+
 void PlayerAI::tick(double sdt) {
     if (player.role == Role::GK) return;
     facing = player.facing;
@@ -245,7 +266,7 @@ void PlayerAI::adjustActionScores(std::vector<Action>&, bool) {
     // Default: no role-specific adjustments. Subclasses override.
 }
 
-void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
+void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
     auto& p = player;
     if (p.role == Role::GK) return;
     bool attacking = (p.team == spTeam);
@@ -256,7 +277,7 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
     double slotB = std::cos(p.id * 1.61);
 
     if (attacking) {
-        if (spType == "corner") {
+        if (spType == SetPiece::Corner) {
             double bx = engine.state.ball.x;
             double by = engine.state.ball.y;
             bool nearPost = by < PITCH_H / 2.0;
@@ -273,7 +294,7 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
                 p.targetX = lerp(p.x, oppGoalX - fd * 150.0, 0.6);
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.3);
             }
-        } else if (spType == "penalty") {
+        } else if (spType == SetPiece::Penalty) {
             if (p.role == Role::CF || p.role == Role::CM) {
                 p.targetX = engine.state.ball.x - fd * (45.0 + std::abs(slotA) * 55.0);
                 p.targetY = PITCH_H / 2.0 + slotB * 110.0;
@@ -281,7 +302,7 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
                 p.targetX = engine.state.ball.x - fd * (90.0 + std::abs(slotA) * 80.0);
                 p.targetY = p.homeY;
             }
-        } else if (spType == "free_kick") {
+        } else if (spType == SetPiece::FreeKick) {
             double bx = engine.state.ball.x;
             double by = engine.state.ball.y;
             if (p.role == Role::CF) {
@@ -300,14 +321,14 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
                 p.targetX = lerp(p.x, bx, 0.3);
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.2);
             }
-        } else if (spType == "throw_in") {
+        } else if (spType == SetPiece::ThrowIn) {
             double bx = engine.state.ball.x;
             double by = engine.state.ball.y;
             p.targetX = bx + fd * (50.0 + slotA * 30.0);
             p.targetY = by + slotB * 50.0;
         }
     } else {
-        if (spType == "corner") {
+        if (spType == SetPiece::Corner) {
             double by = engine.state.ball.y;
             bool nearTop = by < PITCH_H / 2.0;
             if (p.role == Role::CB || p.role == Role::FB) {
@@ -327,7 +348,7 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
                 p.targetX = ownGoalX + fd * 185.0;
                 p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.25);
             }
-        } else if (spType == "penalty") {
+        } else if (spType == SetPiece::Penalty) {
             if (p.role == Role::GK) {
                 p.targetX = ownGoalX;
                 p.targetY = PITCH_H / 2.0;
@@ -338,7 +359,7 @@ void PlayerAI::setPiecePositioning(const std::string& spType, Team spTeam) {
                 p.targetX = engine.state.ball.x + fd * (75.0 + std::abs(slotA) * 75.0);
                 p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.35);
             }
-        } else if (spType == "free_kick") {
+        } else if (spType == SetPiece::FreeKick) {
             double bx = engine.state.ball.x;
             double by = engine.state.ball.y;
             double goalDist = std::abs(bx - ownGoalX);
@@ -378,18 +399,58 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
     const auto& p = player;
     double fd = (p.team == Team::Home) ? 1.0 : -1.0;
     std::vector<Action> r;
+    double ownGoalX = ownGoalXFor(p.team);
+    double ownProgress = (p.x - ownGoalX) * fd;
+
+    auto clearOutfieldOutletExists = [&]() {
+        for (auto& t : engine.state.players) {
+            if (t.team != p.team || t.id == p.id || t.role == Role::GK) continue;
+            if (engine.isOffsideTarget(p, t)) continue;
+            double d = dist(p.x, p.y, t.x, t.y);
+            if (d < 42.0 || d > 360.0) continue;
+            double fp = (t.x - p.x) * fd;
+            if (fp < -80.0) continue;
+            double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
+            if (ls < 1.0) continue;
+            int bl = 0;
+            for (auto& o : engine.state.players) {
+                if (o.team == p.team || o.role == Role::GK) continue;
+                double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
+                double perp = std::hypot(o.x - p.x - t2 * dx, o.y - p.y - t2 * dy);
+                if (perp < 34.0) bl++;
+            }
+            if (bl > 1) continue;
+            int receiverPressure = 0;
+            for (auto& o : engine.state.players) {
+                if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < 45.0) receiverPressure++;
+            }
+            if (receiverPressure > 1) continue;
+            return true;
+        }
+        return false;
+    };
+    bool hasClearOutfieldOutlet = clearOutfieldOutletExists();
 
     for (auto& t : engine.state.players) {
-        if (t.team != p.team || t.id == p.id || t.role == Role::GK) continue;
+        if (t.team != p.team || t.id == p.id) continue;
+        bool movingTowardOwnGoal = p.vx * fd < -8.0;
+        bool trappedNearTouchline = (p.y < 90.0 || p.y > PITCH_H - 90.0) && per.nearestOpponentDist < 42.0;
+        bool nearOwnThird = ownProgress < PITCH_W * 0.40;
+        bool urgentKeeperNeed = (per.pressureCount >= 2 && nearOwnThird)
+            || (movingTowardOwnGoal && per.nearestOpponentDist < 42.0 && nearOwnThird)
+            || (trappedNearTouchline && ownProgress < PITCH_W * 0.36);
+        bool keeperOutlet = t.role == Role::GK && urgentKeeperNeed && !hasClearOutfieldOutlet;
+        if (t.role == Role::GK && !keeperOutlet) continue;
         double d = dist(p.x, p.y, t.x, t.y);
-        if (d < 42.0 || d > 550.0) continue;
-        if (engine.isOffsideTarget(p, t)) continue;
+        if (d < 42.0 || d > (keeperOutlet ? 455.0 : 550.0)) continue;
+        if (!keeperOutlet && engine.isOffsideTarget(p, t)) continue;
 
         if (d > 40.0) {
             double angleTo = std::atan2(t.y - p.y, t.x - p.x);
             double aDiff = std::abs(angleTo - facing);
             double na = (aDiff > 3.141592653589793) ? 2.0 * 3.141592653589793 - aDiff : aDiff;
-            if (na > 3.141592653589793 / 3.0) continue;
+            double visionLimit = keeperOutlet ? 3.141592653589793 * 0.82 : 3.141592653589793 / 3.0;
+            if (na > visionLimit) continue;
         }
 
         int bl = 0;
@@ -424,15 +485,19 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         double progression = clamp(fp / 240.0, -0.5, 1.0);
         double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
         double sc = completion * (0.34 + std::max(0.0, progression) * 0.34) - (1.0 - completion) * turnoverCost;
+        if (keeperOutlet) {
+            sc += 0.04 + per.pressureCount * 0.04 + (movingTowardOwnGoal ? 0.06 : 0.0);
+            if (bl == 0) sc += 0.02;
+        }
         if (t.id == lastPassTargetId) sc -= 0.18;
 
         if (recentPassTarget == t.id && engine.state.clockMs - recentPassTime < 3000.0) sc -= 0.10;
 
         if (bl == 0 && fp > 80.0) sc += 0.08;
         bool carrierFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
-        if (fp < -30.0) sc -= carrierFinalThird ? 0.28 : 0.16;
-        if (fp < -90.0) sc -= carrierFinalThird ? 0.30 : 0.18;
-        if (carrierFinalThird && per.pressureCount == 0 && fp < 0.0) sc -= 0.12;
+        if (!keeperOutlet && fp < -30.0) sc -= carrierFinalThird ? 0.28 : 0.16;
+        if (!keeperOutlet && fp < -90.0) sc -= carrierFinalThird ? 0.30 : 0.18;
+        if (!keeperOutlet && carrierFinalThird && per.pressureCount == 0 && fp < 0.0) sc -= 0.12;
 
         double dg2 = std::abs(p.x - (goalXFor(p.team)));
         if (dg2 < 200.0 && fp > 0.0 && d < 150.0) sc += 0.10;
@@ -502,7 +567,8 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         }
 
         std::string pur = "keep";
-        if (fp > 120.0 && bl == 0)          pur = "build";
+        if (keeperOutlet)                    pur = "keeper_backpass";
+        else if (fp > 120.0 && bl == 0)     pur = "build";
         else if (fp > 40.0 && bl <= 1)      pur = "build";
         else if (std::abs(t.y - p.y) > 150.0) pur = "switch";
         else if (bl >= 2 && fp < -30.0)      pur = "clear";
@@ -559,20 +625,20 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
 
         auto* assignment = engine.assignmentFor(t.id);
         if (assignment) {
-            if (assignment->role == "run_ahead")        sc += 0.12;
-            if ((assignment->role == "cross_lane" || assignment->role == "hold_width")
+            if (assignment->role == DefensiveTask::RunAhead)        sc += 0.12;
+            if ((assignment->role == DefensiveTask::CrossLane || assignment->role == DefensiveTask::HoldWidth)
                 && (t.role == Role::WM || t.role == Role::FB) && std::abs(t.y - PITCH_H / 2.0) > 120.0) sc += 0.08;
-            if (assignment->role == "overlap" && p.role != Role::CB) sc += 0.11;
-            if (assignment->role == "advance_midfield") sc += 0.09;
-            if (assignment->role == "hold_width" && std::abs(t.y - p.y) > 120.0) sc += 0.08;
+            if (assignment->role == DefensiveTask::Overlap && p.role != Role::CB) sc += 0.11;
+            if (assignment->role == DefensiveTask::AdvanceMidfield) sc += 0.09;
+            if (assignment->role == DefensiveTask::HoldWidth && std::abs(t.y - p.y) > 120.0) sc += 0.08;
         }
 
         double offsideLine = engine.offsideLineFor(p.team);
         double onsideGap = std::isnan(offsideLine) ? 1e9 : (offsideLine - t.x) * fd;
 
         bool wideOutletTarget = targetWide && fp > 20.0 && d < 500.0;
-        bool releasedRunner = (assignment && assignment->role == "run_ahead")
-                              || (assignment && assignment->role == "overlap" && !wideOutletTarget)
+        bool releasedRunner = (assignment && assignment->role == DefensiveTask::RunAhead)
+                              || (assignment && assignment->role == DefensiveTask::Overlap && !wideOutletTarget)
                               || (p.role == Role::CM && (t.role == Role::CF || (t.role == Role::WM && !wideOutletTarget)));
         if (!isWideDelivery && releasedRunner && fp > 30.0 && onsideGap > -25.0 && onsideGap < 170.0 && bl <= 2) {
             pur = "through";
@@ -630,7 +696,8 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
                 if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < 48.0) pressure++;
             }
             double central = 1.0 - std::abs(t.y - PITCH_H / 2.0) / 230.0;
-            double roleBonus = t.role == Role::CF ? 0.72 : t.role == Role::WM ? 0.36 : t.role == Role::CM ? 0.00 : 0.0;
+            double roleBonus = 0.0;
+            for (auto& a : engine.agents) { if (a->player.id == t.id) { roleBonus = a->roleBonusForPassTarget(); break; } }
             double goalThreat = targetGoalDist < 150.0 ? 0.34 : targetGoalDist < 210.0 ? 0.20 : targetGoalDist < 260.0 ? 0.06 : -0.08;
             double score = central + roleBonus + goalThreat + (300.0 - targetGoalDist) / 390.0 - pressure * 0.25 - d / 900.0;
             if (score > bestScore) { bestScore = score; bestRunner = &t; }
@@ -659,7 +726,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     audit.angleDeg = angleDeg;
     audit.pressureCount = per.pressureCount;
     CarrierPressure cp = assessCarrierPressure(engine, p);
-    double freshCrossMax = p.role == Role::CF ? 285.0 : (p.role == Role::WM ? 270.0 : 250.0);
+    double freshCrossMax = freshCrossMaxDistance();
     bool freshCross = p.crossCollected > 0.0 && shotDistance < freshCrossMax;
 
     bool outsideGoalLane = std::abs(p.y - PITCH_H / 2.0) > GOAL_W / 2.0 - BALL_R + 20.0;
@@ -674,12 +741,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (!freshCross && shotDistance > 240.0 && angleDeg < 7.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
 
-    static const std::unordered_map<Role, double> roleMax = {
-        {Role::CF, 265.0}, {Role::CM, 245.0}, {Role::WM, 240.0}, {Role::FB, 205.0}, {Role::CB, 180.0}
-    };
-    double hardMax = 260.0;
-    auto rit = roleMax.find(p.role);
-    if (rit != roleMax.end()) hardMax = rit->second;
+    double hardMax = shotMaxDistance();
     if (freshCross) hardMax = std::max(hardMax, freshCrossMax);
     if (shotDistance > hardMax)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, "", audit};
@@ -763,7 +825,18 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         if (n) {
             double ax = p.x - n->x, ay = p.y - n->y;
             double ad = std::sqrt(ax * ax + ay * ay);
-            if (ad > 1.0) { tx = p.x + (ax / ad) * 70.0; ty = p.y + (ay / ad) * 70.0; }
+            if (ad > 1.0) {
+                double ex = ax / ad;
+                double ey = ay / ad;
+                if (ex * fd < -0.25) {
+                    double side = ey >= 0.0 ? 1.0 : -1.0;
+                    tx = p.x + fd * 24.0;
+                    ty = p.y + side * 72.0;
+                } else {
+                    tx = p.x + ex * 70.0;
+                    ty = p.y + ey * 70.0;
+                }
+            }
         }
     }
 
@@ -818,6 +891,21 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     // Scoring
     double sc = 0.30;
+    double backwardTarget = (tx - p.x) * fd;
+    if (backwardTarget < -45.0) {
+        sc -= 0.34;
+        tx = p.x - fd * 32.0;
+    }
+    if (engine.backwardCarryCarrierId == p.id) {
+        double possessionBackward = (p.x - engine.backwardCarryStartX) * fd;
+        bool touchlineCarry = p.y < 85.0 || p.y > PITCH_H - 85.0;
+        if (possessionBackward < -70.0 && backwardTarget < 0.0) {
+            double side = p.y < PITCH_H / 2.0 ? 1.0 : -1.0;
+            tx = p.x + fd * (touchlineCarry ? 70.0 : 48.0);
+            ty = clamp(p.y + side * (touchlineCarry ? 64.0 : 42.0), 35.0, PITCH_H - 35.0);
+            sc -= possessionBackward < -140.0 ? 0.42 : 0.24;
+        }
+    }
 
     // Space bonus: more space = more dribble
     if (per.nearestOpponentDist > 100.0) sc += 0.15;
@@ -909,6 +997,18 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         }
     }
 
+    if (engine.backwardCarryCarrierId == p.id) {
+        double possessionBackward = (p.x - engine.backwardCarryStartX) * fd;
+        double finalBackwardTarget = (tx - p.x) * fd;
+        bool touchlineCarry = p.y < 85.0 || p.y > PITCH_H - 85.0;
+        if (possessionBackward < -70.0 && finalBackwardTarget < 0.0) {
+            double side = p.y < PITCH_H / 2.0 ? 1.0 : -1.0;
+            tx = p.x + fd * (touchlineCarry ? 78.0 : 55.0);
+            ty = clamp(p.y + side * (touchlineCarry ? 70.0 : 46.0), 35.0, PITCH_H - 35.0);
+            sc -= possessionBackward < -140.0 ? 0.50 : 0.28;
+        }
+    }
+
     return Action{ActionType::Dribble, clamp(sc, 0.0, 1.0), nullptr,
                   clamp(tx, 35.0, PITCH_W - 35.0),
                   clamp(ty, 35.0, PITCH_H - 35.0),
@@ -966,16 +1066,19 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 
     auto* defensiveTask = engine.assignmentFor(player.id);
     if (defensiveTask) {
-        bool shapeTask = defensiveTask->role != "primary_press" && defensiveTask->role != "secondary_press"
-            && defensiveTask->role != "close_down";
-        if (shapeTask && !emergencyBoxChallenge && d > TACKLE_RANGE * 0.75) return Action{ActionType::Tackle, 0.0};
-        if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == "primary_press")   sc += 0.20;
-        if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == "secondary_press") sc += 0.10;
+        bool closeEnoughToChallenge = d < TACKLE_RANGE + 6.0;
+        bool shapeTask = defensiveTask->role != DefensiveTask::PrimaryPress && defensiveTask->role != DefensiveTask::SecondaryPress
+            && defensiveTask->role != DefensiveTask::CloseDown;
+        if (shapeTask && !emergencyBoxChallenge && !closeEnoughToChallenge && d > TACKLE_RANGE * 0.75) return Action{ActionType::Tackle, 0.0};
+        if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::PrimaryPress)   sc += 0.20;
+        if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::SecondaryPress) sc += 0.10;
         if (shapeTask && emergencyBoxChallenge)
             sc += 0.26;
+        else if (shapeTask && closeEnoughToChallenge)
+            sc += 0.10;
         else if (shapeTask)
             sc -= 0.58;
-        if (defensiveTask->role != "primary_press" && defensiveTask->role != "secondary_press"
+        if (defensiveTask->role != DefensiveTask::PrimaryPress && defensiveTask->role != DefensiveTask::SecondaryPress
             && std::abs(ctrl->x - (ownGoalXFor(player.team))) > 170.0)
             sc -= 0.20;
     }
@@ -990,9 +1093,16 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         if (dist(o->x, o->y, ctrl->x, ctrl->y) < 60.0) oppsClose++;
     }
     if (std::abs(ctrl->x - ownGoalX) < 300.0 && oppsClose < 2) sc += 0.08;
+    if (d < TACKLE_RANGE + 4.0 && oppsClose >= 2) sc += 0.18;
+    if (d < TACKLE_RANGE) sc += 0.14;
 
     bool oppFacingAway = (ctrl->team == Team::Home) ? ctrl->vx < 0.0 : ctrl->vx > 0.0;
     if (oppFacingAway && d < TACKLE_RANGE + 20.0) sc += 0.10;
+    bool carrierNearTouchline = ctrl->y < 85.0 || ctrl->y > PITCH_H - 85.0;
+    if (oppFacingAway && carrierNearTouchline && d < TACKLE_RANGE + 16.0
+        && (player.role == Role::WM || player.role == Role::CM || player.role == Role::FB)) {
+        sc += 0.24;
+    }
 
     double carrierSpeed = std::hypot(ctrl->vx, ctrl->vy);
     double forwardX = carrierSpeed > 8.0 ? ctrl->vx / carrierSpeed : std::cos(ctrl->facing);
@@ -1593,19 +1703,19 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
 
     auto* task = engine.assignmentFor(p.id);
     if (task) {
-        static const std::unordered_map<std::string, double> taskScores = {
-            {"primary_press", 0.86}, {"secondary_press", 0.72}, {"shot_lane", 0.88}, {"cover", 0.66},
-            {"cross_lane", 0.87}, {"lane_block", 0.87}, {"box_guard", 0.88}, {"far_post_guard", 0.84},
-            {"near_post_guard", 0.86}, {"cutback_guard", 0.84}, {"defensive_line", 0.72}, {"wide_cover", 0.70},
-            {"midfield_screen", 0.72}, {"box_screen", 0.80}, {"support_outlet", 0.47}, {"advance_midfield", 0.66},
-            {"run_ahead", 0.74}, {"inside_run", 0.72}, {"hold_width", 0.64},
-            {"overlap", 0.72}, {"rest_defence", 0.56}, {"close_down", 0.84},
+        static const std::map<DefensiveTask, double> taskScores = {
+            {DefensiveTask::PrimaryPress, 0.86}, {DefensiveTask::SecondaryPress, 0.72}, {DefensiveTask::ShotLane, 0.88}, {DefensiveTask::Cover, 0.66},
+            {DefensiveTask::CrossLane, 0.87}, {DefensiveTask::LaneBlock, 0.87}, {DefensiveTask::BoxGuard, 0.88}, {DefensiveTask::FarPostGuard, 0.84},
+            {DefensiveTask::NearPostGuard, 0.86}, {DefensiveTask::CutbackGuard, 0.84}, {DefensiveTask::DefensiveLine, 0.72}, {DefensiveTask::WideCover, 0.70},
+            {DefensiveTask::MidfieldScreen, 0.72}, {DefensiveTask::BoxScreen, 0.80}, {DefensiveTask::SupportOutlet, 0.47}, {DefensiveTask::AdvanceMidfield, 0.66},
+            {DefensiveTask::RunAhead, 0.74}, {DefensiveTask::InsideRun, 0.72}, {DefensiveTask::HoldWidth, 0.64},
+            {DefensiveTask::Overlap, 0.72}, {DefensiveTask::RestDefence, 0.56}, {DefensiveTask::CloseDown, 0.84},
         };
         double ts = 0.80;
         auto tit = taskScores.find(task->role);
         if (tit != taskScores.end()) ts = tit->second;
         options.push_back(Action{ActionType::Position, ts, nullptr, task->targetX, task->targetY,
-                                 "task:" + task->role});
+                                 "task:" + std::string(to_string(task->role))});
     }
 
     Player* carrier = engine.playerById(per.ballControllerId);
@@ -1616,14 +1726,14 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         bool inOwnThird = std::abs(carrier->x - ownGx) < PITCH_W * 0.36;
         auto* existingTask = engine.assignmentFor(p.id);
         bool mustHoldShape = existingTask
-            && (existingTask->role == "lane_block" || existingTask->role == "box_guard"
-                || existingTask->role == "far_post_guard"
-                || existingTask->role == "near_post_guard"
-                || existingTask->role == "cutback_guard"
-                || existingTask->role == "shot_lane"
-                || existingTask->role == "cross_lane"
-                || existingTask->role == "defensive_line" || existingTask->role == "wide_cover"
-                || existingTask->role == "midfield_screen" || existingTask->role == "box_screen");
+            && (existingTask->role == DefensiveTask::LaneBlock || existingTask->role == DefensiveTask::BoxGuard
+                || existingTask->role == DefensiveTask::FarPostGuard
+                || existingTask->role == DefensiveTask::NearPostGuard
+                || existingTask->role == DefensiveTask::CutbackGuard
+                || existingTask->role == DefensiveTask::ShotLane
+                || existingTask->role == DefensiveTask::CrossLane
+                || existingTask->role == DefensiveTask::DefensiveLine || existingTask->role == DefensiveTask::WideCover
+                || existingTask->role == DefensiveTask::MidfieldScreen || existingTask->role == DefensiveTask::BoxScreen);
         bool emergencyCloseDown = mustHoldShape && inOwnThird
             && std::abs(carrier->y - PITCH_H / 2.0) < 215.0
             && carrierDist < 62.0;
@@ -1632,15 +1742,19 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         bool localPressure = (!mustHoldShape || emergencyCloseDown) && roleCanStep && inOwnHalf
             && (carrierDist < (inOwnThird ? 118.0 : 86.0));
         if (localPressure) {
-            double goalSide = (p.team == Team::Home) ? -1.0 : 1.0;
-            double containX = clamp(carrier->x + goalSide * 18.0, 35.0, PITCH_W - 35.0);
-            double side = (p.y < carrier->y) ? -1.0 : 1.0;
-            double containY = clamp(carrier->y + side * 10.0, 35.0, PITCH_H - 35.0);
-            double score = emergencyCloseDown
-                ? clamp(0.97 - carrierDist / 900.0, 0.90, 0.96)
-                : clamp(0.96 - carrierDist / 700.0, 0.72, 0.94);
-            options.push_back(Action{ActionType::Position, score, carrier, containX, containY,
-                                     emergencyCloseDown ? "emergency_close_down" : "local_close_down"});
+            bool tackleDistance = carrierDist < TACKLE_RANGE + 14.0;
+            bool carrierBacktracking = (carrier->team == Team::Home) ? carrier->vx < -8.0 : carrier->vx > 8.0;
+            if (!(tackleDistance && carrierBacktracking)) {
+                double goalSide = (p.team == Team::Home) ? -1.0 : 1.0;
+                double containX = clamp(carrier->x + goalSide * 18.0, 35.0, PITCH_W - 35.0);
+                double side = (p.y < carrier->y) ? -1.0 : 1.0;
+                double containY = clamp(carrier->y + side * 10.0, 35.0, PITCH_H - 35.0);
+                double score = emergencyCloseDown
+                    ? clamp(0.97 - carrierDist / 900.0, 0.90, 0.96)
+                    : clamp(0.96 - carrierDist / 700.0, 0.72, 0.94);
+                options.push_back(Action{ActionType::Position, score, carrier, containX, containY,
+                                         emergencyCloseDown ? "emergency_close_down" : "local_close_down"});
+            }
         }
     }
 
@@ -2139,14 +2253,14 @@ void PlayerAI::applyMovement(double sdt) {
     bool defendSprint = false;
     if ((p.role == Role::CB || p.role == Role::FB || p.role == Role::CM) && !isObserving) {
         auto* task = engine.assignmentFor(p.id);
-        if (task && task->role == "close_down") defendSprint = true;
-        else if (task && (task->role == "lane_block" || task->role == "box_guard" || task->role == "far_post_guard"
-            || task->role == "near_post_guard"
-            || task->role == "cutback_guard"
-            || task->role == "shot_lane"
-            || task->role == "cross_lane"
-            || task->role == "midfield_screen" || task->role == "box_screen" || task->role == "defensive_line"
-            || task->role == "wide_cover")) {
+        if (task && task->role == DefensiveTask::CloseDown) defendSprint = true;
+        else if (task && (task->role == DefensiveTask::LaneBlock || task->role == DefensiveTask::BoxGuard || task->role == DefensiveTask::FarPostGuard
+            || task->role == DefensiveTask::NearPostGuard
+            || task->role == DefensiveTask::CutbackGuard
+            || task->role == DefensiveTask::ShotLane
+            || task->role == DefensiveTask::CrossLane
+            || task->role == DefensiveTask::MidfieldScreen || task->role == DefensiveTask::BoxScreen || task->role == DefensiveTask::DefensiveLine
+            || task->role == DefensiveTask::WideCover)) {
             Player* carrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
             double tdist = dist(p.x, p.y, task->targetX, task->targetY);
             if (carrier && carrier->team != p.team && std::abs(carrier->x - ownGoalX) < PITCH_W * 0.45 && tdist > 32.0) {
@@ -2361,7 +2475,7 @@ void PlayerAI::auditDefensiveMovement(const Action& choice) {
     auto* task = engine.assignmentFor(player.id);
     Player* controller = engine.playerById(engine.state.ball.controllerId);
     if (!task || !controller || controller->team == player.team) return;
-    if (task->role != "primary_press" && task->role != "secondary_press") return;
+    if (task->role != DefensiveTask::PrimaryPress && task->role != DefensiveTask::SecondaryPress) return;
     if (choice.type == ActionType::Tackle || choice.type == ActionType::Chase
         || (!choice.purpose.empty() && choice.purpose.rfind("task:", 0) == 0))
         return;

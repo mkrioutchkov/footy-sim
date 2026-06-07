@@ -46,16 +46,20 @@ public:
     double nextTacticalAuditMs = 0;
     int watchedCarrierId = -1;
     double watchedCarrierX = 0, watchedCarrierY = 0, watchedCarrierMs = 0, lastStuckAlertMs = -1e9;
+    int backwardCarryCarrierId = -1;
+    double backwardCarryStartX = 0;
+    bool backwardCarryRecorded = false;
 
     double lastKickoffMs = 0; bool kickoffPhase = false;
     double actionTimer = 0; bool setPieceArmed = false;
     double prevBallX = 525, prevBallY = 340;
     int prevControllerId = -1;
-    std::string setPieceType, setPieceTeam;
+    SetPiece setPieceTypeEnum = SetPiece::None;
+    Team setPieceTeamEnum = Team::Home;
     int setPieceTakerId = -1;
     double setPieceSpotX = 0, setPieceSpotY = 0;
     bool setPieceTakerArrived = false;
-    std::string setPieceReason;
+    std::string setPieceReason; // kept as string for logging only
     int half = 1; double halfTimePause = 0;
     Team nextKickoffTeam = Team::Home;
     bool shotActive = false;
@@ -119,7 +123,7 @@ public:
     [[nodiscard]] bool checkOffside(const Player& receiver, const Player& passer) const;
     void awardOffsideFreeKick(const std::string& defendingTeam, const Player& offsidePlayer);
     [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const;
-    struct AgentTeamAssignment { std::string role; int opponentId=-1; double targetX=0, targetY=0; };
+    struct AgentTeamAssignment { DefensiveTask role = DefensiveTask::None; int opponentId=-1; double targetX=0, targetY=0; };
     std::unordered_map<int, AgentTeamAssignment> assignmentByPlayer;
     [[nodiscard]] AgentTeamAssignment* assignmentFor(int playerId) {
         auto it=assignmentByPlayer.find(playerId);
@@ -153,7 +157,7 @@ public:
     void auditStuckCarrier(double sdt);
     void updateTeamAssignments();
     void assignDefensiveRoles(Team team, Player& carrier);
-    void setAssignment(Player& player, const std::string& role, double x, double y, int opponentId=-1);
+    void setAssignment(Player& player, DefensiveTask role, double x, double y, int opponentId=-1);
     void auditTacticalCoverage(Player& carrier);
     void auditCredibleShotWindow(const Player& player, double distance, double angleDeg,
                                  int pressureCount, const std::string& choiceType);
@@ -205,7 +209,7 @@ public:
     void updateGK(double sdt);
     void tryGKSave();
     void awardThrowIn(std::string lt, double y);
-    void awardSetPiece(std::string t, std::string tm);
+    void awardSetPiece(SetPiece t, Team tm);
     void awardCorner(Team attackingTeam, bool atHomeEnd, double y);
     void updateGoalKickMonitor();
 

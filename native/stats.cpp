@@ -75,6 +75,8 @@ std::string StatsCollector::summaryJSON() const {
     j["forwardPasses"] = forwardPasses;
     j["backwardPasses"] = backwardPasses;
     j["sidewaysPasses"] = sidewaysPasses;
+    j["longBackwardPasses"] = longBackwardPasses;
+    j["keeperBackpasses"] = keeperBackpasses;
     j["passCompletionPct"] = std::round(completionPct * 10) / 10;
     j["offsides"] = offsidesTotal;
     j["homeShots"] = shotsHome;
@@ -139,6 +141,7 @@ std::string StatsCollector::summaryJSON() const {
     j["carrierTurns"] = {
         {"samples", carrierSamples}, {"requestedSharp", carrierSharp}, {"appliedSharp", 0},
         {"limitedFrames", carrierLimited}, {"over15", carrierOver15}, {"over30", carrierOver30},
+        {"longBackwardCarries", longBackwardCarries},
         {"avgAppliedDeg", std::round((carrierSamples > 0 ? carrierDegTotal / carrierSamples : 0) * 10) / 10}
     };
 

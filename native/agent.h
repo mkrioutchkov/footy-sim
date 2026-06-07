@@ -98,6 +98,14 @@ public:
 
     virtual ~PlayerAI() = default;
     virtual void tick(double sdt);
+
+    // ── Role/Area virtual hooks ──
+    virtual double  roleBonusForPassTarget() const { return 0.0; }
+    virtual double  shotMaxDistance() const { return 260.0; }
+    virtual double  freshCrossMaxDistance() const { return 250.0; }
+    virtual double  tackleBaseScore() const { return 0.60; }
+    virtual double  tackleRoleAdjust() const { return 0.0; }
+    virtual PitchArea currentPitchArea() const;
     double dizzyRotationAccum = 0;
     double dizzyWindowStartMs = 0;
 
@@ -144,7 +152,7 @@ private:
     PassSelectionAudit    passSelectionAudit(const Action& choice, const std::vector<Action>& actions);
     ShotSelectionAudit    shotSelectionAudit(const Action& choice, const std::vector<Action>& actions);
 public:
-    virtual void          setPiecePositioning(const std::string& spType, Team spTeam);
+    virtual void          setPiecePositioning(SetPiece spType, Team spTeam);
     void                  stunLock(int ticks) { stunLockTicks = std::max(stunLockTicks, ticks); }
     bool                  setPieceHold = false;
 };

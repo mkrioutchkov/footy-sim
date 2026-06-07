@@ -7,6 +7,8 @@ interface Summary {
   passes: number;
   passesCompleted: number;
   passesIntercepted: number;
+  longBackwardPasses: number;
+  keeperBackpasses: number;
   passCompletionPct: number;
   throughBallsAttempted: number;
   throughBallsCompleted: number;
@@ -66,7 +68,7 @@ interface Summary {
     avgNearestCb: number;
     avgNearestDefender: number;
   };
-  carrierTurns: { over30: number };
+  carrierTurns: { over30: number; longBackwardCarries: number };
 }
 
 function argNumber(name: string, fallback: number): number {
@@ -147,6 +149,8 @@ console.log(JSON.stringify({
     interceptedPassesPerMatch: round(total('passesIntercepted') / matches),
     interceptedPassPct: round(total('passesIntercepted') / Math.max(1, passes) * 100),
     interceptedPassesPer90: round(total('passesIntercepted') / Math.max(1, matches * minutes) * 90),
+    longBackwardPassesPerMatch: round(total('longBackwardPasses') / matches),
+    keeperBackpassesPerMatch: round(total('keeperBackpasses') / matches),
     throughBallsPerMatch: round(total('throughBallsAttempted') / matches),
     throughBallCompletionPct: round(total('throughBallsCompleted') / Math.max(1, total('throughBallsAttempted')) * 100),
     crossesPerMatch: round(total('crossesAttempted') / matches),
@@ -187,6 +191,7 @@ console.log(JSON.stringify({
     avgFinalThirdNearestCb: round(results.reduce((sum, result) => sum + result.marking.avgNearestCb * result.marking.finalThirdSamples, 0) / Math.max(1, markingSamples)),
     avgFinalThirdNearestDefender: round(results.reduce((sum, result) => sum + result.marking.avgNearestDefender * result.marking.finalThirdSamples, 0) / Math.max(1, markingSamples)),
     carrierTurnsOver30PerMatch: round(results.reduce((sum, result) => sum + result.carrierTurns.over30, 0) / matches),
+    longBackwardCarriesPerMatch: round(results.reduce((sum, result) => sum + result.carrierTurns.longBackwardCarries, 0) / matches),
     teammatePingPongsPerMatch: round(results.reduce((sum, result) => sum + result.teammatePingPongs, 0) / matches),
   },
   qualityFlags: {

@@ -13,6 +13,24 @@ enum class Role : uint8_t { GK = 0, CB, FB, CM, WM, CF };
 enum class ActionType : uint8_t { Pass, Shoot, Dribble, Tackle, Mark, Chase, Position, Hold };
 enum class ActionPurpose : uint8_t { Keep, Build, Cross, Cutback, Through, Clear, Switch, Space, Offer, Cover };
 
+// ── Defensive task role (was string) ──
+enum class DefensiveTask : uint8_t {
+    None = 0, PrimaryPress, SecondaryPress, ShotLane, Cover,
+    CrossLane, LaneBlock, BoxGuard, FarPostGuard, NearPostGuard,
+    CutbackGuard, DefensiveLine, WideCover, MidfieldScreen, BoxScreen,
+    SupportOutlet, AdvanceMidfield, RunAhead, InsideRun, HoldWidth,
+    Overlap, RestDefence, CloseDown, LocalCloseDown, EmergencyCloseDown
+};
+
+// ── Set piece type (was string) ──
+enum class SetPiece : uint8_t { None = 0, Corner, Penalty, FreeKick, ThrowIn, GoalKick };
+
+// ── Pitch area for position-aware behavior ──  
+enum class PitchArea : uint8_t {
+    OwnBox, OwnThird, MidThird, FinalThird, OppBox,
+    WideLeft, WideRight, Central
+};
+
 inline constexpr std::string_view to_string(Team t) { return t == Team::Home ? "home" : "away"; }
 inline constexpr std::string_view to_string(Role r) {
     switch (r) {
@@ -39,6 +57,80 @@ inline constexpr std::string_view to_string(ActionPurpose p) {
         case ActionPurpose::Offer: return "offer"; case ActionPurpose::Cover: return "cover";
     }
     return "keep";
+}
+inline constexpr std::string_view to_string(DefensiveTask dt) {
+    switch (dt) {
+        case DefensiveTask::None: return "none";
+        case DefensiveTask::PrimaryPress: return "primary_press";
+        case DefensiveTask::SecondaryPress: return "secondary_press";
+        case DefensiveTask::ShotLane: return "shot_lane";
+        case DefensiveTask::Cover: return "cover";
+        case DefensiveTask::CrossLane: return "cross_lane";
+        case DefensiveTask::LaneBlock: return "lane_block";
+        case DefensiveTask::BoxGuard: return "box_guard";
+        case DefensiveTask::FarPostGuard: return "far_post_guard";
+        case DefensiveTask::NearPostGuard: return "near_post_guard";
+        case DefensiveTask::CutbackGuard: return "cutback_guard";
+        case DefensiveTask::DefensiveLine: return "defensive_line";
+        case DefensiveTask::WideCover: return "wide_cover";
+        case DefensiveTask::MidfieldScreen: return "midfield_screen";
+        case DefensiveTask::BoxScreen: return "box_screen";
+        case DefensiveTask::SupportOutlet: return "support_outlet";
+        case DefensiveTask::AdvanceMidfield: return "advance_midfield";
+        case DefensiveTask::RunAhead: return "run_ahead";
+        case DefensiveTask::InsideRun: return "inside_run";
+        case DefensiveTask::HoldWidth: return "hold_width";
+        case DefensiveTask::Overlap: return "overlap";
+        case DefensiveTask::RestDefence: return "rest_defence";
+        case DefensiveTask::CloseDown: return "close_down";
+        case DefensiveTask::LocalCloseDown: return "local_close_down";
+        case DefensiveTask::EmergencyCloseDown: return "emergency_close_down";
+    }
+    return "none";
+}
+inline constexpr std::string_view to_string(SetPiece sp) {
+    switch (sp) {
+        case SetPiece::None: return "none";
+        case SetPiece::Corner: return "corner";
+        case SetPiece::Penalty: return "penalty";
+        case SetPiece::FreeKick: return "free_kick";
+        case SetPiece::ThrowIn: return "throw_in";
+        case SetPiece::GoalKick: return "goal_kick";
+    }
+    return "none";
+}
+inline DefensiveTask defensiveTaskFromStr(std::string_view s) {
+    if (s == "primary_press") return DefensiveTask::PrimaryPress;
+    if (s == "secondary_press") return DefensiveTask::SecondaryPress;
+    if (s == "shot_lane") return DefensiveTask::ShotLane;
+    if (s == "cover") return DefensiveTask::Cover;
+    if (s == "cross_lane") return DefensiveTask::CrossLane;
+    if (s == "lane_block") return DefensiveTask::LaneBlock;
+    if (s == "box_guard") return DefensiveTask::BoxGuard;
+    if (s == "far_post_guard") return DefensiveTask::FarPostGuard;
+    if (s == "near_post_guard") return DefensiveTask::NearPostGuard;
+    if (s == "cutback_guard") return DefensiveTask::CutbackGuard;
+    if (s == "defensive_line") return DefensiveTask::DefensiveLine;
+    if (s == "wide_cover") return DefensiveTask::WideCover;
+    if (s == "midfield_screen") return DefensiveTask::MidfieldScreen;
+    if (s == "box_screen") return DefensiveTask::BoxScreen;
+    if (s == "support_outlet") return DefensiveTask::SupportOutlet;
+    if (s == "advance_midfield") return DefensiveTask::AdvanceMidfield;
+    if (s == "run_ahead") return DefensiveTask::RunAhead;
+    if (s == "inside_run") return DefensiveTask::InsideRun;
+    if (s == "hold_width") return DefensiveTask::HoldWidth;
+    if (s == "overlap") return DefensiveTask::Overlap;
+    if (s == "rest_defence") return DefensiveTask::RestDefence;
+    if (s == "close_down") return DefensiveTask::CloseDown;
+    return DefensiveTask::None;
+}
+inline SetPiece setPieceFromStr(std::string_view s) {
+    if (s == "corner") return SetPiece::Corner;
+    if (s == "penalty") return SetPiece::Penalty;
+    if (s == "free_kick") return SetPiece::FreeKick;
+    if (s == "throw_in") return SetPiece::ThrowIn;
+    if (s == "goal_kick") return SetPiece::GoalKick;
+    return SetPiece::None;
 }
 inline Team teamFromStr(std::string_view s) { return s == "home" ? Team::Home : Team::Away; }
 inline Role roleFromStr(std::string_view s) {

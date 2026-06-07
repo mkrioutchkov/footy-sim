@@ -40,12 +40,12 @@ void GameEngine::awardOffsideFreeKick(const std::string& defendingTeam, const Pl
     b.vx=b.vy=b.z=b.vz=0;
     b.controllerId=-1; b.intendedReceiverId=-1;
     receiverShieldTargetId=-1;
-    setPieceType="free_kick"; setPieceTeam=defendingTeam; setPieceArmed=true;
+    Team defTeam = teamFromStr(defendingTeam);
+    setPieceTypeEnum=SetPiece::FreeKick; setPieceTeamEnum = defTeam; setPieceArmed=true;
     setPieceReason="offside";
     actionTimer=5000;
     setPieceSpotX=b.x; setPieceSpotY=b.y;
     setPieceTakerArrived=false;
-    Team defTeam = teamFromStr(defendingTeam);
     Player* best=nullptr; double bd=1e9;
     for(auto& p:state.players){
         if(p.team!=defTeam||p.role==Role::GK)continue;
@@ -123,8 +123,10 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isTh
     stats.recordPassLaunch(speed);
     recordBallImpulse();
     double fd = from.team==Team::Home ? 1.0 : -1.0;
-    stats.recordPassDirection((to.x - from.x) * fd);
-    bool offsideExempt = setPieceType=="corner" || setPieceType=="throw_in" || setPieceType=="goal_kick";
+    double forwardProgress = (to.x - from.x) * fd;
+    stats.recordPassDirection(forwardProgress);
+    if(to.role==Role::GK && forwardProgress < -30.0) stats.recordKeeperBackpass();
+    bool offsideExempt = setPieceTypeEnum == SetPiece::Corner || setPieceTypeEnum == SetPiece::ThrowIn || setPieceTypeEnum == SetPiece::GoalKick;
     pendingPass={true,from.id,to.id,from.team,isCross,isThrough,offsideExempt,from.x,offsideLineFor(from.team)};
 }
 
@@ -212,7 +214,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     if(towardOwnGoal&&defendingOwnBox){
         double travel=(ownGoalX-f.x)/tdx;
         double crossingY=f.y+tdy*travel;
-        if(travel>0&&std::abs(crossingY-PITCH_H/2)<GOAL_W/2+BALL_R+8)return false;
+        if(travel>0&&travel<=1.0&&std::abs(crossingY-PITCH_H/2)<GOAL_W/2+BALL_R+8)return false;
     }
     auto&b=state.ball;
     b.controllerId=-1;
@@ -268,7 +270,7 @@ void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
     if(towardOwnGoal){
         double travel=(ownGoalX-f.x)/tdx;
         double crossingY=f.y+tdy*travel;
-        if(travel>0&&std::abs(crossingY-PITCH_H/2)<GOAL_W/2+BALL_R+14.0){
+        if(travel>0&&travel<=1.0&&std::abs(crossingY-PITCH_H/2)<GOAL_W/2+BALL_R+14.0){
             tdy += (crossingY<PITCH_H/2 ? -1.0 : 1.0) * (GOAL_W/2+BALL_R+24.0);
             tDist=std::hypot(tdx,tdy);
         }
@@ -345,12 +347,12 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
                 b.x = defendingGoalX + defendingFd * 110.0;
                 b.y = PITCH_H / 2.0;
                 stats.recordPenaltyAwarded();
-                awardSetPiece("penalty", std::string(to_string(carrier.team)));
+                awardSetPiece(SetPiece::Penalty, carrier.team);
                 setPieceReason = "penalty";
             } else {
                 b.x = clamp(foulX, 20.0, PITCH_W - 20.0);
                 b.y = clamp(foulY, 20.0, PITCH_H - 20.0);
-                awardSetPiece("free_kick", std::string(to_string(carrier.team)));
+                awardSetPiece(SetPiece::FreeKick, carrier.team);
             }
             setPieceSpotX = b.x;
             setPieceSpotY = b.y;
@@ -616,6 +618,18 @@ void GameEngine::fixedUpdate(double sdt) {
     if (c) {
         if (c->team == Team::Home) possessionHome += sdt;
         else possessionAway += sdt;
+        double fd = c->team == Team::Home ? 1.0 : -1.0;
+        if (c->id != backwardCarryCarrierId) {
+            backwardCarryCarrierId = c->id;
+            backwardCarryStartX = c->x;
+            backwardCarryRecorded = false;
+        } else if (!backwardCarryRecorded && (c->x - backwardCarryStartX) * fd < -200.0) {
+            stats.recordLongBackwardCarry();
+            backwardCarryRecorded = true;
+        }
+    } else {
+        backwardCarryCarrierId = -1;
+        backwardCarryRecorded = false;
     }
     stats.recordPossession(possessionHome, possessionAway);
     auditStuckCarrier(sdt);
@@ -665,13 +679,13 @@ void GameEngine::fixedUpdate(double sdt) {
     }
     if (setPieceArmed) {
         actionTimer -= sdt;
-        Team spTeam = teamFromStr(setPieceTeam);
+        Team spTeam = setPieceTeamEnum;
         for (auto& a : agents) {
-            a->setPiecePositioning(setPieceType, spTeam);
+            a->setPiecePositioning(setPieceTypeEnum, spTeam);
         }
         auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
             double fd = taker.team == Team::Home ? 1.0 : -1.0;
-            double standBack = setPieceType == "throw_in" ? 0.0 : setPieceType == "corner" ? 7.0 : setPieceType == "penalty" ? 18.0 : 14.0;
+            double standBack = setPieceTypeEnum == SetPiece::ThrowIn ? 0.0 : setPieceTypeEnum == SetPiece::Corner ? 7.0 : setPieceTypeEnum == SetPiece::Penalty ? 18.0 : 14.0;
             double px = releaseSpot ? setPieceSpotX : setPieceSpotX - fd * standBack;
             double py = setPieceSpotY;
             taker.x = clamp(px, 5.0, PITCH_W - 5.0);
@@ -682,8 +696,8 @@ void GameEngine::fixedUpdate(double sdt) {
             taker.facing = std::atan2(setPieceSpotY - taker.y, setPieceSpotX - taker.x);
         };
         auto enforceRestartDistance = [&]() {
-            double minDist = setPieceType == "throw_in" ? 42.0 : setPieceType == "corner" ? 58.0 : setPieceType == "penalty" ? 96.0 : 78.0;
-            Team restartTeam = teamFromStr(setPieceTeam);
+            double minDist = setPieceTypeEnum == SetPiece::ThrowIn ? 42.0 : setPieceTypeEnum == SetPiece::Corner ? 58.0 : setPieceTypeEnum == SetPiece::Penalty ? 96.0 : 78.0;
+            Team restartTeam = setPieceTeamEnum;
             for (auto& p : state.players) {
                 if (p.team == restartTeam || p.role == Role::GK) continue;
                 double dx = p.x - setPieceSpotX;
@@ -718,7 +732,7 @@ void GameEngine::fixedUpdate(double sdt) {
         separateTeammates(sdt);
         enforceRestartDistance();
 
-        if (setPieceType == "goal_kick" && actionTimer <= 0) {
+        if (setPieceTypeEnum == SetPiece::GoalKick && actionTimer <= 0) {
             setPieceArmed = false;
             setPieceReason.clear();
             releaseSetPiece();
@@ -757,7 +771,7 @@ void GameEngine::fixedUpdate(double sdt) {
                     state.ball.controllerId = taker->id;
                     state.ball.lastTouchTeam = taker->team;
                     state.ball.lastToucherId = taker->id;
-                    actionTimer = setPieceType == "throw_in" ? 650 : setPieceType == "penalty" ? 1800 : 1500;
+                    actionTimer = setPieceTypeEnum == SetPiece::ThrowIn ? 650 : setPieceTypeEnum == SetPiece::Penalty ? 1800 : 1500;
                 }
             }
         }
@@ -791,7 +805,7 @@ void GameEngine::fixedUpdate(double sdt) {
                     taker->targetX = state.ball.x;
                     taker->targetY = state.ball.y;
                     setPieceTakerArrived = true;
-                    actionTimer = setPieceType == "throw_in" ? 650 : setPieceType == "penalty" ? 1800 : 1500;
+                    actionTimer = setPieceTypeEnum == SetPiece::ThrowIn ? 650 : setPieceTypeEnum == SetPiece::Penalty ? 1800 : 1500;
                 }
             }
         }
@@ -933,7 +947,7 @@ void GameEngine::auditStuckCarrier(double sdt){
         }
         if(best)forcePassTo(*carrier,*best,nullptr);
         else{auto&b=state.ball;b.controllerId=-1;b.vx=carrier->team==Team::Home?300:-300;b.vy=0;b.vz=80;b.z=0;}
-        setPieceArmed=false;setPieceType.clear();setPieceTeam.clear();setPieceReason.clear();
+        setPieceArmed=false;setPieceTypeEnum = SetPiece::None;setPieceTeamEnum = Team::Home;setPieceReason.clear();
         watchedCarrierMs=0;watchedCarrierX=carrier->x;watchedCarrierY=carrier->y;
     }
 }
@@ -942,7 +956,7 @@ void GameEngine::auditStuckCarrier(double sdt){
 // Tactical — assignments, defensive roles, tactical audit
 // ══════════════════════════════════════════════════════════════
 
-void GameEngine::setAssignment(Player& player, const std::string& role, double x, double y, int opponentId) {
+void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, double y, int opponentId) {
     assignmentByPlayer[player.id] = {role, opponentId, clamp(x, 35.0, PITCH_W - 35.0), clamp(y, 35.0, PITCH_H - 35.0)};
 }
 
@@ -1003,14 +1017,14 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             break;
         }
     }
-    setAssignment(*primary, "primary_press", carrier.x - fd * 16.0, carrier.y, carrier.id);
+    setAssignment(*primary, DefensiveTask::PrimaryPress, carrier.x - fd * 16.0, carrier.y, carrier.id);
     assigned.insert(primary->id);
     if (tactics.aggression >= 62.0 || danger) {
         for (const auto& option : ranked) {
             Player* p = option.player;
             if (used(p) || p->role == Role::CB || (danger && p->role == Role::FB && std::abs(p->homeY - carrier.y) > 210.0)
                 || option.distance >= (danger ? 285.0 : 250.0)) continue;
-            setAssignment(*p, "secondary_press", carrier.x - fd * 42.0,
+            setAssignment(*p, DefensiveTask::SecondaryPress, carrier.x - fd * 42.0,
                 carrier.y + (p->homeY < carrier.y ? -38.0 : 38.0), carrier.id);
             assigned.insert(p->id);
             break;
@@ -1031,7 +1045,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             if (score < bestLane) { bestLane = score; lane = &p; }
         }
         if (lane) {
-            setAssignment(*lane, "shot_lane", laneX, laneY, carrier.id);
+            setAssignment(*lane, DefensiveTask::ShotLane, laneX, laneY, carrier.id);
             assigned.insert(lane->id);
         }
     }
@@ -1047,14 +1061,14 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             if (score < bestCrossLane) { bestCrossLane = score; crossLane = &p; }
         }
         if (crossLane) {
-            setAssignment(*crossLane, "cross_lane", crossX, crossY, carrier.id);
+            setAssignment(*crossLane, DefensiveTask::CrossLane, crossX, crossY, carrier.id);
             assigned.insert(crossLane->id);
         }
     }
     for (const auto& option : ranked) {
         Player* p = option.player;
         if (used(p) || p->role != Role::CM) continue;
-        setAssignment(*p, "cover", lerp(carrier.x, ownGoalX + fd * 115.0, 0.58),
+        setAssignment(*p, DefensiveTask::Cover, lerp(carrier.x, ownGoalX + fd * 115.0, 0.58),
             lerp(carrier.y, PITCH_H / 2.0, 0.4), carrier.id);
         assigned.insert(p->id);
         break;
@@ -1063,7 +1077,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         for (const auto& option : ranked) {
             Player* p = option.player;
             if (used(p) || p->role != Role::CB) continue;
-            setAssignment(*p, "cover", ownGoalX + fd * 112.0, lerp(carrier.y, PITCH_H / 2.0, 0.35), carrier.id);
+            setAssignment(*p, DefensiveTask::Cover, ownGoalX + fd * 112.0, lerp(carrier.y, PITCH_H / 2.0, 0.35), carrier.id);
             assigned.insert(p->id);
             break;
         }
@@ -1075,7 +1089,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             double screenY = screenCount == 0
                 ? lerp(carrier.y, PITCH_H / 2.0, danger ? 0.78 : 0.65)
                 : clamp(PITCH_H / 2.0 + (carrier.y < PITCH_H / 2.0 ? 74.0 : -74.0), 70.0, PITCH_H - 70.0);
-            setAssignment(p, "midfield_screen", lerp(carrier.x, ownGoalX + fd * screenDepth, danger ? 0.58 : 0.4), screenY);
+            setAssignment(p, DefensiveTask::MidfieldScreen, lerp(carrier.x, ownGoalX + fd * screenDepth, danger ? 0.58 : 0.4), screenY);
             assigned.insert(p.id);
             if (++screenCount >= (danger ? 2 : 1)) break;
         }
@@ -1115,7 +1129,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         double cutY = lerp(carrier.y, goalCenterY, 0.20);
         double side = (closeCb->y < carrier.y) ? -1.0 : 1.0;
         cutY = clamp(cutY + side * 30.0, 40.0, PITCH_H - 40.0);
-        setAssignment(*closeCb, "close_down", cutX, cutY);
+        setAssignment(*closeCb, DefensiveTask::CloseDown, cutX, cutY);
         assigned.insert(closeCb->id);
     }
 
@@ -1150,7 +1164,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
                 targetX = ownGoalX + fd * (lineProgress + 18.0);
             }
             double markTightness = danger || receiverThreat || threatDistanceToGoal < 170.0 ? 0.015 : 0.08;
-            setAssignment(*marker, "lane_block", targetX, lerp(threat.player->y, PITCH_H / 2.0, markTightness), threat.player->id);
+            setAssignment(*marker, DefensiveTask::LaneBlock, targetX, lerp(threat.player->y, PITCH_H / 2.0, markTightness), threat.player->id);
             assigned.insert(marker->id);
         }
     }
@@ -1169,7 +1183,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             if (score < bestGuard) { bestGuard = score; guard = &defender; }
         }
         if (guard) {
-            setAssignment(*guard, "box_guard", ownGoalX + fd * (danger ? 78.0 : 104.0), guardY);
+            setAssignment(*guard, DefensiveTask::BoxGuard, ownGoalX + fd * (danger ? 78.0 : 104.0), guardY);
             assigned.insert(guard->id);
         }
     }
@@ -1186,7 +1200,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             if (score < bestCutback) { bestCutback = score; cutbackGuard = &defender; }
         }
         if (cutbackGuard) {
-            setAssignment(*cutbackGuard, "cutback_guard", cutbackX, cutbackY, carrier.id);
+            setAssignment(*cutbackGuard, DefensiveTask::CutbackGuard, cutbackX, cutbackY, carrier.id);
             assigned.insert(cutbackGuard->id);
         }
     }
@@ -1203,7 +1217,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             if (score < bestFar) { bestFar = score; farGuard = &defender; }
         }
         if (farGuard) {
-            setAssignment(*farGuard, "far_post_guard", ownGoalX + fd * 108.0, farY);
+            setAssignment(*farGuard, DefensiveTask::FarPostGuard, ownGoalX + fd * 108.0, farY);
             assigned.insert(farGuard->id);
         }
         for (auto& defender : state.players) {
@@ -1212,7 +1226,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
             if (score < bestNear) { bestNear = score; nearGuard = &defender; }
         }
         if (nearGuard) {
-            setAssignment(*nearGuard, "near_post_guard", ownGoalX + fd * 64.0, nearY);
+            setAssignment(*nearGuard, DefensiveTask::NearPostGuard, ownGoalX + fd * 64.0, nearY);
             assigned.insert(nearGuard->id);
         }
     }
@@ -1220,7 +1234,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         for (auto& p : state.players) {
             if (p.team != team || used(&p) || p.role != Role::CM) continue;
             double sideY = carrier.y < PITCH_H / 2.0 ? PITCH_H * 0.62 : PITCH_H * 0.38;
-            setAssignment(p, "box_screen", ownGoalX + fd * 142.0, sideY);
+            setAssignment(p, DefensiveTask::BoxScreen, ownGoalX + fd * 142.0, sideY);
             assigned.insert(p.id);
             break;
         }
@@ -1233,8 +1247,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         double targetY = defender.role == Role::FB
             ? lerp(defender.homeY, carrier.y, 0.20)
             : lerp(defender.homeY, PITCH_H / 2.0, 0.08);
-        std::string role = defender.role == Role::FB ? "wide_cover" : "defensive_line";
-        setAssignment(defender, role, targetX, targetY);
+        setAssignment(defender, (defender.role == Role::FB ? DefensiveTask::WideCover : DefensiveTask::DefensiveLine), targetX, targetY);
     }
 }
 
@@ -1247,7 +1260,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
     bool danger = std::abs(carrier.x - ownGoalX) < DANGER_ZONE_DIST;
     Player* primary = nullptr;
     for (const auto& [id, task] : assignmentByPlayer) {
-        if (task.role == "primary_press") { primary = playerById(id); break; }
+        if (task.role == DefensiveTask::PrimaryPress) { primary = playerById(id); break; }
     }
     if (primary) {
         stats.recordPressSample();
@@ -1275,7 +1288,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
         if (!danger && gap > 85.0) {
             singleDrop = true;
             const auto* task = assignmentFor(line[0].player->id);
-            if (task && task->role == "lane_block") { laneBlock = true; }
+            if (task && task->role == DefensiveTask::LaneBlock) { laneBlock = true; }
         }
         stats.recordBackLineSample(gap, singleDrop, laneBlock);
     }
@@ -1324,26 +1337,26 @@ void GameEngine::releaseSetPiece(){
     Player* holder=playerById(state.ball.controllerId);
     if(!holder)return;
     auto clearReleasedSetPiece=[&](){
-        if(!setPieceArmed){setPieceType.clear();setPieceTeam.clear();setPieceReason.clear();}
+        if(!setPieceArmed){setPieceTypeEnum = SetPiece::None;setPieceTeamEnum = Team::Home;setPieceReason.clear();}
     };
     // Clear setPieceHold for all agents
     for(auto&a:agents) a->setPieceHold=false;
-    if(setPieceType=="corner"){
+    if(setPieceTypeEnum == SetPiece::Corner){
         releaseCornerKick(*holder);
         clearReleasedSetPiece();
         return;
     }
-    if(setPieceType=="throw_in"){
+    if(setPieceTypeEnum == SetPiece::ThrowIn){
         releaseThrowIn(*holder);
         clearReleasedSetPiece();
         return;
     }
-    if(setPieceType=="goal_kick"){
+    if(setPieceTypeEnum == SetPiece::GoalKick){
         releaseGoalKick(*holder);
         clearReleasedSetPiece();
         return;
     }
-    if(setPieceType=="penalty"){
+    if(setPieceTypeEnum == SetPiece::Penalty){
         emitEvent("shot", holder->x, holder->y, holder->id);
         stats.recordPenaltyTaken();
         trackedPenaltyShot=true;
@@ -1356,7 +1369,7 @@ void GameEngine::releaseSetPiece(){
         clearReleasedSetPiece();
         return;
     }
-    if(setPieceType=="free_kick"){
+    if(setPieceTypeEnum == SetPiece::FreeKick){
         double gx=goalXFor(holder->team);
         double gy=PITCH_H/2.0;
         double shotDist=std::hypot(gx-holder->x,gy-holder->y);
@@ -1385,7 +1398,7 @@ void GameEngine::releaseSetPiece(){
     std::vector<Player*> targets;
     for(auto&p:state.players){
         if(p.team!=holder->team||p.id==holder->id||p.role==Role::GK)continue;
-        if(setPieceType=="free_kick"&&dist(holder->x,holder->y,p.x,p.y)<55.0)continue;
+        if(setPieceTypeEnum == SetPiece::FreeKick&&dist(holder->x,holder->y,p.x,p.y)<55.0)continue;
         targets.push_back(&p);
     }
     std::sort(targets.begin(),targets.end(),[&](const Player* a,const Player* b){
@@ -1406,7 +1419,7 @@ void GameEngine::releaseSetPiece(){
                     if(along>0.12&&along<0.92&&perp<34.0)laneBlockers++;
                 }
             }
-            if(setPieceType=="free_kick"){
+            if(setPieceTypeEnum == SetPiece::FreeKick){
                 double distanceFit=1.0-std::abs(d-145.0)/210.0;
                 double pressureScore=clamp((closestOpp-35.0)/95.0,-0.60,0.75);
                 double resetBonus=progress<-25.0?0.55:std::abs(progress)<45.0?0.30:-0.18;
@@ -1494,7 +1507,7 @@ void GameEngine::releaseGoalKick(Player& holder){
 void GameEngine::releaseGoalkeeperDistribution(Player& holder){
     double fd=holder.team==Team::Home?1.0:-1.0;
     double ownGoalX=ownGoalXFor(holder.team);
-    bool wasGoalKick=setPieceType=="goal_kick";
+    bool wasGoalKick=setPieceTypeEnum == SetPiece::GoalKick;
     double nearestKeeperPressure=1e9;
     int closeKeeperPressure=0;
     Player* nearestPress=nullptr;
@@ -1722,13 +1735,12 @@ void GameEngine::awardThrowIn(std::string lt, double y) {
     if (lt == "home") atTeam = Team::Away;
     else if (lt == "away") atTeam = Team::Home;
     else atTeam = (b.x < PITCH_W / 2) ? Team::Away : Team::Home;
-    std::string at = std::string(to_string(atTeam));
     b.x = clamp(b.x, 10., PITCH_W - 10);
     b.y = clamp(y, 10., PITCH_H - 10);
     b.vx = b.vy = b.z = b.vz = 0;
     b.controllerId = -1;
-    setPieceType = "throw_in";
-    setPieceTeam = at;
+    setPieceTypeEnum = SetPiece::ThrowIn;
+    setPieceTeamEnum = atTeam;
     setPieceArmed = true;
     setPieceReason = "throw_in";
     actionTimer = 5000;
@@ -1745,20 +1757,20 @@ void GameEngine::awardThrowIn(std::string lt, double y) {
     setPieceTakerId = best ? best->id : -1;
 }
 
-void GameEngine::awardSetPiece(std::string t, std::string tm) {
+void GameEngine::awardSetPiece(SetPiece t, Team tm) {
     auto& b = state.ball;
     b.vx = b.vy = b.z = b.vz = 0;
     b.controllerId = -1;
-    setPieceType = t;
-    setPieceTeam = tm;
+    setPieceTypeEnum = t;
+    setPieceTeamEnum = tm;
     setPieceArmed = true;
-    setPieceReason = t;
+    setPieceReason = std::string(to_string(t));
     setPieceSpotX = b.x;
     setPieceSpotY = b.y;
     setPieceTakerArrived = false;
-    Team tmTeam = teamFromStr(tm);
+    Team tmTeam = tm;
 
-    if (t == "goal_kick") {
+    if (t == SetPiece::GoalKick) {
         actionTimer = 1550;
         setPieceTakerId = -1;
         for (auto& p : state.players) {
@@ -1779,7 +1791,7 @@ void GameEngine::awardSetPiece(std::string t, std::string tm) {
         return;
     }
 
-    if (t == "penalty") {
+    if (t == SetPiece::Penalty) {
         actionTimer = 5000;
         Player* best = nullptr;
         double bestScore = -1e9;
@@ -1809,8 +1821,8 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
     auto& b=state.ball;
     b.vx=b.vy=b.z=b.vz=0;
     b.controllerId=-1;
-    setPieceType="corner";
-    setPieceTeam=std::string(to_string(attackingTeam));
+    setPieceTypeEnum=SetPiece::Corner;
+    setPieceTeamEnum = attackingTeam;
     setPieceArmed=true;
     setPieceReason="corner";
     actionTimer=5000;
@@ -1951,7 +1963,7 @@ bool GameEngine::checkOutOfPlay() {
         if (!inGoal) {
             clearState();
             if(lt==Team::Home) awardCorner(Team::Away,true,b.y);
-            else awardSetPiece("goal_kick", std::string(to_string(Team::Home)));
+            else awardSetPiece(SetPiece::GoalKick, Team::Home);
             return true;
         }
     }
@@ -1960,7 +1972,7 @@ bool GameEngine::checkOutOfPlay() {
         if (!inGoal) {
             clearState();
             if(lt==Team::Away) awardCorner(Team::Home,false,b.y);
-            else awardSetPiece("goal_kick", std::string(to_string(Team::Away)));
+            else awardSetPiece(SetPiece::GoalKick, Team::Away);
             return true;
         }
     }
@@ -1976,7 +1988,7 @@ void GameEngine::checkBallPlayerCollision(double){
     // Intended receiver gets priority with larger collection radius
     if(b.intendedReceiverId>=0&&bs<250){
         Player* intended=playerById(b.intendedReceiverId);
-        if(intended&&intended->role!=Role::GK){
+        if(intended){
             double d=dist(intended->x,intended->y,b.x,b.y);
             if(d<=INTENDED_COLLECT_DIST&&b.z<=20){
                 if(canContestBall(*intended)){
@@ -2066,6 +2078,9 @@ void GameEngine::collectBall(Player& c) {
     b.lastTouchTeam = c.team;
     b.lastToucherId = c.id;
     c.dribbleType = 0;
+    double fd = c.team == Team::Home ? 1.0 : -1.0;
+    c.targetX = clamp(c.x + fd * 28.0, 35.0, PITCH_W - 35.0);
+    c.targetY = clamp(c.y, 35.0, PITCH_H - 35.0);
     if (intended) {
         receiverShieldUntil = state.clockMs + 300;
         receiverShieldedPlayerId = c.id;
@@ -2112,6 +2127,14 @@ void GameEngine::updateControlledBall(double) {
 void GameEngine::moveBallCarrier(double sdt){
     Player*c=playerById(state.ball.controllerId);
     if(!c)return;
+    if(c->dribbleType==0){
+        c->targetX=c->x;
+        c->targetY=c->y;
+        c->vx=0;
+        c->vy=0;
+        updateControlledBall(0);
+        return;
+    }
     double limit=c->dribbleType==1?DRIBBLE_CLOSE_SPEED:c->dribbleType==3?DRIBBLE_FAST_SPEED:DRIBBLE_MEDIUM_SPEED;
     double speed=attrFactor(c->attrs.speed)*limit;
     double dx=c->targetX-c->x,dy=c->targetY-c->y,d=std::hypot(dx,dy);
@@ -2365,6 +2388,8 @@ std::string GameEngine::getJSON() const {
     j["forwardPasses"] = summary["forwardPasses"];
     j["backwardPasses"] = summary["backwardPasses"];
     j["sidewaysPasses"] = summary["sidewaysPasses"];
+    j["longBackwardPasses"] = summary["longBackwardPasses"];
+    j["keeperBackpasses"] = summary["keeperBackpasses"];
     j["passCompletionPct"] = summary["passCompletionPct"];
     j["offsides"] = summary["offsides"];
     j["homeShots"] = summary["homeShots"];
@@ -2423,9 +2448,9 @@ std::string GameEngine::getJSON() const {
 
     if (setPieceArmed) {
         j["setPieceState"] = {
-            {"type", setPieceType},
-            {"reason", setPieceReason.empty() ? setPieceType : setPieceReason},
-            {"team", setPieceTeam},
+            {"type", to_string(setPieceTypeEnum)},
+            {"reason", setPieceReason.empty() ? to_string(setPieceTypeEnum) : setPieceReason},
+            {"team", to_string(setPieceTeamEnum)},
             {"takerId", setPieceTakerId},
             {"takerArrived", setPieceTakerArrived},
             {"spotX", setPieceSpotX},
