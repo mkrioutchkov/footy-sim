@@ -136,6 +136,7 @@ public:
     [[nodiscard]] Player* playerById(int id);
     [[nodiscard]] const Player* playerById(int id) const;
     [[nodiscard]] std::vector<Player*> nearPlayers(Player& p, double range);
+    [[nodiscard]] Player* findNearestOutfieldPlayer(Team team, double x, double y);
     [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
     bool canContestBall(Player& player);
     [[nodiscard]] bool canKnockBallAhead(int playerId) const {

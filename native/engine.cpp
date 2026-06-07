@@ -46,13 +46,8 @@ void GameEngine::awardOffsideFreeKick(const std::string& defendingTeam, const Pl
     actionTimer=5000;
     setPieceSpotX=b.x; setPieceSpotY=b.y;
     setPieceTakerArrived=false;
-    Player* best=nullptr; double bd=1e9;
-    for(auto& p:state.players){
-        if(p.team!=defTeam||p.role==Role::GK)continue;
-        double d=dist(p.x,p.y,b.x,b.y);
-        if(d<bd){bd=d;best=&p;}
-    }
-    setPieceTakerId=best?best->id:-1;
+    Player* best = findNearestOutfieldPlayer(defTeam, b.x, b.y);
+    setPieceTakerId = best ? best->id : -1;
 }
 
 bool GameEngine::isOffsideTarget(const Player& passer, const Player& receiver) const {
@@ -79,6 +74,18 @@ std::vector<Player*> GameEngine::nearPlayers(Player& p, double range) {
     std::vector<Player*> r;
     for(auto& o:state.players) if(&o!=&p && dist(p.x,p.y,o.x,o.y)<range) r.push_back(&o);
     return r;
+}
+
+
+Player* GameEngine::findNearestOutfieldPlayer(Team team, double x, double y) {
+    Player* best = nullptr;
+    double   bestDist = 1e9;
+    for (auto& p : state.players) {
+        if (p.team != team || p.role == Role::GK) continue;
+        double d = dist(p.x, p.y, x, y);
+        if (d < bestDist) { bestDist = d; best = &p; }
+    }
+    return best;
 }
 
 bool GameEngine::canContestBall(Player& player) {
@@ -1747,13 +1754,7 @@ void GameEngine::awardThrowIn(std::string lt, double y) {
     setPieceSpotX = b.x;
     setPieceSpotY = b.y;
     setPieceTakerArrived = false;
-    Player* best = nullptr;
-    double bd = 1e9;
-    for (auto& p : state.players) {
-        if (p.team != atTeam || p.role == Role::GK) continue;
-        double d = dist(p.x, p.y, b.x, b.y);
-        if (d < bd) { bd = d; best = &p; }
-    }
+    Player* best = findNearestOutfieldPlayer(atTeam, b.x, b.y);
     setPieceTakerId = best ? best->id : -1;
 }
 
@@ -1807,13 +1808,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
 
     // Free kick: nearest outfield player runs to ball
     actionTimer = 5000;
-    Player* best = nullptr;
-    double bd = 1e9;
-    for (auto& p : state.players) {
-        if (p.team != tmTeam || p.role == Role::GK) continue;
-        double d = dist(p.x, p.y, b.x, b.y);
-        if (d < bd) { bd = d; best = &p; }
-    }
+    Player* best = findNearestOutfieldPlayer(tmTeam, b.x, b.y);
     setPieceTakerId = best ? best->id : -1;
 }
 
