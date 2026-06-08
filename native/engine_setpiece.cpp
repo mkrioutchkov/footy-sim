@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "agent.h"
+#include "agent_helpers.h"
 #include <cmath>
 #include <numbers>
 
@@ -305,7 +306,6 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         return;
     }
 
-    struct RatedTarget{Player* player;double score;};
     std::vector<RatedTarget> rated;
     for(auto& p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
@@ -387,7 +387,6 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
 }
 
 void GameEngine::releaseThrowIn(Player& holder){
-    struct RatedTarget{Player* player;double score;};
     std::vector<RatedTarget> targets;
     double fd=holder.team==Team::Home?1.0:-1.0;
     for(auto&p:state.players){
@@ -445,7 +444,6 @@ void GameEngine::releaseThrowIn(Player& holder){
 
 void GameEngine::releaseCornerKick(Player& holder){
     double goalX=holder.x<HALF_X?HOME_GOAL_X:AWAY_GOAL_X;
-    struct RatedTarget{Player* player;double score;};
     std::vector<RatedTarget> targets;
     for(auto& p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;

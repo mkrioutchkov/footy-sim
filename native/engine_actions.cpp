@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "agent.h"
+#include "agent_helpers.h"
 #include <cmath>
 #include <numbers>
 
@@ -238,13 +239,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     b.intendedReceiverId=t.id;
     receiverShieldTargetId=t.id;
     b.z=0; b.vz=0;
-    int blockers=0;
-    for(auto&o:state.players){
-        if(o.team==f.team||o.role==Role::GK)continue;
-        double along=clamp(((o.x-f.x)*dx+(o.y-f.y)*dy)/(adjDist*adjDist),0.0,1.0);
-        double perp=std::hypot(o.x-f.x-along*dx,o.y-f.y-along*dy);
-        if(perp<35&&along>0.1&&along<0.9)blockers++;
-    }
+    int blockers = countLaneBlockers(state.players, f.x, f.y, predX, predY, f.team, 35.0, 0.1, 0.9);
     if(rawDist>240)b.vz=speed*0.55;
     if(blockers>0&&rawDist>120)b.vz=std::max(b.vz,speed*0.70);
     if(rawDist>350)b.vz=std::max(b.vz,speed);
@@ -435,7 +430,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     if(freshCross)stats.recordHeadedShot();
     stats.recordShotDistance(shotDistance);
     int pressureCount=0;
-    for(auto&o:state.players)if(o.team!=s.team&&o.role!=Role::GK&&dist(o.x,o.y,s.x,s.y)<PRESSURE_RANGE)pressureCount++;
+    pressureCount = countPressure(state.players, s.x, s.y, s.team, PRESSURE_RANGE);
     double angleDeg=goalOpeningAngleDeg(s.x,s.y,gx);
     int laneBlockers=0;
     double dxGoal=gx-s.x, dyGoal=goalCenterY-s.y, laneLenSq=dxGoal*dxGoal+dyGoal*dyGoal;

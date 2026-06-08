@@ -1,9 +1,6 @@
 #include "engine.h"
 #include "agent.h"
 
-#include "engine.h"
-#include "agent.h"
-
 CarrierPressure assessCarrierPressure(GameEngine& engine, const Player& p) {
     CarrierPressure cp;
     auto& b = engine.state.ball;
