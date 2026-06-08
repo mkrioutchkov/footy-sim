@@ -132,7 +132,7 @@ void GameEngine::releaseSetPiece(){
                 double along=((o.x-holder->x)*dxGoal+(o.y-holder->y)*dyGoal)/laneLenSq;
                 if(along<=0.06||along>=0.90)continue;
                 double perp=std::hypot(o.x-holder->x-along*dxGoal,o.y-holder->y-along*dyGoal);
-                if(perp<42.0)laneBlockers++;
+                if(perp<BLOCKER_PERP_FREEKICK)laneBlockers++;
             }
         }
         bool central=std::abs(holder->y-gy)<170.0;
@@ -166,7 +166,7 @@ void GameEngine::releaseSetPiece(){
                     closestOpp=std::min(closestOpp,dist(o.x,o.y,p->x,p->y));
                     double along=clamp(((o.x-holder->x)*dx+(o.y-holder->y)*dy)/ls,0.0,1.0);
                     double perp=std::hypot(o.x-holder->x-along*dx,o.y-holder->y-along*dy);
-                    if(along>0.12&&along<0.92&&perp<34.0)laneBlockers++;
+                    if(along>0.12&&along<0.92&&perp<PASS_BLOCKER_PERP_OUTLET)laneBlockers++;
                 }
             }
             if(setPieceTypeEnum == SetPiece::FreeKick){
@@ -403,7 +403,7 @@ void GameEngine::releaseThrowIn(Player& holder){
             if(ls>1.0){
                 double along=clamp(((o.x-holder.x)*dx+(o.y-holder.y)*dy)/ls,0.0,1.0);
                 double perp=std::hypot(o.x-holder.x-along*dx,o.y-holder.y-along*dy);
-                if(along>0.12&&along<0.92&&perp<32.0)laneBlockers++;
+                if(along>0.12&&along<0.92&&perp<BLOCKER_PERP_THROWIN)laneBlockers++;
             }
         }
         double progress=(p.x-holder.x)*fd;

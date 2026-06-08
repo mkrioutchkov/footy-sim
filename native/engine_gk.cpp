@@ -102,14 +102,14 @@ void GameEngine::tryGKSave() {
     double timeToLineMs = dToGoal / std::max(std::abs(b.vx), 1.0) * 1000;
     double positioning = attrFactor(gk->attrs.positioning);
     double speedSkill = attrFactor(gk->attrs.speed);
-    double reactionBonus = clamp((originDistance - 55.0) / 330.0, 0.0, 0.30);
+    double reactionBonus = clamp((originDistance - GK_SAVE_REACTION_ORIGIN) / GK_SAVE_REACTION_DIST, 0.0, GK_SAVE_REACTION_MAX);
     double timePressure = clamp((260.0 - timeToLineMs) / 240.0, 0.0, 0.42);
-    double speedPenalty = clamp((speed - 430.0) / 380.0, 0.0, 0.20);
+    double speedPenalty = clamp((speed - GK_SAVE_SPEED_PENALTY) / GK_SAVE_SPEED_RANGE, 0.0, GK_SAVE_SPEED_MAX);
     double reach = PLAYER_R + BALL_R + 18.0 + positioning * 30.0 + speedSkill * clamp(timeToLineMs / 1000.0, 0.0, 0.55) * 78.0;
-    double reachPenalty = clamp((trajectoryOffset - reach) / 92.0, 0.0, 1.0) * 0.46;
+    double reachPenalty = clamp((trajectoryOffset - reach) / GK_SAVE_PLACEMENT_DIST, 0.0, 1.0) * GK_SAVE_PLACEMENT_MAX;
     double bodyBlockBonus = trajectoryOffset < PLAYER_R + BALL_R + 4.0 ? 0.20 : 0.0;
-    double keeperSkill = positioning * 0.42 + speedSkill * 0.22;
-    double saveChance = clamp(0.18 + keeperSkill + reactionBonus + bodyBlockBonus - reachPenalty - timePressure - speedPenalty, 0.05, 0.91);
+    double keeperSkill = positioning * GK_SAVE_SKILL_POSITION + speedSkill * GK_SAVE_SKILL_SPEED;
+    double saveChance = clamp(GK_SAVE_BASE + keeperSkill + reactionBonus + bodyBlockBonus - reachPenalty - timePressure - speedPenalty, GK_SAVE_MIN, GK_SAVE_MAX);
     stats.recordShotOnTarget();
     shotActive = false;
     if (rng.random() >= saveChance) {
@@ -127,7 +127,7 @@ void GameEngine::tryGKSave() {
     trackedPenaltyShot = false;
     trackedShotDribble20m = false;
     bool canHandle = agentFor(*gk)->canUseHands();
-    double catchChance = clamp(agentFor(*gk)->catchThreshold() - std::max(0.0, speed - 520) / 900, 0.12, 0.58);
+    double catchChance = clamp(agentFor(*gk)->catchThreshold() - std::max(0.0, speed - GK_CATCH_SPEED_THRESH) / GK_CATCH_SPEED_RANGE, GK_CATCH_MIN, GK_CATCH_MAX);
     bool caught = canHandle && rng.random() < catchChance;
     double fieldDir = fdFor(gk->team);
     double side = gk->y - shotOriginY < 0 ? -1.0 : 1.0;
@@ -139,7 +139,7 @@ void GameEngine::tryGKSave() {
         b.intendedReceiverId = -1;
         blockReboundFor(shooterId, 250);
         b.lastTouchTeam = gk->team; b.lastToucherId = gk->id;
-        gkDistributeTimer = 250;
+        gkDistributeTimer = GK_DISTRIBUTE_MS;
         lastLooseOrigin = "goalkeeper_catch";
         recordBallImpulse();
         return;

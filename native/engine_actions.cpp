@@ -185,7 +185,7 @@ double GameEngine::goalOpeningAngleDeg(double x, double y, double gx) const {
     double top=std::atan2(PITCH_H/2.0-GOAL_W/2.0-y,dx);
     double bottom=std::atan2(PITCH_H/2.0+GOAL_W/2.0-y,dx);
     double opening=std::abs(std::atan2(std::sin(bottom-top),std::cos(bottom-top)));
-    return opening*180.0/3.141592653589793;
+    return opening*180.0/PI;
 }
 
 void GameEngine::placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset) {
@@ -461,13 +461,13 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double anglePenalty=clamp(std::abs(s.y-goalCenterY)/230,0.0,1.0);
     double distancePenalty=clamp((shotDistance-70)/270,0.0,1.0);
     double longRangePenalty=clamp((shotDistance-120)/130,0.0,1.0);
-    double closePressure = shotDistance < 130.0 ? pressureCount * (freshCross?30.0:46.0) : 0.0;
+    double closePressure = shotDistance < 130.0 ? pressureCount * (freshCross?SHOT_ERROR_CLOSE_PRESSURE_CROSS:SHOT_ERROR_CLOSE_PRESSURE_NORMAL) : 0.0;
     double roleError = s.role==Role::CF ? -42.0
         : (s.role==Role::WM ? (freshCross ? -8.0 : 0.0)
         : (s.role==Role::CM ? (freshCross?58.0:(shotDistance>130.0?30.0:0.0)) : 0.0));
-    double executionError=28+(1-accuracy)*105+pressureCount*(freshCross?38.0:56.0)+closePressure+laneBlockers*(freshCross?52.0:78.0)
-        +anglePenalty*48+distancePenalty*58+longRangePenalty*185;
-    executionError=std::max(16.0,executionError+roleError);
+    double executionError=SHOT_ERROR_BASE+(1-accuracy)*SHOT_ERROR_SKILL+pressureCount*(freshCross?SHOT_ERROR_PRESSURE_CROSS:SHOT_ERROR_PRESSURE_NORMAL)+closePressure+laneBlockers*(freshCross?SHOT_ERROR_LANE_CROSS:SHOT_ERROR_LANE_NORMAL)
+        +anglePenalty*SHOT_ERROR_ANGLE+distancePenalty*SHOT_ERROR_DISTANCE+longRangePenalty*SHOT_ERROR_LONG_RANGE;
+    executionError=std::max(SHOT_ERROR_FLOOR,executionError+roleError);
     bool credibleFinish=angleDeg>12.0&&shotDistance<185.0&&pressureCount<=1&&laneBlockers<=1;
     bool freshThrough=s.throughCollected>0.0&&shotDistance<245.0;
     if(credibleFinish)executionError*=shotDistance<95.0?0.60:0.70;

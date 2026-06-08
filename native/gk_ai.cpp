@@ -16,7 +16,7 @@ double GKPlayerAI::rushAggression() const {
 }
 
 double GKPlayerAI::catchThreshold() const {
-    return 0.22 + attrFactor(player.attrs.positioning) * 0.38;
+    return GK_CATCH_HANDLING_BASE + attrFactor(player.attrs.positioning) * GK_CATCH_HANDLING_WEIGHT;
 }
 
 double GKPlayerAI::sweepDepth() const {
@@ -35,8 +35,8 @@ double GKPlayerAI::punchPower() const {
 }
 
 bool GKPlayerAI::shouldRushOut(double threatDist, double ballSpeed, bool throughBall) const {
-    if (threatDist > 210.0) return false;
-    if (!throughBall && ballSpeed < 120.0) return false;
+    if (threatDist > GK_RUSH_DIST + 10.0) return false;
+    if (!throughBall && ballSpeed < GK_SAVE_MIN_BALL_SPEED + 20.0) return false;
     double confidence = attrFactor(player.attrs.positioning) * 0.5 + attrFactor(player.attrs.speed) * 0.5;
     double threshold = throughBall ? 0.22 : 0.38;
     return confidence > threshold;

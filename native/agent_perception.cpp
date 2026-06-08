@@ -32,15 +32,15 @@ Perception PlayerAI::perceive() {
         if (d > PLAYER_AWARE_RANGE) continue;
 
         bool inCone = false;
-        if (d < 40.0) {
+        if (d < PERCEPTION_NEAR_BALL) {
             inCone = true;
         } else {
             double angleTo = std::atan2(o.y - p.y, o.x - p.x);
             double diff = std::abs(angleTo - facing);
-            double nd = (diff > 3.141592653589793) ? 2.0 * 3.141592653589793 - diff : diff;
+            double nd = (diff > PI) ? 2.0 * PI - diff : diff;
             bool isOwnThird = (p.team == Team::Home) ? b.x < PITCH_W / 3.0 : b.x > PITCH_W * 2.0 / 3.0;
             bool defenderWide = isDefenderRole() && isOwnThird;
-            inCone = nd < (defenderWide ? 3.141592653589793 / 2.0 : 3.141592653589793 / 3.0);
+            inCone = nd < (defenderWide ? PERCEPTION_CONE_DEFENDER : PERCEPTION_CONE_NEAR);
         }
         if (!inCone) continue;
 
@@ -49,7 +49,7 @@ Perception PlayerAI::perceive() {
         } else {
             per.nearbyOpponents.push_back(&o);
             if (d < per.nearestOpponentDist) per.nearestOpponentDist = d;
-            if (d < 60.0) pc++;
+            if (d < PERCEPTION_PRESSURE_DIST) pc++;
         }
     }
 

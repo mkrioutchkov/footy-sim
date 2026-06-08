@@ -124,6 +124,10 @@ inline constexpr double PASS_BLOCKER_PERP_OUTLET = 34.0;
 inline constexpr double PASS_RECEIVER_PRESS_MAX = 45.0;
 inline constexpr double PASS_RECEIVER_PRESS_CUT = 3;
 inline constexpr double PASS_TOUCHLINE_TRAPPED  = 90.0;
+inline constexpr double BLOCKER_PERP_FREEKICK   = 42.0;
+inline constexpr double BLOCKER_PERP_THROWIN     = 32.0;
+inline constexpr double CARRIER_PRESSURE_RANGE   = 70.0;
+inline constexpr double CARRIER_PRESSURE_COUNT_DIST = 48.0;
 
 // ── Shot scoring ──
 inline constexpr double SHOT_FLOOR_CLOSE        = 0.35;
@@ -146,19 +150,19 @@ inline constexpr double PRE_CONTACT_CHASE_REACH = 36.4;
 // ── GK save ──
 inline constexpr double GK_SAVE_MIN_SPEED       = 200.0;
 inline constexpr double GK_SAVE_MAX_GOAL_DIST   = 250.0;
-inline constexpr double GK_SAVE_SKILL_POSITION  = 0.58;
-inline constexpr double GK_SAVE_SKILL_SPEED     = 0.19;
-inline constexpr double GK_SAVE_REACTION_ORIGIN = 65.0;
-inline constexpr double GK_SAVE_REACTION_DIST   = 300.0;
-inline constexpr double GK_SAVE_REACTION_MAX    = 0.25;
-inline constexpr double GK_SAVE_PLACEMENT_DIST  = 70.0;
-inline constexpr double GK_SAVE_PLACEMENT_MAX   = 0.30;
-inline constexpr double GK_SAVE_SPEED_PENALTY   = 450.0;
-inline constexpr double GK_SAVE_SPEED_RANGE     = 350.0;
-inline constexpr double GK_SAVE_SPEED_MAX       = 0.15;
-inline constexpr double GK_SAVE_BASE            = 0.11;
-inline constexpr double GK_SAVE_MIN             = 0.08;
-inline constexpr double GK_SAVE_MAX             = 0.86;
+inline constexpr double GK_SAVE_SKILL_POSITION  = 0.42;
+inline constexpr double GK_SAVE_SKILL_SPEED     = 0.22;
+inline constexpr double GK_SAVE_REACTION_ORIGIN = 55.0;
+inline constexpr double GK_SAVE_REACTION_DIST   = 330.0;
+inline constexpr double GK_SAVE_REACTION_MAX    = 0.30;
+inline constexpr double GK_SAVE_PLACEMENT_DIST  = 92.0;
+inline constexpr double GK_SAVE_PLACEMENT_MAX   = 0.46;
+inline constexpr double GK_SAVE_SPEED_PENALTY   = 430.0;
+inline constexpr double GK_SAVE_SPEED_RANGE     = 380.0;
+inline constexpr double GK_SAVE_SPEED_MAX       = 0.20;
+inline constexpr double GK_SAVE_BASE            = 0.18;
+inline constexpr double GK_SAVE_MIN             = 0.05;
+inline constexpr double GK_SAVE_MAX             = 0.91;
 inline constexpr double GK_CATCH_HANDLING_BASE  = 0.22;
 inline constexpr double GK_CATCH_HANDLING_WEIGHT = 0.38;
 inline constexpr double GK_CATCH_SPEED_THRESH   = 520.0;
@@ -169,7 +173,7 @@ inline constexpr double GK_PARRY_SPEED_X_BASE   = 155.0;
 inline constexpr double GK_PARRY_SPEED_X_FACTOR = 0.10;
 inline constexpr double GK_PARRY_SPEED_Y_BASE   = 140.0;
 inline constexpr double GK_PARRY_SPEED_Y_RANGE  = 90.0;
-inline constexpr double GK_DISTRIBUTE_MS        = 400.0;
+inline constexpr double GK_DISTRIBUTE_MS        = 250.0;
 
 // ── Tackle ──
 inline constexpr double TACKLE_BASE             = 0.18;
@@ -200,17 +204,24 @@ inline constexpr double INTENDED_PASS_SPEED_LIMIT = 220.0;
 inline constexpr double PING_PONG_WINDOW_MS       = 300.0;
 
 // ── Shot error ──
-inline constexpr double SHOT_ERROR_BASE         = 16.0;
-inline constexpr double SHOT_ERROR_SKILL        = 75.0;
-inline constexpr double SHOT_ERROR_PRESSURE     = 18.0;
-inline constexpr double SHOT_ERROR_ANGLE        = 32.0;
-inline constexpr double SHOT_ERROR_DISTANCE     = 30.0;
-inline constexpr double SHOT_ERROR_LONG_RANGE   = 65.0;
+inline constexpr double SHOT_ERROR_FLOOR        = 16.0;
+inline constexpr double SHOT_ERROR_BASE         = 28.0;
+inline constexpr double SHOT_ERROR_SKILL        = 105.0;
+inline constexpr double SHOT_ERROR_CLOSE_PRESSURE_NORMAL = 46.0;
+inline constexpr double SHOT_ERROR_PRESSURE_NORMAL = 56.0;
+inline constexpr double SHOT_ERROR_ANGLE        = 48.0;
+inline constexpr double SHOT_ERROR_DISTANCE     = 58.0;
+inline constexpr double SHOT_ERROR_LONG_RANGE   = 185.0;
+inline constexpr double SHOT_ERROR_LANE_CROSS   = 52.0;
+inline constexpr double SHOT_ERROR_LANE_NORMAL  = 78.0;
+inline constexpr double SHOT_ERROR_PRESSURE_CROSS = 38.0;
+inline constexpr double SHOT_ERROR_CLOSE_PRESSURE_CROSS = 30.0;
 
 // ── Perception ──
 inline constexpr double PERCEPTION_CONE_NEAR    = PI / 3.0;
 inline constexpr double PERCEPTION_CONE_DEFENDER = PI / 2.0;
 inline constexpr double PERCEPTION_NEAR_BALL    = 40.0;
+inline constexpr double PERCEPTION_PRESSURE_DIST = 60.0;
 
 // ── Movement ──
 inline constexpr double MOVEMENT_FACING_LERP    = 0.06;
