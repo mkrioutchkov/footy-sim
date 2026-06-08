@@ -224,43 +224,15 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     Action& best = a[0];
     bool ic = (engine.state.ball.controllerId == player.id);
     double gx = goalXFor(player.team);
-    bool nearGoal = std::abs(player.x - gx) < 220.0;
-    bool inBox    = std::abs(player.x - gx) < 150.0;
+    bool nearGoal = std::abs(player.x - gx) < NEAR_GOAL_DIST;
+    bool inBox    = std::abs(player.x - gx) < PERIMETER_GOAL_DIST;
 
-    if (ic && player.throughCollected > 0.0) {
-        Action* shootOpt = nullptr;
-        Action* dribbleOpt = nullptr;
-        for (auto& x : a) {
-            if (x.type == ActionType::Shoot && x.score >= 0.0) {
-                if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
-            } else if (x.type == ActionType::Dribble) {
-                if (!dribbleOpt || x.score > dribbleOpt->score) dribbleOpt = &x;
-            }
-        }
-        if (shootOpt && shootOpt->score > best.score - 0.18 && shootOpt->audit.distance < 245.0) return *shootOpt;
-        if (dribbleOpt && nearGoal && dribbleOpt->score > best.score - 0.14) return *dribbleOpt;
-    }
+    // ── Decision pipeline: each phase can override with a better action ──
 
-    if (ic && player.crossCollected > 0.0) {
-        Action* shootOpt = nullptr;
-        for (auto& x : a) {
-            if (x.type == ActionType::Shoot && x.score >= 0.0) {
-                if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
-            }
-        }
-        if (shootOpt && shootOpt->audit.distance < 225.0 && shootOpt->audit.angleDeg > 7.0
-            && shootOpt->score > best.score - 0.24) return *shootOpt;
-    }
+    if (Action* r = tryFreshBallOverride(a, best, ic, nearGoal)) return *r;
 
     if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22)) {
-        Action* passOpt = nullptr;
-        Action* dribbleOpt = nullptr;
-        for (auto& x : a) {
-            if (x.type == ActionType::Pass && (!passOpt || x.score > passOpt->score)) passOpt = &x;
-            if (x.type == ActionType::Dribble && (!dribbleOpt || x.score > dribbleOpt->score)) dribbleOpt = &x;
-        }
-        if (passOpt && passOpt->score > 0.05) return *passOpt;
-        if (dribbleOpt && dribbleOpt->score > 0.04) return *dribbleOpt;
+        if (Action* r = tryLowScoreFallback(a, best)) return *r;
         if (player.role != Role::GK) {
             double fd = fdFor(player.team);
             double side = player.y < PITCH_H / 2.0 ? 1.0 : -1.0;
@@ -272,262 +244,17 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
         return Action{ActionType::Hold, 1.0};
     }
 
-    if (ic && engine.carryTrackerId == player.id) {
-        double carryDistance = engine.carryPathDistance;
-        double fd = fdFor(player.team);
-        double ownGoalX = ownGoalXFor(player.team);
-        double progress = (player.x - ownGoalX) * fd;
-        bool attackingHalf = progress > PITCH_W * 0.46;
-        bool finalThirdCarry = progress > PITCH_W * 0.62;
-        CarrierPressure cp = assessCarrierPressure(engine, player);
-        Action* shootOpt = nullptr;
-        Action* dribbleOpt = nullptr;
-        Action* passOpt = nullptr;
-        for (auto& x : a) {
-            if (x.type == ActionType::Shoot && x.score >= 0.0) {
-                if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
-            } else if (x.type == ActionType::Dribble) {
-                if (!dribbleOpt || x.score > dribbleOpt->score) dribbleOpt = &x;
-            } else if (x.type == ActionType::Pass) {
-                if (!passOpt || x.score > passOpt->score) passOpt = &x;
-            }
-        }
-        if (carryDistance >= 205.0 && shootOpt && shootOpt->audit.distance < 255.0
-            && shootOpt->audit.angleDeg > 7.5 && shootOpt->score > best.score - 0.22) {
-            return *shootOpt;
-        }
-        if (carryDistance >= 80.0 && dribbleOpt && attackingHalf && cp.score < 1.05) {
-            bool passClearlyBetter = passOpt && passOpt->score > dribbleOpt->score + (finalThirdCarry ? 0.38 : 0.30)
-                && passOpt->audit.forwardProgress > 30.0;
-            bool shotClearlyBetter = shootOpt && shootOpt->score > dribbleOpt->score + 0.28;
-            bool needsCarryShotWindow = carryDistance < 210.0;
-            if (!passClearlyBetter && !shotClearlyBetter && dribbleOpt->score > best.score - (needsCarryShotWindow ? 0.40 : 0.32)) {
-                return *dribbleOpt;
-            }
-        }
-    }
+    if (Action* r = tryLongCarryOverride(a, best, ic)) return *r;
 
     auto& bb = engine.blackboards[GameEngine::teamIndex(player.team)];
+    if (Action* r = managePressSlots(a, best, bb)) return *r;
 
-    if (best.type == ActionType::Chase && engine.state.ball.controllerId < 0) {
-        bool priorityChaser = engine.state.ball.intendedReceiverId == player.id || engine.isActiveKnockAheadRunner(player.id);
-        auto ps = checkPressSlots(bb, player.id);
-        if (!priorityChaser && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
-            for (auto& x : a) {
-                if (x.type != ActionType::Chase && x.type != ActionType::Tackle && x.score > MIN_FALLBACK_SCORE) return x;
-            }
-            return Action{ActionType::Hold, 1.0};
-        }
-        if (!priorityChaser) tryClaimPressSlot(bb, player.id, ps.isSelf, ps.slot1Free, ps.slot2Free);
-    }
+    auditBackpass(a, best, ic);
 
-    if (best.type == ActionType::Position) {
-        bool reservePressSlot = false;
-        bool emergencyCloseDown = best.purpose == ActionPurpose::EmergCloseDown;
-        auto* task = engine.assignmentFor(player.id);
-        if (best.purpose == ActionPurpose::LocalCloseDown) reservePressSlot = true;
-        if (best.purpose == ActionPurpose::Task && task
-            && (task->role == DefensiveTask::PrimaryPress || task->role == DefensiveTask::SecondaryPress || task->role == DefensiveTask::CloseDown)) {
-            reservePressSlot = true;
-        }
-        if (reservePressSlot) {
-            auto ps = checkPressSlots(bb, player.id);
-            if (!emergencyCloseDown && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
-                for (auto& x : a) {
-                    if (x.type == ActionType::Position && x.purpose == ActionPurpose::LocalCloseDown) continue;
-                    if (x.type != ActionType::Tackle && x.score > MIN_FALLBACK_SCORE) return x;
-                }
-                return Action{ActionType::Hold, 1.0};
-            }
-            if (!ps.isSelf) tryClaimPressSlot(bb, player.id, ps.isSelf, ps.slot1Free, ps.slot2Free);
-        }
-    }
-
-    if (best.type == ActionType::Tackle && best.target) {
-        auto ps = checkPressSlots(bb, player.id);
-
-        if (!ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
-            for (auto& x : a) {
-                if (x.type != ActionType::Tackle && x.score > MIN_FALLBACK_SCORE) return x;
-            }
-            return Action{ActionType::Hold, 1.0};
-        }
-
-        tryClaimPressSlot(bb, player.id, ps.isSelf, ps.slot1Free, ps.slot2Free);
-    }
-
-    if (best.type == ActionType::Mark && best.target) {
-        auto it = bb.markedOpponents.find(best.target->id);
-        if (it != bb.markedOpponents.end() && it->second != player.id) {
-            for (auto& x : a) {
-                if (x.type != ActionType::Mark && x.type != ActionType::Tackle && x.score > 0.15) return x;
-            }
-            return Action{ActionType::Hold, 1.0};
-        }
-        bb.markedOpponents[best.target->id] = player.id;
-    }
-
-    if (ic && best.type == ActionType::Pass && best.audit.forwardProgress < -40.0) {
-        Action* fwdOpt = nullptr;
-        for (auto& x : a) {
-            if (x.type == ActionType::Pass && x.audit.forwardProgress > 30.0 && x.score > best.score - 0.15) {
-                fwdOpt = &x; break;
-            }
-        }
-        if (fwdOpt) engine.logQualityFlag(QualityFlag::QuestionableBackpass, player.id, player.role,
-                                          best.audit.forwardProgress, true,
-                                          fwdOpt->score, best.score,
-                                          8000.0, "backpass:" + std::to_string(player.id));
-    }
-
-    // ── Clear path alert: relaxed — broad corridor, allow 1 blocker, wider zone ──
-    if (ic) {
-        double dx = gx - player.x;
-        double dy = PITCH_H / 2.0 - player.y;
-        double toGoalDist = std::hypot(dx, dy);
-        dx /= std::max(toGoalDist, 1.0);
-        dy /= std::max(toGoalDist, 1.0);
-        double nearestOppDist = 1e9;
-        int blockersInPath = 0;
-        for (auto& o : engine.state.players) {
-            if (o.team == player.team || o.role == Role::GK) continue;
-            double odx = o.x - player.x, ody = o.y - player.y;
-            double od = std::hypot(odx, ody);
-            double along = odx * dx + ody * dy;
-            double perp = std::abs(odx * dy - ody * dx);
-            if (along > 5.0) {
-                if (along < toGoalDist && perp < 80.0) blockersInPath++;
-                if (od < nearestOppDist) nearestOppDist = od;
-            }
-        }
-        bool clearPath = blockersInPath <= 1 && nearestOppDist > 35.0;
-        double distToGoal = std::abs(player.x - gx);
-        bool inDangerZone = distToGoal < 500.0;
-        if (clearPath && inDangerZone) {
-            // Close enough: shoot if possible, else dribble closer
-            if (distToGoal < 200.0) {
-                Action* shootAct = nullptr;
-                for (auto& x : a) {
-                    if (x.type == ActionType::Shoot && x.score > 0.0) {
-                        if (!shootAct || x.score > shootAct->score) shootAct = &x;
-                    }
-                }
-                if (shootAct) {
-                    engine.logQualityFlag(QualityFlag::ClearPathShoot, player.id, player.role,
-                        distToGoal, shootAct->audit.angleDeg,
-                        shootAct->score, best.type, best.score);
-                    return *shootAct;
-                }
-            }
-            // Dribble toward goal — even if no shot exists yet, get closer
-            Action* driveAct = nullptr;
-            for (auto& x : a) {
-                if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space) {
-                    if (!driveAct || x.score > driveAct->score) driveAct = &x;
-                }
-            }
-            if (driveAct) {
-                engine.logQualityFlag(QualityFlag::ClearPathDrive, player.id, player.role,
-                    distToGoal, 0,
-                    driveAct->score, best.type, best.score);
-                return *driveAct;
-            }
-        }
-    }
-
-    if (ic) {
-        CarrierPressure cp = assessCarrierPressure(engine, player);
-        if (cp.score > 0.85) {
-            bool attackerNearGoal = isAttackerRole() && nearGoal;
-            if (!attackerNearGoal) {
-            Action* safePass = nullptr;
-            for (auto& x : a) {
-                if (x.type != ActionType::Pass || !x.target) continue;
-                bool safe = x.audit.expectedCompletion > 0.66 && x.audit.blockers <= 1
-                    && x.audit.receiverPressure <= 1 && x.audit.distance < 300.0;
-                if (!safe) continue;
-                if (!safePass || x.score > safePass->score) safePass = &x;
-            }
-            if (safePass && (best.type == ActionType::Shoot || best.type == ActionType::Dribble)
-                && safePass->score > best.score - (cp.exposed > 0.35 ? 0.30 : 0.20)) {
-                return *safePass;
-            }
-            }
-        }
-    }
-
-    if (ic) {
-        double fd = fdFor(player.team);
-        bool finalThird = fd > 0.0 ? player.x > PITCH_W * 2.0 / 3.0 : player.x < PITCH_W / 3.0;
-        if (finalThird && shouldSearchForPassOverShot() && best.type == ActionType::Shoot) {
-            Action* frontLinePass = nullptr;
-            for (auto& x : a) {
-                if (x.type != ActionType::Pass || !x.target) continue;
-                if (x.target->role != Role::CF && x.target->role != Role::WM) continue;
-                if (x.audit.expectedCompletion < 0.66 || x.audit.blockers > 1 || x.audit.receiverPressure > 1) continue;
-                double targetGoalDist = std::abs(goalXFor(player.team) - x.target->x);
-                if (targetGoalDist > 230.0 && x.audit.forwardProgress < 40.0) continue;
-                if (!frontLinePass || x.score > frontLinePass->score) frontLinePass = &x;
-            }
-            if (frontLinePass && frontLinePass->score > best.score - 0.22) return *frontLinePass;
-        }
-        if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 25.0 && isAttackerRole()) {
-            Action* driveIn = nullptr;
-            for (auto& x : a) {
-                if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space) { driveIn = &x; break; }
-            }
-            if (driveIn && driveIn->score > best.score - 0.22) return *driveIn;
-        }
-        if (finalThird && best.type == ActionType::Pass && best.audit.forwardProgress < 0.0) {
-            Action* driveOpt = nullptr;
-            Action* shootOpt = nullptr;
-            for (auto& x : a) {
-                if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space) driveOpt = &x;
-                if (x.type == ActionType::Shoot) shootOpt = &x;
-            }
-            if (shootOpt && shootOpt->score > best.score - 0.12) return *shootOpt;
-            if (driveOpt && driveOpt->score > best.score - 0.16) return *driveOpt;
-        }
-        if (finalThird && best.type != ActionType::Shoot) {
-            Action* shotOpt = nullptr;
-            Action* tapInPass = nullptr;
-            for (auto& x : a) {
-                if (x.type == ActionType::Shoot && x.score > 0.0) shotOpt = &x;
-                if (x.type == ActionType::Pass && x.target) {
-                    double tGoalDist = std::abs(goalXFor(player.team) - x.target->x);
-                    if (tGoalDist < 75.0 && x.audit.expectedCompletion > 0.62 && x.audit.blockers <= 1) tapInPass = &x;
-                }
-            }
-            if (shotOpt && !tapInPass) {
-                double maxDistance = finalThirdShotMaxDistance();
-                double minAngle = finalThirdShotMinAngle();
-                bool credible = shotOpt->audit.distance < maxDistance
-                    && shotOpt->audit.angleDeg > minAngle
-                    && shotOpt->audit.pressureCount <= 1;
-                if (credible && shotOpt->score > best.score - 0.26) return *shotOpt;
-            }
-        }
-    }
-
-    // CF near goal: bias toward shooting unless teammate has a clear tap-in
-    if (ic && nearGoal && best.type != ActionType::Shoot) {
-        double margin = nearGoalShotBiasMargin();
-        if (margin > 0.0) {
-        Action* shotOpt = nullptr;
-        Action* passToTapIn = nullptr;
-        for (auto& x : a) {
-            if (x.type == ActionType::Shoot) shotOpt = &x;
-            if (x.type == ActionType::Pass && x.target) {
-                double tGoalDist = std::abs(goalXFor(player.team) - x.target->x);
-                if (tGoalDist < 80.0) passToTapIn = &x;
-            }
-        }
-        // If shot exists and passes don't go to a tap-in, prefer shot
-        if (shotOpt && !passToTapIn && shotOpt->score > best.score - (margin + 0.06)) {
-            return *shotOpt;
-        }
-        }
-    }
+    if (Action* r = tryClearPathOverride(a, best, ic, gx)) return *r;
+    if (Action* r = tryPressureSafetyPass(a, best, ic, nearGoal)) return *r;
+    if (Action* r = tryFinalThirdOverride(a, best, ic)) return *r;
+    if (Action* r = tryNearGoalShotBias(a, best, ic, nearGoal, gx)) return *r;
 
     return best;
 }

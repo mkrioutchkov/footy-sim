@@ -197,6 +197,17 @@ private:
 protected:
     virtual void          adjustActionScores(std::vector<Action>& actions, bool isController);
     Action                resolveChoice(std::vector<Action>& actions);
+
+    // resolveChoice() pipeline helpers — each returns nullptr to continue, or a chosen action
+    Action* tryFreshBallOverride(std::vector<Action>& a, Action& best, bool ic, bool nearGoal);
+    Action* tryLowScoreFallback(std::vector<Action>& a, Action& best);
+    Action* tryLongCarryOverride(std::vector<Action>& a, Action& best, bool ic);
+    Action* managePressSlots(std::vector<Action>& a, Action& best, TeamBlackboard& bb);
+    void    auditBackpass(std::vector<Action>& a, Action& best, bool ic);
+    Action* tryClearPathOverride(std::vector<Action>& a, Action& best, bool ic, double gx);
+    Action* tryPressureSafetyPass(std::vector<Action>& a, Action& best, bool ic, bool nearGoal);
+    Action* tryFinalThirdOverride(std::vector<Action>& a, Action& best, bool ic);
+    Action* tryNearGoalShotBias(std::vector<Action>& a, Action& best, bool ic, bool nearGoal, double gx);
 private:
     void                  executeAction(Action& action, double sdt, std::vector<Action>& actions);
     Perception            getCachedPerception();
