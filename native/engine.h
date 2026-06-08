@@ -174,6 +174,36 @@ public:
     void updateTeamAssignments();
     void assignDefensiveRoles(Team team, Player& carrier);
     void setAssignment(Player& player, DefensiveTask role, double x, double y, int opponentId=-1);
+    // Defense pipeline helpers
+    struct DefenseContext {
+        struct Rated { Player* player; double distance; double eta; double score; };
+        struct Threat { Player* player; double depth; };
+        Team team;
+        double fd;
+        double ownGoalX;
+        bool danger;
+        Config tactics;
+        double lineProgress = 0;
+        bool shootingRange = false;
+        bool wideDanger = false;
+        double carrierGoalDist = 0;
+        std::unordered_set<int> assigned;
+        std::vector<Rated> ranked;
+        std::vector<Threat> threats;
+        bool used(const Player* p) const { return assigned.contains(p->id); }
+    };
+    std::vector<DefenseContext::Rated> rankDefenders(Team team, Player& carrier);
+    void assignPrimaryPress(DefenseContext& ctx, Player& carrier);
+    void assignSecondaryPress(DefenseContext& ctx, Player& carrier);
+    void assignShotLane(DefenseContext& ctx, Player& carrier);
+    void assignCrossLane(DefenseContext& ctx, Player& carrier);
+    void assignCoverRoles(DefenseContext& ctx, Player& carrier);
+    void assignMidfieldScreen(DefenseContext& ctx, Player& carrier);
+    void assignCloseDown(DefenseContext& ctx, Player& carrier);
+    std::vector<DefenseContext::Threat> identifyThreats(DefenseContext& ctx, Player& carrier);
+    void assignThreatMarking(DefenseContext& ctx, Player& carrier);
+    void assignBoxProtection(DefenseContext& ctx, Player& carrier);
+    void assignDefensiveLine(DefenseContext& ctx, Player& carrier);
     void auditTacticalCoverage(Player& carrier);
     void auditCredibleShotWindow(const Player& player, double distance, double angleDeg,
                                  int pressureCount, const std::string& choiceType);
