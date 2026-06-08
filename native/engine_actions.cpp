@@ -436,9 +436,12 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         +anglePenalty*48+distancePenalty*58+longRangePenalty*185;
     executionError=std::max(16.0,executionError+roleError);
     bool credibleFinish=angleDeg>12.0&&shotDistance<185.0&&pressureCount<=1&&laneBlockers<=1;
-    if(credibleFinish)executionError*=shotDistance<95.0?0.66:0.76;
+    bool freshThrough=s.throughCollected>0.0&&shotDistance<245.0;
+    if(credibleFinish)executionError*=shotDistance<95.0?0.60:0.70;
+    if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.84:0.92;
     if(freshCross)executionError*=s.role==Role::CF?0.54:(s.role==Role::WM?0.72:0.90);
-    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(0.18+accuracy*0.13);
+    double postAimScale=credibleFinish?0.86:1.0;
+    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(0.18+accuracy*0.13)*postAimScale;
     double goalY=goalCenterY+aimedPost+(rng.random()+rng.random()-1.0)*executionError;
     if(acuteGeometry){
         double nearPostSide=s.y<goalCenterY?-1.0:1.0;
