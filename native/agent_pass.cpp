@@ -235,13 +235,36 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         double onsideGap = std::isnan(offsideLine) ? 1e9 : (offsideLine - t.x) * fd;
 
         bool wideOutletTarget = targetWide && fp > 20.0 && d < 500.0;
-        bool releasedRunner = (assignment && assignment->role == DefensiveTask::RunAhead)
+        double runnerForwardSpeed = t.vx * fd;
+        bool targetAttacker = t.role == Role::CF || t.role == Role::WM;
+        bool runnerIntent =
+            (assignment && (assignment->role == DefensiveTask::RunAhead
+                         || assignment->role == DefensiveTask::InsideRun
+                         || assignment->role == DefensiveTask::Overlap
+                         || assignment->role == DefensiveTask::CrossLane))
+            || runnerForwardSpeed > 5.0;
+        bool goodThroughWindow = targetAttacker
+                              && runnerIntent
+                              && fp > 30.0
+                              && onsideGap > -12.0
+                              && onsideGap < 170.0
+                              && bl <= 1
+                              && receiverPressure <= 1
+                              && targetGoalDist < 480.0;
+        bool releasedRunner = (assignment && (assignment->role == DefensiveTask::RunAhead
+                                           || assignment->role == DefensiveTask::InsideRun
+                                           || (assignment->role == DefensiveTask::CrossLane && t.role == Role::WM)))
                               || (assignment && assignment->role == DefensiveTask::Overlap && !wideOutletTarget)
-                              || (p.role == Role::CM && (t.role == Role::CF || (t.role == Role::WM && !wideOutletTarget)));
-        if (!isWideDelivery && releasedRunner && fp > 30.0 && onsideGap > -25.0 && onsideGap < 170.0 && bl <= 2) {
+                              || (p.role == Role::CM && targetAttacker && !wideOutletTarget);
+        if (!isWideDelivery && releasedRunner && goodThroughWindow) {
             pur = ActionPurpose::Through;
-            sc += 0.18 + attrFactor(p.attrs.creativity) * 0.12;
-            if (onsideGap < 8.0) sc += engine.rng.random() * 0.04;
+            sc += 0.16 + attrFactor(p.attrs.creativity) * 0.15;
+            if (runnerForwardSpeed > 10.0) sc += 0.07;
+            if (onsideGap > 8.0 && onsideGap < 70.0) sc += 0.08;
+            if (targetGoalDist < 250.0) sc += 0.08;
+            if (receiverPressure > 0) sc -= 0.05;
+        } else if (!isWideDelivery && releasedRunner && !runnerIntent && p.role == Role::CM) {
+            sc -= 0.08;
         }
         if (wideOutletTarget && !isWideDelivery && onsideGap > 10.0 && bl <= 1 && receiverPressure <= 1) {
             pur = std::abs(t.y - p.y) > 120.0 ? ActionPurpose::Switch : ActionPurpose::Build;

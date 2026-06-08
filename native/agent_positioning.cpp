@@ -137,6 +137,18 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
                 double insideY = clamp(lerp(p.y, PITCH_H / 2.0, isCenterForward() ? 0.28 : 0.18), 50.0, PITCH_H - 50.0);
                 c.push_back({ clamp(legalShoulder, 55.0, PITCH_W - 55.0), p.y, ActionPurpose::Offer });
                 c.push_back({ clamp(checkBackX, 55.0, PITCH_W - 55.0), insideY, ActionPurpose::Offer });
+                if (ba > 0.48) {
+                    double channelY = isCenterForward()
+                        ? clamp(PITCH_H / 2.0 + ((p.homeY < PITCH_H / 2.0) ? -34.0 : 34.0), PITCH_H * 0.27, PITCH_H * 0.73)
+                        : clamp(PITCH_H / 2.0 + (p.homeY - PITCH_H / 2.0) * 0.54, PITCH_H * 0.18, PITCH_H * 0.82);
+                    double shoulderX = clamp(legalShoulder - fd * 3.0, 55.0, PITCH_W - 55.0);
+                    c.push_back({ shoulderX, channelY, isCenterForward() ? ActionPurpose::RunAhead : ActionPurpose::InsideRun });
+                    if (ba > 0.58) {
+                        c.push_back({ clamp(legalShoulder + fd * 32.0, 55.0, PITCH_W - 55.0),
+                                      clamp(channelY + ((p.homeY < PITCH_H / 2.0) ? 28.0 : -28.0), PITCH_H * 0.2, PITCH_H * 0.8),
+                                      ActionPurpose::RunAhead });
+                    }
+                }
                 if (isCenterForward() && ba > 0.54) {
                     double cutbackX = clamp(goalXFor(p.team) - fd * 155.0, 55.0, PITCH_W - 55.0);
                     bool cutbackOffside = fd > 0.0 ? cutbackX > legalShoulder : cutbackX < legalShoulder;
@@ -194,7 +206,14 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
             if (carrier && carrier->team == p.team && (engine.agentFor(*carrier)->isWideMidfielder() || engine.agentFor(*carrier)->isFullBack())
                 && std::abs(carrier->y - PITCH_H / 2.0) > 130.0
                 && std::abs(carrier->x - bGoalX) < 450.0) {
+                double ballSide = carrier->y < PITCH_H / 2.0 ? -1.0 : 1.0;
                 c.push_back({ bGoalX - fd * 165.0, PITCH_H / 2.0, ActionPurpose::Offer });
+                c.push_back({ bGoalX - fd * 135.0,
+                              clamp(PITCH_H / 2.0 - ballSide * 46.0, PITCH_H * 0.27, PITCH_H * 0.73),
+                              ActionPurpose::Space });
+                c.push_back({ bGoalX - fd * 210.0,
+                              clamp(PITCH_H / 2.0 + ballSide * 58.0, PITCH_H * 0.24, PITCH_H * 0.76),
+                              ActionPurpose::Offer });
             }
         }
 
@@ -415,6 +434,8 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         double db = !my ? clamp(((b.x - targetX) * fd) / (std::abs(b.x - og2) + 1.0), 0.0, 0.30) : 0.0;
         double bp2 = std::sqrt((targetX - b.x) * (targetX - b.x) + (targetY - b.y) * (targetY - b.y)) / 600.0 * 0.08;
         double ob = counterOutlet ? 0.44 :
+                    (cn.pur == ActionPurpose::RunAhead && isCenterForward() && ba > 0.48) ? 0.20 :
+                    (cn.pur == ActionPurpose::InsideRun && isCenterForward() && ba > 0.50) ? 0.14 :
                     (cn.pur == ActionPurpose::InsideRun && isWideMidfielder() && ba > 0.42) ? 0.20 :
                     (cn.pur == ActionPurpose::RunAhead && isWideMidfielder()) ? 0.14 :
                     (cn.pur == ActionPurpose::CrossLane || cn.pur == ActionPurpose::Overlap) ? 0.24 :

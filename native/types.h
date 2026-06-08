@@ -220,6 +220,7 @@ struct Player {
     double tackleAnim  = 0.0;
     double headingAnim = 0.0;
     double crossCollected = 0.0;
+    double throughCollected = 0.0;
     int    dribbleType = 0;
 };
 

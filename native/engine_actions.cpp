@@ -140,6 +140,9 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         stats.recordCrossComplete();
         receiver.crossCollected = 1500.0;
     }
+    if (pendingPass.isThrough && receiver.team == pendingPass.team) {
+        receiver.throughCollected = 1400.0;
+    }
     pendingPass.active=false;
     return false;
 }
@@ -174,8 +177,8 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     double receiverSpeed=std::hypot(t.vx,t.vy);
     double fd=f.team==Team::Home?1.0:-1.0;
     bool movingForward=t.vx*fd>5;
-    double leadFactor=movingForward&&receiverSpeed>20?0.90:0.55;
-    double throughLead=throughBall?fd*(32+attrFactor(f.attrs.creativity)*62):0;
+    double leadFactor=throughBall ? (movingForward&&receiverSpeed>14?1.12:0.72) : (movingForward&&receiverSpeed>20?0.90:0.55);
+    double throughLead=throughBall?fd*(46+attrFactor(f.attrs.creativity)*78):0;
     double predX=t.x+t.vx*travelTime*leadFactor+throughLead;
     double predY=t.y+t.vy*travelTime*leadFactor;
     double dx=predX-f.x,dy=predY-f.y,adjDist=std::hypot(dx,dy);

@@ -226,6 +226,31 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
     bool nearGoal = std::abs(player.x - gx) < 220.0;
     bool inBox    = std::abs(player.x - gx) < 150.0;
 
+    if (ic && player.throughCollected > 0.0) {
+        Action* shootOpt = nullptr;
+        Action* dribbleOpt = nullptr;
+        for (auto& x : a) {
+            if (x.type == ActionType::Shoot && x.score >= 0.0) {
+                if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
+            } else if (x.type == ActionType::Dribble) {
+                if (!dribbleOpt || x.score > dribbleOpt->score) dribbleOpt = &x;
+            }
+        }
+        if (shootOpt && shootOpt->score > best.score - 0.18 && shootOpt->audit.distance < 245.0) return *shootOpt;
+        if (dribbleOpt && nearGoal && dribbleOpt->score > best.score - 0.14) return *dribbleOpt;
+    }
+
+    if (ic && player.crossCollected > 0.0) {
+        Action* shootOpt = nullptr;
+        for (auto& x : a) {
+            if (x.type == ActionType::Shoot && x.score >= 0.0) {
+                if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
+            }
+        }
+        if (shootOpt && shootOpt->audit.distance < 225.0 && shootOpt->audit.angleDeg > 7.0
+            && shootOpt->score > best.score - 0.24) return *shootOpt;
+    }
+
     if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22)) {
         Action* passOpt = nullptr;
         Action* dribbleOpt = nullptr;

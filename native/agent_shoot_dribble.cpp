@@ -14,17 +14,18 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     CarrierPressure cp = assessCarrierPressure(engine, p);
     double freshCrossMax = freshCrossMaxDistance();
     bool freshCross = p.crossCollected > 0.0 && shotDistance < freshCrossMax;
+    bool freshThrough = p.throughCollected > 0.0 && shotDistance < 245.0;
 
     bool outsideGoalLane = std::abs(p.y - PITCH_H / 2.0) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150.0;
 
-    if (!freshCross && angleDeg < 8.0 && shotDistance > 120.0)
+    if (!freshCross && !freshThrough && angleDeg < 8.0 && shotDistance > 120.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     if ((!freshCross && shotDistance > 260.0) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && acuteGeometry))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    if (!freshCross && shotDistance > 240.0 && angleDeg < 7.0)
+    if (!freshCross && !freshThrough && shotDistance > 240.0 && angleDeg < 7.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double hardMax = shotMaxDistance();
@@ -45,8 +46,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     double toGoalDist = std::hypot(toGoalX, toGoalY);
     if (toGoalDist < 1.0) toGoalDist = 1.0;
     double facingDot = (std::cos(p.facing) * toGoalX + std::sin(p.facing) * toGoalY) / toGoalDist;
-    if (!freshCross && facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    if (!freshCross && facingDot < 0.35 && shotDistance > 135.0)
+    if (!freshCross && !freshThrough && facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    if (!freshCross && !freshThrough && facingDot < 0.35 && shotDistance > 135.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (!freshCross && cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
@@ -90,6 +91,10 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     else if (longCarryShotZone) sc += 0.08;
 
     if (freshCross) sc += freshCrossShotBonus();
+    if (freshThrough) {
+        sc += per.pressureCount == 0 ? 0.22 : 0.10;
+        if (shotDistance < 170.0 && angleDeg > 8.0) sc += 0.16;
+    }
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
 }
@@ -143,6 +148,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     bool nearGoal = distToGoal < 200.0;
     bool activeLongCarry = engine.carryTrackerId == p.id && engine.carryPathDistance >= 90.0;
     bool carryNeedsShotWindow = engine.carryTrackerId == p.id && engine.carryPathDistance >= 125.0 && distToGoal > 90.0;
+    bool freshThrough = p.throughCollected > 0.0;
 
     // Find open space: check density around potential targets
     auto densityAt = [&](double cx, double cy) {
@@ -223,6 +229,11 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     // Near goal bonus
     if (nearGoal) sc += 0.20;
+    if (freshThrough && distToGoal < 270.0 && per.nearestOpponentDist > 38.0) {
+        sc += 0.18;
+        tx = clamp(p.x + fd * 95.0, 35.0, PITCH_W - 35.0);
+        ty = lerp(p.y, PITCH_H / 2.0, 0.28);
+    }
 
     // Stuck detection
     double m = std::sqrt((p.x - lastPosX) * (p.x - lastPosX) + (p.y - lastPosY) * (p.y - lastPosY));
