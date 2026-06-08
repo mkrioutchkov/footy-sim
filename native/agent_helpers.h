@@ -57,7 +57,7 @@ inline int countLaneBlockers(const std::vector<Player>& players,
     int blockers = 0;
     for (auto& o : players) {
         if (o.team == passerTeam || o.role == Role::GK) continue;
-        double along = ((o.x - fromX) * dx + (o.y - fromY) * dy) / lenSq;
+        double along = clamp(((o.x - fromX) * dx + (o.y - fromY) * dy) / lenSq, 0.0, 1.0);
         if (along <= alongMin || along >= alongMax) continue;
         double perp = std::hypot(o.x - fromX - along * dx, o.y - fromY - along * dy);
         if (perp < perpThreshold) blockers++;

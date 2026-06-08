@@ -125,17 +125,7 @@ void GameEngine::releaseSetPiece(){
         double gy=PITCH_H/2.0;
         double shotDist=std::hypot(gx-holder->x,gy-holder->y);
         double angleDeg=goalOpeningAngleDeg(holder->x,holder->y,gx);
-        int laneBlockers=0;
-        double dxGoal=gx-holder->x,dyGoal=gy-holder->y,laneLenSq=dxGoal*dxGoal+dyGoal*dyGoal;
-        if(laneLenSq>1.0){
-            for(auto& o:state.players){
-                if(o.team==holder->team||o.role==Role::GK)continue;
-                double along=((o.x-holder->x)*dxGoal+(o.y-holder->y)*dyGoal)/laneLenSq;
-                if(along<=0.06||along>=0.90)continue;
-                double perp=std::hypot(o.x-holder->x-along*dxGoal,o.y-holder->y-along*dyGoal);
-                if(perp<BLOCKER_PERP_FREEKICK)laneBlockers++;
-            }
-        }
+        int laneBlockers = countLaneBlockers(state.players, holder->x, holder->y, gx, gy, holder->team, BLOCKER_PERP_FREEKICK, 0.06, 0.90);
         bool central=std::abs(holder->y-gy)<170.0;
         bool credibleShot=shotDist>115.0&&shotDist<390.0&&central&&angleDeg>6.0&&laneBlockers<=2;
         double shotChance=clamp(0.12+(390.0-shotDist)/520.0+angleDeg/90.0-laneBlockers*0.18,0.08,0.58);
@@ -158,18 +148,12 @@ void GameEngine::releaseSetPiece(){
             double d=dist(holder->x,holder->y,p->x,p->y);
             double progress=(p->x-holder->x)*fd;
             double width=std::abs(p->y-PITCH_H/2.0);
-            int laneBlockers=0;
             double closestOpp=999.0;
-            double dx=p->x-holder->x,dy=p->y-holder->y,ls=dx*dx+dy*dy;
-            if(ls>1.0){
-                for(auto& o:state.players){
-                    if(o.team==holder->team||o.role==Role::GK)continue;
-                    closestOpp=std::min(closestOpp,dist(o.x,o.y,p->x,p->y));
-                    double along=clamp(((o.x-holder->x)*dx+(o.y-holder->y)*dy)/ls,0.0,1.0);
-                    double perp=std::hypot(o.x-holder->x-along*dx,o.y-holder->y-along*dy);
-                    if(along>0.12&&along<0.92&&perp<PASS_BLOCKER_PERP_OUTLET)laneBlockers++;
-                }
+            for(auto& o:state.players){
+                if(o.team==holder->team||o.role==Role::GK)continue;
+                closestOpp=std::min(closestOpp,dist(o.x,o.y,p->x,p->y));
             }
+            int laneBlockers = countLaneBlockers(state.players, holder->x, holder->y, p->x, p->y, holder->team, PASS_BLOCKER_PERP_OUTLET, 0.12, 0.92);
             if(setPieceTypeEnum == SetPiece::FreeKick){
                 double distanceFit=1.0-std::abs(d-145.0)/210.0;
                 double pressureScore=clamp((closestOpp-35.0)/95.0,-0.60,0.75);
@@ -314,20 +298,14 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         double progress=(p.x-ownGoalX)*fd;
         if(wasGoalKick&&progress<285.0)continue;
         int pressure=0;
-        int laneBlockers=0;
         double nearestOpp=1e9;
         for(auto& o:state.players){
             if(o.team==holder.team||o.role==Role::GK)continue;
             double od=dist(o.x,o.y,p.x,p.y);
             nearestOpp=std::min(nearestOpp,od);
             if(od<62.0)pressure++;
-            double dx=p.x-holder.x,dy=p.y-holder.y,ls=dx*dx+dy*dy;
-            if(ls>1.0){
-                double along=clamp(((o.x-holder.x)*dx+(o.y-holder.y)*dy)/ls,0.0,1.0);
-                double perp=std::hypot(o.x-holder.x-along*dx,o.y-holder.y-along*dy);
-                if(along>0.12&&along<0.92&&perp<44.0)laneBlockers++;
-            }
         }
+        int laneBlockers = countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_GK_DIST, 0.12, 0.92);
         double preferred=wasGoalKick?390.0:330.0;
         double distanceFit=1.0-std::abs(d-preferred)/preferred;
         double laneWidth=std::abs(p.y-PITCH_H/2.0);
@@ -394,17 +372,7 @@ void GameEngine::releaseThrowIn(Player& holder){
         double d=dist(holder.x,holder.y,p.x,p.y);
         if(d<30.0||d>400.0)continue;
         double nearestOpp=1e9;
-        int laneBlockers=0;
-        for(auto&o:state.players){
-            if(o.team==holder.team||o.role==Role::GK)continue;
-            nearestOpp=std::min(nearestOpp,dist(o.x,o.y,p.x,p.y));
-            double dx=p.x-holder.x,dy=p.y-holder.y,ls=dx*dx+dy*dy;
-            if(ls>1.0){
-                double along=clamp(((o.x-holder.x)*dx+(o.y-holder.y)*dy)/ls,0.0,1.0);
-                double perp=std::hypot(o.x-holder.x-along*dx,o.y-holder.y-along*dy);
-                if(along>0.12&&along<0.92&&perp<BLOCKER_PERP_THROWIN)laneBlockers++;
-            }
-        }
+        int laneBlockers = countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_THROWIN, 0.12, 0.92);
         double progress=(p.x-holder.x)*fd;
         double score=1.0-d/420.0+clamp(progress/180.0,-0.15,0.20);
         score-=laneBlockers*0.32+clamp((70.0-nearestOpp)/70.0,0.0,1.0)*0.35;

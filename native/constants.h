@@ -126,6 +126,7 @@ inline constexpr double PASS_RECEIVER_PRESS_CUT = 3;
 inline constexpr double PASS_TOUCHLINE_TRAPPED  = 90.0;
 inline constexpr double BLOCKER_PERP_FREEKICK   = 42.0;
 inline constexpr double BLOCKER_PERP_THROWIN     = 32.0;
+inline constexpr double BLOCKER_PERP_GK_DIST     = 44.0;
 inline constexpr double CARRIER_PRESSURE_RANGE   = 70.0;
 inline constexpr double CARRIER_PRESSURE_COUNT_DIST = 48.0;
 

@@ -93,22 +93,9 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             if(receiver.id == pendingPass.toId) stats.recordPassIntendedReceived();
             else stats.recordPassWrongTeammate();
             stats.recordCrossComplete();
-            int pressure = 0;
-            int laneBlockers = 0;
             double angleDeg = goalOpeningAngleDeg(receiver.x, receiver.y, gx);
-            double dxGoal = gx - receiver.x, dyGoal = PITCH_H / 2.0 - receiver.y;
-            double laneLenSq = dxGoal * dxGoal + dyGoal * dyGoal;
-            for (auto& o : state.players) {
-                if (o.team == receiver.team || o.role == Role::GK) continue;
-                if (dist(o.x, o.y, receiver.x, receiver.y) < PRESSURE_RANGE) pressure++;
-                if (laneLenSq > 1.0) {
-                    double along = ((o.x - receiver.x) * dxGoal + (o.y - receiver.y) * dyGoal) / laneLenSq;
-                    if (along > 0.08 && along < 0.88) {
-                        double perp = std::hypot(o.x - receiver.x - along * dxGoal, o.y - receiver.y - along * dyGoal);
-                        if (perp < 32.0) laneBlockers++;
-                    }
-                }
-            }
+            int pressure = countPressure(state.players, receiver.x, receiver.y, receiver.team, PRESSURE_RANGE);
+            int laneBlockers = countLaneBlockers(state.players, receiver.x, receiver.y, gx, PITCH_H / 2.0, receiver.team, 32.0, 0.08, 0.88);
             double roleShotMax = receiver.role == Role::CM ? 235.0 : 285.0;
             bool headerShot = (receiver.role == Role::CF || receiver.role == Role::WM || receiver.role == Role::CM)
                 && shotDistance < roleShotMax && angleDeg > 4.0 && pressure <= 3 && laneBlockers <= 2;
