@@ -28,7 +28,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
 
     int topCount = 0, botCount = 0;
     for (auto& o : engine.state.players) {
-        if (dist(p.x, p.y, o.x, o.y) >= 200.0) continue;
+        if (dist(p.x, p.y, o.x, o.y) >= POS_OPPONENT_TRACK_DIST) continue;
         if (o.y < PITCH_H / 2.0) topCount++;
         else                      botCount++;
     }
@@ -59,7 +59,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         }
     }
 
-    if (per.ballDist > 150.0) {
+    if (per.ballDist > POS_BALL_FAR_DIST) {
         if (my && ip == p.team) {
             c.push_back({ p.homeX + fd * 60.0 + pu, clamp(p.homeY + ((p.homeY < PITCH_H / 2.0) ? 40.0 : -40.0), 50.0, PITCH_H - 50.0), ActionPurpose::Offer });
             if (isWideMidfielder() || isFullBack())
@@ -71,7 +71,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
         }
     }
 
-    if (per.ballDist > 250.0 && !per.iAmController) {
+    if (per.ballDist > POS_BALL_VERY_FAR_DIST && !per.iAmController) {
         c.push_back({ lerp(p.x, b.x, 0.15), lerp(p.y, b.y, 0.12), ActionPurpose::Observe });
         c.push_back({ lerp(p.x, b.x, 0.10), clamp(lerp(p.y, b.y, 0.08), 40.0, PITCH_H - 40.0), ActionPurpose::Observe });
     }
@@ -119,7 +119,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
 
     auto* rp2 = engine.qRecentPass();
     if (rp2 && engine.state.clockMs - rp2->clockMs < 600.0) {
-        if (rp2->team == p.team && dist(p.x, p.y, rp2->bx, rp2->by) < 250.0) {
+        if (rp2->team == p.team && dist(p.x, p.y, rp2->bx, rp2->by) < POS_RECENT_PASS_DIST) {
             c.push_back({ lerp(p.x, rp2->bx, 0.12), lerp(p.y, rp2->by, 0.10), ActionPurpose::Offer });
         }
     }

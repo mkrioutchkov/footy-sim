@@ -248,6 +248,21 @@ inline constexpr double DANGER_DEFENSIVE_OFFSET  = 170.0;
 // ── Touchline proximity ──
 inline constexpr double TOUCHLINE_PROXIMITY      = 85.0;
 
+// ── Dribble behaviour ──
+inline constexpr double DRIBBLE_DENSITY_RADIUS   = 80.0;
+inline constexpr double DRIBBLE_EDGE_MARGIN      = 60.0;
+inline constexpr double DRIBBLE_EVADE_DIST       = 50.0;
+inline constexpr double DRIBBLE_SPACE_BONUS_DIST = 100.0;
+inline constexpr double DRIBBLE_TIGHT_DIST       = 30.0;
+inline constexpr int DRIBBLE_STUCK_HOLD_TICKS = 60;
+inline constexpr int DRIBBLE_STUCK_SEVERE     = 180;
+
+// ── Positioning ball distance zones ──
+inline constexpr double POS_BALL_FAR_DIST        = 150.0;
+inline constexpr double POS_BALL_VERY_FAR_DIST   = 250.0;
+inline constexpr double POS_RECENT_PASS_DIST     = 250.0;
+inline constexpr double POS_OPPONENT_TRACK_DIST  = 200.0;
+
 // ── Timing / cooldowns ──
 inline constexpr double LOG_INTERVAL_MS         = 500.0;
 inline constexpr double ONE_TWO_WINDOW_MS       = 2000.0;

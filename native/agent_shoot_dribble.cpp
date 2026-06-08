@@ -110,7 +110,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     CarrierPressure cp = assessCarrierPressure(engine, p);
 
     // Evade nearest opponent if close
-    if (per.nearestOpponentDist < 50.0 && !per.nearbyOpponents.empty()) {
+    if (per.nearestOpponentDist < DRIBBLE_EVADE_DIST && !per.nearbyOpponents.empty()) {
         Player* n = nullptr;
         double nd = 1e9;
         for (auto* o : per.nearbyOpponents) {
@@ -136,10 +136,10 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     }
 
     // Keep away from pitch edges
-    if (p.y < 60.0)           ty = std::max(ty, p.y + 40.0);
-    if (p.y > PITCH_H - 60.0) ty = std::min(ty, p.y - 40.0);
-    if (p.x < 60.0)           tx = std::max(tx, p.x + 40.0);
-    if (p.x > PITCH_W - 60.0) tx = std::min(tx, p.x - 40.0);
+    if (p.y < DRIBBLE_EDGE_MARGIN)           ty = std::max(ty, p.y + 40.0);
+    if (p.y > PITCH_H - DRIBBLE_EDGE_MARGIN) ty = std::min(ty, p.y - 40.0);
+    if (p.x < DRIBBLE_EDGE_MARGIN)           tx = std::max(tx, p.x + 40.0);
+    if (p.x > PITCH_W - DRIBBLE_EDGE_MARGIN) tx = std::min(tx, p.x - 40.0);
 
     // Target selection: prefer space over goal
     double distToGoal = std::abs(p.x - gx);
@@ -155,7 +155,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         int count = 0;
         for (auto& o : engine.state.players) {
             if (o.team == p.team || o.role == Role::GK) continue;
-            if (dist(cx, cy, o.x, o.y) < 80.0) count++;
+            if (dist(cx, cy, o.x, o.y) < DRIBBLE_DENSITY_RADIUS) count++;
         }
         return count;
     };
@@ -206,9 +206,9 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     }
 
     // Space bonus: more space = more dribble
-    if (per.nearestOpponentDist > 100.0) sc += 0.15;
+    if (per.nearestOpponentDist > DRIBBLE_SPACE_BONUS_DIST) sc += 0.15;
     else if (per.nearestOpponentDist > 60.0) sc += 0.05;
-    else if (per.nearestOpponentDist < 30.0) sc -= 0.20;
+    else if (per.nearestOpponentDist < DRIBBLE_TIGHT_DIST) sc -= 0.20;
     if (cp.score > 0.70) sc -= 0.16;
     if (cp.score > 1.05) sc -= 0.18;
     if (cp.exposed > 0.35 && per.nearestOpponentDist < 42.0) sc -= 0.12;
@@ -218,7 +218,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     for (auto& o : engine.state.players) {
         if (o.team == p.team || o.role == Role::GK) continue;
         double d = dist(p.x, p.y, o.x, o.y);
-        if (d < 80.0) oppsInPath++;
+        if (d < DRIBBLE_DENSITY_RADIUS) oppsInPath++;
     }
     if (oppsInPath >= 3) sc -= 0.20;
     if (oppsInPath >= 5) sc -= 0.30;
@@ -237,8 +237,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     // Stuck detection
     double m = std::sqrt((p.x - lastPosX) * (p.x - lastPosX) + (p.y - lastPosY) * (p.y - lastPosY));
-    if (holdTicks > 60 && m < 3.0)  sc -= 0.20;
-    if (holdTicks > 180)            sc -= 0.30;
+    if (holdTicks > DRIBBLE_STUCK_HOLD_TICKS && m < 3.0)  sc -= 0.20;
+    if (holdTicks > DRIBBLE_STUCK_SEVERE)                 sc -= 0.30;
 
     // Open space ahead bonus: check if target area is clear
     int densityAtTarget = densityAt(tx, ty);
