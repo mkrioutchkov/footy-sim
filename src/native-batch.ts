@@ -15,6 +15,9 @@ interface Summary {
   crossesAttempted: number;
   crossesCompleted: number;
   headers: number;
+  headerClearances: number;
+  headerLayoffs: number;
+  headerControls: number;
   headedShots: number;
   offsides: number;
   offsidePositionMsByRole?: { GK: number; CB: number; FB: number; CM: number; WM: number; CF: number };
@@ -170,6 +173,9 @@ console.log(JSON.stringify({
     crossesPerMatch: round(total('crossesAttempted') / matches),
     crossCompletionPct: round(total('crossesCompleted') / Math.max(1, total('crossesAttempted')) * 100),
     headersPerMatch: round(total('headers') / matches),
+    headerClearancesPerMatch: round(total('headerClearances') / matches),
+    headerLayoffsPerMatch: round(total('headerLayoffs') / matches),
+    headerControlsPerMatch: round(total('headerControls') / matches),
     headedShotsPerMatch: round(total('headedShots') / matches),
     headedGoals: total('headedGoals'),
     penaltiesAwardedPerMatch: round(results.reduce((sum, result) => sum + (result.setPieces?.penaltiesAwarded ?? 0), 0) / matches),

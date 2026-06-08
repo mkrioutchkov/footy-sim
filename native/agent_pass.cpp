@@ -124,6 +124,12 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
             if (t.role == Role::CF) sc += 0.30;
             else if (t.role == Role::WM) sc += 0.10;
             else if (t.role == Role::CM) sc -= 0.34;
+            bool headerZone = boxTargetGoalDist > 85.0 && boxTargetGoalDist < 205.0
+                && std::abs(t.y - PITCH_H / 2.0) < 165.0;
+            if (headerZone && t.role == Role::CF && receiverPressure <= 1) sc += 0.24;
+            if (headerZone && t.role == Role::WM && receiverPressure == 0) sc += 0.10;
+            if (boxTargetGoalDist > 245.0) sc -= 0.22;
+            if (std::abs(t.y - PITCH_H / 2.0) > 185.0) sc -= 0.12;
         }
         if (isCutback) {
             sc += cutbackTarget ? 0.42 : 0.18;

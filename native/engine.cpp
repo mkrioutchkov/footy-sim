@@ -662,6 +662,9 @@ std::string GameEngine::getJSON() const {
     j["crossesAttempted"] = summary["crossesAttempted"];
     j["crossesCompleted"] = summary["crossesCompleted"];
     j["headers"] = summary["headers"];
+    j["headerClearances"] = summary["headerClearances"];
+    j["headerLayoffs"] = summary["headerLayoffs"];
+    j["headerControls"] = summary["headerControls"];
     j["headedShots"] = summary["headedShots"];
     j["forwardPasses"] = summary["forwardPasses"];
     j["backwardPasses"] = summary["backwardPasses"];

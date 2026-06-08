@@ -102,6 +102,9 @@ std::string StatsCollector::summaryJSON() const {
     j["crossesAttempted"] = crossesAttempted;
     j["crossesCompleted"] = crossesCompleted;
     j["headers"] = headers;
+    j["headerClearances"] = headerClearances;
+    j["headerLayoffs"] = headerLayoffs;
+    j["headerControls"] = headerControls;
     j["headedShots"] = headedShots;
     j["forwardPasses"] = forwardPasses;
     j["backwardPasses"] = backwardPasses;

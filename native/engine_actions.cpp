@@ -68,13 +68,8 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         double fd = fdFor(receiver.team);
         double gx = goalXFor(receiver.team);
         double shotDistance = std::hypot(receiver.x - gx, receiver.y - PITCH_H / 2.0);
-        if (receiver.team == pendingPass.team && shotDistance > 235.0) {
-            stats.recordPassComplete();
-            if(receiver.id == pendingPass.toId) stats.recordPassIntendedReceived();
-            else stats.recordPassWrongTeammate();
-            stats.recordCrossComplete();
-        }
         if (receiver.team != pendingPass.team) {
+            stats.recordHeaderClearance();
             auto& b = state.ball;
             double clearFd = fdFor(receiver.team);
             b.controllerId = -1;
@@ -92,17 +87,55 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             recordBallImpulse();
             return true;
         }
-        if (shotDistance > 235.0) {
+        if (receiver.team == pendingPass.team) {
+            stats.recordPassComplete();
+            if(receiver.id == pendingPass.toId) stats.recordPassIntendedReceived();
+            else stats.recordPassWrongTeammate();
+            stats.recordCrossComplete();
+            int pressure = 0;
+            int laneBlockers = 0;
+            double angleDeg = goalOpeningAngleDeg(receiver.x, receiver.y, gx);
+            double dxGoal = gx - receiver.x, dyGoal = PITCH_H / 2.0 - receiver.y;
+            double laneLenSq = dxGoal * dxGoal + dyGoal * dyGoal;
+            for (auto& o : state.players) {
+                if (o.team == receiver.team || o.role == Role::GK) continue;
+                if (dist(o.x, o.y, receiver.x, receiver.y) < PRESSURE_RANGE) pressure++;
+                if (laneLenSq > 1.0) {
+                    double along = ((o.x - receiver.x) * dxGoal + (o.y - receiver.y) * dyGoal) / laneLenSq;
+                    if (along > 0.08 && along < 0.88) {
+                        double perp = std::hypot(o.x - receiver.x - along * dxGoal, o.y - receiver.y - along * dyGoal);
+                        if (perp < 32.0) laneBlockers++;
+                    }
+                }
+            }
+            double roleShotMax = receiver.role == Role::CM ? 235.0 : 285.0;
+            bool headerShot = (receiver.role == Role::CF || receiver.role == Role::WM || receiver.role == Role::CM)
+                && shotDistance < roleShotMax && angleDeg > 4.5 && pressure <= 3 && laneBlockers <= 2;
+            bool mustAttackHeader = shotDistance < 190.0 && angleDeg > 7.0 && pressure <= 2 && laneBlockers <= 1;
+            double shotChance = clamp(0.36 + (roleShotMax - shotDistance) / 245.0 + angleDeg / 80.0 - pressure * 0.09 - laneBlockers * 0.10, 0.0, 0.90);
+            if (headerShot && (mustAttackHeader || rng.random() < shotChance)) {
+                receiver.crossCollected = 900.0;
+                pendingPass.active = false;
+                shootBall(receiver, nullptr);
+                return true;
+            }
+
+            stats.recordHeaderLayoff();
             auto& b = state.ball;
             Player* outlet = nullptr;
             double bestScore = -1e9;
             for (auto& t : state.players) {
                 if (t.team != receiver.team || t.id == receiver.id || t.role == Role::GK) continue;
                 double d = dist(receiver.x, receiver.y, t.x, t.y);
-                if (d < 35.0 || d > 260.0) continue;
+                if (d < 28.0 || d > 285.0) continue;
                 double progress = (t.x - receiver.x) * fd;
-                double score = progress * 0.4 - std::abs(t.y - receiver.y) * 0.15 - d * 0.08;
-                if (t.role == Role::CF || t.role == Role::WM) score += 35.0;
+                double targetGoalDist = std::abs(t.x - gx);
+                bool central = std::abs(t.y - PITCH_H / 2.0) < 180.0;
+                double score = progress * 0.28 - std::abs(t.y - receiver.y) * 0.12 - d * 0.06;
+                if (t.role == Role::CF || t.role == Role::WM) score += 28.0;
+                if (t.role == Role::CM && central && targetGoalDist < 260.0) score += 34.0;
+                if (targetGoalDist < shotDistance + 25.0 && central) score += 22.0;
+                if (pressure >= 2 && progress < -15.0) score += 18.0;
                 if (score > bestScore) { bestScore = score; outlet = &t; }
             }
             double tx = outlet ? outlet->x : clamp(receiver.x + fd * 95.0, 25.0, PITCH_W - 25.0);

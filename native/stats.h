@@ -34,6 +34,9 @@ public:
     void recordCrossAttempt() { crossesAttempted++; }
     void recordCrossComplete() { crossesCompleted++; }
     void recordHeader() { headers++; }
+    void recordHeaderClearance() { headerClearances++; }
+    void recordHeaderLayoff() { headerLayoffs++; }
+    void recordHeaderControl() { headerControls++; }
     void recordHeadedShot() { headedShots++; }
     void recordPressuredReception(bool failed) {
         pressuredReceptions++;
@@ -139,6 +142,7 @@ private:
     int passesAttempted=0, passesCompleted=0, passesIntercepted=0, passesIntended=0, wrongTeammate=0;
     int throughBallsAttempted=0, throughBallsCompleted=0;
     int crossesAttempted=0, crossesCompleted=0, headers=0, headedShots=0;
+    int headerClearances=0, headerLayoffs=0, headerControls=0;
     int forwardPasses=0, backwardPasses=0, sidewaysPasses=0;
     int longBackwardPasses=0, keeperBackpasses=0;
     int offsidesTotal=0;
