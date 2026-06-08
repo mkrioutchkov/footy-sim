@@ -3,6 +3,7 @@
 #include "agent.h"
 #include "role_ai.h"
 #include "gk_ai.h"
+#include "build_version.h"
 #include <cmath>
 #include <numbers>
 
@@ -623,7 +624,7 @@ std::string GameEngine::getJSON() const {
     j["clockMs"] = std::round(state.clockMs);
     j["matchState"] = state.matchState;
     j["half"] = half;
-    j["version"] = std::format("{} {}", "cpp", __TIME__);
+    j["version"] = nativeBuildVersion();
     j["speed"] = state.speed;
     j["homeScore"] = state.homeScore;
     j["awayScore"] = state.awayScore;

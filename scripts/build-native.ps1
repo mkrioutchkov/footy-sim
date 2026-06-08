@@ -33,7 +33,9 @@ try {
         $srcTime = $src.LastWriteTimeUtc
 
         $needCompile = $false
-        if (-not (Test-Path -LiteralPath $objFile)) {
+        if ($src.Name -eq 'build_version.cpp') {
+            $needCompile = $true
+        } elseif (-not (Test-Path -LiteralPath $objFile)) {
             $needCompile = $true
         } else {
             $objTime = (Get-Item -LiteralPath $objFile).LastWriteTimeUtc

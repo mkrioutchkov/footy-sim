@@ -165,7 +165,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
     bool isIntendedReceiver = (player.id == b.intendedReceiverId);
     bool activeKnockAheadRunner = engine.isActiveKnockAheadRunner(player.id);
     double ballSpeed = std::sqrt(b.vx * b.vx + b.vy * b.vy);
-    bool needsRecovery = b.z <= 20.0 && ballSpeed < 30.0 && per.amClosestToBall;
+    bool needsRecovery = b.z <= 20.0 && ballSpeed < 95.0 && per.amClosestToBall;
     bool selfLooseTouch = b.controllerId < 0 && b.intendedReceiverId < 0
         && b.lastToucherId == player.id && b.z <= 20.0
         && ballSpeed < 90.0 && per.ballDist < 85.0;
@@ -219,9 +219,10 @@ Action PlayerAI::scoreChase(const Perception& per) {
     }
 
     if (needsRecovery) {
+        double lead = ballSpeed > 20.0 ? std::min(ballSpeed / 220.0, 0.32) : 0.0;
         return Action{ActionType::Chase, 1.0, nullptr,
-                      clamp(b.x, 10.0, PITCH_W - 10.0),
-                      clamp(b.y, 10.0, PITCH_H - 10.0),
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
                       ActionPurpose::RecoverLoose};
     }
 

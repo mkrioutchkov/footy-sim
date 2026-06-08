@@ -308,6 +308,50 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
 
     auto& bb = engine.blackboards[GameEngine::teamIndex(player.team)];
 
+    if (best.type == ActionType::Chase && engine.state.ball.controllerId < 0) {
+        bool priorityChaser = engine.state.ball.intendedReceiverId == player.id || engine.isActiveKnockAheadRunner(player.id);
+        bool isSelf = (bb.pressingPlayerId == player.id || bb.pressingPlayerId2 == player.id);
+        bool slot1Free = (bb.pressingPlayerId < 0);
+        bool slot2Free = (bb.pressingPlayerId2 < 0);
+        if (!priorityChaser && !isSelf && !slot1Free && !slot2Free) {
+            for (auto& x : a) {
+                if (x.type != ActionType::Chase && x.type != ActionType::Tackle && x.score > 0.15) return x;
+            }
+            return Action{ActionType::Hold, 1.0};
+        }
+        if (!priorityChaser && !isSelf) {
+            if (slot1Free)      bb.pressingPlayerId  = player.id;
+            else if (slot2Free) bb.pressingPlayerId2 = player.id;
+        }
+    }
+
+    if (best.type == ActionType::Position) {
+        bool reservePressSlot = false;
+        bool emergencyCloseDown = best.purpose == ActionPurpose::EmergCloseDown;
+        auto* task = engine.assignmentFor(player.id);
+        if (best.purpose == ActionPurpose::LocalCloseDown) reservePressSlot = true;
+        if (best.purpose == ActionPurpose::Task && task
+            && (task->role == DefensiveTask::PrimaryPress || task->role == DefensiveTask::SecondaryPress || task->role == DefensiveTask::CloseDown)) {
+            reservePressSlot = true;
+        }
+        if (reservePressSlot) {
+            bool isSelf = (bb.pressingPlayerId == player.id || bb.pressingPlayerId2 == player.id);
+            bool slot1Free = (bb.pressingPlayerId < 0);
+            bool slot2Free = (bb.pressingPlayerId2 < 0);
+            if (!emergencyCloseDown && !isSelf && !slot1Free && !slot2Free) {
+                for (auto& x : a) {
+                    if (x.type == ActionType::Position && x.purpose == ActionPurpose::LocalCloseDown) continue;
+                    if (x.type != ActionType::Tackle && x.score > 0.15) return x;
+                }
+                return Action{ActionType::Hold, 1.0};
+            }
+            if (!isSelf) {
+                if (slot1Free)      bb.pressingPlayerId  = player.id;
+                else if (slot2Free) bb.pressingPlayerId2 = player.id;
+            }
+        }
+    }
+
     if (best.type == ActionType::Tackle && best.target) {
         bool isSelf = (bb.pressingPlayerId == player.id || bb.pressingPlayerId2 == player.id);
         bool slot1Free = (bb.pressingPlayerId < 0);

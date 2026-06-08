@@ -192,6 +192,16 @@ void GameEngine::checkBallPlayerCollision(double){
         }
     }
 
+    Player* contact = nullptr;
+    double contactRadius = collectRadius;
+    double bestContactScore = 1e9;
+    bool intendedNearby = false;
+    if (pendingPass.active && b.intendedReceiverId >= 0) {
+        if (Player* intended = playerById(b.intendedReceiverId)) {
+            intendedNearby = dist(intended->x, intended->y, b.x, b.y) < 70.0;
+        }
+    }
+
     for(auto&p:state.players){
         if(!canContestBall(p))continue;
         double d=dist(p.x,p.y,b.x,b.y);
@@ -201,29 +211,37 @@ void GameEngine::checkBallPlayerCollision(double){
         if(p.role==Role::GK){
             continue;
         }
-        bool failedPressuredReception=false;
         // Intended receiver already handled above — skip them here
         if(p.id==b.intendedReceiverId)continue;
-        if(bs<130){
-            collectBall(p);
-            return;
+        if(pendingPass.active && intendedNearby && p.team==pendingPass.team && bs<220.0)continue;
+        double score=d/std::max(1.0,r);
+        if(p.team!=b.lastTouchTeam)score-=0.10;
+        if(score<bestContactScore){
+            bestContactScore=score;
+            contact=&p;
+            contactRadius=r;
         }
-        if(bs>130){
-            if(b.z>20)continue;
-            double dx=b.x-p.x,dy=b.y-p.y,d2=std::hypot(dx,dy);
-            if(d2<1)continue;
-            double nx=dx/d2,ny=dy/d2;
-            b.x=p.x+nx*r;b.y=p.y+ny*r;
-            double dot=b.vx*nx+b.vy*ny;
-            if(dot<0){b.vx-=1.3*dot*nx;b.vy-=1.3*dot*ny;}
-            double damp=(b.lastTouchTeam==p.team)?0.18:0.36;
-            b.vx*=damp;b.vy*=damp;
-            double glance=(b.lastTouchTeam==p.team)?0.02:0.045;
-            b.vx+=ny*bs*glance;b.vy+=-nx*bs*glance;
-            b.lastTouchTeam=p.team;b.lastToucherId=p.id;
-            if(p.team==lastCollectionTeam)lastSameTeamCollectionMs=state.clockMs-500;
-            blockReboundFor(p.id,600);
-        }
+    }
+
+    if(!contact)return;
+    if(bs<130){
+        collectBall(*contact);
+        return;
+    }
+    if(bs>130){
+        double dx=b.x-contact->x,dy=b.y-contact->y,d2=std::hypot(dx,dy);
+        if(d2<1)return;
+        double nx=dx/d2,ny=dy/d2;
+        b.x=contact->x+nx*contactRadius;b.y=contact->y+ny*contactRadius;
+        double dot=b.vx*nx+b.vy*ny;
+        if(dot<0){b.vx-=1.3*dot*nx;b.vy-=1.3*dot*ny;}
+        double damp=(b.lastTouchTeam==contact->team)?0.18:0.36;
+        b.vx*=damp;b.vy*=damp;
+        double glance=(b.lastTouchTeam==contact->team)?0.02:0.045;
+        b.vx+=ny*bs*glance;b.vy+=-nx*bs*glance;
+        b.lastTouchTeam=contact->team;b.lastToucherId=contact->id;
+        if(contact->team==lastCollectionTeam)lastSameTeamCollectionMs=state.clockMs-500;
+        blockReboundFor(contact->id,600);
     }
 }
 

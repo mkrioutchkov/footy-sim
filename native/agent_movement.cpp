@@ -77,6 +77,22 @@ void PlayerAI::applyMovement(double sdt) {
         ? observingCruiseMul()
         : 1.0;
 
+    Player* carrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
+    if (carrier && carrier->team == p.team && carrier->id != p.id
+        && engine.state.ball.intendedReceiverId != p.id
+        && lastActionType != ActionType::Chase) {
+        double cdx = p.x - carrier->x, cdy = p.y - carrier->y;
+        double cd = std::sqrt(cdx * cdx + cdy * cdy);
+        if (cd > 0.1 && cd < 58.0) {
+            double away = (58.0 - cd) / 58.0;
+            double fd = fdFor(p.team);
+            double laneBias = p.homeY < PITCH_H / 2.0 ? -1.0 : 1.0;
+            dx += (cdx / cd) * away * 70.0 + fd * away * 12.0;
+            dy += (cdy / cd) * away * 70.0 + laneBias * away * 18.0;
+            d = std::sqrt(dx * dx + dy * dy);
+        }
+    }
+
     double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)
         ? DRIBBLE_FAST_SPEED
         : (lastActionType == ActionType::Chase || committedPress || defendSprint ? SPEED_SPRINT : SPEED_RUN);
