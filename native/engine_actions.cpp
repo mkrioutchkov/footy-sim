@@ -110,9 +110,9 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             }
             double roleShotMax = receiver.role == Role::CM ? 235.0 : 285.0;
             bool headerShot = (receiver.role == Role::CF || receiver.role == Role::WM || receiver.role == Role::CM)
-                && shotDistance < roleShotMax && angleDeg > 4.5 && pressure <= 3 && laneBlockers <= 2;
-            bool mustAttackHeader = shotDistance < 190.0 && angleDeg > 7.0 && pressure <= 2 && laneBlockers <= 1;
-            double shotChance = clamp(0.36 + (roleShotMax - shotDistance) / 245.0 + angleDeg / 80.0 - pressure * 0.09 - laneBlockers * 0.10, 0.0, 0.90);
+                && shotDistance < roleShotMax && angleDeg > 4.0 && pressure <= 3 && laneBlockers <= 2;
+            bool mustAttackHeader = shotDistance < 225.0 && angleDeg > 5.5 && pressure <= 2 && laneBlockers <= 1;
+            double shotChance = clamp(0.46 + (roleShotMax - shotDistance) / 230.0 + angleDeg / 78.0 - pressure * 0.08 - laneBlockers * 0.10, 0.0, 0.92);
             if (headerShot && (mustAttackHeader || rng.random() < shotChance)) {
                 receiver.crossCollected = 900.0;
                 pendingPass.active = false;

@@ -111,12 +111,19 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         double boxTargetGoalDist = std::abs(t.x - goalXFor(p.team));
         bool centralBoxTarget = std::abs(t.y - PITCH_H / 2.0) < 185.0
             && boxTargetGoalDist > 75.0 && boxTargetGoalDist < 245.0;
+        bool aerialTarget = isWideDelivery
+            && t.role == Role::CF
+            && std::abs(t.y - PITCH_H / 2.0) < 150.0
+            && boxTargetGoalDist > 95.0 && boxTargetGoalDist < 210.0
+            && fp > -15.0
+            && receiverPressure <= 1;
         bool cutbackTarget = isWideDelivery
             && std::abs(p.y - PITCH_H / 2.0) > 110.0
+            && !aerialTarget
             && centralBoxTarget
             && (t.role == Role::CF || t.role == Role::CM || t.role == Role::WM)
             && fp < 75.0;
-        bool isCross   = isWideDelivery && !cutbackTarget && std::abs(p.y - PITCH_H / 2.0) > 120.0 && fp > -45.0;
+        bool isCross   = isWideDelivery && !cutbackTarget && std::abs(p.y - PITCH_H / 2.0) > 120.0 && (fp > -45.0 || aerialTarget);
         bool isCutback = isWideDelivery && !isCross;
 
         if (isCross) {
@@ -128,6 +135,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
                 && std::abs(t.y - PITCH_H / 2.0) < 165.0;
             if (headerZone && t.role == Role::CF && receiverPressure <= 1) sc += 0.24;
             if (headerZone && t.role == Role::WM && receiverPressure == 0) sc += 0.10;
+            if (aerialTarget) sc += 0.24;
             if (boxTargetGoalDist > 245.0) sc -= 0.22;
             if (std::abs(t.y - PITCH_H / 2.0) > 185.0) sc -= 0.12;
         }
