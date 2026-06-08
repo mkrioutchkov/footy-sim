@@ -7,6 +7,11 @@ interface Summary {
   passes: number;
   passesCompleted: number;
   passesIntercepted: number;
+  passesIntendedReceived: number;
+  wrongTeammateTouches: number;
+  forwardPasses: number;
+  backwardPasses: number;
+  sidewaysPasses: number;
   longBackwardPasses: number;
   keeperBackpasses: number;
   passCompletionPct: number;
@@ -166,6 +171,11 @@ console.log(JSON.stringify({
     interceptedPassesPerMatch: round(total('passesIntercepted') / matches),
     interceptedPassPct: round(total('passesIntercepted') / Math.max(1, passes) * 100),
     interceptedPassesPer90: round(total('passesIntercepted') / Math.max(1, matches * minutes) * 90),
+    intendedReceivedPct: round(total('passesIntendedReceived') / Math.max(1, passes) * 100),
+    wrongTeammateTouchesPerMatch: round(total('wrongTeammateTouches') / matches),
+    forwardPassPct: round(total('forwardPasses') / Math.max(1, passes) * 100),
+    sidewaysPassPct: round(total('sidewaysPasses') / Math.max(1, passes) * 100),
+    backwardPassPct: round(total('backwardPasses') / Math.max(1, passes) * 100),
     longBackwardPassesPerMatch: round(total('longBackwardPasses') / matches),
     keeperBackpassesPerMatch: round(total('keeperBackpasses') / matches),
     throughBallsPerMatch: round(total('throughBallsAttempted') / matches),

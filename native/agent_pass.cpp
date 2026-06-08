@@ -83,6 +83,10 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         double progression = clamp(fp / 240.0, -0.5, 1.0);
         double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
         double sc = completion * (0.34 + std::max(0.0, progression) * 0.34) - (1.0 - completion) * turnoverCost;
+        bool safeConnector = completion > 0.74 && bl == 0 && receiverPressure == 0 && d < 300.0 && fp > -45.0 && fp < 95.0;
+        bool recyclePass = completion > 0.78 && bl == 0 && receiverPressure == 0 && d < 260.0 && fp >= -80.0 && fp <= 25.0;
+        if (safeConnector) sc += (ownProgress < PITCH_W * 0.68 ? 0.18 : 0.10);
+        if (recyclePass) sc += (per.pressureCount <= 1 ? 0.12 : 0.20);
         if (keeperOutlet) {
             sc += 0.04 + per.pressureCount * 0.04 + (movingTowardOwnGoal ? 0.06 : 0.0);
             if (bl == 0) sc += 0.02;
@@ -91,7 +95,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
 
         if (recentPassTarget == t.id && engine.state.clockMs - recentPassTime < 3000.0) sc -= 0.10;
 
-        if (bl == 0 && fp > 80.0) sc += 0.08;
+        if (bl == 0 && fp > 80.0) sc += completion > 0.70 ? 0.06 : 0.02;
         bool carrierFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
         if (!keeperOutlet && fp < -30.0) sc -= carrierFinalThird ? 0.28 : 0.16;
         if (!keeperOutlet && fp < -90.0) sc -= carrierFinalThird ? 0.30 : 0.18;
@@ -171,6 +175,8 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         }
 
         if (completion < 0.62) sc -= (0.62 - completion) * 0.55;
+        if (fp > 110.0 && completion < 0.70) sc -= 0.10;
+        if (fp > 180.0 && completion < 0.76) sc -= 0.08;
         sc -= bl * 0.12;
         if (fp > 0.0) {
             sc += 0.08 + (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.20;
