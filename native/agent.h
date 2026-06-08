@@ -225,6 +225,10 @@ protected:
     Action* tryNearGoalShotBias(std::vector<Action>& a, Action& best, bool ic, bool nearGoal, double gx);
 private:
     void                  executeAction(Action& action, double sdt, std::vector<Action>& actions);
+    void                  executeDribble(Action& a, double sdt);
+    std::optional<Action> scorePassToTarget(Player& target, const Perception& per,
+        double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
+        bool urgentKeeperNeed, bool movingTowardOwnGoal);
     Perception            getCachedPerception();
     Perception            perceive();
     void                  applyMovement(double sdt);
