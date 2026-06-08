@@ -71,6 +71,7 @@ public:
     bool setPieceTakerArrived = false;
     std::string setPieceReason; // kept as string for logging only
     int half = 1; double halfTimePause = 0;
+    bool addedTimeActive = false;
     Team nextKickoffTeam = Team::Home;
     bool shotActive = false;
     bool trackedShot = false;
@@ -202,7 +203,7 @@ public:
     void createHomeTeam();
     void createAwayTeam();
     Player mkPlayer(int id, Team t, Role r, double hx, double hy);
-    void startMatch(){state.matchState="running";state.clockMs=0;kickoff(Team::Home);}
+    void startMatch();
     void kickoff(Team t);
     void update(double dM);
     void fixedUpdate(double sdt);

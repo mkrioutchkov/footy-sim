@@ -17,15 +17,15 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     bool freshThrough = p.throughCollected > 0.0 && shotDistance < 245.0;
 
     bool outsideGoalLane = std::abs(p.y - PITCH_H / 2.0) > GOAL_W / 2.0 - BALL_R + 20.0;
-    bool acuteGeometry = outsideGoalLane && angleDeg < 7.5 && shotDistance > 150.0;
+    bool acuteGeometry = outsideGoalLane && angleDeg < SHOT_ANGLE_ACUTE_THRESH && shotDistance > 150.0;
 
-    if (!freshCross && !freshThrough && angleDeg < 8.0 && shotDistance > 120.0)
+    if (!freshCross && !freshThrough && angleDeg < SHOT_ACUTE_SOFT_THRESH && shotDistance > 120.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     if ((!freshCross && shotDistance > 260.0) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && acuteGeometry))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    if (!freshCross && !freshThrough && shotDistance > 240.0 && angleDeg < 7.0)
+    if (!freshCross && !freshThrough && shotDistance > 240.0 && angleDeg < SHOT_ACUTE_HARD_THRESH)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double hardMax = shotMaxDistance();

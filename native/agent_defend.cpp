@@ -11,7 +11,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     if (ctrl->role == Role::GK) return Action{ActionType::Tackle, 0.0};
 
     double d = dist(player.x, player.y, ctrl->x, ctrl->y);
-    if (d > TACKLE_RANGE + 30.0) return Action{ActionType::Tackle, 0.0};
+    if (d > TACKLE_ZONE_MAX) return Action{ActionType::Tackle, 0.0};
 
     bool isDef = (player.role == Role::CB || player.role == Role::FB);
     if (isDef) {
@@ -35,13 +35,13 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     }
 
     sc += tackleRoleAdjust();
-    if (d < TACKLE_RANGE + 10.0) sc += 0.15;
+    if (d < TACKLE_CLOSE_BOOST_RANGE) sc += 0.15;
 
     // Carrier holding still — easy tackle target
-    if (ctrl->dribbleType == 0 && d < TACKLE_RANGE + 30.0) sc += 0.30;
+    if (ctrl->dribbleType == 0 && d < TACKLE_ZONE_MAX) sc += 0.30;
 
     double ownGoalX = ownGoalXFor(player.team);
-    bool emergencyBoxChallenge = std::abs(ctrl->x - ownGoalX) < 230.0
+    bool emergencyBoxChallenge = std::abs(ctrl->x - ownGoalX) < EMERGENCY_BOX_DIST
         && std::abs(ctrl->y - PITCH_H / 2.0) < 210.0
         && d < TACKLE_RANGE + 18.0
         && (player.role == Role::CB || player.role == Role::FB || player.role == Role::CM);
@@ -61,14 +61,14 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         else if (shapeTask)
             sc -= 0.58;
         if (defensiveTask->role != DefensiveTask::PrimaryPress && defensiveTask->role != DefensiveTask::SecondaryPress
-            && std::abs(ctrl->x - (ownGoalXFor(player.team))) > 170.0)
+            && std::abs(ctrl->x - (ownGoalXFor(player.team))) > DANGER_DEFENSIVE_OFFSET)
             sc -= 0.20;
     }
 
     if (engine.isCarrierShielded(ctrl->id)) sc -= 0.20;
 
-    if (std::abs(ctrl->x - ownGoalX) < 220.0) sc += 0.18;
-    if (std::abs(ctrl->x - ownGoalX) < 120.0) sc += 0.12;
+    if (std::abs(ctrl->x - ownGoalX) < NEAR_GOAL_DIST) sc += 0.18;
+    if (std::abs(ctrl->x - ownGoalX) < CLOSE_GOAL_DIST) sc += 0.12;
 
     int oppsClose = 0;
     for (auto* o : per.nearbyOpponents) {
@@ -80,7 +80,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 
     bool oppFacingAway = (ctrl->team == Team::Home) ? ctrl->vx < 0.0 : ctrl->vx > 0.0;
     if (oppFacingAway && d < TACKLE_RANGE + 20.0) sc += 0.10;
-    bool carrierNearTouchline = ctrl->y < 85.0 || ctrl->y > PITCH_H - 85.0;
+    bool carrierNearTouchline = ctrl->y < TOUCHLINE_PROXIMITY || ctrl->y > PITCH_H - TOUCHLINE_PROXIMITY;
     if (oppFacingAway && carrierNearTouchline && d < TACKLE_RANGE + 16.0
         && (player.role == Role::WM || player.role == Role::CM || player.role == Role::FB)) {
         sc += 0.24;
@@ -103,6 +103,12 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     if (drivingAtGoal < -0.25 && !emergencyBoxChallenge) sc -= 0.06;
 
     sc += (engine.configFor(player.team).aggression / 100.0) * 0.10;
+
+    // Added time: press harder in defending final third
+    if (engine.addedTimeActive) {
+        bool inDefThird = (player.team == Team::Home) ? player.x < THIRD_1 : player.x > THIRD_2;
+        if (inDefThird) sc += 0.12;
+    }
 
     return Action{ActionType::Tackle, clamp(sc, 0.0, 1.0), ctrl};
 }
@@ -165,10 +171,10 @@ Action PlayerAI::scoreChase(const Perception& per) {
     bool isIntendedReceiver = (player.id == b.intendedReceiverId);
     bool activeKnockAheadRunner = engine.isActiveKnockAheadRunner(player.id);
     double ballSpeed = std::sqrt(b.vx * b.vx + b.vy * b.vy);
-    bool needsRecovery = b.z <= 20.0 && ballSpeed < 95.0 && per.amClosestToBall;
+    bool needsRecovery = b.z <= AERIAL_HEIGHT && ballSpeed < RECOVERY_BALL_SPEED_MAX && per.amClosestToBall;
     bool selfLooseTouch = b.controllerId < 0 && b.intendedReceiverId < 0
-        && b.lastToucherId == player.id && b.z <= 20.0
-        && ballSpeed < 90.0 && per.ballDist < 85.0;
+        && b.lastToucherId == player.id && b.z <= AERIAL_HEIGHT
+        && ballSpeed < SELF_LOOSE_TOUCH_SPEED && per.ballDist < SELF_LOOSE_TOUCH_DIST;
 
     bool canContest = engine.canContestBall(player);
     double toPlayerDist = std::max(per.ballDist, 1.0);
@@ -176,13 +182,13 @@ Action PlayerAI::scoreChase(const Perception& per) {
         ? (b.vx * (player.x - b.x) + b.vy * (player.y - b.y)) / (ballSpeed * toPlayerDist)
         : 0.0;
     double arrivalTime = per.ballDist / std::max(ballSpeed, 1.0);
-    bool incomingLooseBall = b.z <= 20.0 && ballSpeed > 20.0 && per.ballDist < 100.0
+    bool incomingLooseBall = b.z <= AERIAL_HEIGHT && ballSpeed > 20.0 && per.ballDist < 100.0
         && approachDot > 0.35 && arrivalTime < 1.25;
-    bool deadBallRecoveryRun = !canContest && b.z <= 20.0 && ballSpeed < 35.0 && per.ballDist < 70.0;
-    bool closeLooseBall = canContest && b.z <= 20.0 && per.ballDist < 45.0;
+    bool deadBallRecoveryRun = !canContest && b.z <= AERIAL_HEIGHT && ballSpeed < 35.0 && per.ballDist < 70.0;
+    bool closeLooseBall = canContest && b.z <= AERIAL_HEIGHT && per.ballDist < 45.0;
     bool urgentLooseBallRun = incomingLooseBall || deadBallRecoveryRun || closeLooseBall;
 
-    if (activeKnockAheadRunner && per.ballIsLoose && b.z <= 20.0) {
+    if (activeKnockAheadRunner && per.ballIsLoose && b.z <= AERIAL_HEIGHT) {
         double lead = ballSpeed > 8.0 ? std::min(ballSpeed / 180.0, 0.35) : 0.0;
         return Action{ActionType::Chase, 1.0, nullptr,
                       clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
@@ -296,8 +302,14 @@ Action PlayerAI::scoreChase(const Perception& per) {
 
     if (isDef) {
         double ownGoalX = ownGoalXFor(player.team);
-        if (std::abs(b.x - ownGoalX) < 250.0) sc += 0.20;
-        if (std::abs(b.x - ownGoalX) < 150.0) sc += 0.15;
+        if (std::abs(b.x - ownGoalX) < WIDE_DANGER_DIST) sc += 0.20;
+        if (std::abs(b.x - ownGoalX) < PERIMETER_GOAL_DIST) sc += 0.15;
+    }
+
+    // Added time: chase harder when ball in defending final third
+    if (engine.addedTimeActive) {
+        bool inDefThird = (player.team == Team::Home) ? b.x < THIRD_1 : b.x > THIRD_2;
+        if (inDefThird) sc += 0.12;
     }
 
     return Action{ActionType::Chase, clamp(sc, 0.0, 1.0), nullptr,

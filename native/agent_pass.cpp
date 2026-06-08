@@ -13,7 +13,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
             if (t.team != p.team || t.id == p.id || t.role == Role::GK) continue;
             if (engine.isOffsideTarget(p, t)) continue;
             double d = dist(p.x, p.y, t.x, t.y);
-            if (d < 42.0 || d > 360.0) continue;
+            if (d < PASS_MIN_DISTANCE || d > 360.0) continue;
             double fp = (t.x - p.x) * fd;
             if (fp < -80.0) continue;
             double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
@@ -23,12 +23,12 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
                 if (o.team == p.team || o.role == Role::GK) continue;
                 double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
                 double perp = std::hypot(o.x - p.x - t2 * dx, o.y - p.y - t2 * dy);
-                if (perp < 34.0) bl++;
+                if (perp < PASS_BLOCKER_PERP_OUTLET) bl++;
             }
             if (bl > 1) continue;
             int receiverPressure = 0;
             for (auto& o : engine.state.players) {
-                if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < 45.0) receiverPressure++;
+                if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < PASS_RECEIVER_PRESS_MAX) receiverPressure++;
             }
             if (receiverPressure > 1) continue;
             return true;
@@ -40,15 +40,15 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
     for (auto& t : engine.state.players) {
         if (t.team != p.team || t.id == p.id) continue;
         bool movingTowardOwnGoal = p.vx * fd < -8.0;
-        bool trappedNearTouchline = (p.y < 90.0 || p.y > PITCH_H - 90.0) && per.nearestOpponentDist < 42.0;
+        bool trappedNearTouchline = (p.y < PASS_TOUCHLINE_TRAPPED || p.y > PITCH_H - PASS_TOUCHLINE_TRAPPED) && per.nearestOpponentDist < PASS_MIN_DISTANCE;
         bool nearOwnThird = ownProgress < PITCH_W * 0.40;
         bool urgentKeeperNeed = (per.pressureCount >= 2 && nearOwnThird)
-            || (movingTowardOwnGoal && per.nearestOpponentDist < 42.0 && nearOwnThird)
+            || (movingTowardOwnGoal && per.nearestOpponentDist < PASS_MIN_DISTANCE && nearOwnThird)
             || (trappedNearTouchline && ownProgress < PITCH_W * 0.36);
         bool keeperOutlet = t.role == Role::GK && urgentKeeperNeed && !hasClearOutfieldOutlet;
         if (t.role == Role::GK && !keeperOutlet) continue;
         double d = dist(p.x, p.y, t.x, t.y);
-        if (d < 42.0 || d > (keeperOutlet ? 455.0 : 550.0)) continue;
+        if (d < PASS_MIN_DISTANCE || d > (keeperOutlet ? PASS_MAX_DISTANCE_KEEPER : PASS_MAX_DISTANCE)) continue;
         if (!keeperOutlet && engine.isOffsideTarget(p, t)) continue;
 
         int bl = 0;
@@ -60,7 +60,7 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
             double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
             double perp = std::sqrt((o.x - p.x - t2 * dx) * (o.x - p.x - t2 * dx)
                                   + (o.y - p.y - t2 * dy) * (o.y - p.y - t2 * dy));
-            if (perp < 36.0) bl++;
+            if (perp < PASS_BLOCKER_PERP) bl++;
         }
         if (bl >= 3) continue;
 
@@ -70,12 +70,12 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
 
         int receiverPressure = 0;
         for (auto& o : engine.state.players) {
-            if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < 45.0) receiverPressure++;
+            if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < PASS_RECEIVER_PRESS_MAX) receiverPressure++;
         }
         if (receiverPressure >= 3) continue;
 
         double completion = clamp(
-            0.89 + rs * 0.10 + rr * 0.06 - d / 850.0 * 0.28 - bl * 0.23
+            0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - bl * 0.23
                 - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),
             0.08, 0.98);
         if (completion < 0.44) continue;
@@ -214,6 +214,16 @@ std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext
         double cr = attrFactor(p.attrs.creativity);
         if (pur == ActionPurpose::Build && bl > 0) sc += cr * 0.12;
         if (pur == ActionPurpose::Clear)           sc -= cr * 0.10;
+
+        // Added time: defending team incentive to boot ball out of final third
+        if (engine.addedTimeActive) {
+            bool inDefThird = (p.team == Team::Home) ? p.x < THIRD_1 : p.x > THIRD_2;
+            if (inDefThird) {
+                bool targetExitsThird = (p.team == Team::Home) ? t.x > THIRD_1 : t.x < THIRD_2;
+                if (targetExitsThird) sc += 0.30;
+                else if (fp > 80.0) sc += 0.15;
+            }
+        }
 
         using RoleList = std::vector<Role>;
         static const std::unordered_map<Role, RoleList> rcMap = {

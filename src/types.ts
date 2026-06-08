@@ -61,6 +61,7 @@ export interface EngineState {
   awayShots: number;
   possessionPct: number;
   half: number;
+  addedTime: boolean;
   version: string;
   seed?: number;
   setPieceState?: SetPieceState;

@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
     double totalMs = minutes * 60.0 * 1000.0;
     double lastOutput = 0;
 
-    while (engine.state.clockMs < totalMs && engine.state.matchState != "finished") {
+    while (engine.state.clockMs < totalMs + 300000 && engine.state.matchState != "finished") {
         engine.update(FIXED_DT);
 
         // Write trace frame every tick

@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "agent.h"
+#include "agent_helpers.h"
 
 
 // tick()
@@ -114,7 +115,7 @@ GameContext PlayerAI::buildContext() {
     int op = (player.team == Team::Home) ? os : ms;
     int d  = my - op;
     double tl = std::max(0.0, MATCH_DURATION - engine.state.clockMs);
-    return { d, tl, (engine.state.clockMs < MATCH_DURATION / 2.0) ? 1 : 2 };
+    return { d, tl, engine.half };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -310,19 +311,14 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
 
     if (best.type == ActionType::Chase && engine.state.ball.controllerId < 0) {
         bool priorityChaser = engine.state.ball.intendedReceiverId == player.id || engine.isActiveKnockAheadRunner(player.id);
-        bool isSelf = (bb.pressingPlayerId == player.id || bb.pressingPlayerId2 == player.id);
-        bool slot1Free = (bb.pressingPlayerId < 0);
-        bool slot2Free = (bb.pressingPlayerId2 < 0);
-        if (!priorityChaser && !isSelf && !slot1Free && !slot2Free) {
+        auto ps = checkPressSlots(bb, player.id);
+        if (!priorityChaser && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
             for (auto& x : a) {
-                if (x.type != ActionType::Chase && x.type != ActionType::Tackle && x.score > 0.15) return x;
+                if (x.type != ActionType::Chase && x.type != ActionType::Tackle && x.score > MIN_FALLBACK_SCORE) return x;
             }
             return Action{ActionType::Hold, 1.0};
         }
-        if (!priorityChaser && !isSelf) {
-            if (slot1Free)      bb.pressingPlayerId  = player.id;
-            else if (slot2Free) bb.pressingPlayerId2 = player.id;
-        }
+        if (!priorityChaser) tryClaimPressSlot(bb, player.id, ps.isSelf, ps.slot1Free, ps.slot2Free);
     }
 
     if (best.type == ActionType::Position) {
@@ -335,39 +331,29 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
             reservePressSlot = true;
         }
         if (reservePressSlot) {
-            bool isSelf = (bb.pressingPlayerId == player.id || bb.pressingPlayerId2 == player.id);
-            bool slot1Free = (bb.pressingPlayerId < 0);
-            bool slot2Free = (bb.pressingPlayerId2 < 0);
-            if (!emergencyCloseDown && !isSelf && !slot1Free && !slot2Free) {
+            auto ps = checkPressSlots(bb, player.id);
+            if (!emergencyCloseDown && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
                 for (auto& x : a) {
                     if (x.type == ActionType::Position && x.purpose == ActionPurpose::LocalCloseDown) continue;
-                    if (x.type != ActionType::Tackle && x.score > 0.15) return x;
+                    if (x.type != ActionType::Tackle && x.score > MIN_FALLBACK_SCORE) return x;
                 }
                 return Action{ActionType::Hold, 1.0};
             }
-            if (!isSelf) {
-                if (slot1Free)      bb.pressingPlayerId  = player.id;
-                else if (slot2Free) bb.pressingPlayerId2 = player.id;
-            }
+            if (!ps.isSelf) tryClaimPressSlot(bb, player.id, ps.isSelf, ps.slot1Free, ps.slot2Free);
         }
     }
 
     if (best.type == ActionType::Tackle && best.target) {
-        bool isSelf = (bb.pressingPlayerId == player.id || bb.pressingPlayerId2 == player.id);
-        bool slot1Free = (bb.pressingPlayerId < 0);
-        bool slot2Free = (bb.pressingPlayerId2 < 0);
+        auto ps = checkPressSlots(bb, player.id);
 
-        if (!isSelf && !slot1Free && !slot2Free) {
+        if (!ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
             for (auto& x : a) {
-                if (x.type != ActionType::Tackle && x.score > 0.15) return x;
+                if (x.type != ActionType::Tackle && x.score > MIN_FALLBACK_SCORE) return x;
             }
             return Action{ActionType::Hold, 1.0};
         }
 
-        if (!isSelf) {
-            if (slot1Free)      bb.pressingPlayerId  = player.id;
-            else if (slot2Free) bb.pressingPlayerId2 = player.id;
-        }
+        tryClaimPressSlot(bb, player.id, ps.isSelf, ps.slot1Free, ps.slot2Free);
     }
 
     if (best.type == ActionType::Mark && best.target) {

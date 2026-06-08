@@ -83,12 +83,12 @@ void PlayerAI::applyMovement(double sdt) {
         && lastActionType != ActionType::Chase) {
         double cdx = p.x - carrier->x, cdy = p.y - carrier->y;
         double cd = std::sqrt(cdx * cdx + cdy * cdy);
-        if (cd > 0.1 && cd < 58.0) {
-            double away = (58.0 - cd) / 58.0;
+        if (cd > 0.1 && cd < SUPPORT_CARRIER_CLEAR_DIST) {
+            double away = (SUPPORT_CARRIER_CLEAR_DIST - cd) / SUPPORT_CARRIER_CLEAR_DIST;
             double fd = fdFor(p.team);
             double laneBias = p.homeY < PITCH_H / 2.0 ? -1.0 : 1.0;
-            dx += (cdx / cd) * away * 70.0 + fd * away * 12.0;
-            dy += (cdy / cd) * away * 70.0 + laneBias * away * 18.0;
+            dx += (cdx / cd) * away * SUPPORT_CARRIER_PUSH_FORCE + fd * away * SUPPORT_CARRIER_FORWARD_BIAS;
+            dy += (cdy / cd) * away * SUPPORT_CARRIER_PUSH_FORCE + laneBias * away * SUPPORT_CARRIER_LANE_BIAS;
             d = std::sqrt(dx * dx + dy * dy);
         }
     }

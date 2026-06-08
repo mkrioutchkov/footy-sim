@@ -54,6 +54,10 @@ inline constexpr double SEPARATION_FORCE = 140.0;
 // ── Timing ──
 inline constexpr double FIXED_DT       = 16.667;
 inline constexpr double MATCH_DURATION  = 90.0 * 60.0 * 1000.0;
+inline constexpr double HALF_DURATION   = 45.0 * 60.0 * 1000.0;
+inline constexpr double THIRD_1         = PITCH_W / 3.0;       // 350
+inline constexpr double THIRD_2         = 2.0 * PITCH_W / 3.0; // 700
+inline constexpr double ADDED_TIME_WHISTLE_MS = 5000.0;
 
 // ── Utility ──
 constexpr auto clamp(double v, double lo, double hi) -> double { return v < lo ? lo : v > hi ? hi : v; }
@@ -110,12 +114,16 @@ inline constexpr double PASS_FORWARD_WEIGHT     = 0.34;
 inline constexpr double PASS_COMPLETION_WEIGHT  = 0.38;
 inline constexpr double PASS_REPEAT_PENALTY     = 0.18;
 inline constexpr double PASS_REPEAT_WINDOW_MS   = 3000.0;
-inline constexpr double PASS_MIN_DISTANCE       = 30.0;
+inline constexpr double PASS_MIN_DISTANCE       = 42.0;
 inline constexpr double PASS_MAX_DISTANCE       = 550.0;
+inline constexpr double PASS_MAX_DISTANCE_KEEPER = 455.0;
+inline constexpr double PASS_DIST_NORMALIZATION = 850.0;
 inline constexpr double PASS_VISION_CONE        = PI / 3.0;
-inline constexpr double PASS_BLOCKER_PERP       = 30.0;
+inline constexpr double PASS_BLOCKER_PERP       = 36.0;
+inline constexpr double PASS_BLOCKER_PERP_OUTLET = 34.0;
 inline constexpr double PASS_RECEIVER_PRESS_MAX = 45.0;
 inline constexpr double PASS_RECEIVER_PRESS_CUT = 3;
+inline constexpr double PASS_TOUCHLINE_TRAPPED  = 90.0;
 
 // ── Shot scoring ──
 inline constexpr double SHOT_FLOOR_CLOSE        = 0.35;
@@ -124,7 +132,9 @@ inline constexpr double SHOT_FLOOR_POINT_BLANK  = 0.70;
 inline constexpr double SHOT_CLOSE_DISTANCE     = 90.0;
 inline constexpr double SHOT_MEDIUM_DISTANCE    = 50.0;
 inline constexpr double SHOT_POINT_BLANK        = 30.0;
-inline constexpr double SHOT_ANGLE_ACUTE_THRESH = 7.5;
+inline constexpr double SHOT_ANGLE_ACUTE_THRESH  = 7.5;
+inline constexpr double SHOT_ACUTE_SOFT_THRESH   = 8.0;
+inline constexpr double SHOT_ACUTE_HARD_THRESH    = 7.0;
 inline constexpr double SHOT_MAX_DISTANCE_HARD  = 225.0;
 inline constexpr double SHOT_MAX_ANGLE_ACUTE    = 150.0;
 inline constexpr double SHOT_ANGLE_DISTANCE_2ND = 200.0;
@@ -177,6 +187,18 @@ inline constexpr double BOUNCE_DAMP_OPPONENT    = 0.25;
 inline constexpr double BOUNCE_SPIN_FACTOR      = 0.02;
 inline constexpr double REBOUND_BLOCK_MS        = 600.0;
 
+// ── Ball-player collision ──
+inline constexpr double COLLISION_DAMP_SAME_TEAM  = 0.18;
+inline constexpr double COLLISION_DAMP_OPPONENT   = 0.36;
+inline constexpr double COLLISION_GLANCE_SAME     = 0.02;
+inline constexpr double COLLISION_GLANCE_OPPONENT = 0.045;
+inline constexpr double COLLISION_REFLECT_FACTOR  = 1.3;
+inline constexpr double COLLISION_SPEED_THRESH    = 130.0;
+inline constexpr double COLLISION_FAST_CONTACT    = 80.0;
+inline constexpr double INTENDED_NEARBY_DIST      = 70.0;
+inline constexpr double INTENDED_PASS_SPEED_LIMIT = 220.0;
+inline constexpr double PING_PONG_WINDOW_MS       = 300.0;
+
 // ── Shot error ──
 inline constexpr double SHOT_ERROR_BASE         = 16.0;
 inline constexpr double SHOT_ERROR_SKILL        = 75.0;
@@ -196,6 +218,35 @@ inline constexpr double BALL_TRACKING_LERP      = 0.05;
 inline constexpr double LOOSE_BALL_FACING_LERP  = 0.15;
 inline constexpr double BALL_MEMORY_FACING_LERP = 0.02;
 inline constexpr double BALL_MEMORY_TIMEOUT     = 30;
+
+// ── Agent decision thresholds ──
+inline constexpr double MIN_FALLBACK_SCORE      = 0.15;
+
+// ── Carrier support (movement) ──
+inline constexpr double SUPPORT_CARRIER_CLEAR_DIST   = 58.0;
+inline constexpr double SUPPORT_CARRIER_PUSH_FORCE   = 70.0;
+inline constexpr double SUPPORT_CARRIER_FORWARD_BIAS = 12.0;
+inline constexpr double SUPPORT_CARRIER_LANE_BIAS    = 18.0;
+
+// ── Ball speed thresholds for chase/recovery ──
+inline constexpr double RECOVERY_BALL_SPEED_MAX  = 95.0;
+inline constexpr double SELF_LOOSE_TOUCH_SPEED   = 90.0;
+inline constexpr double SELF_LOOSE_TOUCH_DIST    = 85.0;
+
+// ── Tackle proximity ──
+inline constexpr double TACKLE_CLOSE_BOOST_RANGE = TACKLE_RANGE + 10.0;
+inline constexpr double TACKLE_ZONE_MAX          = TACKLE_RANGE + 30.0;
+
+// ── Goal proximity zones ──
+inline constexpr double NEAR_GOAL_DIST           = 220.0;
+inline constexpr double CLOSE_GOAL_DIST          = 120.0;
+inline constexpr double PERIMETER_GOAL_DIST      = 150.0;
+inline constexpr double WIDE_DANGER_DIST         = 250.0;
+inline constexpr double EMERGENCY_BOX_DIST       = 230.0;
+inline constexpr double DANGER_DEFENSIVE_OFFSET  = 170.0;
+
+// ── Touchline proximity ──
+inline constexpr double TOUCHLINE_PROXIMITY      = 85.0;
 
 // ── Timing / cooldowns ──
 inline constexpr double LOG_INTERVAL_MS         = 500.0;

@@ -77,6 +77,13 @@ bool GameEngine::canContestBall(Player& player) {
 // Lifecycle — kickoff, update, fixedUpdate, tickAgents, auditStuckCarrier
 // ══════════════════════════════════════════════════════════════
 
+void GameEngine::startMatch() {
+    state.matchState = "running";
+    state.clockMs = 0;
+    addedTimeActive = false;
+    kickoff(Team::Home);
+}
+
 void GameEngine::kickoff(Team t){
     nextKickoffTeam=(t==Team::Home)?Team::Away:Team::Home;
     contestBlockedUntil.clear();
@@ -139,12 +146,26 @@ void GameEngine::cacheBallState() {
 
 void GameEngine::fixedUpdate(double sdt) {
     state.clockMs += sdt;
-    if (state.clockMs >= MATCH_DURATION) {
-        state.matchState = "finished";
-        stats.recordScore(state.homeScore, state.awayScore);
-        return;
+
+    // ── Added-time / end-of-half whistle ──
+    double halfEndMs = (half == 1) ? HALF_DURATION : MATCH_DURATION;
+    if (state.clockMs >= halfEndMs) {
+        addedTimeActive = true;
+        double overtimeMs = state.clockMs - halfEndMs;
+        double bx = state.ball.x;
+        bool inFinalThird = (bx < THIRD_1 || bx > THIRD_2);
+        if (overtimeMs >= ADDED_TIME_WHISTLE_MS && !inFinalThird) {
+            addedTimeActive = false;
+            if (half == 1) {
+                half = 2;
+                halfTimePause = 2000;
+            } else {
+                state.matchState = "finished";
+                stats.recordScore(state.homeScore, state.awayScore);
+                return;
+            }
+        }
     }
-    if (half == 1 && state.clockMs >= 45 * 60 * 1000) { half = 2; halfTimePause = 2000; }
     if (halfTimePause > 0) {
         halfTimePause -= sdt;
         if (halfTimePause <= 0) kickoff(nextKickoffTeam);
@@ -624,6 +645,7 @@ std::string GameEngine::getJSON() const {
     j["clockMs"] = std::round(state.clockMs);
     j["matchState"] = state.matchState;
     j["half"] = half;
+    j["addedTime"] = addedTimeActive;
     j["version"] = nativeBuildVersion();
     j["speed"] = state.speed;
     j["homeScore"] = state.homeScore;

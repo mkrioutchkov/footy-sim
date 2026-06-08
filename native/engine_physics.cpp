@@ -198,22 +198,22 @@ void GameEngine::checkBallPlayerCollision(double){
     bool intendedNearby = false;
     if (pendingPass.active && b.intendedReceiverId >= 0) {
         if (Player* intended = playerById(b.intendedReceiverId)) {
-            intendedNearby = dist(intended->x, intended->y, b.x, b.y) < 70.0;
+            intendedNearby = dist(intended->x, intended->y, b.x, b.y) < INTENDED_NEARBY_DIST;
         }
     }
 
     for(auto&p:state.players){
         if(!canContestBall(p))continue;
         double d=dist(p.x,p.y,b.x,b.y);
-        double r=(bs>80.0&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
+        double r=(bs>COLLISION_FAST_CONTACT&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
         if(d>r)continue;
-        if(b.z>20)continue;
+        if(b.z>AERIAL_HEIGHT)continue;
         if(p.role==Role::GK){
             continue;
         }
         // Intended receiver already handled above — skip them here
         if(p.id==b.intendedReceiverId)continue;
-        if(pendingPass.active && intendedNearby && p.team==pendingPass.team && bs<220.0)continue;
+        if(pendingPass.active && intendedNearby && p.team==pendingPass.team && bs<INTENDED_PASS_SPEED_LIMIT)continue;
         double score=d/std::max(1.0,r);
         if(p.team!=b.lastTouchTeam)score-=0.10;
         if(score<bestContactScore){
@@ -224,20 +224,20 @@ void GameEngine::checkBallPlayerCollision(double){
     }
 
     if(!contact)return;
-    if(bs<130){
+    if(bs<COLLISION_SPEED_THRESH){
         collectBall(*contact);
         return;
     }
-    if(bs>130){
+    if(bs>COLLISION_SPEED_THRESH){
         double dx=b.x-contact->x,dy=b.y-contact->y,d2=std::hypot(dx,dy);
         if(d2<1)return;
         double nx=dx/d2,ny=dy/d2;
         b.x=contact->x+nx*contactRadius;b.y=contact->y+ny*contactRadius;
         double dot=b.vx*nx+b.vy*ny;
-        if(dot<0){b.vx-=1.3*dot*nx;b.vy-=1.3*dot*ny;}
-        double damp=(b.lastTouchTeam==contact->team)?0.18:0.36;
+        if(dot<0){b.vx-=COLLISION_REFLECT_FACTOR*dot*nx;b.vy-=COLLISION_REFLECT_FACTOR*dot*ny;}
+        double damp=(b.lastTouchTeam==contact->team)?COLLISION_DAMP_SAME_TEAM:COLLISION_DAMP_OPPONENT;
         b.vx*=damp;b.vy*=damp;
-        double glance=(b.lastTouchTeam==contact->team)?0.02:0.045;
+        double glance=(b.lastTouchTeam==contact->team)?COLLISION_GLANCE_SAME:COLLISION_GLANCE_OPPONENT;
         b.vx+=ny*bs*glance;b.vy+=-nx*bs*glance;
         b.lastTouchTeam=contact->team;b.lastToucherId=contact->id;
         if(contact->team==lastCollectionTeam)lastSameTeamCollectionMs=state.clockMs-500;
@@ -258,7 +258,7 @@ void GameEngine::collectBall(Player& c) {
         double fd = std::hypot(fdx, fdy);
         if (fd > 0.1) c.facing = std::atan2(fdy, fdx);
     }
-    if (lastCollectionTeam.has_value() && c.team == *lastCollectionTeam && state.clockMs - lastSameTeamCollectionMs < 300) {
+    if (lastCollectionTeam.has_value() && c.team == *lastCollectionTeam && state.clockMs - lastSameTeamCollectionMs < PING_PONG_WINDOW_MS) {
         teammatePingPongs++;
         stats.recordCollection(true);
     }
