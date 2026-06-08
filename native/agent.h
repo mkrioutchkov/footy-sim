@@ -193,7 +193,22 @@ private:
     virtual Action        scoreTackle(const Perception& per, const GameContext& ctx);
     Action                scoreMark(const Perception& per, const GameContext& ctx);
     Action                scoreChase(const Perception& per);
+    struct PositionCandidate { double x, y; ActionPurpose pur = ActionPurpose::Keep; };
+    struct PositioningContext {
+        double fd; bool myTeam; double ballAdvance; double pushUp; double widthPush;
+        Team inPossession;
+    };
     virtual std::vector<Action> scorePositioning(const Perception& per, const GameContext& ctx);
+
+    // scorePositioning pipeline helpers
+    void posBaseCandidates(std::vector<PositionCandidate>& c, const PositioningContext& pc);
+    void posDefensiveCover(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
+    void posBallFarOffers(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
+    void posAttackingSupport(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
+    void posOffsideRuns(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
+    void posDefensiveLine(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
+    void posGeneralCover(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
+
 protected:
     virtual void          adjustActionScores(std::vector<Action>& actions, bool isController);
     Action                resolveChoice(std::vector<Action>& actions);
