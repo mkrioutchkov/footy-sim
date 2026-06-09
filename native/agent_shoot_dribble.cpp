@@ -22,23 +22,23 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (!freshCross && !freshThrough && angleDeg < SHOT_ACUTE_SOFT_THRESH && shotDistance > 120.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    if ((!freshCross && shotDistance > 260.0) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && acuteGeometry))
+    if ((!freshCross && shotDistance > 310.0) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && acuteGeometry))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    if (!freshCross && !freshThrough && shotDistance > 240.0 && angleDeg < SHOT_ACUTE_HARD_THRESH)
+    if (!freshCross && !freshThrough && shotDistance > 285.0 && angleDeg < SHOT_ACUTE_HARD_THRESH)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double hardMax = shotMaxDistance();
     if (freshCross) hardMax = std::max(hardMax, freshCrossMax);
     if (shotDistance > hardMax)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    if (p.role == Role::CM && shotDistance > 205.0 && (angleDeg < 10.0 || per.pressureCount > 1))
+    if (p.role == Role::CM && shotDistance > 225.0 && (angleDeg < 9.0 || per.pressureCount > 1))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) > 180.0 && shotDistance > 155.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double mr = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
-    if (shotDistance > std::min(mr, hardMax))
+    if (shotDistance > std::min(mr + 18.0, hardMax + 12.0))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double toGoalX = gx - p.x;
@@ -81,8 +81,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (cp.exposed > 0.45 && shotDistance > 85.0) sc -= 0.12;
 
     bool credibleOpening = angleDeg >= 7.5 || shotDistance < 115.0;
-    if (shotDistance < 200.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.30 : 0.12;
-    if (shotDistance < 120.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.38 : 0.12;
+    if (shotDistance < 225.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.38 : 0.16;
+    if (shotDistance < 135.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.46 : 0.16;
     if (shotDistance < 70.0  && credibleOpening) sc += per.pressureCount <= 1 ? 0.22 : 0.05;
     if (shotDistance < 40.0)  sc += per.pressureCount <= 1 ? 0.18 : 0.04;
     bool longCarryShotZone = engine.carryTrackerId == p.id && engine.carryPathDistance >= 200.0
@@ -95,6 +95,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         sc += per.pressureCount == 0 ? 0.22 : 0.10;
         if (shotDistance < 170.0 && angleDeg > 8.0) sc += 0.16;
     }
+    if (shotDistance < 285.0 && angleDeg > 6.5) sc += per.pressureCount <= 1 ? 0.24 : 0.10;
+    if (p.role == Role::CF && shotDistance < 285.0 && angleDeg > 6.0) sc += 0.18;
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
 }

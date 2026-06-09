@@ -458,17 +458,23 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     executionError=std::max(SHOT_ERROR_FLOOR,executionError+roleError);
     bool credibleFinish=angleDeg>12.0&&shotDistance<185.0&&pressureCount<=1&&laneBlockers<=1;
     bool freshThrough=s.throughCollected>0.0&&shotDistance<245.0;
+    bool directFreeKickShot=setPieceTypeEnum==SetPiece::FreeKick;
     if(credibleFinish)executionError*=shotDistance<95.0?0.60:0.70;
+    if(directFreeKickShot)executionError*=0.48;
     if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.84:0.92;
     if(freshCross)executionError*=s.role==Role::CF?0.54:(s.role==Role::WM?0.72:0.90);
-    double postAimScale=credibleFinish?0.86:1.0;
-    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(0.18+accuracy*0.13)*postAimScale;
+    double postAimScale=credibleFinish?0.92:1.0;
+    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(0.12+accuracy*0.11)*postAimScale;
     double goalY=goalCenterY+aimedPost+(rng.random()+rng.random()-1.0)*executionError;
     if(acuteGeometry){
         double nearPostSide=s.y<goalCenterY?-1.0:1.0;
         double nearPostY=goalCenterY+nearPostSide*GOAL_W/2;
-        goalY=s.y+(nearPostY-s.y)*(0.30+rng.random()*0.10);
+        goalY=nearPostY - nearPostSide * (BALL_R + 7.0 + rng.random() * 16.0);
     }
+    double missMargin = directFreeKickShot
+        ? clamp(5.0 + shotDistance * 0.012 + laneBlockers * 2.0, 7.0, 12.0)
+        : clamp(9.0 + shotDistance * 0.030 + pressureCount * 3.0 + laneBlockers * 3.0, 14.0, 24.0);
+    goalY = clamp(goalY, goalCenterY - GOAL_W / 2.0 - missMargin, goalCenterY + GOAL_W / 2.0 + missMargin);
     double dx=gx-s.x, dy=goalY-s.y;
     double d=std::hypot(dx,dy);
     double speed=SHOT_SPEED_BASE+accuracy*128.0-pressureCount*28-laneBlockers*34-longRangePenalty*52+(credibleFinish?34.0:0.0);

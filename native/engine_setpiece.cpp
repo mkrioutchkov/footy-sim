@@ -127,8 +127,8 @@ void GameEngine::releaseSetPiece(){
         double angleDeg=goalOpeningAngleDeg(holder->x,holder->y,gx);
         int laneBlockers = countLaneBlockers(state.players, holder->x, holder->y, gx, gy, holder->team, BLOCKER_PERP_FREEKICK, 0.06, 0.90);
         bool central=std::abs(holder->y-gy)<170.0;
-        bool credibleShot=shotDist>115.0&&shotDist<390.0&&central&&angleDeg>6.0&&laneBlockers<=2;
-        double shotChance=clamp(0.12+(390.0-shotDist)/520.0+angleDeg/90.0-laneBlockers*0.18,0.08,0.58);
+        bool credibleShot=shotDist>105.0&&shotDist<410.0&&central&&angleDeg>5.2&&laneBlockers<=2;
+        double shotChance=clamp(0.50+(410.0-shotDist)/360.0+angleDeg/60.0-laneBlockers*0.10,0.34,0.94);
         if(credibleShot&&rng.random()<shotChance){
             emitEvent("shot", holder->x, holder->y, holder->id);
             shootBall(*holder,nullptr);
