@@ -707,6 +707,7 @@ std::string GameEngine::getJSON() const {
     j["headerLayoffs"] = summary["headerLayoffs"];
     j["headerControls"] = summary["headerControls"];
     j["headedShots"] = summary["headedShots"];
+    j["headerAudit"] = summary["headerAudit"];
     j["forwardPasses"] = summary["forwardPasses"];
     j["backwardPasses"] = summary["backwardPasses"];
     j["sidewaysPasses"] = summary["sidewaysPasses"];

@@ -188,6 +188,10 @@ inline constexpr double TACKLE_CONTROL_MAX      = 0.72;
 
 // ── Aerial / collision ──
 inline constexpr double AERIAL_HEIGHT           = 20.0;
+inline constexpr double HEADER_MIN_HEIGHT       = 16.0;
+inline constexpr double HEADER_MAX_HEIGHT       = 64.0;
+inline constexpr double HEADER_MIN_DELIVERY_DIST = 115.0;
+inline constexpr double HEADER_MIN_SPEED        = 75.0;
 inline constexpr double BOUNCE_DAMP_SAME_TEAM   = 0.18;
 inline constexpr double BOUNCE_DAMP_OPPONENT    = 0.25;
 inline constexpr double BOUNCE_SPIN_FACTOR      = 0.02;

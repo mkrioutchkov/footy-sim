@@ -172,7 +172,8 @@ void GameEngine::checkBallPlayerCollision(double){
         Player* intended=playerById(b.intendedReceiverId);
         if(intended){
             double d=dist(intended->x,intended->y,b.x,b.y);
-            if(d<=INTENDED_COLLECT_DIST&&b.z<=20){
+            double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
+            if(d<=INTENDED_COLLECT_DIST&&b.z<=zLimit){
                 if(canContestBall(*intended)){
                     bool underPressure=false;
                     for(auto& opponent:state.players){
@@ -207,7 +208,8 @@ void GameEngine::checkBallPlayerCollision(double){
         double d=dist(p.x,p.y,b.x,b.y);
         double r=(bs>COLLISION_FAST_CONTACT&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
         if(d>r)continue;
-        if(b.z>AERIAL_HEIGHT)continue;
+        double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
+        if(b.z>zLimit)continue;
         if(p.role==Role::GK){
             continue;
         }
@@ -224,6 +226,10 @@ void GameEngine::checkBallPlayerCollision(double){
     }
 
     if(!contact)return;
+    if(pendingPass.active && pendingPass.isCross && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT){
+        collectBall(*contact);
+        return;
+    }
     if(bs<COLLISION_SPEED_THRESH){
         collectBall(*contact);
         return;

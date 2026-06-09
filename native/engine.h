@@ -97,6 +97,7 @@ public:
         bool isThrough = false;
         bool offsideExempt = false;
         double passerX = 0.0;
+        double passerY = 0.0;
         double offsideLine = 0.0;
     } pendingPass;
     struct ActiveKnockAhead {

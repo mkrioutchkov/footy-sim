@@ -33,7 +33,22 @@ public:
     void recordThroughBallComplete() { throughBallsCompleted++; }
     void recordCrossAttempt() { crossesAttempted++; }
     void recordCrossComplete() { crossesCompleted++; }
-    void recordHeader() { headers++; }
+    void recordHeader(double incomingZ, double deliveryDist, double speed, bool unrealistic) {
+        headers++;
+        headerZTotal += incomingZ;
+        headerDistTotal += deliveryDist;
+        headerSpeedTotal += speed;
+        if (headers == 1) {
+            headerZMin = headerZMax = incomingZ;
+            headerDistMin = headerDistMax = deliveryDist;
+        } else {
+            headerZMin = std::min(headerZMin, incomingZ);
+            headerZMax = std::max(headerZMax, incomingZ);
+            headerDistMin = std::min(headerDistMin, deliveryDist);
+            headerDistMax = std::max(headerDistMax, deliveryDist);
+        }
+        if (unrealistic) unrealisticHeaders++;
+    }
     void recordHeaderClearance() { headerClearances++; }
     void recordHeaderLayoff() { headerLayoffs++; }
     void recordHeaderControl() { headerControls++; }
@@ -143,6 +158,10 @@ private:
     int throughBallsAttempted=0, throughBallsCompleted=0;
     int crossesAttempted=0, crossesCompleted=0, headers=0, headedShots=0;
     int headerClearances=0, headerLayoffs=0, headerControls=0;
+    int unrealisticHeaders=0;
+    double headerZTotal=0, headerZMin=0, headerZMax=0;
+    double headerDistTotal=0, headerDistMin=0, headerDistMax=0;
+    double headerSpeedTotal=0;
     int forwardPasses=0, backwardPasses=0, sidewaysPasses=0;
     int longBackwardPasses=0, keeperBackpasses=0;
     int offsidesTotal=0;

@@ -43,7 +43,7 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isTh
     stats.recordPassDirection(forwardProgress);
     if(to.role==Role::GK && forwardProgress < -30.0) stats.recordKeeperBackpass();
     bool offsideExempt = setPieceTypeEnum == SetPiece::Corner || setPieceTypeEnum == SetPiece::ThrowIn || setPieceTypeEnum == SetPiece::GoalKick;
-    pendingPass={true,from.id,to.id,from.team,isCross,isThrough,offsideExempt,from.x,offsideLineFor(from.team)};
+    pendingPass={true,from.id,to.id,from.team,isCross,isThrough,offsideExempt,from.x,from.y,offsideLineFor(from.team)};
 }
 
 bool GameEngine::resolvePendingPass(Player& receiver) {
@@ -62,8 +62,16 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             return true;
         }
     }
-    if (pendingPass.isCross) {
-        stats.recordHeader();
+    auto& b = state.ball;
+    double deliveryDist = dist(pendingPass.passerX, pendingPass.passerY, receiver.x, receiver.y);
+    double deliverySpeed = std::hypot(b.vx, b.vy);
+    bool plausibleHeader = pendingPass.isCross
+        && b.z >= HEADER_MIN_HEIGHT
+        && b.z <= HEADER_MAX_HEIGHT
+        && deliveryDist >= HEADER_MIN_DELIVERY_DIST
+        && deliverySpeed >= HEADER_MIN_SPEED;
+    if (plausibleHeader) {
+        stats.recordHeader(b.z, deliveryDist, deliverySpeed, !plausibleHeader);
         receiver.headingAnim = 520.0;
         emitEvent("header", receiver.x, receiver.y, receiver.id, pendingPass.fromId);
         double fd = fdFor(receiver.team);
@@ -71,7 +79,6 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         double shotDistance = std::hypot(receiver.x - gx, receiver.y - PITCH_H / 2.0);
         if (receiver.team != pendingPass.team) {
             stats.recordHeaderClearance();
-            auto& b = state.ball;
             double clearFd = fdFor(receiver.team);
             b.controllerId = -1;
             b.intendedReceiverId = -1;
@@ -109,7 +116,6 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             }
 
             stats.recordHeaderLayoff();
-            auto& b = state.ball;
             Player* outlet = nullptr;
             double bestScore = -1e9;
             for (auto& t : state.players) {
@@ -159,7 +165,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
     }
     if (pendingPass.isCross && receiver.team == pendingPass.team) {
         stats.recordCrossComplete();
-        receiver.crossCollected = 1500.0;
+        if (plausibleHeader) receiver.crossCollected = 1500.0;
     }
     if (pendingPass.isThrough && receiver.team == pendingPass.team) {
         receiver.throughCollected = 1400.0;
@@ -240,11 +246,11 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     if(selectedCross||whippedCross)stats.recordCrossAttempt();
     if(selectedCross){
         b.vx*=1.15; b.vy*=1.15;
-        b.vz=std::max(b.vz,speed*0.95);
+        b.vz=std::max(b.vz,speed*1.55);
     }
     if(whippedCross){
         b.vx*=1.30; b.vy*=1.30;
-        b.vz=std::max(b.vz,speed*1.30*1.15);
+        b.vz=std::max(b.vz,speed*1.30*1.55);
     }
     if(audit){
         bool riskyFlag=audit->blockers>0||audit->receiverPressure>0||audit->expectedCompletion<0.58;

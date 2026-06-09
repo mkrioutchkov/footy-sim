@@ -106,6 +106,16 @@ std::string StatsCollector::summaryJSON() const {
     j["headerLayoffs"] = headerLayoffs;
     j["headerControls"] = headerControls;
     j["headedShots"] = headedShots;
+    j["headerAudit"] = {
+        {"avgIncomingZ", headers > 0 ? std::round((headerZTotal / headers) * 10) / 10 : 0.0},
+        {"minIncomingZ", headers > 0 ? std::round(headerZMin * 10) / 10 : 0.0},
+        {"maxIncomingZ", headers > 0 ? std::round(headerZMax * 10) / 10 : 0.0},
+        {"avgDeliveryDistance", headers > 0 ? std::round((headerDistTotal / headers) * 10) / 10 : 0.0},
+        {"minDeliveryDistance", headers > 0 ? std::round(headerDistMin * 10) / 10 : 0.0},
+        {"maxDeliveryDistance", headers > 0 ? std::round(headerDistMax * 10) / 10 : 0.0},
+        {"avgIncomingSpeed", headers > 0 ? std::round((headerSpeedTotal / headers) * 10) / 10 : 0.0},
+        {"unrealistic", unrealisticHeaders}
+    };
     j["forwardPasses"] = forwardPasses;
     j["backwardPasses"] = backwardPasses;
     j["sidewaysPasses"] = sidewaysPasses;
