@@ -126,6 +126,12 @@ void PlayerAI::posAttackingSupport(std::vector<PositionCandidate>& c, const Posi
                     c.push_back({ clamp(oppGoalX - pc.fd * 86.0, 55.0, PITCH_W - 55.0), farPostY, ActionPurpose::InsideRun });
                     c.push_back({ clamp(oppGoalX - pc.fd * 125.0, 55.0, PITCH_W - 55.0), PITCH_H / 2.0, ActionPurpose::Offer });
                 }
+                if (!carrierWide && carrierAdvanced) {
+                    double side = p.homeY < PITCH_H / 2.0 ? -1.0 : 1.0;
+                    c.push_back({ clamp(carrier->x + pc.fd * 104.0, 55.0, PITCH_W - 55.0),
+                                  clamp(PITCH_H / 2.0 + side * 36.0, PITCH_H * 0.26, PITCH_H * 0.74),
+                                  ActionPurpose::RunAhead });
+                }
             }
         }
     }

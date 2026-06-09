@@ -508,7 +508,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
         for (auto& p : state.players) {
             if (p.team != tmTeam || p.role == Role::GK) continue;
             double roleBonus = agentFor(p)->penaltyTakerBonus();
-            double score = roleBonus + attrFactor(p.attrs.shooting) * 80.0 - dist(p.x, p.y, b.x, b.y) * 0.15;
+            double score = roleBonus + attrFactor(p.attrs.shooting) * 95.0 - dist(p.x, p.y, b.x, b.y) * 0.04;
             if (score > bestScore) { bestScore = score; best = &p; }
         }
         setPieceTakerId = best ? best->id : -1;

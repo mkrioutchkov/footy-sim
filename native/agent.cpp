@@ -167,7 +167,8 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
                 double roleBoost = (player.role == Role::WM || player.role == Role::CM) ? 0.18 : (player.role == Role::FB ? 0.12 : 0.08);
                 x.score += roleBoost;
             }
-            if (pc == 0 && x.type == ActionType::Pass && x.purpose != ActionPurpose::Cross && x.purpose != ActionPurpose::Through) {
+            if (pc == 0 && x.type == ActionType::Pass && x.purpose != ActionPurpose::Cross
+                && x.purpose != ActionPurpose::Cutback && x.purpose != ActionPurpose::Through) {
                 if (holdTicks < 12) x.score -= 0.18;
                 else if (holdTicks < 24) x.score -= 0.10;
             }

@@ -33,8 +33,18 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     Player* carrier = playerById(state.ball.controllerId);
     bool opponentCarrier = carrier && carrier->team != gk.team;
     bool ballLoose = state.ball.controllerId < 0;
+    Player* intendedReceiver = playerById(state.ball.intendedReceiverId);
+    bool teammateOutfieldRecovery = ballLoose && intendedReceiver && intendedReceiver->team == gk.team
+        && intendedReceiver->role != Role::GK;
+    bool keeperEmergency = inArea && (towardGoal || ballSpeed > 160.0)
+        && bdg < 115.0 && std::abs(state.ball.y - gk.homeY) < 145.0;
+    bool deferToTeammate = teammateOutfieldRecovery && !keeperEmergency;
 
-    if (inArea && ballLoose && (towardGoal || ballSpeed < 180)) {
+    if (deferToTeammate) {
+        double supportDepth = clamp(bdg * 0.24, 24.0, 76.0);
+        gk.targetX = goalX + fd * supportDepth;
+        gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.16), gk.homeY - 120.0, gk.homeY + 120.0);
+    } else if (inArea && ballLoose && (towardGoal || ballSpeed < 180)) {
         double projectedY = towardGoal
             ? state.ball.y + state.ball.vy * (bdg / std::max(std::abs(state.ball.vx), 1.0))
             : state.ball.y;
@@ -56,7 +66,7 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
 
     // Rush-out: charge at loose ball or through ball behind defense
     double rushDist = std::abs(gk.x - state.ball.x);
-    bool rushing = ballLoose && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall);
+    bool rushing = ballLoose && !deferToTeammate && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall);
     if (rushing) {
         double rushTargetX = clamp(state.ball.x - fd * (throughBall ? 18.0 : 28.0),
             goalX + fd * 45.0, goalX + fd * 175.0);

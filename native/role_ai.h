@@ -16,7 +16,7 @@ public:
     double nearGoalDribbleBonus(bool nearGoal, double distToGoal) const override { return nearGoal ? (distToGoal < 120.0 ? 0.12 : 0.18) : 0.0; }
     bool   isAttackerRole() const override { return true; }
     bool   isCenterForward() const override { return true; }
-    double nearGoalShotBiasMargin() const override { return 0.16; }
+    double nearGoalShotBiasMargin() const override { return 0.22; }
     double observingCruiseMul() const override { return 0.45; }
     double defensivePressCost(bool danger) const override { (void)danger; return 28.0; }
     double boxGuardCost() const override { return 28.0; }

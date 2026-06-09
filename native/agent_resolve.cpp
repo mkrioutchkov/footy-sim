@@ -39,9 +39,9 @@ Action* PlayerAI::tryFreshBallOverride(std::vector<Action>& a, Action& best,
                 if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
             }
         }
-        if (shootOpt && shootOpt->audit.distance < 225.0
-            && shootOpt->audit.angleDeg > 7.0
-            && shootOpt->score > best.score - 0.24)
+        if (shootOpt && shootOpt->audit.distance < 245.0
+            && shootOpt->audit.angleDeg > 5.5
+            && shootOpt->score > best.score - 0.32)
             return shootOpt;
     }
     return nullptr;
@@ -255,7 +255,7 @@ Action* PlayerAI::tryClearPathOverride(std::vector<Action>& a, Action& best,
     if (!clearPath || !inDangerZone) return nullptr;
 
     // Close enough to shoot
-    if (distToGoal < 200.0) {
+    if (distToGoal < 225.0) {
         Action* shootAct = nullptr;
         for (auto& x : a)
             if (x.type == ActionType::Shoot && x.score > 0.0)
@@ -400,7 +400,9 @@ Action* PlayerAI::tryNearGoalShotBias(std::vector<Action>& a, Action& best,
         if (x.type == ActionType::Shoot) shotOpt = &x;
         if (x.type == ActionType::Pass && x.target) {
             double tGoalDist = std::abs(gx - x.target->x);
-            if (tGoalDist < 80.0) passToTapIn = &x;
+            if (tGoalDist < 70.0 && x.audit.expectedCompletion > 0.70
+                && x.audit.blockers == 0 && x.audit.receiverPressure == 0)
+                passToTapIn = &x;
         }
     }
     if (shotOpt && !passToTapIn
