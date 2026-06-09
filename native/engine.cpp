@@ -66,6 +66,10 @@ const Player* GameEngine::findGK(Team team) const {
 bool GameEngine::canContestBall(Player& player) {
     if(setPieceArmed&&state.ball.controllerId<0)return false;
     if(activeKnockAhead.active&&activeKnockAhead.playerId==player.id)return true;
+    if(state.ball.controllerId<0
+        && state.ball.intendedReceiverId==player.id
+        && state.ball.lastTouchTeam==player.team
+        && state.ball.lastToucherId!=player.id)return true;
     auto it=contestBlockedUntil.find(player.id);
     if(it==contestBlockedUntil.end())return true;
     if(it->second>state.clockMs)return false;
@@ -538,8 +542,22 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     if (b.intendedReceiverId >= 0 && b.controllerId < 0) {
         Player* receiver = playerById(b.intendedReceiverId);
         if (receiver) {
-            receiver->targetX = b.x;
-            receiver->targetY = b.y;
+            double ballSpeed = std::hypot(b.vx, b.vy);
+            double rx = b.x - receiver->x;
+            double ry = b.y - receiver->y;
+            double receiverDist = std::hypot(rx, ry);
+            double receiverSpeed = std::max(36.0, SPEED_SPRINT * attrFactor(receiver->attrs.speed));
+            double leadTime = clamp(receiverDist / receiverSpeed, 0.14, 0.46);
+            double maxLead = clamp(receiverDist * 0.72, 18.0, 74.0);
+            double leadDist = std::min(ballSpeed * leadTime, maxLead);
+            double targetX = b.x;
+            double targetY = b.y;
+            if (ballSpeed > 12.0) {
+                targetX += (b.vx / ballSpeed) * leadDist;
+                targetY += (b.vy / ballSpeed) * leadDist;
+            }
+            receiver->targetX = clamp(targetX, PLAYER_R, PITCH_W - PLAYER_R);
+            receiver->targetY = clamp(targetY, PLAYER_R, PITCH_H - PLAYER_R);
         }
     }
     updateControlledBall(sec);
