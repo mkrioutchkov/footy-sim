@@ -82,7 +82,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
     nextTacticalAuditMs = state.clockMs + 500.0;
     Team defending = carrier.team == Team::Home ? Team::Away : Team::Home;
     double ownGoalX = ownGoalXFor(defending);
-    double fd = defending == Team::Home ? 1.0 : -1.0;
+    double fd = fdFor(defending);
     bool danger = std::abs(carrier.x - ownGoalX) < DANGER_ZONE_DIST;
     Player* primary = nullptr;
     for (const auto& [id, task] : assignmentByPlayer) {

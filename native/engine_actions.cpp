@@ -38,7 +38,7 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isTh
     passLaunchSpeedTotal+=speed; passLaunchCount++;
     stats.recordPassLaunch(speed);
     recordBallImpulse();
-    double fd = from.team==Team::Home ? 1.0 : -1.0;
+    double fd = fdFor(from.team);
     double forwardProgress = (to.x - from.x) * fd;
     stats.recordPassDirection(forwardProgress);
     if(to.role==Role::GK && forwardProgress < -30.0) stats.recordKeeperBackpass();
@@ -49,7 +49,7 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isTh
 bool GameEngine::resolvePendingPass(Player& receiver) {
     if(!pendingPass.active)return false;
     if(receiver.team==pendingPass.team&&!pendingPass.offsideExempt){
-        double fd=pendingPass.team==Team::Home?1.0:-1.0;
+        double fd = fdFor(pendingPass.team);
         bool beyondHalf = fd>0.0 ? receiver.x>HALF_X : receiver.x<HALF_X;
         bool beyondPasser = fd>0.0 ? receiver.x>pendingPass.passerX+OFFSIDE_TOLERANCE : receiver.x<pendingPass.passerX-OFFSIDE_TOLERANCE;
         bool beyondLine = fd>0.0 ? receiver.x>pendingPass.offsideLine+OFFSIDE_TOLERANCE : receiver.x<pendingPass.offsideLine-OFFSIDE_TOLERANCE;
@@ -58,7 +58,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             Team defendingTeam=receiver.team==Team::Home?Team::Away:Team::Home;
             pendingPass.active=false;
             emitEvent("offside", receiver.x, receiver.y, receiver.id, pendingPass.fromId);
-            awardOffsideFreeKick(std::string(to_string(defendingTeam)),receiver);
+            awardOffsideFreeKick(defendingTeam, receiver);
             return true;
         }
     }
@@ -185,7 +185,7 @@ double GameEngine::goalOpeningAngleDeg(double x, double y, double gx) const {
 void GameEngine::placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset) {
     double d=std::hypot(dx,dy);
     if(d<0.001){
-        double fd=kicker.team==Team::Home?1.0:-1.0;
+        double fd = fdFor(kicker.team);
         state.ball.x=clamp(kicker.x+fd*maxOffset,5.0,PITCH_W-5.0);
         state.ball.y=kicker.y;
         return;
@@ -202,7 +202,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     double speed=(PASS_SPEED_BASE+rawDist*PASS_SPEED_DIST)*(0.92+rng.random()*0.16);
     double travelTime=rawDist/std::max(speed,1.0);
     double receiverSpeed=std::hypot(t.vx,t.vy);
-    double fd=f.team==Team::Home?1.0:-1.0;
+    double fd = fdFor(f.team);
     bool movingForward=t.vx*fd>5;
     double leadFactor=throughBall ? (movingForward&&receiverSpeed>14?1.12:0.72) : (movingForward&&receiverSpeed>20?0.90:0.55);
     double throughLead=throughBall?fd*(46+attrFactor(f.attrs.creativity)*78):0;
@@ -302,7 +302,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     double carrierControl=attrFactor(carrier.attrs.positioning)*0.35+attrFactor(carrier.attrs.speed)*0.15;
     double facingBonus=(tackler.team==Team::Home?tackler.vx>0:tackler.vx<0)?0.08:-0.05;
     double carrierSpeed=std::hypot(carrier.vx,carrier.vy);
-    double forwardX=carrierSpeed>8?carrier.vx/carrierSpeed:(carrier.team==Team::Home?1.0:-1.0);
+    double forwardX=carrierSpeed>8?carrier.vx/carrierSpeed:fdFor(carrier.team);
     double forwardY=carrierSpeed>8?carrier.vy/carrierSpeed:0;
     double approachDot=contactDist>0
         ? ((tackler.x-carrier.x)*forwardX+(tackler.y-carrier.y)*forwardY)/contactDist

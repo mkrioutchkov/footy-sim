@@ -9,7 +9,7 @@
 // ══════════════════════════════════════════════════════════════
 
 double GameEngine::offsideLineFor(Team t) const {
-    const double fd = t==Team::Home ? 1.0 : -1.0;
+    const double fd = fdFor(t);
     const Player* d1=nullptr,*d2=nullptr;
     double v1=-1e9, v2=-1e9;
     for(auto&p:state.players){
@@ -28,21 +28,20 @@ double GameEngine::offsideLineFor(Team t) const {
 }
 
 bool GameEngine::checkOffside(const Player& receiver, const Player& passer) const {
-    const double fd = passer.team==Team::Home ? 1.0 : -1.0;
+    const double fd = fdFor(passer.team);
     if(fd==1){if(receiver.x<=HALF_X||receiver.x<=passer.x+OFFSIDE_TOLERANCE)return false;}
     else{if(receiver.x>=HALF_X||receiver.x>=passer.x-OFFSIDE_TOLERANCE)return false;}
     const double line=offsideLineFor(passer.team);
     return fd==1 ? receiver.x>line+OFFSIDE_TOLERANCE : receiver.x<line-OFFSIDE_TOLERANCE;
 }
 
-void GameEngine::awardOffsideFreeKick(const std::string& defendingTeam, const Player& offsidePlayer) {
+void GameEngine::awardOffsideFreeKick(Team defTeam, const Player& offsidePlayer) {
     auto& b=state.ball;
     b.x=clamp(offsidePlayer.x,20.0,PITCH_W-20);
     b.y=clamp(offsidePlayer.y,20.0,PITCH_H-20);
     b.vx=b.vy=b.z=b.vz=0;
     b.controllerId=-1; b.intendedReceiverId=-1;
     receiverShieldTargetId=-1;
-    Team defTeam = teamFromStr(defendingTeam);
     setPieceTypeEnum=SetPiece::FreeKick; setPieceTeamEnum = defTeam; setPieceArmed=true;
     setPieceReason="offside";
     actionTimer=5000;
@@ -146,11 +145,11 @@ void GameEngine::releaseSetPiece(){
     }
     std::sort(targets.begin(),targets.end(),[&](const Player* a,const Player* b){
         auto scoreTarget=[&](const Player* p){
-            double fd=holder->team==Team::Home?1.0:-1.0;
+            double fd = fdFor(holder->team);
             double d=dist(holder->x,holder->y,p->x,p->y);
             double progress=(p->x-holder->x)*fd;
             double width=std::abs(p->y-PITCH_H/2.0);
-            double closestOpp=999.0;
+            double closestOpp = 1e9;
             for(auto& o:state.players){
                 if(o.team==holder->team||o.role==Role::GK)continue;
                 closestOpp=std::min(closestOpp,dist(o.x,o.y,p->x,p->y));
@@ -179,7 +178,7 @@ void GameEngine::releaseSetPiece(){
 
 void GameEngine::releaseGoalKick(Player& holder){
     if(holder.role!=Role::GK)return;
-    double fd=holder.team==Team::Home?1.0:-1.0;
+    double fd = fdFor(holder.team);
     double ownGoalX=ownGoalXFor(holder.team);
     Player* outlet=nullptr;
     double best=-1e9;
@@ -242,7 +241,7 @@ void GameEngine::releaseGoalKick(Player& holder){
 }
 
 void GameEngine::releaseGoalkeeperDistribution(Player& holder){
-    double fd=holder.team==Team::Home?1.0:-1.0;
+    double fd = fdFor(holder.team);
     double ownGoalX=ownGoalXFor(holder.team);
     bool wasGoalKick=setPieceTypeEnum == SetPiece::GoalKick;
     double nearestKeeperPressure=1e9;
@@ -349,7 +348,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
     if(fallback.empty()||!wasGoalKick){
         setPieceArmed=true;actionTimer=250;
     } else if(wasGoalKick){
-        double fd=holder.team==Team::Home?1.0:-1.0;
+        double fd = fdFor(holder.team);
         double speed=PASS_SPEED_BASE+60+350*(PASS_SPEED_DIST+0.07);
         auto& b=state.ball;
         b.controllerId=-1;
@@ -368,7 +367,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
 
 void GameEngine::releaseThrowIn(Player& holder){
     std::vector<RatedTarget> targets;
-    double fd=holder.team==Team::Home?1.0:-1.0;
+    double fd = fdFor(holder.team);
     for(auto&p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
         double d=dist(holder.x,holder.y,p.x,p.y);
@@ -451,12 +450,9 @@ void GameEngine::releaseCornerKick(Player& holder){
     actionTimer=450;
 }
 
-void GameEngine::awardThrowIn(std::string lt, double y) {
+void GameEngine::awardThrowIn(Team lastTouchTeam, double y) {
     auto& b = state.ball;
-    Team atTeam;
-    if (lt == "home") atTeam = Team::Away;
-    else if (lt == "away") atTeam = Team::Home;
-    else atTeam = (b.x < PITCH_W / 2) ? Team::Away : Team::Home;
+    Team atTeam = (lastTouchTeam == Team::Home) ? Team::Away : Team::Home;
     b.x = clamp(b.x, 10., PITCH_W - 10);
     b.y = clamp(y, 10., PITCH_H - 10);
     b.vx = b.vy = b.z = b.vz = 0;
@@ -494,7 +490,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
                 b.controllerId = p.id;
                 b.lastTouchTeam = tmTeam;
                 b.lastToucherId = p.id;
-                double fd = tmTeam == Team::Home ? 1.0 : -1.0;
+                double fd = fdFor(tmTeam);
                 double side = b.y < PITCH_H / 2.0 ? -1.0 : 1.0;
                 p.x = ownGoalXFor(tmTeam) + fd * 58.0;
                 p.y = clamp(PITCH_H / 2.0 + side * 78.0, 120.0, PITCH_H - 120.0);
@@ -556,7 +552,7 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
 
 void GameEngine::updateGoalKickMonitor() {
     if(!goalKickMonitorActive)return;
-    double fd=goalKickMonitorTeam==Team::Home?1.0:-1.0;
+    double fd = fdFor(goalKickMonitorTeam);
     double ownGoalX=ownGoalXFor(goalKickMonitorTeam);
     double progress=(state.ball.x-ownGoalX)*fd;
     if(state.ball.lastTouchTeam==goalKickMonitorTeam&&progress>PITCH_W/3.0){

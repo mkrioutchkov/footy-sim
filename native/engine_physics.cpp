@@ -137,7 +137,7 @@ bool GameEngine::checkOutOfPlay() {
     };
     if (b.y < 0 || b.y > PITCH_H || b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
         clearState();
-        awardThrowIn(std::string(to_string(lt)), b.y < 0 ? 0 : PITCH_H);
+        awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H);
         return true;
     }
     if (b.x + BALL_R < HOME_GOAL_X) {
@@ -166,6 +166,31 @@ void GameEngine::checkBallPlayerCollision(double){
     double bs=std::hypot(b.vx,b.vy);
     const double collectRadius=COLLECT_DIST;
     const double fastContactRadius=PLAYER_R+BALL_R-3.0;
+
+    if (b.controllerId < 0 && b.z <= AERIAL_HEIGHT) {
+        Player* keeperContact = nullptr;
+        double bestKeeperScore = 1e9;
+        for (auto& p : state.players) {
+            if (p.role != Role::GK || !canContestBall(p)) continue;
+            double goalX = ownGoalXFor(p.team);
+            bool ballInOwnArea = std::abs(b.x - goalX) < PENALTY_AREA_W
+                && std::abs(b.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+            if (!ballInOwnArea) continue;
+            double d = dist(p.x, p.y, b.x, b.y);
+            double reach = bs > 120.0 ? GK_LOOSE_COLLECT_FAST_DIST : GK_LOOSE_COLLECT_DIST;
+            if (d > reach) continue;
+            double score = d / reach;
+            if (b.lastTouchTeam != p.team) score -= 0.18;
+            if (score < bestKeeperScore) {
+                bestKeeperScore = score;
+                keeperContact = &p;
+            }
+        }
+        if (keeperContact) {
+            collectBall(*keeperContact);
+            return;
+        }
+    }
 
     // Intended receiver gets priority with larger collection radius
     if(b.intendedReceiverId>=0&&bs<250){

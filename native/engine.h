@@ -134,7 +134,7 @@ public:
     [[nodiscard]] Config configFor(Team team) const { return team==Team::Home ? homeConfig : awayConfig; }
     [[nodiscard]] double offsideLineFor(Team t) const;
     [[nodiscard]] bool checkOffside(const Player& receiver, const Player& passer) const;
-    void awardOffsideFreeKick(const std::string& defendingTeam, const Player& offsidePlayer);
+    void awardOffsideFreeKick(Team defTeam, const Player& offsidePlayer);
     [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const;
     struct AgentTeamAssignment { DefensiveTask role = DefensiveTask::None; int opponentId=-1; double targetX=0, targetY=0; };
     std::unordered_map<int, AgentTeamAssignment> assignmentByPlayer;
@@ -268,7 +268,7 @@ public:
     void updateGK(double sdt);
     void updateOneGK(Player& gk, double secs);
     void tryGKSave();
-    void awardThrowIn(std::string lt, double y);
+    void awardThrowIn(Team lastTouchTeam, double y);
     void awardSetPiece(SetPiece t, Team tm);
     void awardCorner(Team attackingTeam, bool atHomeEnd, double y);
     void updateGoalKickMonitor();
