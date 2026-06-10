@@ -1,8 +1,7 @@
 #include "engine.h"
 #include "agent.h"
-#include <map>
 
-std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const GameContext& ctx) {
+SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     auto& b = engine.state.ball;
     double fd = fdFor(p.team);
@@ -14,7 +13,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     double wp = (iw && my) ? fd * ba * 85.0 : 0.0;
 
     PositioningContext pc{fd, my, ba, pu, wp, ip};
-    std::vector<PositionCandidate> c;
+    SmallVector<PositionCandidate, 32> c;
 
     posBaseCandidates(c, pc);
     posDefensiveCover(c, pc, per);
@@ -24,7 +23,7 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     posGeneralCover(c, pc, per);
 
     // ── Score candidates ──
-    std::vector<Action> options;
+    SmallVector<Action, 24> options;
     for (auto& cn : c) {
         double targetX = cn.x;
         double targetY = cn.y;
@@ -84,17 +83,35 @@ std::vector<Action> PlayerAI::scorePositioning(const Perception& per, const Game
     // ── Task assignment ──
     auto* task = engine.assignmentFor(p.id);
     if (task) {
-        static const std::map<DefensiveTask, double> taskScores = {
-            {DefensiveTask::PrimaryPress, 0.86}, {DefensiveTask::SecondaryPress, 0.72}, {DefensiveTask::ShotLane, 0.88}, {DefensiveTask::Cover, 0.66},
-            {DefensiveTask::CrossLane, 0.87}, {DefensiveTask::LaneBlock, 0.87}, {DefensiveTask::BoxGuard, 0.88}, {DefensiveTask::FarPostGuard, 0.84},
-            {DefensiveTask::NearPostGuard, 0.86}, {DefensiveTask::CutbackGuard, 0.84}, {DefensiveTask::DefensiveLine, 0.84}, {DefensiveTask::WideCover, 0.82},
-            {DefensiveTask::MidfieldScreen, 0.72}, {DefensiveTask::BoxScreen, 0.80}, {DefensiveTask::SupportOutlet, 0.47}, {DefensiveTask::AdvanceMidfield, 0.66},
-            {DefensiveTask::RunAhead, 0.74}, {DefensiveTask::InsideRun, 0.72}, {DefensiveTask::HoldWidth, 0.64},
-            {DefensiveTask::Overlap, 0.72}, {DefensiveTask::RestDefence, 0.56}, {DefensiveTask::CloseDown, 0.84},
+        static constexpr double taskScores[] = {
+            0.80, // 0: None
+            0.86, // 1: PrimaryPress
+            0.72, // 2: SecondaryPress
+            0.88, // 3: ShotLane
+            0.66, // 4: Cover
+            0.87, // 5: CrossLane
+            0.87, // 6: LaneBlock
+            0.88, // 7: BoxGuard
+            0.84, // 8: FarPostGuard
+            0.86, // 9: NearPostGuard
+            0.84, // 10: CutbackGuard
+            0.84, // 11: DefensiveLine
+            0.82, // 12: WideCover
+            0.72, // 13: MidfieldScreen
+            0.80, // 14: BoxScreen
+            0.47, // 15: SupportOutlet
+            0.66, // 16: AdvanceMidfield
+            0.74, // 17: RunAhead
+            0.72, // 18: InsideRun
+            0.64, // 19: HoldWidth
+            0.72, // 20: Overlap
+            0.56, // 21: RestDefence
+            0.84, // 22: CloseDown
+            0.80, // 23: LocalCloseDown
+            0.80, // 24: EmergencyCloseDown
         };
-        double ts = 0.80;
-        auto tit = taskScores.find(task->role);
-        if (tit != taskScores.end()) ts = tit->second;
+        int ti = static_cast<int>(task->role);
+        double ts = (ti >= 0 && ti < 25) ? taskScores[ti] : 0.80;
         options.push_back(Action{ActionType::Position, ts, nullptr, task->targetX, task->targetY,
                                  ActionPurpose::Task});
     }

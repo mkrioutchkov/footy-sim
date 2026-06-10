@@ -7,7 +7,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ── Base home-position candidates (always added) ─────────────────────────────
-void PlayerAI::posBaseCandidates(std::vector<PositionCandidate>& c, const PositioningContext& pc) {
+void PlayerAI::posBaseCandidates(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc) {
     const auto& p = player;
     auto& b = engine.state.ball;
 
@@ -31,7 +31,7 @@ void PlayerAI::posBaseCandidates(std::vector<PositionCandidate>& c, const Positi
 }
 
 // ── Defensive retreat when out of possession and ball not loose ──────────────
-void PlayerAI::posDefensiveCover(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posDefensiveCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
     if (pc.myTeam || per.ballIsLoose) return;
 
     const auto& p = player;
@@ -61,7 +61,7 @@ void PlayerAI::posDefensiveCover(std::vector<PositionCandidate>& c, const Positi
 }
 
 // ── Ball-far and very-far distance offers ────────────────────────────────────
-void PlayerAI::posBallFarOffers(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posBallFarOffers(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
     const auto& p = player;
     auto& b = engine.state.ball;
 
@@ -84,7 +84,7 @@ void PlayerAI::posBallFarOffers(std::vector<PositionCandidate>& c, const Positio
 }
 
 // ── All in-possession attacking support and role-specific runs ───────────────
-void PlayerAI::posAttackingSupport(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
     const auto& p = player;
     auto& b = engine.state.ball;
 
@@ -363,7 +363,7 @@ void PlayerAI::posAttackingSupport(std::vector<PositionCandidate>& c, const Posi
 }
 
 // ── Defensive line management for defender roles ────────────────────────────
-void PlayerAI::posDefensiveLine(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posDefensiveLine(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
     if (pc.myTeam || !isDefenderRole()) return;
 
     const auto& p = player;
@@ -373,7 +373,7 @@ void PlayerAI::posDefensiveLine(std::vector<PositionCandidate>& c, const Positio
     int count = 0;
     double deepestX = (p.team == Team::Home) ? 0.0 : PITCH_W;
     struct LineMate { double progress; int id; };
-    std::vector<LineMate> lineMates;
+    SmallVector<LineMate, 5> lineMates;
     for (auto& t : engine.state.players) {
         if (t.team != p.team || t.role == Role::GK) continue;
         if (engine.agentFor(t)->isDefenderRole()) {
@@ -426,7 +426,7 @@ void PlayerAI::posDefensiveLine(std::vector<PositionCandidate>& c, const Positio
 }
 
 // ── General out-of-possession cover for non-defenders ───────────────────────
-void PlayerAI::posGeneralCover(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posGeneralCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
     if (pc.myTeam) return;
 
     const auto& p = player;

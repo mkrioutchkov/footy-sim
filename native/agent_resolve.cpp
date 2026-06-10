@@ -14,7 +14,7 @@
 // After collecting a through-ball or cross, the player gets a brief window
 // where shooting or driving forward is heavily favoured.
 
-Action* PlayerAI::tryFreshBallOverride(std::vector<Action>& a, Action& best,
+Action* PlayerAI::tryFreshBallOverride(SmallVector<Action, 24>& a, Action& best,
                                         bool ic, bool nearGoal) {
     if (ic && player.throughCollected > 0.0) {
         Action* shootOpt = nullptr;
@@ -52,7 +52,7 @@ Action* PlayerAI::tryFreshBallOverride(std::vector<Action>& a, Action& best,
 // with any pass or dribble that has a non-trivial score.  Returns nullptr if
 // nothing viable exists (caller handles the forced dribble / hold).
 
-Action* PlayerAI::tryLowScoreFallback(std::vector<Action>& a, Action& /*best*/) {
+Action* PlayerAI::tryLowScoreFallback(SmallVector<Action, 24>& a, Action& /*best*/) {
     Action* passOpt = nullptr;
     Action* dribbleOpt = nullptr;
     for (auto& x : a) {
@@ -72,7 +72,7 @@ Action* PlayerAI::tryLowScoreFallback(std::vector<Action>& a, Action& /*best*/) 
 // When the ball carrier has dribbled a significant distance, favour shooting
 // or continuing the dribble over recycling possession.
 
-Action* PlayerAI::tryLongCarryOverride(std::vector<Action>& a, Action& best, bool ic) {
+Action* PlayerAI::tryLongCarryOverride(SmallVector<Action, 24>& a, Action& best, bool ic) {
     if (!ic || engine.carryTrackerId != player.id) return nullptr;
 
     double carryDistance = engine.carryPathDistance;
@@ -125,7 +125,7 @@ Action* PlayerAI::tryLongCarryOverride(std::vector<Action>& a, Action& best, boo
 // slot when the chosen action is Chase, Position (close-down), or Tackle, and
 // redirects to a fallback action when both slots are already taken.
 
-Action* PlayerAI::managePressSlots(std::vector<Action>& a, Action& best,
+Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
                                     TeamBlackboard& bb) {
     static Action holdFallback{ActionType::Hold, 1.0};
 
@@ -202,7 +202,7 @@ Action* PlayerAI::managePressSlots(std::vector<Action>& a, Action& best,
 
 // ── Backpass audit (logging only, no override) ──────────────────────────────
 
-void PlayerAI::auditBackpass(std::vector<Action>& a, Action& best, bool ic) {
+void PlayerAI::auditBackpass(SmallVector<Action, 24>& a, Action& best, bool ic) {
     if (!ic || best.type != ActionType::Pass || best.audit.forwardProgress >= -40.0)
         return;
     Action* fwdOpt = nullptr;
@@ -225,7 +225,7 @@ void PlayerAI::auditBackpass(std::vector<Action>& a, Action& best, bool ic) {
 // If the carrier has an unobstructed corridor to goal with few blockers,
 // override with a shot (close range) or a forward dribble.
 
-Action* PlayerAI::tryClearPathOverride(std::vector<Action>& a, Action& best,
+Action* PlayerAI::tryClearPathOverride(SmallVector<Action, 24>& a, Action& best,
                                         bool ic, double gx) {
     if (!ic) return nullptr;
 
@@ -288,7 +288,7 @@ Action* PlayerAI::tryClearPathOverride(std::vector<Action>& a, Action& best,
 // Under heavy pressure and not an attacker in a shooting position, look for a
 // safe recycling pass to avoid losing possession.
 
-Action* PlayerAI::tryPressureSafetyPass(std::vector<Action>& a, Action& best,
+Action* PlayerAI::tryPressureSafetyPass(SmallVector<Action, 24>& a, Action& best,
                                          bool ic, bool nearGoal) {
     if (!ic) return nullptr;
     CarrierPressure cp = assessCarrierPressure(engine, player);
@@ -315,7 +315,7 @@ Action* PlayerAI::tryPressureSafetyPass(std::vector<Action>& a, Action& best,
 // In the attacking final third, bias toward shooting, driving, and forward
 // passes over recycling possession.
 
-Action* PlayerAI::tryFinalThirdOverride(std::vector<Action>& a, Action& best, bool ic) {
+Action* PlayerAI::tryFinalThirdOverride(SmallVector<Action, 24>& a, Action& best, bool ic) {
     if (!ic) return nullptr;
     double fd = fdFor(player.team);
     bool finalThird = fd > 0.0
@@ -388,7 +388,7 @@ Action* PlayerAI::tryFinalThirdOverride(std::vector<Action>& a, Action& best, bo
 // ── CF near-goal shot bias ───────────────────────────────────────────────────
 // Centre-forwards near goal should shoot unless a teammate has a clear tap-in.
 
-Action* PlayerAI::tryNearGoalShotBias(std::vector<Action>& a, Action& best,
+Action* PlayerAI::tryNearGoalShotBias(SmallVector<Action, 24>& a, Action& best,
                                        bool ic, bool nearGoal, double gx) {
     if (!ic || !nearGoal || best.type == ActionType::Shoot) return nullptr;
     double margin = nearGoalShotBiasMargin();

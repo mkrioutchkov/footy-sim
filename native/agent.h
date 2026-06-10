@@ -4,6 +4,7 @@
 #include "constants.h"
 #include "rng.h"
 #include <vector>
+#include "small_vector.h"
 #include <string>
 #include <cmath>
 #include <optional>
@@ -57,8 +58,8 @@ struct Perception {
     bool                ballIsLoose   = false;
     Team                ballControllerTeam = Team::Home;
     int                 ballControllerId = -1;
-    std::vector<Player*> nearbyTeammates;
-    std::vector<Player*> nearbyOpponents;
+    SmallVector<Player*, 11> nearbyTeammates;
+    SmallVector<Player*, 11> nearbyOpponents;
     double              nearestOpponentDist = 1e9;
     bool                iAmController    = false;
     bool                amClosestToBall  = false;
@@ -186,8 +187,8 @@ private:
     int    ballMemoryAge = 0;
 
     GameContext           buildContext();
-    std::vector<Action>   evaluateActions(const Perception& per, bool isController, const GameContext& ctx);
-    std::vector<Action>   scorePass(const Perception& per, const GameContext& ctx);
+    SmallVector<Action, 24> evaluateActions(const Perception& per, bool isController, const GameContext& ctx);
+    SmallVector<Action, 24> scorePass(const Perception& per, const GameContext& ctx);
     virtual Action        scoreShot(const Perception& per, const GameContext& ctx);
     virtual Action        scoreDribble(const Perception& per, const GameContext& ctx);
     virtual Action        scoreTackle(const Perception& per, const GameContext& ctx);
@@ -198,33 +199,33 @@ private:
         double fd; bool myTeam; double ballAdvance; double pushUp; double widthPush;
         Team inPossession;
     };
-    virtual std::vector<Action> scorePositioning(const Perception& per, const GameContext& ctx);
+    virtual SmallVector<Action, 24> scorePositioning(const Perception& per, const GameContext& ctx);
 
     // scorePositioning pipeline helpers
-    void posBaseCandidates(std::vector<PositionCandidate>& c, const PositioningContext& pc);
-    void posDefensiveCover(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
-    void posBallFarOffers(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
-    void posAttackingSupport(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
-    void posOffsideRuns(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
-    void posDefensiveLine(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
-    void posGeneralCover(std::vector<PositionCandidate>& c, const PositioningContext& pc, const Perception& per);
+    void posBaseCandidates(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc);
+    void posDefensiveCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
+    void posBallFarOffers(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
+    void posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
+    void posOffsideRuns(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
+    void posDefensiveLine(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
+    void posGeneralCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
 
 protected:
-    virtual void          adjustActionScores(std::vector<Action>& actions, bool isController);
-    Action                resolveChoice(std::vector<Action>& actions);
+    virtual void          adjustActionScores(SmallVector<Action, 24>& actions, bool isController);
+    Action                resolveChoice(SmallVector<Action, 24>& actions);
 
     // resolveChoice() pipeline helpers — each returns nullptr to continue, or a chosen action
-    Action* tryFreshBallOverride(std::vector<Action>& a, Action& best, bool ic, bool nearGoal);
-    Action* tryLowScoreFallback(std::vector<Action>& a, Action& best);
-    Action* tryLongCarryOverride(std::vector<Action>& a, Action& best, bool ic);
-    Action* managePressSlots(std::vector<Action>& a, Action& best, TeamBlackboard& bb);
-    void    auditBackpass(std::vector<Action>& a, Action& best, bool ic);
-    Action* tryClearPathOverride(std::vector<Action>& a, Action& best, bool ic, double gx);
-    Action* tryPressureSafetyPass(std::vector<Action>& a, Action& best, bool ic, bool nearGoal);
-    Action* tryFinalThirdOverride(std::vector<Action>& a, Action& best, bool ic);
-    Action* tryNearGoalShotBias(std::vector<Action>& a, Action& best, bool ic, bool nearGoal, double gx);
+    Action* tryFreshBallOverride(SmallVector<Action, 24>& a, Action& best, bool ic, bool nearGoal);
+    Action* tryLowScoreFallback(SmallVector<Action, 24>& a, Action& best);
+    Action* tryLongCarryOverride(SmallVector<Action, 24>& a, Action& best, bool ic);
+    Action* managePressSlots(SmallVector<Action, 24>& a, Action& best, TeamBlackboard& bb);
+    void    auditBackpass(SmallVector<Action, 24>& a, Action& best, bool ic);
+    Action* tryClearPathOverride(SmallVector<Action, 24>& a, Action& best, bool ic, double gx);
+    Action* tryPressureSafetyPass(SmallVector<Action, 24>& a, Action& best, bool ic, bool nearGoal);
+    Action* tryFinalThirdOverride(SmallVector<Action, 24>& a, Action& best, bool ic);
+    Action* tryNearGoalShotBias(SmallVector<Action, 24>& a, Action& best, bool ic, bool nearGoal, double gx);
 private:
-    void                  executeAction(Action& action, double sdt, std::vector<Action>& actions);
+    void                  executeAction(Action& action, double sdt, SmallVector<Action, 24>& actions);
     void                  executeDribble(Action& a, double sdt);
     std::optional<Action> scorePassToTarget(Player& target, const Perception& per,
         double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
@@ -234,8 +235,8 @@ private:
     void                  applyMovement(double sdt);
     void                  tryCollectAfterChase();
     void                  auditDefensiveMovement(const Action& choice);
-    PassSelectionAudit    passSelectionAudit(const Action& choice, const std::vector<Action>& actions);
-    ShotSelectionAudit    shotSelectionAudit(const Action& choice, const std::vector<Action>& actions);
+    PassSelectionAudit    passSelectionAudit(const Action& choice, const SmallVector<Action, 24>& actions);
+    ShotSelectionAudit    shotSelectionAudit(const Action& choice, const SmallVector<Action, 24>& actions);
 public:
     virtual void          setPiecePositioning(SetPiece spType, Team spTeam);
     void                  stunLock(int ticks) { stunLockTicks = std::max(stunLockTicks, ticks); }

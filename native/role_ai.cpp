@@ -1,7 +1,7 @@
 #include "engine.h"
 #include "role_ai.h"
 
-void CFPlayerAI::adjustActionScores(std::vector<Action>& actions, bool isController) {
+void CFPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     if (!isController) return;
     for (auto& a : actions) {
@@ -9,7 +9,7 @@ void CFPlayerAI::adjustActionScores(std::vector<Action>& actions, bool isControl
     }
 }
 
-void WMPlayerAI::adjustActionScores(std::vector<Action>& actions, bool isController) {
+void WMPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     if (!isController) return;
     for (auto& a : actions) {
@@ -21,7 +21,7 @@ void WMPlayerAI::adjustActionScores(std::vector<Action>& actions, bool isControl
     }
 }
 
-void CMPlayerAI::adjustActionScores(std::vector<Action>& actions, bool isController) {
+void CMPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     if (!isController) return;
     Action* bestDribble = nullptr;
@@ -37,13 +37,13 @@ void CMPlayerAI::adjustActionScores(std::vector<Action>& actions, bool isControl
     }
 }
 
-void CBPlayerAI::adjustActionScores(std::vector<Action>& actions, bool isController) {
+void CBPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     for (auto& a : actions) {
         if (a.type == ActionType::Tackle) a.score += 0.05;
     }
 }
 
-void FBPlayerAI::adjustActionScores(std::vector<Action>& actions, bool isController) {
+void FBPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
 }

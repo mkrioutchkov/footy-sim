@@ -23,8 +23,8 @@ const Player* GameEngine::playerById(int id) const {
     return nullptr;
 }
 
-std::vector<Player*> GameEngine::nearPlayers(Player& p, double range) {
-    std::vector<Player*> r;
+SmallVector<Player*, 11> GameEngine::nearPlayers(Player& p, double range) {
+    SmallVector<Player*, 11> r;
     for(auto& o:state.players) if(&o!=&p && dist(p.x,p.y,o.x,o.y)<range) r.push_back(&o);
     return r;
 }

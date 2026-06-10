@@ -10,8 +10,8 @@
 
 // ── Phase 1: Rank defenders by proximity and suitability ──
 
-std::vector<GameEngine::DefenseContext::Rated> GameEngine::rankDefenders(Team team, Player& carrier) {
-    std::vector<DefenseContext::Rated> ranked;
+SmallVector<GameEngine::DefenseContext::Rated, 12> GameEngine::rankDefenders(Team team, Player& carrier) {
+    SmallVector<DefenseContext::Rated, 12> ranked;
     bool danger = std::abs(carrier.x - ownGoalXFor(team)) < DANGER_ZONE_DIST;
     for (auto& p : state.players) {
         if (p.team != team || p.role == Role::GK) continue;
@@ -173,8 +173,8 @@ void GameEngine::assignCloseDown(DefenseContext& ctx, Player& carrier) {
 
 // ── Phase 9: Threat identification ──
 
-std::vector<GameEngine::DefenseContext::Threat> GameEngine::identifyThreats(DefenseContext& ctx, Player& carrier) {
-    std::vector<DefenseContext::Threat> threats;
+SmallVector<GameEngine::DefenseContext::Threat, 12> GameEngine::identifyThreats(DefenseContext& ctx, Player& carrier) {
+    SmallVector<DefenseContext::Threat, 12> threats;
     for (auto& attacker : state.players) {
         if (attacker.team == ctx.team || attacker.role == Role::GK || attacker.id == carrier.id) continue;
         double depth = std::abs(attacker.x - ctx.ownGoalX);

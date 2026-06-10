@@ -3,10 +3,9 @@
 #include "constants.h"
 #include "types.h"
 #include "stats.h"
+#include "small_vector.h"
 #include <format>
 #include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
 #include <memory>
 
 // Forward declarations — full includes only in .cpp files that need them
@@ -152,7 +151,7 @@ public:
     [[nodiscard]] const PlayerAI* agentFor(const Player& p) const;
     [[nodiscard]] Player* findGK(Team team);
     [[nodiscard]] const Player* findGK(Team team) const;
-    [[nodiscard]] std::vector<Player*> nearPlayers(Player& p, double range);
+    [[nodiscard]] SmallVector<Player*, 11> nearPlayers(Player& p, double range);
     [[nodiscard]] Player* findNearestOutfieldPlayer(Team team, double x, double y);
     [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
     bool canContestBall(Player& player);
@@ -188,11 +187,11 @@ public:
         bool wideDanger = false;
         double carrierGoalDist = 0;
         std::array<bool, 22> assigned = {};
-        std::vector<Rated> ranked;
-        std::vector<Threat> threats;
+        SmallVector<Rated, 12> ranked;
+        SmallVector<Threat, 12> threats;
         bool used(const Player* p) const { return assigned[p->id]; }
     };
-    std::vector<DefenseContext::Rated> rankDefenders(Team team, Player& carrier);
+    SmallVector<DefenseContext::Rated, 12> rankDefenders(Team team, Player& carrier);
     void assignPrimaryPress(DefenseContext& ctx, Player& carrier);
     void assignSecondaryPress(DefenseContext& ctx, Player& carrier);
     void assignShotLane(DefenseContext& ctx, Player& carrier);
@@ -200,7 +199,7 @@ public:
     void assignCoverRoles(DefenseContext& ctx, Player& carrier);
     void assignMidfieldScreen(DefenseContext& ctx, Player& carrier);
     void assignCloseDown(DefenseContext& ctx, Player& carrier);
-    std::vector<DefenseContext::Threat> identifyThreats(DefenseContext& ctx, Player& carrier);
+    SmallVector<DefenseContext::Threat, 12> identifyThreats(DefenseContext& ctx, Player& carrier);
     void assignThreatMarking(DefenseContext& ctx, Player& carrier);
     void assignBoxProtection(DefenseContext& ctx, Player& carrier);
     void assignDefensiveLine(DefenseContext& ctx, Player& carrier);

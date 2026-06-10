@@ -57,14 +57,14 @@ void PlayerAI::tick(double sdt) {
     Perception per = getCachedPerception();
 
     GameContext gctx = buildContext();
-    std::vector<Action> aff = evaluateActions(per, ic, gctx);
+    SmallVector<Action, 24> aff = evaluateActions(per, ic, gctx);
     Action choice = resolveChoice(aff);
 
     auditDefensiveMovement(choice);
     executeAction(choice, sdt, aff);
 
     if (std::fmod(engine.state.clockMs, 500.0) < 20.0) {
-        std::vector<Action> top = aff;
+        SmallVector<Action, 24> top = aff;
         std::sort(top.begin(), top.end(),
                   [](const Action& x, const Action& y) { return x.score > y.score; });
         if (top.size() > 5) top.resize(5);
@@ -121,8 +121,8 @@ GameContext PlayerAI::buildContext() {
 // ══════════════════════════════════════════════════════════════════════════════
 // ev() — evaluate actions
 // ══════════════════════════════════════════════════════════════════════════════
-std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, const GameContext& ctx) {
-    std::vector<Action> a;
+SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic, const GameContext& ctx) {
+    SmallVector<Action, 24> a;
     if (ic) {
         if (stunLockTicks > 0) {
             double angle = engine.state.clockMs * 0.005 + player.id * 1.7;
@@ -209,14 +209,14 @@ std::vector<Action> PlayerAI::evaluateActions(const Perception& per, bool ic, co
     return a;
 }
 
-void PlayerAI::adjustActionScores(std::vector<Action>& actions, bool isController) {
+void PlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
     if (!isController) return;
     for (auto& a : actions) {
         if (a.type == ActionType::Dribble) a.score += 0.10;
     }
 }
 
-Action PlayerAI::resolveChoice(std::vector<Action>& a) {
+Action PlayerAI::resolveChoice(SmallVector<Action, 24>& a) {
     std::sort(a.begin(), a.end(),
               [](const Action& x, const Action& y) { return x.score > y.score; });
 
@@ -263,7 +263,7 @@ Action PlayerAI::resolveChoice(std::vector<Action>& a) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ex() — execute chosen action
 // ══════════════════════════════════════════════════════════════════════════════
-void PlayerAI::executeAction(Action& a, double sdt, std::vector<Action>& actions) {
+void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& actions) {
     auto& p = player;
     auto& b = engine.state.ball;
 
@@ -498,7 +498,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
 // gp() — get perception (cached)
 // ══════════════════════════════════════════════════════════════════════════════
 PassSelectionAudit PlayerAI::passSelectionAudit(const Action& choice,
-                                                   const std::vector<Action>& actions)
+                                                   const SmallVector<Action, 24>& actions)
 {
     const auto& chosen = choice.audit;
     if (!choice.target) return {};
@@ -538,7 +538,7 @@ PassSelectionAudit PlayerAI::passSelectionAudit(const Action& choice,
 // shotSelectionAudit()
 // ══════════════════════════════════════════════════════════════════════════════
 ShotSelectionAudit PlayerAI::shotSelectionAudit(const Action& choice,
-                                                    const std::vector<Action>& actions)
+                                                    const SmallVector<Action, 24>& actions)
 {
     const auto& shot = choice.audit;
     if (choice.score < 0) return {};

@@ -2,10 +2,10 @@
 #include "agent.h"
 #include <optional>
 
-std::vector<Action> PlayerAI::scorePass(const Perception& per, const GameContext& ctx) {
+SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     double fd = (p.team == Team::Home) ? 1.0 : -1.0;
-    std::vector<Action> r;
+    SmallVector<Action, 24> r;
     double ownGoalX = ownGoalXFor(p.team);
     double ownProgress = (p.x - ownGoalX) * fd;
 
