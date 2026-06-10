@@ -48,6 +48,8 @@ inline constexpr double SHOOT_MAX_DIST = 340.0;
 inline constexpr double PENALTY_AREA_W = 165.0;
 inline constexpr double PENALTY_AREA_H = 403.0;
 inline constexpr double GK_RUSH_DIST   = 200.0;
+inline constexpr double GK_LOOSE_COLLECT_DIST = 34.0;
+inline constexpr double GK_LOOSE_COLLECT_FAST_DIST = 24.0;
 inline constexpr double SEPARATION_DIST = 38.0;
 inline constexpr double SEPARATION_FORCE = 140.0;
 
