@@ -86,7 +86,7 @@ public:
     bool goalKickMonitorActive = false;
     Team goalKickMonitorTeam = Team::Home;
     double goalKickMonitorStartedMs = 0;
-    std::unordered_map<int,double> contestBlockedUntil;
+    std::array<double, 22> contestBlockedUntil = {};
     int receiverShieldTargetId = -1, receiverShieldedPlayerId = -1;
     double receiverShieldUntil = 0;
     struct PendingPass {
@@ -109,7 +109,7 @@ public:
         double nearestOpponentDistance = 0;
         bool risky = false;
     } activeKnockAhead;
-    std::unordered_map<int,double> knockAheadCooldownUntil;
+    std::array<double, 22> knockAheadCooldownUntil = {};
     std::string lastLooseOrigin;
     struct VisualEvent {
         std::string type;
@@ -137,14 +137,14 @@ public:
     void awardOffsideFreeKick(Team defTeam, const Player& offsidePlayer);
     [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const;
     struct AgentTeamAssignment { DefensiveTask role = DefensiveTask::None; int opponentId=-1; double targetX=0, targetY=0; };
-    std::unordered_map<int, AgentTeamAssignment> assignmentByPlayer;
+    std::array<AgentTeamAssignment, 22> assignmentByPlayer = {};
     [[nodiscard]] AgentTeamAssignment* assignmentFor(int playerId) {
-        auto it=assignmentByPlayer.find(playerId);
-        return it==assignmentByPlayer.end()?nullptr:&it->second;
+        if (playerId < 0 || playerId >= 22 || assignmentByPlayer[playerId].role == DefensiveTask::None) return nullptr;
+        return &assignmentByPlayer[playerId];
     }
     [[nodiscard]] const AgentTeamAssignment* assignmentFor(int playerId) const {
-        auto it=assignmentByPlayer.find(playerId);
-        return it==assignmentByPlayer.end()?nullptr:&it->second;
+        if (playerId < 0 || playerId >= 22 || assignmentByPlayer[playerId].role == DefensiveTask::None) return nullptr;
+        return &assignmentByPlayer[playerId];
     }
     [[nodiscard]] Player* playerById(int id);
     [[nodiscard]] const Player* playerById(int id) const;
@@ -157,8 +157,7 @@ public:
     [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
     bool canContestBall(Player& player);
     [[nodiscard]] bool canKnockBallAhead(int playerId) const {
-        auto it=knockAheadCooldownUntil.find(playerId);
-        return !activeKnockAhead.active&&(it==knockAheadCooldownUntil.end()||it->second<=state.clockMs);
+        return !activeKnockAhead.active && knockAheadCooldownUntil[playerId] <= state.clockMs;
     }
     [[nodiscard]] bool isActiveKnockAheadRunner(int playerId) const { return activeKnockAhead.active&&activeKnockAhead.playerId==playerId; }
 
@@ -188,10 +187,10 @@ public:
         bool shootingRange = false;
         bool wideDanger = false;
         double carrierGoalDist = 0;
-        std::unordered_set<int> assigned;
+        std::array<bool, 22> assigned = {};
         std::vector<Rated> ranked;
         std::vector<Threat> threats;
-        bool used(const Player* p) const { return assigned.contains(p->id); }
+        bool used(const Player* p) const { return assigned[p->id]; }
     };
     std::vector<DefenseContext::Rated> rankDefenders(Team team, Player& carrier);
     void assignPrimaryPress(DefenseContext& ctx, Player& carrier);

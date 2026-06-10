@@ -47,7 +47,7 @@ void GameEngine::assignPrimaryPress(DefenseContext& ctx, Player& carrier) {
         }
     }
     setAssignment(*primary, DefensiveTask::PrimaryPress, carrier.x - ctx.fd * 16.0, carrier.y, carrier.id);
-    ctx.assigned.insert(primary->id);
+    ctx.assigned[primary->id] = true;
 }
 
 // ── Phase 3: Secondary press ──
@@ -61,7 +61,7 @@ void GameEngine::assignSecondaryPress(DefenseContext& ctx, Player& carrier) {
             || option.distance >= (ctx.danger ? 285.0 : 250.0)) continue;
         setAssignment(*p, DefensiveTask::SecondaryPress, carrier.x - ctx.fd * 42.0,
             carrier.y + (p->homeY < carrier.y ? -38.0 : 38.0), carrier.id);
-        ctx.assigned.insert(p->id);
+        ctx.assigned[p->id] = true;
         break;
     }
 }
@@ -82,7 +82,7 @@ void GameEngine::assignShotLane(DefenseContext& ctx, Player& carrier) {
     }
     if (lane) {
         setAssignment(*lane, DefensiveTask::ShotLane, laneX, laneY, carrier.id);
-        ctx.assigned.insert(lane->id);
+        ctx.assigned[lane->id] = true;
     }
 }
 
@@ -102,7 +102,7 @@ void GameEngine::assignCrossLane(DefenseContext& ctx, Player& carrier) {
     }
     if (crossLane) {
         setAssignment(*crossLane, DefensiveTask::CrossLane, crossX, crossY, carrier.id);
-        ctx.assigned.insert(crossLane->id);
+        ctx.assigned[crossLane->id] = true;
     }
 }
 
@@ -114,7 +114,7 @@ void GameEngine::assignCoverRoles(DefenseContext& ctx, Player& carrier) {
         if (ctx.used(p) || p->role != Role::CM) continue;
         setAssignment(*p, DefensiveTask::Cover, lerp(carrier.x, ctx.ownGoalX + ctx.fd * 115.0, 0.58),
             lerp(carrier.y, PITCH_H / 2.0, 0.4), carrier.id);
-        ctx.assigned.insert(p->id);
+        ctx.assigned[p->id] = true;
         break;
     }
     if (ctx.danger) {
@@ -123,7 +123,7 @@ void GameEngine::assignCoverRoles(DefenseContext& ctx, Player& carrier) {
             if (ctx.used(p) || p->role != Role::CB) continue;
             setAssignment(*p, DefensiveTask::Cover, ctx.ownGoalX + ctx.fd * 112.0,
                 lerp(carrier.y, PITCH_H / 2.0, 0.35), carrier.id);
-            ctx.assigned.insert(p->id);
+            ctx.assigned[p->id] = true;
             break;
         }
     }
@@ -141,7 +141,7 @@ void GameEngine::assignMidfieldScreen(DefenseContext& ctx, Player& carrier) {
                 : clamp(PITCH_H / 2.0 + (carrier.y < PITCH_H / 2.0 ? 74.0 : -74.0), 70.0, PITCH_H - 70.0);
             setAssignment(p, DefensiveTask::MidfieldScreen,
                 lerp(carrier.x, ctx.ownGoalX + ctx.fd * screenDepth, ctx.danger ? 0.58 : 0.4), screenY);
-            ctx.assigned.insert(p.id);
+            ctx.assigned[p.id] = true;
             if (++screenCount >= (ctx.danger ? 2 : 1)) break;
         }
     }
@@ -167,7 +167,7 @@ void GameEngine::assignCloseDown(DefenseContext& ctx, Player& carrier) {
         double side = (closeCb->y < carrier.y) ? -1.0 : 1.0;
         cutY = clamp(cutY + side * 30.0, 40.0, PITCH_H - 40.0);
         setAssignment(*closeCb, DefensiveTask::CloseDown, cutX, cutY);
-        ctx.assigned.insert(closeCb->id);
+        ctx.assigned[closeCb->id] = true;
     }
 }
 
@@ -218,7 +218,7 @@ void GameEngine::assignThreatMarking(DefenseContext& ctx, Player& carrier) {
             double markTightness = ctx.danger || receiverThreat || threatDistanceToGoal < 170.0 ? 0.015 : 0.08;
             setAssignment(*marker, DefensiveTask::LaneBlock, targetX,
                 lerp(threat.player->y, PITCH_H / 2.0, markTightness), threat.player->id);
-            ctx.assigned.insert(marker->id);
+            ctx.assigned[marker->id] = true;
         }
     }
 }
@@ -245,7 +245,7 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
         }
         if (guard) {
             setAssignment(*guard, DefensiveTask::BoxGuard, ctx.ownGoalX + ctx.fd * (ctx.danger ? 78.0 : 104.0), guardY);
-            ctx.assigned.insert(guard->id);
+            ctx.assigned[guard->id] = true;
         }
     }
     // Cutback guard
@@ -265,7 +265,7 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
         }
         if (cutbackGuard) {
             setAssignment(*cutbackGuard, DefensiveTask::CutbackGuard, cutbackX, cutbackY, carrier.id);
-            ctx.assigned.insert(cutbackGuard->id);
+            ctx.assigned[cutbackGuard->id] = true;
         }
     }
     // Post guards (danger only, wide carrier)
@@ -282,7 +282,7 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
         }
         if (farGuard) {
             setAssignment(*farGuard, DefensiveTask::FarPostGuard, ctx.ownGoalX + ctx.fd * 108.0, farY);
-            ctx.assigned.insert(farGuard->id);
+            ctx.assigned[farGuard->id] = true;
         }
         Player* nearGuard = nullptr;
         double bestNear = 1e9;
@@ -294,7 +294,7 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
         }
         if (nearGuard) {
             setAssignment(*nearGuard, DefensiveTask::NearPostGuard, ctx.ownGoalX + ctx.fd * 64.0, nearY);
-            ctx.assigned.insert(nearGuard->id);
+            ctx.assigned[nearGuard->id] = true;
         }
     }
     // Box screen
@@ -303,7 +303,7 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
             if (p.team != ctx.team || ctx.used(&p) || !agentFor(p)->isCentralMidfielder()) continue;
             double sideY = carrier.y < PITCH_H / 2.0 ? PITCH_H * 0.62 : PITCH_H * 0.38;
             setAssignment(p, DefensiveTask::BoxScreen, ctx.ownGoalX + ctx.fd * 142.0, sideY);
-            ctx.assigned.insert(p.id);
+            ctx.assigned[p.id] = true;
             break;
         }
     }

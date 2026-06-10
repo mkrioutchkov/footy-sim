@@ -70,10 +70,8 @@ bool GameEngine::canContestBall(Player& player) {
         && state.ball.intendedReceiverId==player.id
         && state.ball.lastTouchTeam==player.team
         && state.ball.lastToucherId!=player.id)return true;
-    auto it=contestBlockedUntil.find(player.id);
-    if(it==contestBlockedUntil.end())return true;
-    if(it->second>state.clockMs)return false;
-    contestBlockedUntil.erase(it);
+    if(contestBlockedUntil[player.id] > state.clockMs) return false;
+    contestBlockedUntil[player.id] = 0;
     return true;
 }
 
@@ -90,11 +88,11 @@ void GameEngine::startMatch() {
 
 void GameEngine::kickoff(Team t){
     nextKickoffTeam=(t==Team::Home)?Team::Away:Team::Home;
-    contestBlockedUntil.clear();
+    contestBlockedUntil.fill(0);
     receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
     pendingPass.active=false;
     activeKnockAhead.active=false;
-    knockAheadCooldownUntil.clear();
+    knockAheadCooldownUntil.fill(0);
     trackedShot=false;
     trackedShotPreventable=false;
     trackedShotHeader=false;
@@ -566,8 +564,7 @@ void GameEngine::updateKickoffPhase(double sdt) {
 }
 
 void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
-    auto& b = state.ball;
-    if (b.controllerId >= 0) contestBlockedUntil.erase(b.controllerId);
+    auto& b = state.ball;        if (b.controllerId >= 0) contestBlockedUntil[b.controllerId] = 0;
     if (b.controllerId < 0) {
         applyBallPhysics(sec);
         clampBallPosition();
@@ -837,7 +834,7 @@ std::string GameEngine::getJSON() const {
 GameEngine::~GameEngine() = default;
 
 GameEngine::GameEngine() {
-    blackboards[0]={}; blackboards[1]={};
+    blackboards[0] = TeamBlackboard(); blackboards[1] = TeamBlackboard();
 }
 
 void GameEngine::initWithSeed(int seed) {

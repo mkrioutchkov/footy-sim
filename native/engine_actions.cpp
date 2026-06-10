@@ -529,7 +529,7 @@ bool GameEngine::knockBallAhead(Player& carrier, double targetX, double targetY)
     recordBallImpulse();
     stats.recordKnockAhead(launchSpeed);
     if (risky) { stats.recordRiskyKnockAhead(); }
-    contestBlockedUntil.erase(carrier.id);
+    contestBlockedUntil[carrier.id] = 0;
     activeKnockAhead = {true, carrier.id, carrier.team, state.clockMs, nearestId, nearestDist, risky};
     return true;
 }

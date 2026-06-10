@@ -279,7 +279,7 @@ void GameEngine::checkBallPlayerCollision(double){
 void GameEngine::collectBall(Player& c) {
     auto& b = state.ball;
     if (!canContestBall(c)) return;
-    contestBlockedUntil.erase(c.id);
+    contestBlockedUntil[c.id] = 0;
     bool intended = receiverShieldTargetId == c.id;
     bool teammateTarget = receiverShieldTargetId >= 0 && b.lastTouchTeam == c.team;
     resolveKnockAhead(&c);

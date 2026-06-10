@@ -58,18 +58,9 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
             }
         } else if (spType == SetPiece::ThrowIn) {
             auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
-            if (bb.throwInSupport.active) {
-                auto itX = bb.throwInSupport.targetX.find(p.id);
-                auto itY = bb.throwInSupport.targetY.find(p.id);
-                if (itX != bb.throwInSupport.targetX.end() && itY != bb.throwInSupport.targetY.end()) {
-                    p.targetX = itX->second;
-                    p.targetY = itY->second;
-                } else {
-                    double bx = engine.state.ball.x;
-                    double by = engine.state.ball.y;
-                    p.targetX = bx + fd * (60.0 + slotA * 40.0);
-                    p.targetY = by + slotB * 80.0;
-                }
+            if (bb.throwInSupport.active && bb.throwInSupport.targetX[p.id] != 0.0) {
+                p.targetX = bb.throwInSupport.targetX[p.id];
+                p.targetY = bb.throwInSupport.targetY[p.id];
             } else {
                 double bx = engine.state.ball.x;
                 double by = engine.state.ball.y;

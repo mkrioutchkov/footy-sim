@@ -4,6 +4,7 @@
 #include <vector>
 #include <optional>
 #include <unordered_map>
+#include <array>
 #include <cstdint>
 
 // ── Enums ──
@@ -236,7 +237,7 @@ struct Ball {
 struct TeamBlackboard {
     int pressingPlayerId  = -1;
     int pressingPlayerId2 = -1;
-    std::unordered_map<int, int> markedOpponents;
+    std::array<int, 22> markedOpponents;
     struct OneTwo { int from, to; double expires; };
     std::optional<OneTwo> oneTwo;
 
@@ -244,10 +245,12 @@ struct TeamBlackboard {
     struct ThrowInSupport {
         bool active = false;
         double spotX = 0, spotY = 0;
-        std::unordered_map<int, double> targetX;  // player id -> target X
-        std::unordered_map<int, double> targetY;  // player id -> target Y
+        std::array<double, 22> targetX = {};
+        std::array<double, 22> targetY = {};
     };
     ThrowInSupport throwInSupport;
+
+    TeamBlackboard() { markedOpponents.fill(-1); }
 };
 
 struct EngineState {

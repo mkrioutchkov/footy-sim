@@ -12,7 +12,7 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
 }
 
 void GameEngine::updateTeamAssignments() {
-    assignmentByPlayer.clear();
+    assignmentByPlayer.fill({});
     Player* carrier = playerById(state.ball.controllerId);
     if (!carrier || carrier->role == Role::GK) return;
     Team defending = carrier->team == Team::Home ? Team::Away : Team::Home;
@@ -85,8 +85,8 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
     double fd = fdFor(defending);
     bool danger = std::abs(carrier.x - ownGoalX) < DANGER_ZONE_DIST;
     Player* primary = nullptr;
-    for (const auto& [id, task] : assignmentByPlayer) {
-        if (task.role == DefensiveTask::PrimaryPress) { primary = playerById(id); break; }
+    for (int id = 0; id < 22; id++) {
+        if (assignmentByPlayer[id].role == DefensiveTask::PrimaryPress) { primary = playerById(id); break; }
     }
     if (primary) {
         stats.recordPressSample();

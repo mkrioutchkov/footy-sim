@@ -187,8 +187,8 @@ Action* PlayerAI::managePressSlots(std::vector<Action>& a, Action& best,
 
     // Mark conflict — redirect if another teammate already marks this target
     if (best.type == ActionType::Mark && best.target) {
-        auto it = bb.markedOpponents.find(best.target->id);
-        if (it != bb.markedOpponents.end() && it->second != player.id) {
+        int markerId = bb.markedOpponents[best.target->id];
+        if (markerId >= 0 && markerId != player.id) {
             for (auto& x : a)
                 if (x.type != ActionType::Mark && x.type != ActionType::Tackle
                     && x.score > MIN_FALLBACK_SCORE) return &x;
