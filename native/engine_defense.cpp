@@ -101,7 +101,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
         if (selectedEta > fastestEta + 0.45) { stats.recordQuestionablePress(selectedDistance); }
     }
     struct LineMember { const Player* player; double progress; };
-    std::vector<LineMember> line;
+    SmallVector<LineMember, 6> line;
     for (const auto& defender : state.players) {
         if (defender.team != defending) continue;
         if (!agentFor(defender)->isCenterBack() && !agentFor(defender)->isFullBack()) continue;

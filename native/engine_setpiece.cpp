@@ -62,7 +62,7 @@ bool GameEngine::isOffsideTarget(const Player& passer, const Player& receiver) c
 void GameEngine::kickoffTap(){
     Player* holder=playerById(state.ball.controllerId);
     if(!holder)return;
-    std::vector<Player*> mids;
+    SmallVector<Player*, 5> mids;
     for(auto&p:state.players)if(p.team==holder->team&&p.id!=holder->id&&p.role==Role::CM)mids.push_back(&p);
     if(mids.empty())return;
     size_t pick=static_cast<size_t>(rng.random()*mids.size());
@@ -137,7 +137,7 @@ void GameEngine::releaseSetPiece(){
             return;
         }
     }
-    std::vector<Player*> targets;
+    SmallVector<Player*, 11> targets;
     for(auto&p:state.players){
         if(p.team!=holder->team||p.id==holder->id||p.role==Role::GK)continue;
         if(setPieceTypeEnum == SetPiece::FreeKick&&dist(holder->x,holder->y,p.x,p.y)<55.0)continue;
@@ -291,7 +291,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         return;
     }
 
-    std::vector<RatedTarget> rated;
+    SmallVector<RatedTarget, 11> rated;
     for(auto& p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
         double d=dist(holder.x,holder.y,p.x,p.y);
@@ -331,7 +331,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
             return;
         }
     }
-    std::vector<Player*> fallback;
+    SmallVector<Player*, 11> fallback;
     for(auto& p:state.players)if(p.team==holder.team&&p.id!=holder.id&&p.role!=Role::GK)fallback.push_back(&p);
     std::sort(fallback.begin(),fallback.end(),[&](const Player* a,const Player* b){
         return (a->x-ownGoalX)*fd>(b->x-ownGoalX)*fd;
@@ -366,7 +366,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
 }
 
 void GameEngine::releaseThrowIn(Player& holder){
-    std::vector<RatedTarget> targets;
+    SmallVector<RatedTarget, 11> targets;
     double fd = fdFor(holder.team);
     for(auto&p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
@@ -417,7 +417,7 @@ void GameEngine::releaseThrowIn(Player& holder){
 
 void GameEngine::releaseCornerKick(Player& holder){
     double goalX=holder.x<HALF_X?HOME_GOAL_X:AWAY_GOAL_X;
-    std::vector<RatedTarget> targets;
+    SmallVector<RatedTarget, 11> targets;
     for(auto& p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
         double goalDist=std::abs(p.x-goalX);
