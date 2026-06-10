@@ -382,6 +382,50 @@ static double actionTimerFor(SetPiece sp) {
 void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     actionTimer -= sdt;
     Team spTeam = setPieceTeamEnum;
+
+    // ── Populate throw-in support targets in blackboard (once per set piece) ──
+    if (setPieceTypeEnum == SetPiece::ThrowIn) {
+        auto& bb = blackboards[teamIndex(spTeam)];
+        if (!bb.throwInSupport.active) {
+            bb.throwInSupport.active = true;
+            bb.throwInSupport.spotX = setPieceSpotX;
+            bb.throwInSupport.spotY = setPieceSpotY;
+            double fd = fdFor(spTeam);
+            double bx = setPieceSpotX;
+            double by = setPieceSpotY;
+            for (auto& p : state.players) {
+                if (p.team != spTeam || p.role == Role::GK) continue;
+                if (p.id == setPieceTakerId) continue;
+                double tx, ty;
+                if (p.role == Role::CF) {
+                    tx = bx + fd * 170.0;
+                    ty = PITCH_H / 2.0 + std::cos(p.id * 2.3) * 60.0;
+                } else if (p.role == Role::WM) {
+                    if (std::abs(p.homeY - by) < PITCH_H * 0.35) {
+                        tx = bx + fd * 85.0;
+                        ty = by + (by < PITCH_H / 2.0 ? -50.0 : 50.0);
+                    } else {
+                        tx = bx + fd * 30.0;
+                        ty = by < PITCH_H / 2.0 ? PITCH_H * 0.73 : PITCH_H * 0.27;
+                    }
+                } else if (p.role == Role::CM) {
+                    double depth = 80.0 + std::abs(std::sin(p.id * 1.7)) * 80.0;
+                    double lateral = std::sin(p.id * 2.1) * 110.0;
+                    tx = bx + fd * depth;
+                    ty = PITCH_H / 2.0 + lateral;
+                } else if (p.role == Role::FB) {
+                    tx = bx - fd * 25.0;
+                    ty = p.homeY;
+                } else {
+                    tx = bx - fd * 55.0;
+                    ty = p.homeY;
+                }
+                bb.throwInSupport.targetX[p.id] = clamp(tx, 35.0, PITCH_W - 35.0);
+                bb.throwInSupport.targetY[p.id] = clamp(ty, 35.0, PITCH_H - 35.0);
+            }
+        }
+    }
+
     for (auto& a : agents) {
         a->setPiecePositioning(setPieceTypeEnum, spTeam);
     }

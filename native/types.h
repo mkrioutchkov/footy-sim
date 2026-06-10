@@ -239,6 +239,15 @@ struct TeamBlackboard {
     std::unordered_map<int, int> markedOpponents;
     struct OneTwo { int from, to; double expires; };
     std::optional<OneTwo> oneTwo;
+
+    // Throw-in support coordination — pre-computed targets for each teammate
+    struct ThrowInSupport {
+        bool active = false;
+        double spotX = 0, spotY = 0;
+        std::unordered_map<int, double> targetX;  // player id -> target X
+        std::unordered_map<int, double> targetY;  // player id -> target Y
+    };
+    ThrowInSupport throwInSupport;
 };
 
 struct EngineState {

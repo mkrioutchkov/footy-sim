@@ -57,10 +57,25 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.2);
             }
         } else if (spType == SetPiece::ThrowIn) {
-            double bx = engine.state.ball.x;
-            double by = engine.state.ball.y;
-            p.targetX = bx + fd * (50.0 + slotA * 30.0);
-            p.targetY = by + slotB * 50.0;
+            auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
+            if (bb.throwInSupport.active) {
+                auto itX = bb.throwInSupport.targetX.find(p.id);
+                auto itY = bb.throwInSupport.targetY.find(p.id);
+                if (itX != bb.throwInSupport.targetX.end() && itY != bb.throwInSupport.targetY.end()) {
+                    p.targetX = itX->second;
+                    p.targetY = itY->second;
+                } else {
+                    double bx = engine.state.ball.x;
+                    double by = engine.state.ball.y;
+                    p.targetX = bx + fd * (60.0 + slotA * 40.0);
+                    p.targetY = by + slotB * 80.0;
+                }
+            } else {
+                double bx = engine.state.ball.x;
+                double by = engine.state.ball.y;
+                p.targetX = bx + fd * (60.0 + slotA * 40.0);
+                p.targetY = by + slotB * 80.0;
+            }
         }
     } else {
         if (spType == SetPiece::Corner) {

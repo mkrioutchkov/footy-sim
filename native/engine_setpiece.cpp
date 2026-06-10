@@ -85,6 +85,8 @@ void GameEngine::kickoffTap(){
 }
 
 void GameEngine::releaseSetPiece(){
+    // Clear throw-in support coordination
+    for (auto& bb : blackboards) bb.throwInSupport = {};
     Player* holder=playerById(state.ball.controllerId);
     if(!holder)return;
     auto clearReleasedSetPiece=[&](){
@@ -250,7 +252,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         if(o.team==holder.team||o.role==Role::GK)continue;
         double od=dist(holder.x,holder.y,o.x,o.y);
         if(od<nearestKeeperPressure){nearestKeeperPressure=od;nearestPress=&o;}
-        if(od<92.0)closeKeeperPressure++;
+        if(od<112.0)closeKeeperPressure++;
     }
 
     auto puntLong=[&](){
@@ -285,7 +287,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         gkDistributeTimer=0;
     };
 
-    if(nearestKeeperPressure<70.0||closeKeeperPressure>=2){
+    if(nearestKeeperPressure<115.0||closeKeeperPressure>=2){
         puntLong();
         return;
     }
@@ -372,6 +374,10 @@ void GameEngine::releaseThrowIn(Player& holder){
         double d=dist(holder.x,holder.y,p.x,p.y);
         if(d<30.0||d>400.0)continue;
         double nearestOpp=1e9;
+        for(auto&o:state.players){
+            if(o.team==holder.team||o.role==Role::GK)continue;
+            nearestOpp=std::min(nearestOpp,dist(o.x,o.y,p.x,p.y));
+        }
         int laneBlockers = countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_THROWIN, 0.12, 0.92);
         double progress=(p.x-holder.x)*fd;
         double score=1.0-d/420.0+clamp(progress/180.0,-0.15,0.20);
