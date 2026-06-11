@@ -703,7 +703,7 @@ std::string GameEngine::getJSON() const {
     nlohmann::json j;
     j["clockMs"] = std::round(state.clockMs);
     j["matchState"] = state.matchState;
-    j["phase.half"] = phase.half;
+    j["half"] = phase.half;
     j["addedTime"] = phase.addedTimeActive;
     j["version"] = nativeBuildVersion();
     j["speed"] = state.speed;
@@ -733,69 +733,18 @@ std::string GameEngine::getJSON() const {
         });
     }
 
+    // Forward every stats summary metric verbatim. getJSON builds its own
+    // "events" array (from visualEvents) below, so drop the summary copy.
+    // Two output keys differ from their produced names and are set explicitly:
+    //   wrongTeammateTouches ← wrongTeammate (rename)
+    //   penaltyGoals         ← setPieces.penaltiesScored (derived)
     nlohmann::json summary = nlohmann::json::parse(stats.summaryJSON());
-    j["passes"] = summary["passes"];
-    j["passesCompleted"] = summary["passesCompleted"];
-    j["passesIntercepted"] = summary["passesIntercepted"];
-    j["passesIntendedReceived"] = summary["passesIntendedReceived"];
+    summary.erase("events");
+    j.update(summary);
     j["wrongTeammateTouches"] = summary["wrongTeammate"];
-    j["throughBallsAttempted"] = summary["throughBallsAttempted"];
-    j["throughBallsCompleted"] = summary["throughBallsCompleted"];
-    j["crossesAttempted"] = summary["crossesAttempted"];
-    j["crossesCompleted"] = summary["crossesCompleted"];
-    j["headers"] = summary["headers"];
-    j["headerClearances"] = summary["headerClearances"];
-    j["headerLayoffs"] = summary["headerLayoffs"];
-    j["headerControls"] = summary["headerControls"];
-    j["headedShots"] = summary["headedShots"];
-    j["headerAudit"] = summary["headerAudit"];
-    j["forwardPasses"] = summary["forwardPasses"];
-    j["backwardPasses"] = summary["backwardPasses"];
-    j["sidewaysPasses"] = summary["sidewaysPasses"];
-    j["longBackwardPasses"] = summary["longBackwardPasses"];
-    j["keeperBackpasses"] = summary["keeperBackpasses"];
-    j["passCompletionPct"] = summary["passCompletionPct"];
-    j["offsides"] = summary["offsides"];
-    j["offsidePositionMsByRole"] = summary["offsidePositionMsByRole"];
-    j["homeShots"] = summary["homeShots"];
-    j["awayShots"] = summary["awayShots"];
-    j["shots"] = summary["shots"];
-    j["shotsOnTarget"] = summary["shotsOnTarget"];
-    j["saves"] = summary["saves"];
-    j["carrierTracker.stuckCarrierAlerts"] = summary["carrierTracker.stuckCarrierAlerts"];
-    j["freezeDetector.simulationFreezes"] = summary["freezeDetector.simulationFreezes"];
-    j["dizzySpins"] = summary["dizzySpins"];
-    j["ballJumps"] = summary["ballJumps"];
-    j["teammatePingPongs"] = summary["teammatePingPongs"];
-    j["slideTackleDistanceAlerts"] = summary["slideTackleDistanceAlerts"];
-    j["slideTackleOobAlerts"] = summary["slideTackleOobAlerts"];
-    j["ownPassGoals"] = summary["ownPassGoals"];
-    j["unknownLooseGoals"] = summary["unknownLooseGoals"];
-    j["shotsByDistance"] = summary["shotsByDistance"];
-    j["shotsByRole"] = summary["shotsByRole"];
-    j["controlledTouchesByRole"] = summary["controlledTouchesByRole"];
-    j["goalsByDistance"] = summary["goalsByDistance"];
-    j["goalsByRole"] = summary["goalsByRole"];
-    j["untrackedGoals"] = summary["untrackedGoals"];
-    j["directDeliveryGoals"] = summary["directDeliveryGoals"];
-    j["directCrossGoals"] = summary["directCrossGoals"];
-    j["headedGoals"] = summary["headedGoals"];
-    j["tackleDeflectionGoals"] = summary["tackleDeflectionGoals"];
-    j["goalkeeperParryGoals"] = summary["goalkeeperParryGoals"];
-    j["shotDeflectionGoals"] = summary["shotDeflectionGoals"];
-    j["lostShotGoals"] = summary["lostShotGoals"];
-    j["knockAheadGoals"] = summary["knockAheadGoals"];
-    j["goalkeeping"] = summary["goalkeeping"];
-    j["tackles"] = summary["tackles"];
-    j["dribbleTypes"] = summary["dribbleTypes"];
-    j["carrierTurns"] = summary["carrierTurns"];
-    j["passSelection"] = summary["passSelection"];
-    j["setPieces"] = summary["setPieces"];
+    j.erase("wrongTeammate");
     j["penaltyGoals"] = summary["setPieces"]["penaltiesScored"];
-    j["shotSelection"] = summary["shotSelection"];
-    j["marking"] = summary["marking"];
-    j["qualityFlags"] = summary["qualityFlags"];
-    j["ballSpeed"] = summary["ballSpeed"];
+
     j["events"] = nlohmann::json::array();
     for(const auto& ev:visualEvents){
         double age=state.clockMs-ev.clockMs;

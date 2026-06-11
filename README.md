@@ -8,26 +8,55 @@
 native/             C++ simulation engine
   main.cpp          CLI entry point (live + benchmark modes)
   engine.h          GameEngine class declaration
-  engine.cpp        Engine method implementations
-  agent.h/cpp       PlayerAI — outfield player decision-making
-  gk_ai.h/cpp       GKPlayerAI — goalkeeper-specific AI
-  role_ai.h/cpp     Role-specific AI subclasses (CF, WM, CM, CB, FB)
-  types.h           Core data types (Player, Ball, EngineState, enums)
-  constants.h       Named constants, utility functions
-  stats.h           StatsCollector — match telemetry
-  trace.h           Binary trace writer
-  rng.h             Deterministic PRNG (splitmix32)
-  json.h            nlohmann/json (third-party, single-header)
+  engine.cpp        Engine core loop
+  engine_actions.cpp     Action execution (passes, shots, tackles)
+  engine_physics.cpp     Physics (ball movement, collisions)
+  engine_defense.cpp     Defense logic and helpers
+  engine_defense_helpers.cpp
+  engine_gk.cpp      Goalkeeper-specific engine code
+  engine_setpiece.cpp    Set piece handling
+  agent.h/cpp        PlayerAI — outfield player decision-making
+  agent_defend.cpp       Defensive positioning and tactics
+  agent_movement.cpp     Movement and path logic
+  agent_pass.cpp         Passing decisions
+  agent_pass_helpers.cpp
+  agent_perception.cpp   Player perception and awareness
+  agent_positioning.cpp  Positioning logic
+  agent_positioning_helpers.cpp
+  agent_resolve.cpp      Resolution of ambiguous states
+  agent_scoring.cpp      Scoring chances and shots
+  agent_setpiece.cpp     Set piece AI
+  agent_shoot_dribble.cpp    Shooting and dribbling decisions
+  gk_ai.h/cpp        GKPlayerAI — goalkeeper-specific AI
+  role_ai.h/cpp      Role-specific AI subclasses (CF, WM, CM, CB, FB)
+  types.h/cpp        Core data types (Player, Ball, EngineState, enums)
+  constants.h        Named constants, utility functions
+  stats.h/cpp        StatsCollector — match telemetry
+  trace.h            Binary trace writer
+  rng.h              Deterministic PRNG (splitmix32)
+  small_vector.h     Utility template
+  build_version.h/cpp    Build metadata
 
 src/                TypeScript
-  cpp-server.ts     WebSocket relay for live.exe (paced 30fps)
-  renderer.ts       PixiJS browser renderer
-  native-batch.ts   Parallel benchmark runner
-  native-scenarios.ts  Deterministic scenario checks
+  cpp-server.ts      WebSocket relay for live.exe (paced 30fps)
+  renderer.ts        PixiJS browser renderer
+  native-batch.ts    Parallel benchmark runner
+  native-scenarios.ts    Deterministic scenario checks
+  types.ts           TypeScript type definitions
+  constants.ts       Constants
 
 scripts/            Build scripts (PowerShell)
+  build-native.ps1   C++ compilation and linking
+
 build/              Compiled binaries (gitignored)
-tools/              Python trace reader
+  live.exe           The simulation engine binary
+
+tools/              Python utilities
+  trace_reader.py    Parse and read binary trace files
+  diagnose_trace.py  Trace analysis helper
+
+third_party/        External dependencies
+  nlohmann/          JSON library (header-only)
 ```
 
 ## Building
@@ -36,8 +65,7 @@ Requires Visual Studio with C++ workload (cl.exe) and Node.js.
 
 ```
 npm run build           # Full build (native + TypeScript)
-npm run native:build    # Native C++ only
-npm run native:deploy   # Copy benchmark.exe → live.exe
+npm run native:build    # Native C++ only (outputs build/live.exe)
 ```
 
 ## Running
@@ -49,6 +77,8 @@ npm run benchmark       # 8×10min parallel benchmark
 npm run scenarios       # Deterministic scenario checks
 ```
 
+The `npm run benchmark` command runs 8 seeds (101–108) for 10 minutes each via parallel invocations of the native binary.
+
 ## Debugging
 
 ### Binary Trace Files
@@ -56,7 +86,7 @@ npm run scenarios       # Deterministic scenario checks
 The engine can write per-tick binary traces for offline analysis:
 
 ```
-native/benchmark.exe 101 1 --trace match.bin
+build/live.exe 101 1 --trace match.bin
 ```
 
 Then analyze with the Python reader:
@@ -70,6 +100,29 @@ for f in t.frames_ms(22000, 24000):
 ```
 
 The trace stores ball position/velocity, all 22 player states, scores, and tagged events (pass, shot, tackle). Useful for diagnosing position jumps, stuck play, and tactical issues.
+
+### Command-Line Arguments
+
+The binary accepts:
+
+```
+build/live.exe <seed> <minutes> [--summary] [--no-debug] [--trace <path>]
+```
+
+- `<seed>`: RNG seed (integer, e.g., 101)
+- `<minutes>`: Match duration in minutes (integer, e.g., 10)
+- `--summary`: Output only final JSON summary (fast, no frame streaming)
+- `--no-debug`: Disable attribute equalization (players retain rolled variance)
+- `--trace <path>`: Write binary trace to file for analysis
+
+Examples:
+
+```
+build/live.exe 103 10                    # Run seed 103 for 10 minutes, stream frames
+build/live.exe 103 10 --trace debug.bin  # Same, with trace for analysis
+build/live.exe 101 5 --summary           # Fast summary-only benchmark
+build/live.exe 101 5 --no-debug          # Realistic variance, no attribute equalization
+```
 
 ### Quality Flags
 
@@ -91,8 +144,8 @@ These appear in the benchmark JSON output under `qualityFlags`.
 All matches use `SeededRNG` (splitmix32). Same seed = identical match. Use this to reproduce bugs:
 
 ```
-native/benchmark.exe 103 10              # Run seed 103 for 10 minutes
-native/benchmark.exe 103 10 --trace t.bin # With trace for analysis
+build/live.exe 103 10              # Run seed 103 for 10 minutes
+build/live.exe 103 10 --trace t.bin # With trace for analysis
 ```
 
 ### Comparing Benchmarks
