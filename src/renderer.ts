@@ -499,7 +499,8 @@ export class MatchRenderer {
     for (const label of this.eventLabels) label.visible = false;
     let labelIdx = 0;
     for (const ev of (state.events ?? [])) {
-      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : ev.type === 'skill' ? 650 : 2200;
+      const skillLike = ev.type === 'skill' || ev.type === 'nutmeg' || ev.type === 'dragback';
+      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : skillLike ? 650 : 2200;
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
       if (ev.type === 'pass') {
@@ -511,7 +512,7 @@ export class MatchRenderer {
         }
         continue;
       }
-      if (ev.type === 'skill') {
+      if (skillLike) {
         // Swirl around the trickster: two counter-rotating arcs that expand and fade
         const mover = state.players.find(p => p.id === ev.playerId);
         const cx = mover ? (this.visualPlayers.get(mover.id)?.x ?? mover.x) : ev.x;
@@ -519,10 +520,11 @@ export class MatchRenderer {
         const t = ev.age / lifetime;
         const sr = PLAYER_R + 4 + t * 10;
         const spin = this.animTime * 0.25;
+        const swirlColor = this.eventColor(ev.type);
         for (const dir of [1, -1]) {
           const a0 = spin * dir + (dir > 0 ? 0 : Math.PI);
           this.eventGfx.arc(cx, cy, sr, a0, a0 + Math.PI * 0.85);
-          this.eventGfx.stroke({ width: 2.5, color: 0x7df9ff, alpha: alpha * 0.9 });
+          this.eventGfx.stroke({ width: 2.5, color: swirlColor, alpha: alpha * 0.9 });
         }
         continue;
       }
@@ -585,7 +587,7 @@ export class MatchRenderer {
       this.seenEventKeys.clear();
     }
     this.lastClockMs = state.clockMs;
-    const notable = new Set(['goal', 'shot', 'save', 'foul', 'offside', 'skill', 'header']);
+    const notable = new Set(['goal', 'shot', 'save', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header']);
     for (const ev of (state.events ?? [])) {
       if (!notable.has(ev.type)) continue;
       const evClock = state.clockMs - (ev.age ?? 0);
@@ -628,6 +630,7 @@ export class MatchRenderer {
       case 'shot': return 'SHOT';
       case 'header': return 'HEADER';
       case 'punch': return 'PUNCH';
+      case 'dragback': return 'DRAG-BACK';
       default: return type.replace(/_/g, ' ').toUpperCase();
     }
   }
@@ -646,6 +649,8 @@ export class MatchRenderer {
       case 'header': return 0xfff1a8;
       case 'punch': return 0xff9944;
       case 'skill': return 0x7df9ff;
+      case 'nutmeg': return 0xffd24d;
+      case 'dragback': return 0xc9a0ff;
       default: return 0xffffff;
     }
   }

@@ -302,7 +302,14 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
             engine.emitEvent("pass", p.x, p.y, p.id, a.target->id);
             auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
             bb.oneTwo = TeamBlackboard::OneTwo{ p.id, a.target->id, engine.state.clockMs + 2000.0 };
-            stunLockTicks = 50 + static_cast<int>(engine.rng.random() * 21);
+            // Short pass in the opponent's half: move again quickly so the
+            // give-and-go is physically possible — a ~1s freeze after every
+            // pass meant the one-two runner stood still through the window.
+            double passDist = dist(p.x, p.y, a.target->x, a.target->y);
+            bool combinationZone = (fdFor(p.team) > 0.0 ? p.x > HALF_X - 90.0 : p.x < HALF_X + 90.0);
+            stunLockTicks = (passDist < 190.0 && combinationZone)
+                ? 16 + static_cast<int>(engine.rng.random() * 9)
+                : 50 + static_cast<int>(engine.rng.random() * 21);
         } else {
             stunLockTicks = 4;
         }
@@ -435,23 +442,44 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
         if (engine.rng.random() < skillChance) {
             Player* def = cp.nearestPlayer;
             double fd = fdFor(p.team);
-            // Cut to whichever side has fewer bodies.
-            auto sideCrowd = [&](double sy) {
-                int n = 0;
-                for (auto& o : engine.state.players) {
-                    if (o.team == p.team || o.role == Role::GK) continue;
-                    if (dist(p.x + fd * 42.0, sy, o.x, o.y) < 75.0) n++;
-                }
-                return n;
-            };
-            double upY = clamp(p.y - 64.0, 30.0, PITCH_H - 30.0);
-            double dnY = clamp(p.y + 64.0, 30.0, PITCH_H - 30.0);
-            double cutY = sideCrowd(upY) <= sideCrowd(dnY) ? upY : dnY;
-            p.targetX = clamp(p.x + fd * 52.0, 30.0, PITCH_W - 30.0);
-            p.targetY = cutY;
-            engine.agentFor(*def)->stunLock(22);          // wrong-footed ~370ms
-            engine.blockReboundFor(def->id, 700);          // no instant tackle either
-            engine.emitEvent("skill", p.x, p.y, p.id, def->id);
+            double ddx = def->x - p.x, ddy = def->y - p.y;
+            double dd = std::max(1.0, std::hypot(ddx, ddy));
+            bool defAhead = (ddx * fd) / dd > 0.55;
+            const char* moveType;
+            if (defAhead && nearestOppDist < 34.0 && attrFactor(p.attrs.creativity) > 0.55) {
+                // Nutmeg: straight through the squared-up defender's ground.
+                p.targetX = clamp(p.x + ddx / dd * (dd + 64.0), 30.0, PITCH_W - 30.0);
+                p.targetY = clamp(p.y + ddy / dd * (dd + 64.0), 30.0, PITCH_H - 30.0);
+                engine.agentFor(*def)->stunLock(30);
+                engine.blockReboundFor(def->id, 950);
+                moveType = "nutmeg";
+            } else if (defAhead) {
+                // Drag-back: turn away from the presser and open up sideways.
+                double side = (p.y < PITCH_H / 2.0) ? 1.0 : -1.0;
+                p.targetX = clamp(p.x - fd * 26.0, 30.0, PITCH_W - 30.0);
+                p.targetY = clamp(p.y + side * 58.0, 30.0, PITCH_H - 30.0);
+                engine.agentFor(*def)->stunLock(16);
+                engine.blockReboundFor(def->id, 600);
+                moveType = "dragback";
+            } else {
+                // Cut to whichever side has fewer bodies.
+                auto sideCrowd = [&](double sy) {
+                    int n = 0;
+                    for (auto& o : engine.state.players) {
+                        if (o.team == p.team || o.role == Role::GK) continue;
+                        if (dist(p.x + fd * 42.0, sy, o.x, o.y) < 75.0) n++;
+                    }
+                    return n;
+                };
+                double upY = clamp(p.y - 64.0, 30.0, PITCH_H - 30.0);
+                double dnY = clamp(p.y + 64.0, 30.0, PITCH_H - 30.0);
+                p.targetX = clamp(p.x + fd * 52.0, 30.0, PITCH_W - 30.0);
+                p.targetY = sideCrowd(upY) <= sideCrowd(dnY) ? upY : dnY;
+                engine.agentFor(*def)->stunLock(22);
+                engine.blockReboundFor(def->id, 700);
+                moveType = "skill";
+            }
+            engine.emitEvent(moveType, p.x, p.y, p.id, def->id);
             engine.stats.recordSkillMove();
             skillMoveCooldown = 420;                       // ~7s between tricks
         } else {
@@ -459,12 +487,17 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
         }
     }
 
-    // Wobble only in open space — suppress under pressure
+    // Wobble only in open space — suppress under pressure. Sway laterally
+    // around the run direction (the old form drifted along the world X axis
+    // whatever direction the carrier was heading).
     if (nearestOppDist > 80.0) {
-        double wobbleAngle = std::sin(engine.state.clockMs * 0.008 + p.id * 1.7) * 0.3;
-        double wobbleDist  = std::sin(engine.state.clockMs * 0.012 + p.id * 2.3) * 12.0;
-        p.targetX += std::cos(wobbleAngle) * wobbleDist;
-        p.targetY += std::sin(wobbleAngle) * wobbleDist;
+        double sway = std::sin(engine.state.clockMs * 0.012 + p.id * 2.3) * 12.0;
+        double dxT = p.targetX - p.x, dyT = p.targetY - p.y;
+        double dT = std::hypot(dxT, dyT);
+        if (dT > 1.0) {
+            p.targetX += -dyT / dT * sway;
+            p.targetY +=  dxT / dT * sway;
+        }
     }
 
     double distToTarget = std::sqrt((p.targetX - p.x) * (p.targetX - p.x)

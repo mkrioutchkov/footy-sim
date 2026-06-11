@@ -309,8 +309,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (bb.oneTwo.has_value()
         && bb.oneTwo->from == t.id
         && bb.oneTwo->to == p.id
-        && engine.state.clockMs < bb.oneTwo->expires)
-        sc += 0.25;
+        && engine.state.clockMs < bb.oneTwo->expires) {
+        sc += 0.30;
+        // The wall pass: reward returning it into the original passer's run.
+        bool runnerInStride = t.vx * fdFor(p.team) > 12.0;
+        if (runnerInStride && fp > 10.0) sc += 0.14;
+    }
 
     if (sc <= 0.0) return std::nullopt;
 
