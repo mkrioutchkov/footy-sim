@@ -125,9 +125,10 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
     SmallVector<Action, 24> a;
     if (ic) {
         if (stunLockTicks > 0) {
-            double angle = engine.state.clockMs * 0.005 + player.id * 1.7;
-            double tx = player.x + std::cos(angle) * 3.0;
-            double ty = player.y + std::sin(angle) * 3.0;
+            // Settle along the current facing — a time-rotating target made the
+            // carrier orbit it and pirouette at the turn cap after every collection.
+            double tx = player.x + std::cos(player.facing) * 3.0;
+            double ty = player.y + std::sin(player.facing) * 3.0;
             return { Action{ActionType::Dribble, 1.0, nullptr, tx, ty, ActionPurpose::Keep} };
         }
         if (shotCooldown > 0) {

@@ -42,6 +42,9 @@ inline constexpr double OFFSIDE_TOLERANCE = 1.0;
 inline constexpr double COLLECT_DIST   = 8.0;
 inline constexpr double INTENDED_COLLECT_DIST = 26.0;
 inline constexpr double CONTROL_DIST   = 12.0;
+// Max distance the ball may be repositioned in one tick at kick release;
+// keeps release placement from reading as a teleport across the kicker's body.
+inline constexpr double BALL_RELEASE_MAX_STEP = 14.0;
 inline constexpr double PLAYER_AWARE_RANGE = 120.0;
 inline constexpr double SHOOT_MIN_DIST = 100.0;
 inline constexpr double SHOOT_MAX_DIST = 340.0;

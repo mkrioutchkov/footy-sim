@@ -430,18 +430,30 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
         double fd = fdFor(taker.team);
         double standBack = standBackFor(setPiece.type);
-        double px = releaseSpot ? setPiece.spotX : setPiece.spotX - fd * standBack;
-        double py = setPiece.spotY;
-        taker.x = clamp(px, 5.0, PITCH_W - 5.0);
-        taker.y = clamp(py, 5.0, PITCH_H - 5.0);
-        taker.targetX = setPiece.spotX;
-        taker.targetY = setPiece.spotY;
+        double px = clamp(releaseSpot ? setPiece.spotX : setPiece.spotX - fd * standBack, 5.0, PITCH_W - 5.0);
+        double py = clamp(setPiece.spotY, 5.0, PITCH_H - 5.0);
+        if (releaseSpot) {
+            taker.x = px;
+            taker.y = py;
+        } else {
+            // Steer to the stand-back point; snapping every tick made the taker
+            // vibrate against moveBallCarrier walking him toward the spot.
+            double dx = px - taker.x, dy = py - taker.y;
+            double d = std::hypot(dx, dy);
+            double step = std::min(SPEED_SPRINT * (sdt / 1000.0), d);
+            if (d > 0.5) { taker.x += dx / d * step; taker.y += dy / d * step; }
+        }
+        taker.targetX = px;
+        taker.targetY = py;
         taker.vx = taker.vy = 0;
-        taker.facing = std::atan2(setPiece.spotY - taker.y, setPiece.spotX - taker.x);
+        if (dist(taker.x, taker.y, setPiece.spotX, setPiece.spotY) > 0.5) {
+            taker.facing = std::atan2(setPiece.spotY - taker.y, setPiece.spotX - taker.x);
+        }
     };
     auto enforceRestartDistance = [&]() {
         double minDist = minDistFor(setPiece.type);
         Team restartTeam = setPiece.team;
+        double maxStep = SPEED_SPRINT * (sdt / 1000.0);
         for (auto& p : state.players) {
             if (p.team == restartTeam || p.role == Role::GK) continue;
             double dx = p.x - setPiece.spotX;
@@ -453,11 +465,22 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 dx = -fd; dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
                 d = std::hypot(dx, dy);
             }
-            p.x = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
-            p.y = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
-            p.targetX = p.x;
-            p.targetY = p.y;
-            p.vx = p.vy = 0;
+            double tx = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
+            double ty = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
+            // Jog out of the restart radius rather than teleporting there.
+            double mx = tx - p.x, my = ty - p.y;
+            double md = std::hypot(mx, my);
+            if (md > 0.1) {
+                double step = std::min(maxStep, md);
+                p.x += mx / md * step;
+                p.y += my / md * step;
+                p.vx = mx / md * SPEED_SPRINT;
+                p.vy = my / md * SPEED_SPRINT;
+            } else {
+                p.vx = p.vy = 0;
+            }
+            p.targetX = tx;
+            p.targetY = ty;
         }
     };
 

@@ -177,6 +177,7 @@ export class MatchRenderer {
     this.drawMarkingArc(g, 0, PITCH_H, CORNER_ARC_R, -Math.PI / 2, 0);
     this.drawMarkingArc(g, PITCH_W, PITCH_H, CORNER_ARC_R, Math.PI, -Math.PI / 2);
     this.pitchContainer.addChildAt(g, 0);
+    for (const child of this.playerLayer.removeChildren()) child.destroy();
     this.playerEntries.clear();
     this.visualPlayers.clear();
     this.visualBall = null;
@@ -505,7 +506,6 @@ export class MatchRenderer {
     const addedTag = state.addedTime ? ' +ADD' : '';
     this.hudText.text = `HOME ${state.homeScore ?? 0}-${state.awayScore ?? 0} AWAY    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}${restartHud}`;
     this.hudText.visible = true;
-    console.log('[HUD] text set:', this.hudText.text.substring(0, 30));
   }
 
   private restartLabel(type: string): string {

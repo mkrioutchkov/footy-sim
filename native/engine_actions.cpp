@@ -184,14 +184,27 @@ double GameEngine::goalOpeningAngleDeg(double x, double y, double gx) const {
 
 void GameEngine::placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset) {
     double d=std::hypot(dx,dy);
+    double tx,ty;
     if(d<0.001){
         double fd = fdFor(kicker.team);
-        state.ball.x=clamp(kicker.x+fd*maxOffset,5.0,PITCH_W-5.0);
-        state.ball.y=kicker.y;
-        return;
+        tx=clamp(kicker.x+fd*maxOffset,5.0,PITCH_W-5.0);
+        ty=kicker.y;
+    } else {
+        tx=clamp(kicker.x+dx/d*maxOffset,5.0,PITCH_W-5.0);
+        ty=clamp(kicker.y+dy/d*maxOffset,5.0,PITCH_H-5.0);
     }
-    state.ball.x=clamp(kicker.x+dx/d*maxOffset,5.0,PITCH_W-5.0);
-    state.ball.y=clamp(kicker.y+dy/d*maxOffset,5.0,PITCH_H-5.0);
+    // Step toward the release point instead of snapping: a snap moved the ball
+    // up to ~2*maxOffset across the kicker's body in one tick, and the launch
+    // velocity covers the remainder within a tick or two anyway.
+    double mx=tx-state.ball.x, my=ty-state.ball.y;
+    double md=std::hypot(mx,my);
+    if(md>BALL_RELEASE_MAX_STEP&&md<60.0){
+        state.ball.x+=mx/md*BALL_RELEASE_MAX_STEP;
+        state.ball.y+=my/md*BALL_RELEASE_MAX_STEP;
+    } else {
+        state.ball.x=tx;
+        state.ball.y=ty;
+    }
 }
 
 void GameEngine::passBallTo(Player& f,Player& t) { passBallTo(f,t,false,false,nullptr); }
