@@ -877,8 +877,24 @@ void GameEngine::equalizeAttributes(int val) {
     }
 }
 
+namespace {
+std::string legendNameFor(int id, Team team) {
+    static const char* homeNames[] = {
+        "Buffon", "Dani Alves", "Ramos", "Pique", "Marcelo", "Iniesta",
+        "Xavi", "Modric", "Neymar", "Messi", "Ronaldinho"
+    };
+    static const char* awayNames[] = {
+        "Neuer", "Lahm", "Van Dijk", "Chiellini", "Alba", "Kroos",
+        "De Bruyne", "Busquets", "Robben", "Ronaldo", "Bale"
+    };
+    if (team == Team::Home && id >= 0 && id < 11) return std::format("H{} {}", id, homeNames[id]);
+    if (team == Team::Away && id >= 11 && id < 22) return std::format("A{} {}", id, awayNames[id - 11]);
+    return std::format("{}{}", to_string(team), id);
+}
+}
+
 Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
-    return Player{id, std::format("{}{}", to_string(t), id), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
+    return Player{id, legendNameFor(id, t), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
         {static_cast<double>(rng.randomInt(35,90)), static_cast<double>(rng.randomInt(35,90)),
          static_cast<double>(rng.randomInt(35,90)), static_cast<double>(rng.randomInt(35,90)),
          static_cast<double>(rng.randomInt(35,90)), static_cast<double>(rng.randomInt(35,90)),
