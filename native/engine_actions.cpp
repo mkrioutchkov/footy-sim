@@ -104,10 +104,12 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             int pressure = countPressure(state.players, receiver.x, receiver.y, receiver.team, PRESSURE_RANGE);
             int laneBlockers = countLaneBlockers(state.players, receiver.x, receiver.y, gx, PITCH_H / 2.0, receiver.team, 32.0, 0.08, 0.88);
             double roleShotMax = receiver.role == Role::CM ? 235.0 : 285.0;
+            // Pressure degrades the chance, not eligibility — strikers attack
+            // headers in crowded boxes; a pressure veto turned them all into layoffs.
             bool headerShot = (receiver.role == Role::CF || receiver.role == Role::WM || receiver.role == Role::CM)
-                && shotDistance < roleShotMax && angleDeg > 4.0 && pressure <= 3 && laneBlockers <= 2;
+                && shotDistance < roleShotMax && angleDeg > 4.0 && laneBlockers <= 3;
             bool mustAttackHeader = shotDistance < 225.0 && angleDeg > 5.5 && pressure <= 2 && laneBlockers <= 1;
-            double shotChance = clamp(0.46 + (roleShotMax - shotDistance) / 230.0 + angleDeg / 78.0 - pressure * 0.08 - laneBlockers * 0.10, 0.0, 0.92);
+            double shotChance = clamp(0.46 + (roleShotMax - shotDistance) / 230.0 + angleDeg / 78.0 - pressure * 0.06 - laneBlockers * 0.08, 0.0, 0.92);
             if (headerShot && (mustAttackHeader || rng.random() < shotChance)) {
                 receiver.crossCollected = 900.0;
                 pendingPass.active = false;
@@ -258,8 +260,19 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         &&(!audit||(audit->purpose!=ActionPurpose::Cutback&&audit->purpose!=ActionPurpose::Through&&audit->purpose!=ActionPurpose::Cross));
     if(selectedCross||whippedCross)stats.recordCrossAttempt();
     if(selectedCross){
-        b.vx*=1.15; b.vy*=1.15;
-        b.vz=std::max(b.vz,speed*1.55);
+        // Lead the runner goalward and slightly central instead of to feet —
+        // headed chances need the ball met closer to goal, but a fixed box-zone
+        // aim just found the retreated defenders (18% completion, all cleared).
+        double ax=predX+fd*(34.0+rng.random()*36.0);
+        ax=fd>0.0?std::min(ax,goalX-60.0):std::max(ax,goalX+60.0);
+        double ay=lerp(predY,PITCH_H/2.0,0.25);
+        double adx=ax-f.x+(rng.random()-0.5)*inacc, ady=ay-f.y+(rng.random()-0.5)*inacc;
+        double aDist=std::max(1.0,std::hypot(adx,ady));
+        double aSpeed=(PASS_SPEED_BASE+aDist*PASS_SPEED_DIST)*(0.92+rng.random()*0.16);
+        b.vx=adx/aDist*aSpeed*1.15; b.vy=ady/aDist*aSpeed*1.15;
+        // High arc: clear the heads near the crosser so the ball only dips back
+        // into header height around the runner in the box.
+        b.vz=std::max(b.vz,aSpeed*1.80);
     }
     if(whippedCross){
         b.vx*=1.30; b.vy*=1.30;

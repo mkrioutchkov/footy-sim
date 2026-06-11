@@ -99,12 +99,13 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         && centralBoxTarget
         && (t.role == Role::CF || t.role == Role::CM || t.role == Role::WM)
         && fp < 75.0;
-    bool isCross   = isWideDelivery && !cutbackTarget && std::abs(p.y - PITCH_H / 2.0) > 120.0 && (fp > -45.0 || aerialTarget);
+    bool isCross   = isWideDelivery && !cutbackTarget && dgW < 340.0
+        && std::abs(p.y - PITCH_H / 2.0) > 120.0 && (fp > -45.0 || aerialTarget);
     bool isCutback = isWideDelivery && !isCross;
 
     // ── Cross / cutback scoring ──
     if (isCross) {
-        sc += 0.48;
+        sc += 0.26;
         if (t.role == Role::CF) sc += 0.30;
         else if (t.role == Role::WM) sc += 0.10;
         else if (t.role == Role::CM) sc -= 0.34;
@@ -150,7 +151,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         sc += carrierFinalThird ? 0.30 : 0.20;
     }
     if ((isCross || isCutback) && receiverPressure <= 1 && bl <= 1) sc += 0.08;
-    if (p.role == Role::WM && dgW < 450.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 230.0) sc += 0.42;
+    if (p.role == Role::WM && dgW < 450.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 230.0) sc += 0.24;
     if (p.role == Role::WM && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.32;
     if (p.role == Role::FB && fp > 0.0 && std::abs(p.y - PITCH_H / 2.0) > 75.0 && dgW < 430.0) sc += 0.30;
     bool targetWide = (t.role == Role::WM || t.role == Role::FB) && std::abs(t.y - PITCH_H / 2.0) > 125.0;
