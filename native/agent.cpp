@@ -488,13 +488,16 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     }
 
     // Wobble only in open space — suppress under pressure. Sway laterally
-    // around the run direction (the old form drifted along the world X axis
-    // whatever direction the carrier was heading).
+    // around the run direction, scaled down for short targets: full-size sway
+    // on a ~10px target vector whipped the direction (and the carrier's
+    // facing) around every tick — the "spinning like a madman" look.
     if (nearestOppDist > 80.0) {
-        double sway = std::sin(engine.state.clockMs * 0.012 + p.id * 2.3) * 12.0;
         double dxT = p.targetX - p.x, dyT = p.targetY - p.y;
         double dT = std::hypot(dxT, dyT);
-        if (dT > 1.0) {
+        if (dT > 24.0) {
+            // ~1.6s weave period — the old 0.5s cycle read as twitching.
+            double sway = std::sin(engine.state.clockMs * 0.004 + p.id * 2.3) * 12.0
+                * clamp(dT / 110.0, 0.0, 1.0);
             p.targetX += -dyT / dT * sway;
             p.targetY +=  dxT / dT * sway;
         }

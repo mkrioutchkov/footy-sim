@@ -130,9 +130,14 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                 double ex = ax / ad;
                 double ey = ay / ad;
                 if (ex * fd < -0.25) {
-                    double side = ey >= 0.0 ? 1.0 : -1.0;
+                    // Commit to an escape side for a beat — re-picking each tick
+                    // flipped the dribble target side-to-side and spun the carrier.
+                    if (engine.state.clockMs > evadeSideUntilMs) {
+                        evadeSide = ey >= 0.0 ? 1.0 : -1.0;
+                        evadeSideUntilMs = engine.state.clockMs + 750.0;
+                    }
                     tx = p.x + fd * 24.0;
-                    ty = p.y + side * 72.0;
+                    ty = p.y + evadeSide * 72.0;
                 } else {
                     tx = p.x + ex * 70.0;
                     ty = p.y + ey * 70.0;
@@ -306,10 +311,13 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         double ay = p.y - cp.nearestPlayer->y;
         double ad = std::hypot(ax, ay);
         if (ad > 1.0) {
-            double side = ay >= 0.0 ? 1.0 : -1.0;
+            if (engine.state.clockMs > evadeSideUntilMs) {
+                evadeSide = ay >= 0.0 ? 1.0 : -1.0;
+                evadeSideUntilMs = engine.state.clockMs + 750.0;
+            }
             double retreat = cp.exposed > 0.35 ? -fd * 34.0 : 0.0;
             tx = p.x + ax / ad * 44.0 + retreat;
-            ty = p.y + side * 48.0;
+            ty = p.y + evadeSide * 48.0;
         }
     }
 

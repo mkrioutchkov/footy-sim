@@ -241,13 +241,15 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     auto&b=state.ball;
     b.controllerId=-1;
     placeBallForRelease(f,tdx,tdy);
-    blockReboundFor(f.id,900);
+    // 450ms: long enough to stop instant re-grabs, short enough that a passer
+    // whose ball deflected dead nearby reclaims it instead of jogging beside it.
+    blockReboundFor(f.id,450);
     b.lastTouchTeam=f.team; b.lastToucherId=f.id;
     b.vx=tdx/tDist*speed; b.vy=tdy/tDist*speed;
     b.intendedReceiverId=t.id;
     receiverShieldTargetId=t.id;
     b.z=0; b.vz=0;
-    int blockers = countLaneBlockers(state.players, f.x, f.y, predX, predY, f.team, 35.0, 0.1, 0.9);
+    int blockers = countLaneBlockers(state.players, f.x, f.y, predX, predY, f.team, 35.0, 0.03, 0.9);
     if(rawDist>240)b.vz=speed*0.55;
     if(blockers>0&&rawDist>120)b.vz=std::max(b.vz,speed*0.70);
     if(rawDist>350)b.vz=std::max(b.vz,speed);
@@ -432,7 +434,9 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     stats.recordTackleWin(false);
     emitEvent("tackle_loose", (tackler.x+carrier.x)/2.0, (tackler.y+carrier.y)/2.0, tackler.id, carrier.id);
     b.controllerId=-1;
-    double kickSpeed=38+outcomeRoll*72+(carrier.dribbleType==3?30:0)+(carrierSpeed>DRIBBLE_MEDIUM_SPEED?16:0);
+    // A poke-away travels a few meters, not 12+ — high speeds here sent every
+    // contested ball pinging across the pitch.
+    double kickSpeed=30+outcomeRoll*42+(carrier.dribbleType==3?16:0)+(carrierSpeed>DRIBBLE_MEDIUM_SPEED?10:0);
     b.vx=std::cos(angle)*kickSpeed; b.vy=std::sin(angle)*kickSpeed;
     b.x=clamp(b.x,5.0,PITCH_W-5.0); b.y=clamp(b.y,5.0,PITCH_H-5.0);
     if(kickSpeed>180){stats.recordSlideTackleDistance();}
@@ -532,6 +536,8 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     blockReboundFor(s.id,850);
     b.vx=dx/d*speed; b.vy=dy/d*speed;
     b.intendedReceiverId=-1; b.z=b.vz=0;
+    // Direct free kick with a wall: lift the strike over it.
+    if(directFreeKickShot&&laneBlockers>=1){ b.vz=speed*0.50; }
     b.lastTouchTeam=s.team; b.lastToucherId=s.id;
     metrics.shotLaunchSpeedTotal+=speed; metrics.shotLaunchCount++;
     stats.recordShotLaunch(speed);

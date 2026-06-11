@@ -399,7 +399,9 @@ void GameEngine::moveBallCarrier(double sdt){
     bool turnWasLimited=false;
     if(d>1&&previousSpeed>5){
         double requestedTurn=std::atan2(std::sin(moveAngle-previousAngle),std::cos(moveAngle-previousAngle));
-        double turnRate=c->dribbleType==1?17.0:c->dribbleType==3?10.0:14.0;
+        // Path turn caps: a carrier carving 17 rad/s zigzagged on every target
+        // jitter and read as spinning. Smooth arcs instead.
+        double turnRate=c->dribbleType==1?9.0:c->dribbleType==3?5.5:7.5;
         double maxTurn=turnRate*secs;
         if(std::abs(requestedTurn)>maxTurn){
             moveAngle=previousAngle+clamp(requestedTurn,-maxTurn,maxTurn);
@@ -440,7 +442,9 @@ void GameEngine::moveBallCarrier(double sdt){
         }
         double desiredStep=std::atan2(std::sin(desiredFacing-c->facing),std::cos(desiredFacing-c->facing))*0.28;
         double speedBlend=clamp((actualSpeed-12.0)/58.0,0.0,1.0);
-        double maxFacingTurn=lerp(0.24,0.055,speedBlend);
+        // Carrier-only cap: 0.24 rad/tick let body facing whirl after every
+        // velocity jitter (the chaser-perception deadlock doesn't apply here).
+        double maxFacingTurn=lerp(0.11,0.055,speedBlend);
         c->facing+=clamp(desiredStep,-maxFacingTurn,maxFacingTurn);
     }
     updateControlledBall(0);

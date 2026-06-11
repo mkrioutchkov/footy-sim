@@ -126,8 +126,9 @@ void GameEngine::releaseSetPiece(){
         double angleDeg=goalOpeningAngleDeg(holder->x,holder->y,gx);
         int laneBlockers = countLaneBlockers(state.players, holder->x, holder->y, gx, gy, holder->team, BLOCKER_PERP_FREEKICK, 0.06, 0.90);
         bool central=std::abs(holder->y-gy)<170.0;
-        bool credibleShot=shotDist>105.0&&shotDist<275.0&&central&&angleDeg>7.0&&laneBlockers<=1;
-        double shotChance=clamp(0.36+(275.0-shotDist)/260.0+angleDeg/82.0-laneBlockers*0.16,0.18,0.78);
+        // A defensive wall is normal for a direct free kick — don't veto on it.
+        bool credibleShot=shotDist>105.0&&shotDist<300.0&&central&&angleDeg>5.5&&laneBlockers<=3;
+        double shotChance=clamp(0.48+(300.0-shotDist)/260.0+angleDeg/82.0-laneBlockers*0.10,0.25,0.85);
         if(credibleShot&&rng.random()<shotChance){
             emitEvent("shot", holder->x, holder->y, holder->id);
             shootBall(*holder,nullptr);
@@ -154,9 +155,12 @@ void GameEngine::releaseSetPiece(){
             }
             int laneBlockers = countLaneBlockers(state.players, holder->x, holder->y, p->x, p->y, holder->team, PASS_BLOCKER_PERP_OUTLET, 0.12, 0.92);
             if(setPiece.type == SetPiece::FreeKick){
+                double holderShotDist=std::hypot(goalXFor(holder->team)-holder->x,PITCH_H/2.0-holder->y);
                 double distanceFit=1.0-std::abs(d-145.0)/210.0;
                 double pressureScore=clamp((closestOpp-35.0)/95.0,-0.60,0.75);
                 double resetBonus=progress<-25.0?0.55:std::abs(progress)<45.0?0.30:-0.18;
+                // In shooting range, recycling backward wastes the set piece.
+                if(holderShotDist<320.0&&resetBonus>0.0)resetBonus*=0.25;
                 double roleBonus=p->role==Role::CM?0.24:p->role==Role::FB?0.20:p->role==Role::CB?0.16:p->role==Role::WM?0.06:p->role==Role::CF?-0.16:0.0;
                 double centerSupport=1.0-std::abs(p->y-PITCH_H/2.0)/PITCH_H;
                 return distanceFit+pressureScore+resetBonus+roleBonus+centerSupport*0.22-laneBlockers*0.70;

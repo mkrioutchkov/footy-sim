@@ -25,14 +25,19 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
     if (ls < 1.0) return std::nullopt;
 
+    int pointBlank = 0;
     for (auto& o : engine.state.players) {
         if (o.team == p.team || o.role == Role::GK) continue;
         double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
         double perp = std::sqrt((o.x - p.x - t2 * dx) * (o.x - p.x - t2 * dx)
                               + (o.y - p.y - t2 * dy) * (o.y - p.y - t2 * dy));
         if (perp < PASS_BLOCKER_PERP) bl++;
+        // Opponent right on the boot at release: near-certain deflection that
+        // the wide lane radius under-weighted (passes straight into a marker
+        // 17px away looked like normal 1-blocker passes).
+        if (perp < 17.0 && dist(o.x, o.y, p.x, p.y) < 42.0) pointBlank++;
     }
-    if (bl >= 3) return std::nullopt;
+    if (bl >= 3 || (pointBlank > 0 && per.pressureCount < 2)) return std::nullopt;
 
     double fp = (t.x - p.x) * fd;
     double rs = attrFactor(p.attrs.passing);
