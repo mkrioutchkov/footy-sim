@@ -187,6 +187,33 @@ Action PlayerAI::scoreChase(const Perception& per) {
     bool deadBallRecoveryRun = !canContest && b.z <= AERIAL_HEIGHT && ballSpeed < 35.0 && per.ballDist < 70.0;
     bool closeLooseBall = canContest && b.z <= AERIAL_HEIGHT && per.ballDist < 45.0;
     bool urgentLooseBallRun = incomingLooseBall || deadBallRecoveryRun || closeLooseBall;
+    bool cfLoosePassSupport = false;
+    if (player.role == Role::CF && canContest && !isIntendedReceiver
+        && b.controllerId < 0 && b.intendedReceiverId >= 0
+        && b.lastTouchTeam == player.team
+        && b.z <= AERIAL_HEIGHT
+        && ballSpeed > 20.0 && per.ballDist < 155.0) {
+        Player* intended = engine.playerById(b.intendedReceiverId);
+        double intendedDist = intended ? dist(intended->x, intended->y, b.x, b.y) : 1e9;
+        bool intendedUnderPressure = false;
+        if (intended) {
+            for (auto& opponent : engine.state.players) {
+                if (opponent.team != player.team && opponent.role != Role::GK
+                    && dist(opponent.x, opponent.y, intended->x, intended->y) < 45.0) {
+                    intendedUnderPressure = true;
+                    break;
+                }
+            }
+        }
+        double toPlayerAlongBall = ballSpeed > 1.0
+            ? (b.vx * (player.x - b.x) + b.vy * (player.y - b.y)) / ballSpeed
+            : 0.0;
+        bool closeEnoughToHelp = per.ballDist < 130.0 || intendedDist > per.ballDist + 45.0;
+        bool usefulSupportRun = closeEnoughToHelp || intendedUnderPressure || toPlayerAlongBall > -20.0;
+        cfLoosePassSupport = usefulSupportRun
+            && intendedDist > INTENDED_COLLECT_DIST + 18.0
+            && (per.ballDist < 140.0 || intendedUnderPressure);
+    }
 
     if (activeKnockAheadRunner && per.ballIsLoose && b.z <= AERIAL_HEIGHT) {
         double lead = ballSpeed > 8.0 ? std::min(ballSpeed / 180.0, 0.35) : 0.0;
@@ -205,7 +232,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
     }
 
     if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun)
-        || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery && !urgentLooseBallRun))
+        || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery && !urgentLooseBallRun && !cfLoosePassSupport))
         return Action{ActionType::Chase, 0.0};
 
     if (urgentLooseBallRun) {
@@ -227,6 +254,14 @@ Action PlayerAI::scoreChase(const Perception& per) {
     if (needsRecovery) {
         double lead = ballSpeed > 20.0 ? std::min(ballSpeed / 220.0, 0.32) : 0.0;
         return Action{ActionType::Chase, 1.0, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      ActionPurpose::RecoverLoose};
+    }
+
+    if (cfLoosePassSupport) {
+        double lead = std::min(ballSpeed / 280.0, 0.26);
+        return Action{ActionType::Chase, 0.70, nullptr,
                       clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
                       clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
                       ActionPurpose::RecoverLoose};
