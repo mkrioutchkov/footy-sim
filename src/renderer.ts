@@ -36,6 +36,10 @@ export class MatchRenderer {
   private ballBody: Graphics;
   private ballGlow: Graphics;
   private hudText: Text;
+  private hudBg: Graphics;
+  private tickerEl: HTMLDivElement | null = null;
+  private tickerLines: string[] = [];
+  private seenEventKeys: Set<string> = new Set();
   private versionText: Text = null!;
   private uiVersion = '';
   private eventGfx: Graphics;
@@ -64,7 +68,8 @@ export class MatchRenderer {
     this.eventGfx = new Graphics();
     this.setPieceGfx = new Graphics();
     this.setPieceText = new Text({ text: '', style: new TextStyle({ fill: 0xffffff, fontSize: 15, fontFamily: 'monospace', fontWeight: 'bold' }) });
-    this.hudText = new Text({ text: '', style: new TextStyle({ fill: 0xff4444, fontSize: 20, fontFamily: 'monospace', fontWeight: 'bold' }) });
+    this.hudText = new Text({ text: '', style: new TextStyle({ fill: 0xf2f5f7, fontSize: 17, fontFamily: 'monospace', fontWeight: 'bold' }) });
+    this.hudBg = new Graphics();
 
     // pre-draw football (white with black pentagon pattern)
     const r = BALL_R;
@@ -121,8 +126,21 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.setPieceGfx);
     this.pitchContainer.addChild(this.setPieceText);
      this.app.stage.sortableChildren = true;
+    this.app.stage.addChild(this.hudBg);
+    this.hudBg.zIndex = 9998;
     this.app.stage.addChild(this.hudText);
     this.hudText.zIndex = 9999;
+    // commentary ticker (DOM — crisp text, fixed bottom-left)
+    this.tickerEl = document.createElement('div');
+    Object.assign(this.tickerEl.style, {
+      position: 'fixed', left: '14px', bottom: '14px', zIndex: '20',
+      fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.55',
+      color: '#e8edf2', background: 'rgba(8,12,20,0.72)', padding: '8px 12px',
+      borderRadius: '6px', pointerEvents: 'none', whiteSpace: 'pre',
+      minWidth: '210px', maxWidth: '340px',
+    } as Partial<CSSStyleDeclaration>);
+    this.tickerEl.textContent = '— match feed —';
+    document.body.appendChild(this.tickerEl);
     // version display — engine + UI
     const versionText = new Text({ text: '...', style: new TextStyle({ fill: 0xffffff, fontSize: 8, fontFamily: 'monospace' }) });
     versionText.position.set(this.app.screen.width - 6, this.app.screen.height - 12);
@@ -170,6 +188,13 @@ export class MatchRenderer {
 
     const g = new Graphics();
     g.rect(-GOAL_DEPTH, 0, PITCH_W + GOAL_DEPTH * 2, PITCH_H); g.fill(PITCH_GREEN);
+    // mowing stripes
+    const stripeCount = 14;
+    const stripeW = PITCH_W / stripeCount;
+    for (let i = 0; i < stripeCount; i += 2) {
+      g.rect(i * stripeW, 0, stripeW, PITCH_H);
+      g.fill({ color: 0xffffff, alpha: 0.05 });
+    }
     g.rect(0, 0, PITCH_W, PITCH_H); g.stroke({ width: 3, color: LINE_COLOR });
     g.moveTo(PITCH_W / 2, 0); g.lineTo(PITCH_W / 2, PITCH_H); g.stroke({ width: 2, color: LINE_COLOR });
     g.circle(PITCH_W / 2, PITCH_H / 2, CENTER_CIRCLE_R); g.stroke({ width: 2, color: LINE_COLOR });
@@ -543,6 +568,39 @@ export class MatchRenderer {
     const addedTag = state.addedTime ? ' +ADD' : '';
     this.hudText.text = `HOME ${state.homeScore ?? 0}-${state.awayScore ?? 0} AWAY    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}${restartHud}`;
     this.hudText.visible = true;
+    this.hudBg.clear();
+    const hudW = this.hudText.width;
+    this.hudBg.roundRect(this.hudText.position.x - hudW / 2 - 14, 2, hudW + 28, this.hudText.height + 10, 8);
+    this.hudBg.fill({ color: 0x0a0f17, alpha: 0.78 });
+
+    this.updateTicker(state);
+  }
+
+  private lastClockMs = 0;
+  private updateTicker(state: EngineState): void {
+    if (!this.tickerEl) return;
+    if (state.clockMs < this.lastClockMs - 1000) {
+      // match restarted
+      this.tickerLines = [];
+      this.seenEventKeys.clear();
+    }
+    this.lastClockMs = state.clockMs;
+    const notable = new Set(['goal', 'shot', 'save', 'foul', 'offside', 'skill', 'header']);
+    for (const ev of (state.events ?? [])) {
+      if (!notable.has(ev.type)) continue;
+      const evClock = state.clockMs - (ev.age ?? 0);
+      const key = `${ev.type}:${ev.playerId}:${Math.round(evClock / 400)}`;
+      if (this.seenEventKeys.has(key)) continue;
+      this.seenEventKeys.add(key);
+      const half = state.half ?? 1;
+      const halfMs = half === 1 ? evClock : evClock - 45 * 60 * 1000;
+      const minute = Math.max(0, Math.floor(halfMs / 60000)) + (half === 2 ? 45 : 0);
+      const who = state.players.find(p => p.id === ev.playerId)?.name ?? '';
+      this.tickerLines.unshift(`${String(minute).padStart(2)}' ${this.eventLabel(ev.type).padEnd(8)} ${who}`);
+    }
+    if (this.tickerLines.length > 5) this.tickerLines.length = 5;
+    if (this.seenEventKeys.size > 400) this.seenEventKeys.clear();
+    this.tickerEl.textContent = this.tickerLines.length ? this.tickerLines.join('\n') : '— match feed —';
   }
 
   private restartLabel(type: string): string {

@@ -7,8 +7,10 @@ class HudController {
   private speedLabel: HTMLElement;
   private btnPause: HTMLButtonElement;
   private slider: HTMLInputElement;
+  private speeds: number[];
 
-  constructor(private speeds: number[], onSpeedChange: (v: number) => void, onPause: () => void) {
+  constructor(speeds: number[], onSpeedChange: (v: number) => void, onPause: () => void) {
+    this.speeds = speeds;
     this.element = document.createElement('div');
     this.element.id = 'hud';
     Object.assign(this.element.style, {
