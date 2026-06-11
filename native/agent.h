@@ -165,6 +165,7 @@ public:
 
 private:
     int    stunLockTicks = 0;
+    int    skillMoveCooldown = 0;
     int    shotCooldown = 0;
     int    perceptionAge = 0;
     std::optional<Perception> cachedPerception;

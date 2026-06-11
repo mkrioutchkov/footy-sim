@@ -140,6 +140,8 @@ export class MatchRenderer {
     // renderer emits no resize event), leaving the pitch at a stale scale.
     new ResizeObserver(() => this.calcTransform()).observe(this.app.canvas);
     window.addEventListener('resize', () => this.calcTransform());
+    // Dev convenience: expose the app for console/screenshot tooling.
+    (window as unknown as { __app: Application }).__app = this.app;
   }
 
   private calcTransform(): void {
@@ -438,8 +440,24 @@ export class MatchRenderer {
     // ── ball ──
     const arcOffset = vb.z * 0.7;
     const shadowAlpha = clamp(vb.z / 120, 0.05, 0.55); // stronger shadow for elevation clarity
+    // dribble touches: while a moving carrier controls the ball on the ground,
+    // nudge it ahead and between the feet in a stride rhythm so dribbling reads
+    // as touches rather than the ball being glued to the player
+    let touchX = 0, touchY = 0;
+    if (b.controllerId !== null && vb.z < 2) {
+      const ctrl = state.players.find(p => p.id === b.controllerId);
+      const cspd = ctrl ? Math.hypot(ctrl.vx, ctrl.vy) : 0;
+      if (ctrl && cspd > 12) {
+        const ma = Math.atan2(ctrl.vy, ctrl.vx);
+        const stride = Math.sin(this.animTime * (0.30 + Math.min(cspd, 70) * 0.004) + ctrl.id);
+        const push = Math.max(0, stride) * 3.0;
+        const sway = stride * 2.0;
+        touchX = Math.cos(ma) * push - Math.sin(ma) * sway;
+        touchY = Math.sin(ma) * push + Math.cos(ma) * sway;
+      }
+    }
     // ball position with Z lift
-    this.ballBody.position.set(vb.x, vb.y - arcOffset);
+    this.ballBody.position.set(vb.x + touchX, vb.y + touchY - arcOffset);
     const heightRatio = clamp(vb.z / 250, 0, 1);
     this.ballBody.scale.set(1 - heightRatio * 0.3); // smaller when high up
     // ball shadow on ground
@@ -456,7 +474,7 @@ export class MatchRenderer {
     for (const label of this.eventLabels) label.visible = false;
     let labelIdx = 0;
     for (const ev of (state.events ?? [])) {
-      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : 2200;
+      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : ev.type === 'skill' ? 650 : 2200;
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
       if (ev.type === 'pass') {
@@ -465,6 +483,21 @@ export class MatchRenderer {
           this.eventGfx.moveTo(ev.x, ev.y);
           this.eventGfx.lineTo(target.x, target.y);
           this.eventGfx.stroke({ width: 2, color: 0x9ed7ff, alpha: alpha * 0.75 });
+        }
+        continue;
+      }
+      if (ev.type === 'skill') {
+        // Swirl around the trickster: two counter-rotating arcs that expand and fade
+        const mover = state.players.find(p => p.id === ev.playerId);
+        const cx = mover ? (this.visualPlayers.get(mover.id)?.x ?? mover.x) : ev.x;
+        const cy = mover ? (this.visualPlayers.get(mover.id)?.y ?? mover.y) : ev.y;
+        const t = ev.age / lifetime;
+        const sr = PLAYER_R + 4 + t * 10;
+        const spin = this.animTime * 0.25;
+        for (const dir of [1, -1]) {
+          const a0 = spin * dir + (dir > 0 ? 0 : Math.PI);
+          this.eventGfx.arc(cx, cy, sr, a0, a0 + Math.PI * 0.85);
+          this.eventGfx.stroke({ width: 2.5, color: 0x7df9ff, alpha: alpha * 0.9 });
         }
         continue;
       }
@@ -554,6 +587,7 @@ export class MatchRenderer {
       case 'shot': return 0xffffff;
       case 'header': return 0xfff1a8;
       case 'punch': return 0xff9944;
+      case 'skill': return 0x7df9ff;
       default: return 0xffffff;
     }
   }

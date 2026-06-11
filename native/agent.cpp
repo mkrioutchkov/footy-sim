@@ -32,6 +32,7 @@ void PlayerAI::tick(double sdt) {
 
     stunLockTicks = std::max(0, stunLockTicks - 1);
     shotCooldown = std::max(0, shotCooldown - 1);
+    skillMoveCooldown = std::max(0, skillMoveCooldown - 1);
 
     if (ballMemoryAge == 0 && ballMemoryX == 0 && ballMemoryY == 0) {
         ballMemoryX = engine.state.ball.x;
@@ -423,6 +424,40 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
         }
     }
     if (cp.score > 0.80) nearbyOpps = std::max(nearbyOpps, 2);
+
+    // ── Skill move: pressed 1v1, try to beat the man with a sharp cut ──
+    // Success scales with creativity; the beaten defender is briefly frozen
+    // and locked out of an immediate tackle.
+    bool ownDefensiveThird = (fdFor(p.team) > 0.0) ? p.x < PITCH_W / 3.0 : p.x > PITCH_W * 2.0 / 3.0;
+    if (skillMoveCooldown == 0 && cp.nearestPlayer && nearbyOpps <= 2 && !ownDefensiveThird
+        && cp.score > 0.72 && nearestOppDist > 18.0 && nearestOppDist < 58.0) {
+        double skillChance = 0.02 + attrFactor(p.attrs.creativity) * 0.10;
+        if (engine.rng.random() < skillChance) {
+            Player* def = cp.nearestPlayer;
+            double fd = fdFor(p.team);
+            // Cut to whichever side has fewer bodies.
+            auto sideCrowd = [&](double sy) {
+                int n = 0;
+                for (auto& o : engine.state.players) {
+                    if (o.team == p.team || o.role == Role::GK) continue;
+                    if (dist(p.x + fd * 42.0, sy, o.x, o.y) < 75.0) n++;
+                }
+                return n;
+            };
+            double upY = clamp(p.y - 64.0, 30.0, PITCH_H - 30.0);
+            double dnY = clamp(p.y + 64.0, 30.0, PITCH_H - 30.0);
+            double cutY = sideCrowd(upY) <= sideCrowd(dnY) ? upY : dnY;
+            p.targetX = clamp(p.x + fd * 52.0, 30.0, PITCH_W - 30.0);
+            p.targetY = cutY;
+            engine.agentFor(*def)->stunLock(22);          // wrong-footed ~370ms
+            engine.blockReboundFor(def->id, 700);          // no instant tackle either
+            engine.emitEvent("skill", p.x, p.y, p.id, def->id);
+            engine.stats.recordSkillMove();
+            skillMoveCooldown = 420;                       // ~7s between tricks
+        } else {
+            skillMoveCooldown = 360;                       // failed read — wait ~6s
+        }
+    }
 
     // Wobble only in open space — suppress under pressure
     if (nearestOppDist > 80.0) {

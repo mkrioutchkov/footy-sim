@@ -521,7 +521,10 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     goalY = clamp(goalY, goalCenterY - GOAL_W / 2.0 - missMargin, goalCenterY + GOAL_W / 2.0 + missMargin);
     double dx=gx-s.x, dy=goalY-s.y;
     double d=std::hypot(dx,dy);
-    double speed=SHOT_SPEED_BASE+accuracy*128.0-pressureCount*28-laneBlockers*34-longRangePenalty*52+(credibleFinish?34.0:0.0);
+    // Headers redirect the cross's pace — box pressure costs them far less
+    // power than it costs a wound-up foot shot.
+    double speed=SHOT_SPEED_BASE+accuracy*128.0-pressureCount*(freshCross?12.0:28.0)
+        -laneBlockers*(freshCross?16.0:34.0)-longRangePenalty*52+(credibleFinish?34.0:0.0);
     speed=std::max(230.0,speed);
     auto& b=state.ball;
     b.controllerId=-1;
