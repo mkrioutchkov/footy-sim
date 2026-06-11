@@ -108,7 +108,7 @@ public:
     void recordDizzySpin()              { dizzySpins++; }
     void recordBallJump()               { ballJumps++; }
     void recordQuestionableShot()       { questionableShots++; }
-    void recordQuestionablePress(double dist) { questionPress++; pressDistTotal+=dist; }
+    void recordQuestionablePress()      { questionPress++; }
     void recordWhyNoShoot()             { whyNoShoots++; }
     void recordQuestionableBackpass()   { questionableBackpasses++; }
     void recordClearPathShoot()         { clearPathShoots++; }
@@ -125,7 +125,9 @@ public:
     void recordTaskSelection(DefensiveTask role);
 
     // ── Marking / defensive ──
-    void recordPressSample()            { pressSamples++; }
+    // dist = presser-to-carrier distance; previously only questionable presses
+    // contributed distance, making avgPrimaryPressDistance meaningless.
+    void recordPressSample(double dist) { pressSamples++; pressDistTotal+=dist; }
     void recordBackLineSample(double gap, bool singleDrop, bool laneBlock) {
         backLineSamples++; backLineGapTotal+=gap; backLineGapMax=std::max(backLineGapMax,gap);
         if(singleDrop){backLineSingleDrop++;backLineSingleDropGapTotal+=gap;if(laneBlock)backLineLaneBlockSingleDrop++;}

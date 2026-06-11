@@ -135,6 +135,10 @@ export class MatchRenderer {
 
     this.drawPitch();
     this.calcTransform();
+    // Recalculate the pitch transform whenever the canvas actually changes
+    // size. Window 'resize' alone misses canvas-size changes (and Pixi v8's
+    // renderer emits no resize event), leaving the pitch at a stale scale.
+    new ResizeObserver(() => this.calcTransform()).observe(this.app.canvas);
     window.addEventListener('resize', () => this.calcTransform());
   }
 

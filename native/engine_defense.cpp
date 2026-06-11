@@ -93,8 +93,8 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
         if (assignmentByPlayer[id].role == DefensiveTask::PrimaryPress) { primary = playerById(id); break; }
     }
     if (primary) {
-        stats.recordPressSample();
         double selectedDistance = dist(primary->x, primary->y, carrier.x, carrier.y);
+        stats.recordPressSample(selectedDistance);
         double selectedEta = selectedDistance / std::max(18.0, attrFactor(primary->attrs.speed) * SPEED_SPRINT);
         double fastestEta = 1e9;
         for (auto& p : state.players) {
@@ -102,7 +102,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
             double eta = dist(p.x, p.y, carrier.x, carrier.y) / std::max(18.0, attrFactor(p.attrs.speed) * SPEED_SPRINT);
             fastestEta = std::min(fastestEta, eta);
         }
-        if (selectedEta > fastestEta + 0.45) { stats.recordQuestionablePress(selectedDistance); }
+        if (selectedEta > fastestEta + 0.45) { stats.recordQuestionablePress(); }
     }
     struct LineMember { const Player* player; double progress; };
     SmallVector<LineMember, 6> line;
