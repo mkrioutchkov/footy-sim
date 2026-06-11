@@ -319,7 +319,11 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
             && engine.attemptTackle(p, *a.target))
         {
             engine.emitEvent("tackle", (p.x + a.target->x) / 2.0, (p.y + a.target->y) / 2.0, p.id, a.target->id);
-            p.tackleAnim = engine.state.ball.controllerId == p.id ? 220.0 : 800.0;
+            bool cleanWin = engine.state.ball.controllerId == p.id;
+            p.tackleAnim = cleanWin ? 220.0 : 800.0;
+            if (cleanWin) {
+                stunLockTicks = 16;
+            }
         } else {
             p.targetX = a.target ? a.target->x : p.x;
             p.targetY = a.target ? a.target->y : p.y;

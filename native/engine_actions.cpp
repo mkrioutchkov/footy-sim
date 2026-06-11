@@ -323,6 +323,13 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     double ballExposureDot=ballSideLen>0.5
         ? (ballSideX/ballSideLen)*toTacklerX+(ballSideY/ballSideLen)*toTacklerY
         : facingDot;
+    double tacklerFacingX=std::cos(tackler.facing);
+    double tacklerFacingY=std::sin(tackler.facing);
+    double tacklerFacingCarrierDot=contactDist>0
+        ? tacklerFacingX*(-toTacklerX)+tacklerFacingY*(-toTacklerY)
+        : 0;
+    bool tacklerSquaredUp=tacklerFacingCarrierDot>std::cos(50.0*PI/180.0);
+    bool exposedToFacingTackler=ballExposureDot>0.25&&tacklerSquaredUp;
 
     // Shielding: carrier has back turned to tackler → harder to tackle
     // Front exposed: carrier facing tackler → easier to tackle
@@ -330,6 +337,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     if(ballExposureDot<-0.45) shieldingBonus=-0.10;
     else if(ballExposureDot>0.45) shieldingBonus=0.10;
     else if(facingDot>0.55) shieldingBonus=0.05;
+    if(exposedToFacingTackler) shieldingBonus+=0.04;
 
     double chance=clamp(0.18+tackleSkill*0.35-carrierControl*0.15+facingBonus
         -(carrierShielded?0.20:0)-(fromBehind?0.14:0)
@@ -380,7 +388,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     double outcomeRoll=rng.random();
     double controlChance=clamp(0.28+tackleSkill*0.35-carrierControl*0.18
         -(fromBehind?0.20:0)+(approachDot>0.15?0.12:0)
-        -(carrier.dribbleType==3?0.08:0),0.12,0.72);
+        -(carrier.dribbleType==3?0.08:0)+(exposedToFacingTackler?0.04:0),0.12,0.74);
     if(outcomeRoll<controlChance){
         stats.recordTackleWin(true);
         emitEvent("tackle_won", (tackler.x+carrier.x)/2.0, (tackler.y+carrier.y)/2.0, tackler.id, carrier.id);
