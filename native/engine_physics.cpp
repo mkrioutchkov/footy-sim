@@ -341,10 +341,32 @@ void GameEngine::updateControlledBall(double) {
     if (!c || phase.kickoffPhase) return;
     double dx = std::cos(c->facing), dy = std::sin(c->facing);
     double speed = std::hypot(c->vx, c->vy);
+    double nearestOppDist = 1e9;
+    double nearestOppX = 0.0, nearestOppY = 0.0;
+    if (c->role != Role::GK) {
+        for (const auto& o : state.players) {
+            if (o.team == c->team || o.role == Role::GK) continue;
+            double od = dist(c->x, c->y, o.x, o.y);
+            if (od < nearestOppDist) {
+                nearestOppDist = od;
+                nearestOppX = o.x;
+                nearestOppY = o.y;
+            }
+        }
+    }
     if (c->role != Role::GK && speed > 18.0) {
         double mx = c->vx / speed, my = c->vy / speed;
         double facingMoveDot = dx * mx + dy * my;
         double moveBlend = facingMoveDot < 0.15 ? 0.75 : 0.35;
+        if (nearestOppDist < 68.0) {
+            double pressure = clamp((68.0 - nearestOppDist) / 68.0, 0.0, 1.0);
+            double toOppX = (nearestOppX - c->x) / std::max(1.0, nearestOppDist);
+            double toOppY = (nearestOppY - c->y) / std::max(1.0, nearestOppDist);
+            double exposure = dx * toOppX + dy * toOppY;
+            double shielded = exposure < -0.25 ? 1.0 : 0.0;
+            moveBlend *= lerp(0.65, 0.86, shielded) - pressure * 0.08;
+            moveBlend = clamp(moveBlend, 0.12, 0.75);
+        }
         dx = dx * (1.0 - moveBlend) + mx * moveBlend;
         dy = dy * (1.0 - moveBlend) + my * moveBlend;
         double len = std::hypot(dx, dy);
@@ -401,7 +423,25 @@ void GameEngine::moveBallCarrier(double sdt){
     }
     if(actualSpeed>5){
         double desiredFacing=std::atan2(c->vy,c->vx);
-        c->facing+=std::atan2(std::sin(desiredFacing-c->facing),std::cos(desiredFacing-c->facing))*0.28;
+        double nearestOppDist=1e9;
+        double nearestOppX=0.0,nearestOppY=0.0;
+        if(c->role!=Role::GK){
+            for(const auto& o:state.players){
+                if(o.team==c->team||o.role==Role::GK)continue;
+                double od=dist(c->x,c->y,o.x,o.y);
+                if(od<nearestOppDist){nearestOppDist=od;nearestOppX=o.x;nearestOppY=o.y;}
+            }
+        }
+        if(nearestOppDist<68.0){
+            double awayAngle=std::atan2(c->y-nearestOppY,c->x-nearestOppX);
+            double pressure=clamp((68.0-nearestOppDist)/68.0,0.0,1.0);
+            double shieldBlend=lerp(0.14,0.38,pressure);
+            desiredFacing+=std::atan2(std::sin(awayAngle-desiredFacing),std::cos(awayAngle-desiredFacing))*shieldBlend;
+        }
+        double desiredStep=std::atan2(std::sin(desiredFacing-c->facing),std::cos(desiredFacing-c->facing))*0.28;
+        double speedBlend=clamp((actualSpeed-12.0)/58.0,0.0,1.0);
+        double maxFacingTurn=lerp(0.24,0.055,speedBlend);
+        c->facing+=clamp(desiredStep,-maxFacingTurn,maxFacingTurn);
     }
     updateControlledBall(0);
 }

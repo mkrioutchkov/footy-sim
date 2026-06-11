@@ -142,10 +142,12 @@ void PlayerAI::applyMovement(double sdt) {
             }
         }
 
-        if (nearOppDist < 60.0) {
-            // Shielding: face AWAY from nearest opponent (slow lerp to avoid spinning)
+        if (nearOppDist < 68.0) {
+            // Face the ball side away from pressure; the speed turn cap below prevents snap-spins.
             double awayAngle = std::atan2(p.y - nearOppY, p.x - nearOppX);
-            facing = facing + std::atan2(std::sin(awayAngle - facing), std::cos(awayAngle - facing)) * 0.04;
+            double pressure = clamp((68.0 - nearOppDist) / 68.0, 0.0, 1.0);
+            double shieldLerp = lerp(0.035, 0.08, pressure);
+            facing = facing + std::atan2(std::sin(awayAngle - facing), std::cos(awayAngle - facing)) * shieldLerp;
         } else {
             // Open field: face toward ball velocity (movement direction)
             auto& b = engine.state.ball;
@@ -173,7 +175,12 @@ void PlayerAI::applyMovement(double sdt) {
     }
 
     double prevFacing = p.facing;
-    double facingDelta = std::abs(std::atan2(std::sin(facing - prevFacing), std::cos(facing - prevFacing)));
+    double requestedFacingDelta = std::atan2(std::sin(facing - prevFacing), std::cos(facing - prevFacing));
+    double turnSpeedBlend = clamp((spdAfter - 12.0) / 58.0, 0.0, 1.0);
+    double maxFacingTurn = lerp(0.24, 0.055, turnSpeedBlend);
+    requestedFacingDelta = clamp(requestedFacingDelta, -maxFacingTurn, maxFacingTurn);
+    facing = prevFacing + requestedFacingDelta;
+    double facingDelta = std::abs(requestedFacingDelta);
     dizzyRotationAccum += facingDelta * 180.0 / PI;
     if(engine.state.clockMs - dizzyWindowStartMs > 2000){
         dizzyWindowStartMs = engine.state.clockMs;
