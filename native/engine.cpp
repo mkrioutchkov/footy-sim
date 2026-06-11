@@ -850,6 +850,38 @@ void GameEngine::equalizeAttributes(int val) {
 }
 
 namespace {
+// Per-legend attribute identity: {speed, passing, creativity, shooting,
+// tackling, positioning, stamina}. Random rolls made Messi play like
+// Chiellini; these make the names mean something on the pitch.
+PlayerAttributes legendAttrsFor(int id) {
+    static const PlayerAttributes profiles[22] = {
+        /* 0 Buffon      */ {50, 60, 55, 30, 45, 92, 70},
+        /* 1 Dani Alves  */ {82, 78, 76, 60, 72, 74, 88},
+        /* 2 Ramos       */ {74, 72, 60, 62, 90, 84, 84},
+        /* 3 Pique       */ {62, 74, 62, 55, 86, 86, 78},
+        /* 4 Marcelo     */ {84, 80, 82, 62, 65, 68, 84},
+        /* 5 Iniesta     */ {70, 92, 94, 66, 55, 80, 80},
+        /* 6 Xavi        */ {64, 96, 92, 60, 52, 86, 82},
+        /* 7 Modric      */ {72, 92, 90, 70, 62, 82, 86},
+        /* 8 Neymar      */ {90, 84, 95, 84, 40, 70, 80},
+        /* 9 Messi       */ {91, 90, 97, 96, 38, 78, 82},
+        /*10 Ronaldinho  */ {84, 88, 96, 82, 36, 68, 76},
+        /*11 Neuer       */ {62, 75, 65, 35, 50, 94, 75},
+        /*12 Lahm        */ {78, 84, 78, 58, 84, 88, 86},
+        /*13 Van Dijk    */ {78, 76, 58, 60, 92, 90, 86},
+        /*14 Chiellini   */ {68, 64, 50, 50, 94, 88, 82},
+        /*15 Alba        */ {88, 78, 74, 60, 68, 72, 88},
+        /*16 Kroos       */ {60, 95, 88, 78, 58, 84, 80},
+        /*17 De Bruyne   */ {78, 95, 93, 86, 56, 80, 84},
+        /*18 Busquets    */ {58, 90, 84, 50, 78, 90, 80},
+        /*19 Robben      */ {88, 78, 86, 88, 40, 72, 76},
+        /*20 Ronaldo     */ {92, 78, 84, 96, 40, 82, 90},
+        /*21 Bale        */ {93, 76, 80, 88, 48, 70, 84},
+    };
+    if (id >= 0 && id < 22) return profiles[id];
+    return PlayerAttributes{};
+}
+
 std::string legendNameFor(int id, Team team) {
     static const char* homeNames[] = {
         "Buffon", "Dani Alves", "Ramos", "Pique", "Marcelo", "Iniesta",
@@ -866,12 +898,15 @@ std::string legendNameFor(int id, Team team) {
 }
 
 Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
+    // Legend profile with small per-match form variance (±4) so the same
+    // names play recognizably while no two matches are identical.
+    PlayerAttributes a = legendAttrsFor(id);
+    auto form = [&](double v) { return clamp(v + rng.randomInt(-4, 4), 25.0, 99.0); };
+    a.speed = form(a.speed); a.passing = form(a.passing); a.creativity = form(a.creativity);
+    a.shooting = form(a.shooting); a.tackling = form(a.tackling); a.positioning = form(a.positioning);
+    a.stamina = form(a.stamina);
     return Player{id, legendNameFor(id, t), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
-        {static_cast<double>(rng.randomInt(35,90)), static_cast<double>(rng.randomInt(35,90)),
-         static_cast<double>(rng.randomInt(35,90)), static_cast<double>(rng.randomInt(35,90)),
-         static_cast<double>(rng.randomInt(35,90)), static_cast<double>(rng.randomInt(35,90)),
-         static_cast<double>(rng.randomInt(60,95))},
-        t == Team::Home ? 0.0 : PI};
+        a, t == Team::Home ? 0.0 : PI};
 }
 
 void GameEngine::createHomeTeam() {

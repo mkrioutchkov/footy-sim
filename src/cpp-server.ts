@@ -7,9 +7,17 @@ import { WebSocketServer, WebSocket } from 'ws';
 
 const PORT = Number.parseInt(process.env.CPP_PORT ?? '3000', 10);
 const CPP_ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
-const SEED = Number.parseInt(process.env.CPP_SEED ?? '101', 10);
+// Fixed seed via CPP_SEED for reproduction; otherwise every restart is a
+// fresh match (the seed is shown in the page footer for bug reports).
+const FIXED_SEED = process.env.CPP_SEED ? Number.parseInt(process.env.CPP_SEED, 10) : null;
+let currentSeed = FIXED_SEED ?? randomSeed();
 const MINUTES = 90;
-const DEBUG = process.env.CPP_DEBUG !== '0' && process.env.CPP_DEBUG !== 'false';
+// Debug equalizes attributes; default off so the legend profiles show.
+const DEBUG = process.env.CPP_DEBUG === '1' || process.env.CPP_DEBUG === 'true';
+
+function randomSeed(): number {
+  return 1 + Math.floor(Math.random() * 99999);
+}
 const DEFAULT_FRAME_MS = 1000 / 30;
 const MIN_SPEED = 0.5;
 const MAX_SPEED = 60;
@@ -42,7 +50,7 @@ let paused = false;
 function broadcast(state: NativeState): void {
   const visibleState = {
     ...state,
-    seed: SEED,
+    seed: currentSeed,
     speed: playbackSpeed,
     matchState: paused ? 'paused' : state.matchState,
   };
@@ -115,7 +123,9 @@ function stopEngine(): void {
 function startEngine(): void {
   stopEngine();
   const thisGeneration = generation;
-  const args = [String(SEED), String(MINUTES)];
+  currentSeed = FIXED_SEED ?? randomSeed();
+  console.log(`Starting match with seed ${currentSeed}`);
+  const args = [String(currentSeed), String(MINUTES)];
   if (!DEBUG) args.push('--no-debug');
   const child = spawn(CPP_ENGINE, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
