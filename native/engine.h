@@ -129,6 +129,9 @@ public:
         bool isCross = false;
         bool isThrough = false;
         bool offsideExempt = false;
+        // The law judges the receiver's position at the MOMENT the ball is
+        // played — captured here; judging at collection flagged legal runs.
+        bool receiverOffsideAtPass = false;
         double passerX = 0.0;
         double passerY = 0.0;
         double offsideLine = 0.0;

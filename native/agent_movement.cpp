@@ -10,9 +10,14 @@ void PlayerAI::applyMovement(double sdt) {
     double spd = std::sqrt(p.vx * p.vx + p.vy * p.vy);
 
     double staminaSkill = attrFactor(p.attrs.stamina);
-    if (spd > SPEED_SPRINT * 0.5)
-        p.stamina = std::max(0.0, p.stamina - STAMINA_DRAIN_SPRINT * (1.12 - staminaSkill * 0.35));
-    else if (spd < 15.0)
+    // Drain scales with sprint intensity (quadratic): cruising just above
+    // jogging pace costs little, flat-out sprinting costs full price. A
+    // binary threshold either emptied midfielders in minutes or never tired
+    // anyone, depending on where it sat relative to their cruise speed.
+    double sprintFrac = clamp((spd - SPEED_SPRINT * 0.55) / (SPEED_SPRINT * 0.45), 0.0, 1.0);
+    if (sprintFrac > 0.0)
+        p.stamina = std::max(0.0, p.stamina - STAMINA_DRAIN_SPRINT * sprintFrac * sprintFrac * (1.12 - staminaSkill * 0.35));
+    else if (spd < 26.0)
         p.stamina = std::min(100.0, p.stamina + STAMINA_RECOVER * (0.80 + staminaSkill * 0.45));
 
     double slowThreshold = STAMINA_SLOW_THRESHOLD * 100.0;

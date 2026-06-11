@@ -43,17 +43,31 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isTh
     stats.recordPassDirection(forwardProgress);
     if(to.role==Role::GK && forwardProgress < -30.0) stats.recordKeeperBackpass();
     bool offsideExempt = setPiece.type == SetPiece::Corner || setPiece.type == SetPiece::ThrowIn || setPiece.type == SetPiece::GoalKick;
-    pendingPass={true,from.id,to.id,from.team,isCross,isThrough,offsideExempt,from.x,from.y,offsideLineFor(from.team)};
+    double line = offsideLineFor(from.team);
+    bool beyondHalf = fd > 0.0 ? to.x > HALF_X : to.x < HALF_X;
+    bool beyondPasser = fd > 0.0 ? to.x > from.x + OFFSIDE_TOLERANCE : to.x < from.x - OFFSIDE_TOLERANCE;
+    bool beyondLine = fd > 0.0 ? to.x > line + OFFSIDE_TOLERANCE : to.x < line - OFFSIDE_TOLERANCE;
+    bool receiverOffsideAtPass = beyondHalf && beyondPasser && beyondLine;
+    pendingPass={true,from.id,to.id,from.team,isCross,isThrough,offsideExempt,receiverOffsideAtPass,from.x,from.y,line};
 }
 
 bool GameEngine::resolvePendingPass(Player& receiver) {
     if(!pendingPass.active)return false;
     if(receiver.team==pendingPass.team&&!pendingPass.offsideExempt){
         double fd = fdFor(pendingPass.team);
-        bool beyondHalf = fd>0.0 ? receiver.x>HALF_X : receiver.x<HALF_X;
-        bool beyondPasser = fd>0.0 ? receiver.x>pendingPass.passerX+OFFSIDE_TOLERANCE : receiver.x<pendingPass.passerX-OFFSIDE_TOLERANCE;
-        bool beyondLine = fd>0.0 ? receiver.x>pendingPass.offsideLine+OFFSIDE_TOLERANCE : receiver.x<pendingPass.offsideLine-OFFSIDE_TOLERANCE;
-        if(beyondHalf&&beyondPasser&&beyondLine){
+        // Intended receiver: judged by his position when the ball was played
+        // (stored at launch). Judging at collection flagged every legal run
+        // in behind. Unintended teammates keep the collection-time check.
+        bool offside;
+        if (receiver.id == pendingPass.toId) {
+            offside = pendingPass.receiverOffsideAtPass;
+        } else {
+            bool beyondHalf = fd>0.0 ? receiver.x>HALF_X : receiver.x<HALF_X;
+            bool beyondPasser = fd>0.0 ? receiver.x>pendingPass.passerX+OFFSIDE_TOLERANCE : receiver.x<pendingPass.passerX-OFFSIDE_TOLERANCE;
+            bool beyondLine = fd>0.0 ? receiver.x>pendingPass.offsideLine+OFFSIDE_TOLERANCE : receiver.x<pendingPass.offsideLine-OFFSIDE_TOLERANCE;
+            offside = beyondHalf&&beyondPasser&&beyondLine;
+        }
+        if(offside){
             stats.recordOffside();
             Team defendingTeam=receiver.team==Team::Home?Team::Away:Team::Home;
             pendingPass.active=false;
@@ -371,7 +385,9 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         -(carrierShielded?0.20:0)-(fromBehind?0.14:0)
         +(approachDot>0.3&&approachDot<0.85?0.06:0)+dribbleBonus+shieldingBonus,0.06,0.72);
     if(rng.random()>=chance){
-        double foulChance=fromBehind?0.34:0.10;
+        // Per-failure foul odds must be low because duel volume is high —
+        // 0.34/0.10 produced ~190 fouls per match (real: ~22).
+        double foulChance=fromBehind?0.14:0.03;
         if(rng.random()<foulChance){
             stats.recordTackleFoul();
             double foulX = carrier.x;

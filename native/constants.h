@@ -82,8 +82,8 @@ inline double ownGoalXFor(Team team) { return team == Team::Home ? HOME_GOAL_X :
 inline constexpr std::array<std::string_view, 6> ROLES = {"GK","CB","FB","CM","WM","CF"};
 
 // ── Stamina ──
-inline constexpr double STAMINA_DRAIN_SPRINT  = 0.028;
-inline constexpr double STAMINA_RECOVER       = 0.015;
+inline constexpr double STAMINA_DRAIN_SPRINT  = 0.014;
+inline constexpr double STAMINA_RECOVER       = 0.012;
 inline constexpr double STAMINA_SLOW_THRESHOLD = 0.35;
 
 // ── Dribble speed tiers ──
