@@ -54,6 +54,13 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         if (shapeTask && !emergencyBoxChallenge && !closeEnoughToChallenge && d > TACKLE_RANGE * 0.75 && ctrl->dribbleType != 0) return Action{ActionType::Tackle, 0.0};
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::PrimaryPress)   sc += 0.20;
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::SecondaryPress) sc += 0.10;
+        // The presser in contact range must actually challenge: holding
+        // position scored higher than tackling a MOVING carrier, so a dribbler
+        // could stroll 20m into the box with three pressers in tow (the only
+        // tackle trigger was the carrier standing still).
+        if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::PrimaryPress
+            && d < TACKLE_RANGE + 6.0 && ctrl->dribbleType != 0)
+            sc += 0.24;
         if (shapeTask && emergencyBoxChallenge)
             sc += 0.26;
         else if (shapeTask && closeEnoughToChallenge)

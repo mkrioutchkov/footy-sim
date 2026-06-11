@@ -169,9 +169,11 @@ inline constexpr double GK_SAVE_PLACEMENT_MAX   = 0.58;
 inline constexpr double GK_SAVE_SPEED_PENALTY   = 430.0;
 inline constexpr double GK_SAVE_SPEED_RANGE     = 380.0;
 inline constexpr double GK_SAVE_SPEED_MAX       = 0.20;
-inline constexpr double GK_SAVE_BASE            = 0.04;
+inline constexpr double GK_SAVE_BASE            = 0.08;
 inline constexpr double GK_SAVE_MIN             = 0.05;
-inline constexpr double GK_SAVE_MAX             = 0.60;
+// Real keepers stop ~70% of on-target shots and ~90% of long-range ones; a
+// 0.60 ceiling made every clear strike a coin flip and long bombs profitable.
+inline constexpr double GK_SAVE_MAX             = 0.88;
 inline constexpr double GK_CATCH_HANDLING_BASE  = 0.22;
 inline constexpr double GK_CATCH_HANDLING_WEIGHT = 0.38;
 inline constexpr double GK_CATCH_SPEED_THRESH   = 520.0;

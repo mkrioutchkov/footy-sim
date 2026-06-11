@@ -124,7 +124,10 @@ void GameEngine::tryGKSave() {
     double reachPenalty = clamp((trajectoryOffset - reach) / GK_SAVE_PLACEMENT_DIST, 0.0, 1.0) * GK_SAVE_PLACEMENT_MAX;
     double bodyBlockBonus = trajectoryOffset < PLAYER_R + BALL_R + 4.0 ? 0.20 : 0.0;
     double keeperSkill = positioning * GK_SAVE_SKILL_POSITION + speedSkill * GK_SAVE_SKILL_SPEED;
-    double saveChance = clamp(GK_SAVE_BASE + keeperSkill + reactionBonus + bodyBlockBonus - reachPenalty - timePressure - speedPenalty, GK_SAVE_MIN, GK_SAVE_MAX);
+    // Flight time is the keeper's friend: a long-range strike gives most of a
+    // second to set and react.
+    double setTimeBonus = clamp((timeToLineMs - 280.0) / 900.0, 0.0, 0.24);
+    double saveChance = clamp(GK_SAVE_BASE + keeperSkill + reactionBonus + bodyBlockBonus + setTimeBonus - reachPenalty - timePressure - speedPenalty, GK_SAVE_MIN, GK_SAVE_MAX);
     stats.recordShotOnTarget();
     shot.active = false;
     if (rng.random() >= saveChance) {
