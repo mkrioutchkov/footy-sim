@@ -89,10 +89,10 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
 }
 
 void GameEngine::tryGKSave() {
-    if (!shotActive) return;
+    if (!shot.active) return;
     auto& b = state.ball;
-    int shooterId = trackedShot ? trackedShooterId : b.lastToucherId;
-    Team attacking = trackedShot ? trackedShotTeam : b.lastTouchTeam;
+    int shooterId = shot.tracked ? shot.shooterId : b.lastToucherId;
+    Team attacking = shot.tracked ? shot.team : b.lastTouchTeam;
     Team defending = attacking == Team::Home ? Team::Away : Team::Home;
     Player* gk = findGK(defending);
     if (!gk) return;
@@ -106,8 +106,8 @@ void GameEngine::tryGKSave() {
     double dToGoal = std::abs(b.x - goalX);
     if (dToGoal > 250) return;
     double crossY = b.y + b.vy * (dToGoal / std::max(std::abs(b.vx), 1.0));
-    if (std::abs(crossY - PITCH_H / 2) > GOAL_W / 2) { shotActive = false; return; }
-    double originDistance = std::hypot(shotOriginX - goalX, shotOriginY - PITCH_H / 2);
+    if (std::abs(crossY - PITCH_H / 2) > GOAL_W / 2) { shot.active = false; return; }
+    double originDistance = std::hypot(shot.originX - goalX, shot.originY - PITCH_H / 2);
     double trajectoryOffset = std::abs(crossY - gk->y);
     double timeToLineMs = dToGoal / std::max(std::abs(b.vx), 1.0) * 1000;
     double positioning = attrFactor(gk->attrs.positioning);
@@ -121,26 +121,26 @@ void GameEngine::tryGKSave() {
     double keeperSkill = positioning * GK_SAVE_SKILL_POSITION + speedSkill * GK_SAVE_SKILL_SPEED;
     double saveChance = clamp(GK_SAVE_BASE + keeperSkill + reactionBonus + bodyBlockBonus - reachPenalty - timePressure - speedPenalty, GK_SAVE_MIN, GK_SAVE_MAX);
     stats.recordShotOnTarget();
-    shotActive = false;
+    shot.active = false;
     if (rng.random() >= saveChance) {
-        trackedShotPreventable = saveChance >= 0.90 && trajectoryOffset < PLAYER_R + BALL_R && timeToLineMs > 420 && speed < 390;
-        stats.recordGkAssessment(false, trackedShotPreventable);
+        shot.preventable = saveChance >= 0.90 && trajectoryOffset < PLAYER_R + BALL_R && timeToLineMs > 420 && speed < 390;
+        stats.recordGkAssessment(false, shot.preventable);
         return;
     }
     stats.recordSave();
     emitEvent("save", gk->x, gk->y, gk->id);
     bool unlikelyCond = saveChance < 0.12 || (timeToLineMs < 130 && trajectoryOffset > reach + 18.0 && speed > 500);
     stats.recordGkAssessment(unlikelyCond, false);
-    trackedShot = false;
-    trackedShotPreventable = false;
-    trackedShotHeader = false;
-    trackedPenaltyShot = false;
-    trackedShotDribble20m = false;
+    shot.tracked = false;
+    shot.preventable = false;
+    shot.header = false;
+    shot.penalty = false;
+    shot.dribble20m = false;
     bool canHandle = agentFor(*gk)->canUseHands();
     double catchChance = clamp(agentFor(*gk)->catchThreshold() - std::max(0.0, speed - GK_CATCH_SPEED_THRESH) / GK_CATCH_SPEED_RANGE, GK_CATCH_MIN, GK_CATCH_MAX);
     bool caught = canHandle && rng.random() < catchChance;
     double fieldDir = fdFor(gk->team);
-    double side = gk->y - shotOriginY < 0 ? -1.0 : 1.0;
+    double side = gk->y - shot.originY < 0 ? -1.0 : 1.0;
     if (caught) {
         b.x = clamp(gk->x + fieldDir * 6.0, 10.0, PITCH_W - 10.0);
         b.y = clamp(gk->y + side * 4.0, 18.0, PITCH_H - 18.0);
@@ -149,7 +149,7 @@ void GameEngine::tryGKSave() {
         b.intendedReceiverId = -1;
         blockReboundFor(shooterId, 250);
         b.lastTouchTeam = gk->team; b.lastToucherId = gk->id;
-        gkDistributeTimer = GK_DISTRIBUTE_MS;
+        goalKickMonitor.distributeTimer = GK_DISTRIBUTE_MS;
         lastLooseOrigin = "goalkeeper_catch";
         recordBallImpulse();
         return;

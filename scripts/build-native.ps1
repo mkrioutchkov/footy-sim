@@ -25,6 +25,15 @@ $sourceFiles   = @(Get-ChildItem -LiteralPath $native -File | Where-Object { $_.
 $exe = Join-Path $outDir 'live.exe'
 $outDirFwd = $outDir -replace '\\', '/'
 $anyCompiled = $false
+$compileSources = @()
+
+$gitHash = (git rev-parse --short=12 HEAD 2>$null).Trim()
+if (-not $gitHash) { $gitHash = 'unknown' }
+$hasStagedChanges = $false
+$null = git diff --cached --quiet --exit-code 2>$null
+$hasStagedChanges = $LASTEXITCODE -ne 0
+$buildGitHashDefine = "/D BUILD_GIT_HASH=$gitHash"
+$buildGitCustomDefine = "/D BUILD_GIT_CUSTOM=$([int]$hasStagedChanges)"
 
 Push-Location $native
 try {
@@ -45,14 +54,19 @@ try {
         }
 
         if ($needCompile) {
-            Write-Host "Compiling $($src.Name) ..."
-            $cmd = "call `"$vsDevCmd`" -arch=x64 >nul && cl /nologo /std:c++20 /EHsc /O2 /c $($src.Name) /I`"../third_party`" /Fo`"$outDirFwd/`""
-            cmd.exe /d /c $cmd
-            if ($LASTEXITCODE -ne 0) {
-                throw "Compilation of $($src.Name) failed with exit code $LASTEXITCODE"
-            }
-            $anyCompiled = $true
+            $compileSources += $src.Name
         }
+    }
+
+    if ($compileSources.Count -gt 0) {
+        Write-Host "Compiling $($compileSources.Count) files on 4 threads ..."
+        $sourceArgs = ($compileSources | ForEach-Object { "`"$_`"" }) -join ' '
+        $cmd = "call `"$vsDevCmd`" -arch=x64 >nul && cl /nologo /std:c++20 /EHsc /O2 /MP4 $buildGitHashDefine $buildGitCustomDefine /c $sourceArgs /I`"../third_party`" /Fo`"$outDirFwd/`""
+        cmd.exe /d /c $cmd
+        if ($LASTEXITCODE -ne 0) {
+            throw "Compilation failed with exit code $LASTEXITCODE"
+        }
+        $anyCompiled = $true
     }
 
     # ── Link step ──

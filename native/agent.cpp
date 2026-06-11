@@ -115,7 +115,7 @@ GameContext PlayerAI::buildContext() {
     int op = (player.team == Team::Home) ? os : ms;
     int d  = my - op;
     double tl = std::max(0.0, MATCH_DURATION - engine.state.clockMs);
-    return { d, tl, engine.half };
+    return { d, tl, engine.phase.half };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -167,8 +167,19 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                 double roleBoost = (player.role == Role::WM || player.role == Role::CM) ? 0.18 : (player.role == Role::FB ? 0.12 : 0.08);
                 x.score += roleBoost;
             }
-            if (pc == 0 && x.type == ActionType::Pass && x.purpose != ActionPurpose::Cross
-                && x.purpose != ActionPurpose::Cutback && x.purpose != ActionPurpose::Through) {
+            bool earlyAttackingOutlet = x.type == ActionType::Pass
+                && x.target
+                && (x.target->role == Role::WM || x.target->role == Role::CF)
+                && x.audit.forwardProgress > 8.0
+                && x.audit.expectedCompletion > 0.68
+                && x.audit.blockers <= 1
+                && x.audit.receiverPressure <= 1;
+            if (pc == 0 && x.type == ActionType::Pass && !earlyAttackingOutlet
+                && x.purpose != ActionPurpose::Build
+                && x.purpose != ActionPurpose::Switch
+                && x.purpose != ActionPurpose::Cross
+                && x.purpose != ActionPurpose::Cutback
+                && x.purpose != ActionPurpose::Through) {
                 if (holdTicks < 12) x.score -= 0.18;
                 else if (holdTicks < 24) x.score -= 0.10;
             }
@@ -462,8 +473,8 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                            && advancedEnough && p.attrs.creativity >= 65.0
                            && (teammateSupport || onFlank || openGrass);
 
-    bool activeLongCarry = engine.carryTrackerId == p.id && engine.carryPathDistance >= 95.0;
-    bool needsCarryShotWindow = activeLongCarry && engine.carryPathDistance < 220.0 && clearPath
+    bool activeLongCarry = engine.carrierTracker.carryTrackerId == p.id && engine.carrierTracker.carryPathDistance >= 95.0;
+    bool needsCarryShotWindow = activeLongCarry && engine.carrierTracker.carryPathDistance < 220.0 && clearPath
         && nearestOppDist > 135.0 && distToTarget > 120.0 && advancedEnough;
     bool mayBurst = engine.canKnockBallAhead(p.id) && cp.score < (needsCarryShotWindow ? 0.82 : 0.65)
         && (openBurst || speculativeBurst || finalThirdBurst || needsCarryShotWindow);

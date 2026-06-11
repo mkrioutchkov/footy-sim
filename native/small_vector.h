@@ -175,7 +175,6 @@ public:
     }
 
     SmallVector(SmallVector&& o)
-        noexcept(std::is_nothrow_move_constructible_v<T>)
         : data_(inlineData()), size_(0), cap_(N) {
         if (!o.usingInline()) {
             data_ = o.data_;
@@ -205,8 +204,7 @@ public:
         o.destroyCurrent();
     }
 
-    SmallVector& operator=(SmallVector&& o)
-        noexcept(std::is_nothrow_move_constructible_v<T>) {
+    SmallVector& operator=(SmallVector&& o) {
         if (this == &o) return *this;
 
         destroyCurrent();

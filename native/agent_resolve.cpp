@@ -73,9 +73,9 @@ Action* PlayerAI::tryLowScoreFallback(SmallVector<Action, 24>& a, Action& /*best
 // or continuing the dribble over recycling possession.
 
 Action* PlayerAI::tryLongCarryOverride(SmallVector<Action, 24>& a, Action& best, bool ic) {
-    if (!ic || engine.carryTrackerId != player.id) return nullptr;
+    if (!ic || engine.carrierTracker.carryTrackerId != player.id) return nullptr;
 
-    double carryDistance = engine.carryPathDistance;
+    double carryDistance = engine.carrierTracker.carryPathDistance;
     double fd = fdFor(player.team);
     double ownGoalX = ownGoalXFor(player.team);
     double progress = (player.x - ownGoalX) * fd;
@@ -86,6 +86,7 @@ Action* PlayerAI::tryLongCarryOverride(SmallVector<Action, 24>& a, Action& best,
     Action* shootOpt = nullptr;
     Action* dribbleOpt = nullptr;
     Action* passOpt = nullptr;
+    Action* attackingOutlet = nullptr;
     for (auto& x : a) {
         if (x.type == ActionType::Shoot && x.score >= 0.0) {
             if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
@@ -93,7 +94,21 @@ Action* PlayerAI::tryLongCarryOverride(SmallVector<Action, 24>& a, Action& best,
             if (!dribbleOpt || x.score > dribbleOpt->score) dribbleOpt = &x;
         } else if (x.type == ActionType::Pass) {
             if (!passOpt || x.score > passOpt->score) passOpt = &x;
+            bool frontLineOutlet = x.target
+                && (x.target->role == Role::WM || x.target->role == Role::CF)
+                && x.audit.expectedCompletion > 0.68
+                && x.audit.blockers <= 1
+                && x.audit.receiverPressure <= 1
+                && x.audit.forwardProgress > 8.0;
+            if (frontLineOutlet && (!attackingOutlet || x.score > attackingOutlet->score))
+                attackingOutlet = &x;
         }
+    }
+
+    if (carryDistance >= 45.0 && attackingOutlet && dribbleOpt) {
+        double releaseMargin = finalThirdCarry ? 0.12 : 0.04;
+        if (attackingOutlet->score > dribbleOpt->score - releaseMargin)
+            return attackingOutlet;
     }
 
     // Long carry → take the shot if angle is decent
@@ -323,6 +338,53 @@ Action* PlayerAI::tryFinalThirdOverride(SmallVector<Action, 24>& a, Action& best
         : player.x < PITCH_W / 3.0;
     if (!finalThird) return nullptr;
 
+    Action* chancePass = nullptr;
+    for (auto& x : a) {
+        if (x.type != ActionType::Pass || !x.target) continue;
+        double targetGoalDist = std::abs(goalXFor(player.team) - x.target->x);
+        bool frontLineTarget = x.target->role == Role::CF || x.target->role == Role::WM;
+        bool centralTarget = std::abs(x.target->y - PITCH_H / 2.0) < 190.0;
+        bool boxChance = targetGoalDist < 245.0 && centralTarget;
+        bool cutbackOrSlip = targetGoalDist < 210.0 && x.audit.forwardProgress > -15.0;
+        if ((frontLineTarget || boxChance)
+            && (boxChance || cutbackOrSlip)
+            && x.audit.expectedCompletion >= 0.58
+            && x.audit.blockers <= 1
+            && x.audit.receiverPressure <= 1) {
+            if (!chancePass || x.score > chancePass->score)
+                chancePass = &x;
+        }
+    }
+    if (chancePass
+        && (best.type == ActionType::Dribble || best.type == ActionType::Shoot)
+        && chancePass->score > best.score - 0.18)
+        return chancePass;
+
+    // Long shots look ugly and rarely score. In the final third, use them only
+    // when there is no credible way to move the ball into a better chance.
+    if (best.type == ActionType::Shoot && best.audit.distance > 235.0) {
+        Action* bestBoxPass = nullptr;
+        Action* driveOpt = nullptr;
+        for (auto& x : a) {
+            if (x.type == ActionType::Pass && x.target) {
+                double targetGoalDist = std::abs(goalXFor(player.team) - x.target->x);
+                bool centralTarget = std::abs(x.target->y - PITCH_H / 2.0) < 185.0;
+                bool chancePass = targetGoalDist < 245.0 && centralTarget
+                    && x.audit.expectedCompletion >= 0.58
+                    && x.audit.blockers <= 1
+                    && x.audit.receiverPressure <= 1;
+                if (chancePass && (!bestBoxPass || x.score > bestBoxPass->score))
+                    bestBoxPass = &x;
+            }
+            if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space)
+                if (!driveOpt || x.score > driveOpt->score) driveOpt = &x;
+        }
+        if (bestBoxPass && bestBoxPass->score > best.score - 0.34)
+            return bestBoxPass;
+        if (driveOpt && best.audit.distance > 255.0 && driveOpt->score > best.score - 0.22)
+            return driveOpt;
+    }
+
     // Prefer front-line pass over shooting (WM/CF in better position)
     if (shouldSearchForPassOverShot() && best.type == ActionType::Shoot) {
         Action* frontLinePass = nullptr;
@@ -374,12 +436,12 @@ Action* PlayerAI::tryFinalThirdOverride(SmallVector<Action, 24>& a, Action& best
             }
         }
         if (shotOpt && !tapInPass) {
-            double maxDistance = finalThirdShotMaxDistance();
-            double minAngle = finalThirdShotMinAngle();
+            double maxDistance = finalThirdShotMaxDistance() + 25.0;
+            double minAngle = std::max(6.5, finalThirdShotMinAngle() - 1.5);
             bool credible = shotOpt->audit.distance < maxDistance
                 && shotOpt->audit.angleDeg > minAngle
-                && shotOpt->audit.pressureCount <= 1;
-            if (credible && shotOpt->score > best.score - 0.26) return shotOpt;
+                && shotOpt->audit.pressureCount <= 2;
+            if (credible && shotOpt->score > best.score - 0.40) return shotOpt;
         }
     }
     return nullptr;

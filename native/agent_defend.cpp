@@ -2,7 +2,7 @@
 #include "agent.h"
 
 Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) {
-    if (engine.setPieceArmed) return Action{ActionType::Tackle, 0.0};
+    if (engine.setPiece.armed) return Action{ActionType::Tackle, 0.0};
     if (per.ballIsLoose || per.ballControllerTeam == player.team)
         return Action{ActionType::Tackle, 0.0};
 
@@ -105,7 +105,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     sc += (engine.configFor(player.team).aggression / 100.0) * 0.10;
 
     // Added time: press harder in defending final third
-    if (engine.addedTimeActive) {
+    if (engine.phase.addedTimeActive) {
         bool inDefThird = (player.team == Team::Home) ? player.x < THIRD_1 : player.x > THIRD_2;
         if (inDefThird) sc += 0.12;
     }
@@ -307,7 +307,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
     }
 
     // Added time: chase harder when ball in defending final third
-    if (engine.addedTimeActive) {
+    if (engine.phase.addedTimeActive) {
         bool inDefThird = (player.team == Team::Home) ? b.x < THIRD_1 : b.x > THIRD_2;
         if (inDefThird) sc += 0.12;
     }

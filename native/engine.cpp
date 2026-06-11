@@ -64,7 +64,7 @@ const Player* GameEngine::findGK(Team team) const {
 }
 
 bool GameEngine::canContestBall(Player& player) {
-    if(setPieceArmed&&state.ball.controllerId<0)return false;
+    if(setPiece.armed&&state.ball.controllerId<0)return false;
     if(activeKnockAhead.active&&activeKnockAhead.playerId==player.id)return true;
     if(state.ball.controllerId<0
         && state.ball.intendedReceiverId==player.id
@@ -82,22 +82,22 @@ bool GameEngine::canContestBall(Player& player) {
 void GameEngine::startMatch() {
     state.matchState = "running";
     state.clockMs = 0;
-    addedTimeActive = false;
+    phase.addedTimeActive = false;
     kickoff(Team::Home);
 }
 
 void GameEngine::kickoff(Team t){
-    nextKickoffTeam=(t==Team::Home)?Team::Away:Team::Home;
+    phase.nextKickoffTeam=(t==Team::Home)?Team::Away:Team::Home;
     contestBlockedUntil.fill(0);
     receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
     pendingPass.active=false;
     activeKnockAhead.active=false;
     knockAheadCooldownUntil.fill(0);
-    trackedShot=false;
-    trackedShotPreventable=false;
-    trackedShotHeader=false;
-    trackedPenaltyShot=false;
-    trackedShotDribble20m=false;
+    shot.tracked=false;
+    shot.preventable=false;
+    shot.header=false;
+    shot.penalty=false;
+    shot.dribble20m=false;
     lastLooseOrigin.clear();
     for(auto&p:state.players){
         double margin=(p.team==t)?30.0:45.0;
@@ -121,11 +121,11 @@ void GameEngine::kickoff(Team t){
             break;
         }
     }
-    kickoffPhase=true;
-    actionTimer=600;
-    lastKickoffMs=state.clockMs;
-    setPieceArmed=false;
-    setPieceReason.clear();
+    phase.kickoffPhase=true;
+    phase.actionTimer=600;
+    phase.lastKickoffMs=state.clockMs;
+    setPiece.armed=false;
+    setPiece.reason.clear();
 }
 
 void GameEngine::update(double dM) {
@@ -149,18 +149,18 @@ void GameEngine::cacheBallState() {
 void GameEngine::fixedUpdate(double sdt) {
     state.clockMs += sdt;
 
-    // ── Added-time / end-of-half whistle ──
-    double halfEndMs = (half == 1) ? HALF_DURATION : MATCH_DURATION;
+    // ── Added-time / end-of-phase.half whistle ──
+    double halfEndMs = (phase.half == 1) ? HALF_DURATION : MATCH_DURATION;
     if (state.clockMs >= halfEndMs) {
-        addedTimeActive = true;
+        phase.addedTimeActive = true;
         double overtimeMs = state.clockMs - halfEndMs;
         double bx = state.ball.x;
         bool inFinalThird = (bx < THIRD_1 || bx > THIRD_2);
         if (overtimeMs >= ADDED_TIME_WHISTLE_MS && !inFinalThird) {
-            addedTimeActive = false;
-            if (half == 1) {
-                half = 2;
-                halfTimePause = 2000;
+            phase.addedTimeActive = false;
+            if (phase.half == 1) {
+                phase.half = 2;
+                phase.halfTimePause = 2000;
             } else {
                 state.matchState = "finished";
                 stats.recordScore(state.homeScore, state.awayScore);
@@ -168,9 +168,9 @@ void GameEngine::fixedUpdate(double sdt) {
             }
         }
     }
-    if (halfTimePause > 0) {
-        halfTimePause -= sdt;
-        if (halfTimePause <= 0) kickoff(nextKickoffTeam);
+    if (phase.halfTimePause > 0) {
+        phase.halfTimePause -= sdt;
+        if (phase.halfTimePause <= 0) kickoff(phase.nextKickoffTeam);
         tickAgents(sdt, false);
         cacheBallState();
         return;
@@ -205,8 +205,8 @@ void GameEngine::fixedUpdate(double sdt) {
     }
     detectSimulationFreeze(sdt);
 
-    if (setPieceArmed) { updateSetPiecePhase(sdt, sec); return; }
-    if (kickoffPhase)   { updateKickoffPhase(sdt); return; }
+    if (setPiece.armed) { updateSetPiecePhase(sdt, sec); return; }
+    if (phase.kickoffPhase)   { updateKickoffPhase(sdt); return; }
 
     updateOpenPlayPhase(sdt, sec);
 }
@@ -222,40 +222,40 @@ void GameEngine::updatePlayerAnimations(double sdt) {
 void GameEngine::updatePossessionTracking(double sdt) {
     auto* c = playerById(state.ball.controllerId);
     if (c) {
-        if (c->team == Team::Home) possessionHome += sdt;
-        else possessionAway += sdt;
+        if (c->team == Team::Home) metrics.possessionHome += sdt;
+        else metrics.possessionAway += sdt;
         double fd = fdFor(c->team);
-        if (c->id != carryTrackerId) {
-            carryTrackerId = c->id;
-            carryLastX = c->x;
-            carryLastY = c->y;
-            carryPathDistance = 0;
+        if (c->id != carrierTracker.carryTrackerId) {
+            carrierTracker.carryTrackerId = c->id;
+            carrierTracker.carryLastX = c->x;
+            carrierTracker.carryLastY = c->y;
+            carrierTracker.carryPathDistance = 0;
         } else {
-            double step = dist(c->x, c->y, carryLastX, carryLastY);
-            if (step < 45.0) carryPathDistance += step;
-            carryLastX = c->x;
-            carryLastY = c->y;
+            double step = dist(c->x, c->y, carrierTracker.carryLastX, carrierTracker.carryLastY);
+            if (step < 45.0) carrierTracker.carryPathDistance += step;
+            carrierTracker.carryLastX = c->x;
+            carrierTracker.carryLastY = c->y;
         }
-        if (c->id != backwardCarryCarrierId) {
-            backwardCarryCarrierId = c->id;
-            backwardCarryStartX = c->x;
-            backwardCarryRecorded = false;
-        } else if (!backwardCarryRecorded && (c->x - backwardCarryStartX) * fd < -200.0) {
+        if (c->id != carrierTracker.backwardCarryCarrierId) {
+            carrierTracker.backwardCarryCarrierId = c->id;
+            carrierTracker.backwardCarryStartX = c->x;
+            carrierTracker.backwardCarryRecorded = false;
+        } else if (!carrierTracker.backwardCarryRecorded && (c->x - carrierTracker.backwardCarryStartX) * fd < -200.0) {
             stats.recordLongBackwardCarry();
-            backwardCarryRecorded = true;
+            carrierTracker.backwardCarryRecorded = true;
         }
         double carrierSpeed = std::hypot(c->vx, c->vy);
         double targetDistance = dist(c->x, c->y, c->targetX, c->targetY);
-        bool stationaryOutfieldHold = !setPieceArmed && !kickoffPhase && c->role != Role::GK
+        bool stationaryOutfieldHold = !setPiece.armed && !phase.kickoffPhase && c->role != Role::GK
             && carrierSpeed < 8.0 && (targetDistance < 8.0 || c->dribbleType == 0);
-        if (c->id != stationaryHoldCarrierId || !stationaryOutfieldHold) {
-            stationaryHoldCarrierId = stationaryOutfieldHold ? c->id : -1;
-            stationaryHoldMs = 0;
-            stationaryHoldRecorded = false;
-        } else if (!stationaryHoldRecorded) {
-            stationaryHoldMs += sdt;
-            if (stationaryHoldMs >= 420.0) {
-                stationaryHoldRecorded = true;
+        if (c->id != carrierTracker.stationaryHoldCarrierId || !stationaryOutfieldHold) {
+            carrierTracker.stationaryHoldCarrierId = stationaryOutfieldHold ? c->id : -1;
+            carrierTracker.stationaryHoldMs = 0;
+            carrierTracker.stationaryHoldRecorded = false;
+        } else if (!carrierTracker.stationaryHoldRecorded) {
+            carrierTracker.stationaryHoldMs += sdt;
+            if (carrierTracker.stationaryHoldMs >= 420.0) {
+                carrierTracker.stationaryHoldRecorded = true;
                 Player* best = nullptr;
                 double bestD = 1e9;
                 for (auto& p : state.players) {
@@ -277,58 +277,58 @@ void GameEngine::updatePossessionTracking(double sdt) {
         if (activeKnockAhead.active && activeKnockAhead.playerId >= 0) {
             Player* runner = playerById(activeKnockAhead.playerId);
             if (runner) {
-                if (carryTrackerId != runner->id) {
-                    carryTrackerId = runner->id;
-                    carryLastX = runner->x;
-                    carryLastY = runner->y;
-                    carryPathDistance = 0;
+                if (carrierTracker.carryTrackerId != runner->id) {
+                    carrierTracker.carryTrackerId = runner->id;
+                    carrierTracker.carryLastX = runner->x;
+                    carrierTracker.carryLastY = runner->y;
+                    carrierTracker.carryPathDistance = 0;
                 } else {
-                    double step = dist(runner->x, runner->y, carryLastX, carryLastY);
-                    if (step < 45.0) carryPathDistance += step;
-                    carryLastX = runner->x;
-                    carryLastY = runner->y;
+                    double step = dist(runner->x, runner->y, carrierTracker.carryLastX, carrierTracker.carryLastY);
+                    if (step < 45.0) carrierTracker.carryPathDistance += step;
+                    carrierTracker.carryLastX = runner->x;
+                    carrierTracker.carryLastY = runner->y;
                 }
             }
         } else {
-            carryTrackerId = -1;
-            carryPathDistance = 0;
+            carrierTracker.carryTrackerId = -1;
+            carrierTracker.carryPathDistance = 0;
         }
-        backwardCarryCarrierId = -1;
-        backwardCarryRecorded = false;
-        stationaryHoldCarrierId = -1;
-        stationaryHoldMs = 0;
-        stationaryHoldRecorded = false;
+        carrierTracker.backwardCarryCarrierId = -1;
+        carrierTracker.backwardCarryRecorded = false;
+        carrierTracker.stationaryHoldCarrierId = -1;
+        carrierTracker.stationaryHoldMs = 0;
+        carrierTracker.stationaryHoldRecorded = false;
     }
-    stats.recordPossession(possessionHome, possessionAway);
+    stats.recordPossession(metrics.possessionHome, metrics.possessionAway);
     auditStuckCarrier(sdt);
 }
 
 void GameEngine::detectSimulationFreeze(double sdt) {
-    if (setPieceArmed || kickoffPhase) return;
+    if (setPiece.armed || phase.kickoffPhase) return;
     auto& fb = state.ball;
     int cid = fb.controllerId;
     if (cid < 0) {
-        freezeWatchMs = 0;
-        freezeLastController = -1;
-    } else if (cid != freezeLastController) {
-        freezeWatchMs = 0;
-        freezeBallX = fb.x;
-        freezeBallY = fb.y;
-        freezeLastController = cid;
+        freezeDetector.freezeWatchMs = 0;
+        freezeDetector.freezeLastController = -1;
+    } else if (cid != freezeDetector.freezeLastController) {
+        freezeDetector.freezeWatchMs = 0;
+        freezeDetector.freezeBallX = fb.x;
+        freezeDetector.freezeBallY = fb.y;
+        freezeDetector.freezeLastController = cid;
     } else {
-        freezeWatchMs += sdt;
+        freezeDetector.freezeWatchMs += sdt;
         Player* movingCarrier=playerById(cid);
         if(movingCarrier&&std::hypot(movingCarrier->vx,movingCarrier->vy)>12.0){
-            freezeWatchMs = 0;
-            freezeBallX = fb.x;
-            freezeBallY = fb.y;
+            freezeDetector.freezeWatchMs = 0;
+            freezeDetector.freezeBallX = fb.x;
+            freezeDetector.freezeBallY = fb.y;
             return;
         }
-        if (dist(fb.x, fb.y, freezeBallX, freezeBallY) >= 5) {
-            freezeWatchMs = 0;
-            freezeBallX = fb.x;
-            freezeBallY = fb.y;
-        } else if (freezeWatchMs > 1500 && state.clockMs - lastFreezeAlertMs > 5000) {
+        if (dist(fb.x, fb.y, freezeDetector.freezeBallX, freezeDetector.freezeBallY) >= 5) {
+            freezeDetector.freezeWatchMs = 0;
+            freezeDetector.freezeBallX = fb.x;
+            freezeDetector.freezeBallY = fb.y;
+        } else if (freezeDetector.freezeWatchMs > 1500 && state.clockMs - freezeDetector.lastFreezeAlertMs > 5000) {
             Player* frozen=playerById(cid);
             Player* best=nullptr; double bestD=1e9;
             if(frozen&&frozen->role!=Role::GK){
@@ -347,13 +347,13 @@ void GameEngine::detectSimulationFreeze(double sdt) {
                 frozen->targetX=clamp(frozen->x+fd*90.0,35.0,PITCH_W-35.0);
                 frozen->targetY=clamp(frozen->y+(frozen->y<PITCH_H/2?-45.0:45.0),35.0,PITCH_H-35.0);
             }else{
-                simulationFreezes++;
+                freezeDetector.simulationFreezes++;
                 stats.recordSimulationFreeze();
             }
-            lastFreezeAlertMs = state.clockMs;
-            freezeWatchMs = 0;
-            freezeBallX = fb.x;
-            freezeBallY = fb.y;
+            freezeDetector.lastFreezeAlertMs = state.clockMs;
+            freezeDetector.freezeWatchMs = 0;
+            freezeDetector.freezeBallX = fb.x;
+            freezeDetector.freezeBallY = fb.y;
         }
     }
 }
@@ -378,22 +378,22 @@ static double actionTimerFor(SetPiece sp) {
 }
 
 void GameEngine::updateSetPiecePhase(double sdt, double sec) {
-    actionTimer -= sdt;
-    Team spTeam = setPieceTeamEnum;
+    phase.actionTimer -= sdt;
+    Team spTeam = setPiece.team;
 
     // ── Populate throw-in support targets in blackboard (once per set piece) ──
-    if (setPieceTypeEnum == SetPiece::ThrowIn) {
+    if (setPiece.type == SetPiece::ThrowIn) {
         auto& bb = blackboards[teamIndex(spTeam)];
         if (!bb.throwInSupport.active) {
             bb.throwInSupport.active = true;
-            bb.throwInSupport.spotX = setPieceSpotX;
-            bb.throwInSupport.spotY = setPieceSpotY;
+            bb.throwInSupport.spotX = setPiece.spotX;
+            bb.throwInSupport.spotY = setPiece.spotY;
             double fd = fdFor(spTeam);
-            double bx = setPieceSpotX;
-            double by = setPieceSpotY;
+            double bx = setPiece.spotX;
+            double by = setPiece.spotY;
             for (auto& p : state.players) {
                 if (p.team != spTeam || p.role == Role::GK) continue;
-                if (p.id == setPieceTakerId) continue;
+                if (p.id == setPiece.takerId) continue;
                 double tx, ty;
                 if (p.role == Role::CF) {
                     tx = bx + fd * 170.0;
@@ -425,27 +425,27 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     }
 
     for (auto& a : agents) {
-        a->setPiecePositioning(setPieceTypeEnum, spTeam);
+        a->setPiecePositioning(setPiece.type, spTeam);
     }
     auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
         double fd = fdFor(taker.team);
-        double standBack = standBackFor(setPieceTypeEnum);
-        double px = releaseSpot ? setPieceSpotX : setPieceSpotX - fd * standBack;
-        double py = setPieceSpotY;
+        double standBack = standBackFor(setPiece.type);
+        double px = releaseSpot ? setPiece.spotX : setPiece.spotX - fd * standBack;
+        double py = setPiece.spotY;
         taker.x = clamp(px, 5.0, PITCH_W - 5.0);
         taker.y = clamp(py, 5.0, PITCH_H - 5.0);
-        taker.targetX = setPieceSpotX;
-        taker.targetY = setPieceSpotY;
+        taker.targetX = setPiece.spotX;
+        taker.targetY = setPiece.spotY;
         taker.vx = taker.vy = 0;
-        taker.facing = std::atan2(setPieceSpotY - taker.y, setPieceSpotX - taker.x);
+        taker.facing = std::atan2(setPiece.spotY - taker.y, setPiece.spotX - taker.x);
     };
     auto enforceRestartDistance = [&]() {
-        double minDist = minDistFor(setPieceTypeEnum);
-        Team restartTeam = setPieceTeamEnum;
+        double minDist = minDistFor(setPiece.type);
+        Team restartTeam = setPiece.team;
         for (auto& p : state.players) {
             if (p.team == restartTeam || p.role == Role::GK) continue;
-            double dx = p.x - setPieceSpotX;
-            double dy = p.y - setPieceSpotY;
+            double dx = p.x - setPiece.spotX;
+            double dy = p.y - setPiece.spotY;
             double d = std::hypot(dx, dy);
             if (d >= minDist) continue;
             if (d < 1.0) {
@@ -453,17 +453,17 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 dx = -fd; dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
                 d = std::hypot(dx, dy);
             }
-            p.x = clamp(setPieceSpotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
-            p.y = clamp(setPieceSpotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
+            p.x = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
+            p.y = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
             p.targetX = p.x;
             p.targetY = p.y;
             p.vx = p.vy = 0;
         }
     };
 
-    if (setPieceTakerId >= 0) {
+    if (setPiece.takerId >= 0) {
         for (auto& a : agents) {
-            if (a->player.id == setPieceTakerId) {
+            if (a->player.id == setPiece.takerId) {
                 a->setPieceHold = true;
                 break;
             }
@@ -475,16 +475,16 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     separateTeammates(sdt);
     enforceRestartDistance();
 
-    if (setPieceTypeEnum == SetPiece::GoalKick && actionTimer <= 0) {
-        setPieceArmed = false;
-        setPieceReason.clear();
+    if (setPiece.type == SetPiece::GoalKick && phase.actionTimer <= 0) {
+        setPiece.armed = false;
+        setPiece.reason.clear();
         releaseSetPiece();
         cacheBallState();
         return;
     }
 
-    if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
-        Player* taker = playerById(setPieceTakerId);
+    if (setPiece.takerId >= 0 && !setPiece.takerArrived) {
+        Player* taker = playerById(setPiece.takerId);
         if (taker) {
             double dx = state.ball.x - taker->x;
             double dy = state.ball.y - taker->y;
@@ -501,38 +501,38 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         }
     }
 
-    if (setPieceTakerId >= 0 && !setPieceTakerArrived) {
-        Player* taker = playerById(setPieceTakerId);
+    if (setPiece.takerId >= 0 && !setPiece.takerArrived) {
+        Player* taker = playerById(setPiece.takerId);
         if (taker) {
             double d = dist(taker->x, taker->y, state.ball.x, state.ball.y);
             if (d < 15.0) {
-                setPieceTakerArrived = true;
+                setPiece.takerArrived = true;
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
                 state.ball.lastToucherId = taker->id;
-                actionTimer = actionTimerFor(setPieceTypeEnum);
+                phase.actionTimer = actionTimerFor(setPiece.type);
             }
         }
     }
 
-    if (setPieceTakerArrived && actionTimer <= 0) {
+    if (setPiece.takerArrived && phase.actionTimer <= 0) {
         for (auto& a : agents) {
-            if (a->player.id == setPieceTakerId) { a->setPieceHold = false; break; }
+            if (a->player.id == setPiece.takerId) { a->setPieceHold = false; break; }
         }
-        Player* taker = playerById(setPieceTakerId);
+        Player* taker = playerById(setPiece.takerId);
         if (taker) placeTakerForRestart(*taker, true);
         enforceRestartDistance();
-        state.ball.x = setPieceSpotX;
-        state.ball.y = setPieceSpotY;
+        state.ball.x = setPiece.spotX;
+        state.ball.y = setPiece.spotY;
         state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
-        setPieceArmed = false;
-        setPieceReason.clear();
-        setPieceTakerId = -1;
-        setPieceTakerArrived = false;
+        setPiece.armed = false;
+        setPiece.reason.clear();
+        setPiece.takerId = -1;
+        setPiece.takerArrived = false;
         releaseSetPiece();
-    } else if (!setPieceTakerArrived && actionTimer <= 0) {
-        if (setPieceTakerId >= 0) {
-            Player* taker = playerById(setPieceTakerId);
+    } else if (!setPiece.takerArrived && phase.actionTimer <= 0) {
+        if (setPiece.takerId >= 0) {
+            Player* taker = playerById(setPiece.takerId);
             if (taker) {
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
@@ -541,25 +541,25 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 taker->y = state.ball.y;
                 taker->targetX = state.ball.x;
                 taker->targetY = state.ball.y;
-                setPieceTakerArrived = true;
-                actionTimer = actionTimerFor(setPieceTypeEnum);
+                setPiece.takerArrived = true;
+                phase.actionTimer = actionTimerFor(setPiece.type);
             }
         }
     }
     updateControlledBall(sec);
-    if (setPieceTakerArrived) {
-        Player* taker = playerById(setPieceTakerId);
+    if (setPiece.takerArrived) {
+        Player* taker = playerById(setPiece.takerId);
         if (taker) placeTakerForRestart(*taker, false);
-        state.ball.x = setPieceSpotX;
-        state.ball.y = setPieceSpotY;
+        state.ball.x = setPiece.spotX;
+        state.ball.y = setPiece.spotY;
         state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
     }
     cacheBallState();
 }
 
 void GameEngine::updateKickoffPhase(double sdt) {
-    actionTimer -= sdt;
-    if (actionTimer <= 0) { kickoffPhase = false; kickoffTap(); }
+    phase.actionTimer -= sdt;
+    if (phase.actionTimer <= 0) { phase.kickoffPhase = false; kickoffTap(); }
     cacheBallState();
 }
 
@@ -576,9 +576,9 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; }
     updateTeamAssignments();
     tickAgents(sdt, true);
-    if (gkDistributeTimer > 0) {
-        gkDistributeTimer -= sdt;
-        if (gkDistributeTimer <= 0) releaseSetPiece();
+    if (goalKickMonitor.distributeTimer > 0) {
+        goalKickMonitor.distributeTimer -= sdt;
+        if (goalKickMonitor.distributeTimer <= 0) releaseSetPiece();
     }
     if (b.intendedReceiverId >= 0 && b.controllerId < 0) {
         Player* receiver = playerById(b.intendedReceiverId);
@@ -610,9 +610,9 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     tryGKSave();
     if(state.ball.controllerId<0){
         double speed=std::hypot(state.ball.vx,state.ball.vy);
-        peakBallSpeed=std::max(peakBallSpeed,speed);
-        looseBallSpeedTotal+=speed;
-        looseBallSpeedSamples++;
+        metrics.peakBallSpeed=std::max(metrics.peakBallSpeed,speed);
+        metrics.looseBallSpeedTotal+=speed;
+        metrics.looseBallSpeedSamples++;
         stats.recordBallSpeedSample(speed);
     }
     double jumpDx = state.ball.x - prevBallX;
@@ -622,7 +622,7 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     double expectedMax = expectedSpeed * sec + 20.0
         + (activeKnockAhead.active ? DRIBBLE_KNOCK_OFFSET : 0.0);
     bool recentImpulse = ballImpulseGraceTicks > 0;
-    if (jumpDist > expectedMax && jumpDist > 25.0 && !recentImpulse && !setPieceArmed && !kickoffPhase
+    if (jumpDist > expectedMax && jumpDist > 25.0 && !recentImpulse && !setPiece.armed && !phase.kickoffPhase
         && state.ball.controllerId < 0) {
         stats.recordBallJump();
     }
@@ -647,37 +647,37 @@ void GameEngine::tickAgents(double sdt, bool ic) {
 void GameEngine::auditStuckCarrier(double sdt){
     Player* carrier=playerById(state.ball.controllerId);
     if(!carrier){
-        watchedCarrierId=-1;
-        watchedCarrierMs=0;
+        carrierTracker.watchedCarrierId=-1;
+        carrierTracker.watchedCarrierMs=0;
         return;
     }
-    if(carrier->id!=watchedCarrierId){
-        watchedCarrierId=carrier->id;
-        watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
-        watchedCarrierMs=0;
+    if(carrier->id!=carrierTracker.watchedCarrierId){
+        carrierTracker.watchedCarrierId=carrier->id;
+        carrierTracker.watchedCarrierX=carrier->x; carrierTracker.watchedCarrierY=carrier->y;
+        carrierTracker.watchedCarrierMs=0;
         return;
     }
-    watchedCarrierMs+=sdt;
-    double moved=dist(carrier->x,carrier->y,watchedCarrierX,watchedCarrierY);
+    carrierTracker.watchedCarrierMs+=sdt;
+    double moved=dist(carrier->x,carrier->y,carrierTracker.watchedCarrierX,carrierTracker.watchedCarrierY);
     double carrierSpeed=std::hypot(carrier->vx,carrier->vy);
     if(carrierSpeed>12.0){
-        watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
-        watchedCarrierMs=0;
+        carrierTracker.watchedCarrierX=carrier->x; carrierTracker.watchedCarrierY=carrier->y;
+        carrierTracker.watchedCarrierMs=0;
         return;
     }
     if(moved>STUCK_CARRIER_MOVE_THRESHOLD){
-        watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
-        watchedCarrierMs=0;
+        carrierTracker.watchedCarrierX=carrier->x; carrierTracker.watchedCarrierY=carrier->y;
+        carrierTracker.watchedCarrierMs=0;
         return;
     }
     double fd=fdFor(carrier->team);
-    double forwardProgress=(carrier->x-watchedCarrierX)*fd;
+    double forwardProgress=(carrier->x-carrierTracker.watchedCarrierX)*fd;
     if(forwardProgress>30.0){
-        watchedCarrierX=carrier->x; watchedCarrierY=carrier->y;
-        watchedCarrierMs=0;
+        carrierTracker.watchedCarrierX=carrier->x; carrierTracker.watchedCarrierY=carrier->y;
+        carrierTracker.watchedCarrierMs=0;
         return;
     }
-    if(watchedCarrierMs>STUCK_CARRIER_TIMEOUT_MS*0.65){
+    if(carrierTracker.watchedCarrierMs>STUCK_CARRIER_TIMEOUT_MS*0.65){
         stats.recordStuckCarrier();
         Player* best=nullptr; double bestD=1e9;
         for(auto&p:state.players){
@@ -687,8 +687,8 @@ void GameEngine::auditStuckCarrier(double sdt){
         }
         if(best)forcePassTo(*carrier,*best,nullptr);
         else{auto&b=state.ball;b.controllerId=-1;b.vx=carrier->team==Team::Home?300:-300;b.vy=0;b.vz=80;b.z=0;}
-        setPieceArmed=false;setPieceTypeEnum = SetPiece::None;setPieceTeamEnum = Team::Home;setPieceReason.clear();
-        watchedCarrierMs=0;watchedCarrierX=carrier->x;watchedCarrierY=carrier->y;
+        setPiece.armed=false;setPiece.type = SetPiece::None;setPiece.team = Team::Home;setPiece.reason.clear();
+        carrierTracker.watchedCarrierMs=0;carrierTracker.watchedCarrierX=carrier->x;carrierTracker.watchedCarrierY=carrier->y;
     }
 }
 
@@ -703,8 +703,8 @@ std::string GameEngine::getJSON() const {
     nlohmann::json j;
     j["clockMs"] = std::round(state.clockMs);
     j["matchState"] = state.matchState;
-    j["half"] = half;
-    j["addedTime"] = addedTimeActive;
+    j["phase.half"] = phase.half;
+    j["addedTime"] = phase.addedTimeActive;
     j["version"] = nativeBuildVersion();
     j["speed"] = state.speed;
     j["homeScore"] = state.homeScore;
@@ -762,8 +762,8 @@ std::string GameEngine::getJSON() const {
     j["shots"] = summary["shots"];
     j["shotsOnTarget"] = summary["shotsOnTarget"];
     j["saves"] = summary["saves"];
-    j["stuckCarrierAlerts"] = summary["stuckCarrierAlerts"];
-    j["simulationFreezes"] = summary["simulationFreezes"];
+    j["carrierTracker.stuckCarrierAlerts"] = summary["carrierTracker.stuckCarrierAlerts"];
+    j["freezeDetector.simulationFreezes"] = summary["freezeDetector.simulationFreezes"];
     j["dizzySpins"] = summary["dizzySpins"];
     j["ballJumps"] = summary["ballJumps"];
     j["teammatePingPongs"] = summary["teammatePingPongs"];
@@ -811,16 +811,16 @@ std::string GameEngine::getJSON() const {
     }
     j["possessionPct"] = summary["possessionPct"];
 
-    if (setPieceArmed) {
+    if (setPiece.armed) {
         j["setPieceState"] = {
-            {"type", to_string(setPieceTypeEnum)},
-            {"reason", setPieceReason.empty() ? to_string(setPieceTypeEnum) : setPieceReason},
-            {"team", to_string(setPieceTeamEnum)},
-            {"takerId", setPieceTakerId},
-            {"takerArrived", setPieceTakerArrived},
-            {"spotX", setPieceSpotX},
-            {"spotY", setPieceSpotY},
-            {"timerMs", actionTimer}
+            {"type", to_string(setPiece.type)},
+            {"reason", setPiece.reason.empty() ? to_string(setPiece.type) : setPiece.reason},
+            {"team", to_string(setPiece.team)},
+            {"takerId", setPiece.takerId},
+            {"takerArrived", setPiece.takerArrived},
+            {"spotX", setPiece.spotX},
+            {"spotY", setPiece.spotY},
+            {"timerMs", phase.actionTimer}
         };
     }
 

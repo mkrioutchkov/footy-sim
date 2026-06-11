@@ -26,65 +26,99 @@ public:
     std::array<Player*, 22> playerLookup = {};
     double accumulator = 0.0;
 
-    // per-frame state (not stats — used by game logic)
-    double possessionHome = 0, possessionAway = 0;
-    double peakBallSpeed = 0, looseBallSpeedTotal = 0;
-    double passLaunchSpeedTotal = 0, shotLaunchSpeedTotal = 0;
-    int looseBallSpeedSamples = 0, passLaunchCount = 0, shotLaunchCount = 0;
-    std::string lastGoalSource = "none";
-    Team lastGoalScoringTeam = Team::Home, lastGoalTouchTeam = Team::Home;
-    int lastGoalToucherId = -1;
-    double lastGoalBallSpeed = 0;
-    int stuckCarrierAlerts = 0;
+    // ── Match Metrics & Tracking ──
+    struct Metrics {
+        double possessionHome = 0, possessionAway = 0;
+        double peakBallSpeed = 0, looseBallSpeedTotal = 0;
+        double passLaunchSpeedTotal = 0, shotLaunchSpeedTotal = 0;
+        int looseBallSpeedSamples = 0, passLaunchCount = 0, shotLaunchCount = 0;
+    } metrics;
+
+    struct CarrierTracker {
+        int watchedCarrierId = -1;
+        double watchedCarrierX = 0, watchedCarrierY = 0, watchedCarrierMs = 0;
+        double lastStuckAlertMs = -1e9;
+        int stuckCarrierAlerts = 0;
+
+        int backwardCarryCarrierId = -1;
+        double backwardCarryStartX = 0;
+        bool backwardCarryRecorded = false;
+
+        int carryTrackerId = -1;
+        double carryLastX = 0, carryLastY = 0, carryPathDistance = 0;
+
+        int stationaryHoldCarrierId = -1;
+        double stationaryHoldMs = 0;
+        bool stationaryHoldRecorded = false;
+    } carrierTracker;
+
+    struct FreezeDetector {
+        int simulationFreezes = 0;
+        double freezeWatchMs = 0;
+        double freezeBallX = 0, freezeBallY = 0;
+        int freezeLastController = -1;
+        double lastFreezeAlertMs = -1e9;
+    } freezeDetector;
+
+    struct GoalInfo {
+        std::string source = "none";
+        Team scoringTeam = Team::Home;
+        Team touchTeam = Team::Home;
+        int toucherId = -1;
+        double ballSpeed = 0;
+    } lastGoal;
+
+    // ── Game Logic State ──
     int teammatePingPongs = 0;
     double lastSameTeamCollectionMs = 0;
     std::optional<Team> lastCollectionTeam;
-    int simulationFreezes = 0;
-    double freezeWatchMs = 0;
-    double freezeBallX = 0, freezeBallY = 0;
-    int freezeLastController = -1;
-    double lastFreezeAlertMs = -1e9;
     int dizzySpins = 0;
     double nextTacticalAuditMs = 0;
-    int watchedCarrierId = -1;
-    double watchedCarrierX = 0, watchedCarrierY = 0, watchedCarrierMs = 0, lastStuckAlertMs = -1e9;
-    int backwardCarryCarrierId = -1;
-    double backwardCarryStartX = 0;
-    bool backwardCarryRecorded = false;
-    int carryTrackerId = -1;
-    double carryLastX = 0, carryLastY = 0, carryPathDistance = 0;
-    int stationaryHoldCarrierId = -1;
-    double stationaryHoldMs = 0;
-    bool stationaryHoldRecorded = false;
 
-    double lastKickoffMs = 0; bool kickoffPhase = false;
-    double actionTimer = 0; bool setPieceArmed = false;
+    struct MatchPhase {
+        int half = 1;
+        double halfTimePause = 0;
+        bool addedTimeActive = false;
+        Team nextKickoffTeam = Team::Home;
+        double lastKickoffMs = 0;
+        bool kickoffPhase = false;
+        double actionTimer = 0;
+    } phase;
+
+    struct SetPieceState {
+        bool armed = false;
+        SetPiece type = SetPiece::None;
+        Team team = Team::Home;
+        int takerId = -1;
+        double spotX = 0, spotY = 0;
+        bool takerArrived = false;
+        std::string reason;
+    } setPiece;
+
     double prevBallX = 525, prevBallY = 340;
     double prevBallVx = 0, prevBallVy = 0;
     int prevControllerId = -1;
     int ballImpulseGraceTicks = 0;
-    SetPiece setPieceTypeEnum = SetPiece::None;
-    Team setPieceTeamEnum = Team::Home;
-    int setPieceTakerId = -1;
-    double setPieceSpotX = 0, setPieceSpotY = 0;
-    bool setPieceTakerArrived = false;
-    std::string setPieceReason; // kept as string for logging only
-    int half = 1; double halfTimePause = 0;
-    bool addedTimeActive = false;
-    Team nextKickoffTeam = Team::Home;
-    bool shotActive = false;
-    bool trackedShot = false;
-    bool trackedShotPreventable = false;
-    bool trackedShotHeader = false;
-    bool trackedPenaltyShot = false;
-    bool trackedShotDribble20m = false;
-    Team trackedShotTeam = Team::Home;
-    int trackedShooterId = -1;
-    double shotOriginX = 0, shotOriginY = 0;
-    double gkDistributeTimer = 0;
-    bool goalKickMonitorActive = false;
-    Team goalKickMonitorTeam = Team::Home;
-    double goalKickMonitorStartedMs = 0;
+
+    struct ShotTracking {
+        bool active = false;
+        bool tracked = false;
+        bool preventable = false;
+        bool header = false;
+        bool penalty = false;
+        bool dribble20m = false;
+        Team team = Team::Home;
+        int shooterId = -1;
+        double originX = 0, originY = 0;
+    } shot;
+
+    struct GKMonitor {
+        double distributeTimer = 0;
+        bool active = false;
+        Team team = Team::Home;
+        double startedMs = 0;
+    } goalKickMonitor;
+
     std::array<double, 22> contestBlockedUntil = {};
     int receiverShieldTargetId = -1, receiverShieldedPlayerId = -1;
     double receiverShieldUntil = 0;

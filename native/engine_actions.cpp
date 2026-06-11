@@ -15,7 +15,7 @@ void GameEngine::blockReboundFor(int playerId,double ms) {
 
 void GameEngine::recordBallImpulse() {
     double spd=std::hypot(state.ball.vx,state.ball.vy);
-    peakBallSpeed=std::max(peakBallSpeed,spd);
+    metrics.peakBallSpeed=std::max(metrics.peakBallSpeed,spd);
     stats.recordBallSpeedSample(spd);
     prevBallX=state.ball.x;
     prevBallY=state.ball.y;
@@ -35,14 +35,14 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isTh
     if(isThrough) stats.recordThroughBallAttempt();
     lastLooseOrigin.clear();
     double speed=std::hypot(state.ball.vx,state.ball.vy);
-    passLaunchSpeedTotal+=speed; passLaunchCount++;
+    metrics.passLaunchSpeedTotal+=speed; metrics.passLaunchCount++;
     stats.recordPassLaunch(speed);
     recordBallImpulse();
     double fd = fdFor(from.team);
     double forwardProgress = (to.x - from.x) * fd;
     stats.recordPassDirection(forwardProgress);
     if(to.role==Role::GK && forwardProgress < -30.0) stats.recordKeeperBackpass();
-    bool offsideExempt = setPieceTypeEnum == SetPiece::Corner || setPieceTypeEnum == SetPiece::ThrowIn || setPieceTypeEnum == SetPiece::GoalKick;
+    bool offsideExempt = setPiece.type == SetPiece::Corner || setPiece.type == SetPiece::ThrowIn || setPiece.type == SetPiece::GoalKick;
     pendingPass={true,from.id,to.id,from.team,isCross,isThrough,offsideExempt,from.x,from.y,offsideLineFor(from.team)};
 }
 
@@ -292,7 +292,7 @@ void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
 bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     double contactDist=dist(tackler.x,tackler.y,carrier.x,carrier.y);
     auto& b=state.ball;
-    if(setPieceArmed)return false;
+    if(setPiece.armed)return false;
     if(b.controllerId!=carrier.id||tackler.team==carrier.team||contactDist>TACKLE_RANGE)return false;
     if(carrier.role==Role::GK)return false;
     if(!canContestBall(tackler))return false;
@@ -349,25 +349,25 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
                 b.y = PITCH_H / 2.0;
                 stats.recordPenaltyAwarded();
                 awardSetPiece(SetPiece::Penalty, carrier.team);
-                setPieceReason = "penalty";
+                setPiece.reason = "penalty";
             } else {
                 b.x = clamp(foulX, 20.0, PITCH_W - 20.0);
                 b.y = clamp(foulY, 20.0, PITCH_H - 20.0);
                 awardSetPiece(SetPiece::FreeKick, carrier.team);
             }
-            setPieceSpotX = b.x;
-            setPieceSpotY = b.y;
+            setPiece.spotX = b.x;
+            setPiece.spotY = b.y;
         }else{
             blockReboundFor(tackler.id,650);
         }
         return false;
     }
     pendingPass.active=false;
-    trackedShot=false;
-    trackedShotPreventable=false;
-    trackedShotHeader=false;
-    trackedPenaltyShot=false;
-    trackedShotDribble20m=false;
+    shot.tracked=false;
+    shot.preventable=false;
+    shot.header=false;
+    shot.penalty=false;
+    shot.dribble20m=false;
     receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
     double angle=std::atan2(b.y-tackler.y,b.x-tackler.x)+(rng.random()-0.5)*0.9;
     double outcomeRoll=rng.random();
@@ -407,12 +407,12 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
 }
 
 void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
-    if(goalKickMonitorActive&&s.team!=goalKickMonitorTeam){
+    if(goalKickMonitor.active&&s.team!=goalKickMonitor.team){
         stats.recordGoalKickTrappedShot();
-        goalKickMonitorActive=false;
+        goalKickMonitor.active=false;
     }
     stats.recordShot(s.team, false, s.role);
-    bool dribble20mShot = carryTrackerId == s.id && carryPathDistance >= 200.0;
+    bool dribble20mShot = carrierTracker.carryTrackerId == s.id && carrierTracker.carryPathDistance >= 200.0;
     if (dribble20mShot) stats.recordDribble20mShot();
     double gx=goalXFor(s.team);
     double accuracy=attrFactor(s.attrs.shooting);
@@ -444,6 +444,9 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         bool betterPassFlag=audit->bestPassTargetId>=0&&audit->bestPassScore>audit->score+0.12;
         bool tightAngleFlag=audit->angleDeg<8.0&&audit->distance>120.0;
         stats.recordShotSelection(audit->angleDeg,audit->pressureCount,0,0,0,0,0,0,betterPassFlag,tightAngleFlag);
+    } else {
+        bool tightAngleFlag=angleDeg<8.0&&shotDistance>120.0;
+        stats.recordShotSelection(angleDeg,pressureCount,0,0,0,0,0,0,false,tightAngleFlag);
     }
     if(shotDistance>210||acuteGeometry||(audit&&audit->bestPassScore>audit->score+0.12)){stats.recordQuestionableShot();}
     double anglePenalty=clamp(std::abs(s.y-goalCenterY)/230,0.0,1.0);
@@ -458,7 +461,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     executionError=std::max(SHOT_ERROR_FLOOR,executionError+roleError);
     bool credibleFinish=angleDeg>12.0&&shotDistance<185.0&&pressureCount<=1&&laneBlockers<=1;
     bool freshThrough=s.throughCollected>0.0&&shotDistance<245.0;
-    bool directFreeKickShot=setPieceTypeEnum==SetPiece::FreeKick;
+    bool directFreeKickShot=setPiece.type==SetPiece::FreeKick;
     if(credibleFinish)executionError*=shotDistance<95.0?0.60:0.70;
     if(directFreeKickShot)executionError*=0.48;
     if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.84:0.92;
@@ -486,13 +489,13 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     b.vx=dx/d*speed; b.vy=dy/d*speed;
     b.intendedReceiverId=-1; b.z=b.vz=0;
     b.lastTouchTeam=s.team; b.lastToucherId=s.id;
-    shotLaunchSpeedTotal+=speed; shotLaunchCount++;
+    metrics.shotLaunchSpeedTotal+=speed; metrics.shotLaunchCount++;
     stats.recordShotLaunch(speed);
     recordBallImpulse();
     pendingPass.active=false;
     lastLooseOrigin="shot";
     receiverShieldTargetId=-1;
-    shotActive=true; trackedShot=true; trackedShotPreventable=false; trackedShotHeader=freshCross; trackedShotDribble20m=dribble20mShot; trackedShotTeam=s.team; trackedShooterId=s.id; shotOriginX=s.x; shotOriginY=s.y;
+    shot.active=true; shot.tracked=true; shot.preventable=false; shot.header=freshCross; shot.dribble20m=dribble20mShot; shot.team=s.team; shot.shooterId=s.id; shot.originX=s.x; shot.originY=s.y;
 }
 
 // ══════════════════════════════════════════════════════════════

@@ -122,6 +122,18 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (cutbackTarget && receiverPressure == 0 && bl == 0) sc += 0.10;
     }
 
+    bool boxCombination = carrierFinalThird
+        && centralBoxTarget
+        && (t.role == Role::CF || t.role == Role::WM || t.role == Role::CM)
+        && receiverPressure <= 1
+        && bl <= 1
+        && completion >= 0.56;
+    if (boxCombination) {
+        sc += 0.24;
+        if (receiverPressure == 0 && bl == 0) sc += 0.12;
+        if (t.role == Role::CF) sc += 0.10;
+    }
+
     // ── Role-based target bonuses ──
     if (carrierFinalThird && boxTargetGoalDist < 150.0 && receiverPressure <= 1 && bl <= 1) {
         if (t.role == Role::CF) sc += 0.16;
@@ -194,7 +206,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (pur == ActionPurpose::Build && bl > 0) sc += cr * 0.12;
     if (pur == ActionPurpose::Clear)           sc -= cr * 0.10;
 
-    if (engine.addedTimeActive) {
+    if (engine.phase.addedTimeActive) {
         bool inDefThird = (p.team == Team::Home) ? p.x < THIRD_1 : p.x > THIRD_2;
         if (inDefThird) {
             bool targetExitsThird = (p.team == Team::Home) ? t.x > THIRD_1 : t.x < THIRD_2;

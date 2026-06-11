@@ -30,10 +30,10 @@ void CMPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isCon
             if (!bestDribble || a.score > bestDribble->score) bestDribble = &a;
         }
     }
-    if (bestDribble && bestDribble->score > 0.25) bestDribble->score += 0.08;
+    if (bestDribble && bestDribble->score > 0.25) bestDribble->score += 0.04;
     for (auto& a : actions) {
-        if (a.type == ActionType::Dribble) a.score += 0.08;
-        if (a.type == ActionType::Pass)   a.score += 0.02;
+        if (a.type == ActionType::Dribble) a.score += 0.04;
+        if (a.type == ActionType::Pass)   a.score += 0.04;
     }
 }
 

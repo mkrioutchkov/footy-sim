@@ -65,6 +65,8 @@ inline constexpr double ADDED_TIME_WHISTLE_MS = 5000.0;
 constexpr auto clamp(double v, double lo, double hi) -> double { return v < lo ? lo : v > hi ? hi : v; }
 constexpr auto clampRange(double v, double a, double b) -> double { return clamp(v, std::min(a, b), std::max(a, b)); }
 constexpr auto lerp(double a, double b, double t) -> double { return a + (b - a) * t; }
+constexpr auto clampToPitchX(double x, double margin = 5.0) -> double { return clamp(x, margin, PITCH_W - margin); }
+constexpr auto clampToPitchY(double y, double margin = 5.0) -> double { return clamp(y, margin, PITCH_H - margin); }
 inline auto dist(double ax, double ay, double bx, double by) -> double {
     double dx = ax - bx, dy = ay - by;
     return std::sqrt(dx * dx + dy * dy);

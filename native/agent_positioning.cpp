@@ -36,11 +36,11 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
                 bool beyondLine = fd > 0.0 ? targetX > line + OFFSIDE_TOLERANCE : targetX < line - OFFSIDE_TOLERANCE;
                 if (beyondHalf && beyondBall && beyondLine) {
                     double legalShoulder = fd > 0.0 ? std::max(line, b.x) - 12.0 : std::min(line, b.x) + 12.0;
-                    double overrun = std::abs(targetX - legalShoulder);
-                    bool timedRun = (cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::RunAhead || cn.pur == ActionPurpose::CrossLane)
-                        && ba > 0.58 && overrun < 95.0;
-                    if (!timedRun) targetX = clamp(legalShoulder, 45.0, PITCH_W - 45.0);
-                    onsideScoreAdjust -= timedRun ? 0.18 : 0.04;
+                    targetX = clamp(legalShoulder, 45.0, PITCH_W - 45.0);
+                    bool attackingRun = cn.pur == ActionPurpose::InsideRun
+                        || cn.pur == ActionPurpose::RunAhead
+                        || cn.pur == ActionPurpose::CrossLane;
+                    onsideScoreAdjust += attackingRun ? 0.08 : -0.04;
                     if (cn.pur == ActionPurpose::Offer) onsideScoreAdjust += 0.16;
                 } else if (std::abs(targetX - line) < 45.0 && beyondHalf) {
                     onsideScoreAdjust += 0.06;

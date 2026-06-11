@@ -25,16 +25,16 @@ void GameEngine::separateTeammates(double sdt) {
             bool bFixed = state.ball.controllerId == b.id || isActiveKnockAheadRunner(b.id);
             if (aFixed && bFixed) continue;
             if (aFixed) {
-                b.x = clamp(b.x + nx * push * 2.0, 5.0, PITCH_W - 5.0);
-                b.y = clamp(b.y + ny * push * 2.0, 5.0, PITCH_H - 5.0);
+                b.x = clampToPitchX(b.x + nx * push * 2.0);
+                b.y = clampToPitchY(b.y + ny * push * 2.0);
             } else if (bFixed) {
-                a.x = clamp(a.x - nx * push * 2.0, 5.0, PITCH_W - 5.0);
-                a.y = clamp(a.y - ny * push * 2.0, 5.0, PITCH_H - 5.0);
+                a.x = clampToPitchX(a.x - nx * push * 2.0);
+                a.y = clampToPitchY(a.y - ny * push * 2.0);
             } else {
-                a.x = clamp(a.x - nx * push, 5.0, PITCH_W - 5.0);
-                a.y = clamp(a.y - ny * push, 5.0, PITCH_H - 5.0);
-                b.x = clamp(b.x + nx * push, 5.0, PITCH_W - 5.0);
-                b.y = clamp(b.y + ny * push, 5.0, PITCH_H - 5.0);
+                a.x = clampToPitchX(a.x - nx * push);
+                a.y = clampToPitchY(a.y - ny * push);
+                b.x = clampToPitchX(b.x + nx * push);
+                b.y = clampToPitchY(b.y + ny * push);
             }
         }
     }
@@ -65,59 +65,59 @@ bool GameEngine::checkGoal(){
     bool inOpening=std::abs(b.y-PITCH_H/2)<=GOAL_W/2&&b.z+BALL_R<=GOAL_H;
     if(!inOpening)return false;
     auto recordGoalSource=[&](Team scoringTeam){
-        lastGoalScoringTeam=scoringTeam;
-        lastGoalTouchTeam=b.lastTouchTeam;
-        lastGoalToucherId=b.lastToucherId;
-        lastGoalBallSpeed=std::hypot(b.vx,b.vy);
-        if(!trackedShot){
+        lastGoal.scoringTeam=scoringTeam;
+        lastGoal.touchTeam=b.lastTouchTeam;
+        lastGoal.toucherId=b.lastToucherId;
+        lastGoal.ballSpeed=std::hypot(b.vx,b.vy);
+        if(!shot.tracked){
             if(pendingPass.active&&pendingPass.team==scoringTeam){
-                if(pendingPass.isCross){lastGoalSource="direct_cross";}
-                else lastGoalSource="direct_delivery";
+                if(pendingPass.isCross){lastGoal.source="direct_cross";}
+                else lastGoal.source="direct_delivery";
             }else if(pendingPass.active){
-                lastGoalSource="tackle_deflection";
+                lastGoal.source="tackle_deflection";
             }else if(lastLooseOrigin=="tackle_deflection"){
-                lastGoalSource="tackle_deflection";
+                lastGoal.source="tackle_deflection";
             }else if(lastLooseOrigin=="goalkeeper_parry"){
-                lastGoalSource="goalkeeper_parry";
+                lastGoal.source="goalkeeper_parry";
             }else if(lastLooseOrigin=="shot"){
-                lastGoalSource="shot_state_lost";
+                lastGoal.source="shot_state_lost";
             }else if(lastLooseOrigin=="knock_ahead"){
                 resolveKnockAhead(nullptr,"goal");
-                lastGoalSource="knock_ahead";
+                lastGoal.source="knock_ahead";
             }else if(b.lastTouchTeam==scoringTeam&&b.lastToucherId>=0){
-                lastGoalSource="shot_state_lost";
+                lastGoal.source="shot_state_lost";
             }else{
-                lastGoalSource="loose_unclassified";
+                lastGoal.source="loose_unclassified";
             }
             return;
         }
-        if(b.lastTouchTeam!=trackedShotTeam){
-            lastGoalSource="shot_deflection";
+        if(b.lastTouchTeam!=shot.team){
+            lastGoal.source="shot_deflection";
         }else{
-            lastGoalSource=trackedPenaltyShot ? "penalty" : "shot";
+            lastGoal.source=shot.penalty ? "penalty" : "shot";
         }
     };
     if(b.x+BALL_R<HOME_GOAL_X){
         recordGoalSource(Team::Away);
         double goalDist=0;
-        if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,HOME_GOAL_X,PITCH_H/2);
-        Player* scorer=playerById(lastGoalToucherId);
+        if(shot.tracked)goalDist=dist(shot.originX,shot.originY,HOME_GOAL_X,PITCH_H/2);
+        Player* scorer=playerById(lastGoal.toucherId);
         std::optional<Role> scorerRole=scorer?std::optional<Role>(scorer->role):std::nullopt;
-        if(lastGoalSource=="penalty")stats.recordPenaltyGoal();
-        if(trackedShotDribble20m&&lastGoalSource=="shot")stats.recordDribble20mGoal();
-        stats.recordGoal(Team::Away,lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole,trackedShotHeader);
-        state.awayScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; trackedPenaltyShot=false; trackedShotDribble20m=false; kickoff(Team::Home); return true;
+        if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
+        if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
+        stats.recordGoal(Team::Away,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        state.awayScore++; shot.active=false; shot.tracked=false; shot.header=false; shot.penalty=false; shot.dribble20m=false; kickoff(Team::Home); return true;
     }
     if(b.x-BALL_R>AWAY_GOAL_X){
         recordGoalSource(Team::Home);
         double goalDist=0;
-        if(trackedShot)goalDist=dist(shotOriginX,shotOriginY,AWAY_GOAL_X,PITCH_H/2);
-        Player* scorer=playerById(lastGoalToucherId);
+        if(shot.tracked)goalDist=dist(shot.originX,shot.originY,AWAY_GOAL_X,PITCH_H/2);
+        Player* scorer=playerById(lastGoal.toucherId);
         std::optional<Role> scorerRole=scorer?std::optional<Role>(scorer->role):std::nullopt;
-        if(lastGoalSource=="penalty")stats.recordPenaltyGoal();
-        if(trackedShotDribble20m&&lastGoalSource=="shot")stats.recordDribble20mGoal();
-        stats.recordGoal(Team::Home,lastGoalSource,goalDist,lastGoalBallSpeed,scorerRole,trackedShotHeader);
-        state.homeScore++; shotActive=false; trackedShot=false; trackedShotHeader=false; trackedPenaltyShot=false; trackedShotDribble20m=false; kickoff(Team::Away); return true;
+        if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
+        if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
+        stats.recordGoal(Team::Home,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        state.homeScore++; shot.active=false; shot.tracked=false; shot.header=false; shot.penalty=false; shot.dribble20m=false; kickoff(Team::Away); return true;
     }
     return false;
 }
@@ -128,11 +128,11 @@ bool GameEngine::checkOutOfPlay() {
     auto clearState = [&]() {
         resolveKnockAhead(nullptr, "out_of_play");
         pendingPass.active = false;
-        trackedShot = false;
-        trackedShotPreventable = false;
-        trackedShotHeader = false;
-        trackedPenaltyShot = false;
-        trackedShotDribble20m = false;
+        shot.tracked = false;
+        shot.preventable = false;
+        shot.header = false;
+        shot.penalty = false;
+        shot.dribble20m = false;
         lastLooseOrigin.clear();
     };
     if (b.y < 0 || b.y > PITCH_H || b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
@@ -296,11 +296,11 @@ void GameEngine::collectBall(Player& c) {
     stats.recordControlledTouch(c.role);
     lastCollectionTeam = c.team;
     lastSameTeamCollectionMs = state.clockMs;
-    trackedShot = false;
-    trackedShotPreventable = false;
-    trackedShotHeader = false;
-    trackedPenaltyShot = false;
-    trackedShotDribble20m = false;
+    shot.tracked = false;
+    shot.preventable = false;
+    shot.header = false;
+    shot.penalty = false;
+    shot.dribble20m = false;
     lastLooseOrigin.clear();
     b.controllerId = c.id;
     b.intendedReceiverId = -1;
@@ -311,8 +311,8 @@ void GameEngine::collectBall(Player& c) {
     b.lastToucherId = c.id;
     c.dribbleType = 0;
     double fd = fdFor(c.team);
-    c.targetX = clamp(c.x + fd * 28.0, 35.0, PITCH_W - 35.0);
-    c.targetY = clamp(c.y, 35.0, PITCH_H - 35.0);
+    c.targetX = clampToPitchX(c.x + fd * 28.0, 35.0);
+    c.targetY = clampToPitchY(c.y, 35.0);
     if (intended) {
         receiverShieldUntil = state.clockMs + 300;
         receiverShieldedPlayerId = c.id;
@@ -338,7 +338,7 @@ bool GameEngine::collectBall(Player& c, const std::string&, double allowedDist) 
 
 void GameEngine::updateControlledBall(double) {
     Player* c = playerById(state.ball.controllerId);
-    if (!c || kickoffPhase) return;
+    if (!c || phase.kickoffPhase) return;
     double dx = std::cos(c->facing), dy = std::sin(c->facing);
     double speed = std::hypot(c->vx, c->vy);
     if (c->role != Role::GK && speed > 18.0) {

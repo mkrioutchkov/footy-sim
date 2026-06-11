@@ -85,7 +85,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 135.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.46 : 0.16;
     if (shotDistance < 70.0  && credibleOpening) sc += per.pressureCount <= 1 ? 0.22 : 0.05;
     if (shotDistance < 40.0)  sc += per.pressureCount <= 1 ? 0.18 : 0.04;
-    bool longCarryShotZone = engine.carryTrackerId == p.id && engine.carryPathDistance >= 200.0
+    bool longCarryShotZone = engine.carrierTracker.carryTrackerId == p.id && engine.carrierTracker.carryPathDistance >= 200.0
         && shotDistance < 255.0 && angleDeg > 8.0;
     if (longCarryShotZone && per.pressureCount <= 1) sc += 0.18;
     else if (longCarryShotZone) sc += 0.08;
@@ -148,8 +148,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     bool inOwnHalf = (fd > 0 && p.x < HALF_X) || (fd < 0 && p.x > HALF_X);
     bool finalThird = (fd > 0 && p.x > PITCH_W * 2.0 / 3.0) || (fd < 0 && p.x < PITCH_W / 3.0);
     bool nearGoal = distToGoal < 200.0;
-    bool activeLongCarry = engine.carryTrackerId == p.id && engine.carryPathDistance >= 90.0;
-    bool carryNeedsShotWindow = engine.carryTrackerId == p.id && engine.carryPathDistance >= 125.0 && distToGoal > 90.0;
+    bool activeLongCarry = engine.carrierTracker.carryTrackerId == p.id && engine.carrierTracker.carryPathDistance >= 90.0;
+    bool carryNeedsShotWindow = engine.carrierTracker.carryTrackerId == p.id && engine.carrierTracker.carryPathDistance >= 125.0 && distToGoal > 90.0;
     bool freshThrough = p.throughCollected > 0.0;
 
     // Find open space: check density around potential targets
@@ -196,8 +196,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         sc -= 0.34;
         tx = p.x - fd * 32.0;
     }
-    if (engine.backwardCarryCarrierId == p.id) {
-        double possessionBackward = (p.x - engine.backwardCarryStartX) * fd;
+    if (engine.carrierTracker.backwardCarryCarrierId == p.id) {
+        double possessionBackward = (p.x - engine.carrierTracker.backwardCarryStartX) * fd;
         bool touchlineCarry = p.y < 85.0 || p.y > PITCH_H - 85.0;
         if (possessionBackward < -70.0 && backwardTarget < 0.0) {
             double side = p.y < PITCH_H / 2.0 ? 1.0 : -1.0;
@@ -273,7 +273,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         tx = p.x + fd * 130.0;
     }
     if (carryNeedsShotWindow && per.nearestOpponentDist > 40.0 && densityAhead <= 2) {
-        double carryDistance = engine.carryPathDistance;
+        double carryDistance = engine.carrierTracker.carryPathDistance;
         bool beforeMetricWindow = carryDistance < 210.0;
         sc += finalThird ? (beforeMetricWindow ? 0.34 : 0.24) : (beforeMetricWindow ? 0.25 : 0.17);
         tx = clamp(p.x + fd * (finalThird ? 175.0 : 195.0), 35.0, PITCH_W - 35.0);
@@ -309,8 +309,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         }
     }
 
-    if (engine.backwardCarryCarrierId == p.id) {
-        double possessionBackward = (p.x - engine.backwardCarryStartX) * fd;
+    if (engine.carrierTracker.backwardCarryCarrierId == p.id) {
+        double possessionBackward = (p.x - engine.carrierTracker.backwardCarryStartX) * fd;
         double finalBackwardTarget = (tx - p.x) * fd;
         bool touchlineCarry = p.y < 85.0 || p.y > PITCH_H - 85.0;
         if (possessionBackward < -70.0 && finalBackwardTarget < 0.0) {
