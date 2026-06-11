@@ -12,9 +12,11 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
 }
 
 void GameEngine::updateTeamAssignments() {
-    assignmentByPlayer.fill({});
     Player* carrier = playerById(state.ball.controllerId);
+    // Keep the previous defensive shape while the ball is loose — clearing
+    // assignments during contests let the back line float absurdly high.
     if (!carrier || carrier->role == Role::GK) return;
+    assignmentByPlayer.fill({});
     Team defending = carrier->team == Team::Home ? Team::Away : Team::Home;
     assignDefensiveRoles(defending, *carrier);
     auditTacticalCoverage(*carrier);
@@ -38,8 +40,10 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     auto ranked = rankDefenders(team, carrier);
     if (ranked.empty()) return;
 
-    // Build context
-    double carrierGoalDist = std::abs(carrier.x - ownGoalX);
+    // Build context — anchor on whichever is nearer our goal, carrier or ball,
+    // so a ball played in behind pulls the line back even before it's collected.
+    double carrierGoalDist = std::min(std::abs(carrier.x - ownGoalX), std::abs(state.ball.x - ownGoalX));
+    danger = danger || carrierGoalDist < DANGER_ZONE_DIST;
     bool shootingRange = carrierGoalDist < 310.0 && std::abs(carrier.y - PITCH_H / 2.0) < 235.0;
     bool wideDanger = carrierGoalDist < 360.0 && std::abs(carrier.y - PITCH_H / 2.0) > 135.0;
     double linePush = (tactics.defensiveLineHeight - 50.0) * 0.9;

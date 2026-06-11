@@ -203,7 +203,16 @@ void GameEngine::assignThreatMarking(DefenseContext& ctx, Player& carrier) {
             if (score < best) { best = score; marker = &defender; }
         }
         if (marker) {
-            double targetX = lerp(threat.player->x, ctx.ownGoalX + ctx.fd * 36.0, ctx.danger ? 0.18 : 0.20);
+            // Sag off the man when the ball is far — gluing the marker to a
+            // static attacker for minutes reads as two players waiting at a
+            // bus stop. Tight when the ball threatens, zonal when it doesn't.
+            double ballDist = dist(state.ball.x, state.ball.y, threat.player->x, threat.player->y);
+            double sag = clamp((ballDist - 180.0) / 420.0, 0.0, 1.0);
+            // Never sag off a threat already near our goal — box runners must
+            // stay marked even when the ball is on the other flank.
+            if (std::abs(threat.player->x - ctx.ownGoalX) < 280.0) sag *= 0.3;
+            double towardGoal = lerp(ctx.danger ? 0.18 : 0.20, 0.48, sag);
+            double targetX = lerp(threat.player->x, ctx.ownGoalX + ctx.fd * 36.0, towardGoal);
             double threatDistanceToGoal = std::abs(threat.player->x - ctx.ownGoalX);
             bool receiverThreat = state.ball.intendedReceiverId == threat.player->id;
             if (ctx.danger && agentFor(*marker)->isCenterBack() && threat.player->role == Role::CF) {
@@ -216,6 +225,7 @@ void GameEngine::assignThreatMarking(DefenseContext& ctx, Player& carrier) {
                 targetX = ctx.ownGoalX + ctx.fd * (ctx.lineProgress + 18.0);
             }
             double markTightness = ctx.danger || receiverThreat || threatDistanceToGoal < 170.0 ? 0.015 : 0.08;
+            markTightness = lerp(markTightness, 0.34, sag);
             setAssignment(*marker, DefensiveTask::LaneBlock, targetX,
                 lerp(threat.player->y, PITCH_H / 2.0, markTightness), threat.player->id);
             ctx.assigned[marker->id] = true;

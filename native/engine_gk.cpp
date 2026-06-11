@@ -75,8 +75,13 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         gk.targetY = rushTargetY;
     } else if (!ballLoose || !ballInOurHalf) {
         bool ownTeamHasBall = carrier && carrier->team == gk.team;
-        gk.targetX = gk.homeX + fd * (ownTeamHasBall ? 48.0 : 24.0);
-        gk.targetY = gk.homeY;
+        // Sweep high when play is in the far half — standing 2m off the line
+        // 80m from the ball reads as a statue, and the space behind the
+        // (retreating) defense is the keeper's to cover.
+        bool ballFar = !ballInOurHalf;
+        double depth = ballFar ? (ownTeamHasBall ? 96.0 : 68.0) : (ownTeamHasBall ? 48.0 : 24.0);
+        gk.targetX = gk.homeX + fd * depth;
+        gk.targetY = ballFar ? lerp(gk.homeY, state.ball.y, 0.10) : gk.homeY;
     }
 
     double moveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.86;
