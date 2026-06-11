@@ -481,8 +481,15 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     bool activeLongCarry = engine.carrierTracker.carryTrackerId == p.id && engine.carrierTracker.carryPathDistance >= 95.0;
     bool needsCarryShotWindow = activeLongCarry && engine.carrierTracker.carryPathDistance < 220.0 && clearPath
         && nearestOppDist > 135.0 && distToTarget > 120.0 && advancedEnough;
+    // Breakaway: corridor to goal is clear and the nearest opponent is a chaser,
+    // not a blocker — burst at sprint pace instead of letting recovery runners
+    // (who move ~50% faster than a close dribble) reel the carrier in.
+    double distToGoalX = std::abs(p.x - goalXFor(p.team));
+    bool targetForward = (fd > 0.0 && p.targetX > p.x + 30.0) || (fd < 0.0 && p.targetX < p.x - 30.0);
+    bool breakawayBurst = clearPath && advancedEnough && distToGoalX < 480.0
+        && nearestOppDist > 40.0 && distToTarget > 90.0 && targetForward;
     bool mayBurst = engine.canKnockBallAhead(p.id) && cp.score < (needsCarryShotWindow ? 0.82 : 0.65)
-        && (openBurst || speculativeBurst || finalThirdBurst || needsCarryShotWindow);
+        && (openBurst || speculativeBurst || finalThirdBurst || needsCarryShotWindow || breakawayBurst);
     int dribbleType = mayBurst ? 3 : (nearbyOpps >= 2 ? 1 : 2);
 
     bool newEpisode = (p.dribbleType != dribbleType);

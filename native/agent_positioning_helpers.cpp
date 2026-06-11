@@ -83,6 +83,17 @@ void PlayerAI::posBallFarOffers(SmallVector<PositionCandidate, 32>& c, const Pos
     }
 }
 
+// Clamp an attacking run target to the legal (onside) shoulder. Deep candidates
+// without this clamp left the CF loitering ~45s/match in offside positions.
+double PlayerAI::clampToLegalX(double x, double fd) const {
+    double line = engine.offsideLineFor(player.team);
+    if (std::isnan(line)) return x;
+    double shoulder = fd > 0.0
+        ? std::max(line, engine.state.ball.x) - 12.0
+        : std::min(line, engine.state.ball.x) + 12.0;
+    return fd > 0.0 ? std::min(x, shoulder) : std::max(x, shoulder);
+}
+
 // ── All in-possession attacking support and role-specific runs ───────────────
 void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
     const auto& p = player;
@@ -111,8 +122,8 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
                     c.push_back({ clamp(oppGoalX - pc.fd * 175.0, 55.0, PITCH_W - 55.0), flankY, ActionPurpose::HoldWidth });
                 } else if (!sameSide && pc.ballAdvance > 0.42) {
                     double farPostY = p.homeY < PITCH_H / 2.0 ? PITCH_H * 0.62 : PITCH_H * 0.38;
-                    c.push_back({ clamp(oppGoalX - pc.fd * 115.0, 55.0, PITCH_W - 55.0), farPostY, ActionPurpose::InsideRun });
-                    c.push_back({ clamp(oppGoalX - pc.fd * 185.0, 55.0, PITCH_W - 55.0), flankY, ActionPurpose::HoldWidth });
+                    c.push_back({ clamp(clampToLegalX(oppGoalX - pc.fd * 115.0, pc.fd), 55.0, PITCH_W - 55.0), farPostY, ActionPurpose::InsideRun });
+                    c.push_back({ clamp(clampToLegalX(oppGoalX - pc.fd * 185.0, pc.fd), 55.0, PITCH_W - 55.0), flankY, ActionPurpose::HoldWidth });
                 }
             }
             if (isCenterForward()) {
@@ -122,9 +133,9 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
                 if (carrierWide && carrierAdvanced) {
                     double nearPostY = carrier->y < PITCH_H / 2.0 ? PITCH_H * 0.35 : PITCH_H * 0.65;
                     double farPostY = carrier->y < PITCH_H / 2.0 ? PITCH_H * 0.65 : PITCH_H * 0.35;
-                    c.push_back({ clamp(oppGoalX - pc.fd * 58.0, 55.0, PITCH_W - 55.0), nearPostY, ActionPurpose::InsideRun });
-                    c.push_back({ clamp(oppGoalX - pc.fd * 86.0, 55.0, PITCH_W - 55.0), farPostY, ActionPurpose::InsideRun });
-                    c.push_back({ clamp(oppGoalX - pc.fd * 125.0, 55.0, PITCH_W - 55.0), PITCH_H / 2.0, ActionPurpose::Offer });
+                    c.push_back({ clamp(clampToLegalX(oppGoalX - pc.fd * 58.0, pc.fd), 55.0, PITCH_W - 55.0), nearPostY, ActionPurpose::InsideRun });
+                    c.push_back({ clamp(clampToLegalX(oppGoalX - pc.fd * 86.0, pc.fd), 55.0, PITCH_W - 55.0), farPostY, ActionPurpose::InsideRun });
+                    c.push_back({ clamp(clampToLegalX(oppGoalX - pc.fd * 125.0, pc.fd), 55.0, PITCH_W - 55.0), PITCH_H / 2.0, ActionPurpose::Offer });
                 }
                 if (!carrierWide && carrierAdvanced) {
                     double side = p.homeY < PITCH_H / 2.0 ? -1.0 : 1.0;
@@ -194,31 +205,31 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
     // Random box entries by role
     if (pc.ballAdvance > 0.6 && isCenterForward()) {
         double bGoalX = goalXFor(p.team);
-        c.push_back({ bGoalX - pc.fd * (35.0 + engine.rng.random() * 55.0),
+        c.push_back({ clampToLegalX(bGoalX - pc.fd * (35.0 + engine.rng.random() * 55.0), pc.fd),
                       clamp(PITCH_H / 2.0 + (engine.rng.random() - 0.5) * 90.0, PITCH_H * 0.25, PITCH_H * 0.75), ActionPurpose::Space });
-        c.push_back({ bGoalX - pc.fd * (70.0 + engine.rng.random() * 65.0),
+        c.push_back({ clampToLegalX(bGoalX - pc.fd * (70.0 + engine.rng.random() * 65.0), pc.fd),
                       clamp(PITCH_H / 2.0 + (p.homeY - PITCH_H / 2.0) * 0.25, PITCH_H * 0.25, PITCH_H * 0.75), ActionPurpose::Offer });
         Player* carrier = engine.playerById(engine.state.ball.controllerId);
         if (carrier && carrier->team == p.team && (engine.agentFor(*carrier)->isWideMidfielder() || engine.agentFor(*carrier)->isFullBack())
             && std::abs(carrier->y - PITCH_H / 2.0) > 130.0
             && std::abs(carrier->x - bGoalX) < 430.0) {
             double ballSide = carrier->y < PITCH_H / 2.0 ? -1.0 : 1.0;
-            c.push_back({ bGoalX - pc.fd * 62.0, clamp(PITCH_H / 2.0 + ballSide * 34.0, PITCH_H * 0.28, PITCH_H * 0.72), ActionPurpose::Offer });
-            c.push_back({ bGoalX - pc.fd * 105.0, clamp(PITCH_H / 2.0 - ballSide * 24.0, PITCH_H * 0.28, PITCH_H * 0.72), ActionPurpose::Space });
+            c.push_back({ clampToLegalX(bGoalX - pc.fd * 62.0, pc.fd), clamp(PITCH_H / 2.0 + ballSide * 34.0, PITCH_H * 0.28, PITCH_H * 0.72), ActionPurpose::Offer });
+            c.push_back({ clampToLegalX(bGoalX - pc.fd * 105.0, pc.fd), clamp(PITCH_H / 2.0 - ballSide * 24.0, PITCH_H * 0.28, PITCH_H * 0.72), ActionPurpose::Space });
         }
     } else if (pc.ballAdvance > 0.6 && isWideMidfielder()) {
         double bGoalX = goalXFor(p.team);
         double farPostY = p.homeY < PITCH_H / 2.0 ? PITCH_H * 0.62 : PITCH_H * 0.38;
         double insideY = clamp(PITCH_H / 2.0 + (p.homeY - PITCH_H / 2.0) * 0.32, PITCH_H * 0.24, PITCH_H * 0.76);
-        c.push_back({ bGoalX - pc.fd * (70.0 + engine.rng.random() * 75.0), farPostY, ActionPurpose::Space });
-        c.push_back({ bGoalX - pc.fd * (125.0 + engine.rng.random() * 85.0), insideY, ActionPurpose::Offer });
+        c.push_back({ clampToLegalX(bGoalX - pc.fd * (70.0 + engine.rng.random() * 75.0), pc.fd), farPostY, ActionPurpose::Space });
+        c.push_back({ clampToLegalX(bGoalX - pc.fd * (125.0 + engine.rng.random() * 85.0), pc.fd), insideY, ActionPurpose::Offer });
         Player* carrier = engine.playerById(engine.state.ball.controllerId);
         if (carrier && carrier->team == p.team && (engine.agentFor(*carrier)->isWideMidfielder() || engine.agentFor(*carrier)->isFullBack())
             && std::abs(carrier->homeY - p.homeY) > 160.0
             && std::abs(carrier->y - PITCH_H / 2.0) > 130.0
             && std::abs(carrier->x - bGoalX) < 430.0) {
-            c.push_back({ bGoalX - pc.fd * 70.0, farPostY, ActionPurpose::Offer });
-            c.push_back({ bGoalX - pc.fd * 120.0, insideY, ActionPurpose::Space });
+            c.push_back({ clampToLegalX(bGoalX - pc.fd * 70.0, pc.fd), farPostY, ActionPurpose::Offer });
+            c.push_back({ clampToLegalX(bGoalX - pc.fd * 120.0, pc.fd), insideY, ActionPurpose::Space });
         }
     } else if (pc.ballAdvance > 0.6 && isCentralMidfielder()) {
         double bGoalX = goalXFor(p.team);

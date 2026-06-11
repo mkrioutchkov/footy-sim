@@ -8,22 +8,20 @@
 // Offside helpers
 // ══════════════════════════════════════════════════════════════
 
+// Offside line: the second-last opponent INCLUDING the goalkeeper (the law).
+// With the keeper home this is the deepest outfield defender; excluding the GK
+// here made the line one defender too tight and ruled out legal deep runs.
 double GameEngine::offsideLineFor(Team t) const {
     const double fd = fdFor(t);
     const Player* d1=nullptr,*d2=nullptr;
     double v1=-1e9, v2=-1e9;
     for(auto&p:state.players){
-        if(p.team==t||p.role==Role::GK)continue;
+        if(p.team==t)continue;
         double v=p.x*fd;
         if(v>v1){v2=v1;d2=d1;v1=v;d1=&p;}
         else if(v>v2){v2=v;d2=&p;}
     }
     if(d2)return d2->x;
-    const Player* gk = findGK(t == Team::Home ? Team::Away : Team::Home);
-    if(d1&&gk){
-        double dv=d1->x*fd, gv=gk->x*fd;
-        return (dv<gv?d1:gk)->x;
-    }
     return d1 ? d1->x : (t==Team::Home?0.0:PITCH_W);
 }
 

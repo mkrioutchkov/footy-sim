@@ -38,7 +38,10 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double mr = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
-    if (shotDistance > std::min(mr + 18.0, hardMax + 12.0))
+    // Clear sight of goal extends range: unpressured with a real opening,
+    // a strike from just outside the usual band beats recycling sideways.
+    double clearSightBoost = (per.pressureCount == 0 && angleDeg > 9.0) ? 38.0 : 0.0;
+    if (shotDistance > std::min(mr + 18.0 + clearSightBoost, hardMax + 12.0 + clearSightBoost))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double toGoalX = gx - p.x;
@@ -97,6 +100,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     }
     if (shotDistance < 285.0 && angleDeg > 6.5) sc += per.pressureCount <= 1 ? 0.24 : 0.10;
     if (p.role == Role::CF && shotDistance < 285.0 && angleDeg > 6.0) sc += 0.18;
+    if (per.pressureCount == 0 && angleDeg > 9.0 && shotDistance < 315.0) sc += 0.20;
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
 }
