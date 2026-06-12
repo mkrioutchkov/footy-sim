@@ -40,6 +40,14 @@ export class MatchRenderer {
   private tickerEl: HTMLDivElement | null = null;
   private tickerLines: string[] = [];
   private seenEventKeys: Set<string> = new Set();
+  private bannerEl: HTMLDivElement | null = null;
+  private bannerHideAt = 0;
+  private panelEl: HTMLDivElement | null = null;
+  private panelHideAt = 0;
+  private prevHomeScore = 0;
+  private prevAwayScore = 0;
+  private prevHalf = 1;
+  private shownFullTime = false;
   private versionText: Text = null!;
   private uiVersion = '';
   private eventGfx: Graphics;
@@ -141,6 +149,25 @@ export class MatchRenderer {
     } as Partial<CSSStyleDeclaration>);
     this.tickerEl.textContent = '— match feed —';
     document.body.appendChild(this.tickerEl);
+    // goal banner (center) and half/full-time stats panel
+    this.bannerEl = document.createElement('div');
+    Object.assign(this.bannerEl.style, {
+      position: 'fixed', top: '18%', left: '50%', transform: 'translateX(-50%) scale(1)',
+      zIndex: '30', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '34px',
+      color: '#ffe97a', background: 'rgba(8,12,20,0.85)', padding: '14px 34px',
+      borderRadius: '10px', border: '2px solid #ffe97a', pointerEvents: 'none',
+      display: 'none', textAlign: 'center', letterSpacing: '2px',
+    } as Partial<CSSStyleDeclaration>);
+    document.body.appendChild(this.bannerEl);
+    this.panelEl = document.createElement('div');
+    Object.assign(this.panelEl.style, {
+      position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+      zIndex: '29', fontFamily: 'monospace', fontSize: '15px', lineHeight: '1.8',
+      color: '#e8edf2', background: 'rgba(8,12,20,0.92)', padding: '20px 34px',
+      borderRadius: '10px', border: '1px solid #3a4a5f', pointerEvents: 'none',
+      display: 'none', whiteSpace: 'pre', textAlign: 'center',
+    } as Partial<CSSStyleDeclaration>);
+    document.body.appendChild(this.panelEl);
     // version display — engine + UI
     const versionText = new Text({ text: '...', style: new TextStyle({ fill: 0xffffff, fontSize: 8, fontFamily: 'monospace' }) });
     versionText.position.set(this.app.screen.width - 6, this.app.screen.height - 12);
@@ -576,6 +603,56 @@ export class MatchRenderer {
     this.hudBg.fill({ color: 0x0a0f17, alpha: 0.78 });
 
     this.updateTicker(state);
+    this.updateMoments(state);
+  }
+
+  private updateMoments(state: EngineState): void {
+    if (!this.bannerEl || !this.panelEl) return;
+    const now = performance.now();
+    const hs = state.homeScore ?? 0, as = state.awayScore ?? 0;
+    if (state.clockMs < 1500 && hs === 0 && as === 0) {
+      // fresh match/restart
+      this.prevHomeScore = 0; this.prevAwayScore = 0; this.prevHalf = 1; this.shownFullTime = false;
+      this.panelEl.style.display = 'none';
+    }
+    // goal banner on score change
+    if (hs !== this.prevHomeScore || as !== this.prevAwayScore) {
+      const homeScored = hs > this.prevHomeScore;
+      const scorerLine = this.tickerLines.find(l => l.includes('GOAL'));
+      const who = scorerLine ? scorerLine.split(/GOAL\s+/)[1] ?? '' : '';
+      this.bannerEl.textContent = `GOAL!  ${who}\nHOME ${hs} — ${as} AWAY`;
+      this.bannerEl.style.whiteSpace = 'pre';
+      this.bannerEl.style.color = homeScored ? '#ff8a8a' : '#9ecbff';
+      this.bannerEl.style.borderColor = homeScored ? '#ff8a8a' : '#9ecbff';
+      this.bannerEl.style.display = 'block';
+      this.bannerHideAt = now + 4500;
+      this.prevHomeScore = hs; this.prevAwayScore = as;
+    }
+    if (this.bannerEl.style.display === 'block' && now > this.bannerHideAt) {
+      this.bannerEl.style.display = 'none';
+    }
+    // half-time / full-time panel
+    const half = state.half ?? 1;
+    const finished = state.matchState === 'finished';
+    const showPanel = (title: string, sticky: boolean) => {
+      const pct = (state.possessionPct ?? 50).toFixed(0);
+      const feed = this.tickerLines.slice(0, 6).join('\n');
+      this.panelEl!.textContent =
+        `${title}\n\nHOME ${hs} — ${as} AWAY\nShots  ${state.homeShots ?? 0} - ${state.awayShots ?? 0}\nPossession  ${pct}% - ${100 - Number(pct)}%\n\n${feed}`;
+      this.panelEl!.style.display = 'block';
+      this.panelHideAt = sticky ? Infinity : now + 9000;
+    };
+    if (half === 2 && this.prevHalf === 1) {
+      this.prevHalf = 2;
+      showPanel('HALF TIME', false);
+    }
+    if (finished && !this.shownFullTime) {
+      this.shownFullTime = true;
+      showPanel('FULL TIME', true);
+    }
+    if (this.panelEl.style.display === 'block' && now > this.panelHideAt) {
+      this.panelEl.style.display = 'none';
+    }
   }
 
   private lastClockMs = 0;

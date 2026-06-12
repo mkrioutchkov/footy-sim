@@ -106,6 +106,7 @@ bool GameEngine::checkGoal(){
         if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
         if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
         stats.recordGoal(Team::Away,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        emitEvent("goal", HOME_GOAL_X, b.y, lastGoal.toucherId);
         state.awayScore++; shot.active=false; shot.tracked=false; shot.header=false; shot.penalty=false; shot.dribble20m=false; kickoff(Team::Home); return true;
     }
     if(b.x-BALL_R>AWAY_GOAL_X){
@@ -117,6 +118,7 @@ bool GameEngine::checkGoal(){
         if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
         if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
         stats.recordGoal(Team::Home,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        emitEvent("goal", AWAY_GOAL_X, b.y, lastGoal.toucherId);
         state.homeScore++; shot.active=false; shot.tracked=false; shot.header=false; shot.penalty=false; shot.dribble20m=false; kickoff(Team::Away); return true;
     }
     return false;

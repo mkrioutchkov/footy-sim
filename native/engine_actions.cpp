@@ -122,8 +122,8 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             // headers in crowded boxes; a pressure veto turned them all into layoffs.
             bool headerShot = (receiver.role == Role::CF || receiver.role == Role::WM || receiver.role == Role::CM)
                 && shotDistance < roleShotMax && angleDeg > 4.0 && laneBlockers <= 3;
-            bool mustAttackHeader = shotDistance < 225.0 && angleDeg > 5.5 && pressure <= 2 && laneBlockers <= 1;
-            double shotChance = clamp(0.46 + (roleShotMax - shotDistance) / 230.0 + angleDeg / 78.0 - pressure * 0.06 - laneBlockers * 0.08, 0.0, 0.92);
+            bool mustAttackHeader = shotDistance < 185.0 && angleDeg > 6.0 && pressure <= 2 && laneBlockers <= 1;
+            double shotChance = clamp(0.32 + (roleShotMax - shotDistance) / 260.0 + angleDeg / 82.0 - pressure * 0.06 - laneBlockers * 0.08, 0.0, 0.85);
             if (headerShot && (mustAttackHeader || rng.random() < shotChance)) {
                 receiver.crossCollected = 900.0;
                 pendingPass.active = false;
@@ -274,7 +274,9 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     bool selectedCross=audit&&audit->purpose==ActionPurpose::Cross&&fromWide&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall;
     bool whippedCross=fromWide&&intoBox&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall
         &&(!audit||(audit->purpose!=ActionPurpose::Cutback&&audit->purpose!=ActionPurpose::Through&&audit->purpose!=ActionPurpose::Cross));
-    if(selectedCross||whippedCross)stats.recordCrossAttempt();
+    // Only deliberate (selected) crosses count as crosses — counting every
+    // incidental lofted wide ball reported ~350 "crosses" per match.
+    if(selectedCross)stats.recordCrossAttempt();
     if(selectedCross){
         // Lead the runner goalward and slightly central instead of to feet —
         // headed chances need the ball met closer to goal, but a fixed box-zone
@@ -298,7 +300,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         bool riskyFlag=audit->blockers>0||audit->receiverPressure>0||audit->expectedCompletion<0.58;
         stats.recordPassSelection(audit->distance,audit->expectedCompletion,audit->blockers,audit->receiverPressure,riskyFlag,audit->saferOptionTargetId);
     }
-    beginTrackedPass(f,t,selectedCross||whippedCross,throughBall);
+    beginTrackedPass(f,t,selectedCross,throughBall);
     return true;
 }
 
@@ -387,7 +389,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     if(rng.random()>=chance){
         // Per-failure foul odds must be low because duel volume is high —
         // 0.34/0.10 produced ~190 fouls per match (real: ~22).
-        double foulChance=fromBehind?0.14:0.03;
+        double foulChance=fromBehind?0.06:0.015;
         if(rng.random()<foulChance){
             stats.recordTackleFoul();
             double foulX = carrier.x;

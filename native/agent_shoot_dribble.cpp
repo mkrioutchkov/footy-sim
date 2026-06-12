@@ -98,9 +98,12 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         sc += per.pressureCount == 0 ? 0.22 : 0.10;
         if (shotDistance < 170.0 && angleDeg > 8.0) sc += 0.16;
     }
-    if (shotDistance < 285.0 && angleDeg > 6.5) sc += per.pressureCount <= 1 ? 0.24 : 0.10;
-    if (p.role == Role::CF && shotDistance < 285.0 && angleDeg > 6.0) sc += 0.18;
+    if (shotDistance < 225.0 && angleDeg > 6.5) sc += per.pressureCount <= 1 ? 0.24 : 0.10;
+    if (p.role == Role::CF && shotDistance < 235.0 && angleDeg > 6.0) sc += 0.18;
     if (per.pressureCount == 0 && angleDeg > 9.0 && shotDistance < 315.0) sc += 0.10;
+    // Pot-shot tax: the audit flagged ~70 questionable long strikes per match —
+    // keepers eat them, so working a better position should win the comparison.
+    if (shotDistance > 235.0) sc -= 0.14;
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
 }

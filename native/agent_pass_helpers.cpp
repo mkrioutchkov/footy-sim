@@ -123,9 +123,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (std::abs(t.y - PITCH_H / 2.0) > 185.0) sc -= 0.12;
     }
     if (isCutback) {
-        sc += cutbackTarget ? 0.42 : 0.18;
-        if (cutbackTarget && t.role == Role::CM) sc += 0.10;
-        if (cutbackTarget && receiverPressure == 0 && bl == 0) sc += 0.10;
+        // The cutback is the wingers' assist to arriving mids — the main route
+        // for non-CF goals, so it should outscore yet another cross.
+        sc += cutbackTarget ? 0.54 : 0.18;
+        if (cutbackTarget && (t.role == Role::CM || t.role == Role::WM)) sc += 0.12;
+        if (cutbackTarget && receiverPressure == 0 && bl == 0) sc += 0.12;
     }
 
     bool boxCombination = carrierFinalThird

@@ -37,8 +37,9 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     sc += tackleRoleAdjust();
     if (d < TACKLE_CLOSE_BOOST_RANGE) sc += 0.15;
 
-    // Carrier holding still — easy tackle target
-    if (ctrl->dribbleType == 0 && d < TACKLE_ZONE_MAX) sc += 0.30;
+    // Carrier holding still — easier target, but not a guaranteed lunge: the
+    // old +0.30 meant every pause triggered a challenge from anyone in range.
+    if (ctrl->dribbleType == 0 && d < TACKLE_ZONE_MAX) sc += 0.18;
 
     double ownGoalX = ownGoalXFor(player.team);
     bool emergencyBoxChallenge = std::abs(ctrl->x - ownGoalX) < EMERGENCY_BOX_DIST
@@ -47,11 +48,19 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         && (player.role == Role::CB || player.role == Role::FB || player.role == Role::CM);
 
     auto* defensiveTask = engine.assignmentFor(player.id);
+    // Defensive doctrine: dueling is the presser's job. Shape players and
+    // unassigned trackers contain unless it's a box emergency or the ball is
+    // literally at their feet — five rounds of score tweaks failed to dent the
+    // ~1400 duels/match because everyone in range was allowed to roll.
+    {
+        bool pressJob = defensiveTask
+            && (defensiveTask->role == DefensiveTask::PrimaryPress
+                || defensiveTask->role == DefensiveTask::SecondaryPress
+                || defensiveTask->role == DefensiveTask::CloseDown);
+        if (!pressJob && !emergencyBoxChallenge && d > TACKLE_RANGE * 0.75)
+            return Action{ActionType::Tackle, 0.0};
+    }
     if (defensiveTask) {
-        bool closeEnoughToChallenge = d < TACKLE_RANGE + 6.0;
-        bool shapeTask = defensiveTask->role != DefensiveTask::PrimaryPress && defensiveTask->role != DefensiveTask::SecondaryPress
-            && defensiveTask->role != DefensiveTask::CloseDown;
-        if (shapeTask && !emergencyBoxChallenge && !closeEnoughToChallenge && d > TACKLE_RANGE * 0.75 && ctrl->dribbleType != 0) return Action{ActionType::Tackle, 0.0};
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::PrimaryPress)   sc += 0.20;
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::SecondaryPress) sc += 0.10;
         // The presser in contact range must actually challenge: holding
@@ -61,15 +70,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         if (defensiveTask->opponentId == ctrl->id && defensiveTask->role == DefensiveTask::PrimaryPress
             && d < TACKLE_RANGE + 6.0 && ctrl->dribbleType != 0)
             sc += 0.24;
-        if (shapeTask && emergencyBoxChallenge)
-            sc += 0.26;
-        else if (shapeTask && closeEnoughToChallenge)
-            sc += 0.10;
-        else if (shapeTask)
-            sc -= 0.58;
-        if (defensiveTask->role != DefensiveTask::PrimaryPress && defensiveTask->role != DefensiveTask::SecondaryPress
-            && std::abs(ctrl->x - (ownGoalXFor(player.team))) > DANGER_DEFENSIVE_OFFSET)
-            sc -= 0.20;
+        if (emergencyBoxChallenge) sc += 0.26;
     }
 
     if (engine.isCarrierShielded(ctrl->id)) sc -= 0.20;
@@ -194,6 +195,22 @@ Action PlayerAI::scoreChase(const Perception& per) {
     bool deadBallRecoveryRun = !canContest && b.z <= AERIAL_HEIGHT && ballSpeed < 35.0 && per.ballDist < 70.0;
     bool closeLooseBall = canContest && b.z <= AERIAL_HEIGHT && per.ballDist < 45.0;
     bool urgentLooseBallRun = incomingLooseBall || deadBallRecoveryRun || closeLooseBall;
+    // Free ball: a slow loose ball whose nearer players are all contest-blocked
+    // (e.g. shepherding their own clearance) is anyone's — the nearest eligible
+    // player must go get it, even from beyond the usual chase radius. Without
+    // this, balls rolled dead for seconds while everyone watched.
+    bool nearestEligibleFreeBall = false;
+    if (per.ballIsLoose && canContest && b.z <= AERIAL_HEIGHT
+        && ballSpeed < 130.0 && per.ballDist < 340.0) {
+        nearestEligibleFreeBall = true;
+        for (auto& q : engine.state.players) {
+            if (q.id == player.id || q.role == Role::GK) continue;
+            if (dist(q.x, q.y, b.x, b.y) + 25.0 < per.ballDist && engine.canContestBall(q)) {
+                nearestEligibleFreeBall = false;
+                break;
+            }
+        }
+    }
     bool cfLoosePassSupport = false;
     if (player.role == Role::CF && canContest && !isIntendedReceiver
         && b.controllerId < 0 && b.intendedReceiverId >= 0
@@ -239,8 +256,16 @@ Action PlayerAI::scoreChase(const Perception& per) {
     }
 
     if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun)
-        || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery && !urgentLooseBallRun && !cfLoosePassSupport))
+        || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery && !urgentLooseBallRun && !cfLoosePassSupport && !nearestEligibleFreeBall))
         return Action{ActionType::Chase, 0.0};
+
+    if (nearestEligibleFreeBall && !urgentLooseBallRun && !isIntendedReceiver) {
+        double lead = ballSpeed > 20.0 ? std::min(ballSpeed / 240.0, 0.30) : 0.0;
+        return Action{ActionType::Chase, 0.96, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      ActionPurpose::RecoverLoose};
+    }
 
     if (urgentLooseBallRun) {
         double lead = incomingLooseBall ? std::min(arrivalTime * 0.35, 0.22) : 0.0;
