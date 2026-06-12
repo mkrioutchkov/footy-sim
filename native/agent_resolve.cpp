@@ -146,8 +146,13 @@ Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
 
     // Chase slot
     if (best.type == ActionType::Chase && engine.state.ball.controllerId < 0) {
+        // A loose ball within touching distance is yours to take — slot
+        // bookkeeping (claimed first-come by farther teammates) was vetoing
+        // the best-placed chaser standing 10px from a rolling pass.
+        double looseBallDist = dist(player.x, player.y, engine.state.ball.x, engine.state.ball.y);
         bool priorityChaser = engine.state.ball.intendedReceiverId == player.id
-                           || engine.isActiveKnockAheadRunner(player.id);
+                           || engine.isActiveKnockAheadRunner(player.id)
+                           || looseBallDist < 48.0;
         auto ps = checkPressSlots(bb, player.id);
         if (!priorityChaser && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
             for (auto& x : a)

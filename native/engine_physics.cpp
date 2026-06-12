@@ -265,9 +265,13 @@ void GameEngine::checkBallPlayerCollision(double){
         double dx=b.x-contact->x,dy=b.y-contact->y,d2=std::hypot(dx,dy);
         if(d2<1)return;
         double nx=dx/d2,ny=dy/d2;
-        b.x=contact->x+nx*contactRadius;b.y=contact->y+ny*contactRadius;
         double dot=b.vx*nx+b.vy*ny;
-        if(dot<0){b.vx-=COLLISION_REFLECT_FACTOR*dot*nx;b.vy-=COLLISION_REFLECT_FACTOR*dot*ny;}
+        // A ball moving AWAY from the player isn't a touch: phantom grazes
+        // applied damp, flipped last-touch, and rebound-blocked bystanders
+        // (600ms, re-applied per tick) just for standing near a pass lane.
+        if(dot>=0)return;
+        b.x=contact->x+nx*contactRadius;b.y=contact->y+ny*contactRadius;
+        b.vx-=COLLISION_REFLECT_FACTOR*dot*nx;b.vy-=COLLISION_REFLECT_FACTOR*dot*ny;
         double damp=(b.lastTouchTeam==contact->team)?COLLISION_DAMP_SAME_TEAM:COLLISION_DAMP_OPPONENT;
         b.vx*=damp;b.vy*=damp;
         double glance=(b.lastTouchTeam==contact->team)?COLLISION_GLANCE_SAME:COLLISION_GLANCE_OPPONENT;
