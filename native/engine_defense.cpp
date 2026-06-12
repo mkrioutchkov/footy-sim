@@ -13,9 +13,21 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
 
 void GameEngine::updateTeamAssignments() {
     Player* carrier = playerById(state.ball.controllerId);
-    // Keep the previous defensive shape while the ball is loose — clearing
-    // assignments during contests let the back line float absurdly high.
-    if (!carrier || carrier->role == Role::GK) return;
+    if (!carrier || carrier->role == Role::GK) {
+        // Pass in flight: defend the ARRIVAL, not the memory of the launch.
+        // Anchoring on the intended receiver collapses markers and the press
+        // onto the reception point while the ball travels — without this the
+        // defense executed stale assignments for the whole flight of every
+        // cross and through ball. Otherwise keep the previous shape while
+        // the ball is loose (clearing it let the back line float).
+        Player* receiver = playerById(state.ball.intendedReceiverId);
+        if (receiver && receiver->role != Role::GK && state.ball.controllerId < 0) {
+            assignmentByPlayer.fill({});
+            Team defending = receiver->team == Team::Home ? Team::Away : Team::Home;
+            assignDefensiveRoles(defending, *receiver);
+        }
+        return;
+    }
     assignmentByPlayer.fill({});
     Team defending = carrier->team == Team::Home ? Team::Away : Team::Home;
     assignDefensiveRoles(defending, *carrier);
@@ -54,6 +66,15 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     // behind it, and `danger` (carrier < 240) only triggered once that line was
     // already beaten. Stay ~115px goal-side until reaching box depth.
     if (!danger) lineProgress = std::min(lineProgress, carrierGoalDist - 230.0);
+    // Track the deepest runner: a line that ignores attackers behind it hands
+    // every through ball a free lane. Stay a stride goal-side of the most
+    // advanced opponent (which also keeps him onside-marked, not played on).
+    double deepestRunner = 1e9;
+    for (auto& p : state.players) {
+        if (p.team == team || p.role == Role::GK || p.id == carrier.id) continue;
+        deepestRunner = std::min(deepestRunner, std::abs(p.x - ownGoalX));
+    }
+    if (deepestRunner < 1e9) lineProgress = std::min(lineProgress, std::max(70.0, deepestRunner - 26.0));
     lineProgress = clamp(lineProgress, 70.0, 360.0);
 
     DefenseContext ctx{team, fd, ownGoalX, danger, tactics, lineProgress, shootingRange, wideDanger,
@@ -80,6 +101,18 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
 
     // Phase 11: Box protection
     assignBoxProtection(ctx, carrier);
+
+    // Phase 11b: wingers track back when the goal is under threat — a low
+    // block defends with more than the back four plus screens. They take
+    // the wide channels at box height, the lanes cutbacks travel through.
+    if (ctx.danger) {
+        for (auto& p : state.players) {
+            if (p.team != ctx.team || ctx.used(&p) || p.role != Role::WM) continue;
+            double sideY = p.homeY < PITCH_H / 2.0 ? PITCH_H * 0.26 : PITCH_H * 0.74;
+            setAssignment(p, DefensiveTask::BoxScreen, ctx.ownGoalX + ctx.fd * 150.0, sideY);
+            ctx.assigned[p.id] = true;
+        }
+    }
 
     // Phase 12: Defensive line
     assignDefensiveLine(ctx, carrier);

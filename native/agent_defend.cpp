@@ -75,6 +75,21 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 
     if (engine.isCarrierShielded(ctrl->id)) sc -= 0.20;
 
+    // Box discipline: a lunge from the wrong side in our own area is a
+    // penalty waiting to happen — never tackle from behind in the box,
+    // jockey and force the shot instead. (The soft -0.30 version of this
+    // still conceded 2.8 pens/match once the low block crowded the area.)
+    {
+        bool inOurBox = std::abs(ctrl->x - ownGoalX) < PENALTY_AREA_W
+            && std::abs(ctrl->y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+        double fd = fdFor(player.team);
+        bool goalSide = (player.x - ctrl->x) * fd < -2.0;
+        if (inOurBox && !goalSide) return Action{ActionType::Tackle, 0.0};
+        // Even goal-side: stay on your feet in the box unless it's the
+        // emergency — every challenge is a penalty roll.
+        if (inOurBox && !emergencyBoxChallenge) sc -= 0.12;
+    }
+
     if (std::abs(ctrl->x - ownGoalX) < NEAR_GOAL_DIST) sc += 0.18;
     if (std::abs(ctrl->x - ownGoalX) < CLOSE_GOAL_DIST) sc += 0.12;
 
@@ -194,6 +209,15 @@ Action PlayerAI::scoreChase(const Perception& per) {
         && approachDot > 0.35 && arrivalTime < 1.25;
     bool deadBallRecoveryRun = !canContest && b.z <= AERIAL_HEIGHT && ballSpeed < 35.0 && per.ballDist < 70.0;
     bool closeLooseBall = canContest && b.z <= AERIAL_HEIGHT && per.ballDist < 45.0;
+    // A teammate's pass in flight is HIS ball — the urgency rules above made
+    // off-ball players shadow-chase every pass that rolled near them,
+    // oscillating at the carrier's elbow instead of holding shape.
+    if (Player* inFlightTo = engine.playerById(b.intendedReceiverId)) {
+        if (inFlightTo->team == player.team && !isIntendedReceiver && ballSpeed > 60.0) {
+            incomingLooseBall = false;
+            closeLooseBall = false;
+        }
+    }
     bool urgentLooseBallRun = incomingLooseBall || deadBallRecoveryRun || closeLooseBall;
     // Free ball: a slow loose ball whose nearer players are all contest-blocked
     // (e.g. shepherding their own clearance) is anyone's — the nearest eligible

@@ -101,7 +101,9 @@ inline constexpr double INTENDED_COLLECT_BONUS   = 1.8;
 inline constexpr double PRESSURE_RANGE          = 58.0;
 inline constexpr double STUCK_CARRIER_MOVE_THRESHOLD = 42.0;
 inline constexpr double STUCK_CARRIER_TIMEOUT_MS = 4200.0;
-inline constexpr double DANGER_ZONE_DIST        = 240.0;
+// Defense goes to full protection (max marking, box guards, post guards)
+// well before the box — 240 only triggered once the line was already beaten.
+inline constexpr double DANGER_ZONE_DIST        = 330.0;
 inline constexpr double PRESS_COMMIT_MAX_DIST   = 145.0;
 inline constexpr double CORNER_ZONE             = 80.0;
 inline constexpr double CORNER_TRAP_SIZE        = 80.0;
@@ -166,7 +168,7 @@ inline constexpr double CROSS_DRIVE_SPEED_MAX    = 560.0;
 inline constexpr double CROSS_DIP_TARGET_Z       = 18.0;  // ball height at arrival
 inline constexpr double CROSS_CURL_MIN           = 0.85;  // rad/s
 inline constexpr double CROSS_CURL_RANGE         = 0.55;
-inline constexpr double CROSS_CUTOUT_BASE        = 0.26;  // defender cut-out duel
+inline constexpr double CROSS_CUTOUT_BASE        = 0.34;  // defender cut-out duel
 inline constexpr double CROSS_CUTOUT_SKILL       = 0.28;
 inline constexpr double CROSS_MEET_BASE          = 0.42;  // runner timing roll
 inline constexpr double CROSS_MEET_SKILL         = 0.30;

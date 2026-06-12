@@ -53,7 +53,9 @@ void GameEngine::assignPrimaryPress(DefenseContext& ctx, Player& carrier) {
 // ── Phase 3: Secondary press ──
 
 void GameEngine::assignSecondaryPress(DefenseContext& ctx, Player& carrier) {
-    if (ctx.tactics.aggression < 62.0 && !ctx.danger) return;
+    // A carrier in shooting range always draws the second man — pressure on
+    // the shooter is the defense's answer to clean long-range sight.
+    if (ctx.tactics.aggression < 62.0 && !ctx.danger && !ctx.shootingRange) return;
     for (const auto& option : ctx.ranked) {
         Player* p = option.player;
         if (ctx.used(p) || agentFor(*p)->isCenterBack()
@@ -84,6 +86,22 @@ void GameEngine::assignShotLane(DefenseContext& ctx, Player& carrier) {
         setAssignment(*lane, DefensiveTask::ShotLane, laneX, laneY, carrier.id);
         ctx.assigned[lane->id] = true;
     }
+    // Second body DEEP in the lane, near where the aim lines to either post
+    // converge — the mid-lane blocker is stepped around or misses the post-
+    // bound line by a body width; the deep cover can't be.
+    Player* lane2 = nullptr;
+    double bestLane2 = 1e9;
+    double lane2X = lerp(carrier.x, ctx.ownGoalX + ctx.fd * 24.0, ctx.danger ? 0.55 : 0.46);
+    double lane2Y = lerp(carrier.y, PITCH_H / 2.0, ctx.danger ? 0.50 : 0.40);
+    for (auto& p : state.players) {
+        if (p.team != ctx.team || ctx.used(&p) || p.role == Role::GK || p.role == Role::CF || p.role == Role::WM) continue;
+        double score = dist(p.x, p.y, lane2X, lane2Y) + agentFor(p)->shotLaneCost();
+        if (score < bestLane2) { bestLane2 = score; lane2 = &p; }
+    }
+    if (lane2) {
+        setAssignment(*lane2, DefensiveTask::ShotLane, lane2X, lane2Y, carrier.id);
+        ctx.assigned[lane2->id] = true;
+    }
 }
 
 // ── Phase 5: Cross lane ──
@@ -92,8 +110,10 @@ void GameEngine::assignCrossLane(DefenseContext& ctx, Player& carrier) {
     if (!ctx.wideDanger) return;
     Player* crossLane = nullptr;
     double bestCrossLane = 1e9;
-    double crossX = lerp(carrier.x, ctx.ownGoalX + ctx.fd * 62.0, ctx.danger ? 0.42 : 0.34);
-    double crossY = lerp(carrier.y, PITCH_H / 2.0, 0.44);
+    // Stand IN the delivery path, halfway to the goal mouth — a body on
+    // the flight line gets the cut-out roll on every whip that comes through.
+    double crossX = lerp(carrier.x, ctx.ownGoalX + ctx.fd * 62.0, 0.50);
+    double crossY = lerp(carrier.y, PITCH_H / 2.0, 0.50);
     for (auto& p : state.players) {
         if (p.team != ctx.team || ctx.used(&p) || p.role == Role::GK || p.role == Role::CF) continue;
         double roleCost = agentFor(p)->crossLaneCost();
@@ -132,17 +152,45 @@ void GameEngine::assignCoverRoles(DefenseContext& ctx, Player& carrier) {
 // ── Phase 7: Midfield screen ──
 
 void GameEngine::assignMidfieldScreen(DefenseContext& ctx, Player& carrier) {
+    // The first screen stands ON the most dangerous passing lane (carrier to
+    // the deepest central threat), not just in space — a body in the lane is
+    // an interception, a body near it is scenery.
+    const Player* laneThreat = nullptr;
+    double bestDepth = 1e9;
+    for (auto& opp : state.players) {
+        if (opp.team == ctx.team || opp.role == Role::GK || opp.id == carrier.id) continue;
+        if (std::abs(opp.y - PITCH_H / 2.0) > 190.0) continue;
+        double depth = std::abs(opp.x - ctx.ownGoalX);
+        if (depth < bestDepth) { bestDepth = depth; laneThreat = &opp; }
+    }
     int screenCount = 0;
     for (auto& p : state.players) {
         if (p.team == ctx.team && agentFor(p)->isCentralMidfielder() && !ctx.used(&p)) {
             double screenDepth = ctx.danger ? 122.0 + screenCount * 26.0 : 175.0 + screenCount * 22.0;
-            double screenY = screenCount == 0
-                ? lerp(carrier.y, PITCH_H / 2.0, ctx.danger ? 0.78 : 0.65)
-                : clamp(PITCH_H / 2.0 + (carrier.y < PITCH_H / 2.0 ? 74.0 : -74.0), 70.0, PITCH_H - 70.0);
-            setAssignment(p, DefensiveTask::MidfieldScreen,
-                lerp(carrier.x, ctx.ownGoalX + ctx.fd * screenDepth, ctx.danger ? 0.58 : 0.4), screenY);
+            double screenX, screenY;
+            if (screenCount == 0 && laneThreat) {
+                screenX = lerp(carrier.x, laneThreat->x, 0.55);
+                screenY = lerp(carrier.y, laneThreat->y, 0.55);
+            } else {
+                screenX = lerp(carrier.x, ctx.ownGoalX + ctx.fd * screenDepth, ctx.danger ? 0.58 : 0.4);
+                screenY = screenCount == 0
+                    ? lerp(carrier.y, PITCH_H / 2.0, ctx.danger ? 0.78 : 0.65)
+                    : clamp(PITCH_H / 2.0 + (carrier.y < PITCH_H / 2.0 ? 74.0 : -74.0), 70.0, PITCH_H - 70.0);
+            }
+            setAssignment(p, DefensiveTask::MidfieldScreen, screenX, screenY);
             ctx.assigned[p.id] = true;
             if (++screenCount >= (ctx.danger ? 2 : 1)) break;
+        }
+    }
+    // In danger the striker drops onto the same screen duty — eleven men
+    // defend a lead-threatening attack, not nine.
+    if (ctx.danger) {
+        for (auto& p : state.players) {
+            if (p.team != ctx.team || ctx.used(&p) || p.role != Role::CF) continue;
+            setAssignment(p, DefensiveTask::MidfieldScreen,
+                ctx.ownGoalX + ctx.fd * 215.0, lerp(carrier.y, PITCH_H / 2.0, 0.6));
+            ctx.assigned[p.id] = true;
+            break;
         }
     }
 }
@@ -183,7 +231,17 @@ SmallVector<GameEngine::DefenseContext::Threat, 12> GameEngine::identifyThreats(
         if (threatens) threats.push_back({&attacker, depth});
     }
     std::sort(threats.begin(), threats.end(), [](const DefenseContext::Threat& a, const DefenseContext::Threat& b) { return a.depth < b.depth; });
-    if (threats.size() > (ctx.danger ? 5u : 3u)) threats.resize(ctx.danger ? 5u : 3u);
+    // The ball's intended receiver is ALWAYS a threat, however shallow — the
+    // depth sort dropped him whenever deeper runners existed, leaving the one
+    // man actually getting the ball unmarked.
+    if (Player* rcv = playerById(state.ball.intendedReceiverId)) {
+        if (rcv->team != ctx.team && rcv->role != Role::GK && rcv->id != carrier.id) {
+            bool present = false;
+            for (auto& t : threats) if (t.player->id == rcv->id) { present = true; break; }
+            if (!present) threats.push_back({rcv, std::abs(rcv->x - ctx.ownGoalX)});
+        }
+    }
+    if (threats.size() > (ctx.danger ? 6u : 4u)) threats.resize(ctx.danger ? 6u : 4u);
     return threats;
 }
 
@@ -210,11 +268,15 @@ void GameEngine::assignThreatMarking(DefenseContext& ctx, Player& carrier) {
             double sag = clamp((ballDist - 180.0) / 420.0, 0.0, 1.0);
             // Never sag off a threat already near our goal — box runners must
             // stay marked even when the ball is on the other flank.
-            if (std::abs(threat.player->x - ctx.ownGoalX) < 280.0) sag *= 0.3;
-            double towardGoal = lerp(ctx.danger ? 0.18 : 0.20, 0.48, sag);
+            if (std::abs(threat.player->x - ctx.ownGoalX) < 280.0) sag *= 0.12;
+            bool receiverThreat = state.ball.intendedReceiverId == threat.player->id;
+            // The man the ball is traveling to gets touch-tight goal-side
+            // marking, no sag — pressure at the reception point turns a
+            // delivery into a contested duel instead of a free meet.
+            if (receiverThreat) sag = 0.0;
+            double towardGoal = receiverThreat ? 0.10 : lerp(ctx.danger ? 0.18 : 0.20, 0.48, sag);
             double targetX = lerp(threat.player->x, ctx.ownGoalX + ctx.fd * 36.0, towardGoal);
             double threatDistanceToGoal = std::abs(threat.player->x - ctx.ownGoalX);
-            bool receiverThreat = state.ball.intendedReceiverId == threat.player->id;
             if (ctx.danger && agentFor(*marker)->isCenterBack() && threat.player->role == Role::CF) {
                 targetX = ctx.ownGoalX + ctx.fd * clamp((targetX - ctx.ownGoalX) * ctx.fd, 58.0, 116.0);
             }
@@ -226,6 +288,7 @@ void GameEngine::assignThreatMarking(DefenseContext& ctx, Player& carrier) {
             }
             double markTightness = ctx.danger || receiverThreat || threatDistanceToGoal < 170.0 ? 0.015 : 0.08;
             markTightness = lerp(markTightness, 0.34, sag);
+            if (receiverThreat) markTightness = 0.0;
             setAssignment(*marker, DefensiveTask::LaneBlock, targetX,
                 lerp(threat.player->y, PITCH_H / 2.0, markTightness), threat.player->id);
             ctx.assigned[marker->id] = true;

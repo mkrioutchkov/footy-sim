@@ -217,6 +217,31 @@ void GameEngine::checkBallPlayerCollision(double){
             // but timing the jump is a skill roll: plenty of whips fizz
             // through untouched even with the runner right there.
             double meetDist = crossArrival ? INTENDED_COLLECT_DIST*1.6 : INTENDED_COLLECT_DIST;
+            // Aerial duel: a marker tight on the runner attacks the same ball.
+            // Without this a defender on the runner's shoulder just watched
+            // the header — only bodies on the flight line could intervene.
+            if(crossArrival&&d<=meetDist&&b.z<=zLimit&&canContestBall(*intended)){
+                Player* dueler=nullptr;
+                double duelerDist=1e9;
+                for(auto& opp:state.players){
+                    if(opp.team==intended->team||opp.role==Role::GK||!canContestBall(opp))continue;
+                    double od=dist(opp.x,opp.y,intended->x,intended->y);
+                    if(od<48.0&&od<duelerDist){dueler=&opp;duelerDist=od;}
+                }
+                if(dueler){
+                    double duelChance=clamp(0.52
+                        +(attrFactor(dueler->attrs.positioning)-attrFactor(intended->attrs.positioning))*0.35
+                        +(48.0-duelerDist)/48.0*0.18,0.12,0.76);
+                    if(rng.random()<duelChance){
+                        dueler->headingAnim=520.0;
+                        collectBall(*dueler);   // routes to header clearance
+                        return;
+                    }
+                    // One jump per cross — a beaten dueler doesn't get to
+                    // re-roll every tick the ball hangs in his radius.
+                    blockReboundFor(dueler->id,420);
+                }
+            }
             if(d<=meetDist&&b.z<=zLimit
                &&crossArrival&&bs>300.0&&canContestBall(*intended)
                &&rng.random() > CROSS_MEET_BASE + attrFactor(intended->attrs.positioning)*CROSS_MEET_SKILL){
@@ -257,10 +282,18 @@ void GameEngine::checkBallPlayerCollision(double){
         // A live shot is only touchable by its pre-rolled blocker — everyone
         // else lost their one deliberate chance at launch. Keyed on the loose
         // origin (not shot.active, which the GK assessment clears at 250px).
+        // Exception: defenders ASSIGNED to the shot lane are the designated
+        // wall — deliberate positioning earns physical contact; bystanders
+        // still can't eat shots.
         bool shotInFlight=lastLooseOrigin=="shot"&&bs>150.0;
-        if(shotInFlight&&p.role!=Role::GK&&p.id!=shot.blockerId)continue;
+        bool designatedWall=false;
+        if(shotInFlight&&p.id!=shot.blockerId&&p.team!=shot.team&&p.role!=Role::GK){
+            const auto* task=assignmentFor(p.id);
+            designatedWall=task&&task->role==DefensiveTask::ShotLane;
+        }
+        if(shotInFlight&&p.role!=Role::GK&&p.id!=shot.blockerId&&!designatedWall)continue;
         double r=(bs>COLLISION_FAST_CONTACT&&bs<210.0&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
-        if(shotInFlight&&p.id==shot.blockerId)r=fastContactRadius;
+        if(shotInFlight&&(p.id==shot.blockerId||designatedWall))r=fastContactRadius;
         if(d>r)continue;
         double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
         if(b.z>zLimit)continue;
@@ -285,7 +318,7 @@ void GameEngine::checkBallPlayerCollision(double){
         // unconditional collect meant the first body on the flight line ate
         // every driven cross. A whiff locks the defender out so it flies past.
         if(contact->team!=pendingPass.team && bs>300.0){
-            double cutChance=clamp(CROSS_CUTOUT_BASE+attrFactor(contact->attrs.positioning)*CROSS_CUTOUT_SKILL-(bs-300.0)/700.0,0.08,0.46);
+            double cutChance=clamp(CROSS_CUTOUT_BASE+attrFactor(contact->attrs.positioning)*CROSS_CUTOUT_SKILL-(bs-300.0)/700.0,0.08,0.58);
             if(rng.random()>=cutChance){blockReboundFor(contact->id,420);return;}
         }
         collectBall(*contact);
@@ -313,7 +346,12 @@ void GameEngine::checkBallPlayerCollision(double){
         b.lastTouchTeam=contact->team;b.lastToucherId=contact->id;
         if(contact->team==lastCollectionTeam)lastSameTeamCollectionMs=state.clockMs-500;
         blockReboundFor(contact->id,600);
-        if(lastLooseOrigin=="shot"&&contact->id==shot.blockerId){
+        bool wallBlock=false;
+        if(lastLooseOrigin=="shot"&&contact->id!=shot.blockerId&&contact->team!=shot.team){
+            const auto* task=assignmentFor(contact->id);
+            wallBlock=task&&task->role==DefensiveTask::ShotLane;
+        }
+        if(lastLooseOrigin=="shot"&&(contact->id==shot.blockerId||wallBlock)){
             stats.recordShotBlocked();
             emitEvent("block", contact->x, contact->y, contact->id, shot.shooterId);
             shot.active=false; shot.tracked=false;

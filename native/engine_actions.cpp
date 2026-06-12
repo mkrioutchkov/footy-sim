@@ -615,7 +615,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
             if(perp>reachR)continue;
             double inLine=1.0-perp/reachR;
             double reactFactor=clamp(along/90.0,0.25,1.0);
-            double chance=clamp((0.16+attrFactor(o.attrs.tackling)*0.30)*inLine*reactFactor,0.03,0.46);
+            double chance=clamp((0.16+attrFactor(o.attrs.tackling)*0.30)*inLine*reactFactor,0.03,0.52);
             if(rng.random()<chance){shot.blockerId=o.id;break;}
         }
     }
