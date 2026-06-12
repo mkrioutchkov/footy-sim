@@ -58,10 +58,14 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         gk.targetX = goalX + fd * clamp(bdg * 0.55, 24.0, 155.0);
         gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);
     } else if (ballInOurHalf) {
-        double sweepBase = agentFor(gk)->sweepDepth();
-        double sweepDist = clamp(sweepBase * (PITCH_W * 0.55 - bdg) / (PITCH_W * 0.55), 0.0, sweepBase);
-        gk.targetX = gk.homeX + fd * sweepDist;
-        gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.22), PITCH_H * 0.18, PITCH_H * 0.82);
+        // Angle play: stand ON the ball-goal line, stepping out with threat —
+        // narrowing the angle is most of goalkeeping. The old Y-lerp toward
+        // the ball left near-post gaps off the line.
+        double standDepth = clamp(14.0 + (PITCH_W * 0.55 - bdg) * 0.10 + agentFor(gk)->rushAggression() * 16.0, 12.0, 64.0);
+        double lineT = clamp(standDepth / std::max(bdg, 1.0), 0.0, 1.0);
+        gk.targetX = goalX + fd * standDepth;
+        gk.targetY = clamp(gk.homeY + (state.ball.y - gk.homeY) * lineT,
+                           gk.homeY - GOAL_W * 0.55, gk.homeY + GOAL_W * 0.55);
     }
 
     // Rush-out: charge at loose ball or through ball behind defense
@@ -117,21 +121,17 @@ void GameEngine::tryGKSave() {
     double timeToLineMs = dToGoal / std::max(std::abs(b.vx), 1.0) * 1000;
     double positioning = attrFactor(gk->attrs.positioning);
     double speedSkill = attrFactor(gk->attrs.speed);
-    double reactionBonus = clamp((originDistance - GK_SAVE_REACTION_ORIGIN) / GK_SAVE_REACTION_DIST, 0.0, GK_SAVE_REACTION_MAX);
-    double timePressure = clamp((260.0 - timeToLineMs) / 240.0, 0.0, 0.42);
-    double speedPenalty = clamp((speed - GK_SAVE_SPEED_PENALTY) / GK_SAVE_SPEED_RANGE, 0.0, GK_SAVE_SPEED_MAX);
-    double reach = PLAYER_R + BALL_R + 18.0 + positioning * 30.0 + speedSkill * clamp(timeToLineMs / 1000.0, 0.0, 0.55) * 78.0;
-    double reachPenalty = clamp((trajectoryOffset - reach) / GK_SAVE_PLACEMENT_DIST, 0.0, 1.0) * GK_SAVE_PLACEMENT_MAX;
-    double bodyBlockBonus = trajectoryOffset < PLAYER_R + BALL_R + 4.0 ? 0.20 : 0.0;
-    double keeperSkill = positioning * GK_SAVE_SKILL_POSITION + speedSkill * GK_SAVE_SKILL_SPEED;
-    // Flight time is the keeper's friend: a long-range strike gives most of a
-    // second to set and react.
-    double setTimeBonus = clamp((timeToLineMs - 280.0) / 900.0, 0.0, 0.24);
-    // Close-range strikes are near-unstoppable: without this the formula
-    // clamps at GK_SAVE_MAX for every shot and keepers stop 93% of
-    // everything — real keepers save ~70% overall and far less inside the box.
-    double closeRangeOnslaught = clamp((200.0 - originDistance) / 200.0, 0.0, 1.0) * 0.38;
-    double saveChance = clamp(GK_SAVE_BASE + keeperSkill + reactionBonus + bodyBlockBonus + setTimeBonus - closeRangeOnslaught - reachPenalty - timePressure - speedPenalty, GK_SAVE_MIN, GK_SAVE_MAX);
+    // Natural save model: a save is the body getting there in the time
+    // available — reach coverage of the trajectory, scaled by reaction time,
+    // taxed by shot power. No abstract bonus stack.
+    double reach = PLAYER_R + BALL_R + 22.0 + positioning * 28.0
+        + speedSkill * clamp(timeToLineMs / 1000.0, 0.0, 0.50) * 80.0;
+    double reachCover = clamp((reach - trajectoryOffset) / reach, 0.0, 1.0);
+    double reactTime = clamp(timeToLineMs / 520.0, 0.18, 1.0);
+    double power = clamp((speed - 240.0) / 420.0, 0.0, 0.30);
+    double saveChance = clamp(reachCover * (0.50 + 0.42 * reactTime) + positioning * 0.16 - power,
+                              GK_SAVE_MIN, 0.84);
+    (void)originDistance;
     stats.recordShotOnTarget();
     shot.active = false;
     if (rng.random() >= saveChance) {
@@ -149,10 +149,19 @@ void GameEngine::tryGKSave() {
     shot.penalty = false;
     shot.dribble20m = false;
     bool canHandle = agentFor(*gk)->canUseHands();
-    double catchChance = clamp(agentFor(*gk)->catchThreshold() - std::max(0.0, speed - GK_CATCH_SPEED_THRESH) / GK_CATCH_SPEED_RANGE, GK_CATCH_MIN, GK_CATCH_MAX);
-    bool caught = canHandle && rng.random() < catchChance;
+    // Natural handling decision: hold it only when comfortable — ball near
+    // the body, pace manageable, nobody breathing down your neck. Under
+    // pressure or against heat, get a fist on it instead of gambling.
+    bool gkPressured = false;
+    for (auto& o : state.players) {
+        if (o.team != gk->team && o.role != Role::GK && dist(o.x, o.y, gk->x, gk->y) < 52.0) { gkPressured = true; break; }
+    }
+    bool comfortable = trajectoryOffset < reach * 0.45 && speed < 430.0;
+    double catchChance = clamp(0.42 + positioning * 0.42 - std::max(0.0, speed - 300.0) / 600.0, 0.12, 0.86);
+    bool caught = canHandle && comfortable && !gkPressured && rng.random() < catchChance;
     double fieldDir = fdFor(gk->team);
     double side = gk->y - shot.originY < 0 ? -1.0 : 1.0;
+    double diveSide = (crossY >= gk->y) ? 1.0 : -1.0;
     if (caught) {
         b.x = clamp(gk->x + fieldDir * 6.0, 10.0, PITCH_W - 10.0);
         b.y = clamp(gk->y + side * 4.0, 18.0, PITCH_H - 18.0);
@@ -166,25 +175,35 @@ void GameEngine::tryGKSave() {
         recordBallImpulse();
         return;
     }
-    // Parry or punch: punch when outside area (cannot use hands) or when GK prefers to fist
-    bool punch = !canHandle;
+    // Punch when hands are unavailable, when pressured, or against real heat:
+    // a confident punch sends it long and wide. Otherwise it's a parry — the
+    // ball continues PAST the keeper on the side he dove, deadened, a live
+    // rebound in the box.
+    bool punch = !canHandle || gkPressured || speed > 520.0;
     if (punch) emitEvent("punch", gk->x, gk->y, gk->id);
-    // A parry deadens the shot — the spill lands meters away, not in the
-    // opposite half. (Punches stay full-blooded.) This is what makes rebound
-    // poaching a real part of the game.
     double clearSpeed = punch
         ? speed * agentFor(*gk)->punchPower()
         : speed * (0.20 + rng.random() * 0.25);
-    double clearDir = punch
-        ? (gk->y < PITCH_H / 2.0 ? -1.4 : 1.4) + (rng.random() - 0.5) * 0.4
-        : (-0.8 + rng.random() * 1.6);
-    double cornerY = (gk->y < PITCH_H / 2.0) ? 18.0 : PITCH_H - 18.0;
-    if (!punch) clearDir += (cornerY - gk->y) * 0.003;
-    b.x = clamp(gk->x + fieldDir * 28, 10.0, PITCH_W - 10.0);
-    b.y = clamp(gk->y - side * 24, 18.0, PITCH_H - 18.0);
-    b.vx = fieldDir * std::cos(clearDir) * clearSpeed;
-    b.vy = -side * std::abs(std::sin(clearDir)) * clearSpeed;
-    b.z = 0; b.vz = punch ? clearSpeed * 0.25 : 0;
+    if (punch) {
+        double punchDir = (diveSide > 0 ? 0.9 : -0.9) + (rng.random() - 0.5) * 0.5;
+        b.x = clamp(gk->x + fieldDir * 28, 10.0, PITCH_W - 10.0);
+        b.y = clamp(gk->y + diveSide * 20, 18.0, PITCH_H - 18.0);
+        b.vx = fieldDir * std::cos(punchDir) * clearSpeed;
+        b.vy = std::sin(punchDir) * clearSpeed * (diveSide > 0 ? 1.0 : -1.0) * 0.6 + diveSide * clearSpeed * 0.3;
+        b.z = 6; b.vz = clearSpeed * 0.30;
+    } else {
+        // Parry continues the shot's journey, pushed wide on the dive side.
+        double inAng = std::atan2(b.vy, b.vx);
+        double parryAng = inAng + diveSide * (0.55 + rng.random() * 0.5);
+        b.x = clamp(gk->x + fieldDir * 16, 10.0, PITCH_W - 10.0);
+        b.y = clamp(gk->y + diveSide * (PLAYER_R + BALL_R + 4.0), 18.0, PITCH_H - 18.0);
+        b.vx = std::cos(parryAng) * clearSpeed;
+        b.vy = std::sin(parryAng) * clearSpeed;
+        // never parry INTO the goal: kill any goalward component
+        if ((gk->team == Team::Home && b.vx < 0) || (gk->team == Team::Away && b.vx > 0)) b.vx = fieldDir * std::abs(b.vx) * 0.4;
+        b.z = 0; b.vz = 0;
+    }
+    (void)side;
     b.intendedReceiverId = -1;
     blockReboundFor(shooterId, punch ? 900 : 1400);
     b.lastTouchTeam = gk->team; b.lastToucherId = gk->id;

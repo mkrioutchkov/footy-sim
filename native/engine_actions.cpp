@@ -569,7 +569,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     // tackling). The winner is the only body allowed to touch the flight;
     // a shot that survives every roll is committed past the crowd.
     shot.blockerId=-1;
-    shot.scoopAllowed=rng.random()<0.67;
+    shot.scoopAllowed=rng.random()<0.74;
     {
         double ndx=dx/d, ndy=dy/d;
         for(auto& o:state.players){
