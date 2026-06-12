@@ -199,6 +199,7 @@ double GameEngine::goalOpeningAngleDeg(double x, double y, double gx) const {
 }
 
 void GameEngine::placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset) {
+    state.ball.curl=0.0;
     double d=std::hypot(dx,dy);
     double tx,ty;
     if(d<0.001){
@@ -281,20 +282,39 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         // Lead the runner goalward and slightly central instead of to feet —
         // headed chances need the ball met closer to goal, but a fixed box-zone
         // aim just found the retreated defenders (18% completion, all cleared).
-        double ax=predX+fd*(34.0+rng.random()*36.0);
+        // Small lead only — the whip itself supplies the attacking momentum;
+        // a 34-70px lead had the ball arriving before the runner ever could.
+        double ax=predX+fd*(10.0+rng.random()*24.0);
         ax=fd>0.0?std::min(ax,goalX-60.0):std::max(ax,goalX+60.0);
         double ay=lerp(predY,PITCH_H/2.0,0.25);
         double adx=ax-f.x+(rng.random()-0.5)*inacc, ady=ay-f.y+(rng.random()-0.5)*inacc;
         double aDist=std::max(1.0,std::hypot(adx,ady));
-        double aSpeed=(PASS_SPEED_BASE+aDist*PASS_SPEED_DIST)*(0.92+rng.random()*0.16);
-        b.vx=adx/aDist*aSpeed*1.15; b.vy=ady/aDist*aSpeed*1.15;
-        // High arc: clear the heads near the crosser so the ball only dips back
-        // into header height around the runner in the box.
-        b.vz=std::max(b.vz,aSpeed*1.80);
+        // Whipped: a cross is a driven delivery, not a pass with a multiplier —
+        // the pass formula tops out ~220px/s, a floaty lob. Drive it near shot
+        // speed, with just enough loft to skim defenders and dip to head height
+        // (z 16-64 is the header band) right as it reaches the runner.
+        double aSpeed=clamp(330.0+aDist*0.45,360.0,560.0)*(0.95+rng.random()*0.12);
+        b.vx=adx/aDist*aSpeed; b.vy=ady/aDist*aSpeed;
+        double flightT=clamp(aDist/aSpeed,0.25,1.1);
+        b.vz=clamp((18.0+0.5*GRAVITY*flightT*flightT)/flightT,150.0,260.0);
+        double gcy=PITCH_H/2.0;
+        double crossz=b.vx*(gcy-b.y)-b.vy*(goalX-b.x);
+        b.curl=(crossz>=0?1.0:-1.0)*(0.85+rng.random()*0.55);
+        // Launch wide of the target and let the curl bend it back in, so the
+        // bent path still arrives at the runner (half the expected rotation).
+        double preRot=-b.curl*flightT*0.45;
+        double pcs=std::cos(preRot),psn=std::sin(preRot);
+        double pvx=b.vx*pcs-b.vy*psn; b.vy=b.vx*psn+b.vy*pcs; b.vx=pvx;
     }
     if(whippedCross){
+        // Incidental lofted wide balls keep the high floaty arc (they're just
+        // passes); only deliberate crosses above get the driven whip. Making
+        // these driven too turned ~350 routine deliveries/match into header
+        // duels and halved chance creation. Mild curl kept for looks.
         b.vx*=1.30; b.vy*=1.30;
         b.vz=std::max(b.vz,speed*1.30*1.55);
+        double crossz=b.vx*(PITCH_H/2.0-b.y)-b.vy*(goalX-b.x);
+        b.curl=(crossz>=0?1.0:-1.0)*(0.30+rng.random()*0.25);
     }
     if(audit){
         bool riskyFlag=audit->blockers>0||audit->receiverPressure>0||audit->expectedCompletion<0.58;
@@ -440,6 +460,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         emitEvent("tackle_won", (tackler.x+carrier.x)/2.0, (tackler.y+carrier.y)/2.0, tackler.id, carrier.id);
         b.controllerId=tackler.id;
         b.vx=b.vy=b.z=b.vz=0;
+        b.curl=0;
         b.lastTouchTeam=tackler.team; b.lastToucherId=tackler.id;
         b.intendedReceiverId=-1;
         receiverShieldUntil=state.clockMs+260;
@@ -525,19 +546,23 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     bool credibleFinish=angleDeg>12.0&&shotDistance<185.0&&pressureCount<=1&&laneBlockers<=1;
     bool freshThrough=s.throughCollected>0.0&&shotDistance<245.0;
     bool directFreeKickShot=setPiece.type==SetPiece::FreeKick;
+    // Dead ball, no pressure, twelve yards: penalty execution is near-pure
+    // placement. Without this the open-play error model sprayed pens wide.
+    bool penaltyKick=setPiece.type==SetPiece::Penalty;
     if(credibleFinish)executionError*=shotDistance<95.0?0.60:0.70;
     if(directFreeKickShot)executionError*=0.48;
+    if(penaltyKick)executionError*=0.30;
     if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.84:0.92;
     if(freshCross)executionError*=s.role==Role::CF?0.54:(s.role==Role::WM?0.72:0.90);
     double postAimScale=credibleFinish?0.92:1.0;
-    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(0.12+accuracy*0.11)*postAimScale;
+    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(penaltyKick?0.36+accuracy*0.07:(0.12+accuracy*0.11)*postAimScale);
     double goalY=goalCenterY+aimedPost+(rng.random()+rng.random()-1.0)*executionError;
     if(acuteGeometry){
         double nearPostSide=s.y<goalCenterY?-1.0:1.0;
         double nearPostY=goalCenterY+nearPostSide*GOAL_W/2;
         goalY=nearPostY - nearPostSide * (BALL_R + 7.0 + rng.random() * 16.0);
     }
-    double missMargin = directFreeKickShot
+    double missMargin = (directFreeKickShot || penaltyKick)
         ? clamp(5.0 + shotDistance * 0.012 + laneBlockers * 2.0, 7.0, 12.0)
         : clamp(9.0 + shotDistance * 0.030 + pressureCount * 3.0 + laneBlockers * 3.0, 14.0, 24.0);
     goalY = clamp(goalY, goalCenterY - GOAL_W / 2.0 - missMargin, goalCenterY + GOAL_W / 2.0 + missMargin);
@@ -569,8 +594,9 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     // tackling). The winner is the only body allowed to touch the flight;
     // a shot that survives every roll is committed past the crowd.
     shot.blockerId=-1;
-    shot.scoopAllowed=rng.random()<0.74;
-    {
+    // A penalty beaten by the dive shouldn't be casually scooped on the line.
+    shot.scoopAllowed=rng.random()<(penaltyKick?0.10:0.80);
+    if(!penaltyKick){
         double ndx=dx/d, ndy=dy/d;
         for(auto& o:state.players){
             if(o.team==s.team||o.role==Role::GK)continue;

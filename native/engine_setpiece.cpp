@@ -435,13 +435,25 @@ void GameEngine::releaseCornerKick(Player& holder){
         double ty=lerp(target.y,PITCH_H/2.0,0.55);
         double dx=tx-holder.x,dy=ty-holder.y,d=std::hypot(dx,dy);
         if(d>1.0){
-            double speed=PASS_SPEED_BASE+42.0+d*(PASS_SPEED_DIST+0.07);
+            // Driven corner delivery — same whip treatment as open-play crosses.
+            double speed=clamp(300.0+d*0.30,340.0,520.0);
             auto& b=state.ball;
             b.controllerId=-1;
             placeBallForRelease(holder,dx,dy);
             blockReboundFor(holder.id,900);
             b.lastTouchTeam=holder.team; b.lastToucherId=holder.id;
-            b.vx=dx/d*speed; b.vy=dy/d*speed; b.vz=speed*0.95; b.z=0;
+            b.vx=dx/d*speed; b.vy=dy/d*speed;
+            double cT=clamp(d/speed,0.3,1.1);
+            b.vz=clamp((18.0+0.5*GRAVITY*cT*cT)/cT,160.0,280.0);
+            b.z=0;
+            // Inswinging corner: whip toward the goal mouth, launched wide so
+            // the bent path still arrives at the aim point.
+            double crossz=b.vx*(PITCH_H/2.0-b.y)-b.vy*(goalX-b.x);
+            b.curl=(crossz>=0?1.0:-1.0)*(0.75+rng.random()*0.45);
+            double flightT=std::min(d/speed,1.1);
+            double preRot=-b.curl*flightT*0.45;
+            double pcs=std::cos(preRot),psn=std::sin(preRot);
+            double pvx=b.vx*pcs-b.vy*psn; b.vy=b.vx*psn+b.vy*pcs; b.vx=pvx;
             b.intendedReceiverId=target.id;
             receiverShieldTargetId=target.id;
             beginTrackedPass(holder,target,true);
@@ -485,20 +497,20 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
     Team tmTeam = tm;
 
     if (t == SetPiece::GoalKick) {
+        // Place the BALL at the goal-kick spot and let the keeper jog to it
+        // via the generic taker walk — snapping him there teleported the GK
+        // ~100px on every restart (the most frequent visual pop left).
         phase.actionTimer = 1550;
         setPiece.takerId = -1;
         for (auto& p : state.players) {
             if (p.team == tmTeam && p.role == Role::GK) {
-                b.controllerId = p.id;
-                b.lastTouchTeam = tmTeam;
-                b.lastToucherId = p.id;
                 double fd = fdFor(tmTeam);
                 double side = b.y < PITCH_H / 2.0 ? -1.0 : 1.0;
-                p.x = ownGoalXFor(tmTeam) + fd * 58.0;
-                p.y = clamp(PITCH_H / 2.0 + side * 78.0, 120.0, PITCH_H - 120.0);
-                p.targetX = p.x; p.targetY = p.y; p.vx = p.vy = 0;
-                b.x = p.x + fd * CONTROL_DIST;
-                b.y = p.y;
+                b.x = ownGoalXFor(tmTeam) + fd * (58.0 + CONTROL_DIST);
+                b.y = clamp(PITCH_H / 2.0 + side * 78.0, 120.0, PITCH_H - 120.0);
+                setPiece.spotX = b.x;
+                setPiece.spotY = b.y;
+                setPiece.takerId = p.id;
                 break;
             }
         }
@@ -506,6 +518,13 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
     }
 
     if (t == SetPiece::Penalty) {
+        // Ball goes to the SPOT — without this, "penalties" were taken from
+        // wherever the foul happened (tight angles, crowds) and barely scored.
+        double fd = fdFor(tmTeam);
+        b.x = goalXFor(tmTeam) - fd * 110.0;
+        b.y = PITCH_H / 2.0;
+        setPiece.spotX = b.x;
+        setPiece.spotY = b.y;
         phase.actionTimer = 5000;
         Player* best = nullptr;
         double bestScore = -1e9;

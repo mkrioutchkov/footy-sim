@@ -454,12 +454,18 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         double minDist = minDistFor(setPiece.type);
         Team restartTeam = setPiece.team;
         double maxStep = SPEED_SPRINT * (sdt / 1000.0);
+        bool pen = setPiece.type == SetPiece::Penalty;
+        double fdAtt = fdFor(restartTeam);
         for (auto& p : state.players) {
             if (p.team == restartTeam || p.role == Role::GK) continue;
             double dx = p.x - setPiece.spotX;
             double dy = p.y - setPiece.spotY;
             double d = std::hypot(dx, dy);
-            if (d >= minDist) continue;
+            // Penalty law: everyone but taker and keeper must be BEHIND the
+            // spot, not just 96px away — radial spacing let defenders stand
+            // on the goal line and wall up the shot.
+            bool goalSide = pen && (p.x - setPiece.spotX) * fdAtt > -12.0;
+            if (d >= minDist && !goalSide) continue;
             if (d < 1.0) {
                 double fd = fdFor(p.team);
                 dx = -fd; dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
@@ -467,6 +473,11 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             }
             double tx = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
             double ty = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
+            if (goalSide) {
+                tx = clamp(setPiece.spotX - fdAtt * 40.0, 5.0, PITCH_W - 5.0);
+                double sideOff = p.y >= setPiece.spotY ? 1.0 : -1.0;
+                ty = clamp(setPiece.spotY + sideOff * std::max(std::abs(p.y - setPiece.spotY), 90.0), 5.0, PITCH_H - 5.0);
+            }
             // Jog out of the restart radius rather than teleporting there.
             double mx = tx - p.x, my = ty - p.y;
             double md = std::hypot(mx, my);
@@ -498,7 +509,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     separateTeammates(sdt);
     enforceRestartDistance();
 
-    if (setPiece.type == SetPiece::GoalKick && phase.actionTimer <= 0) {
+    if (setPiece.type == SetPiece::GoalKick && phase.actionTimer <= 0 && state.ball.controllerId >= 0) {
         setPiece.armed = false;
         setPiece.reason.clear();
         releaseSetPiece();

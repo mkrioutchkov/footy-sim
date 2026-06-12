@@ -42,6 +42,15 @@ void GameEngine::separateTeammates(double sdt) {
 
 void GameEngine::applyBallPhysics(double s) {
     auto& b = state.ball;
+    if (b.curl != 0.0) {
+        double rot = b.curl * s;
+        double cs = std::cos(rot), sn = std::sin(rot);
+        double nvx = b.vx * cs - b.vy * sn;
+        b.vy = b.vx * sn + b.vy * cs;
+        b.vx = nvx;
+        b.curl *= std::pow(b.z > 2.0 ? 0.55 : 0.02, s);
+        if (std::abs(b.curl) < 0.02) b.curl = 0.0;
+    }
     double friction = std::pow(BALL_FRICTION, s);
     b.vx *= friction;
     b.vy *= friction;
@@ -197,13 +206,26 @@ void GameEngine::checkBallPlayerCollision(double){
         }
     }
 
-    // Intended receiver gets priority with larger collection radius
-    if(b.intendedReceiverId>=0&&bs<250){
+    // Intended receiver gets priority with larger collection radius. A driven
+    // cross arrives way over the 250 trap-speed limit — but it isn't trapped,
+    // it's MET (header), so the band-height arrival bypasses the speed gate.
+    bool crossArrival = pendingPass.active && pendingPass.isCross
+        && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT;
+    if(b.intendedReceiverId>=0&&(bs<250||crossArrival)){
         Player* intended=playerById(b.intendedReceiverId);
         if(intended){
             double d=dist(intended->x,intended->y,b.x,b.y);
             double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
-            if(d<=INTENDED_COLLECT_DIST&&b.z<=zLimit){
+            // A striker attacking a whipped ball covers the last meter with a
+            // lunge or leap — flat-fast deliveries get a wider meet radius,
+            // but timing the jump is a skill roll: plenty of whips fizz
+            // through untouched even with the runner right there.
+            double meetDist = crossArrival ? INTENDED_COLLECT_DIST*1.6 : INTENDED_COLLECT_DIST;
+            if(d<=meetDist&&b.z<=zLimit
+               &&crossArrival&&bs>300.0&&canContestBall(*intended)
+               &&rng.random() > 0.42 + attrFactor(intended->attrs.positioning)*0.30){
+                blockReboundFor(intended->id,380);
+            } else if(d<=meetDist&&b.z<=zLimit){
                 if(canContestBall(*intended)){
                     bool underPressure=false;
                     for(auto& opponent:state.players){
@@ -263,6 +285,13 @@ void GameEngine::checkBallPlayerCollision(double){
 
     if(!contact)return;
     if(pendingPass.active && pendingPass.isCross && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT){
+        // Cutting out a whipped delivery is a duel, not a given — the old
+        // unconditional collect meant the first body on the flight line ate
+        // every driven cross. A whiff locks the defender out so it flies past.
+        if(contact->team!=pendingPass.team && bs>300.0){
+            double cutChance=clamp(0.26+attrFactor(contact->attrs.positioning)*0.28-(bs-300.0)/700.0,0.08,0.46);
+            if(rng.random()>=cutChance){blockReboundFor(contact->id,420);return;}
+        }
         collectBall(*contact);
         return;
     }
@@ -325,6 +354,7 @@ void GameEngine::collectBall(Player& c) {
     lastLooseOrigin.clear();
     b.controllerId = c.id;
     b.intendedReceiverId = -1;
+    b.curl = 0.0;
     b.vx *= .3;
     b.vy *= .3;
     b.z = b.vz = 0;

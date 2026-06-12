@@ -131,6 +131,9 @@ void GameEngine::tryGKSave() {
     double power = clamp((speed - 240.0) / 420.0, 0.0, 0.30);
     double saveChance = clamp(reachCover * (0.50 + 0.42 * reactTime) + positioning * 0.16 - power,
                               GK_SAVE_MIN, 0.84);
+    // Penalties: from 12 yards the keeper is guessing — real save rate is
+    // ~17-25%. The reach model overrates him (short flight, centered start).
+    if (shot.penalty) saveChance = std::min(saveChance, 0.16 + positioning * 0.10);
     (void)originDistance;
     stats.recordShotOnTarget();
     shot.active = false;
@@ -166,6 +169,7 @@ void GameEngine::tryGKSave() {
         b.x = clamp(gk->x + fieldDir * 6.0, 10.0, PITCH_W - 10.0);
         b.y = clamp(gk->y + side * 4.0, 18.0, PITCH_H - 18.0);
         b.vx = b.vy = b.vz = b.z = 0;
+        b.curl = 0;
         b.controllerId = gk->id;
         b.intendedReceiverId = -1;
         blockReboundFor(shooterId, 250);
@@ -204,6 +208,7 @@ void GameEngine::tryGKSave() {
         b.z = 0; b.vz = 0;
     }
     (void)side;
+    b.curl = 0;
     b.intendedReceiverId = -1;
     blockReboundFor(shooterId, punch ? 900 : 1400);
     b.lastTouchTeam = gk->team; b.lastToucherId = gk->id;

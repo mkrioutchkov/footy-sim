@@ -184,6 +184,9 @@ struct Player {
 struct Ball {
     double x = 525.0, y = 340.0;
     double vx = 0.0, vy = 0.0, z = 0.0, vz = 0.0;
+    // Signed curl (rad/s rotation of the velocity vector) — whipped crosses
+    // bend in flight; decays fast once grounded and clears on any touch.
+    double curl = 0.0;
     int    controllerId    = -1;
     int    intendedReceiverId = -1;
     Team   lastTouchTeam = Team::Home;
