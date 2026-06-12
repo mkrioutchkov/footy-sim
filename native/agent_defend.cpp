@@ -239,6 +239,21 @@ Action PlayerAI::scoreChase(const Perception& per) {
             && (per.ballDist < 140.0 || intendedUnderPressure);
     }
 
+    // Rebound crash: a keeper parry is a free close-range chance — the
+    // nearest attackers must attack the spill instantly.
+    bool parryRebound = per.ballIsLoose && b.z <= AERIAL_HEIGHT
+        && engine.lastLooseOrigin == "goalkeeper_parry"
+        && canContest && per.ballDist < 230.0
+        && std::abs(player.x - goalXFor(player.team)) < 360.0
+        && b.lastTouchTeam != player.team;
+    if (parryRebound) {
+        double lead = ballSpeed > 30.0 ? std::min(ballSpeed / 260.0, 0.30) : 0.0;
+        return Action{ActionType::Chase, 1.10, nullptr,
+                      clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
+                      clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
+                      ActionPurpose::RecoverLoose};
+    }
+
     if (activeKnockAheadRunner && per.ballIsLoose && b.z <= AERIAL_HEIGHT) {
         double lead = ballSpeed > 8.0 ? std::min(ballSpeed / 180.0, 0.35) : 0.0;
         return Action{ActionType::Chase, 1.0, nullptr,

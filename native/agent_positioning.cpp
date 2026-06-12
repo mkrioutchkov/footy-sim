@@ -15,6 +15,17 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
     PositioningContext pc{fd, my, ba, pu, wp, ip};
     SmallVector<PositionCandidate, 32> c;
 
+    // Delivery imminent: a teammate carries wide in the final third — box
+    // runs must spike now or the cross/cutback arrives to an empty box.
+    bool deliveryImminent = false;
+    if (my && !per.iAmController) {
+        Player* carrierNow = engine.playerById(per.ballControllerId);
+        if (carrierNow && carrierNow->team == p.team) {
+            double cgd = std::abs(carrierNow->x - goalXFor(p.team));
+            deliveryImminent = cgd < 330.0 && std::abs(carrierNow->y - PITCH_H / 2.0) > 140.0;
+        }
+    }
+
     posBaseCandidates(c, pc);
     posDefensiveCover(c, pc, per);
     posBallFarOffers(c, pc, per);
@@ -52,6 +63,14 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
             double d2 = std::sqrt((targetX - o->x) * (targetX - o->x) + (targetY - o->y) * (targetY - o->y));
             if (d2 < 50.0) sf -= (50.0 - d2) / 50.0;
         }
+        // Runs into the box are SUPPOSED to enter defended space — the
+        // opponent-proximity penalty otherwise repels every box run and
+        // crosses arrive to an empty box (measured 0.1 teammates in the box
+        // during wide final-third carries).
+        bool attackingRunPur = cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::RunAhead;
+        double oppGx = goalXFor(p.team);
+        bool boxTarget = std::abs(targetX - oppGx) < 200.0 && std::abs(targetY - PITCH_H / 2.0) < 200.0;
+        if (my && attackingRunPur && boxTarget) sf *= 0.25;
         bool counterOutlet = cn.pur == ActionPurpose::CounterOutlet || cn.pur == ActionPurpose::RestForward;
         double tac = my ? (targetX - p.homeX) * fd / PITCH_W * 0.5 : counterOutlet ? 0.0 : -(targetX - p.homeX) * fd / PITCH_W * 0.25;
         double og2 = ownGoalXFor(p.team);
@@ -66,6 +85,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
                     (cn.pur == ActionPurpose::HoldWidth && isWideMidfielder() && ba > 0.45) ? 0.10 :
                     (cn.pur == ActionPurpose::Observe) ? 0.10 :
                     (cn.pur == ActionPurpose::Space && isWideMidfielder() && std::abs(cn.y - PITCH_H / 2.0) > 150.0 && ba > 0.4) ? 0.12 : 0.0;
+        if (deliveryImminent && boxTarget && (isCenterForward() || isWideMidfielder() || isCentralMidfielder())) ob += 0.30;
 
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;
         double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 6.0;

@@ -103,7 +103,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (per.pressureCount == 0 && angleDeg > 9.0 && shotDistance < 315.0) sc += 0.10;
     // Pot-shot tax: the audit flagged ~70 questionable long strikes per match —
     // keepers eat them, so working a better position should win the comparison.
-    if (shotDistance > 235.0) sc -= 0.14;
+    if (shotDistance > 235.0) sc -= 0.26;
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
 }

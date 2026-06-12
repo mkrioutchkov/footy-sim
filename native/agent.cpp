@@ -439,6 +439,10 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     if (skillMoveCooldown == 0 && cp.nearestPlayer && nearbyOpps <= 2 && !ownDefensiveThird
         && cp.score > 0.72 && nearestOppDist > 18.0 && nearestOppDist < 58.0) {
         double skillChance = 0.02 + attrFactor(p.attrs.creativity) * 0.10;
+        // Take-ons live in the final third — that's where beating a man is
+        // worth the risk.
+        bool inFinalThirdAtk = (fdFor(p.team) > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+        if (inFinalThirdAtk) skillChance *= 1.8;
         if (engine.rng.random() < skillChance) {
             Player* def = cp.nearestPlayer;
             double fd = fdFor(p.team);
@@ -462,22 +466,34 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 engine.blockReboundFor(def->id, 600);
                 moveType = "dragback";
             } else {
-                // Cut to whichever side has fewer bodies.
-                auto sideCrowd = [&](double sy) {
-                    int n = 0;
-                    for (auto& o : engine.state.players) {
-                        if (o.team == p.team || o.role == Role::GK) continue;
-                        if (dist(p.x + fd * 42.0, sy, o.x, o.y) < 75.0) n++;
-                    }
-                    return n;
-                };
-                double upY = clamp(p.y - 64.0, 30.0, PITCH_H - 30.0);
-                double dnY = clamp(p.y + 64.0, 30.0, PITCH_H - 30.0);
-                p.targetX = clamp(p.x + fd * 52.0, 30.0, PITCH_W - 30.0);
-                p.targetY = sideCrowd(upY) <= sideCrowd(dnY) ? upY : dnY;
-                engine.agentFor(*def)->stunLock(22);
-                engine.blockReboundFor(def->id, 700);
-                moveType = "skill";
+                bool finalThird = (fd > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+                if (finalThird) {
+                    // Take-on: beat the man TOWARD goal — slip past his outside
+                    // shoulder and attack the box, not the touchline.
+                    double side = (def->y >= p.y) ? -1.0 : 1.0;
+                    p.targetX = clamp(def->x + fd * 56.0, 30.0, PITCH_W - 30.0);
+                    p.targetY = clamp(def->y + side * 44.0, 30.0, PITCH_H - 30.0);
+                    engine.agentFor(*def)->stunLock(24);
+                    engine.blockReboundFor(def->id, 800);
+                    moveType = "skill";
+                } else {
+                    // Cut to whichever side has fewer bodies.
+                    auto sideCrowd = [&](double sy) {
+                        int n = 0;
+                        for (auto& o : engine.state.players) {
+                            if (o.team == p.team || o.role == Role::GK) continue;
+                            if (dist(p.x + fd * 42.0, sy, o.x, o.y) < 75.0) n++;
+                        }
+                        return n;
+                    };
+                    double upY = clamp(p.y - 64.0, 30.0, PITCH_H - 30.0);
+                    double dnY = clamp(p.y + 64.0, 30.0, PITCH_H - 30.0);
+                    p.targetX = clamp(p.x + fd * 52.0, 30.0, PITCH_W - 30.0);
+                    p.targetY = sideCrowd(upY) <= sideCrowd(dnY) ? upY : dnY;
+                    engine.agentFor(*def)->stunLock(22);
+                    engine.blockReboundFor(def->id, 700);
+                    moveType = "skill";
+                }
             }
             engine.emitEvent(moveType, p.x, p.y, p.id, def->id);
             engine.stats.recordSkillMove();

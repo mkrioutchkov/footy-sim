@@ -53,7 +53,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     // Retreat with an advancing carrier: a fixed ~245px line left the box empty
     // behind it, and `danger` (carrier < 240) only triggered once that line was
     // already beaten. Stay ~115px goal-side until reaching box depth.
-    if (!danger) lineProgress = std::min(lineProgress, carrierGoalDist - 115.0);
+    if (!danger) lineProgress = std::min(lineProgress, carrierGoalDist - 230.0);
     lineProgress = clamp(lineProgress, 70.0, 360.0);
 
     DefenseContext ctx{team, fd, ownGoalX, danger, tactics, lineProgress, shootingRange, wideDanger,

@@ -137,7 +137,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         && bl <= 1
         && completion >= 0.56;
     if (boxCombination) {
-        sc += 0.24;
+        sc += 0.34;
         if (receiverPressure == 0 && bl == 0) sc += 0.12;
         if (t.role == Role::CF) sc += 0.10;
     }
