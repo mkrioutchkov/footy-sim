@@ -116,7 +116,6 @@ void GameEngine::tryGKSave() {
     if (dToGoal > 250) return;
     double crossY = b.y + b.vy * (dToGoal / std::max(std::abs(b.vx), 1.0));
     if (std::abs(crossY - PITCH_H / 2) > GOAL_W / 2) { shot.active = false; return; }
-    double originDistance = std::hypot(shot.originX - goalX, shot.originY - PITCH_H / 2);
     double trajectoryOffset = std::abs(crossY - gk->y);
     double timeToLineMs = dToGoal / std::max(std::abs(b.vx), 1.0) * 1000;
     double positioning = attrFactor(gk->attrs.positioning);
@@ -133,8 +132,7 @@ void GameEngine::tryGKSave() {
                               GK_SAVE_MIN, 0.84);
     // Penalties: from 12 yards the keeper is guessing — real save rate is
     // ~17-25%. The reach model overrates him (short flight, centered start).
-    if (shot.penalty) saveChance = std::min(saveChance, 0.16 + positioning * 0.10);
-    (void)originDistance;
+    if (shot.penalty) saveChance = std::min(saveChance, PENALTY_SAVE_BASE + positioning * PENALTY_SAVE_SKILL);
     stats.recordShotOnTarget();
     shot.active = false;
     if (rng.random() >= saveChance) {
@@ -146,11 +144,7 @@ void GameEngine::tryGKSave() {
     emitEvent("save", gk->x, gk->y, gk->id);
     bool unlikelyCond = saveChance < 0.12 || (timeToLineMs < 130 && trajectoryOffset > reach + 18.0 && speed > 500);
     stats.recordGkAssessment(unlikelyCond, false);
-    shot.tracked = false;
-    shot.preventable = false;
-    shot.header = false;
-    shot.penalty = false;
-    shot.dribble20m = false;
+    shot.clearFlags();
     bool canHandle = agentFor(*gk)->canUseHands();
     // Natural handling decision: hold it only when comfortable — ball near
     // the body, pace manageable, nobody breathing down your neck. Under
@@ -207,7 +201,6 @@ void GameEngine::tryGKSave() {
         if ((gk->team == Team::Home && b.vx < 0) || (gk->team == Team::Away && b.vx > 0)) b.vx = fieldDir * std::abs(b.vx) * 0.4;
         b.z = 0; b.vz = 0;
     }
-    (void)side;
     b.curl = 0;
     b.intendedReceiverId = -1;
     blockReboundFor(shooterId, punch ? 900 : 1400);

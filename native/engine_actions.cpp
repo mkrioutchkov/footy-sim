@@ -27,6 +27,7 @@ void GameEngine::recordBallImpulse() {
 
 void GameEngine::emitEvent(const std::string& type,double x,double y,int playerId,int targetId) {
     visualEvents.push_back({type,x,y,state.clockMs,playerId,targetId});
+    traceEventQueue.push_back(visualEvents.back());
     while(visualEvents.size()>32)visualEvents.erase(visualEvents.begin());
 }
 
@@ -198,6 +199,24 @@ double GameEngine::goalOpeningAngleDeg(double x, double y, double gx) const {
     return opening*180.0/PI;
 }
 
+// Shared whip math for driven deliveries. Assumes ball velocity already
+// points at the target with magnitude `speed`. Adds the dip (the ball
+// arrives at header height as it reaches the aim point), the inswinging
+// curl toward the goal mouth, and pre-rotates the launch wide so the bent
+// path still lands on the target.
+void GameEngine::applyWhipDelivery(double dist, double speed, double goalX, double curlMin, double curlRange) {
+    auto& b = state.ball;
+    double flightT = clamp(dist / speed, 0.25, 1.1);
+    b.vz = clamp((CROSS_DIP_TARGET_Z + 0.5 * GRAVITY * flightT * flightT) / flightT, 150.0, 280.0);
+    double toGoalCross = b.vx * (PITCH_H / 2.0 - b.y) - b.vy * (goalX - b.x);
+    b.curl = (toGoalCross >= 0 ? 1.0 : -1.0) * (curlMin + rng.random() * curlRange);
+    double preRot = -b.curl * flightT * 0.45;
+    double cs = std::cos(preRot), sn = std::sin(preRot);
+    double nvx = b.vx * cs - b.vy * sn;
+    b.vy = b.vx * sn + b.vy * cs;
+    b.vx = nvx;
+}
+
 void GameEngine::placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset) {
     state.ball.curl=0.0;
     double d=std::hypot(dx,dy);
@@ -289,22 +308,13 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         double ay=lerp(predY,PITCH_H/2.0,0.25);
         double adx=ax-f.x+(rng.random()-0.5)*inacc, ady=ay-f.y+(rng.random()-0.5)*inacc;
         double aDist=std::max(1.0,std::hypot(adx,ady));
-        // Whipped: a cross is a driven delivery, not a pass with a multiplier —
-        // the pass formula tops out ~220px/s, a floaty lob. Drive it near shot
-        // speed, with just enough loft to skim defenders and dip to head height
-        // (z 16-64 is the header band) right as it reaches the runner.
-        double aSpeed=clamp(330.0+aDist*0.45,360.0,560.0)*(0.95+rng.random()*0.12);
+        // A cross is a driven delivery, not a pass with a multiplier — the
+        // pass formula tops out ~220px/s, a floaty lob. Drive it near shot
+        // speed and let applyWhipDelivery supply the dip and the bend.
+        double aSpeed=clamp(CROSS_DRIVE_SPEED_BASE+aDist*CROSS_DRIVE_SPEED_PER_PX,
+                            CROSS_DRIVE_SPEED_MIN,CROSS_DRIVE_SPEED_MAX)*(0.95+rng.random()*0.12);
         b.vx=adx/aDist*aSpeed; b.vy=ady/aDist*aSpeed;
-        double flightT=clamp(aDist/aSpeed,0.25,1.1);
-        b.vz=clamp((18.0+0.5*GRAVITY*flightT*flightT)/flightT,150.0,260.0);
-        double gcy=PITCH_H/2.0;
-        double crossz=b.vx*(gcy-b.y)-b.vy*(goalX-b.x);
-        b.curl=(crossz>=0?1.0:-1.0)*(0.85+rng.random()*0.55);
-        // Launch wide of the target and let the curl bend it back in, so the
-        // bent path still arrives at the runner (half the expected rotation).
-        double preRot=-b.curl*flightT*0.45;
-        double pcs=std::cos(preRot),psn=std::sin(preRot);
-        double pvx=b.vx*pcs-b.vy*psn; b.vy=b.vx*psn+b.vy*pcs; b.vx=pvx;
+        applyWhipDelivery(aDist,aSpeed,goalX,CROSS_CURL_MIN,CROSS_CURL_RANGE);
     }
     if(whippedCross){
         // Incidental lofted wide balls keep the high floaty arc (they're just
@@ -426,9 +436,10 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             bool foulInBox = std::abs(foulX - defendingGoalX) < PENALTY_AREA_W
                 && std::abs(foulY - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
             if (foulInBox) {
-                b.x = defendingGoalX + defendingFd * 110.0;
+                b.x = defendingGoalX + defendingFd * PENALTY_SPOT_FROM_GOAL;
                 b.y = PITCH_H / 2.0;
                 stats.recordPenaltyAwarded();
+                emitEvent("penalty", b.x, b.y, carrier.id);
                 awardSetPiece(SetPiece::Penalty, carrier.team);
                 setPiece.reason = "penalty";
             } else {
@@ -444,11 +455,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         return false;
     }
     pendingPass.active=false;
-    shot.tracked=false;
-    shot.preventable=false;
-    shot.header=false;
-    shot.penalty=false;
-    shot.dribble20m=false;
+    shot.clearFlags();
     receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
     double angle=std::atan2(b.y-tackler.y,b.x-tackler.x)+(rng.random()-0.5)*0.9;
     double outcomeRoll=rng.random();
@@ -595,7 +602,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     // a shot that survives every roll is committed past the crowd.
     shot.blockerId=-1;
     // A penalty beaten by the dive shouldn't be casually scooped on the line.
-    shot.scoopAllowed=rng.random()<(penaltyKick?0.10:0.80);
+    shot.scoopAllowed=rng.random()<(penaltyKick?PENALTY_SCOOP_CHANCE:SHOT_SCOOP_CHANCE);
     if(!penaltyKick){
         double ndx=dx/d, ndy=dy/d;
         for(auto& o:state.players){

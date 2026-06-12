@@ -443,17 +443,8 @@ void GameEngine::releaseCornerKick(Player& holder){
             blockReboundFor(holder.id,900);
             b.lastTouchTeam=holder.team; b.lastToucherId=holder.id;
             b.vx=dx/d*speed; b.vy=dy/d*speed;
-            double cT=clamp(d/speed,0.3,1.1);
-            b.vz=clamp((18.0+0.5*GRAVITY*cT*cT)/cT,160.0,280.0);
             b.z=0;
-            // Inswinging corner: whip toward the goal mouth, launched wide so
-            // the bent path still arrives at the aim point.
-            double crossz=b.vx*(PITCH_H/2.0-b.y)-b.vy*(goalX-b.x);
-            b.curl=(crossz>=0?1.0:-1.0)*(0.75+rng.random()*0.45);
-            double flightT=std::min(d/speed,1.1);
-            double preRot=-b.curl*flightT*0.45;
-            double pcs=std::cos(preRot),psn=std::sin(preRot);
-            double pvx=b.vx*pcs-b.vy*psn; b.vy=b.vx*psn+b.vy*pcs; b.vx=pvx;
+            applyWhipDelivery(d,speed,goalX,0.75,0.45);
             b.intendedReceiverId=target.id;
             receiverShieldTargetId=target.id;
             beginTrackedPass(holder,target,true);
@@ -521,7 +512,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
         // Ball goes to the SPOT — without this, "penalties" were taken from
         // wherever the foul happened (tight angles, crowds) and barely scored.
         double fd = fdFor(tmTeam);
-        b.x = goalXFor(tmTeam) - fd * 110.0;
+        b.x = goalXFor(tmTeam) - fd * PENALTY_SPOT_FROM_GOAL;
         b.y = PITCH_H / 2.0;
         setPiece.spotX = b.x;
         setPiece.spotY = b.y;

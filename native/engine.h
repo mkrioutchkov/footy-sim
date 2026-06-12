@@ -115,6 +115,7 @@ public:
         // Pre-rolled: may the keeper recover this shot via positioning pickup
         // after a failed reflex save? false = it beat him clean.
         bool scoopAllowed = true;
+        void clearFlags() { tracked = false; preventable = false; header = false; penalty = false; dribble20m = false; }
         double originX = 0, originY = 0;
     } shot;
 
@@ -159,6 +160,9 @@ public:
         int playerId = -1, targetId = -1;
     };
     std::vector<VisualEvent> visualEvents;
+    // Full event log for the trace file — the host drains this every tick
+    // (visualEvents is renderer-facing and capped, so it drops history).
+    std::vector<VisualEvent> traceEventQueue;
 
     // ── Agent-accessible state ──
     struct RecentPass { double bx=525,by=340,vx=0,vy=0; Team team=Team::Home; double clockMs=0; };
@@ -254,6 +258,7 @@ public:
 
     void placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset=CONTROL_DIST+BALL_R+4.0);
     void passBallTo(Player& f, Player& t);
+    void applyWhipDelivery(double dist, double speed, double goalX, double curlMin, double curlRange);
     bool passBallTo(Player& f, Player& t, bool throughBall, bool lob, const PassSelectionAudit* selectionAudit);
     void forcePassTo(Player& f, Player& t, const PassSelectionAudit*);
     bool attemptTackle(Player& tackler, Player& carrier);

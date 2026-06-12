@@ -47,10 +47,15 @@ int main(int argc, char* argv[]) {
     while (engine.state.clockMs < totalMs + 300000 && engine.state.matchState != "finished") {
         engine.update(FIXED_DT);
 
-        // Write trace frame every tick
+        // Write trace frame every tick; drain the engine's event log with it
         if (trace.isOpen()) {
             trace.writeFrame(engine.state);
+            for (const auto& e : engine.traceEventQueue) {
+                int teamId = e.playerId < 0 ? -1 : (e.playerId < 11 ? 0 : 1);
+                trace.writeEvent(e.type, e.clockMs, e.x, e.y, e.playerId, teamId);
+            }
         }
+        engine.traceEventQueue.clear();
 
         // Output JSON every ~33ms (30fps) for real-time display
         if (streamFrames && engine.state.clockMs - lastOutput >= 33.0) {

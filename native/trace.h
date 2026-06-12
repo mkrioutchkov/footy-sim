@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 #include "types.h"
 
 // ── Binary trace format for deterministic replay and analysis ──
@@ -80,6 +81,7 @@ class TraceWriter {
     bool active = false;
     uint32_t frameCount = 0;
     uint32_t eventCount = 0;
+    std::vector<TraceEvent> pendingEvents;
 
 public:
     bool isOpen() const { return active; }
@@ -138,9 +140,11 @@ public:
         frameCount++;
     }
 
+    // Events are buffered and flushed at close: the file format (and reader)
+    // is header → frames → events → footer, so they can't be interleaved.
     void writeEvent(const std::string& type, double clockMs, double x, double y, int playerId = -1, int teamId = -1) {
         if (!active) return;
-        TraceEvent event;
+        TraceEvent event{};
         event.clockMs = clockMs;
         std::strncpy(event.type, type.c_str(), sizeof(event.type) - 1);
         event.type[sizeof(event.type) - 1] = '\0';
@@ -148,12 +152,14 @@ public:
         event.y = y;
         event.playerId = playerId;
         event.teamId = teamId;
-        std::fwrite(&event, sizeof(event), 1, f);
+        pendingEvents.push_back(event);
         eventCount++;
     }
 
     void close() {
         if (!active || !f) return;
+        for (const auto& e : pendingEvents) std::fwrite(&e, sizeof(e), 1, f);
+        pendingEvents.clear();
         TraceFooter footer;
         footer.frameCount = frameCount;
         footer.eventCount = eventCount;

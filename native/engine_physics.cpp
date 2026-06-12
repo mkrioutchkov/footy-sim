@@ -116,7 +116,7 @@ bool GameEngine::checkGoal(){
         if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
         stats.recordGoal(Team::Away,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
         emitEvent("goal", HOME_GOAL_X, b.y, lastGoal.toucherId);
-        state.awayScore++; shot.active=false; shot.tracked=false; shot.header=false; shot.penalty=false; shot.dribble20m=false; kickoff(Team::Home); return true;
+        state.awayScore++; shot.active=false; shot.clearFlags(); kickoff(Team::Home); return true;
     }
     if(b.x-BALL_R>AWAY_GOAL_X){
         recordGoalSource(Team::Home);
@@ -128,7 +128,7 @@ bool GameEngine::checkGoal(){
         if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
         stats.recordGoal(Team::Home,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
         emitEvent("goal", AWAY_GOAL_X, b.y, lastGoal.toucherId);
-        state.homeScore++; shot.active=false; shot.tracked=false; shot.header=false; shot.penalty=false; shot.dribble20m=false; kickoff(Team::Away); return true;
+        state.homeScore++; shot.active=false; shot.clearFlags(); kickoff(Team::Away); return true;
     }
     return false;
 }
@@ -139,11 +139,7 @@ bool GameEngine::checkOutOfPlay() {
     auto clearState = [&]() {
         resolveKnockAhead(nullptr, "out_of_play");
         pendingPass.active = false;
-        shot.tracked = false;
-        shot.preventable = false;
-        shot.header = false;
-        shot.penalty = false;
-        shot.dribble20m = false;
+        shot.clearFlags();
         lastLooseOrigin.clear();
     };
     if (b.y < 0 || b.y > PITCH_H || b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
@@ -223,7 +219,7 @@ void GameEngine::checkBallPlayerCollision(double){
             double meetDist = crossArrival ? INTENDED_COLLECT_DIST*1.6 : INTENDED_COLLECT_DIST;
             if(d<=meetDist&&b.z<=zLimit
                &&crossArrival&&bs>300.0&&canContestBall(*intended)
-               &&rng.random() > 0.42 + attrFactor(intended->attrs.positioning)*0.30){
+               &&rng.random() > CROSS_MEET_BASE + attrFactor(intended->attrs.positioning)*CROSS_MEET_SKILL){
                 blockReboundFor(intended->id,380);
             } else if(d<=meetDist&&b.z<=zLimit){
                 if(canContestBall(*intended)){
@@ -289,7 +285,7 @@ void GameEngine::checkBallPlayerCollision(double){
         // unconditional collect meant the first body on the flight line ate
         // every driven cross. A whiff locks the defender out so it flies past.
         if(contact->team!=pendingPass.team && bs>300.0){
-            double cutChance=clamp(0.26+attrFactor(contact->attrs.positioning)*0.28-(bs-300.0)/700.0,0.08,0.46);
+            double cutChance=clamp(CROSS_CUTOUT_BASE+attrFactor(contact->attrs.positioning)*CROSS_CUTOUT_SKILL-(bs-300.0)/700.0,0.08,0.46);
             if(rng.random()>=cutChance){blockReboundFor(contact->id,420);return;}
         }
         collectBall(*contact);

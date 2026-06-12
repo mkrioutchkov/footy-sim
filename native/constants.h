@@ -156,6 +156,28 @@ inline constexpr double SHOT_ANGLE_THRESH_2ND   = 9.0;
 // ── Chase ──
 inline constexpr double PRE_CONTACT_CHASE_REACH = 36.4;
 
+// ── Whipped deliveries (deliberate crosses + corners) ──
+// These are the dials calibrated 2026-06-12: cut-out/misjudge govern how
+// often a whip survives the box, the speed pair governs how it looks.
+inline constexpr double CROSS_DRIVE_SPEED_BASE   = 330.0;
+inline constexpr double CROSS_DRIVE_SPEED_PER_PX = 0.45;
+inline constexpr double CROSS_DRIVE_SPEED_MIN    = 360.0;
+inline constexpr double CROSS_DRIVE_SPEED_MAX    = 560.0;
+inline constexpr double CROSS_DIP_TARGET_Z       = 18.0;  // ball height at arrival
+inline constexpr double CROSS_CURL_MIN           = 0.85;  // rad/s
+inline constexpr double CROSS_CURL_RANGE         = 0.55;
+inline constexpr double CROSS_CUTOUT_BASE        = 0.26;  // defender cut-out duel
+inline constexpr double CROSS_CUTOUT_SKILL       = 0.28;
+inline constexpr double CROSS_MEET_BASE          = 0.42;  // runner timing roll
+inline constexpr double CROSS_MEET_SKILL         = 0.30;
+
+// ── Penalties ──
+inline constexpr double PENALTY_SPOT_FROM_GOAL   = 110.0;
+inline constexpr double PENALTY_SAVE_BASE        = 0.16;  // keeper is guessing
+inline constexpr double PENALTY_SAVE_SKILL       = 0.10;
+inline constexpr double PENALTY_SCOOP_CHANCE     = 0.10;
+inline constexpr double SHOT_SCOOP_CHANCE        = 0.80;  // primary goal-rate dial
+
 // ── GK save ──
 inline constexpr double GK_SAVE_MIN_SPEED       = 200.0;
 inline constexpr double GK_SAVE_MAX_GOAL_DIST   = 250.0;
