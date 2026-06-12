@@ -174,6 +174,9 @@ void GameEngine::checkBallPlayerCollision(double){
         double bestKeeperScore = 1e9;
         for (auto& p : state.players) {
             if (p.role != Role::GK || !canContestBall(p)) continue;
+            // A shot pre-rolled as beating the keeper clean can't be casually
+            // scooped via positioning pickup after the failed reflex save.
+            if (lastLooseOrigin == "shot" && bs > 150.0 && p.team != shot.team && !shot.scoopAllowed) continue;
             double goalX = ownGoalXFor(p.team);
             bool ballInOwnArea = std::abs(b.x - goalX) < PENALTY_AREA_W
                 && std::abs(b.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
@@ -233,10 +236,13 @@ void GameEngine::checkBallPlayerCollision(double){
     for(auto&p:state.players){
         if(!canContestBall(p))continue;
         double d=dist(p.x,p.y,b.x,b.y);
-        // Medium-pace balls are blockable with a stretched leg (bigger radius);
-        // a full-blooded strike (>300) zips past unless the body is dead in
-        // line — beaten-keeper shots were being eaten by incidental bodies.
+        // A live shot is only touchable by its pre-rolled blocker — everyone
+        // else lost their one deliberate chance at launch. Keyed on the loose
+        // origin (not shot.active, which the GK assessment clears at 250px).
+        bool shotInFlight=lastLooseOrigin=="shot"&&bs>150.0;
+        if(shotInFlight&&p.role!=Role::GK&&p.id!=shot.blockerId)continue;
         double r=(bs>COLLISION_FAST_CONTACT&&bs<210.0&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
+        if(shotInFlight&&p.id==shot.blockerId)r=fastContactRadius;
         if(d>r)continue;
         double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
         if(b.z>zLimit)continue;
@@ -282,6 +288,12 @@ void GameEngine::checkBallPlayerCollision(double){
         b.lastTouchTeam=contact->team;b.lastToucherId=contact->id;
         if(contact->team==lastCollectionTeam)lastSameTeamCollectionMs=state.clockMs-500;
         blockReboundFor(contact->id,600);
+        if(lastLooseOrigin=="shot"&&contact->id==shot.blockerId){
+            stats.recordShotBlocked();
+            emitEvent("block", contact->x, contact->y, contact->id, shot.shooterId);
+            shot.active=false; shot.tracked=false;
+            lastLooseOrigin="shot_block";
+        }
     }
 }
 

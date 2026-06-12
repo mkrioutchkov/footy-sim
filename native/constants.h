@@ -159,8 +159,8 @@ inline constexpr double PRE_CONTACT_CHASE_REACH = 36.4;
 // ── GK save ──
 inline constexpr double GK_SAVE_MIN_SPEED       = 200.0;
 inline constexpr double GK_SAVE_MAX_GOAL_DIST   = 250.0;
-inline constexpr double GK_SAVE_SKILL_POSITION  = 0.20;
-inline constexpr double GK_SAVE_SKILL_SPEED     = 0.10;
+inline constexpr double GK_SAVE_SKILL_POSITION  = 0.28;
+inline constexpr double GK_SAVE_SKILL_SPEED     = 0.13;
 inline constexpr double GK_SAVE_REACTION_ORIGIN = 55.0;
 inline constexpr double GK_SAVE_REACTION_DIST   = 330.0;
 inline constexpr double GK_SAVE_REACTION_MAX    = 0.16;
@@ -173,7 +173,7 @@ inline constexpr double GK_SAVE_BASE            = 0.08;
 inline constexpr double GK_SAVE_MIN             = 0.05;
 // Arcade tilt: keepers are good, not supernatural — at the 10-goals/90
 // target the ceiling is the scoring throttle.
-inline constexpr double GK_SAVE_MAX             = 0.66;
+inline constexpr double GK_SAVE_MAX             = 0.86;
 inline constexpr double GK_CATCH_HANDLING_BASE  = 0.22;
 inline constexpr double GK_CATCH_HANDLING_WEIGHT = 0.38;
 inline constexpr double GK_CATCH_SPEED_THRESH   = 520.0;

@@ -564,6 +564,28 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     lastLooseOrigin="shot";
     receiverShieldTargetId=-1;
     shot.active=true; shot.tracked=true; shot.preventable=false; shot.header=freshCross; shot.dribble20m=dribble20mShot; shot.team=s.team; shot.shooterId=s.id; shot.originX=s.x; shot.originY=s.y;
+    // ── Explicit shot-block roll: each defender in the lane gets ONE
+    // deliberate, skill-based chance (squareness in lane x reaction time x
+    // tackling). The winner is the only body allowed to touch the flight;
+    // a shot that survives every roll is committed past the crowd.
+    shot.blockerId=-1;
+    shot.scoopAllowed=rng.random()<0.67;
+    {
+        double ndx=dx/d, ndy=dy/d;
+        for(auto& o:state.players){
+            if(o.team==s.team||o.role==Role::GK)continue;
+            double ox=o.x-s.x, oy=o.y-s.y;
+            double along=ox*ndx+oy*ndy;
+            if(along<14.0||along>d*0.94)continue;
+            double perp=std::abs(ox*ndy-oy*ndx);
+            double reachR=PLAYER_R+BALL_R+7.0;
+            if(perp>reachR)continue;
+            double inLine=1.0-perp/reachR;
+            double reactFactor=clamp(along/90.0,0.25,1.0);
+            double chance=clamp((0.16+attrFactor(o.attrs.tackling)*0.30)*inLine*reactFactor,0.03,0.46);
+            if(rng.random()<chance){shot.blockerId=o.id;break;}
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════

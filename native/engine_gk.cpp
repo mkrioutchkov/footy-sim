@@ -126,11 +126,11 @@ void GameEngine::tryGKSave() {
     double keeperSkill = positioning * GK_SAVE_SKILL_POSITION + speedSkill * GK_SAVE_SKILL_SPEED;
     // Flight time is the keeper's friend: a long-range strike gives most of a
     // second to set and react.
-    double setTimeBonus = clamp((timeToLineMs - 280.0) / 900.0, 0.0, 0.16);
+    double setTimeBonus = clamp((timeToLineMs - 280.0) / 900.0, 0.0, 0.24);
     // Close-range strikes are near-unstoppable: without this the formula
     // clamps at GK_SAVE_MAX for every shot and keepers stop 93% of
     // everything — real keepers save ~70% overall and far less inside the box.
-    double closeRangeOnslaught = clamp((260.0 - originDistance) / 260.0, 0.0, 1.0) * 0.70;
+    double closeRangeOnslaught = clamp((200.0 - originDistance) / 200.0, 0.0, 1.0) * 0.38;
     double saveChance = clamp(GK_SAVE_BASE + keeperSkill + reactionBonus + bodyBlockBonus + setTimeBonus - closeRangeOnslaught - reachPenalty - timePressure - speedPenalty, GK_SAVE_MIN, GK_SAVE_MAX);
     stats.recordShotOnTarget();
     shot.active = false;

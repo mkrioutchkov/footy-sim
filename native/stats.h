@@ -123,6 +123,7 @@ public:
     void recordPlayerDecision()         { playerDecisions++; }
     void recordStaleGrabPrevented()     { staleGrabs++; }
     void recordSkillMove()              { skillMoves++; }
+    void recordShotBlocked()            { shotsBlocked++; }
     void recordTaskSelection(DefensiveTask role);
 
     // ── Marking / defensive ──
@@ -193,7 +194,7 @@ private:
     int timeWastingDribbles=0, backwardDribbles=0, whyPlayerRunningDir=0;
     int stationaryHold500ms=0;
     int unknownQualityFlags=0;
-    int decisionMoments=0, playerDecisions=0, staleGrabs=0, skillMoves=0;
+    int decisionMoments=0, playerDecisions=0, staleGrabs=0, skillMoves=0, shotsBlocked=0;
     int taskSelectionsTotal=0, taskSelectionsPrimary=0, taskSelectionsSecondary=0;
     int taskSelectionsCover=0, taskSelectionsLine=0, taskSelectionsScreen=0;
     int gkAssessed=0, unlikelySaves=0, preventableGoals=0;

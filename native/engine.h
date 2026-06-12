@@ -109,6 +109,12 @@ public:
         bool dribble20m = false;
         Team team = Team::Home;
         int shooterId = -1;
+        // Pre-rolled at launch: the one defender allowed to block this shot
+        // (-1 = shot is committed past every body in the lane).
+        int blockerId = -1;
+        // Pre-rolled: may the keeper recover this shot via positioning pickup
+        // after a failed reflex save? false = it beat him clean.
+        bool scoopAllowed = true;
         double originX = 0, originY = 0;
     } shot;
 
