@@ -126,7 +126,10 @@ void PlayerAI::applyMovement(double sdt) {
     double bAngle = std::atan2(engine.state.ball.y - p.y, engine.state.ball.x - p.x);
     double bDiff  = std::abs(bAngle - facing);
     double bNorm  = (bDiff > PI) ? 2.0 * PI - bDiff : bDiff;
-    if (bNorm < PI / 3.0) {
+    // Within ~5m the ball is heard/sensed regardless of facing — purely
+    // vision-gated memory had players guarding a 3s-old ghost position while
+    // the real ball rolled away at their back.
+    if (bNorm < PI / 3.0 || bd < 56.0) {
         ballMemoryX = engine.state.ball.x;
         ballMemoryY = engine.state.ball.y;
         ballMemoryAge = 0;
