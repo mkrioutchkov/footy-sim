@@ -208,7 +208,8 @@ inline constexpr double GK_PARRY_SPEED_X_BASE   = 155.0;
 inline constexpr double GK_PARRY_SPEED_X_FACTOR = 0.10;
 inline constexpr double GK_PARRY_SPEED_Y_BASE   = 140.0;
 inline constexpr double GK_PARRY_SPEED_Y_RANGE  = 90.0;
-inline constexpr double GK_DISTRIBUTE_MS        = 250.0;
+// Hold after a clean catch before distributing — 250ms read as a pinball.
+inline constexpr double GK_DISTRIBUTE_MS        = 950.0;
 
 // ── Tackle ──
 inline constexpr double TACKLE_BASE             = 0.18;

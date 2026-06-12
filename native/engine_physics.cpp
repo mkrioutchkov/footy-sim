@@ -380,11 +380,15 @@ void GameEngine::collectBall(Player& c) {
     stats.recordControlledTouch(c.role);
     lastCollectionTeam = c.team;
     lastSameTeamCollectionMs = state.clockMs;
-    shot.tracked = false;
-    shot.preventable = false;
-    shot.header = false;
-    shot.penalty = false;
-    shot.dribble20m = false;
+    // A keeper gathering a live ball holds it before distributing — without
+    // this he could collect a 400px/s shot and punt it upfield in the SAME
+    // tick, which read as the ball ricocheting off him like a pinball.
+    if (c.role == Role::GK) {
+        double incoming = std::hypot(b.vx, b.vy);
+        goalKickMonitor.distributeTimer = std::max(goalKickMonitor.distributeTimer,
+            clamp(700.0 + incoming * 1.2, 700.0, 1500.0));
+    }
+    shot.clearFlags();
     lastLooseOrigin.clear();
     b.controllerId = c.id;
     b.intendedReceiverId = -1;
