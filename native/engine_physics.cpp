@@ -233,7 +233,10 @@ void GameEngine::checkBallPlayerCollision(double){
     for(auto&p:state.players){
         if(!canContestBall(p))continue;
         double d=dist(p.x,p.y,b.x,b.y);
-        double r=(bs>COLLISION_FAST_CONTACT&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
+        // Medium-pace balls are blockable with a stretched leg (bigger radius);
+        // a full-blooded strike (>300) zips past unless the body is dead in
+        // line — beaten-keeper shots were being eaten by incidental bodies.
+        double r=(bs>COLLISION_FAST_CONTACT&&bs<210.0&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
         if(d>r)continue;
         double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
         if(b.z>zLimit)continue;

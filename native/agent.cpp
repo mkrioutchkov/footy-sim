@@ -201,7 +201,7 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
     if (std::abs(player.x - gx) < 280.0) {
         for (auto& x : a) {
             if (x.type == ActionType::Shoot)                                  x.score += 0.06;
-            if (x.type == ActionType::Pass && x.purpose == ActionPurpose::Through)        x.score += 0.04;
+            if (x.type == ActionType::Pass && x.purpose == ActionPurpose::Through)        x.score += 0.12;
             if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space)       x.score += 0.08;
         }
     }
@@ -438,11 +438,11 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     bool ownDefensiveThird = (fdFor(p.team) > 0.0) ? p.x < PITCH_W / 3.0 : p.x > PITCH_W * 2.0 / 3.0;
     if (skillMoveCooldown == 0 && cp.nearestPlayer && nearbyOpps <= 2 && !ownDefensiveThird
         && cp.score > 0.72 && nearestOppDist > 18.0 && nearestOppDist < 58.0) {
-        double skillChance = 0.02 + attrFactor(p.attrs.creativity) * 0.10;
+        double skillChance = 0.03 + attrFactor(p.attrs.creativity) * 0.14;
         // Take-ons live in the final third — that's where beating a man is
         // worth the risk.
         bool inFinalThirdAtk = (fdFor(p.team) > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
-        if (inFinalThirdAtk) skillChance *= 1.8;
+        if (inFinalThirdAtk) skillChance *= 2.0;
         if (engine.rng.random() < skillChance) {
             Player* def = cp.nearestPlayer;
             double fd = fdFor(p.team);
@@ -497,9 +497,9 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             }
             engine.emitEvent(moveType, p.x, p.y, p.id, def->id);
             engine.stats.recordSkillMove();
-            skillMoveCooldown = 420;                       // ~7s between tricks
+            skillMoveCooldown = 300;                       // ~5s between tricks
         } else {
-            skillMoveCooldown = 360;                       // failed read — wait ~6s
+            skillMoveCooldown = 280;                       // failed read — wait ~4.7s
         }
     }
 
