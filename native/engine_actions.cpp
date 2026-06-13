@@ -430,6 +430,15 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
                 stats.recordYellowCard();
                 emitEvent("yellow", foulX, foulY, tackler.id, carrier.id);
             }
+            // A hard (from-behind) foul can leave the fouled player hurt — a
+            // knock that scales down his pace until it fades, and makes him a
+            // substitution candidate.
+            double injChance = fromBehind ? 0.07 : 0.02;
+            if (rng.random() < injChance) {
+                carrier.injurySeverity = std::max(carrier.injurySeverity, 0.30 + rng.random() * 0.45);
+                stats.recordInjury();
+                emitEvent("injury", carrier.x, carrier.y, carrier.id);
+            }
             b.vx=b.vy=b.z=b.vz=0;
             b.controllerId=-1;
             b.intendedReceiverId=-1;

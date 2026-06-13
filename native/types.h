@@ -179,6 +179,9 @@ struct Player {
     double crossCollected = 0.0;
     double throughCollected = 0.0;
     int    dribbleType = 0;
+    // Knock from a hard foul: decays over time, scales down max speed while
+    // it lasts. A player carrying a real injury is a substitution candidate.
+    double injurySeverity = 0.0;
 };
 
 struct Ball {

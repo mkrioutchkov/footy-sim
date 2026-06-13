@@ -23,6 +23,10 @@ public:
     }
     void recordKeeperBackpass()       { keeperBackpasses++; }
     void recordYellowCard(){yellowCardsTotal++;}
+    int substitutionsTotal=0;
+    int injuriesTotal=0;
+    void recordSubstitution(){substitutionsTotal++;}
+    void recordInjury(){injuriesTotal++;}
     void recordOffside()              { offsidesTotal++; }
     void recordOffsidePosition(Role role, double ms);
     void recordPassSelection(double dist, double expectedCompletion, int blockers, double pressure, bool risky, int saferId) {

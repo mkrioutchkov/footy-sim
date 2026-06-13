@@ -27,6 +27,11 @@ void PlayerAI::applyMovement(double sdt) {
         double fatigueBlend = clamp(p.stamina / std::max(1.0, slowThreshold), 0.0, 1.0);
         sf = lerp(fatigueFloor, 1.0, fatigueBlend);
     }
+    // A knock costs pace and fades over ~90s of match time.
+    if (p.injurySeverity > 0.0) {
+        sf *= clamp(1.0 - p.injurySeverity * 0.5, 0.45, 1.0);
+        p.injurySeverity = std::max(0.0, p.injurySeverity - secs / 90.0);
+    }
 
     double dx = p.targetX - p.x, dy = p.targetY - p.y;
     double d = std::sqrt(dx * dx + dy * dy);

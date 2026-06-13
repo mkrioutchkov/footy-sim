@@ -658,6 +658,7 @@ void GameEngine::updateKickoffPhase(double sdt) {
 }
 
 void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
+    updateSubstitutions();
     auto& b = state.ball;        if (b.controllerId >= 0) contestBlockedUntil[b.controllerId] = 0;
     if (b.controllerId < 0) {
         applyBallPhysics(sec);
@@ -896,6 +897,7 @@ void GameEngine::initWithSeed(int seed) {
     for(auto&p:state.players){
         if(p.id>=0&&p.id<22)playerLookup[p.id]=&p;
     }
+    initBench();
     for(auto&p:state.players) {
         switch (p.role) {
             case Role::GK: agents.push_back(std::make_unique<GKPlayerAI>(p, *this)); break;
@@ -906,6 +908,79 @@ void GameEngine::initWithSeed(int seed) {
             case Role::FB: agents.push_back(std::make_unique<FBPlayerAI>(p, *this)); break;
             default:       agents.push_back(std::make_unique<PlayerAI>(p, *this));  break;
         }
+    }
+}
+
+void GameEngine::initBench() {
+    // Reserve names per side — flavour only; attrs are a notch below the
+    // starters (subs are squad players, not the legends they replace).
+    static const char* homeRes[] = {"Pirlo","Casillas","Maldini","Zidane","Carlos","Puyol","Kaka","Villa"};
+    static const char* awayRes[] = {"Cannavaro","Vidic","Pirlo","Toure","Sneijder","Silva","Aguero","Ferdinand"};
+    for (int t = 0; t < 2; ++t) {
+        bench[t].clear();
+        for (int i = 0; i < 7; ++i) {
+            PlayerAttributes a;
+            auto roll = [&](double lo, double hi) { return lo + rng.random() * (hi - lo); };
+            a.speed = roll(60, 84); a.passing = roll(58, 84); a.creativity = roll(55, 82);
+            a.shooting = roll(50, 82); a.tackling = roll(55, 86); a.positioning = roll(60, 86);
+            a.stamina = roll(74, 90);
+            const char* nm = t == 0 ? homeRes[i % 8] : awayRes[i % 8];
+            bench[t].push_back({nm, a, false});
+        }
+    }
+    subsRemaining = {5, 5};
+    nextSubCheckMs = 0;
+}
+
+void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
+    in.used = true;
+    char prefix = slot.team == Team::Home ? 'H' : 'A';
+    slot.name = std::format("{}{} {}", prefix, slot.id, in.name);
+    slot.attrs = in.attrs;
+    slot.stamina = 100.0;          // fresh legs
+    slot.injurySeverity = 0.0;
+    stats.recordSubstitution();
+    emitEvent("sub", slot.x, slot.y, slot.id);
+}
+
+void GameEngine::updateSubstitutions() {
+    // Manager check on a coarse cadence (deterministic — clock-driven). A team
+    // brings someone on for an injured player immediately, or for a spent one
+    // in the closing stretch, while subs remain.
+    if (state.clockMs < nextSubCheckMs) return;
+    nextSubCheckMs = state.clockMs + 8000.0;
+    double minute = state.clockMs / 60000.0;
+    for (int t = 0; t < 2; ++t) {
+        if (subsRemaining[t] <= 0) continue;
+        Team team = static_cast<Team>(t);
+        Player* worst = nullptr;
+        double worstScore = 0.0;
+        bool injuredFound = false;
+        for (auto& p : state.players) {
+            if (p.team != team || p.role == Role::GK) continue;
+            bool injured = p.injurySeverity > 0.18;
+            // Spent: low stamina, and only once the game is worth burning a
+            // sub on (after the hour, or any time if badly hurt).
+            bool spent = p.stamina < 32.0 && minute > 58.0;
+            if (!injured && !spent) continue;
+            double score = (injured ? 100.0 + p.injurySeverity * 100.0 : 0.0) + (100.0 - p.stamina);
+            if (score > worstScore) { worstScore = score; worst = &p; injuredFound = injured; }
+        }
+        if (!worst) continue;
+        // Pick the freshest unused bench player.
+        BenchPlayer* best = nullptr;
+        double bestRating = -1.0;
+        for (auto& b : bench[t]) {
+            if (b.used) continue;
+            double r = b.attrs.speed + b.attrs.passing + b.attrs.tackling + b.attrs.positioning;
+            if (r > bestRating) { bestRating = r; best = &b; }
+        }
+        if (!best) continue;
+        // A tired-but-not-injured swap only fires sometimes per window, so
+        // teams don't empty the bench at minute 58 all at once.
+        if (!injuredFound && rng.random() > 0.45) continue;
+        substituteSlot(*worst, *best);
+        subsRemaining[t]--;
     }
 }
 

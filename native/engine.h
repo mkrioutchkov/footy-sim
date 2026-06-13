@@ -89,6 +89,18 @@ public:
     } phase;
     std::array<int, 22> yellowCards = {};
 
+    // Substitutions: an in-place identity swap (the on-pitch slot keeps its
+    // id/role/position; only name+attrs+freshness change), so the 22-slot
+    // player array and every pointer into it stay valid — no bench array to
+    // dangle. Each team has a reserve pool and a 5-sub allowance.
+    struct BenchPlayer { std::string name; PlayerAttributes attrs; bool used = false; };
+    std::array<std::vector<BenchPlayer>, 2> bench;
+    std::array<int, 2> subsRemaining = {5, 5};
+    double nextSubCheckMs = 0;
+    void initBench();
+    void updateSubstitutions();
+    void substituteSlot(Player& slot, BenchPlayer& in);
+
     struct SetPieceState {
         bool armed = false;
         SetPiece type = SetPiece::None;
