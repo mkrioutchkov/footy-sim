@@ -35,7 +35,7 @@ Player* GameEngine::findNearestOutfieldPlayer(Team team, double x, double y) {
     Player* best = nullptr;
     double   bestDist = 1e9;
     for (auto& p : state.players) {
-        if (p.team != team || p.role == Role::GK) continue;
+        if (p.team != team || p.role == Role::GK || p.sentOff) continue;
         double d = dist(p.x, p.y, x, y);
         if (d < bestDist) { bestDist = d; best = &p; }
     }
@@ -65,6 +65,7 @@ const Player* GameEngine::findGK(Team team) const {
 }
 
 bool GameEngine::canContestBall(Player& player) {
+    if(player.sentOff)return false;
     if(setPiece.armed&&state.ball.controllerId<0)return false;
     if(activeKnockAhead.active&&activeKnockAhead.playerId==player.id)return true;
     if(state.ball.controllerId<0
@@ -103,6 +104,7 @@ void GameEngine::kickoff(Team t){
     pendingSave.active=false;   // no stale dive carried across a restart
     lastLooseOrigin.clear();
     for(auto&p:state.players){
+        if(p.sentOff){p.x=clamp(p.homeX,30.0,PITCH_W-30.0);p.y=-40.0;p.targetX=p.x;p.targetY=p.y;p.vx=p.vy=0;continue;}
         double margin=(p.team==t)?30.0:45.0;
         p.x=p.team==Team::Home
             ? clamp(p.homeX,25.0,HALF_X-margin)
@@ -116,7 +118,7 @@ void GameEngine::kickoff(Team t){
     b.vx=b.vy=b.z=b.vz=0;
     b.controllerId=-1; b.intendedReceiverId=-1;
     for(auto&p:state.players){
-        if(p.team==t&&p.role==Role::CF){
+        if(p.team==t&&p.role==Role::CF&&!p.sentOff){
             p.x=HALF_X; p.y=PITCH_H/2;
             p.targetX=p.x; p.targetY=p.y;
             b.controllerId=p.id;
@@ -151,6 +153,15 @@ void GameEngine::cacheBallState() {
 
 void GameEngine::fixedUpdate(double sdt) {
     state.clockMs += sdt;
+    // Hard pin: a sent-off player is held off the pitch every tick no matter
+    // what any phase does to him, and can never hold the ball. This is the
+    // single guarantee that backstops every per-system exclusion.
+    for (auto& p : state.players) {
+        if (!p.sentOff) continue;
+        if (state.ball.controllerId == p.id) { state.ball.controllerId = -1; state.ball.intendedReceiverId = -1; lastLooseOrigin.clear(); }
+        p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0); p.y = -40.0;
+        p.targetX = p.x; p.targetY = p.y; p.vx = p.vy = 0;
+    }
     // Stoppage time accrues while the ball is dead — set pieces, kickoffs,
     // the halftime pause. The board announces a real +N at 45:00/90:00.
     if (setPiece.armed || phase.kickoffPhase || phase.halfTimePause > 0) phase.stoppageMs += sdt;
@@ -742,6 +753,7 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
 void GameEngine::tickAgents(double sdt, bool ic) {
     for (auto& a : agents) {
         int id = a->player.id;
+        if (a->player.sentOff) continue;
         if (id == state.ball.controllerId && !ic) continue;
         a->tick(sdt);
         if (a->dizzyRotationAccum > 1080.0) {
@@ -842,7 +854,7 @@ std::string GameEngine::getJSON() const {
             {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)},
             {"goals", pGoals[p.id]}, {"assists", pAssists[p.id]}, {"shots", pShots[p.id]},
             {"tackles", pTackles[p.id]}, {"yellow", yellowCards[p.id]},
-            {"injured", p.injurySeverity > 0.05}
+            {"injured", p.injurySeverity > 0.05}, {"sentOff", p.sentOff}
         });
     }
 
@@ -966,6 +978,20 @@ void GameEngine::initBench() {
     nextSubCheckMs = 0;
 }
 
+void GameEngine::sendOff(Player& p) {
+    p.sentOff = true;
+    stats.recordRedCard();
+    // Park him off the pitch by his own touchline — the slot stays in the
+    // array (lookups depend on it) but he's out of play and out of the way.
+    if (state.ball.controllerId == p.id) { state.ball.controllerId = -1; state.ball.intendedReceiverId = -1; lastLooseOrigin.clear(); }
+    p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
+    p.y = -40.0;
+    p.targetX = p.x; p.targetY = p.y;
+    p.vx = p.vy = 0;
+    p.injurySeverity = 0.0;
+    assignmentByPlayer[p.id] = {};
+}
+
 void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
     in.used = true;
     char prefix = slot.team == Team::Home ? 'H' : 'A';
@@ -973,6 +999,8 @@ void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
     slot.attrs = in.attrs;
     slot.stamina = 100.0;          // fresh legs
     slot.injurySeverity = 0.0;
+    slot.sentOff = false;
+    yellowCards[slot.id] = 0;
     stats.recordSubstitution();
     emitEvent("sub", slot.x, slot.y, slot.id);
 }
@@ -991,7 +1019,8 @@ void GameEngine::updateSubstitutions() {
         double worstScore = 0.0;
         bool injuredFound = false;
         for (auto& p : state.players) {
-            if (p.team != team || p.role == Role::GK) continue;
+            if (p.team != team || p.role == Role::GK || p.sentOff) continue;
+            if (p.id == state.ball.controllerId) continue;   // never swap a man mid-carry
             bool injured = p.injurySeverity > 0.18;
             // Spent: low stamina, and only once the game is worth burning a
             // sub on (after the hour, or any time if badly hurt).

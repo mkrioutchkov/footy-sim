@@ -542,7 +542,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
         Player* best = nullptr;
         double bestScore = -1e9;
         for (auto& p : state.players) {
-            if (p.team != tmTeam || p.role == Role::GK) continue;
+            if (p.team != tmTeam || p.role == Role::GK || p.sentOff) continue;
             double roleBonus = agentFor(p)->penaltyTakerBonus();
             double score = roleBonus + attrFactor(p.attrs.shooting) * 95.0 - dist(p.x, p.y, b.x, b.y) * 0.04;
             if (score > bestScore) { bestScore = score; best = &p; }
@@ -577,7 +577,7 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
     Player* taker=nullptr;
     double best=1e9;
     for(auto& p:state.players){
-        if(p.team!=attackingTeam||p.role==Role::GK)continue;
+        if(p.team!=attackingTeam||p.role==Role::GK||p.sentOff)continue;
         double roleCost=(p.role==Role::WM?0.0:p.role==Role::FB?20.0:p.role==Role::CM?55.0:120.0);
         double d=dist(p.x,p.y,ix,iy)+roleCost;
         if(d<best){best=d;taker=&p;}

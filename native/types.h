@@ -182,6 +182,10 @@ struct Player {
     // Knock from a hard foul: decays over time, scales down max speed while
     // it lasts. A player carrying a real injury is a substitution candidate.
     double injurySeverity = 0.0;
+    // Sent off (second yellow / straight red): the slot stays in the fixed-22
+    // array (every pointer/lookup depends on that) but the player is parked
+    // off the pitch and excluded from play — the team is genuinely a man down.
+    bool sentOff = false;
 };
 
 struct Ball {

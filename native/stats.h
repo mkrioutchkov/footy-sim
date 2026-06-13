@@ -22,6 +22,7 @@ public:
     }
     void recordKeeperBackpass()       { keeperBackpasses++; }
     void recordYellowCard(){yellowCardsTotal++;}
+    void recordRedCard(){redCardsTotal++;}
     int cornersTotal=0;
     void recordCorner(){cornersTotal++;}
     int substitutionsTotal=0;
@@ -176,6 +177,7 @@ private:
     int longBackwardPasses=0, keeperBackpasses=0;
     int offsidesTotal=0;
     int yellowCardsTotal=0;
+    int redCardsTotal=0;
     double offsidePositionMsGK=0, offsidePositionMsCB=0, offsidePositionMsFB=0;
     double offsidePositionMsCM=0, offsidePositionMsWM=0, offsidePositionMsCF=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;

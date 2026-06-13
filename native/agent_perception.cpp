@@ -27,7 +27,7 @@ Perception PlayerAI::perceive() {
     int pc = 0;
 
     for (auto& o : engine.state.players) {
-        if (o.id == p.id) continue;
+        if (o.id == p.id || o.sentOff) continue;
         double d = dist(p.x, p.y, o.x, o.y);
         if (d > PLAYER_AWARE_RANGE) continue;
 
@@ -68,7 +68,7 @@ Perception PlayerAI::perceive() {
     double ctd = 1e9;
 
     for (auto& o : engine.state.players) {
-        if (o.id == p.id || o.role == Role::GK) continue;
+        if (o.id == p.id || o.role == Role::GK || o.sentOff) continue;
         double d = dist(o.x, o.y, b.x, b.y);
         if (o.team == p.team && d < bd) { cc++; if (d < ctd) ctd = d; }
         if (o.team != p.team && d < bd) ao = true;

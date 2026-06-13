@@ -109,6 +109,7 @@ public:
     void initBench();
     void updateSubstitutions();
     void substituteSlot(Player& slot, BenchPlayer& in);
+    void sendOff(Player& p);
 
     // Per-player match tallies for the report (scorers, assists). Indexed by
     // slot id; a substitution inherits the slot's running tally, which is fine

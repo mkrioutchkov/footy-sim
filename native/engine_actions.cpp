@@ -438,17 +438,29 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     if(rng.random()>=chance){
         // Per-failure foul odds must be low because duel volume is high —
         double foulChance=fromBehind?TACKLE_FOUL_FROM_BEHIND:TACKLE_FOUL_NORMAL;
+        // A booked player plays it safe — fewer reckless fouls, so second
+        // yellows (and the resulting reds) stay near real rates.
+        if(yellowCards[tackler.id]>=1)foulChance*=0.55;
         if(rng.random()<foulChance){
             stats.recordTackleFoul();
             double foulX = carrier.x;
             double foulY = carrier.y;
             emitEvent("foul", foulX, foulY, tackler.id, carrier.id);
-            // Bookings: reckless (from-behind) fouls risk a card.
-            double cardChance = fromBehind ? 0.13 : 0.032;
-            if (rng.random() < cardChance) {
-                yellowCards[tackler.id]++;
-                stats.recordYellowCard();
-                emitEvent("yellow", foulX, foulY, tackler.id, carrier.id);
+            // Bookings: reckless (from-behind) fouls risk a card. A second
+            // yellow — or a straight red for a wild challenge — sends him off.
+            // Tuned for ~3-4 yellows and ~0.25 reds per match (real-world).
+            double cardChance = fromBehind ? 0.055 : 0.013;
+            bool straightRed = fromBehind && rng.random() < 0.0022;
+            if (straightRed || rng.random() < cardChance) {
+                if (!straightRed) {
+                    yellowCards[tackler.id]++;
+                    stats.recordYellowCard();
+                    emitEvent("yellow", foulX, foulY, tackler.id, carrier.id);
+                }
+                if (straightRed || yellowCards[tackler.id] >= 2) {
+                    sendOff(tackler);
+                    emitEvent("red", foulX, foulY, tackler.id, carrier.id);
+                }
             }
             // A hard (from-behind) foul can leave the fouled player hurt — a
             // knock that scales down his pace until it fades, and makes him a
