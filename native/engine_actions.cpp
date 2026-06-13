@@ -128,6 +128,10 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             double shotChance = clamp(0.32 + (roleShotMax - shotDistance) / 260.0 + angleDeg / 82.0 - pressure * 0.06 - laneBlockers * 0.08, 0.0, 0.85);
             if (headerShot && (mustAttackHeader || rng.random() < shotChance)) {
                 receiver.crossCollected = 900.0;
+                if(receiver.id>=0&&receiver.id<22&&pendingPass.fromId!=receiver.id){
+                    lastReceiveFrom[receiver.id]=pendingPass.fromId;
+                    lastReceiveMs[receiver.id]=state.clockMs;
+                }
                 pendingPass.active = false;
                 shootBall(receiver, nullptr);
                 return true;
@@ -170,6 +174,10 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         }
     }
     if(receiver.team==pendingPass.team){
+        if(receiver.id>=0&&receiver.id<22&&pendingPass.fromId!=receiver.id){
+            lastReceiveFrom[receiver.id]=pendingPass.fromId;
+            lastReceiveMs[receiver.id]=state.clockMs;
+        }
         stats.recordPassComplete();
         if(pendingPass.isThrough) stats.recordThroughBallComplete();
         if(receiver.id == pendingPass.toId) stats.recordPassIntendedReceived();
@@ -478,6 +486,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         -(carrier.dribbleType==3?0.08:0)+(exposedToFacingTackler?0.04:0),0.12,0.74);
     if(outcomeRoll<controlChance){
         stats.recordTackleWin(true);
+        if(tackler.id>=0&&tackler.id<22)pTackles[tackler.id]++;
         emitEvent("tackle_won", (tackler.x+carrier.x)/2.0, (tackler.y+carrier.y)/2.0, tackler.id, carrier.id);
         b.controllerId=tackler.id;
         b.vx=b.vy=b.z=b.vz=0;
@@ -513,6 +522,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
 
 void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     emitEvent("shot", s.x, s.y, s.id);
+    if(s.id>=0&&s.id<22)pShots[s.id]++;
     if(goalKickMonitor.active&&s.team!=goalKickMonitor.team){
         stats.recordGoalKickTrappedShot();
         goalKickMonitor.active=false;

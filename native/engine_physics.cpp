@@ -119,6 +119,7 @@ bool GameEngine::checkGoal(){
         if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
         if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
         stats.recordGoal(Team::Away,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        creditGoal(lastGoal.toucherId);
         emitEvent("goal", HOME_GOAL_X, b.y, lastGoal.toucherId);
         state.awayScore++; shot.active=false; shot.clearFlags(); kickoff(Team::Home); return true;
     }
@@ -131,6 +132,7 @@ bool GameEngine::checkGoal(){
         if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
         if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
         stats.recordGoal(Team::Home,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        creditGoal(lastGoal.toucherId);
         emitEvent("goal", AWAY_GOAL_X, b.y, lastGoal.toucherId);
         state.homeScore++; shot.active=false; shot.clearFlags(); kickoff(Team::Away); return true;
     }
@@ -401,6 +403,9 @@ void GameEngine::collectBall(Player& c) {
         teammatePingPongs++;
         stats.recordCollection(true);
     }
+    // Assist bookkeeping: a fresh controlled touch ends any prior receive
+    // link for this slot (a dribble/recovery is not an assisted goal).
+    if (c.id >= 0 && c.id < 22 && receiverShieldTargetId != c.id) lastReceiveFrom[c.id] = -1;
     stats.recordControlledTouch(c.role);
     lastCollectionTeam = c.team;
     lastSameTeamCollectionMs = state.clockMs;

@@ -101,6 +101,18 @@ public:
     void updateSubstitutions();
     void substituteSlot(Player& slot, BenchPlayer& in);
 
+    // Per-player match tallies for the report (scorers, assists). Indexed by
+    // slot id; a substitution inherits the slot's running tally, which is fine
+    // for a match report keyed on the shirt.
+    std::array<int, 22> pGoals = {};
+    std::array<int, 22> pAssists = {};
+    std::array<int, 22> pShots = {};
+    std::array<int, 22> pTackles = {};
+    // Assist chain: who last fed this slot a completed pass, and when.
+    std::array<int, 22> lastReceiveFrom = {};
+    std::array<double, 22> lastReceiveMs = {};
+    void creditGoal(int scorerId);
+
     struct SetPieceState {
         bool armed = false;
         SetPiece type = SetPiece::None;

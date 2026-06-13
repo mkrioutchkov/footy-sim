@@ -32,7 +32,13 @@ export interface Player {
   headingAnim: number;
   facing: number;
   crossCollected: number;
-  dribbleType: number; // 0=none, 1=close, 2=medium, 3=fast/knock-forward
+  dribbleType: number;
+  goals?: number;
+  assists?: number;
+  shots?: number;
+  tackles?: number;
+  yellow?: number;
+  injured?: boolean; // 0=none, 1=close, 2=medium, 3=fast/knock-forward
 }
 
 export interface Ball {
@@ -80,7 +86,7 @@ export interface SetPieceState {
 }
 
 export interface MatchEvent {
-  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'foul' | 'offside' | 'intercept' | 'save' | 'goal' | 'header' | 'punch' | 'skill' | 'nutmeg' | 'dragback' | 'block' | 'penalty' | 'yellow' | 'sub' | 'injury';
+  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'foul' | 'offside' | 'intercept' | 'save' | 'goal' | 'header' | 'punch' | 'skill' | 'nutmeg' | 'dragback' | 'block' | 'penalty' | 'yellow' | 'sub' | 'injury' | 'assist';
   x: number;
   y: number;
   age: number;

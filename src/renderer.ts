@@ -636,9 +636,23 @@ export class MatchRenderer {
     const finished = state.matchState === 'finished';
     const showPanel = (title: string, sticky: boolean) => {
       const pct = (state.possessionPct ?? 50).toFixed(0);
-      const feed = this.tickerLines.slice(0, 6).join('\n');
+      // Scorer list with assists, built from per-player tallies.
+      const scorers = (state.players ?? [])
+        .filter(p => (p.goals ?? 0) > 0)
+        .sort((a, b) => (b.goals ?? 0) - (a.goals ?? 0))
+        .map(p => {
+          const nm = (p.name ?? '').replace(/^[HA]\d+\s*/, '');
+          const g = (p.goals ?? 0) > 1 ? ` ×${p.goals}` : '';
+          return `  ⚽ ${nm}${g}`;
+        });
+      const assists = (state.players ?? [])
+        .filter(p => (p.assists ?? 0) > 0)
+        .sort((a, b) => (b.assists ?? 0) - (a.assists ?? 0))
+        .map(p => `  ◇ ${(p.name ?? '').replace(/^[HA]\d+\s*/, '')}${(p.assists ?? 0) > 1 ? ` ×${p.assists}` : ''}`);
+      const scorerBlock = scorers.length ? `\n\nScorers\n${scorers.join('\n')}` : '';
+      const assistBlock = assists.length ? `\nAssists\n${assists.join('\n')}` : '';
       this.panelEl!.textContent =
-        `${title}\n\nHOME ${hs} — ${as} AWAY\nShots  ${state.homeShots ?? 0} - ${state.awayShots ?? 0}\nPossession  ${pct}% - ${100 - Number(pct)}%\n\n${feed}`;
+        `${title}\n\nHOME ${hs} — ${as} AWAY\nShots  ${state.homeShots ?? 0} - ${state.awayShots ?? 0}\nPossession  ${pct}% - ${100 - Number(pct)}%${scorerBlock}${assistBlock}`;
       this.panelEl!.style.display = 'block';
       this.panelHideAt = sticky ? Infinity : now + 9000;
     };
@@ -664,7 +678,7 @@ export class MatchRenderer {
       this.seenEventKeys.clear();
     }
     this.lastClockMs = state.clockMs;
-    const notable = new Set(['goal', 'shot', 'save', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury']);
+    const notable = new Set(['goal', 'shot', 'save', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist']);
     for (const ev of (state.events ?? [])) {
       if (!notable.has(ev.type)) continue;
       const evClock = state.clockMs - (ev.age ?? 0);
@@ -705,6 +719,7 @@ export class MatchRenderer {
       case 'save': return 'SAVE';
       case 'penalty': return 'PENALTY!';
       case 'yellow': return 'YELLOW';
+      case 'assist': return 'ASSIST';
       case 'sub': return 'SUB';
       case 'injury': return 'INJURY';
       case 'goal': return 'GOAL';

@@ -825,7 +825,10 @@ std::string GameEngine::getJSON() const {
             {"targetX", std::round(p.targetX * 10) / 10}, {"targetY", std::round(p.targetY * 10) / 10},
             {"stamina", std::round(p.stamina)}, {"facing", std::round(p.facing * 1000) / 1000},
             {"dribbleType", p.dribbleType},
-            {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)}
+            {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)},
+            {"goals", pGoals[p.id]}, {"assists", pAssists[p.id]}, {"shots", pShots[p.id]},
+            {"tackles", pTackles[p.id]}, {"yellow", yellowCards[p.id]},
+            {"injured", p.injurySeverity > 0.05}
         });
     }
 
@@ -898,6 +901,7 @@ void GameEngine::initWithSeed(int seed) {
         if(p.id>=0&&p.id<22)playerLookup[p.id]=&p;
     }
     initBench();
+    lastReceiveFrom.fill(-1);
     for(auto&p:state.players) {
         switch (p.role) {
             case Role::GK: agents.push_back(std::make_unique<GKPlayerAI>(p, *this)); break;
@@ -907,6 +911,22 @@ void GameEngine::initWithSeed(int seed) {
             case Role::CB: agents.push_back(std::make_unique<CBPlayerAI>(p, *this)); break;
             case Role::FB: agents.push_back(std::make_unique<FBPlayerAI>(p, *this)); break;
             default:       agents.push_back(std::make_unique<PlayerAI>(p, *this));  break;
+        }
+    }
+}
+
+void GameEngine::creditGoal(int scorerId) {
+    if (scorerId < 0 || scorerId >= 22) return;
+    pGoals[scorerId]++;
+    // Assist: the teammate who last fed the scorer, within ~12s of the goal.
+    int passer = lastReceiveFrom[scorerId];
+    if (passer >= 0 && passer < 22 && passer != scorerId
+        && state.clockMs - lastReceiveMs[scorerId] < 12000.0) {
+        Player* sc = playerById(scorerId);
+        Player* as = playerById(passer);
+        if (sc && as && sc->team == as->team) {
+            pAssists[passer]++;
+            emitEvent("assist", as->x, as->y, passer, scorerId);
         }
     }
 }
