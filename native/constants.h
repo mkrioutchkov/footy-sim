@@ -29,7 +29,7 @@ inline constexpr double MAX_PLAYER_SPEED = 50.0;
 // ── Ball speed / physics ──
 inline constexpr double PASS_SPEED_BASE = 136.0;
 inline constexpr double PASS_SPEED_DIST = 0.105;
-inline constexpr double SHOT_SPEED_BASE = 380.0;
+inline constexpr double SHOT_SPEED_BASE = 205.0;
 inline constexpr double TACKLE_KICK_SPEED = 140.0;
 inline constexpr double BALL_FRICTION  = 0.70;
 inline constexpr double GRAVITY        = 500.0;
@@ -166,8 +166,8 @@ inline constexpr double CROSS_DRIVE_SPEED_PER_PX = 0.45;
 inline constexpr double CROSS_DRIVE_SPEED_MIN    = 360.0;
 inline constexpr double CROSS_DRIVE_SPEED_MAX    = 560.0;
 inline constexpr double CROSS_DIP_TARGET_Z       = 18.0;  // ball height at arrival
-inline constexpr double CROSS_CURL_MIN           = 0.85;  // rad/s
-inline constexpr double CROSS_CURL_RANGE         = 0.55;
+inline constexpr double CROSS_CURL_MIN           = 0.20;  // rad/s
+inline constexpr double CROSS_CURL_RANGE         = 0.17;
 inline constexpr double CROSS_CUTOUT_BASE        = 0.28;  // defender cut-out duel
 inline constexpr double CROSS_CUTOUT_SKILL       = 0.28;
 inline constexpr double CROSS_MEET_BASE          = 0.55;  // runner timing roll
@@ -239,6 +239,11 @@ inline constexpr double COLLISION_GLANCE_OPPONENT = 0.045;
 inline constexpr double COLLISION_REFLECT_FACTOR  = 1.3;
 inline constexpr double COLLISION_SPEED_THRESH    = 130.0;
 inline constexpr double COLLISION_FAST_CONTACT    = 80.0;
+// A fast loose ball driven through an opponent's body is a reaction duel:
+// block chance falls off with pace so a hard ball can still beat a defender.
+inline constexpr double LOOSE_BLOCK_BASE          = 0.52;
+inline constexpr double LOOSE_BLOCK_SKILL         = 0.30;
+inline constexpr double LOOSE_BLOCK_SPEED_FALLOFF = 480.0;
 inline constexpr double INTENDED_NEARBY_DIST      = 70.0;
 inline constexpr double INTENDED_PASS_SPEED_LIMIT = 220.0;
 inline constexpr double PING_PONG_WINDOW_MS       = 300.0;

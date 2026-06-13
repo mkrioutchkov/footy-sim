@@ -152,7 +152,7 @@ Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
         double looseBallDist = dist(player.x, player.y, engine.state.ball.x, engine.state.ball.y);
         bool priorityChaser = engine.state.ball.intendedReceiverId == player.id
                            || engine.isActiveKnockAheadRunner(player.id)
-                           || looseBallDist < 48.0
+                           || looseBallDist < 30.0
                            || (engine.lastLooseOrigin == "goalkeeper_parry" && looseBallDist < 230.0);
         auto ps = checkPressSlots(bb, player.id);
         if (!priorityChaser && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
@@ -168,9 +168,9 @@ Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
     // Position (close-down) slot
     if (best.type == ActionType::Position) {
         bool reservePressSlot = false;
-        bool emergencyCloseDown = best.purpose == ActionPurpose::EmergCloseDown;
         auto* task = engine.assignmentFor(player.id);
-        if (best.purpose == ActionPurpose::LocalCloseDown)
+        if (best.purpose == ActionPurpose::LocalCloseDown
+            || best.purpose == ActionPurpose::EmergCloseDown)
             reservePressSlot = true;
         if (best.purpose == ActionPurpose::Task && task
             && (task->role == DefensiveTask::PrimaryPress
@@ -180,10 +180,16 @@ Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
 
         if (reservePressSlot) {
             auto ps = checkPressSlots(bb, player.id);
-            if (!emergencyCloseDown && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
+            // Every close-down (local OR emergency) obeys the 2-man press cap:
+            // assignPrimaryPress always names one contester so the carrier is
+            // never left unpressed, and the 3rd/4th/5th body that used to swarm
+            // in (EmergCloseDown bypassed the cap, producing 6-man piles) is
+            // sent back to shape instead.
+            if (!ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
                 for (auto& x : a) {
                     if (x.type == ActionType::Position
-                        && x.purpose == ActionPurpose::LocalCloseDown) continue;
+                        && (x.purpose == ActionPurpose::LocalCloseDown
+                         || x.purpose == ActionPurpose::EmergCloseDown)) continue;
                     if (x.type != ActionType::Tackle
                         && x.score > MIN_FALLBACK_SCORE) return &x;
                 }

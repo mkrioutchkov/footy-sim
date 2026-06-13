@@ -139,7 +139,7 @@ void GameEngine::tryGKSave() {
     Player* gk = findGK(defending);
     if (!gk) return;
     double speed = std::hypot(b.vx, b.vy);
-    if (speed < 200) return;
+    if (speed < 130) return;
     double goalX = ownGoalXFor(gk->team);
     bool towardGoal = gk->team == Team::Home ? b.vx < 0 : b.vx > 0;
     if (!towardGoal) return;
@@ -157,11 +157,11 @@ void GameEngine::tryGKSave() {
     // available — reach coverage of the trajectory, scaled by reaction time,
     // taxed by shot power. No abstract bonus stack.
     double reach = PLAYER_R + BALL_R + 22.0 + positioning * 28.0
-        + speedSkill * clamp(timeToLineMs / 1000.0, 0.0, 0.50) * 80.0;
+        + speedSkill * clamp(timeToLineMs / 1970.0, 0.0, 0.50) * 80.0;
     double reachCover = clamp((reach - trajectoryOffset) / reach, 0.0, 1.0);
-    double reactTime = clamp(timeToLineMs / 520.0, 0.18, 1.0);
-    double power = clamp((speed - 240.0) / 420.0, 0.0, 0.30);
-    double saveChance = clamp(reachCover * (0.50 + 0.42 * reactTime) + positioning * 0.16 - power,
+    double reactTime = clamp(timeToLineMs / 1025.0, 0.18, 1.0);
+    double power = clamp((speed - 180.0) / 195.0, 0.0, 0.30);
+    double saveChance = clamp(reachCover * (0.455 + 0.42 * reactTime) + positioning * 0.135 - power,
                               GK_SAVE_MIN, 0.84);
     // Penalties: from 12 yards the keeper is guessing — real save rate is
     // ~17-25%. The reach model overrates him (short flight, centered start).
@@ -169,13 +169,13 @@ void GameEngine::tryGKSave() {
     stats.recordShotOnTarget();
     shot.active = false;
     if (rng.random() >= saveChance) {
-        shot.preventable = saveChance >= 0.90 && trajectoryOffset < PLAYER_R + BALL_R && timeToLineMs > 420 && speed < 390;
+        shot.preventable = saveChance >= 0.90 && trajectoryOffset < PLAYER_R + BALL_R && timeToLineMs > 420 && speed < 240;
         stats.recordGkAssessment(false, shot.preventable);
         return;
     }
     // Rolled a save — but the ball still has to GET there. Arm the pending
     // save and let the flight render; the dive resolves on physical contact.
-    bool unlikelyCond = saveChance < 0.12 || (timeToLineMs < 130 && trajectoryOffset > reach + 18.0 && speed > 500);
+    bool unlikelyCond = saveChance < 0.12 || (timeToLineMs < 130 && trajectoryOffset > reach + 18.0 && speed > 310);
     stats.recordGkAssessment(unlikelyCond, false);
     shot.clearFlags();
     pendingSave = {true, gk->id, shooterId, crossY, reach, true};
@@ -225,8 +225,8 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
         if (o.team != gk.team && o.role != Role::GK && dist(o.x, o.y, gk.x, gk.y) < 52.0) { gkPressured = true; break; }
     }
     double contactOffset = dist(b.x, b.y, gk.x, gk.y);
-    bool comfortable = contactOffset < reach * 0.45 && speed < 430.0;
-    double catchChance = clamp(0.42 + positioning * 0.42 - std::max(0.0, speed - 300.0) / 600.0, 0.12, 0.86);
+    bool comfortable = contactOffset < reach * 0.45 && speed < 265.0;
+    double catchChance = clamp(0.42 + positioning * 0.42 - std::max(0.0, speed - 185.0) / 370.0, 0.12, 0.86);
     bool caught = canHandle && comfortable && !gkPressured && rng.random() < catchChance;
     double fieldDir = fdFor(gk.team);
     double diveSide = (b.y >= gk.y) ? 1.0 : -1.0;
@@ -248,7 +248,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     // over the bar concedes a corner — the iconic save the engine never made,
     // so corners were near-extinct. More likely the further he had to reach
     // and the harder the shot.
-    double tipChance = clamp(0.18 + (contactOffset - reach * 0.3) / reach * 0.5 + (speed - 300.0) / 700.0, 0.0, 0.6);
+    double tipChance = clamp(0.18 + (contactOffset - reach * 0.3) / reach * 0.5 + (speed - 185.0) / 430.0, 0.0, 0.6);
     if (!caught && rng.random() < tipChance) {
         emitEvent("save", gk.x, gk.y, gk.id);
         Team attackingTeam = gk.team == Team::Home ? Team::Away : Team::Home;
@@ -259,7 +259,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     // a confident punch sends it long and wide. Otherwise it's a parry — the
     // ball continues PAST the keeper on the side he dove, deadened, a live
     // rebound in the box.
-    bool punch = !canHandle || gkPressured || speed > 520.0;
+    bool punch = !canHandle || gkPressured || speed > 320.0;
     if (punch) emitEvent("punch", gk.x, gk.y, gk.id);
     double clearSpeed = punch
         ? speed * agentFor(gk)->punchPower()

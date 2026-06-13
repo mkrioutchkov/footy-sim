@@ -50,14 +50,23 @@ void PlayerAI::applyMovement(double sdt) {
         if (!exempt && d > 6.0) {
             double comDx = commitTargetX - p.x, comDy = commitTargetY - p.y;
             double comD = std::hypot(comDx, comDy);
-            bool reversal = comD > 6.0 && (dx * comDx + dy * comDy) / (d * comD) < 0.1;
+            // A heading change of more than ~73deg off the held commit is a
+            // whipsaw, not a refinement; off-ball CMs were pirouetting on
+            // sub-84deg hops the old <0.1 (=84deg) test let through.
+            bool reversal = comD > 6.0 && (dx * comDx + dy * comDy) / (d * comD) < 0.3;
             if (reversal && now < commitUntilMs) {
                 p.targetX = commitTargetX; p.targetY = commitTargetY;
                 dx = comDx; dy = comDy; d = comD;
-            } else {
+            } else if (reversal) {
+                // Accept the new heading and HOLD it: don't let the commit
+                // anchor ratchet around the circle on every accepted frame.
                 commitTargetX = p.targetX; commitTargetY = p.targetY;
-                if (reversal) commitUntilMs = now + 420.0;
+                commitUntilMs = now + 260.0;
+            } else if (now >= commitUntilMs) {
+                // Forward refinement with no active hold: track freely.
+                commitTargetX = p.targetX; commitTargetY = p.targetY;
             }
+            // else: forward refinement during an active hold — keep the held anchor.
         } else {
             commitTargetX = p.targetX; commitTargetY = p.targetY;
             commitUntilMs = now;

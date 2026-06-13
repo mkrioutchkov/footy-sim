@@ -341,7 +341,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         b.vx*=1.30; b.vy*=1.30;
         b.vz=std::max(b.vz,speed*1.30*1.55);
         double crossz=b.vx*(PITCH_H/2.0-b.y)-b.vy*(goalX-b.x);
-        b.curl=(crossz>=0?1.0:-1.0)*(0.30+rng.random()*0.25);
+        b.curl=(crossz>=0?1.0:-1.0)*(0.18+rng.random()*0.12);
     }
     if(audit){
         bool riskyFlag=audit->blockers>0||audit->receiverPressure>0||audit->expectedCompletion<0.58;
@@ -652,9 +652,9 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double d=std::hypot(dx,dy);
     // Headers redirect the cross's pace — box pressure costs them far less
     // power than it costs a wound-up foot shot.
-    double speed=SHOT_SPEED_BASE+accuracy*128.0-pressureCount*(freshCross?12.0:28.0)
-        -laneBlockers*(freshCross?16.0:34.0)-longRangePenalty*52+(credibleFinish?34.0:0.0);
-    speed=std::max(230.0,speed);
+    double speed=SHOT_SPEED_BASE+accuracy*118.0-pressureCount*(freshCross?10.0:24.0)
+        -laneBlockers*(freshCross?13.0:28.0)-longRangePenalty*44+(credibleFinish?28.0:0.0);
+    speed=std::max(185.0,speed);
     auto& b=state.ball;
     b.controllerId=-1;
     placeBallForRelease(s,dx,dy);

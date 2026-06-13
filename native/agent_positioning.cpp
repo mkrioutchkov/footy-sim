@@ -155,7 +155,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
                 || existingTask->role == DefensiveTask::MidfieldScreen || existingTask->role == DefensiveTask::BoxScreen);
         bool emergencyCloseDown = mustHoldShape && inOwnThird
             && std::abs(carrier->y - PITCH_H / 2.0) < 215.0
-            && carrierDist < 62.0;
+            && carrierDist < 34.0;
         bool roleCanStep = isDefenderLike()
             || (isWideMidfielder() && std::abs(carrier->y - p.y) < 170.0);
         bool localPressure = (!mustHoldShape || emergencyCloseDown) && roleCanStep && inOwnHalf

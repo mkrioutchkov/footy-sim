@@ -211,15 +211,16 @@ void GameEngine::checkBallPlayerCollision(double){
             if (p.role != Role::GK || !canContestBall(p)) continue;
             // A shot pre-rolled as beating the keeper clean can't be casually
             // scooped via positioning pickup after the failed reflex save —
-            // but a DYING ball (<220px/s) is anyone's: a keeper watching a
-            // trickler roll past him into the net is absurd.
-            if (lastLooseOrigin == "shot" && bs > 220.0 && p.team != shot.team && !shot.scoopAllowed) continue;
+            // but a DYING ball (<140px/s) is anyone's: a keeper watching a
+            // trickler roll past him into the net is absurd. (Re-anchored from
+            // 220 with the ~0.62x shot-speed reduction.)
+            if (lastLooseOrigin == "shot" && bs > 140.0 && p.team != shot.team && !shot.scoopAllowed) continue;
             double goalX = ownGoalXFor(p.team);
             bool ballInOwnArea = std::abs(b.x - goalX) < PENALTY_AREA_W
                 && std::abs(b.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
             if (!ballInOwnArea) continue;
             double d = dist(p.x, p.y, b.x, b.y);
-            bool dyingShot = lastLooseOrigin == "shot" && bs < 220.0;
+            bool dyingShot = lastLooseOrigin == "shot" && bs < 140.0;
             double reach = dyingShot ? GK_LOOSE_COLLECT_DIST + 6.0
                 : (bs > 120.0 ? GK_LOOSE_COLLECT_FAST_DIST : GK_LOOSE_COLLECT_DIST);
             if (d > reach) continue;
@@ -362,14 +363,14 @@ void GameEngine::checkBallPlayerCollision(double){
         // Exception: defenders ASSIGNED to the shot lane are the designated
         // wall — deliberate positioning earns physical contact; bystanders
         // still can't eat shots.
-        bool shotInFlight=lastLooseOrigin=="shot"&&bs>150.0;
+        bool shotInFlight=lastLooseOrigin=="shot"&&bs>95.0;
         bool designatedWall=false;
         if(shotInFlight&&p.id!=shot.blockerId&&p.team!=shot.team&&p.role!=Role::GK){
             const auto* task=assignmentFor(p.id);
             designatedWall=task&&task->role==DefensiveTask::ShotLane;
         }
         if(shotInFlight&&p.role!=Role::GK&&p.id!=shot.blockerId&&!designatedWall)continue;
-        double r=(bs>COLLISION_FAST_CONTACT&&bs<210.0&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
+        double r=(bs>COLLISION_FAST_CONTACT&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
         // A dead ball is collectible from a stride away — opponent separation
         // (24px) parked two players 10-12px from it, just outside the 8px
         // radius, in a 2.8s Mexican standoff ~43 times a match.
@@ -418,6 +419,18 @@ void GameEngine::checkBallPlayerCollision(double){
         // applied damp, flipped last-touch, and rebound-blocked bystanders
         // (600ms, re-applied per tick) just for standing near a pass lane.
         if(dot>=0)return;
+        // A fast loose ball driven AT an opponent's body is a reaction duel,
+        // not a given: the chance to get a touch in falls off hard with pace —
+        // a ~24m/s ball is blockable, a rocket usually flies past. Same-team
+        // balls (a shin deflection off a teammate) always make contact. A
+        // whiffed read locks the bystander out (no per-tick re-roll) so it
+        // passes clean instead of being eaten frame-by-frame.
+        if(contact->team!=b.lastTouchTeam){
+            double blockChance=clamp(LOOSE_BLOCK_BASE
+                +attrFactor(contact->attrs.positioning)*LOOSE_BLOCK_SKILL
+                -(bs-COLLISION_SPEED_THRESH)/LOOSE_BLOCK_SPEED_FALLOFF,0.06,0.92);
+            if(rng.random()>=blockChance){blockReboundFor(contact->id,360);return;}
+        }
         b.x=contact->x+nx*contactRadius;b.y=contact->y+ny*contactRadius;
         b.vx-=COLLISION_REFLECT_FACTOR*dot*nx;b.vy-=COLLISION_REFLECT_FACTOR*dot*ny;
         double damp=(b.lastTouchTeam==contact->team)?COLLISION_DAMP_SAME_TEAM:COLLISION_DAMP_OPPONENT;

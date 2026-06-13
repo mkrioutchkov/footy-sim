@@ -471,7 +471,7 @@ void GameEngine::releaseCornerKick(Player& holder){
             b.lastTouchTeam=holder.team; b.lastToucherId=holder.id;
             b.vx=dx/d*speed; b.vy=dy/d*speed;
             b.z=0;
-            applyWhipDelivery(d,speed,goalX,0.75,0.45);
+            applyWhipDelivery(d,speed,goalX,0.18,0.15);
             b.intendedReceiverId=target.id;
             receiverShieldTargetId=target.id;
             beginTrackedPass(holder,target,true);
