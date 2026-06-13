@@ -39,7 +39,6 @@ void GameEngine::auditCredibleShotWindow(const Player& player, double distance, 
     if (player.role != Role::CF || distance >= 190.0 || angleDeg <= 9.0 || pressureCount > 1) return;
     bool closeChance = distance < 120.0;
     stats.recordShotSelection(0, 0, 1, choiceType == "shoot" ? 0 : 1, choiceType == "pass" ? 1 : 0, choiceType == "dribble" ? 1 : 0, closeChance ? 1 : 0, closeChance && choiceType != "shoot" ? 1 : 0, false, false);
-    if (choiceType == "shoot") return;
 }
 
 void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {

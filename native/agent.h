@@ -215,7 +215,6 @@ private:
     void posDefensiveCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
     void posBallFarOffers(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
     void posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
-    void posOffsideRuns(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
     void posDefensiveLine(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
     void posGeneralCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
     [[nodiscard]] double clampToLegalX(double x, double fd) const;

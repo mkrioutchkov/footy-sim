@@ -4,7 +4,6 @@
 #include "types.h"
 #include "stats.h"
 #include "small_vector.h"
-#include <format>
 #include <algorithm>
 #include <memory>
 

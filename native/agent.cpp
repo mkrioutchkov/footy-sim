@@ -340,7 +340,6 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
     else if (a.type == ActionType::Mark && a.target) {
         double leadX = a.target->x + a.target->vx * 0.45;
         double leadY = a.target->y + a.target->vy * 0.45;
-        double ownGx = ownGoalXFor(p.team);
         double goalSide = p.team == Team::Home ? -1.0 : 1.0;
         p.targetX = clamp(leadX + goalSide * 18.0, leadX - 45.0, leadX + 45.0);
         p.targetY = clamp(leadY, 30.0, PITCH_H - 30.0);

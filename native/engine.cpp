@@ -4,6 +4,7 @@
 #include "role_ai.h"
 #include "gk_ai.h"
 #include "build_version.h"
+#include <format>
 #include <cmath>
 #include <numbers>
 

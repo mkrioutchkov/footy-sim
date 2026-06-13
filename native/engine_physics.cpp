@@ -169,7 +169,7 @@ bool GameEngine::checkOutOfPlay() {
         shot.clearFlags();
         lastLooseOrigin.clear();
     };
-    if (b.y < 0 || b.y > PITCH_H || b.y + BALL_R < 0 || b.y - BALL_R > PITCH_H) {
+    if (b.y < 0 || b.y > PITCH_H) {
         clearState();
         awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H);
         return true;

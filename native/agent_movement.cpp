@@ -267,7 +267,6 @@ void PlayerAI::tryCollectAfterChase() {
     if (!engine.collectBall(p, intended ? "intended_chase_reception" : "chase_collection", reach)) return;
 
     // Position-based stun lock: short in opponent's final third, long elsewhere
-    double gx = goalXFor(p.team);
     bool inFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
     if (inFinalThird) {
         stunLockTicks = 12;  // ~200ms — react quickly near goal
