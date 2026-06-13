@@ -107,7 +107,6 @@ void GameEngine::releaseSetPiece(){
         return;
     }
     if(setPiece.type == SetPiece::Penalty){
-        emitEvent("shot", holder->x, holder->y, holder->id);
         stats.recordPenaltyTaken();
         shot.penalty=true;
         shootBall(*holder,nullptr);

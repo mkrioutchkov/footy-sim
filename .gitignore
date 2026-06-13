@@ -9,3 +9,8 @@ __pycache__/
 .gh_pat
 vite-dev.err.log
 vite-dev.log
+
+# audit/bench work files
+*_summary.json
+bench_*.json
+audit*.json

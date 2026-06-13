@@ -119,6 +119,19 @@ public:
         double originX = 0, originY = 0;
     } shot;
 
+    // A save rolled at the assessment gate but resolved only when the ball
+    // PHYSICALLY reaches the keeper — the roll used to teleport the ball
+    // 100-200px into his gloves the same tick the shot was struck.
+    struct PendingSave {
+        bool active = false;
+        int gkId = -1;
+        int shooterId = -1;
+        double crossY = 0;     // predicted intercept y at roll time (dive target)
+        double reach = 0;      // rolled reach, reused for the handling decision
+    } pendingSave;
+    void resolvePendingSave();
+    void applySaveOutcome(Player& gk, int shooterId, double reach);
+
     struct GKMonitor {
         double distributeTimer = 0;
         bool active = false;

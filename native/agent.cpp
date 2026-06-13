@@ -317,7 +317,6 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
     else if (a.type == ActionType::Shoot) {
         ShotSelectionAudit audit = shotSelectionAudit(a, actions);
         engine.shootBall(p, &audit);
-        engine.emitEvent("shot", p.x, p.y, p.id);
         stunLockTicks = 20;
     }
     else if (a.type == ActionType::Dribble) {

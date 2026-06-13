@@ -180,14 +180,18 @@ void GameEngine::checkBallPlayerCollision(double){
         for (auto& p : state.players) {
             if (p.role != Role::GK || !canContestBall(p)) continue;
             // A shot pre-rolled as beating the keeper clean can't be casually
-            // scooped via positioning pickup after the failed reflex save.
-            if (lastLooseOrigin == "shot" && bs > 150.0 && p.team != shot.team && !shot.scoopAllowed) continue;
+            // scooped via positioning pickup after the failed reflex save —
+            // but a DYING ball (<220px/s) is anyone's: a keeper watching a
+            // trickler roll past him into the net is absurd.
+            if (lastLooseOrigin == "shot" && bs > 220.0 && p.team != shot.team && !shot.scoopAllowed) continue;
             double goalX = ownGoalXFor(p.team);
             bool ballInOwnArea = std::abs(b.x - goalX) < PENALTY_AREA_W
                 && std::abs(b.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
             if (!ballInOwnArea) continue;
             double d = dist(p.x, p.y, b.x, b.y);
-            double reach = bs > 120.0 ? GK_LOOSE_COLLECT_FAST_DIST : GK_LOOSE_COLLECT_DIST;
+            bool dyingShot = lastLooseOrigin == "shot" && bs < 220.0;
+            double reach = dyingShot ? GK_LOOSE_COLLECT_DIST + 6.0
+                : (bs > 120.0 ? GK_LOOSE_COLLECT_FAST_DIST : GK_LOOSE_COLLECT_DIST);
             if (d > reach) continue;
             double score = d / reach;
             if (b.lastTouchTeam != p.team) score -= 0.18;
@@ -197,6 +201,12 @@ void GameEngine::checkBallPlayerCollision(double){
             }
         }
         if (keeperContact) {
+            // A keeper gathering a beaten-but-reachable shot IS a save — the
+            // silent scoop leaked ~40% of on-target shots from the ledger.
+            if (lastLooseOrigin == "shot" && keeperContact->team != shot.team) {
+                stats.recordSave();
+                emitEvent("save", keeperContact->x, keeperContact->y, keeperContact->id);
+            }
             collectBall(*keeperContact);
             return;
         }

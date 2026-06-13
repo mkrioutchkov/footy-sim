@@ -498,6 +498,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
 }
 
 void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
+    emitEvent("shot", s.x, s.y, s.id);
     if(goalKickMonitor.active&&s.team!=goalKickMonitor.team){
         stats.recordGoalKickTrappedShot();
         goalKickMonitor.active=false;
@@ -594,6 +595,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     recordBallImpulse();
     pendingPass.active=false;
     lastLooseOrigin="shot";
+    pendingSave.active=false;   // a fresh shot supersedes any in-flight save
     receiverShieldTargetId=-1;
     shot.active=true; shot.tracked=true; shot.preventable=false; shot.header=freshCross; shot.dribble20m=dribble20mShot; shot.team=s.team; shot.shooterId=s.id; shot.originX=s.x; shot.originY=s.y;
     // ── Explicit shot-block roll: each defender in the lane gets ONE

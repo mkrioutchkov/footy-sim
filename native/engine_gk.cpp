@@ -20,6 +20,17 @@ void GameEngine::updateGK(double sdt) {
 }
 
 void GameEngine::updateOneGK(Player& gk, double secs) {
+    // Mid-save: dive at the predicted intercept point, nothing else matters.
+    if (pendingSave.active && pendingSave.gkId == gk.id) {
+        gk.targetX = gk.x;
+        gk.targetY = clamp(pendingSave.crossY, 18.0, PITCH_H - 18.0);
+        double dy = gk.targetY - gk.y;
+        double diveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 2.2;
+        double step = std::min(diveSpeed * secs, std::abs(dy));
+        gk.y += (dy > 0 ? 1.0 : -1.0) * step;
+        gk.facing = std::atan2(state.ball.y - gk.y, state.ball.x - gk.x);
+        return;
+    }
     double goalX = ownGoalXFor(gk.team);
     double fd = fdFor(gk.team);
     double bdg = std::abs(state.ball.x - goalX);
@@ -98,6 +109,7 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
 }
 
 void GameEngine::tryGKSave() {
+    if (pendingSave.active) { resolvePendingSave(); return; }
     if (!shot.active) return;
     auto& b = state.ball;
     int shooterId = shot.tracked ? shot.shooterId : b.lastToucherId;
@@ -140,34 +152,70 @@ void GameEngine::tryGKSave() {
         stats.recordGkAssessment(false, shot.preventable);
         return;
     }
-    stats.recordSave();
-    emitEvent("save", gk->x, gk->y, gk->id);
+    // Rolled a save — but the ball still has to GET there. Arm the pending
+    // save and let the flight render; the dive resolves on physical contact.
     bool unlikelyCond = saveChance < 0.12 || (timeToLineMs < 130 && trajectoryOffset > reach + 18.0 && speed > 500);
     stats.recordGkAssessment(unlikelyCond, false);
     shot.clearFlags();
-    bool canHandle = agentFor(*gk)->canUseHands();
+    pendingSave = {true, gk->id, shooterId, crossY, reach};
+}
+
+// The ball is in flight toward a keeper who has already won the save roll.
+// Resolve when the segment the ball swept this tick comes within reach, or
+// when it crosses the keeper's depth (a 520px/s shot moves ~9px/tick — a
+// point check could pass keeper AND goal line in one tick).
+void GameEngine::resolvePendingSave() {
+    auto& b = state.ball;
+    Player* gk = playerById(pendingSave.gkId);
+    double bs = std::hypot(b.vx, b.vy);
+    // Invalidate: someone touched it, it stopped being a live shot, or died.
+    if (!gk || b.controllerId >= 0 || lastLooseOrigin != "shot" || bs < 40.0) {
+        pendingSave.active = false;
+        return;
+    }
+    double s = FIXED_DT / 1000.0;
+    double px = b.x - b.vx * s, py = b.y - b.vy * s;
+    // Point-to-segment distance from the keeper to this tick's ball path.
+    double sx = b.x - px, sy = b.y - py;
+    double len2 = sx * sx + sy * sy;
+    double t = len2 > 1e-6 ? clamp(((gk->x - px) * sx + (gk->y - py) * sy) / len2, 0.0, 1.0) : 0.0;
+    double segDist = dist(gk->x, gk->y, px + sx * t, py + sy * t);
+    bool passedDepth = (px - gk->x) * (b.x - gk->x) <= 0.0
+        || (b.x - gk->x) * fdFor(gk->team) < 0.0;
+    if (segDist > PLAYER_R + BALL_R + 14.0 && !passedDepth) return;
+    pendingSave.active = false;
+    stats.recordSave();
+    emitEvent("save", gk->x, gk->y, gk->id);
+    applySaveOutcome(*gk, pendingSave.shooterId, pendingSave.reach);
+}
+
+void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
+    auto& b = state.ball;
+    double speed = std::hypot(b.vx, b.vy);
+    double positioning = attrFactor(gk.attrs.positioning);
+    bool canHandle = agentFor(gk)->canUseHands();
     // Natural handling decision: hold it only when comfortable — ball near
     // the body, pace manageable, nobody breathing down your neck. Under
     // pressure or against heat, get a fist on it instead of gambling.
     bool gkPressured = false;
     for (auto& o : state.players) {
-        if (o.team != gk->team && o.role != Role::GK && dist(o.x, o.y, gk->x, gk->y) < 52.0) { gkPressured = true; break; }
+        if (o.team != gk.team && o.role != Role::GK && dist(o.x, o.y, gk.x, gk.y) < 52.0) { gkPressured = true; break; }
     }
-    bool comfortable = trajectoryOffset < reach * 0.45 && speed < 430.0;
+    double contactOffset = dist(b.x, b.y, gk.x, gk.y);
+    bool comfortable = contactOffset < reach * 0.45 && speed < 430.0;
     double catchChance = clamp(0.42 + positioning * 0.42 - std::max(0.0, speed - 300.0) / 600.0, 0.12, 0.86);
     bool caught = canHandle && comfortable && !gkPressured && rng.random() < catchChance;
-    double fieldDir = fdFor(gk->team);
-    double side = gk->y - shot.originY < 0 ? -1.0 : 1.0;
-    double diveSide = (crossY >= gk->y) ? 1.0 : -1.0;
+    double fieldDir = fdFor(gk.team);
+    double diveSide = (b.y >= gk.y) ? 1.0 : -1.0;
     if (caught) {
-        b.x = clamp(gk->x + fieldDir * 6.0, 10.0, PITCH_W - 10.0);
-        b.y = clamp(gk->y + side * 4.0, 18.0, PITCH_H - 18.0);
+        b.x = clamp(gk.x + fieldDir * 6.0, 10.0, PITCH_W - 10.0);
+        b.y = clamp(gk.y + diveSide * 4.0, 18.0, PITCH_H - 18.0);
         b.vx = b.vy = b.vz = b.z = 0;
         b.curl = 0;
-        b.controllerId = gk->id;
+        b.controllerId = gk.id;
         b.intendedReceiverId = -1;
         blockReboundFor(shooterId, 250);
-        b.lastTouchTeam = gk->team; b.lastToucherId = gk->id;
+        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
         goalKickMonitor.distributeTimer = GK_DISTRIBUTE_MS;
         lastLooseOrigin = "goalkeeper_catch";
         recordBallImpulse();
@@ -178,33 +226,38 @@ void GameEngine::tryGKSave() {
     // ball continues PAST the keeper on the side he dove, deadened, a live
     // rebound in the box.
     bool punch = !canHandle || gkPressured || speed > 520.0;
-    if (punch) emitEvent("punch", gk->x, gk->y, gk->id);
+    if (punch) emitEvent("punch", gk.x, gk.y, gk.id);
     double clearSpeed = punch
-        ? speed * agentFor(*gk)->punchPower()
+        ? speed * agentFor(gk)->punchPower()
         : speed * (0.20 + rng.random() * 0.25);
     if (punch) {
-        double punchDir = (diveSide > 0 ? 0.9 : -0.9) + (rng.random() - 0.5) * 0.5;
-        b.x = clamp(gk->x + fieldDir * 28, 10.0, PITCH_W - 10.0);
-        b.y = clamp(gk->y + diveSide * 20, 18.0, PITCH_H - 18.0);
+        double punchDir = 0.9 + (rng.random() - 0.5) * 0.5;
+        b.x = clamp(gk.x + fieldDir * 28, 10.0, PITCH_W - 10.0);
+        b.y = clamp(gk.y + diveSide * 20, 18.0, PITCH_H - 18.0);
         b.vx = fieldDir * std::cos(punchDir) * clearSpeed;
-        b.vy = std::sin(punchDir) * clearSpeed * (diveSide > 0 ? 1.0 : -1.0) * 0.6 + diveSide * clearSpeed * 0.3;
+        // Always punched to the dive side — the old formula sent left-side
+        // dives back ACROSS the goal mouth.
+        b.vy = diveSide * std::abs(std::sin(punchDir)) * clearSpeed * 0.9;
         b.z = 6; b.vz = clearSpeed * 0.30;
     } else {
         // Parry continues the shot's journey, pushed wide on the dive side.
         double inAng = std::atan2(b.vy, b.vx);
         double parryAng = inAng + diveSide * (0.55 + rng.random() * 0.5);
-        b.x = clamp(gk->x + fieldDir * 16, 10.0, PITCH_W - 10.0);
-        b.y = clamp(gk->y + diveSide * (PLAYER_R + BALL_R + 4.0), 18.0, PITCH_H - 18.0);
+        b.x = clamp(gk.x + fieldDir * 16, 10.0, PITCH_W - 10.0);
+        b.y = clamp(gk.y + diveSide * (PLAYER_R + BALL_R + 4.0), 18.0, PITCH_H - 18.0);
         b.vx = std::cos(parryAng) * clearSpeed;
         b.vy = std::sin(parryAng) * clearSpeed;
         // never parry INTO the goal: kill any goalward component
-        if ((gk->team == Team::Home && b.vx < 0) || (gk->team == Team::Away && b.vx > 0)) b.vx = fieldDir * std::abs(b.vx) * 0.4;
+        if ((gk.team == Team::Home && b.vx < 0) || (gk.team == Team::Away && b.vx > 0)) b.vx = fieldDir * std::abs(b.vx) * 0.4;
         b.z = 0; b.vz = 0;
+        // The parry is a LIVE rebound: the keeper does not get to casually
+        // scoop his own spill — strikers crash it first.
+        blockReboundFor(gk.id, 1100);
     }
     b.curl = 0;
     b.intendedReceiverId = -1;
     blockReboundFor(shooterId, punch ? 900 : 1400);
-    b.lastTouchTeam = gk->team; b.lastToucherId = gk->id;
+    b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
     lastLooseOrigin = punch ? "goalkeeper_punch" : "goalkeeper_parry";
     recordBallImpulse();
 }
