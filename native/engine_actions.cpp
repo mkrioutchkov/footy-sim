@@ -441,17 +441,29 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     // flood of low-percentage lunges-and-misses (~70% of all challenges) into
     // the contain-first defending real players actually do, without a recorded
     // attempt or a wild swing.
-    bool boxEmergency = std::abs(carrier.x - ownGoalXFor(tackler.team)) < EMERGENCY_BOX_DIST
+    double carrierGoalDist = std::abs(carrier.x - ownGoalXFor(tackler.team));
+    bool inPenaltyBox = carrierGoalDist < PENALTY_AREA_W
+        && std::abs(carrier.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+    // Emergency lunges are forced only in the APPROACH band (box edge to
+    // EMERGENCY_BOX_DIST) — NOT inside the box itself. A defender who dives in
+    // the box gives a penalty; real defenders jockey and force the shot. Inside
+    // the box he commits only to a genuinely winnable tackle (chance>=0.30) or
+    // a clearly exposed loose touch. This was the engine's penalty factory:
+    // forced low-% box lunges fouled ~2-3x/match (~10x real).
+    bool boxEmergency = carrierGoalDist < EMERGENCY_BOX_DIST && !inPenaltyBox
         && std::abs(carrier.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
     bool ballPushedAhead = carrier.dribbleType == 2 || carrier.dribbleType == 3;
     bool committed = chance >= 0.30 || boxEmergency
         || (carrier.dribbleType == 0 && ballExposureDot > 0.0)
         || (ballPushedAhead && ballExposureDot > 0.15);  // nick the loose touch off an open carry
     if (!committed) return false;
+    // Even a committed challenge inside the box is careful — half the foul risk
+    // of an open-field lunge (a clumsy one is still a penalty, just far rarer).
+    double boxFoulScale = inPenaltyBox ? 0.5 : 1.0;
     stats.recordTackleAttempt();
     if(rng.random()>=chance){
         // Per-failure foul odds must be low because duel volume is high —
-        double foulChance=fromBehind?TACKLE_FOUL_FROM_BEHIND:TACKLE_FOUL_NORMAL;
+        double foulChance=(fromBehind?TACKLE_FOUL_FROM_BEHIND:TACKLE_FOUL_NORMAL)*boxFoulScale;
         // A booked player plays it safe — fewer reckless fouls, so second
         // yellows (and the resulting reds) stay near real rates.
         if(yellowCards[tackler.id]>=1)foulChance*=0.55;
@@ -661,8 +673,17 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     blockReboundFor(s.id,850);
     b.vx=dx/d*speed; b.vy=dy/d*speed;
     b.intendedReceiverId=-1; b.z=b.vz=0;
-    // Direct free kick with a wall: lift the strike over it.
-    if(directFreeKickShot&&laneBlockers>=1){ b.vz=speed*0.50; }
+    // Direct free kick with a wall: CHIP it over, don't blast it through.
+    // The old vz=speed*0.50 was tuned for ~470px/s shots; with realistic
+    // ~210px/s shot pace the lift only reached ~1m (z=10), BELOW the 20px
+    // aerial-clearance height, so the ball flew flat THROUGH the wall. Cap the
+    // pace to a chippable speed and loft it so the peak clears the wall
+    // (>AERIAL_HEIGHT) yet dips back under the bar by the goal line.
+    if(directFreeKickShot&&laneBlockers>=1){
+        double fkSpeed=std::min(speed,250.0);
+        b.vx=dx/d*fkSpeed; b.vy=dy/d*fkSpeed;
+        b.vz=std::max(fkSpeed*0.72,150.0);
+    }
     b.lastTouchTeam=s.team; b.lastToucherId=s.id;
     metrics.shotLaunchSpeedTotal+=speed; metrics.shotLaunchCount++;
     stats.recordShotLaunch(speed);

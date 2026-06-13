@@ -161,7 +161,7 @@ void GameEngine::tryGKSave() {
     double reachCover = clamp((reach - trajectoryOffset) / reach, 0.0, 1.0);
     double reactTime = clamp(timeToLineMs / 1025.0, 0.18, 1.0);
     double power = clamp((speed - 180.0) / 195.0, 0.0, 0.30);
-    double saveChance = clamp(reachCover * (0.455 + 0.42 * reactTime) + positioning * 0.135 - power,
+    double saveChance = clamp(reachCover * (0.435 + 0.42 * reactTime) + positioning * 0.125 - power,
                               GK_SAVE_MIN, 0.84);
     // Penalties: from 12 yards the keeper is guessing — real save rate is
     // ~17-25%. The reach model overrates him (short flight, centered start).
