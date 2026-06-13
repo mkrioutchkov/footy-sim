@@ -913,15 +913,20 @@ GameEngine::GameEngine() {
 
 void GameEngine::initWithSeed(int seed) {
     rng.setSeed(seed);
-    auto manager=[&](){
-        return Config{40+rng.random()*40,30+rng.random()*40,25+rng.random()*60,
-                      30+rng.random()*55,25+rng.random()*55};
-    };
-    homeConfig=manager();
-    awayConfig=manager();
-    for(int i=0;i<23;i++) rng.random();
+    if (!configOverride) {
+        // No tactics supplied: random "manager" personalities (legend exhibition).
+        auto manager=[&](){
+            return Config{40+rng.random()*40,30+rng.random()*40,25+rng.random()*60,
+                          30+rng.random()*55,25+rng.random()*55};
+        };
+        homeConfig=manager();
+        awayConfig=manager();
+    }
+    // The 23-random advances vary the legends' ±4 form between sides; a
+    // data-driven roster has exact attrs (no form roll), so skip them there.
+    if(!homeRoster.active) for(int i=0;i<23;i++) rng.random();
     createHomeTeam();
-    for(int i=0;i<23;i++) rng.random();
+    if(!awayRoster.active) for(int i=0;i<23;i++) rng.random();
     createAwayTeam();
     for(auto&p:state.players){
         if(p.id>=0&&p.id<22)playerLookup[p.id]=&p;
@@ -1108,6 +1113,13 @@ std::string legendNameFor(int id, Team team) {
 }
 
 Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
+    const RosterOverride& ro = (t == Team::Home) ? homeRoster : awayRoster;
+    int slot = (t == Team::Home) ? id : id - 11;
+    if (ro.active && slot >= 0 && slot < 11) {
+        // Data-driven: exact attrs + name from the user's team (no form roll).
+        return Player{id, ro.names[slot], t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
+            ro.attrs[slot], t == Team::Home ? 0.0 : PI};
+    }
     // Legend profile with small per-match form variance (±4) so the same
     // names play recognizably while no two matches are identical.
     PlayerAttributes a = legendAttrsFor(id);

@@ -364,6 +364,19 @@ public:
     void notePreventedStaleGrab(Player&) { stats.recordStaleGrabPrevented(); }
     void noteTaskSelection(Player&, DefensiveTask role) { stats.recordTaskSelection(role); }
 
+    // ── Data-driven rosters (FM-style game). When a roster is active, the 11
+    // players in that team's fixed formation slots (0..10) take their name +
+    // attributes from the override instead of the hardcoded legends, and the
+    // Config dials are taken as-is (configOverride) rather than randomized.
+    // This is how a user-created team plays. Set before initWithSeed(). ──
+    struct RosterOverride {
+        bool active = false;
+        std::array<PlayerAttributes, 11> attrs{};
+        std::array<std::string, 11> names{};
+    };
+    RosterOverride homeRoster, awayRoster;
+    bool configOverride = false;
+
     // ── Lifecycle ──
     GameEngine();
     void initWithSeed(int seed);

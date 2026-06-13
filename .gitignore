@@ -17,3 +17,9 @@ audit*.json
 
 tip.txt
 tools/_*.py
+
+# game-layer scratch
+_testmatch.json
+server/data/
+*.sqlite
+*.sqlite-*
