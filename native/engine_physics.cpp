@@ -491,7 +491,7 @@ void GameEngine::collectBall(Player& c) {
         // ~nil for a gently rolled one, shorter for a composed player. He can
         // still dribble/shield during it (and shoot a first-timer).
         double settle = clamp((incoming - 90.0) / 300.0, 0.0, 1.0)
-            * (270.0 - attrFactor(c.attrs.positioning) * 95.0);
+            * (165.0 - attrFactor(c.attrs.positioning) * 110.0);
         firstTouchUntilMs[c.id] = state.clockMs + settle;
     }
     shot.clearFlags();

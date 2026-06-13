@@ -168,9 +168,9 @@ inline constexpr double CROSS_DRIVE_SPEED_MAX    = 560.0;
 inline constexpr double CROSS_DIP_TARGET_Z       = 18.0;  // ball height at arrival
 inline constexpr double CROSS_CURL_MIN           = 0.85;  // rad/s
 inline constexpr double CROSS_CURL_RANGE         = 0.55;
-inline constexpr double CROSS_CUTOUT_BASE        = 0.34;  // defender cut-out duel
+inline constexpr double CROSS_CUTOUT_BASE        = 0.28;  // defender cut-out duel
 inline constexpr double CROSS_CUTOUT_SKILL       = 0.28;
-inline constexpr double CROSS_MEET_BASE          = 0.42;  // runner timing roll
+inline constexpr double CROSS_MEET_BASE          = 0.55;  // runner timing roll
 inline constexpr double CROSS_MEET_SKILL         = 0.30;
 
 // ── Penalties ──
@@ -250,8 +250,8 @@ inline constexpr double SHOT_ERROR_SKILL        = 58.0;
 inline constexpr double SHOT_ERROR_CLOSE_PRESSURE_NORMAL = 28.0;
 inline constexpr double SHOT_ERROR_PRESSURE_NORMAL = 34.0;
 inline constexpr double SHOT_ERROR_ANGLE        = 40.0;
-inline constexpr double SHOT_ERROR_DISTANCE     = 36.0;
-inline constexpr double SHOT_ERROR_LONG_RANGE   = 84.0;
+inline constexpr double SHOT_ERROR_DISTANCE     = 26.0;
+inline constexpr double SHOT_ERROR_LONG_RANGE   = 58.0;
 inline constexpr double SHOT_ERROR_LANE_CROSS   = 52.0;
 inline constexpr double SHOT_ERROR_LANE_NORMAL  = 58.0;
 inline constexpr double SHOT_ERROR_PRESSURE_CROSS = 38.0;

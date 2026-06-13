@@ -269,8 +269,8 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     double receiverSpeed=std::hypot(t.vx,t.vy);
     double fd = fdFor(f.team);
     bool movingForward=t.vx*fd>5;
-    double leadFactor=throughBall ? (movingForward&&receiverSpeed>14?1.12:0.72) : (movingForward&&receiverSpeed>20?0.90:0.55);
-    double throughLead=throughBall?fd*(46+attrFactor(f.attrs.creativity)*78):0;
+    double leadFactor=throughBall ? (movingForward&&receiverSpeed>14?1.32:0.80) : (movingForward&&receiverSpeed>20?0.90:0.55);
+    double throughLead=throughBall?fd*(90+attrFactor(f.attrs.creativity)*120):0;
     double predX=t.x+t.vx*travelTime*leadFactor+throughLead;
     double predY=t.y+t.vy*travelTime*leadFactor;
     double dx=predX-f.x,dy=predY-f.y,adjDist=std::hypot(dx,dy);
@@ -623,19 +623,19 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double executionError=SHOT_ERROR_BASE+(1-accuracy)*SHOT_ERROR_SKILL+pressureCount*(freshCross?SHOT_ERROR_PRESSURE_CROSS:SHOT_ERROR_PRESSURE_NORMAL)+closePressure+laneBlockers*(freshCross?SHOT_ERROR_LANE_CROSS:SHOT_ERROR_LANE_NORMAL)
         +anglePenalty*SHOT_ERROR_ANGLE+distancePenalty*SHOT_ERROR_DISTANCE+longRangePenalty*SHOT_ERROR_LONG_RANGE;
     executionError=std::max(SHOT_ERROR_FLOOR,executionError+roleError);
-    bool credibleFinish=angleDeg>12.0&&shotDistance<185.0&&pressureCount<=1&&laneBlockers<=1;
+    bool credibleFinish=angleDeg>11.0&&shotDistance<235.0&&pressureCount<=2&&laneBlockers<=1;
     bool freshThrough=s.throughCollected>0.0&&shotDistance<245.0;
     bool directFreeKickShot=setPiece.type==SetPiece::FreeKick;
     // Dead ball, no pressure, twelve yards: penalty execution is near-pure
     // placement. Without this the open-play error model sprayed pens wide.
     bool penaltyKick=setPiece.type==SetPiece::Penalty;
-    if(credibleFinish)executionError*=shotDistance<95.0?0.60:0.70;
+    if(credibleFinish)executionError*=shotDistance<95.0?0.55:0.64;
     if(directFreeKickShot)executionError*=0.48;
     if(penaltyKick)executionError*=0.30;
     if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.84:0.92;
-    if(freshCross)executionError*=s.role==Role::CF?0.54:(s.role==Role::WM?0.72:0.90);
+    if(freshCross)executionError*=s.role==Role::CF?0.46:(s.role==Role::WM?0.62:0.82);
     double postAimScale=credibleFinish?0.92:1.0;
-    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(penaltyKick?0.36+accuracy*0.07:(0.12+accuracy*0.11)*postAimScale);
+    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(penaltyKick?0.36+accuracy*0.07:(0.26+accuracy*0.17)*postAimScale);
     double goalY=goalCenterY+aimedPost+(rng.random()+rng.random()-1.0)*executionError;
     if(acuteGeometry){
         double nearPostSide=s.y<goalCenterY?-1.0:1.0;

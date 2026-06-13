@@ -278,7 +278,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                           && runnerIntent
                           && fp > 30.0
                           && onsideGap > -12.0
-                          && onsideGap < 170.0
+                          && onsideGap < 210.0
                           && bl <= 1
                           && receiverPressure <= 1
                           && targetGoalDist < 480.0;

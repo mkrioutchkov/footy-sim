@@ -166,7 +166,7 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
     if ((isCenterForward() || isWideMidfielder()) && !per.iAmController) {
         double line = engine.offsideLineFor(p.team);
         if (!std::isnan(line)) {
-            double legalShoulder = pc.fd > 0.0 ? std::max(line, b.x) - 14.0 : std::min(line, b.x) + 14.0;
+            double legalShoulder = pc.fd > 0.0 ? std::max(line, b.x) - 6.0 : std::min(line, b.x) + 6.0;
             double checkBackX = pc.fd > 0.0 ? std::min(p.x - 28.0, legalShoulder - 18.0) : std::max(p.x + 28.0, legalShoulder + 18.0);
             double insideY = clamp(lerp(p.y, PITCH_H / 2.0, isCenterForward() ? 0.28 : 0.18), 50.0, PITCH_H - 50.0);
             c.push_back({ clamp(legalShoulder, 55.0, PITCH_W - 55.0), p.y, ActionPurpose::Offer });
