@@ -11,7 +11,7 @@ const CPP_ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
 // fresh match (the seed is shown in the page footer for bug reports).
 const FIXED_SEED = process.env.CPP_SEED ? Number.parseInt(process.env.CPP_SEED, 10) : null;
 let currentSeed = FIXED_SEED ?? randomSeed();
-const MINUTES = 90;
+const MINUTES = Number.parseInt(process.env.CPP_MINUTES ?? '90', 10);
 // Debug equalizes attributes; default off so the legend profiles show.
 const DEBUG = process.env.CPP_DEBUG === '1' || process.env.CPP_DEBUG === 'true';
 

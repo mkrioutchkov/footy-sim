@@ -155,7 +155,7 @@ void GameEngine::fixedUpdate(double sdt) {
     if (setPiece.armed || phase.kickoffPhase || phase.halfTimePause > 0) phase.stoppageMs += sdt;
 
     // ── Added-time / end-of-phase.half whistle ──
-    double halfEndMs = (phase.half == 1) ? HALF_DURATION : MATCH_DURATION;
+    double halfEndMs = (phase.half == 1) ? halfDurationMs : matchDurationMs;
     if (state.clockMs >= halfEndMs) {
         if (!phase.addedTimeActive) {
             phase.announcedAddedMs = clamp(std::round(phase.stoppageMs * 0.35 / 60000.0), 1.0, 5.0) * 60000.0;

@@ -88,6 +88,16 @@ public:
     } phase;
     std::array<int, 22> yellowCards = {};
 
+    // Match length is a RUNTIME parameter (default 90'), not the compile-time
+    // constant it used to be — the product needs 20/40/90-minute variants and
+    // each wants its own clock. Set before startMatch; half is always half.
+    double matchDurationMs = MATCH_DURATION;
+    double halfDurationMs   = HALF_DURATION;
+    void setMatchLengthMinutes(double minutes) {
+        matchDurationMs = minutes * 60000.0;
+        halfDurationMs  = matchDurationMs / 2.0;
+    }
+
     // Substitutions: an in-place identity swap (the on-pitch slot keeps its
     // id/role/position; only name+attrs+freshness change), so the 22-slot
     // player array and every pointer into it stay valid — no bench array to
@@ -223,7 +233,7 @@ public:
         // line, more aggression, more directness; a side protecting a lead
         // drops off. Pure function of score+clock, so determinism holds.
         int diff = team==Team::Home ? state.homeScore - state.awayScore : state.awayScore - state.homeScore;
-        double minLeft = (MATCH_DURATION - state.clockMs) / 60000.0;
+        double minLeft = (matchDurationMs - state.clockMs) / 60000.0;
         if (diff < 0 && minLeft < 20.0) {
             double urgency = clamp((20.0 - minLeft) / 20.0, 0.0, 1.0) * std::min(-diff, 2);
             c.aggression += 14.0 * urgency;

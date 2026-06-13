@@ -22,6 +22,7 @@ int main(int argc, char* argv[]) {
 
     GameEngine engine;
     engine.initWithSeed(seed);
+    engine.setMatchLengthMinutes(minutes);
     if (debugMode) engine.equalizeAttributes(65);
     engine.startMatch();
 

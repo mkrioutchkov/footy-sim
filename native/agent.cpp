@@ -115,7 +115,7 @@ GameContext PlayerAI::buildContext() {
     int my = (player.team == Team::Home) ? ms : os;
     int op = (player.team == Team::Home) ? os : ms;
     int d  = my - op;
-    double tl = std::max(0.0, MATCH_DURATION - engine.state.clockMs);
+    double tl = std::max(0.0, engine.matchDurationMs - engine.state.clockMs);
     return { d, tl, engine.phase.half };
 }
 
