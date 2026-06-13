@@ -31,6 +31,34 @@ void PlayerAI::applyMovement(double sdt) {
     double dx = p.targetX - p.x, dy = p.targetY - p.y;
     double d = std::sqrt(dx * dx + dy * dy);
 
+    // Target hysteresis: when two decision branches argue at 60Hz, a player
+    // vibrates in place (~730 episodes/90min measured). A target that
+    // REVERSES the current commitment is only accepted every 300ms; forward
+    // refinements pass through freely. Ball-near play is exempt — reactions
+    // there must be instant.
+    {
+        double now = engine.state.clockMs;
+        double bdq = dist(p.x, p.y, engine.state.ball.x, engine.state.ball.y);
+        bool exempt = engine.state.ball.controllerId == p.id
+            || engine.state.ball.intendedReceiverId == p.id
+            || engine.isActiveKnockAheadRunner(p.id) || bdq < 60.0;
+        if (!exempt && d > 6.0) {
+            double comDx = commitTargetX - p.x, comDy = commitTargetY - p.y;
+            double comD = std::hypot(comDx, comDy);
+            bool reversal = comD > 6.0 && (dx * comDx + dy * comDy) / (d * comD) < 0.1;
+            if (reversal && now < commitUntilMs) {
+                p.targetX = commitTargetX; p.targetY = commitTargetY;
+                dx = comDx; dy = comDy; d = comD;
+            } else {
+                commitTargetX = p.targetX; commitTargetY = p.targetY;
+                if (reversal) commitUntilMs = now + 420.0;
+            }
+        } else {
+            commitTargetX = p.targetX; commitTargetY = p.targetY;
+            commitUntilMs = now;
+        }
+    }
+
     auto* lastTask = engine.assignmentFor(p.id);
     bool pressTask      = (lastActionType == ActionType::Position && lastPurpose == ActionPurpose::Task && lastTask && lastTask->role == DefensiveTask::PrimaryPress);
     bool secondaryPress = (lastActionType == ActionType::Position && lastPurpose == ActionPurpose::Task && lastTask && lastTask->role == DefensiveTask::SecondaryPress);
@@ -164,14 +192,18 @@ void PlayerAI::applyMovement(double sdt) {
         }
     } else if (engine.state.ball.controllerId >= 0) {
         Player* carrier = engine.playerById(engine.state.ball.controllerId);
-        if (carrier && carrier->team != p.team && bd < 170.0) {
+        // Ball-watching is a jogging habit: at speed you face your run, or
+        // you moonwalk — players were sprinting backward at 74px/s for
+        // seconds while staring at the carrier.
+        if (carrier && carrier->team != p.team && bd < 170.0 && spdAfter < 38.0) {
             double ballAngle = std::atan2(bdy, bdx);
             facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.18;
         } else if (spdAfter > 5.0) {
             double moveAngle = std::atan2(p.vy, p.vx);
-            facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.06;
+            double w = spdAfter > 45.0 ? 0.16 : 0.06;
+            facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * w;
         }
-    } else if (engine.state.ball.controllerId < 0 && bd < 80.0) {
+    } else if (engine.state.ball.controllerId < 0 && bd < 80.0 && spdAfter < 52.0) {
         double ballAngle = std::atan2(bdy, bdx);
         facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.15;
     } else if (spdAfter > 5.0) {
@@ -186,6 +218,15 @@ void PlayerAI::applyMovement(double sdt) {
     double requestedFacingDelta = std::atan2(std::sin(facing - prevFacing), std::cos(facing - prevFacing));
     double turnSpeedBlend = clamp((spdAfter - 12.0) / 58.0, 0.0, 1.0);
     double maxFacingTurn = lerp(0.24, 0.055, turnSpeedBlend);
+    // Rotating INTO your direction of travel is natural at any speed — the
+    // slow cap models scanning AWAY from the run line. Without this, fast
+    // movers could never align body to velocity and glided backward.
+    if (spdAfter > 5.0) {
+        double moveAngle = std::atan2(p.vy, p.vx);
+        double nowOff  = std::abs(std::atan2(std::sin(facing - moveAngle), std::cos(facing - moveAngle)));
+        double prevOff = std::abs(std::atan2(std::sin(prevFacing - moveAngle), std::cos(prevFacing - moveAngle)));
+        if (nowOff < prevOff) maxFacingTurn = std::max(maxFacingTurn, 0.28);
+    }
     requestedFacingDelta = clamp(requestedFacingDelta, -maxFacingTurn, maxFacingTurn);
     facing = prevFacing + requestedFacingDelta;
     double facingDelta = std::abs(requestedFacingDelta);

@@ -97,8 +97,8 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             double clearFd = fdFor(receiver.team);
             b.controllerId = -1;
             b.intendedReceiverId = -1;
-            b.x = receiver.x;
-            b.y = receiver.y;
+            // Launch from the BALL's flight position — snapping it to the
+            // header-winner's body popped it up to 90px in one tick.
             b.vx = clearFd * 210.0;
             b.vy = (receiver.y < PITCH_H / 2.0 ? -1.0 : 1.0) * 55.0;
             b.z = 18.0;
@@ -156,8 +156,6 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             b.controllerId = -1;
             b.intendedReceiverId = outlet ? outlet->id : -1;
             receiverShieldTargetId = b.intendedReceiverId;
-            b.x = receiver.x;
-            b.y = receiver.y;
             b.vx = dx / len * 135.0;
             b.vy = dy / len * 135.0;
             b.z = 12.0;

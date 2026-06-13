@@ -13,14 +13,18 @@ void GameEngine::separateTeammates(double sdt) {
         for (size_t j = i + 1; j < state.players.size(); ++j) {
             Player& a = state.players[i];
             Player& b = state.players[j];
-            if (a.role == Role::GK || b.role == Role::GK) continue;
+            // GKs separate too (at the opponent distance) — exempting them let
+            // outfielders stand INSIDE the keeper for seconds.
+            bool gkPair = a.role == Role::GK || b.role == Role::GK;
             double dx = b.x - a.x, dy = b.y - a.y;
             double d = std::hypot(dx, dy);
-            double minDist = a.team == b.team ? SEPARATION_DIST : 24.0;
+            double minDist = (gkPair || a.team != b.team) ? 24.0 : SEPARATION_DIST;
             if (d < 0.1 || d >= minDist) continue;
             double nx = dx / d, ny = dy / d;
-            double pushScale = a.team == b.team ? 0.24 : 0.10;
-            double push = std::min(maxPush, (minDist - d) * pushScale);
+            double pushScale = (gkPair || a.team != b.team) ? 0.10 : 0.24;
+            // Deep overlap (two bodies on one pixel) escalates the push hard —
+            // the gentle 0.5px/tick separation lost to shared chase targets.
+            double push = std::min(maxPush * (d < 12.0 ? 4.0 : 1.0), (minDist - d) * pushScale * (d < 12.0 ? 4.0 : 1.0));
             bool aFixed = state.ball.controllerId == a.id || isActiveKnockAheadRunner(a.id);
             bool bFixed = state.ball.controllerId == b.id || isActiveKnockAheadRunner(b.id);
             if (aFixed && bFixed) continue;
@@ -303,6 +307,10 @@ void GameEngine::checkBallPlayerCollision(double){
         }
         if(shotInFlight&&p.role!=Role::GK&&p.id!=shot.blockerId&&!designatedWall)continue;
         double r=(bs>COLLISION_FAST_CONTACT&&bs<210.0&&p.team!=b.lastTouchTeam)?fastContactRadius:collectRadius;
+        // A dead ball is collectible from a stride away — opponent separation
+        // (24px) parked two players 10-12px from it, just outside the 8px
+        // radius, in a 2.8s Mexican standoff ~43 times a match.
+        if(bs<30.0)r=std::max(r,COLLECT_DIST+6.0);
         if(shotInFlight&&(p.id==shot.blockerId||designatedWall))r=fastContactRadius;
         if(d>r)continue;
         double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
@@ -381,7 +389,13 @@ void GameEngine::collectBall(Player& c) {
     if (c.role != Role::GK) {
         double fdx = b.x - c.x, fdy = b.y - c.y;
         double fd = std::hypot(fdx, fdy);
-        if (fd > 0.1) c.facing = std::atan2(fdy, fdx);
+        if (fd > 0.1) {
+            // Turn toward the ball, capped — the hard set spun players up to
+            // 175 degrees in one 16ms tick on every reception.
+            double want = std::atan2(fdy, fdx);
+            double delta = std::atan2(std::sin(want - c.facing), std::cos(want - c.facing));
+            c.facing += clamp(delta, -1.2, 1.2);
+        }
     }
     if (lastCollectionTeam.has_value() && c.team == *lastCollectionTeam && state.clockMs - lastSameTeamCollectionMs < PING_PONG_WINDOW_MS) {
         teammatePingPongs++;

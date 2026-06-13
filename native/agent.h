@@ -189,6 +189,12 @@ private:
     double ballMemoryY   = 0;
     int    ballMemoryAge = 0;
 
+    // Movement-target hysteresis: a reversal may only be accepted every
+    // ~300ms, so two arguing decision branches can't vibrate a player at 60Hz.
+    double commitTargetX  = 0;
+    double commitTargetY  = 0;
+    double commitUntilMs  = 0;
+
     GameContext           buildContext();
     SmallVector<Action, 24> evaluateActions(const Perception& per, bool isController, const GameContext& ctx);
     SmallVector<Action, 24> scorePass(const Perception& per, const GameContext& ctx);
