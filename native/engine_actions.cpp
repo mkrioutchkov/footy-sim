@@ -443,8 +443,10 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     // attempt or a wild swing.
     bool boxEmergency = std::abs(carrier.x - ownGoalXFor(tackler.team)) < EMERGENCY_BOX_DIST
         && std::abs(carrier.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+    bool ballPushedAhead = carrier.dribbleType == 2 || carrier.dribbleType == 3;
     bool committed = chance >= 0.30 || boxEmergency
-        || (carrier.dribbleType == 0 && ballExposureDot > 0.0);
+        || (carrier.dribbleType == 0 && ballExposureDot > 0.0)
+        || (ballPushedAhead && ballExposureDot > 0.15);  // nick the loose touch off an open carry
     if (!committed) return false;
     stats.recordTackleAttempt();
     if(rng.random()>=chance){
@@ -623,7 +625,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double executionError=SHOT_ERROR_BASE+(1-accuracy)*SHOT_ERROR_SKILL+pressureCount*(freshCross?SHOT_ERROR_PRESSURE_CROSS:SHOT_ERROR_PRESSURE_NORMAL)+closePressure+laneBlockers*(freshCross?SHOT_ERROR_LANE_CROSS:SHOT_ERROR_LANE_NORMAL)
         +anglePenalty*SHOT_ERROR_ANGLE+distancePenalty*SHOT_ERROR_DISTANCE+longRangePenalty*SHOT_ERROR_LONG_RANGE;
     executionError=std::max(SHOT_ERROR_FLOOR,executionError+roleError);
-    bool credibleFinish=angleDeg>11.0&&shotDistance<235.0&&pressureCount<=2&&laneBlockers<=1;
+    bool credibleFinish=angleDeg>11.0&&shotDistance<200.0&&pressureCount<=2&&laneBlockers<=1;
     bool freshThrough=s.throughCollected>0.0&&shotDistance<245.0;
     bool directFreeKickShot=setPiece.type==SetPiece::FreeKick;
     // Dead ball, no pressure, twelve yards: penalty execution is near-pure

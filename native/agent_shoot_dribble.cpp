@@ -84,7 +84,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (cp.exposed > 0.45 && shotDistance > 85.0) sc -= 0.12;
 
     bool credibleOpening = angleDeg >= 7.5 || shotDistance < 115.0;
-    if (shotDistance < 225.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.38 : 0.16;
+    if (shotDistance < 200.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.38 : 0.16;
     if (shotDistance < 135.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.46 : 0.16;
     if (shotDistance < 70.0  && credibleOpening) sc += per.pressureCount <= 1 ? 0.22 : 0.05;
     if (shotDistance < 40.0)  sc += per.pressureCount <= 1 ? 0.18 : 0.04;
@@ -98,12 +98,14 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         sc += per.pressureCount == 0 ? 0.22 : 0.10;
         if (shotDistance < 170.0 && angleDeg > 8.0) sc += 0.16;
     }
-    if (shotDistance < 225.0 && angleDeg > 6.5) sc += per.pressureCount <= 1 ? 0.24 : 0.10;
-    if (p.role == Role::CF && shotDistance < 235.0 && angleDeg > 6.0) sc += 0.18;
+    if (shotDistance < 200.0 && angleDeg > 6.5) sc += per.pressureCount <= 1 ? 0.24 : 0.10;
+    if (p.role == Role::CF && shotDistance < 205.0 && angleDeg > 6.0) sc += 0.18;
     if (per.pressureCount == 0 && angleDeg > 9.0 && shotDistance < 315.0) sc += 0.10;
     // Pot-shot tax: the audit flagged ~70 questionable long strikes per match —
     // keepers eat them, so working a better position should win the comparison.
-    if (shotDistance > 235.0) sc -= 0.26;
+    // The 200-235px band was over-rewarded to chase a goals target; from outside
+    // the box (>=200px) working it closer should beat the speculative strike.
+    if (shotDistance > 205.0) sc -= 0.30;
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
 }

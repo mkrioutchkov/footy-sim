@@ -13,6 +13,22 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     double d = dist(player.x, player.y, ctrl->x, ctrl->y);
     if (d > TACKLE_ZONE_MAX) return Action{ActionType::Tackle, 0.0};
 
+    // Carrier kinematics: where is he going, and am I in his running lane?
+    double carrierSpeed = std::hypot(ctrl->vx, ctrl->vy);
+    double forwardX = carrierSpeed > 8.0 ? ctrl->vx / carrierSpeed : std::cos(ctrl->facing);
+    double forwardY = carrierSpeed > 8.0 ? ctrl->vy / carrierSpeed : std::sin(ctrl->facing);
+    double toTacklerX = d > 1.0 ? (player.x - ctrl->x) / d : 0.0;
+    double toTacklerY = d > 1.0 ? (player.y - ctrl->y) / d : 0.0;
+    double exposedDot = forwardX * toTacklerX + forwardY * toTacklerY; // >0 = I'm in front of his run
+
+    // A defender who is touch-tight, in the carrier's running lane, and facing
+    // an open carry (ball knocked ahead — type 2/3, not a shielded type-1 or a
+    // dead-stop type-0) steps in and nicks it, press assignment or not. Without
+    // this an elite dribbler glides past anyone whose "job" isn't to press,
+    // because the contain gate below hands the whole zone back to him.
+    bool nickOpportunity = d < TACKLE_RANGE && exposedDot > 0.10
+        && (ctrl->dribbleType == 2 || ctrl->dribbleType == 3);
+
     bool isDef = (player.role == Role::CB || player.role == Role::FB);
     if (isDef) {
         if (player.role == Role::CB) {
@@ -57,7 +73,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
             && (defensiveTask->role == DefensiveTask::PrimaryPress
                 || defensiveTask->role == DefensiveTask::SecondaryPress
                 || defensiveTask->role == DefensiveTask::CloseDown);
-        if (!pressJob && !emergencyBoxChallenge && d > TACKLE_RANGE * 0.75)
+        if (!pressJob && !emergencyBoxChallenge && !nickOpportunity && d > TACKLE_RANGE * 0.75)
             return Action{ActionType::Tackle, 0.0};
     }
     if (defensiveTask) {
@@ -109,12 +125,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         sc += 0.24;
     }
 
-    double carrierSpeed = std::hypot(ctrl->vx, ctrl->vy);
-    double forwardX = carrierSpeed > 8.0 ? ctrl->vx / carrierSpeed : std::cos(ctrl->facing);
-    double forwardY = carrierSpeed > 8.0 ? ctrl->vy / carrierSpeed : std::sin(ctrl->facing);
-    double toTacklerX = d > 1.0 ? (player.x - ctrl->x) / d : 0.0;
-    double toTacklerY = d > 1.0 ? (player.y - ctrl->y) / d : 0.0;
-    double exposedDot = forwardX * toTacklerX + forwardY * toTacklerY;
+    if (nickOpportunity) sc += 0.16;
     if (exposedDot > 0.35 && d < TACKLE_RANGE + 22.0) sc += 0.12;
     if (exposedDot < -0.35 && !emergencyBoxChallenge) sc -= 0.18;
 

@@ -113,7 +113,7 @@ public:
 
     // ── Role/Area virtual hooks ──
     virtual double  roleBonusForPassTarget() const { return 0.0; }
-    virtual double  shotMaxDistance() const { return 260.0; }
+    virtual double  shotMaxDistance() const { return 225.0; }
     virtual double  freshCrossMaxDistance() const { return 250.0; }
     virtual double  tackleBaseScore() const { return 0.60; }
     virtual double  tackleRoleAdjust() const { return 0.0; }
