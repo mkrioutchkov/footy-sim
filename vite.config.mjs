@@ -93,11 +93,17 @@ function localDebugLogPlugin() {
   };
 }
 
+const GAME_API = process.env.FOOTY_API ?? 'http://localhost:4000';
+
 export default defineConfig({
   plugins: [localDebugLogPlugin()],
   server: {
     watch: {
       ignored: ['**/native/**'],
+    },
+    proxy: {
+      '/api': { target: GAME_API, changeOrigin: true },
+      '/ws': { target: GAME_API.replace('http', 'ws'), ws: true },
     },
   },
 });

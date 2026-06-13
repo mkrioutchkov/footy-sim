@@ -133,6 +133,26 @@ app.post('/api/fixtures/:id/play', async (req: any, reply) => {
   return { result, standings: standings(team.leagueId) };
 });
 
+// Advance a matchday: play my next unplayed fixture AND every other unplayed
+// fixture in that same round, so the whole league table moves together.
+app.post('/api/advance', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const team = getTeamWithPlayers(teamId)!;
+  const mine = db.prepare(
+    `SELECT id, round FROM fixtures WHERE league_id = ? AND played = 0
+       AND (home_team_id = ? OR away_team_id = ?) ORDER BY round, id LIMIT 1`,
+  ).get(team.leagueId, teamId, teamId) as { id: number; round: number } | undefined;
+  if (!mine) return reply.code(404).send({ error: 'season complete' });
+  const roundFixtures = db.prepare(
+    'SELECT id FROM fixtures WHERE league_id = ? AND round = ? AND played = 0 ORDER BY id',
+  ).all(team.leagueId, mine.round) as { id: number }[];
+  const results = roundFixtures.map(f => playFixture(f.id));
+  const myResult = results.find(r => r.fixtureId === mine.id) ?? null;
+  return { round: mine.round, myFixtureId: mine.id, myResult, results, standings: standings(team.leagueId) };
+});
+
 // Convenience: play my next unplayed fixture.
 app.post('/api/play-next', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;

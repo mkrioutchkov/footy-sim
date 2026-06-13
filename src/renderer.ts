@@ -189,6 +189,15 @@ export class MatchRenderer {
     (window as unknown as { __app: Application }).__app = this.app;
   }
 
+  // Tear down for SPA navigation: remove the body-level overlays and the
+  // Pixi app (which detaches the canvas). Safe to call once.
+  destroy(): void {
+    try { this.tickerEl?.remove(); } catch { /* */ }
+    try { this.bannerEl?.remove(); } catch { /* */ }
+    try { this.panelEl?.remove(); } catch { /* */ }
+    try { this.app.destroy(true, { children: true, texture: true }); } catch { /* */ }
+  }
+
   private calcTransform(): void {
     const sw = this.app.screen.width;
     const sh = this.app.screen.height;
