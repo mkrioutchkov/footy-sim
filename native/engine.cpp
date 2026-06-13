@@ -456,8 +456,24 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         double maxStep = SPEED_SPRINT * (sdt / 1000.0);
         bool pen = setPiece.type == SetPiece::Penalty;
         double fdAtt = fdFor(restartTeam);
+        if (pen) {
+            // The defending keeper belongs ON his line for a penalty — the
+            // agent's GK early-return left him 6m off it.
+            Team defTeam = restartTeam == Team::Home ? Team::Away : Team::Home;
+            if (Player* dgk = findGK(defTeam)) {
+                double gx = ownGoalXFor(defTeam);
+                double lineX = gx + fdFor(defTeam) * 5.0;
+                double mx = lineX - dgk->x, my = PITCH_H / 2.0 - dgk->y;
+                double md = std::hypot(mx, my);
+                double step = std::min(SPEED_SPRINT * 1.5 * (sdt / 1000.0), md);
+                if (md > 0.5) { dgk->x += mx / md * step; dgk->y += my / md * step; }
+            }
+        }
         for (auto& p : state.players) {
-            if (p.team == restartTeam || p.role == Role::GK) continue;
+            // For penalties EVERY outfielder obeys the law — attackers too.
+            bool isTaker = p.id == setPiece.takerId;
+            if (p.role == Role::GK || isTaker) continue;
+            if (!pen && p.team == restartTeam) continue;
             double dx = p.x - setPiece.spotX;
             double dy = p.y - setPiece.spotY;
             double d = std::hypot(dx, dy);
@@ -479,10 +495,12 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 ty = clamp(setPiece.spotY + sideOff * std::max(std::abs(p.y - setPiece.spotY), 90.0), 5.0, PITCH_H - 5.0);
             }
             // Jog out of the restart radius rather than teleporting there.
+            // Urgent pace: at walking speed the agents' own pull toward the
+            // ball won the tug-of-war and FKs released with opponents at 5m.
             double mx = tx - p.x, my = ty - p.y;
             double md = std::hypot(mx, my);
             if (md > 0.1) {
-                double step = std::min(maxStep, md);
+                double step = std::min(maxStep * 1.9, md);
                 p.x += mx / md * step;
                 p.y += my / md * step;
                 p.vx = mx / md * SPEED_SPRINT;
@@ -509,6 +527,15 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     separateTeammates(sdt);
     enforceRestartDistance();
 
+    // Watchdog: a malformed arm (no taker, no controller) must never freeze
+    // the match — disarm and let open play resume.
+    if (setPiece.armed && setPiece.takerId < 0 && state.ball.controllerId < 0
+        && setPiece.type != SetPiece::GoalKick && phase.actionTimer <= 0) {
+        setPiece.armed = false;
+        setPiece.type = SetPiece::None;
+        setPiece.reason.clear();
+        return;
+    }
     if (setPiece.type == SetPiece::GoalKick && phase.actionTimer <= 0 && state.ball.controllerId >= 0) {
         setPiece.armed = false;
         setPiece.reason.clear();
@@ -549,6 +576,20 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         }
     }
 
+    // Gate release on rough compliance: extend in 250ms steps (max ~1.2s)
+    // while opponents are well inside the restraint distance.
+    if (setPiece.takerArrived && phase.actionTimer <= 0 && phase.actionTimer > -1200.0
+        && setPiece.type != SetPiece::ThrowIn) {
+        double minDist = minDistFor(setPiece.type);
+        for (auto& p : state.players) {
+            if (p.team == setPiece.team || p.role == Role::GK) continue;
+            if (dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < minDist * 0.72) {
+                phase.actionTimer -= sdt;   // keep counting the cap down
+                cacheBallState();
+                return;
+            }
+        }
+    }
     if (setPiece.takerArrived && phase.actionTimer <= 0) {
         for (auto& a : agents) {
             if (a->player.id == setPiece.takerId) { a->setPieceHold = false; break; }
@@ -567,6 +608,14 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     } else if (!setPiece.takerArrived && phase.actionTimer <= 0) {
         if (setPiece.takerId >= 0) {
             Player* taker = playerById(setPiece.takerId);
+            // Still honestly walking and nearly there? Give him another stride
+            // instead of teleporting (the 1550ms goal-kick budget was short).
+            if (taker && dist(taker->x, taker->y, state.ball.x, state.ball.y) < 90.0
+                && phase.actionTimer > -2500.0) {
+                phase.actionTimer = 200.0;
+                cacheBallState();
+                return;
+            }
             if (taker) {
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;

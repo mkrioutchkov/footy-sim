@@ -337,18 +337,27 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
     std::sort(fallback.begin(),fallback.end(),[&](const Player* a,const Player* b){
         return (a->x-ownGoalX)*fd>(b->x-ownGoalX)*fd;
     });
+    // If a fallback pass actually RELEASED, we're done — the old code ignored
+    // the result and re-armed a phantom set piece (takerId=-1, no controller)
+    // with the ball already in flight: an unrecoverable frozen-ball state.
     if(!fallback.empty()){
         bool released=passBallTo(holder,*fallback.front(),false,false,nullptr);
-        if(released&&wasGoalKick){
-            goalKickMonitor.active=true;
-            goalKickMonitor.team=holder.team;
-            goalKickMonitor.startedMs=state.clockMs;
-            stats.recordGoalKickAttempt();
+        if(released){
+            if(wasGoalKick){
+                goalKickMonitor.active=true;
+                goalKickMonitor.team=holder.team;
+                goalKickMonitor.startedMs=state.clockMs;
+                stats.recordGoalKickAttempt();
+            }
+            goalKickMonitor.distributeTimer=0;
+            return;
         }
     }
-    if(fallback.empty()||!wasGoalKick){
+    if(fallback.empty()){
+        // Nobody to pass to at all: hold the ball and retry shortly.
         setPiece.armed=true;phase.actionTimer=250;
-    } else if(wasGoalKick){
+    } else {
+        // Every pass vetoed — hoof it long rather than freeze.
         double fd = fdFor(holder.team);
         double speed=PASS_SPEED_BASE+60+350*(PASS_SPEED_DIST+0.07);
         auto& b=state.ball;
@@ -358,10 +367,12 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         b.vx=fd*speed; b.vy=(rng.random()-0.5)*speed*0.25; b.vz=speed*0.85; b.z=0;
         b.intendedReceiverId=-1;
         blockReboundFor(holder.id,600);
-        goalKickMonitor.active=true;
-        goalKickMonitor.team=holder.team;
-        goalKickMonitor.startedMs=state.clockMs;
-        stats.recordGoalKickAttempt();
+        if(wasGoalKick){
+            goalKickMonitor.active=true;
+            goalKickMonitor.team=holder.team;
+            goalKickMonitor.startedMs=state.clockMs;
+            stats.recordGoalKickAttempt();
+        }
     }
     goalKickMonitor.distributeTimer=0;
 }
@@ -458,7 +469,7 @@ void GameEngine::awardThrowIn(Team lastTouchTeam, double y) {
     auto& b = state.ball;
     Team atTeam = (lastTouchTeam == Team::Home) ? Team::Away : Team::Home;
     b.x = clamp(b.x, 10., PITCH_W - 10);
-    b.y = clamp(y, 10., PITCH_H - 10);
+    b.y = clamp(y, 3.0, PITCH_H - 3.0);
     b.vx = b.vy = b.z = b.vz = 0;
     b.controllerId = -1;
     setPiece.type = SetPiece::ThrowIn;
@@ -546,8 +557,9 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
     setPiece.takerArrived=false;
     double x=atHomeEnd?HOME_GOAL_X:AWAY_GOAL_X;
     double cy=y<PITCH_H/2.0?0.0:PITCH_H;
-    double ix=atHomeEnd?18.0:PITCH_W-18.0;
-    double iy=cy==0.0?18.0:PITCH_H-18.0;
+    // Corner taken from the corner ARC, not 1.8m inside the field of play.
+    double ix=atHomeEnd?6.0:PITCH_W-6.0;
+    double iy=cy==0.0?6.0:PITCH_H-6.0;
     b.x=ix; b.y=iy;
     setPiece.spotX=ix; setPiece.spotY=iy;
     Player* taker=nullptr;
