@@ -35,6 +35,27 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     double fd = fdFor(gk.team);
     double bdg = std::abs(state.ball.x - goalX);
     double rushFactor = agentFor(gk)->rushAggression();
+    // A live shot is bearing on goal: set the feet, get on the line, track the
+    // ball's lateral line — do NOT sweep upfield into the shot's path (a
+    // failed reflex roll used to drop the keeper to a 43px/s positional walk
+    // and even send him forward, so stoppable shots rolled past a flat keeper).
+    {
+        double bspd = std::hypot(state.ball.vx, state.ball.vy);
+        bool shotToGoal = lastLooseOrigin == "shot" && bspd > 150.0
+            && (gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0)
+            && bdg < 320.0;
+        if (shotToGoal) {
+            double toLine = std::max(std::abs(state.ball.vx), 1.0);
+            double projY = state.ball.y + state.ball.vy * (bdg / toLine);
+            gk.targetX = goalX + fd * 10.0;
+            gk.targetY = clamp(projY, PITCH_H / 2.0 - GOAL_W / 2.0 - 8.0, PITCH_H / 2.0 + GOAL_W / 2.0 + 8.0);
+            double mvx = gk.targetX - gk.x, mvy = gk.targetY - gk.y, md = std::hypot(mvx, mvy);
+            double sp = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 1.6;
+            if (md > 1.0) { double st = std::min(sp * secs, md); gk.x += mvx / md * st; gk.y += mvy / md * st; }
+            gk.facing = std::atan2(state.ball.y - gk.y, state.ball.x - gk.x);
+            return;
+        }
+    }
     bool ballInOurHalf = gk.team == Team::Home ? state.ball.x < PITCH_W * 0.55 : state.ball.x > PITCH_W * 0.45;
     bool towardGoal = gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0;
     double ballSpeed = std::hypot(state.ball.vx, state.ball.vy);
@@ -157,7 +178,7 @@ void GameEngine::tryGKSave() {
     bool unlikelyCond = saveChance < 0.12 || (timeToLineMs < 130 && trajectoryOffset > reach + 18.0 && speed > 500);
     stats.recordGkAssessment(unlikelyCond, false);
     shot.clearFlags();
-    pendingSave = {true, gk->id, shooterId, crossY, reach};
+    pendingSave = {true, gk->id, shooterId, crossY, reach, true};
 }
 
 // The ball is in flight toward a keeper who has already won the save roll.
@@ -184,6 +205,8 @@ void GameEngine::resolvePendingSave() {
         || (b.x - gk->x) * fdFor(gk->team) < 0.0;
     if (segDist > PLAYER_R + BALL_R + 14.0 && !passedDepth) return;
     pendingSave.active = false;
+    // Beaten dive: he committed but the ball's past him — no save, let it run.
+    if (!pendingSave.willSave) return;
     stats.recordSave();
     emitEvent("save", gk->x, gk->y, gk->id);
     applySaveOutcome(*gk, pendingSave.shooterId, pendingSave.reach);

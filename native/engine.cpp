@@ -100,6 +100,7 @@ void GameEngine::kickoff(Team t){
     shot.header=false;
     shot.penalty=false;
     shot.dribble20m=false;
+    pendingSave.active=false;   // no stale dive carried across a restart
     lastLooseOrigin.clear();
     for(auto&p:state.players){
         double margin=(p.team==t)?30.0:45.0;
