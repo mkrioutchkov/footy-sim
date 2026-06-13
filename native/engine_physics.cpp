@@ -58,13 +58,34 @@ void GameEngine::applyBallPhysics(double s) {
     double friction = std::pow(BALL_FRICTION, s);
     b.vx *= friction;
     b.vy *= friction;
-    if (std::hypot(b.vx, b.vy) < 3) { b.vx = b.vy = 0; }
+    // Rolling friction: a grounded ball below jogging pace stops in a stride
+    // or two, not a multi-second exponential crawl that never quite reaches 0.
+    double gs = std::hypot(b.vx, b.vy);
+    if (b.z < 1.0 && gs > 0.0 && gs < 65.0) {
+        double slowed = std::max(0.0, gs - 95.0 * s);
+        b.vx *= slowed / gs; b.vy *= slowed / gs;
+    }
+    if (std::hypot(b.vx, b.vy) < 4) { b.vx = b.vy = 0; }
     b.x += b.vx * s;
     b.y += b.vy * s;
-    if (b.vz || b.z > 0) {
-        b.vz -= 500 * s;
+    if (b.vz != 0.0 || b.z > 0) {
+        b.vz -= GRAVITY * s;
         b.z += b.vz * s;
-        if (b.z < 0) { b.z = 0; b.vz *= -0.2; }
+        if (b.z <= 0) {
+            b.z = 0;
+            if (b.vz < -75.0) {
+                // One firm bounce for a hard-driven ball: grass sheds most of
+                // the vertical energy and grips horizontally. The high
+                // threshold means a ball returning below ~75px/s just settles,
+                // so there's no multi-hop micro-bounce tail (the audit's
+                // phantom vz that never died), and high balls stop hovercraft-
+                // sliding across the pitch.
+                b.vz *= -0.30;
+                b.vx *= 0.70; b.vy *= 0.70;
+            } else {
+                b.vz = 0;
+            }
+        }
     }
 }
 

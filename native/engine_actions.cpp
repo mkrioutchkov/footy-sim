@@ -447,6 +447,18 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
                 stats.recordInjury();
                 emitEvent("injury", carrier.x, carrier.y, carrier.id);
             }
+            // Advantage: if the fouled team is going forward in open play and
+            // the carrier kept his feet, wave play on — the foul and any card
+            // still count (shown now; banked till the next stoppage in reality).
+            double attFd = fdFor(carrier.team);
+            bool inAttackingHalf = attFd > 0 ? carrier.x > HALF_X : carrier.x < HALF_X;
+            double defGoalX0 = ownGoalXFor(tackler.team);
+            bool nearOppBox = std::abs(carrier.x - defGoalX0) < PENALTY_AREA_W * 1.4;
+            if (inAttackingHalf && !nearOppBox && carrier.injurySeverity < 0.18 && rng.random() < 0.35) {
+                emitEvent("advantage", foulX, foulY, carrier.id, tackler.id);
+                blockReboundFor(tackler.id, 500);   // fouler can't re-lunge instantly
+                return false;                         // carrier plays on
+            }
             b.vx=b.vy=b.z=b.vz=0;
             b.controllerId=-1;
             b.intendedReceiverId=-1;
