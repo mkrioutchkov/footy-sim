@@ -421,13 +421,15 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     bool tacklerSquaredUp=tacklerFacingCarrierDot>std::cos(50.0*PI/180.0);
     bool exposedToFacingTackler=ballExposureDot>0.25&&tacklerSquaredUp;
 
-    // Shielding: carrier has back turned to tackler → harder to tackle
-    // Front exposed: carrier facing tackler → easier to tackle
+    // Shielding vs exposure is the heart of a duel and was barely weighted.
+    // Back turned, ball tucked away from the tackler → very hard to win.
+    // Ball shown front-to-front → it should be there for the taking.
     double shieldingBonus=0.0;
-    if(ballExposureDot<-0.45) shieldingBonus=-0.10;
-    else if(ballExposureDot>0.45) shieldingBonus=0.10;
-    else if(facingDot>0.55) shieldingBonus=0.05;
-    if(exposedToFacingTackler) shieldingBonus+=0.04;
+    if(ballExposureDot<-0.45) shieldingBonus=-0.22;       // well shielded
+    else if(ballExposureDot<-0.10) shieldingBonus=-0.12;  // mostly shielded
+    else if(ballExposureDot>0.45) shieldingBonus=0.24;    // ball exposed at him
+    else if(ballExposureDot>0.10) shieldingBonus=0.12;    // partly exposed
+    if(exposedToFacingTackler) shieldingBonus+=0.10;      // and he's squared up
 
     double chance=clamp(0.18+tackleSkill*0.35-carrierControl*0.15+facingBonus
         -(carrierShielded?0.20:0)-(fromBehind?0.14:0)

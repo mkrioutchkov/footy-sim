@@ -288,14 +288,38 @@ void GameEngine::checkBallPlayerCollision(double){
                 blockReboundFor(intended->id,380);
             } else if(d<=meetDist&&b.z<=zLimit){
                 if(canContestBall(*intended)){
-                    bool underPressure=false;
+                    // Find the tightest opponent and whether he's GOAL-SIDE
+                    // (in front) of the receiver — receiving front-to-front
+                    // with a defender between you and goal is the hard case:
+                    // you can't turn, and controlling cleanly is far from
+                    // guaranteed. A defender behind/beside is far less of a
+                    // threat (you can shield and roll away).
+                    double ifd=fdFor(intended->team);
+                    double nearOppD=1e9; double frontPress=0.0;
                     for(auto& opponent:state.players){
-                        if(opponent.team!=intended->team&&opponent.role!=Role::GK
-                            &&dist(opponent.x,opponent.y,intended->x,intended->y)<38.0){underPressure=true;break;}
+                        if(opponent.team==intended->team||opponent.role==Role::GK)continue;
+                        double od=dist(opponent.x,opponent.y,intended->x,intended->y);
+                        if(od<nearOppD){
+                            nearOppD=od;
+                            double goalSide=(opponent.x-intended->x)*ifd; // >0 in front
+                            // Only TIGHT pressure (<26px) disrupts control —
+                            // a defender 3-4m off lets you take it cleanly.
+                            // The curve is steep so only true front-to-front
+                            // (a stride away, goal-side) really bites.
+                            double prox=clamp((26.0-od)/26.0,0.0,1.0);
+                            frontPress=prox*(goalSide>0.0?1.0:goalSide>-14.0?0.45:0.1);
+                        }
                     }
-                    if(!underPressure){collectBall(*intended);return;}
-                    double trapChance=clamp(0.56+attrFactor(intended->attrs.positioning)*0.30
-                        +attrFactor(intended->attrs.passing)*0.16-clamp((bs-95.0)/360.0,0.0,0.20),0.28,0.90);
+                    if(nearOppD>=42.0){collectBall(*intended);return;}
+                    // Control degrades with pace and, heavily, with front
+                    // pressure. A striker fronted tight by a CB usually CAN'T
+                    // just take it cleanly — he has to shield, lay off, or
+                    // loses it. The base is deliberately modest so tight front
+                    // pressure can pull it well down.
+                    double trapChance=clamp(0.50+attrFactor(intended->attrs.positioning)*0.28
+                        +attrFactor(intended->attrs.passing)*0.12
+                        -clamp((bs-95.0)/360.0,0.0,0.20)
+                        -frontPress*0.85,0.10,0.92);
                     if(rng.random()<trapChance){stats.recordPressuredReception(false);collectBall(*intended);return;}
                     stats.recordPressuredReception(true);
                     b.intendedReceiverId=-1;
