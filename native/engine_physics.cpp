@@ -231,11 +231,20 @@ void GameEngine::checkBallPlayerCollision(double){
             }
         }
         if (keeperContact) {
-            // A keeper gathering a beaten-but-reachable shot IS a save — the
-            // silent scoop leaked ~40% of on-target shots from the ledger.
+            // A keeper gathering a beaten-but-reachable shot IS a save — but
+            // only if the ball was actually goal-bound (else saves > shots-on-
+            // target, which is impossible). Record the on-target shot too so
+            // the ledger stays consistent (saves <= shotsOnTarget).
             if (lastLooseOrigin == "shot" && keeperContact->team != shot.team) {
-                stats.recordSave();
-                emitEvent("save", keeperContact->x, keeperContact->y, keeperContact->id);
+                double goalX = ownGoalXFor(keeperContact->team);
+                double along = std::max(std::abs(b.vx), 1.0);
+                double projY = b.y + b.vy * (std::abs(b.x - goalX) / along);
+                bool goalBound = std::abs(projY - PITCH_H / 2.0) < GOAL_W / 2.0 + 6.0;
+                if (goalBound) {
+                    stats.recordShotOnTarget();
+                    stats.recordSave();
+                    emitEvent("save", keeperContact->x, keeperContact->y, keeperContact->id);
+                }
             }
             collectBall(*keeperContact);
             return;
@@ -295,10 +304,11 @@ void GameEngine::checkBallPlayerCollision(double){
                     // guaranteed. A defender behind/beside is far less of a
                     // threat (you can shield and roll away).
                     double ifd=fdFor(intended->team);
-                    double nearOppD=1e9; double frontPress=0.0;
+                    double nearOppD=1e9; double frontPress=0.0; int tightMarkers=0;
                     for(auto& opponent:state.players){
                         if(opponent.team==intended->team||opponent.role==Role::GK)continue;
                         double od=dist(opponent.x,opponent.y,intended->x,intended->y);
+                        if(od<32.0)tightMarkers++;   // sandwiched count
                         if(od<nearOppD){
                             nearOppD=od;
                             double goalSide=(opponent.x-intended->x)*ifd; // >0 in front
@@ -310,6 +320,9 @@ void GameEngine::checkBallPlayerCollision(double){
                             frontPress=prox*(goalSide>0.0?1.0:goalSide>-14.0?0.45:0.1);
                         }
                     }
+                    // A second tight marker adds pressure regardless of side —
+                    // a sandwiched receiver rarely controls a driven ball.
+                    if(tightMarkers>=2)frontPress=std::max(frontPress,0.55);
                     if(nearOppD>=42.0){collectBall(*intended);return;}
                     // Control degrades with pace and, heavily, with front
                     // pressure. A striker fronted tight by a CB usually CAN'T

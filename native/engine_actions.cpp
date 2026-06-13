@@ -276,7 +276,8 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     double dx=predX-f.x,dy=predY-f.y,adjDist=std::hypot(dx,dy);
     if(adjDist<1)return false;
     double passSkill=attrFactor(f.attrs.passing);
-    double inacc=(1-passSkill)*rawDist*0.06;
+    double skillMiss=std::pow(1.0-passSkill,1.4);
+    double inacc=skillMiss*(rawDist*0.085+(rawDist/200.0)*(rawDist/200.0)*7.0);
     double tdx=dx+(rng.random()-0.5)*inacc;
     double tdy=dy+(rng.random()-0.5)*inacc;
     double tDist=std::hypot(tdx,tdy);

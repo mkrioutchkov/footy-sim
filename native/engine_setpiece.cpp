@@ -142,7 +142,6 @@ void GameEngine::releaseSetPiece(){
         bool credibleShot=shotDist>105.0&&shotDist<300.0&&central&&angleDeg>5.5&&laneBlockers<=3;
         double shotChance=clamp(0.48+(300.0-shotDist)/260.0+angleDeg/82.0-laneBlockers*0.10,0.25,0.85);
         if(credibleShot&&rng.random()<shotChance){
-            emitEvent("shot", holder->x, holder->y, holder->id);
             shootBall(*holder,nullptr);
             clearReleasedSetPiece();
             return;
@@ -569,7 +568,6 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
     setPiece.reason="corner";
     phase.actionTimer=5000;
     setPiece.takerArrived=false;
-    double x=atHomeEnd?HOME_GOAL_X:AWAY_GOAL_X;
     double cy=y<PITCH_H/2.0?0.0:PITCH_H;
     // Corner taken from the corner ARC, not 1.8m inside the field of play.
     double ix=atHomeEnd?6.0:PITCH_W-6.0;
