@@ -125,6 +125,7 @@ std::string StatsCollector::summaryJSON() const {
     j["passCompletionPct"] = std::round(completionPct * 10) / 10;
     j["offsides"] = offsidesTotal;
     j["yellowCards"] = yellowCardsTotal;
+    j["cornersAwarded"] = cornersTotal;
     j["substitutions"] = substitutionsTotal;
     j["injuries"] = injuriesTotal;
     j["offsidePositionMsByRole"] = {

@@ -201,7 +201,10 @@ void GameEngine::checkBallPlayerCollision(double){
     const double collectRadius=COLLECT_DIST;
     const double fastContactRadius=PLAYER_R+BALL_R-3.0;
 
-    if (b.controllerId < 0 && b.z <= AERIAL_HEIGHT) {
+    // A shot the keeper has already won the reflex roll on belongs to the
+    // deferred-save resolver (parry/punch/tip/catch) — don't let the generic
+    // keeper-gather scoop it first and flatten every save into a clean pickup.
+    if (b.controllerId < 0 && b.z <= AERIAL_HEIGHT && !pendingSave.active) {
         Player* keeperContact = nullptr;
         double bestKeeperScore = 1e9;
         for (auto& p : state.players) {
@@ -397,6 +400,15 @@ void GameEngine::checkBallPlayerCollision(double){
             emitEvent("block", contact->x, contact->y, contact->id, shot.shooterId);
             shot.active=false; shot.tracked=false;
             lastLooseOrigin="shot_block";
+            // A block close to the defender's own line that deflects goalward
+            // often loops behind for a corner — another corner source the
+            // engine never produced.
+            double ownLine=ownGoalXFor(contact->team);
+            bool nearLine=std::abs(b.x-ownLine)<150.0;
+            bool deflectingBehind=(ownLine==0.0)?b.vx<0:b.vx>0;
+            if(nearLine&&deflectingBehind&&rng.random()<0.35){
+                awardCorner(shot.team, contact->team==Team::Home, b.y);
+            }
         }
     }
 }

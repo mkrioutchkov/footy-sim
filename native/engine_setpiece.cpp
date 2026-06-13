@@ -559,6 +559,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
 }
 
 void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
+    stats.recordCorner();
     auto& b=state.ball;
     b.vx=b.vy=b.z=b.vz=0;
     b.controllerId=-1;

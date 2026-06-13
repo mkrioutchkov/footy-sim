@@ -221,6 +221,17 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
         recordBallImpulse();
         return;
     }
+    // Tipped behind: a stretched keeper turning a hard shot around the post or
+    // over the bar concedes a corner — the iconic save the engine never made,
+    // so corners were near-extinct. More likely the further he had to reach
+    // and the harder the shot.
+    double tipChance = clamp(0.18 + (contactOffset - reach * 0.3) / reach * 0.5 + (speed - 300.0) / 700.0, 0.0, 0.6);
+    if (!caught && rng.random() < tipChance) {
+        emitEvent("save", gk.x, gk.y, gk.id);
+        Team attackingTeam = gk.team == Team::Home ? Team::Away : Team::Home;
+        awardCorner(attackingTeam, gk.team == Team::Home, b.y);
+        return;
+    }
     // Punch when hands are unavailable, when pressured, or against real heat:
     // a confident punch sends it long and wide. Otherwise it's a parry — the
     // ball continues PAST the keeper on the side he dove, deadened, a live

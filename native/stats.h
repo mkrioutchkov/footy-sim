@@ -22,6 +22,8 @@ public:
     }
     void recordKeeperBackpass()       { keeperBackpasses++; }
     void recordYellowCard(){yellowCardsTotal++;}
+    int cornersTotal=0;
+    void recordCorner(){cornersTotal++;}
     int substitutionsTotal=0;
     int injuriesTotal=0;
     void recordSubstitution(){substitutionsTotal++;}

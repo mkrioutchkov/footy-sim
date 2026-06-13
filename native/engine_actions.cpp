@@ -95,6 +95,15 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         if (receiver.team != pendingPass.team) {
             stats.recordHeaderClearance();
             stats.recordPassIntercepted();   // the cross was cut out — close the pass ledger
+            // A defender heading clear under the cross near his own line often
+            // can only put it behind — a common corner source.
+            double ownLineX = ownGoalXFor(receiver.team);
+            if (std::abs(receiver.x - ownLineX) < 130.0 && rng.random() < 0.30) {
+                pendingPass.active = false;
+                Team att = receiver.team == Team::Home ? Team::Away : Team::Home;
+                awardCorner(att, receiver.team == Team::Home, receiver.y);
+                return true;
+            }
             double clearFd = fdFor(receiver.team);
             b.controllerId = -1;
             b.intendedReceiverId = -1;
