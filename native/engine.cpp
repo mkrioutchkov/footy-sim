@@ -661,6 +661,7 @@ void GameEngine::updateKickoffPhase(double sdt) {
 
 void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     updateSubstitutions();
+    sampleVelocityOrigins();
     auto& b = state.ball;        if (b.controllerId >= 0) contestBlockedUntil[b.controllerId] = 0;
     if (b.controllerId < 0) {
         applyBallPhysics(sec);
@@ -670,7 +671,10 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
         if (checkOutOfPlay()) { cacheBallState(); return; }
         checkBallPlayerCollision(sec);
     }
-    for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; }
+    // Marking conflicts are re-decided every tick, so the arbitration array
+    // must be rebuilt every tick — leaving it stale pinned each opponent to
+    // his first marker for the rest of the match, degrading coordination.
+    for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; bb.markedOpponents.fill(-1); }
     updateTeamAssignments();
     tickAgents(sdt, true);
     if (goalKickMonitor.distributeTimer > 0) {
@@ -702,6 +706,7 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     moveBallCarrier(sdt);
     updateGK(sdt);
     separateTeammates(sdt);
+    finalizeVelocities(sec);   // authoritative velocity from this tick's true displacement
     updateControlledBall(sec);
     updateGoalKickMonitor();
     tryGKSave();

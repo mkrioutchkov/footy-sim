@@ -186,6 +186,18 @@ public:
     [[nodiscard]] bool inFirstTouch(int id) const {
         return id >= 0 && id < 22 && firstTouchUntilMs[id] > state.clockMs;
     }
+    // Authoritative per-tick velocity: positions are sampled before any
+    // movement, and every player's vx/vy is recomputed from true displacement
+    // AFTER all movement phases (separation, carrier, GK). Mid-tick writers
+    // left stationary/separated players reporting full-sprint velocity, which
+    // drove on-screen moonwalk and 180-degree facing snaps.
+    std::array<double, 22> velSampleX = {};
+    std::array<double, 22> velSampleY = {};
+    void sampleVelocityOrigins() { for (auto& p : state.players) { velSampleX[p.id] = p.x; velSampleY[p.id] = p.y; } }
+    void finalizeVelocities(double secs) {
+        if (secs < 1e-4) return;
+        for (auto& p : state.players) { p.vx = (p.x - velSampleX[p.id]) / secs; p.vy = (p.y - velSampleY[p.id]) / secs; }
+    }
     int receiverShieldTargetId = -1, receiverShieldedPlayerId = -1;
     double receiverShieldUntil = 0;
     struct PendingPass {
