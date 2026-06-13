@@ -469,10 +469,17 @@ void GameEngine::collectBall(Player& c) {
     // A keeper gathering a live ball holds it before distributing — without
     // this he could collect a 400px/s shot and punt it upfield in the SAME
     // tick, which read as the ball ricocheting off him like a pinball.
+    double incoming = std::hypot(b.vx, b.vy);
     if (c.role == Role::GK) {
-        double incoming = std::hypot(b.vx, b.vy);
         goalKickMonitor.distributeTimer = std::max(goalKickMonitor.distributeTimer,
             clamp(700.0 + incoming * 1.2, 700.0, 1500.0));
+    } else if (c.id >= 0 && c.id < 22) {
+        // Settle window before a deliberate pass — long for a fierce ball,
+        // ~nil for a gently rolled one, shorter for a composed player. He can
+        // still dribble/shield during it (and shoot a first-timer).
+        double settle = clamp((incoming - 90.0) / 300.0, 0.0, 1.0)
+            * (270.0 - attrFactor(c.attrs.positioning) * 95.0);
+        firstTouchUntilMs[c.id] = state.clockMs + settle;
     }
     shot.clearFlags();
     lastLooseOrigin.clear();

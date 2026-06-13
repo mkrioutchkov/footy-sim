@@ -177,6 +177,14 @@ public:
     } goalKickMonitor;
 
     std::array<double, 22> contestBlockedUntil = {};
+    // First touch: after gaining a moving ball an outfielder must settle it
+    // before he can play a deliberate pass — without this, ~1/3 of passes
+    // were instant one-touch redirects of near-shot-speed balls into measured
+    // passes, which reads as physically impossible. Scales with incoming pace.
+    std::array<double, 22> firstTouchUntilMs = {};
+    [[nodiscard]] bool inFirstTouch(int id) const {
+        return id >= 0 && id < 22 && firstTouchUntilMs[id] > state.clockMs;
+    }
     int receiverShieldTargetId = -1, receiverShieldedPlayerId = -1;
     double receiverShieldUntil = 0;
     struct PendingPass {
