@@ -62,7 +62,12 @@ bool GameEngine::isOffsideTargetPerceived(const Player& passer, const Player& re
     if (fd == 1) { if (receiver.x <= HALF_X || receiver.x <= passer.x + OFFSIDE_TOLERANCE) return false; }
     else { if (receiver.x >= HALF_X || receiver.x >= passer.x - OFFSIDE_TOLERANCE) return false; }
     const double line = offsideLineFor(passer.team);
-    const double margin = 11.0;
+    // The passer judges by eye, not a linesman's flag — he'll thread a ball
+    // to a runner up to ~18px beyond the line believing him onside, so a
+    // mistimed run (6-18px offside) actually gets flagged. An 11px margin left
+    // only a 5px window above the 6px whistle tolerance, so offsides never
+    // happened despite attackers logging ~50s/match in offside positions.
+    const double margin = 18.0;
     return fd == 1 ? receiver.x > line + margin : receiver.x < line - margin;
 }
 
