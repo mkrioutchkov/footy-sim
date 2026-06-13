@@ -388,7 +388,6 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     if(carrier.role==Role::GK)return false;
     if(!canContestBall(tackler))return false;
     if(isCarrierShielded(carrier.id))return false;
-    stats.recordTackleAttempt();
     double tackleSkill=attrFactor(tackler.attrs.tackling);
     double carrierControl=attrFactor(carrier.attrs.positioning)*0.35+attrFactor(carrier.attrs.speed)*0.15;
     double facingBonus=(tackler.team==Team::Home?tackler.vx>0:tackler.vx<0)?0.08:-0.05;
@@ -435,6 +434,19 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     double chance=clamp(0.18+tackleSkill*0.35-carrierControl*0.15+facingBonus
         -(carrierShielded?0.20:0)-(fromBehind?0.14:0)
         +(approachDot>0.3&&approachDot<0.85?0.06:0)+dribbleBonus+shieldingBonus,0.06,0.72);
+    // Contain by default: a defender only COMMITS to a challenge when he has a
+    // real chance of winning it (or it's an emergency, or the carrier has
+    // stopped and exposed the ball). Otherwise he stays on his feet and
+    // jockeys — the agent's containment keeps him goal-side. This converts the
+    // flood of low-percentage lunges-and-misses (~70% of all challenges) into
+    // the contain-first defending real players actually do, without a recorded
+    // attempt or a wild swing.
+    bool boxEmergency = std::abs(carrier.x - ownGoalXFor(tackler.team)) < EMERGENCY_BOX_DIST
+        && std::abs(carrier.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+    bool committed = chance >= 0.30 || boxEmergency
+        || (carrier.dribbleType == 0 && ballExposureDot > 0.0);
+    if (!committed) return false;
+    stats.recordTackleAttempt();
     if(rng.random()>=chance){
         // Per-failure foul odds must be low because duel volume is high —
         double foulChance=fromBehind?TACKLE_FOUL_FROM_BEHIND:TACKLE_FOUL_NORMAL;
@@ -449,8 +461,8 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             // Bookings: reckless (from-behind) fouls risk a card. A second
             // yellow — or a straight red for a wild challenge — sends him off.
             // Tuned for ~3-4 yellows and ~0.25 reds per match (real-world).
-            double cardChance = fromBehind ? 0.055 : 0.013;
-            bool straightRed = fromBehind && rng.random() < 0.0022;
+            double cardChance = fromBehind ? 0.36 : 0.095;
+            bool straightRed = fromBehind && rng.random() < 0.010;
             if (straightRed || rng.random() < cardChance) {
                 if (!straightRed) {
                     yellowCards[tackler.id]++;
