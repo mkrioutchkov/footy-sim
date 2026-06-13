@@ -58,5 +58,26 @@ replay always matches the stored result.
 4. Later: real fake-name player pools, scheduled/cron auto-sim, promotion/
    relegation, transfers, text-based tactics, true live PvP.
 
-## Status
-See git log + the task list. Built incrementally; each phase committed working.
+## How to run (localhost)
+
+Two processes:
+```
+npm run game     # backend API + match-watch WS on http://localhost:4000
+npm run dev      # Vite frontend on http://localhost:5173 (proxies /api + /ws -> 4000)
+```
+Open http://localhost:5173 → register → create a club → Play matchday → Watch.
+(`npm run game` rebuilds the engine first via the `native:build` prebuild step;
+re-run it after any native/ change — tsx does not hot-reload.)
+
+Production-ish single server: `npm run build` (vite build → dist/), then
+`npm run game` serves the built SPA + API on :4000.
+
+The SQLite db lives at `server/data/footy.sqlite` (gitignored). Delete it to wipe
+all accounts/leagues.
+
+## Status — MVP COMPLETE (phases 1-3)
+Phases 1-3 done and verified in-browser: register → create team (generated fake
+players) → 8-team league vs AI + round-robin fixtures → play matchdays (table
+advances) → watch the 2D match with your own players → navigate back. Each phase
+is a separate commit. Phase 4 (shared human leagues/lobbies, scheduled auto-sim,
+promotion/relegation, transfers, text tactics, live PvP) is future work.
