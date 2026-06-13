@@ -129,6 +129,7 @@ public:
         int takerId = -1;
         double spotX = 0, spotY = 0;
         bool takerArrived = false;
+        double walkMs = 0;   // time spent trying to reach the ball — backstop against a never-arriving taker
         std::string reason;
     } setPiece;
 

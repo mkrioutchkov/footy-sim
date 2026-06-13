@@ -558,6 +558,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     }
 
     if (setPiece.takerId >= 0 && !setPiece.takerArrived) {
+        setPiece.walkMs += sdt;
         Player* taker = playerById(setPiece.takerId);
         if (taker) {
             double dx = state.ball.x - taker->x;
@@ -581,6 +582,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             double d = dist(taker->x, taker->y, state.ball.x, state.ball.y);
             if (d < 15.0) {
                 setPiece.takerArrived = true;
+                setPiece.walkMs = 0;
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
                 state.ball.lastToucherId = taker->id;
@@ -623,8 +625,12 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             Player* taker = playerById(setPiece.takerId);
             // Still honestly walking and nearly there? Give him another stride
             // instead of teleporting (the 1550ms goal-kick budget was short).
+            // BUT cap the total wait: resetting actionTimer here used to defeat
+            // its own -2500 gate forever, so a taker shoved out of the 15px
+            // arrival radius by crowding teammates froze the match. The walkMs
+            // backstop force-teleports after 3.5s no matter what.
             if (taker && dist(taker->x, taker->y, state.ball.x, state.ball.y) < 90.0
-                && phase.actionTimer > -2500.0) {
+                && setPiece.walkMs < 3500.0) {
                 phase.actionTimer = 200.0;
                 cacheBallState();
                 return;
@@ -638,6 +644,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 taker->targetX = state.ball.x;
                 taker->targetY = state.ball.y;
                 setPiece.takerArrived = true;
+                setPiece.walkMs = 0;
                 phase.actionTimer = actionTimerFor(setPiece.type);
             }
         }
