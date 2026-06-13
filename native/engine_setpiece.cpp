@@ -53,6 +53,19 @@ bool GameEngine::isOffsideTarget(const Player& passer, const Player& receiver) c
     return checkOffside(receiver, passer);
 }
 
+// Passers don't carry a linesman's flag: they reject only CLEARLY offside
+// targets (a ~6px margin beyond the line). Marginal runs get played — and
+// the whistle, judged exactly, sometimes catches them. Without this the AI
+// filter was rule-perfect and zero offsides occurred in six hours of play.
+bool GameEngine::isOffsideTargetPerceived(const Player& passer, const Player& receiver) const {
+    const double fd = fdFor(passer.team);
+    if (fd == 1) { if (receiver.x <= HALF_X || receiver.x <= passer.x + OFFSIDE_TOLERANCE) return false; }
+    else { if (receiver.x >= HALF_X || receiver.x >= passer.x - OFFSIDE_TOLERANCE) return false; }
+    const double line = offsideLineFor(passer.team);
+    const double margin = 11.0;
+    return fd == 1 ? receiver.x > line + margin : receiver.x < line - margin;
+}
+
 // ══════════════════════════════════════════════════════════════
 // Set pieces — kickoff tap, release, throw-in, goal kick
 // ══════════════════════════════════════════════════════════════

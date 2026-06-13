@@ -594,7 +594,7 @@ export class MatchRenderer {
     const restartHud = state.setPieceState
       ? `    ${this.restartLabel(state.setPieceState.reason ?? state.setPieceState.type)} ${(state.setPieceState.team ?? '').toUpperCase()}`
       : '';
-    const addedTag = state.addedTime ? ' +ADD' : '';
+    const addedTag = state.addedTime ? ` +${state.addedTimeAnnouncedMin ?? ''}` : '';
     this.hudText.text = `HOME ${state.homeScore ?? 0}-${state.awayScore ?? 0} AWAY    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}${restartHud}`;
     this.hudText.visible = true;
     this.hudBg.clear();
@@ -664,7 +664,7 @@ export class MatchRenderer {
       this.seenEventKeys.clear();
     }
     this.lastClockMs = state.clockMs;
-    const notable = new Set(['goal', 'shot', 'save', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch']);
+    const notable = new Set(['goal', 'shot', 'save', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow']);
     for (const ev of (state.events ?? [])) {
       if (!notable.has(ev.type)) continue;
       const evClock = state.clockMs - (ev.age ?? 0);
@@ -704,6 +704,7 @@ export class MatchRenderer {
       case 'tackle': return 'TACKLE';
       case 'save': return 'SAVE';
       case 'penalty': return 'PENALTY!';
+      case 'yellow': return 'YELLOW';
       case 'goal': return 'GOAL';
       case 'shot': return 'SHOT';
       case 'header': return 'HEADER';
@@ -718,6 +719,7 @@ export class MatchRenderer {
       case 'goal': return 0xffdd44;
       case 'save': return 0x44ddff;
       case 'foul': return 0xff4444;
+      case 'yellow': return 0xffd900;
       case 'offside': return 0xfff1a8;
       case 'intercept': return 0xffb347;
       case 'tackle_won': return 0x66ff99;

@@ -22,6 +22,7 @@ void StatsCollector::recordGoal(Team team, const std::string& source, double dis
     if(source=="direct_cross") directCrossGoals++;
     else if(source=="direct_delivery") directDeliveryGoals++;
     else if(source=="shot") /* tracked shot goal */;
+    else if(source=="penalty") /* counted via recordPenaltyGoal */;
     else if(source=="tackle_deflection") tackleDeflectionGoals++;
     else if(source=="goalkeeper_parry") goalkeeperParryGoals++;
     else if(source=="shot_deflection") shotDeflectionGoals++;
@@ -123,6 +124,7 @@ std::string StatsCollector::summaryJSON() const {
     j["keeperBackpasses"] = keeperBackpasses;
     j["passCompletionPct"] = std::round(completionPct * 10) / 10;
     j["offsides"] = offsidesTotal;
+    j["yellowCards"] = yellowCardsTotal;
     j["offsidePositionMsByRole"] = {
         {"GK", std::round(offsidePositionMsGK)}, {"CB", std::round(offsidePositionMsCB)},
         {"FB", std::round(offsidePositionMsFB)}, {"CM", std::round(offsidePositionMsCM)},

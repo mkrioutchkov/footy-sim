@@ -80,10 +80,14 @@ public:
         double halfTimePause = 0;
         bool addedTimeActive = false;
         Team nextKickoffTeam = Team::Home;
+        Team matchKickoffTeam = Team::Home;   // who kicked the match off (law: other side starts H2)
         double lastKickoffMs = 0;
         bool kickoffPhase = false;
         double actionTimer = 0;
+        double stoppageMs = 0;            // accumulated dead time this half
+        double announcedAddedMs = 0;      // the board: +N minutes
     } phase;
+    std::array<int, 22> yellowCards = {};
 
     struct SetPieceState {
         bool armed = false;
@@ -190,11 +194,29 @@ public:
         double midfieldFreedom=50, defensiveLineHeight=50;
     };
     Config homeConfig, awayConfig;
-    [[nodiscard]] Config configFor(Team team) const { return team==Team::Home ? homeConfig : awayConfig; }
+    [[nodiscard]] Config configFor(Team team) const {
+        Config c = team==Team::Home ? homeConfig : awayConfig;
+        // Score-state tactics: a side chasing the game late pushes — higher
+        // line, more aggression, more directness; a side protecting a lead
+        // drops off. Pure function of score+clock, so determinism holds.
+        int diff = team==Team::Home ? state.homeScore - state.awayScore : state.awayScore - state.homeScore;
+        double minLeft = (MATCH_DURATION - state.clockMs) / 60000.0;
+        if (diff < 0 && minLeft < 20.0) {
+            double urgency = clamp((20.0 - minLeft) / 20.0, 0.0, 1.0) * std::min(-diff, 2);
+            c.aggression += 14.0 * urgency;
+            c.defensiveLineHeight += 12.0 * urgency;
+            c.passingDirectness += 13.0 * urgency;
+        } else if (diff > 0 && minLeft < 15.0) {
+            c.aggression -= 8.0;
+            c.defensiveLineHeight -= 12.0;
+        }
+        return c;
+    }
     [[nodiscard]] double offsideLineFor(Team t) const;
     [[nodiscard]] bool checkOffside(const Player& receiver, const Player& passer) const;
     void awardOffsideFreeKick(Team defTeam, const Player& offsidePlayer);
     [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const;
+    [[nodiscard]] bool isOffsideTargetPerceived(const Player& passer, const Player& receiver) const;
     struct AgentTeamAssignment { DefensiveTask role = DefensiveTask::None; int opponentId=-1; double targetX=0, targetY=0; };
     std::array<AgentTeamAssignment, 22> assignmentByPlayer = {};
     [[nodiscard]] AgentTeamAssignment* assignmentFor(int playerId) {

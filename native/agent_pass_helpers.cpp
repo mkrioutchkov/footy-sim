@@ -19,7 +19,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (t.role == Role::GK && !keeperOutlet) return std::nullopt;
     double d = dist(p.x, p.y, t.x, t.y);
     if (d < PASS_MIN_DISTANCE || d > (keeperOutlet ? PASS_MAX_DISTANCE_KEEPER : PASS_MAX_DISTANCE)) return std::nullopt;
-    if (!keeperOutlet && engine.isOffsideTarget(p, t)) return std::nullopt;
+    if (!keeperOutlet && engine.isOffsideTargetPerceived(p, t)) return std::nullopt;
 
     int bl = 0;
     double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;

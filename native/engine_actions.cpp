@@ -94,6 +94,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         double shotDistance = std::hypot(receiver.x - gx, receiver.y - PITCH_H / 2.0);
         if (receiver.team != pendingPass.team) {
             stats.recordHeaderClearance();
+            stats.recordPassIntercepted();   // the cross was cut out — close the pass ledger
             double clearFd = fdFor(receiver.team);
             b.controllerId = -1;
             b.intendedReceiverId = -1;
@@ -416,13 +417,19 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         +(approachDot>0.3&&approachDot<0.85?0.06:0)+dribbleBonus+shieldingBonus,0.06,0.72);
     if(rng.random()>=chance){
         // Per-failure foul odds must be low because duel volume is high —
-        // 0.34/0.10 produced ~190 fouls per match (real: ~22).
-        double foulChance=fromBehind?0.06:0.015;
+        double foulChance=fromBehind?TACKLE_FOUL_FROM_BEHIND:TACKLE_FOUL_NORMAL;
         if(rng.random()<foulChance){
             stats.recordTackleFoul();
             double foulX = carrier.x;
             double foulY = carrier.y;
             emitEvent("foul", foulX, foulY, tackler.id, carrier.id);
+            // Bookings: reckless (from-behind) fouls risk a card.
+            double cardChance = fromBehind ? 0.13 : 0.032;
+            if (rng.random() < cardChance) {
+                yellowCards[tackler.id]++;
+                stats.recordYellowCard();
+                emitEvent("yellow", foulX, foulY, tackler.id, carrier.id);
+            }
             b.vx=b.vy=b.z=b.vz=0;
             b.controllerId=-1;
             b.intendedReceiverId=-1;

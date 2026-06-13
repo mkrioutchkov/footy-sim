@@ -215,8 +215,8 @@ inline constexpr double GK_DISTRIBUTE_MS        = 950.0;
 inline constexpr double TACKLE_BASE             = 0.18;
 inline constexpr double TACKLE_SKILL_WEIGHT     = 0.35;
 inline constexpr double TACKLE_CARRIER_CONTROL  = 0.15;
-inline constexpr double TACKLE_FOUL_FROM_BEHIND = 0.34;
-inline constexpr double TACKLE_FOUL_NORMAL      = 0.10;
+inline constexpr double TACKLE_FOUL_FROM_BEHIND = 0.06;   // calibrated 2026-06-11 (0.34 gave ~190 fouls/match)
+inline constexpr double TACKLE_FOUL_NORMAL      = 0.015;
 inline constexpr double TACKLE_CONTROL_BASE     = 0.28;
 inline constexpr double TACKLE_CONTROL_MAX      = 0.72;
 

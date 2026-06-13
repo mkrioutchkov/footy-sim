@@ -83,6 +83,7 @@ void GameEngine::startMatch() {
     state.matchState = "running";
     state.clockMs = 0;
     phase.addedTimeActive = false;
+    phase.matchKickoffTeam = Team::Home;
     kickoff(Team::Home);
 }
 
@@ -148,19 +149,29 @@ void GameEngine::cacheBallState() {
 
 void GameEngine::fixedUpdate(double sdt) {
     state.clockMs += sdt;
+    // Stoppage time accrues while the ball is dead — set pieces, kickoffs,
+    // the halftime pause. The board announces a real +N at 45:00/90:00.
+    if (setPiece.armed || phase.kickoffPhase || phase.halfTimePause > 0) phase.stoppageMs += sdt;
 
     // ── Added-time / end-of-phase.half whistle ──
     double halfEndMs = (phase.half == 1) ? HALF_DURATION : MATCH_DURATION;
     if (state.clockMs >= halfEndMs) {
+        if (!phase.addedTimeActive) {
+            phase.announcedAddedMs = clamp(std::round(phase.stoppageMs * 0.35 / 60000.0), 1.0, 5.0) * 60000.0;
+        }
         phase.addedTimeActive = true;
         double overtimeMs = state.clockMs - halfEndMs;
         double bx = state.ball.x;
         bool inFinalThird = (bx < THIRD_1 || bx > THIRD_2);
-        if (overtimeMs >= ADDED_TIME_WHISTLE_MS && !inFinalThird) {
+        if (overtimeMs >= phase.announcedAddedMs && !inFinalThird) {
             phase.addedTimeActive = false;
+            phase.stoppageMs = 0;
+            phase.announcedAddedMs = 0;
             if (phase.half == 1) {
                 phase.half = 2;
                 phase.halfTimePause = 2000;
+                // Law: the team that did NOT kick off the match starts H2.
+                phase.nextKickoffTeam = phase.matchKickoffTeam == Team::Home ? Team::Away : Team::Home;
             } else {
                 state.matchState = "finished";
                 stats.recordScore(state.homeScore, state.awayScore);
@@ -788,6 +799,7 @@ std::string GameEngine::getJSON() const {
     j["matchState"] = state.matchState;
     j["half"] = phase.half;
     j["addedTime"] = phase.addedTimeActive;
+    j["addedTimeAnnouncedMin"] = static_cast<int>(phase.announcedAddedMs / 60000.0);
     j["version"] = nativeBuildVersion();
     j["speed"] = state.speed;
     j["homeScore"] = state.homeScore;

@@ -22,6 +22,7 @@ public:
         if(forwardProgress < -200.0) longBackwardPasses++;
     }
     void recordKeeperBackpass()       { keeperBackpasses++; }
+    void recordYellowCard(){yellowCardsTotal++;}
     void recordOffside()              { offsidesTotal++; }
     void recordOffsidePosition(Role role, double ms);
     void recordPassSelection(double dist, double expectedCompletion, int blockers, double pressure, bool risky, int saferId) {
@@ -169,6 +170,7 @@ private:
     int forwardPasses=0, backwardPasses=0, sidewaysPasses=0;
     int longBackwardPasses=0, keeperBackpasses=0;
     int offsidesTotal=0;
+    int yellowCardsTotal=0;
     double offsidePositionMsGK=0, offsidePositionMsCB=0, offsidePositionMsFB=0;
     double offsidePositionMsCM=0, offsidePositionMsWM=0, offsidePositionMsCF=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;
