@@ -9,6 +9,7 @@
     "preserver": "npm run native:build",
     "server": "tsx src/cpp-server.ts",
     "cpp-server": "tsx src/cpp-server.ts",
+    "game": "tsx server/index.ts",
     "prebatch": "npm run native:build",
     "batch": "tsx src/native-batch.ts",
     "prebenchmark": "npm run native:build",
@@ -26,6 +27,9 @@
     "vite": "^8.0.12"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/static": "^9.1.3",
+    "fastify": "^5.8.5",
     "pixi.js": "^8.18.1",
     "ws": "^8.21.0"
   }
