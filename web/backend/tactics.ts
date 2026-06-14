@@ -99,6 +99,7 @@ TARGETING:
 CONDITIONS ("when", optional — omit fields not stated):
 - Time: "first half"=>toMin 45; "second half"=>fromMin 45; "last 20 min"=>fromMin 70; "after the 60th"/"from 60"=>fromMin 60; "first 15 min"=>toMin 15.
 - Score: scoreState + scoreBy (only when the order ties to the scoreline).
+- SEQUENCED orders ("press high for the first 20 then drop off", "go for it early then see it out"): emit TWO directives with complementary time windows — the first with toMin N, the second with fromMin N (e.g. high_press toMin 20, then drop_off fromMin 20).
 
 IGNORE the impossible/contradictory/unsupported (e.g. "teleport", "play like Barcelona", "sub him off" — substitutions are not directives). Prefer the most specific kind; keep intensity 1 unless the order implies more/less.
 
@@ -268,29 +269,39 @@ export async function compileTactics(text: string, spec: MatchSpec, myTeam: Side
   // fallback for no-key / failure / timeout, so a network blip degrades the
   // feature instead of killing it. Compiled directives are cached and frozen on
   // the match timeline, so replay stays deterministic regardless of compiler.
-  if (KEY) try {
-    const res = await fetch(`${BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, temperature: 0, max_tokens: 512, messages: [
-        { role: 'system', content: SYSTEM(ctx, myTeam) }, { role: 'user', content: text },
-      ] }),
-      signal: AbortSignal.timeout(12000),
-    });
-    const j = await res.json() as { choices?: { message?: { content?: string } }[]; error?: unknown };
-    if (res.ok) {
-      const content = j.choices?.[0]?.message?.content ?? '[]';
-      const directives = validate(extractArray(content), myTeam);
-      // Model returned nothing usable: try the offline parser before giving up.
-      if (directives.length === 0) {
-        const rp = validate(rulesParse(text, spec).directives as unknown[], myTeam);
-        if (rp.length) { cache.set(cacheKey, rp); return { directives: rp, raw: 'llm-empty->rules', cached: false }; }
+  if (KEY) for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: MODEL, temperature: 0, max_tokens: 512, messages: [
+          { role: 'system', content: SYSTEM(ctx, myTeam) }, { role: 'user', content: text },
+        ] }),
+        signal: AbortSignal.timeout(12000),
+      });
+      // Rate-limited (429) or transient 5xx: wait the suggested time and retry
+      // once before degrading to the offline parser — keeps a quick burst of
+      // mid-match shouts on the (good) LLM path instead of the limited regex.
+      if ((res.status === 429 || res.status >= 500) && attempt === 0) {
+        const ra = Number(res.headers.get('retry-after'));
+        await new Promise(r => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra : 1.2, 4) * 1000));
+        continue;
       }
-      cache.set(cacheKey, directives);
-      return { directives, raw: content, cached: false };
-    }
-    // Non-2xx (rate limit, bad key, server error): fall through to the parser.
-  } catch { /* timeout / network error — fall through to the offline parser */ }
+      const j = await res.json() as { choices?: { message?: { content?: string } }[]; error?: unknown };
+      if (res.ok) {
+        const content = j.choices?.[0]?.message?.content ?? '[]';
+        const directives = validate(extractArray(content), myTeam);
+        // Model returned nothing usable: try the offline parser before giving up.
+        if (directives.length === 0) {
+          const rp = validate(rulesParse(text, spec).directives as unknown[], myTeam);
+          if (rp.length) { cache.set(cacheKey, rp); return { directives: rp, raw: 'llm-empty->rules', cached: false }; }
+        }
+        cache.set(cacheKey, directives);
+        return { directives, raw: content, cached: false };
+      }
+      break;   // non-retryable non-2xx — fall through to the parser
+    } catch { break; /* timeout / network error — fall through to the offline parser */ }
+  }
 
   // Fallback: offline rules parser (no key, or the LLM call failed/timed out).
   const fb = validate(rulesParse(text, spec).directives as unknown[], myTeam);
