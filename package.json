@@ -9,7 +9,7 @@
     "preserver": "npm run native:build",
     "server": "tsx tools/cpp-server.ts",
     "cpp-server": "tsx tools/cpp-server.ts",
-    "game": "tsx web/backend/index.ts",
+    "game": "tsx --env-file-if-exists=web/backend/.env web/backend/index.ts",
     "prebatch": "npm run native:build",
     "batch": "tsx tools/native-batch.ts",
     "prebenchmark": "npm run native:build",

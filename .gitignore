@@ -7,6 +7,10 @@ build/
 *.jsonl.gz
 __pycache__/
 .gh_pat
+# secrets — never commit API keys
+.env
+**/.env
+*.env.local
 vite-dev.err.log
 vite-dev.log
 
