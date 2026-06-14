@@ -459,7 +459,8 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     double commitBar = clamp(0.30 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13, 0.16, 0.44);
     bool committed = chance >= commitBar || boxEmergency
         || (carrier.dribbleType == 0 && ballExposureDot > 0.0)
-        || (ballPushedAhead && ballExposureDot > 0.15);  // nick the loose touch off an open carry
+        || (ballPushedAhead && ballExposureDot > 0.15)   // nick the loose touch off an open carry
+        || (ballExposureDot > 0.40);  // ball shown front-to-front at me — go, whatever the carry type
     if (!committed) return false;
     // Even a committed challenge inside the box is careful — half the foul risk
     // of an open-field lunge (a clumsy one is still a penalty, just far rarer).

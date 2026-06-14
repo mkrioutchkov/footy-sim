@@ -21,13 +21,21 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     double toTacklerY = d > 1.0 ? (player.y - ctrl->y) / d : 0.0;
     double exposedDot = forwardX * toTacklerX + forwardY * toTacklerY; // >0 = I'm in front of his run
 
-    // A defender who is touch-tight, in the carrier's running lane, and facing
-    // an open carry (ball knocked ahead — type 2/3, not a shielded type-1 or a
-    // dead-stop type-0) steps in and nicks it, press assignment or not. Without
-    // this an elite dribbler glides past anyone whose "job" isn't to press,
-    // because the contain gate below hands the whole zone back to him.
-    bool nickOpportunity = d < TACKLE_RANGE && exposedDot > 0.10
-        && (ctrl->dribbleType == 2 || ctrl->dribbleType == 3);
+    // Is the BALL shown front-to-front at me? (dir carrier->ball vs carrier->me)
+    // This is the real "tackleable" signal — not the dribbleType label. A
+    // close-control dribbler (type 1) who turns the ball into a touch-tight
+    // defender is just as nickable as an open carry; the old type-2/3-only gate
+    // let a striker shield-and-stroll past a CB at 18px for seconds on end.
+    const auto& bball = engine.state.ball;
+    double bcx = bball.x - ctrl->x, bcy = bball.y - ctrl->y, bcl = std::hypot(bcx, bcy);
+    double ballShownDot = (bcl > 0.5 && d > 1.0) ? (bcx * toTacklerX + bcy * toTacklerY) / bcl : 0.0;
+
+    // A defender who is touch-tight steps in and nicks it — press assignment or
+    // not — when either he's in the running lane of an open carry, or the ball
+    // is plainly exposed toward him (any carry type that isn't a back-to-goal shield).
+    bool nickOpportunity = d < TACKLE_RANGE && (
+            (exposedDot > 0.10 && (ctrl->dribbleType == 2 || ctrl->dribbleType == 3))
+         || ballShownDot > 0.45);
 
     bool isDef = (player.role == Role::CB || player.role == Role::FB);
     if (isDef) {
