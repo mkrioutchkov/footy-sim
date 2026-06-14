@@ -20,6 +20,17 @@ The textbox at kickoff is the entry at `t=0`; editing it at 46' / 88' appends
 highlights, "what-if" branching, and shareable matches (a seed + a script of
 shouts) for free.
 
+## The two inputs
+
+The manager has **two textareas**, not one:
+
+- **The Plan** (persistent, editable any time) — the plain-English tactical plan
+  *and* the ASCII lineup/formation, together. Every edit is a timestamped delta on
+  the match timeline. This is the standing instruction set.
+- **The Shouts** (consumed) — one-shot, in-the-moment orders, primarily
+  **substitutions** ("take off Nesta, bring on Terry") but also momentary nudges.
+  Submitting a shout applies it (at the next dead ball for subs) and clears the box.
+
 ## How text becomes behaviour
 
 1. **Compile** (once, per shout): `text -> structured DSL`. A deterministic

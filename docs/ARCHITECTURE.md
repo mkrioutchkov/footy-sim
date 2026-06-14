@@ -6,10 +6,10 @@ roadmap phase that builds it.
 
 ```
                           +---------------------------+
-                          |   MANAGER (web browser)   |
-                          |  types plain-English plan |
-                          |  + shouts + ASCII lineup  |
-                          +-----+---------------+-----+
+                          |    MANAGER (web browser)    |
+                          |  Plan box: plan + ASCII XI  |
+                          |  Shouts box: subs (consumed)|
+                          +-----+----------------+------+
                        text/subs|               ^ 2D match + "receipt"
                                 v               |
 +------------------------- web/frontend (vanilla TS SPA) -----------------------+
