@@ -261,22 +261,30 @@ void GameEngine::checkBallPlayerCollision(double){
         Player* intended=playerById(b.intendedReceiverId);
         if(intended){
             double d=dist(intended->x,intended->y,b.x,b.y);
-            double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
-            // A striker attacking a whipped ball covers the last meter with a
-            // lunge or leap — flat-fast deliveries get a wider meet radius,
-            // but timing the jump is a skill roll: plenty of whips fizz
-            // through untouched even with the runner right there.
-            double meetDist = crossArrival ? INTENDED_COLLECT_DIST*1.6 : INTENDED_COLLECT_DIST;
-            // Aerial duel: a marker tight on the runner attacks the same ball.
-            // Without this a defender on the runner's shoulder just watched
-            // the header — only bodies on the flight line could intervene.
-            if(crossArrival&&d<=meetDist&&b.z<=zLimit&&canContestBall(*intended)){
+            // Z-AWARE SLANT REACH (not a horizontal cylinder). A header reaches
+            // up to HEADER_REACH_Z high; the true ball->contact range is the
+            // slant hypot of the horizontal gap and the height above that reach.
+            // The old flat (d<=meetDist && z<=64) let a runner "meet/head" a
+            // cross from ~3-4m and even at chest height — the ghost deflection.
+            double reachZ = crossArrival ? HEADER_REACH_Z : 0.0;
+            double reach  = crossArrival ? MEET_REACH_HEAD : MEET_REACH_GROUND;
+            double zGate  = crossArrival ? HEADER_MAX_HEIGHT : GROUND_MEET_MAX_Z;
+            double dz     = std::max(0.0, b.z - reachZ);
+            double meetD3 = std::sqrt(d*d + dz*dz);
+            // Aerial duel: a marker tight on the runner attacks the same ball —
+            // but only if HE is genuinely within header reach of the BALL, not
+            // just near the runner (the old od<48 picked a man up to ~7m off
+            // the ball, who then "headed it clear" in mid-air).
+            if(crossArrival&&meetD3<=reach&&b.z<=zGate&&canContestBall(*intended)){
                 Player* dueler=nullptr;
                 double duelerDist=1e9;
                 for(auto& opp:state.players){
                     if(opp.team==intended->team||opp.role==Role::GK||!canContestBall(opp))continue;
                     double od=dist(opp.x,opp.y,intended->x,intended->y);
-                    if(od<48.0&&od<duelerDist){dueler=&opp;duelerDist=od;}
+                    double obd=dist(opp.x,opp.y,b.x,b.y);
+                    double obz=std::max(0.0,b.z-HEADER_REACH_Z);
+                    double ob3=std::sqrt(obd*obd+obz*obz);
+                    if(od<48.0&&ob3<=MEET_REACH_HEAD&&od<duelerDist){dueler=&opp;duelerDist=od;}
                 }
                 if(dueler){
                     double duelChance=clamp(0.52
@@ -292,11 +300,11 @@ void GameEngine::checkBallPlayerCollision(double){
                     blockReboundFor(dueler->id,420);
                 }
             }
-            if(d<=meetDist&&b.z<=zLimit
+            if(meetD3<=reach&&b.z<=zGate
                &&crossArrival&&bs>300.0&&canContestBall(*intended)
                &&rng.random() > CROSS_MEET_BASE + attrFactor(intended->attrs.positioning)*CROSS_MEET_SKILL){
                 blockReboundFor(intended->id,380);
-            } else if(d<=meetDist&&b.z<=zLimit){
+            } else if(meetD3<=reach&&b.z<=zGate){
                 if(canContestBall(*intended)){
                     // Find the tightest opponent and whether he's GOAL-SIDE
                     // (in front) of the receiver — receiving front-to-front

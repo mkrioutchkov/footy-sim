@@ -226,6 +226,14 @@ inline constexpr double HEADER_MIN_HEIGHT       = 16.0;
 inline constexpr double HEADER_MAX_HEIGHT       = 64.0;
 inline constexpr double HEADER_MIN_DELIVERY_DIST = 115.0;
 inline constexpr double HEADER_MIN_SPEED        = 75.0;
+// Aerial meet as a z-aware reach SPHERE (not a horizontal cylinder). A header
+// reaches up to ~2.2m of contact height and ~2.0m horizontally; a low control
+// reaches the floor at ~1.8m. The old flat cylinder let a runner "head" a
+// cross from ~3-4m / chest height — the ghost mid-air deflection.
+inline constexpr double HEADER_REACH_Z          = 22.0;  // leap contact height (~2.2m)
+inline constexpr double MEET_REACH_HEAD         = 20.0;  // horizontal head-meet reach (~2.0m)
+inline constexpr double MEET_REACH_GROUND       = 18.0;  // horizontal low/ground control reach (~1.8m)
+inline constexpr double GROUND_MEET_MAX_Z       = 12.0;  // a ground control needs the ball at/below shin-knee
 inline constexpr double BOUNCE_DAMP_SAME_TEAM   = 0.18;
 inline constexpr double BOUNCE_DAMP_OPPONENT    = 0.25;
 inline constexpr double BOUNCE_SPIN_FACTOR      = 0.02;
