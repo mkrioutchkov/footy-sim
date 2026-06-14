@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { WebSocket } from 'ws';
 import { db } from './db.ts';
 import { getTeamWithPlayers } from './game.ts';
+import { compileTactics } from './tactics.ts';
 
 const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
 const SPEC_DIR = path.resolve(process.cwd(), 'web', 'backend', 'data', 'specs');
@@ -174,17 +175,33 @@ export class MatchStream {
       } else if (cmd.type === 'speed' && typeof cmd.value === 'number') {
         this.speed = Math.max(0.25, Math.min(60, cmd.value));
         if (this.latest) this.send(this.latest);
-      } else if (cmd.type === 'tactics' && Array.isArray((cmd as { directives?: unknown }).directives)) {
-        // Edit the plan mid-match: record it on the timeline at the watched clock,
-        // re-sim, and resume from there (frames before it are unchanged).
-        const t = this.latest?.clockMs ?? 0;
-        this.timeline.push({ atMs: t, directives: (cmd as { directives: unknown }).directives });
-        this.writeSessionSpec();
-        this.fromMs = t;
-        this.paused = false;
-        this.start();
+      } else if (cmd.type === 'tactics') {
+        // Edit the plan mid-match — text (compiled to directives) or pre-compiled
+        // directives. Handled async (the compile may call the LLM).
+        void this.applyTacticsEdit(cmd as { text?: string; directives?: unknown });
       }
     } catch { /* ignore */ }
+  }
+
+  // Mid-match plan edit: compile the manager's text to directives (or use ones
+  // already compiled by the client), send back a receipt of what was understood,
+  // record it on the timeline at the watched clock, re-sim, and resume there.
+  private async applyTacticsEdit(cmd: { text?: string; directives?: unknown }): Promise<void> {
+    let directives = Array.isArray(cmd.directives) ? cmd.directives : null;
+    if (!directives && typeof cmd.text === 'string' && cmd.text.trim()) {
+      const r = await compileTactics(cmd.text, this.baseSpec);
+      directives = r.directives;
+      if (this.ws.readyState === 1) {
+        this.ws.send(JSON.stringify({ tacticsReceipt: { text: cmd.text, directives, error: r.error ?? null } }));
+      }
+    }
+    if (!this.alive || !Array.isArray(directives)) return;
+    const t = this.latest?.clockMs ?? 0;
+    this.timeline.push({ atMs: t, directives });
+    this.writeSessionSpec();
+    this.fromMs = t;
+    this.paused = false;
+    this.start();
   }
 
   private stopProc(): void {
