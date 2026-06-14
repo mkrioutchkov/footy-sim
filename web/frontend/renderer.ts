@@ -200,10 +200,14 @@ export class MatchRenderer {
 
   private calcTransform(): void {
     const sw = this.app.screen.width;
-    const sh = this.app.screen.height;
+    // Reserve a strip at the bottom for the live tactics panel so the whole
+    // pitch stays visible above it (the canvas is full-window).
+    const reserveTop = 8;
+    const reserveBottom = 180;
+    const sh = this.app.screen.height - reserveTop - reserveBottom;
     this.scale = Math.min(sw / (PITCH_W + GOAL_DEPTH * 2), sh / (PITCH_H + 40)) * 0.92;
     this.offsetX = (sw - PITCH_W * this.scale) / 2;
-    this.offsetY = (sh - PITCH_H * this.scale) / 2 + 10;
+    this.offsetY = reserveTop + (sh - PITCH_H * this.scale) / 2 + 10;
     this.pitchContainer.scale.set(this.scale);
     this.pitchContainer.position.set(this.offsetX, this.offsetY);
     this.hudText.position.set(sw / 2, 6);

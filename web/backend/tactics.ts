@@ -143,11 +143,11 @@ function playersIn(clause: string, idx: NameRef[]): number[] {
   return hits.sort((a, b) => a.pos - b.pos).map(h => h.id);
 }
 const FAMILIES: [string, RegExp][] = [
-  ['man_mark', /\b(man.?marks?|marks?|stick (?:to|with|tight)|pick up|tracks?|tight on|shadow|stay with)\b/],
-  ['target_player', /\b(feeds?|passes? to|give it to|finds?|look for|play it to|supply|service)\b/],
-  ['shoot_on_sight', /\b(shoot on sight|shoots? more|shoots? from (?:range|distance|outside)|let fly|have a (?:go|crack|pop)|pull the trigger|test the keeper)\b/],
-  ['get_forward', /\b(gets? forward|push(?:es)? up|bombs? on|get up the pitch|join the attack|attacks? more|overlap)\b/],
-  ['sit_deep', /\b(sit deep|drops? back|stay back|hold position|sit back|stay deep|sits? in|don.?t go forward)\b/],
+  ['man_mark', /\b(man.?marks?|marks? up|marks?|sticks? (?:to|with|tight|on)|picks? up|tracks?|tight on|shadows?|stays? with|keep tabs on|locks? down|stay close to)\b/],
+  ['target_player', /\b(feeds?|passes? to|gives? it to|finds?|looks? for|plays? it to|supply|supplies|service|get the ball to|work it to|looks? to|give the ball to)\b/],
+  ['shoot_on_sight', /\b(shoots? on sight|shoots? more|shoots? from|lets? fly|has? a (?:go|crack|pop)|pulls? the trigger|test the keeper|takes? shots|get shots off|try your luck|hit it|shoot whenever|shoot when|shoot from range|just shoot)\b/],
+  ['get_forward', /\b(gets? forward|goes? forward|go forward|pushes? up|pushes? forward|bombs? on|get up the pitch|gets? up top|goes? up top|go up top|goes? up front|go up front|plays? up front|join the attack|support the attack|attacks? more|get up there|gets? higher|advances?|overlaps?|go and attack|get stuck in up top)\b/],
+  ['sit_deep', /\b(sits? deep|sits? back|drops? back|stays? back|holds? position|stays? deep|sits? in|don.?t go forward|stays? home|tucks? in|drops? off|defend deeper|hold the line|stay put|stay deep)\b/],
 ];
 function parseConditions(lc: string): Directive['when'] {
   const when: Directive['when'] = {};
@@ -213,10 +213,10 @@ export async function compileTactics(text: string, spec: MatchSpec): Promise<Com
       body: JSON.stringify({ model: MODEL, temperature: 0, max_tokens: 512, messages: [
         { role: 'system', content: SYSTEM(ctx) }, { role: 'user', content: text },
       ] }),
-      // Budget MiMo flash can queue under load (seconds normally, occasionally
-      // much longer). The watch flow compiles while paused, so a generous cap is
-      // fine; swap to a local model (Ollama) for instant + free if needed.
-      signal: AbortSignal.timeout(60000),
+      // Fail fast: MiMo flash latency is wildly inconsistent (often >30s). Most
+      // orders never reach here (the rules fast-path handles them); if the model
+      // is slow, bail quickly and tell the user to rephrase rather than hang.
+      signal: AbortSignal.timeout(18000),
     });
     const j = await res.json() as { choices?: { message?: { content?: string } }[]; error?: unknown };
     if (!res.ok) return { directives: [], raw: JSON.stringify(j).slice(0, 300), cached: false, error: `LLM ${res.status}` };
@@ -225,6 +225,10 @@ export async function compileTactics(text: string, spec: MatchSpec): Promise<Com
     cache.set(cacheKey, directives);
     return { directives, raw: content, cached: false };
   } catch (e) {
-    return { directives: [], raw: '', cached: false, error: e instanceof Error ? e.message : String(e) };
+    const msg = e instanceof Error ? e.message : String(e);
+    const friendly = /timeout|abort/i.test(msg)
+      ? "the model was too slow — try plainer wording (e.g. “Bauer get forward”, “Cole mark their striker”)"
+      : msg;
+    return { directives: [], raw: '', cached: false, error: friendly };
   }
 }
