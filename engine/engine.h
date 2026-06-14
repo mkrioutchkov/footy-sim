@@ -256,6 +256,11 @@ public:
     // base config in configFor and clamped. All-zero = no override.
     struct ConfigDelta { double aggression=0, passingDirectness=0, overlapFrequency=0, midfieldFreedom=0, defensiveLineHeight=0; };
     std::array<ConfigDelta, 2> dialOverride{};
+    // play_it_long: a direct per-team pass-scorer hook (NOT a dial) — the dial's
+    // passingDirectness already varies by score-state in the default match, so
+    // coupling the long-ball gamble to it would change default play. This stays
+    // 0 unless the directive sets it, keeping the no-directive match identical.
+    std::array<double, 2> longBallBias{};
     [[nodiscard]] Config configFor(Team team) const {
         Config c = team==Team::Home ? homeConfig : awayConfig;
         const ConfigDelta& dv = dialOverride[team==Team::Home ? 0 : 1];
@@ -402,6 +407,7 @@ public:
         StayWide, ComeInside, StayCentral,
         CrossEarly, SwitchPlay, PlaySimple,
         RunInBehind, MakeRuns, DribbleMore,
+        PressHard, TackleHard, StayOnFeet,
         // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
         AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
         KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
@@ -423,7 +429,8 @@ public:
     // applyDirectives() (stateless, so deterministic).
     struct DirectiveBias { bool shootOnSight=false; double pushUp=0.0; int passTargetId=-1; double passTargetBias=0.0;
         bool crossEarly=false; double switchBias=0.0; double simplifyBias=0.0;
-        double runAheadBias=0.0; double dribbleBonus=0.0; };
+        double runAheadBias=0.0; double dribbleBonus=0.0;
+        double pressTightness=0.0; double tackleAggression=0.0; double stayOnFeet=0.0; };
     std::array<DirectiveBias, 22> directiveBias = {};
     // Timed plan changes (P2): each entry REPLACES the active directive set once
     // the clock reaches atMs. The match is then a pure function of seed + this

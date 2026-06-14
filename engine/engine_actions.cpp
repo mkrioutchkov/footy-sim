@@ -467,13 +467,16 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     // the box he commits only to a genuinely winnable tackle (chance>=0.30) or
     // a clearly exposed loose touch. This was the engine's penalty factory:
     // forced low-% box lunges fouled ~2-3x/match (~10x real).
-    bool boxEmergency = carrierGoalDist < EMERGENCY_BOX_DIST && !inPenaltyBox
+    bool boxEmergency = carrierGoalDist < EMERGENCY_BOX_DIST - directiveBias[tackler.id].stayOnFeet * 60.0 && !inPenaltyBox
         && std::abs(carrier.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
     bool ballPushedAhead = carrier.dribbleType == 2 || carrier.dribbleType == 3;
     // aggression lowers the commit bar: a high-press side dives in on lower-%
     // challenges (wins it back higher, but is beaten more); a contain side
     // only commits to a clear chance. Centred at dial 50 = the old 0.30.
-    double commitBar = clamp(0.30 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13, 0.16, 0.44);
+    // tackle_hard lowers the commit bar (dives in on lower-% challenges);
+    // stay_on_feet raises it (jockey, only commit to a clear chance).
+    double commitBar = clamp(0.30 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13
+        - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.50);
     bool committed = chance >= commitBar || boxEmergency
         || (carrier.dribbleType == 0 && ballExposureDot > 0.0)
         || (ballPushedAhead && ballExposureDot > 0.15)   // nick the loose touch off an open carry
@@ -485,7 +488,9 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     stats.recordTackleAttempt();
     if(rng.random()>=chance){
         // Per-failure foul odds must be low because duel volume is high —
-        double foulChance=(fromBehind?TACKLE_FOUL_FROM_BEHIND:TACKLE_FOUL_NORMAL)*boxFoulScale;
+        double foulChance=(fromBehind?TACKLE_FOUL_FROM_BEHIND:TACKLE_FOUL_NORMAL)*boxFoulScale
+            *(1.0 + directiveBias[tackler.id].tackleAggression * 0.35)   // tackle_hard: more reckless
+            *(1.0 - directiveBias[tackler.id].stayOnFeet * 0.45);        // stay_on_feet: cleaner
         // A booked player plays it safe — fewer reckless fouls, so second
         // yellows (and the resulting reds) stay near real rates.
         if(yellowCards[tackler.id]>=1)foulChance*=0.55;

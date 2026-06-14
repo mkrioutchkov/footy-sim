@@ -69,6 +69,9 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
         else if (k == "run_in_behind")  dir.kind = DK::RunInBehind;
         else if (k == "make_runs")      dir.kind = DK::MakeRuns;
         else if (k == "dribble_more")   dir.kind = DK::DribbleMore;
+        else if (k == "press_hard")     dir.kind = DK::PressHard;
+        else if (k == "tackle_hard")    dir.kind = DK::TackleHard;
+        else if (k == "stay_on_feet")   dir.kind = DK::StayOnFeet;
         else if (k == "all_out_attack")    { dir.kind = DK::AllOutAttack;   team = true; }
         else if (k == "park_the_bus")      { dir.kind = DK::ParkTheBus;     team = true; }
         else if (k == "high_press")        { dir.kind = DK::HighPress;      team = true; }

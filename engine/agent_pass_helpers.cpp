@@ -54,7 +54,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - bl * 0.23
             - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),
         0.08, 0.98);
-    if (completion < 0.44) return std::nullopt;
+    // play_it_long: direct sides gamble on lower-completion (longer) balls. 0 by
+    // default => floor stays 0.44 => the no-directive match is unchanged.
+    double longBall = engine.longBallBias[p.team == Team::Home ? 0 : 1];
+    if (completion < 0.44 - longBall * 0.16) return std::nullopt;
 
     double progression = clamp(fp / 240.0, -0.5, 1.0);
     double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
@@ -62,6 +65,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // value safe recycling less (vertical, direct); low -> patient possession.
     double directness = engine.configFor(p.team).passingDirectness / 50.0; // 0..2, 1 at 50
     double sc = completion * (0.34 + std::max(0.0, progression) * 0.34 * directness) - (1.0 - completion) * turnoverCost;
+    if (longBall > 0.0 && fp > 90.0) {                          // play_it_long: make the direct long ball win
+        sc += longBall * (0.26 + std::min(fp, 360.0) / 360.0 * 0.34);   // longer => bigger reward
+        sc += (1.0 - completion) * turnoverCost * longBall * 0.7;       // forgive most of the long-ball risk
+    }
     double recycleMul = clamp(2.0 - directness, 0.4, 1.6); // direct sides recycle less
     bool safeConnector = completion > 0.74 && bl == 0 && receiverPressure == 0 && d < 300.0 && fp > -45.0 && fp < 95.0;
     bool recyclePass = completion > 0.78 && bl == 0 && receiverPressure == 0 && d < 260.0 && fp >= -80.0 && fp <= 25.0;

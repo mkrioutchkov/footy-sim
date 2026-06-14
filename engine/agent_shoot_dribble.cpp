@@ -79,7 +79,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 100.0) sc += 0.14;
     if (shotDistance < 60.0)  sc += 0.12;
     sc += shotScoreBonus();
-    if (shootOnSight) sc += 0.30;   // directive: bias toward pulling the trigger
+    if (shootOnSight) sc += 0.55;   // directive: bias toward pulling the trigger
     sc += shotDistancePenalty(shotDistance);
     if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) < 140.0) sc += 0.08;
     if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= p.role == Role::WM ? 0.04 : 0.08;

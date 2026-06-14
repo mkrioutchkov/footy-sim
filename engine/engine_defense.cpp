@@ -19,7 +19,8 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
 // function of clock + score — NO rng (any draw here would desync the stream).
 void GameEngine::applyDirectives() {
     directiveBias.fill({});
-    dialOverride = {};   // reset team-wide dial deltas each tick (clock-driven)
+    dialOverride = {};      // reset team-wide dial deltas each tick (clock-driven)
+    longBallBias = {};      // reset play_it_long pass-scorer hook each tick
     // Snapshot the kickoff formation anchors the first time through, then reset
     // every player's homeX/homeY to base — a directive that lapsed (time window
     // passed, plan replaced) must spring back to its original station.
@@ -73,7 +74,7 @@ void GameEngine::applyDirectives() {
                 case DirectiveKind::ParkTheBus:     dv.aggression-=28*k; dv.defensiveLineHeight-=32*k; dv.overlapFrequency-=25*k; dv.midfieldFreedom-=15*k; break;
                 case DirectiveKind::HighPress:      dv.aggression+=35*k; dv.defensiveLineHeight+=22*k; dv.midfieldFreedom+=6*k;  break;
                 case DirectiveKind::DropOff:        dv.aggression-=22*k; dv.defensiveLineHeight-=26*k; break;
-                case DirectiveKind::PlayItLong:     dv.passingDirectness+=35*k; dv.midfieldFreedom-=10*k; dv.overlapFrequency-=5*k; break;
+                case DirectiveKind::PlayItLong:     dv.passingDirectness+=45*k; dv.midfieldFreedom-=10*k; dv.overlapFrequency-=5*k; longBallBias[d.teamScope]+=k; break;
                 case DirectiveKind::KeepItOnGround: dv.passingDirectness-=30*k; dv.midfieldFreedom+=10*k; break;
                 case DirectiveKind::GetItWide:      dv.overlapFrequency+=35*k; dv.midfieldFreedom-=15*k; break;
                 case DirectiveKind::PlayNarrow:     dv.overlapFrequency-=30*k; dv.midfieldFreedom+=15*k; break;
@@ -129,6 +130,10 @@ void GameEngine::applyDirectives() {
             case DirectiveKind::RunInBehind: directiveBias[p->id].runAheadBias = 0.30 * d.intensity; break;
             case DirectiveKind::MakeRuns:    directiveBias[p->id].runAheadBias = 0.16 * d.intensity; break;
             case DirectiveKind::DribbleMore: directiveBias[p->id].dribbleBonus = 0.22 * d.intensity; break;
+            // Defensive intensity (read in the press assignment / tackle resolution).
+            case DirectiveKind::PressHard:   directiveBias[p->id].pressTightness   = d.intensity; break;
+            case DirectiveKind::TackleHard:  directiveBias[p->id].tackleAggression = d.intensity; break;
+            case DirectiveKind::StayOnFeet:  directiveBias[p->id].stayOnFeet       = d.intensity; break;
             default: break;   // team-scoped kinds handled above
         }
     }
