@@ -31,9 +31,8 @@ void GameEngine::applyDirectives() {
     for (const auto& d : directives) {
         Player* p = playerById(d.playerId);
         if (!p) continue;
-        // Condition: minute modulo (mod 1 => always active).
-        int want = ((d.minuteEq % d.minuteMod) + d.minuteMod) % d.minuteMod;
-        if ((minute % d.minuteMod) != want) continue;
+        // Condition: time window (default 0..1000 => whole match).
+        if (minute < d.fromMin || minute > d.toMin) continue;
         // Condition: score state for this player's team.
         if (d.scoreState != CondScore::Any) {
             int diff = p->team == Team::Home ? state.homeScore - state.awayScore

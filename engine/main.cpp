@@ -63,9 +63,9 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
         dir.intensity = num(d, "intensity", 1.0);
         if (d.contains("when")) {
             const auto& w = d["when"];
-            dir.minuteMod = std::max(1, static_cast<int>(num(w, "minuteMod", 1)));
-            dir.minuteEq  = static_cast<int>(num(w, "minuteEq", 0));
-            dir.scoreBy   = static_cast<int>(num(w, "scoreBy", 0));
+            dir.fromMin = static_cast<int>(num(w, "fromMin", 0));
+            dir.toMin   = static_cast<int>(num(w, "toMin", 1000));
+            dir.scoreBy = static_cast<int>(num(w, "scoreBy", 0));
             std::string s = w.contains("scoreState") && w["scoreState"].is_string() ? w["scoreState"].get<std::string>() : "";
             if (s == "winning")      dir.scoreState = GameEngine::CondScore::Winning;
             else if (s == "drawing") dir.scoreState = GameEngine::CondScore::Drawing;

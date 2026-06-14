@@ -21,7 +21,7 @@ export interface Directive {
   kind: string;
   targetId?: number;
   intensity?: number;
-  when?: { minuteMod?: number; minuteEq?: number; scoreState?: string; scoreBy?: number };
+  when?: { fromMin?: number; toMin?: number; scoreState?: string; scoreBy?: number };
 }
 
 export interface CompileResult { directives: Directive[]; raw: string; cached: boolean; error?: string; }
@@ -40,11 +40,11 @@ function rosterContext(spec: MatchSpec): string {
 
 const SYSTEM = (ctx: string) => `You convert a football manager's plain-English tactics into a JSON array of directives. Output ONLY the JSON array — no prose, no markdown.
 
-Each directive: {"playerId":<int 0-21>, "kind":<man_mark|shoot_on_sight|get_forward|sit_deep|target_player>, "targetId":<int 0-21, only for man_mark and target_player>, "intensity":<0..1>, "when":{"minuteMod":<int,default 1>,"minuteEq":<int,default 0>,"scoreState":<winning|drawing|losing|any>,"scoreBy":<int,default 0>}}.
+Each directive: {"playerId":<int 0-21>, "kind":<man_mark|shoot_on_sight|get_forward|sit_deep|target_player>, "targetId":<int 0-21, only for man_mark and target_player>, "intensity":<0..1>, "when":{"fromMin":<int,default 0>,"toMin":<int,default 1000>,"scoreState":<winning|drawing|losing|any>,"scoreBy":<int,default 0>}}.
 
 Rules:
-- Resolve player NAMES to their engine id from the rosters below.
-- "odd minutes" => minuteMod 2, minuteEq 1. "even minutes" => minuteMod 2, minuteEq 0. "every N minutes from M" => minuteMod N, minuteEq M%N.
+- Resolve player NAMES (tolerate typos/slang) to their engine id from the rosters below.
+- TIME WINDOW via when.fromMin/toMin (match minutes, default whole match): "first half"=>toMin 45; "second half"=>fromMin 45; "last 20 minutes"=>fromMin 70; "from/after the 60th minute"=>fromMin 60; "first 15 minutes"=>toMin 15.
 - man_mark = a defender shadows an opponent (targetId). target_player = feed passes to a team-mate (targetId). get_forward/sit_deep = push a player up / drop them deep. shoot_on_sight = a player shoots from range.
 - Omit "when" fields that aren't specified (defaults apply). Use scoreState only when the manager ties it to the scoreline.
 - IGNORE anything impossible, contradictory, or not expressible as the kinds above (e.g. "teleport", "play like Barca") — just leave it out. If nothing maps, output [].
@@ -77,8 +77,8 @@ function validate(raw: unknown[]): Directive[] {
     }
     const w = (d.when ?? {}) as Record<string, unknown>;
     const when: Directive['when'] = {};
-    when.minuteMod = Math.max(1, Math.round(num(w.minuteMod, 1)));
-    when.minuteEq = Math.round(num(w.minuteEq, 0));
+    when.fromMin = Math.max(0, Math.round(num(w.fromMin, 0)));
+    when.toMin = Math.round(num(w.toMin, 1000));
     const ss = String(w.scoreState ?? 'any');
     when.scoreState = VALID_SCORE.has(ss) ? ss : 'any';
     when.scoreBy = Math.round(num(w.scoreBy, 0));
@@ -103,14 +103,42 @@ function nameIndex(spec: MatchSpec): NameRef[] {
   add(spec.home, 0); add(spec.away, 11);
   return idx.sort((a, b) => b.token.length - a.token.length);   // full names beat surnames
 }
+// Levenshtein, capped: returns >2 fast when the names can't be within edit
+// distance 2 (all we care about for typo tolerance).
+function lev(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  const m = a.length; const dp = Array.from({ length: m + 1 }, (_, i) => i);
+  for (let j = 1; j <= b.length; j++) {
+    let prev = dp[0]; dp[0] = j;
+    for (let i = 1; i <= m; i++) {
+      const tmp = dp[i];
+      dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[m];
+}
 function playersIn(clause: string, idx: NameRef[]): number[] {
   const lc = clause.toLowerCase();
-  const words = new Set(lc.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean));
+  const words = lc.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
+  const wordSet = new Set(words);
   const hits: { id: number; pos: number }[] = [];
+  const take = (id: number, pos: number) => { if (!hits.some(h => h.id === id)) hits.push({ id, pos }); };
+  // exact (incl. multi-word full names)
   for (const { token, id } of idx) {
-    if (hits.some(h => h.id === id)) continue;
-    const ok = token.includes(' ') ? lc.includes(token) : words.has(token);
-    if (ok) hits.push({ id, pos: lc.indexOf(token.split(' ')[0]) });
+    const ok = token.includes(' ') ? lc.includes(token) : wordSet.has(token);
+    if (ok) take(id, lc.indexOf(token.split(' ')[0]));
+  }
+  // fuzzy: typo-tolerant single-token match (edit distance <= 2 on 4+ char names)
+  for (const w of words) {
+    if (w.length < 4 || wordSet.has(w) && idx.some(r => r.token === w)) continue;
+    let best: { id: number; pos: number } | null = null, bestD = 3;
+    for (const { token, id } of idx) {
+      if (token.includes(' ') || token.length < 4) continue;
+      const d = lev(w, token);
+      if (d < bestD) { bestD = d; best = { id, pos: lc.indexOf(w) }; }
+    }
+    if (best && bestD <= 2) take(best.id, best.pos);
   }
   return hits.sort((a, b) => a.pos - b.pos).map(h => h.id);
 }
@@ -123,8 +151,12 @@ const FAMILIES: [string, RegExp][] = [
 ];
 function parseConditions(lc: string): Directive['when'] {
   const when: Directive['when'] = {};
-  if (/\bodd minute/.test(lc)) { when.minuteMod = 2; when.minuteEq = 1; }
-  else if (/\beven minute/.test(lc)) { when.minuteMod = 2; when.minuteEq = 0; }
+  let m: RegExpMatchArray | null;
+  if (/\bfirst half\b/.test(lc)) when.toMin = 45;
+  else if (/\bsecond half\b/.test(lc)) when.fromMin = 45;
+  if ((m = lc.match(/last (\d+)\s*min/))) when.fromMin = Math.max(0, 90 - parseInt(m[1], 10));
+  if ((m = lc.match(/(?:from|after)(?: the)?\s*(\d+)(?:st|nd|rd|th)?\b/))) when.fromMin = parseInt(m[1], 10);
+  if ((m = lc.match(/first (\d+)\s*min/))) when.toMin = parseInt(m[1], 10);
   if (/\b(losing|behind|chasing|trailing)\b/.test(lc)) when.scoreState = 'losing';
   else if (/\b(winning|ahead|in front|protect.{0,8}lead|hold.{0,8}lead)\b/.test(lc)) when.scoreState = 'winning';
   else if (/\b(drawing|level|tied|all square)\b/.test(lc)) when.scoreState = 'drawing';

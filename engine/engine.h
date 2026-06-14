@@ -388,8 +388,8 @@ public:
         DirectiveKind kind = DirectiveKind::ManMark;
         int targetId = -1;                          // man_mark / target_player target
         double intensity = 1.0;
-        int minuteMod = 1;                          // active when minute % minuteMod == minuteEq (mod 1 => always)
-        int minuteEq = 0;
+        int fromMin = 0;                            // active from this match minute...
+        int toMin = 1000;                           // ...to this one, inclusive (default = whole match)
         CondScore scoreState = CondScore::Any;      // active only in this score state
         int scoreBy = 0;                            // ...by at least N goals (0 => any margin)
     };
