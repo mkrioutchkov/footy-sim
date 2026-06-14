@@ -107,8 +107,11 @@ export default defineConfig({
       ignored: ['**/engine/**'],
     },
     proxy: {
-      '/api': { target: GAME_API, changeOrigin: true },
-      '/ws': { target: GAME_API.replace('http', 'ws'), ws: true },
+      // Regex (anchored, trailing slash) so the prefix matches API calls
+      // (/api/me, …) but NOT the frontend's own module at /api.ts — a plain
+      // '/api' prefix proxied /api.ts to the backend and broke the SPA load.
+      '^/api/': { target: GAME_API, changeOrigin: true },
+      '^/ws/': { target: GAME_API.replace('http', 'ws'), ws: true },
     },
   },
 });
