@@ -80,12 +80,14 @@ input[type=range] { accent-color: var(--accent); }
 
 /* ── live tactics panel (P4) ── */
 .tactics-panel { position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 45; max-width: 720px; margin: 0 auto;
-  background: rgba(12,19,32,.92); border: 1px solid var(--line); border-radius: 12px; padding: 10px; backdrop-filter: blur(6px); }
-.tactics-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
+  display: flex; flex-direction: column; max-height: 48vh;
+  background: rgba(12,19,32,.94); border: 1px solid var(--line); border-radius: 12px; padding: 10px; backdrop-filter: blur(6px); }
+.tactics-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; flex: 0 0 auto; }
 .tactics-input { width: 100%; resize: vertical; font: inherit; color: var(--accent, #e8edf2); background: var(--panel2, #161f30);
   border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .tactics-input::placeholder { color: var(--muted); }
-.tactics-receipt { margin-top: 8px; font-size: 13px; line-height: 1.5; min-height: 0; }
+/* Receipt scrolls inside the panel instead of growing off the bottom of the screen. */
+.tactics-receipt { margin-top: 8px; font-size: 13px; line-height: 1.5; min-height: 0; flex: 1 1 auto; overflow-y: auto; }
 .tactics-receipt .ok { color: var(--gold); font-weight: 600; }
 .tactics-receipt .warn { color: var(--danger); }
 .tactics-receipt .receipt-line { color: var(--accent, #e8edf2); padding-left: 4px; }

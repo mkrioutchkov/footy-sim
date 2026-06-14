@@ -250,8 +250,18 @@ public:
         double midfieldFreedom=50, defensiveLineHeight=50;
     };
     Config homeConfig, awayConfig;
+    // Runtime dial deltas set by team-wide directives ("park the bus", "all out
+    // attack", "high press" ...). [0]=home, [1]=away. Rebuilt every tick by
+    // applyDirectives (pure clock+score function, no rng), added on top of the
+    // base config in configFor and clamped. All-zero = no override.
+    struct ConfigDelta { double aggression=0, passingDirectness=0, overlapFrequency=0, midfieldFreedom=0, defensiveLineHeight=0; };
+    std::array<ConfigDelta, 2> dialOverride{};
     [[nodiscard]] Config configFor(Team team) const {
         Config c = team==Team::Home ? homeConfig : awayConfig;
+        const ConfigDelta& dv = dialOverride[team==Team::Home ? 0 : 1];
+        c.aggression += dv.aggression; c.passingDirectness += dv.passingDirectness;
+        c.overlapFrequency += dv.overlapFrequency; c.midfieldFreedom += dv.midfieldFreedom;
+        c.defensiveLineHeight += dv.defensiveLineHeight;
         // Score-state tactics: a side chasing the game late pushes — higher
         // line, more aggression, more directness; a side protecting a lead
         // drops off. Pure function of score+clock, so determinism holds.
@@ -266,6 +276,11 @@ public:
             c.aggression -= 8.0;
             c.defensiveLineHeight -= 12.0;
         }
+        c.aggression = clamp(c.aggression, 0.0, 100.0);
+        c.passingDirectness = clamp(c.passingDirectness, 0.0, 100.0);
+        c.overlapFrequency = clamp(c.overlapFrequency, 0.0, 100.0);
+        c.midfieldFreedom = clamp(c.midfieldFreedom, 0.0, 100.0);
+        c.defensiveLineHeight = clamp(c.defensiveLineHeight, 0.0, 100.0);
         return c;
     }
     [[nodiscard]] double offsideLineFor(Team t) const;
@@ -381,10 +396,18 @@ public:
     // each tick. Player ids are resolved (0..21) by the caller. Conditions are a
     // PURE function of clock + score (no rng — must not perturb the stream).
     // See docs/TACTICS.md. ──
-    enum class DirectiveKind : uint8_t { ManMark, ShootOnSight, GetForward, SitDeep, TargetPlayer };
+    enum class DirectiveKind : uint8_t {
+        // ── per-player (playerId 0..21) ──
+        ManMark, ShootOnSight, GetForward, SitDeep, TargetPlayer,
+        StayWide, ComeInside, StayCentral,
+        // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
+        AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
+        KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
+    };
     enum class CondScore : uint8_t { Any, Winning, Drawing, Losing };
     struct Directive {
         int playerId = -1;                          // who it applies to (engine id 0..21)
+        int teamScope = -1;                         // -1 = player-scoped; 0 = home team, 1 = away team (dial commands)
         DirectiveKind kind = DirectiveKind::ManMark;
         int targetId = -1;                          // man_mark / target_player target
         double intensity = 1.0;
@@ -409,7 +432,11 @@ public:
     // shape (attacking base AND defensive station) moves coherently. We snapshot
     // the kickoff anchors once, then each tick rebuild homeX = base + fd*shift so
     // dropping a directive restores the original station. Pure clock function.
+    // homeX = forward/back anchor (get_forward/sit_deep); homeY = lateral anchor
+    // (stay_wide/come_inside/stay_central). Both snapshotted once, rebuilt each
+    // tick from the base so a lapsed directive springs back to station.
     std::array<double, 22> baseHomeX = {};
+    std::array<double, 22> baseHomeY = {};
     bool baseHomeXCaptured = false;
     void applyDirectives();
 

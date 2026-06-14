@@ -19,14 +19,15 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
 // function of clock + score — NO rng (any draw here would desync the stream).
 void GameEngine::applyDirectives() {
     directiveBias.fill({});
+    dialOverride = {};   // reset team-wide dial deltas each tick (clock-driven)
     // Snapshot the kickoff formation anchors the first time through, then reset
-    // every player's homeX to its base — a get_forward/sit_deep that lapsed (time
-    // window passed, plan replaced) must spring back to the original station.
+    // every player's homeX/homeY to base — a directive that lapsed (time window
+    // passed, plan replaced) must spring back to its original station.
     if (!baseHomeXCaptured) {
-        for (auto& p : state.players) baseHomeX[p.id] = p.homeX;
+        for (auto& p : state.players) { baseHomeX[p.id] = p.homeX; baseHomeY[p.id] = p.homeY; }
         baseHomeXCaptured = true;
     }
-    for (auto& p : state.players) p.homeX = baseHomeX[p.id];
+    for (auto& p : state.players) { p.homeX = baseHomeX[p.id]; p.homeY = baseHomeY[p.id]; }
     // P2: advance the timeline — a plan change whose time has arrived replaces
     // the active directive set. Clock-driven (no rng), so replays are identical.
     while (directiveTimelineIdx < directiveTimeline.size()
@@ -37,44 +38,90 @@ void GameEngine::applyDirectives() {
     if (directives.empty()) return;
     int minute = static_cast<int>(state.clockMs / 60000.0);
     for (const auto& d : directives) {
-        Player* p = playerById(d.playerId);
-        if (!p) continue;
+        // Resolve the team this directive concerns (for the score condition and
+        // for team-scoped dial commands). Player-scoped directives resolve a
+        // player; team-scoped ones (teamScope 0/1) skip the player lookup.
+        Player* p = nullptr;
+        Team team;
+        if (d.teamScope >= 0) {
+            team = d.teamScope == 0 ? Team::Home : Team::Away;
+        } else {
+            p = playerById(d.playerId);
+            if (!p) continue;
+            team = p->team;
+        }
         // Condition: time window (default 0..1000 => whole match).
         if (minute < d.fromMin || minute > d.toMin) continue;
-        // Condition: score state for this player's team.
+        // Condition: score state for the concerned team.
         if (d.scoreState != CondScore::Any) {
-            int diff = p->team == Team::Home ? state.homeScore - state.awayScore
-                                             : state.awayScore - state.homeScore;
+            int diff = team == Team::Home ? state.homeScore - state.awayScore
+                                          : state.awayScore - state.homeScore;
             int n = std::max(1, d.scoreBy);
             bool ok = (d.scoreState == CondScore::Winning && diff >= n)
                    || (d.scoreState == CondScore::Drawing && diff == 0)
                    || (d.scoreState == CondScore::Losing  && diff <= -n);
             if (!ok) continue;
         }
+        // ── Team-wide dial command: nudge this team's 5 dials. Added on top of
+        // the base config in configFor() and clamped, so the whole side shifts
+        // shape (press height, line, width, tempo) coherently. ──
+        if (d.teamScope >= 0) {
+            ConfigDelta& dv = dialOverride[d.teamScope];
+            double k = d.intensity;
+            switch (d.kind) {
+                case DirectiveKind::AllOutAttack:   dv.aggression+=30*k; dv.defensiveLineHeight+=25*k; dv.overlapFrequency+=25*k; dv.midfieldFreedom+=20*k; break;
+                case DirectiveKind::ParkTheBus:     dv.aggression-=28*k; dv.defensiveLineHeight-=32*k; dv.overlapFrequency-=25*k; dv.midfieldFreedom-=15*k; break;
+                case DirectiveKind::HighPress:      dv.aggression+=35*k; dv.defensiveLineHeight+=22*k; dv.midfieldFreedom+=6*k;  break;
+                case DirectiveKind::DropOff:        dv.aggression-=22*k; dv.defensiveLineHeight-=26*k; break;
+                case DirectiveKind::PlayItLong:     dv.passingDirectness+=35*k; dv.midfieldFreedom-=10*k; dv.overlapFrequency-=5*k; break;
+                case DirectiveKind::KeepItOnGround: dv.passingDirectness-=30*k; dv.midfieldFreedom+=10*k; break;
+                case DirectiveKind::GetItWide:      dv.overlapFrequency+=35*k; dv.midfieldFreedom-=15*k; break;
+                case DirectiveKind::PlayNarrow:     dv.overlapFrequency-=30*k; dv.midfieldFreedom+=15*k; break;
+                case DirectiveKind::PushUp:         dv.defensiveLineHeight+=30*k; dv.aggression+=10*k; break;
+                case DirectiveKind::SlowItDown:     dv.passingDirectness-=22*k; dv.aggression-=15*k; break;
+                default: break;
+            }
+            continue;
+        }
+        // ── Per-player directive ──
+        double fd = fdFor(p->team);
         switch (d.kind) {
             case DirectiveKind::ManMark: {
                 Player* t = playerById(d.targetId);
                 if (!t) break;
-                double fd = fdFor(p->team), ownGoalX = ownGoalXFor(p->team);
+                double ownGoalX = ownGoalXFor(p->team);
                 double tx = lerp(t->x, ownGoalX + fd * 36.0, 0.20);   // goal-side of the man
                 double ty = lerp(t->y, PITCH_H / 2.0, 0.05);
                 setAssignment(*p, DefensiveTask::LaneBlock, tx, ty, d.targetId);
                 break;
             }
             case DirectiveKind::ShootOnSight: directiveBias[p->id].shootOnSight = true; break;
-            // Relocate the formation anchor up/down the pitch (fd-aware, clamped to
-            // a sane band so a CM can't end up parked in the opponent's six-yard
-            // box). 150px is a full role-band — visibly higher without breaking shape.
+            // Forward/back anchor (210px = a full role-band, visibly higher).
             case DirectiveKind::GetForward:
-                p->homeX = clamp(baseHomeX[p->id] + fdFor(p->team) * 210.0 * d.intensity, 30.0, PITCH_W - 30.0);
+                p->homeX = clamp(baseHomeX[p->id] + fd * 210.0 * d.intensity, 30.0, PITCH_W - 30.0);
                 break;
             case DirectiveKind::SitDeep:
-                p->homeX = clamp(baseHomeX[p->id] - fdFor(p->team) * 150.0 * d.intensity, 30.0, PITCH_W - 30.0);
+                p->homeX = clamp(baseHomeX[p->id] - fd * 150.0 * d.intensity, 30.0, PITCH_W - 30.0);
                 break;
             case DirectiveKind::TargetPlayer:
                 directiveBias[p->id].passTargetId = d.targetId;
                 directiveBias[p->id].passTargetBias = 0.30 * d.intensity;
                 break;
+            // Lateral anchor: stay_wide pushes toward the near touchline; come_inside
+            // / stay_central pull toward the middle. Positioning keys off homeY, so
+            // the whole shape slides sideways coherently.
+            case DirectiveKind::StayWide: {
+                double sign = baseHomeY[p->id] < PITCH_H / 2.0 ? -1.0 : 1.0;
+                p->homeY = clamp(baseHomeY[p->id] + sign * 90.0 * d.intensity, 24.0, PITCH_H - 24.0);
+                break;
+            }
+            case DirectiveKind::ComeInside:
+                p->homeY = lerp(baseHomeY[p->id], PITCH_H / 2.0, 0.40 * d.intensity);
+                break;
+            case DirectiveKind::StayCentral:
+                p->homeY = lerp(baseHomeY[p->id], PITCH_H / 2.0, 0.65 * d.intensity);
+                break;
+            default: break;   // team-scoped kinds handled above
         }
     }
 }

@@ -251,22 +251,31 @@ let watchPlayers: { id: number; name: string }[] = [];
 function pname(id: number): string {
   return watchPlayers.find(p => p.id === id)?.name ?? `#${id}`;
 }
+const TEAM_LABEL: Record<string, string> = {
+  all_out_attack: 'All-out attack', park_the_bus: 'Park the bus', high_press: 'High press',
+  drop_off: 'Drop off / contain', play_it_long: 'Play it long', keep_it_on_ground: 'Keep it on the ground',
+  get_it_wide: 'Get it wide', play_narrow: 'Play narrow', push_up: 'Push the line up', slow_it_down: 'Slow it down',
+};
+const PLAYER_VERB: Record<string, string> = {
+  shoot_on_sight: 'shoots on sight', get_forward: 'gets forward', sit_deep: 'sits deep',
+  stay_wide: 'stays wide', come_inside: 'comes inside', stay_central: 'stays central',
+};
+function condText(w: any): string {
+  let c = '';
+  if (w?.fromMin > 0 && w?.toMin < 1000) c += ` (min ${w.fromMin}–${w.toMin})`;
+  else if (w?.fromMin > 0) c += ` (from ${w.fromMin}')`;
+  else if (w?.toMin < 1000) c += ` (first ${w.toMin}')`;
+  if (w?.scoreState && w.scoreState !== 'any') c += ` when ${w.scoreState}`;
+  return c;
+}
 function describeDirective(d: any): string {
-  const w = d.when || {};
-  let cond = '';
-  if (w.minuteMod === 2 && w.minuteEq === 1) cond += ' on odd minutes';
-  else if (w.minuteMod === 2 && w.minuteEq === 0) cond += ' on even minutes';
-  else if (w.minuteMod > 1) cond += ` every ${w.minuteMod} min`;
-  if (w.scoreState && w.scoreState !== 'any') cond += ` when ${w.scoreState}`;
+  const cond = condText(d.when);
+  if (d.teamScope != null && TEAM_LABEL[d.kind]) return `Whole team — ${TEAM_LABEL[d.kind]}${cond}`;
   const who = pname(d.playerId);
-  switch (d.kind) {
-    case 'man_mark': return `${who} man-marks ${pname(d.targetId)}${cond}`;
-    case 'target_player': return `${who} feeds ${pname(d.targetId)}${cond}`;
-    case 'shoot_on_sight': return `${who} shoots on sight${cond}`;
-    case 'get_forward': return `${who} gets forward${cond}`;
-    case 'sit_deep': return `${who} sits deep${cond}`;
-    default: return `${who}: ${d.kind}${cond}`;
-  }
+  if (d.kind === 'man_mark') return `${who} man-marks ${pname(d.targetId)}${cond}`;
+  if (d.kind === 'target_player') return `${who} feeds ${pname(d.targetId)}${cond}`;
+  if (PLAYER_VERB[d.kind]) return `${who} ${PLAYER_VERB[d.kind]}${cond}`;
+  return `${who}: ${d.kind}${cond}`;
 }
 
 async function screenWatch(fixtureId: number) {

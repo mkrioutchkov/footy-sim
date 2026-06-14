@@ -111,6 +111,7 @@ export class MatchStream {
   constructor(
     private ws: WebSocket, private specPath: string, private seed: number,
     private homeName = 'HOME', private awayName = 'AWAY',
+    private myTeam: 'home' | 'away' = 'home',
   ) {
     this.baseSpec = JSON.parse(readFileSync(specPath, 'utf8'));
     this.sessionSpecPath = specPath.replace(/\.json$/, '') + '.watch.json';
@@ -189,7 +190,7 @@ export class MatchStream {
   private async applyTacticsEdit(cmd: { text?: string; directives?: unknown }): Promise<void> {
     let directives = Array.isArray(cmd.directives) ? cmd.directives : null;
     if (!directives && typeof cmd.text === 'string' && cmd.text.trim()) {
-      const r = await compileTactics(cmd.text, this.baseSpec);
+      const r = await compileTactics(cmd.text, this.baseSpec, this.myTeam);
       directives = r.directives;
       console.log(`[tactics] "${cmd.text}" -> ${r.raw || 'llm'} | ${directives.length} directive(s)` +
         (r.error ? ` | ERROR: ${r.error}` : '') + ` | ${JSON.stringify(directives)}`);

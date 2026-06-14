@@ -190,13 +190,19 @@ server.on('upgrade', (request, socket, head) => {
   const fixtureId = Number(url.searchParams.get('fixture'));
   const fx = getFixture(fixtureId);
   if (!fx) { socket.destroy(); return; }
+  // Which side is the human watching? Resolve their team from the session cookie
+  // so "we/us/all" and team-wide tactics ("park the bus") target the right side.
+  const sid = request.headers.cookie?.match(/(?:^|;\s*)sid=([^;]+)/)?.[1];
+  const user = sid ? getUserBySession(sid) : null;
+  const myTeamId = user ? teamForUser(user.id) : null;
+  const myTeam: 'home' | 'away' = myTeamId === fx.away_team_id ? 'away' : 'home';
   wss.handleUpgrade(request, socket, head, (ws) => {
     try {
       const specPath = writeSpec(fx);
       const nm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(fx.home_team_id, fx.away_team_id) as { id: number; name: string }[];
       const homeName = nm.find(t => t.id === fx.home_team_id)?.name ?? 'HOME';
       const awayName = nm.find(t => t.id === fx.away_team_id)?.name ?? 'AWAY';
-      new MatchStream(ws as any, specPath, fx.seed, homeName, awayName);
+      new MatchStream(ws as any, specPath, fx.seed, homeName, awayName, myTeam);
     } catch (e) { ws.close(); }
   });
 });

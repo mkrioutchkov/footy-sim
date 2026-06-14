@@ -53,12 +53,28 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
         GameEngine::Directive dir;
         dir.playerId = static_cast<int>(num(d, "playerId", -1));
         std::string k = d.contains("kind") && d["kind"].is_string() ? d["kind"].get<std::string>() : "";
-        if (k == "man_mark")            dir.kind = GameEngine::DirectiveKind::ManMark;
-        else if (k == "shoot_on_sight") dir.kind = GameEngine::DirectiveKind::ShootOnSight;
-        else if (k == "get_forward")    dir.kind = GameEngine::DirectiveKind::GetForward;
-        else if (k == "sit_deep")       dir.kind = GameEngine::DirectiveKind::SitDeep;
-        else if (k == "target_player")  dir.kind = GameEngine::DirectiveKind::TargetPlayer;
+        using DK = GameEngine::DirectiveKind;
+        bool team = false;
+        if (k == "man_mark")            dir.kind = DK::ManMark;
+        else if (k == "shoot_on_sight") dir.kind = DK::ShootOnSight;
+        else if (k == "get_forward")    dir.kind = DK::GetForward;
+        else if (k == "sit_deep")       dir.kind = DK::SitDeep;
+        else if (k == "target_player")  dir.kind = DK::TargetPlayer;
+        else if (k == "stay_wide")      dir.kind = DK::StayWide;
+        else if (k == "come_inside")    dir.kind = DK::ComeInside;
+        else if (k == "stay_central")   dir.kind = DK::StayCentral;
+        else if (k == "all_out_attack")    { dir.kind = DK::AllOutAttack;   team = true; }
+        else if (k == "park_the_bus")      { dir.kind = DK::ParkTheBus;     team = true; }
+        else if (k == "high_press")        { dir.kind = DK::HighPress;      team = true; }
+        else if (k == "drop_off")          { dir.kind = DK::DropOff;        team = true; }
+        else if (k == "play_it_long")      { dir.kind = DK::PlayItLong;     team = true; }
+        else if (k == "keep_it_on_ground") { dir.kind = DK::KeepItOnGround; team = true; }
+        else if (k == "get_it_wide")       { dir.kind = DK::GetItWide;      team = true; }
+        else if (k == "play_narrow")       { dir.kind = DK::PlayNarrow;     team = true; }
+        else if (k == "push_up")           { dir.kind = DK::PushUp;         team = true; }
+        else if (k == "slow_it_down")      { dir.kind = DK::SlowItDown;     team = true; }
         else continue;                  // unknown directive — ignore
+        dir.teamScope = team ? static_cast<int>(num(d, "teamScope", 0)) : -1;
         dir.targetId = static_cast<int>(num(d, "targetId", -1));
         dir.intensity = num(d, "intensity", 1.0);
         if (d.contains("when")) {
@@ -71,7 +87,8 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
             else if (s == "drawing") dir.scoreState = GameEngine::CondScore::Drawing;
             else if (s == "losing")  dir.scoreState = GameEngine::CondScore::Losing;
         }
-        if (dir.playerId < 0 || dir.playerId >= 22) continue;   // fixed-22 guard
+        if (team) { if (dir.teamScope != 0 && dir.teamScope != 1) continue; }   // valid team
+        else if (dir.playerId < 0 || dir.playerId >= 22) continue;              // fixed-22 guard
         out.push_back(dir);
     }
 }

@@ -13,11 +13,19 @@ const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
 
 // Engine slot -> role (the 11 fixed formation slots; home ids 0..10, away 11..21).
 const ROLE_SLOTS = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'WM', 'CF', 'WM'];
-const VALID_KINDS = new Set(['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', 'target_player']);
+// Per-player kinds need a playerId; team-wide kinds need a teamScope (0/1).
+const PLAYER_KINDS = ['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', 'target_player',
+  'stay_wide', 'come_inside', 'stay_central'];
+const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 'play_it_long',
+  'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down'];
+const VALID_KINDS = new Set([...PLAYER_KINDS, ...TEAM_KINDS]);
+const TEAM_KIND_SET = new Set(TEAM_KINDS);
 const VALID_SCORE = new Set(['winning', 'drawing', 'losing', 'any']);
+export type Side = 'home' | 'away';
 
 export interface Directive {
   playerId: number;
+  teamScope?: number;       // 0=home, 1=away (team-wide kinds); omitted for player-scoped
   kind: string;
   targetId?: number;
   intensity?: number;
@@ -32,25 +40,61 @@ interface MatchSpec { home: TeamSpec; away: TeamSpec }
 const cache = new Map<string, Directive[]>();
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
-function rosterContext(spec: MatchSpec): string {
+function rosterContext(spec: MatchSpec, myTeam: Side): string {
   const line = (t: TeamSpec, off: number) =>
     t.players.slice(0, 11).map((p, i) => `id${off + i} ${p.name}(${ROLE_SLOTS[i]})`).join(', ');
-  return `HOME: ${line(spec.home, 0)}\nAWAY: ${line(spec.away, 11)}`;
+  const tag = (s: Side) => (s === myTeam ? 'YOUR TEAM' : 'OPPONENT');
+  return `${tag('home')} (HOME): ${line(spec.home, 0)}\n${tag('away')} (AWAY): ${line(spec.away, 11)}`;
 }
 
-const SYSTEM = (ctx: string) => `You convert a football manager's plain-English tactics into a JSON array of directives. Output ONLY the JSON array — no prose, no markdown.
+const SYSTEM = (ctx: string, myTeam: Side) => {
+  const myIds = myTeam === 'home' ? '0-10' : '11-21';
+  const oppIds = myTeam === 'home' ? '11-21' : '0-10';
+  const myScope = myTeam === 'home' ? 0 : 1;
+  return `You are a football tactics compiler. Convert the manager's plain-English order into a JSON array of directives. Output ONLY the JSON array — no prose, no markdown, no comments. If nothing maps, output [].
 
-Each directive: {"playerId":<int 0-21>, "kind":<man_mark|shoot_on_sight|get_forward|sit_deep|target_player>, "targetId":<int 0-21, only for man_mark and target_player>, "intensity":<0..1>, "when":{"fromMin":<int,default 0>,"toMin":<int,default 1000>,"scoreState":<winning|drawing|losing|any>,"scoreBy":<int,default 0>}}.
+YOU manage ${myTeam.toUpperCase()} (player ids ${myIds}); the opponent is ids ${oppIds}.
+- "we/us/our/I/my/the lads/the team/everyone/all/the whole side" => YOUR players (${myIds}).
+- "they/them/their/the opposition/the other lot" => the OPPONENT (${oppIds}).
 
-Rules:
-- Resolve player NAMES (tolerate typos/slang) to their engine id from the rosters below.
-- TIME WINDOW via when.fromMin/toMin (match minutes, default whole match): "first half"=>toMin 45; "second half"=>fromMin 45; "last 20 minutes"=>fromMin 70; "from/after the 60th minute"=>fromMin 60; "first 15 minutes"=>toMin 15.
-- man_mark = a defender shadows an opponent (targetId). target_player = feed passes to a team-mate (targetId). get_forward/sit_deep = push a player up / drop them deep. shoot_on_sight = a player shoots from range.
-- Omit "when" fields that aren't specified (defaults apply). Use scoreState only when the manager ties it to the scoreline.
-- IGNORE anything impossible, contradictory, or not expressible as the kinds above (e.g. "teleport", "play like Barca") — just leave it out. If nothing maps, output [].
+DIRECTIVE: {"playerId":<your id, per-player kinds only>, "kind":<below>, "targetId":<id, only man_mark & target_player>, "intensity":<0.1-1>, "teamScope":${myScope} <team-wide kinds only>, "when":{"fromMin":<int>,"toMin":<int>,"scoreState":<winning|losing|drawing>,"scoreBy":<int>}}
 
-Rosters (ids are fixed):
+PER-PLAYER kinds (need playerId; omit teamScope):
+- man_mark (targetId=opponent): stick tight to / shadow / pick up / mark a specific opponent.
+- target_player (targetId=team-mate): feed / supply / look for / give it to a team-mate.
+- shoot_on_sight: shoot more / from range / let fly / test the keeper / pull the trigger.
+- get_forward: push higher / join the attack / bomb on / get up the pitch / further forward.
+- sit_deep: drop back / sit deep / don't get forward / stay home / hold a deep position.
+- stay_wide: hug the touchline / stay wide / hold the width / stretch the play (winger/full-back).
+- come_inside: tuck in / drift inside / cut inside.
+- stay_central: stay central / hold the middle / don't drift wide.
+
+TEAM-WIDE kinds (set "teamScope":${myScope}, NO playerId) — for the whole side's shape/tempo:
+- all_out_attack: throw everyone forward / gung-ho / chase the game / go for it.
+- park_the_bus: shut up shop / defend the lead / everyone behind the ball / see it out.
+- high_press: press high / hunt them down / win it back fast / get in their faces.
+- drop_off: sit back / drop deeper / give them nothing in behind / contain.
+- play_it_long: go direct / hit it long / launch it / bypass the midfield / route one.
+- keep_it_on_ground: pass it out / play through the lines / keep it on the deck / no hoofball.
+- get_it_wide: use the wings / spread it / attack the flanks / get it out wide.
+- play_narrow: stay compact / play through the middle / narrow.
+- push_up: squeeze up / higher line / step up / push the line up.
+- slow_it_down: keep the ball / game management / take the sting out / kill the tempo / waste time.
+
+TARGETING:
+- Resolve names (tolerate typos/slang) to ids from the rosters.
+- "their striker"=>opponent CF; "their keeper"=>opponent GK; "their winger(s)"=>opponent WM; "their best player/playmaker"=>their most advanced central id.
+- Whole-team per-player intent ("all my midfielders get forward"): prefer a TEAM-WIDE kind if one fits; otherwise emit one per-player directive for each relevant id of YOUR team (midfielders=CM, defenders=CB/FB, forwards=CF/WM).
+
+CONDITIONS ("when", optional — omit fields not stated):
+- Time: "first half"=>toMin 45; "second half"=>fromMin 45; "last 20 min"=>fromMin 70; "after the 60th"/"from 60"=>fromMin 60; "first 15 min"=>toMin 15.
+- Score: scoreState + scoreBy (only when the order ties to the scoreline).
+
+IGNORE the impossible/contradictory/unsupported (e.g. "teleport", "play like Barcelona", "sub him off" — substitutions are not directives). Prefer the most specific kind; keep intensity 1 unless the order implies more/less.
+
+Rosters (ids fixed):
 ${ctx}`;
+};
 
 function extractArray(content: string): unknown[] {
   const s = content.indexOf('[');
@@ -61,19 +105,30 @@ function extractArray(content: string): unknown[] {
 
 // Keep only well-formed, in-range directives; coerce the rest. Impossible /
 // malformed entries are dropped so the engine only ever sees valid input.
-function validate(raw: unknown[]): Directive[] {
+function validate(raw: unknown[], myTeam: Side): Directive[] {
   const out: Directive[] = [];
+  const myScope = myTeam === 'home' ? 0 : 1;
   for (const r of raw) {
     if (!r || typeof r !== 'object') continue;
     const d = r as Record<string, unknown>;
     const kind = String(d.kind ?? '');
-    const playerId = num(d.playerId, -1);
-    if (!VALID_KINDS.has(kind) || playerId < 0 || playerId > 21) continue;
-    const dir: Directive = { playerId, kind, intensity: Math.max(0, Math.min(1, num(d.intensity, 1))) };
-    if (kind === 'man_mark' || kind === 'target_player') {
-      const t = num(d.targetId, -1);
-      if (t < 0 || t > 21) continue;           // these kinds need a valid target
-      dir.targetId = t;
+    if (!VALID_KINDS.has(kind)) continue;
+    const intensity = Math.max(0, Math.min(1, num(d.intensity, 1)));
+    let dir: Directive;
+    if (TEAM_KIND_SET.has(kind)) {
+      // Team-wide dial command: default to the manager's side; honour an explicit
+      // valid teamScope (0/1) if the model set one (e.g. ordering the opponent).
+      const ts = num(d.teamScope, myScope);
+      dir = { playerId: -1, teamScope: ts === 0 || ts === 1 ? ts : myScope, kind, intensity };
+    } else {
+      const playerId = num(d.playerId, -1);
+      if (playerId < 0 || playerId > 21) continue;
+      dir = { playerId, kind, intensity };
+      if (kind === 'man_mark' || kind === 'target_player') {
+        const t = num(d.targetId, -1);
+        if (t < 0 || t > 21) continue;          // these kinds need a valid target
+        dir.targetId = t;
+      }
     }
     const w = (d.when ?? {}) as Record<string, unknown>;
     const when: Directive['when'] = {};
@@ -192,8 +247,8 @@ export function rulesParse(text: string, spec: MatchSpec): { directives: Directi
 // Compile free text -> directives. The rules fast-path handles common orders
 // instantly (no LLM); anything fuzzy falls back to the model. Cached by
 // (roster + text) so a given instruction compiles once and replays are stable.
-export async function compileTactics(text: string, spec: MatchSpec): Promise<CompileResult> {
-  const ctx = rosterContext(spec);
+export async function compileTactics(text: string, spec: MatchSpec, myTeam: Side = 'home'): Promise<CompileResult> {
+  const ctx = rosterContext(spec, myTeam);
   const cacheKey = `${ctx} ${text.trim()}`;
   const hit = cache.get(cacheKey);
   if (hit) return { directives: hit, raw: '', cached: true };
@@ -208,17 +263,17 @@ export async function compileTactics(text: string, spec: MatchSpec): Promise<Com
       method: 'POST',
       headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
       body: JSON.stringify({ model: MODEL, temperature: 0, max_tokens: 512, messages: [
-        { role: 'system', content: SYSTEM(ctx) }, { role: 'user', content: text },
+        { role: 'system', content: SYSTEM(ctx, myTeam) }, { role: 'user', content: text },
       ] }),
       signal: AbortSignal.timeout(12000),
     });
     const j = await res.json() as { choices?: { message?: { content?: string } }[]; error?: unknown };
     if (res.ok) {
       const content = j.choices?.[0]?.message?.content ?? '[]';
-      const directives = validate(extractArray(content));
+      const directives = validate(extractArray(content), myTeam);
       // Model returned nothing usable: try the offline parser before giving up.
       if (directives.length === 0) {
-        const rp = validate(rulesParse(text, spec).directives as unknown[]);
+        const rp = validate(rulesParse(text, spec).directives as unknown[], myTeam);
         if (rp.length) { cache.set(cacheKey, rp); return { directives: rp, raw: 'llm-empty->rules', cached: false }; }
       }
       cache.set(cacheKey, directives);
@@ -228,7 +283,7 @@ export async function compileTactics(text: string, spec: MatchSpec): Promise<Com
   } catch { /* timeout / network error — fall through to the offline parser */ }
 
   // Fallback: offline rules parser (no key, or the LLM call failed/timed out).
-  const fb = validate(rulesParse(text, spec).directives as unknown[]);
+  const fb = validate(rulesParse(text, spec).directives as unknown[], myTeam);
   cache.set(cacheKey, fb);
   return { directives: fb, raw: 'rules(fallback)', cached: false,
     error: KEY ? 'the model was unreachable — used the offline parser' : 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
