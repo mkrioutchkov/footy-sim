@@ -48,13 +48,26 @@ Written by `web/backend/match.ts → buildSpec()`; consumed by the engine's
     "tactics": { /* the 5 dials + formation, see Tactics below */ },
     "players": [ { "name": "…", "attrs": { /* PlayerAttributes */ } }, … ]  // 11, sorted by slot (GK first)
   },
-  "away": { … same shape … }
+  "away": { … same shape … },
+
+  // OPTIONAL — plain-English tactics, compiled to directives (engine P1, live).
+  // Player ids are RESOLVED to engine ids (0..21) by the caller; the engine
+  // works purely in ids. Omit the block entirely for no directives.
+  "directives": [
+    { "playerId": 3, "kind": "man_mark", "targetId": 19, "intensity": 0.9,
+      "when": { "minuteMod": 2, "minuteEq": 1, "scoreState": "losing", "scoreBy": 1 } }
+  ]
 }
 ```
 - `players`: exactly 11 per team, ordered by squad slot. `attrs` is
   `PlayerAttributes` (`speed, passing, creativity, shooting, tackling,
   positioning, stamina`, each 0–100) — see `web/frontend/types.ts`.
 - The fixed-22 invariant: home = engine ids 0–10, away = 11–21.
+- `directives[].kind` ∈ `man_mark | shoot_on_sight | get_forward | sit_deep |
+  target_player`. `targetId` for man_mark/target_player. `when` (all optional):
+  `minuteMod`/`minuteEq` (active when `minute % minuteMod == minuteEq`; default
+  always), `scoreState` ∈ `winning|drawing|losing` `scoreBy` N. Conditions are
+  evaluated each tick from clock+score (pure, deterministic). See docs/TACTICS.md.
 
 ## OUTPUT — summary JSON (engine → web)
 

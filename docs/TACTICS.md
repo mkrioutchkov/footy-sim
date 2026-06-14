@@ -102,7 +102,7 @@ ever executes a **bounded palette** of effects, so it can't go off the rails.
 
 | Phase | What | Where |
 |---|---|---|
-| **P1** | DSL + **engine interpreter**: ~4 directives + conditions; engine reads a `directives` block in `spec.json` and executes it. Prove "Nesta marks Messi" from hand-written JSON. **No LLM.** | engine + CONTRACT |
+| **P1 ✅ done** | DSL + **engine interpreter**: 5 directives (man_mark, shoot_on_sight, get_forward, sit_deep, target_player) + minute/score conditions; engine reads a `directives` block in `spec.json` and executes it each tick. Proven from hand-written specs ("Nesta marks Messi on odd minutes"), deterministic, **no LLM**. | engine + CONTRACT |
 | **P2** | **Live deltas + timeline**: engine accepts `(clock, delta)` at runtime over the watch channel; backend records the ordered timeline; match = seed + deltas. | engine + backend |
 | **P3** | **Text -> DSL compiler**: rules parser first, then Haiku fallback (constrained JSON, roster context, validate/coerce, cache). | backend |
 | **P4** | **Web UX**: perpetual tactics textbox, interpretation receipt, shout-to-officials subs, pause-to-order live application. | frontend |
