@@ -87,14 +87,23 @@ receipt. Impossible -> ignore (+ morale). Unknown name -> drop/ask. Out-of-gramm
 -> nearest supported set, stated. The LLM reads arbitrary intent; the engine only
 ever executes a **bounded palette** of effects, so it can't go off the rails.
 
-## LLM details
+## LLM details (built — `web/backend/tactics.ts`)
 
-- **Provider**: Claude **Haiku** via the Anthropic API (`ANTHROPIC_API_KEY` in the
-  backend env). Structured/tool JSON output forces valid DSL. Cost is trivial
-  (~500 in / ~300 out per shout, a few per match -> well under a cent).
-- **Determinism**: kept via cache-by-text (compile once, freeze). A local model
-  (Ollama, temp 0 + seed) is the fully-reproducible/free alternative; build the
-  compiler provider-agnostic (`compileTactics(text, context) -> DSL`).
+- **Provider-agnostic**: any **OpenAI-compatible** `/chat/completions` endpoint,
+  configured by env vars in `web/backend/.env` (gitignored):
+  ```
+  TACTICS_LLM_API_KEY=...            # required
+  TACTICS_LLM_BASE_URL=https://api.xiaomimimo.com/v1   # default (Xiaomi MiMo)
+  TACTICS_LLM_MODEL=mimo-v2-flash                       # default (budget)
+  ```
+  Defaults to MiMo's budget model; point `BASE_URL`/`MODEL` at a local **Ollama**
+  (`http://localhost:11434/v1`) for instant + free + reproducible, or any other
+  provider. Cost on MiMo flash is ~420 tokens/edit (<<1c).
+- **Determinism**: cache-by-(roster+text) — the model runs once per unique
+  instruction and the result is frozen, so replays stay byte-identical.
+- **Latency note**: mimo-v2-flash queues badly under load (~60s observed). For
+  snappy live use, prefer local Ollama or add the rules-parser fast-path so
+  common orders never hit the LLM.
 - **No-LLM baseline**: the rules parser alone (ASCII grids + simple orders) is a
   shippable, fully-deterministic floor; the LLM is the upgrade for fuzzy text.
 
@@ -104,7 +113,7 @@ ever executes a **bounded palette** of effects, so it can't go off the rails.
 |---|---|---|
 | **P1 ✅ done** | DSL + **engine interpreter**: 5 directives (man_mark, shoot_on_sight, get_forward, sit_deep, target_player) + minute/score conditions; engine reads a `directives` block in `spec.json` and executes it each tick. Proven from hand-written specs ("Nesta marks Messi on odd minutes"), deterministic, **no LLM**. | engine + CONTRACT |
 | **P2 ✅ done** | **Live deltas + timeline**: a match is `seed + timeline` of timed directive sets (engine applies them at the recorded clocks — replays identically). A mid-watch `tactics` edit appends to the timeline at the watched clock and re-sims with `--stream-from`, resuming seamlessly (the prefix is byte-identical). Verified live: edit at 2533ms resumed there and engaged the mark. | engine + backend |
-| **P3** | **Text -> DSL compiler**: rules parser first, then Haiku fallback (constrained JSON, roster context, validate/coerce, cache). | backend |
+| **P3 ✅ done** | **Text -> DSL compiler** (`web/backend/tactics.ts`): provider-agnostic OpenAI-compatible call (default MiMo flash), strict-schema prompt + roster context, validate/coerce + cache-by-text. Wired into the watch socket ({type:'tactics', text} -> compile -> receipt -> timeline). Proven on MiMo flash. Follow-on: rules-parser fast-path for instant common orders. | backend |
 | **P4** | **Web UX**: perpetual tactics textbox, interpretation receipt, shout-to-officials subs, pause-to-order live application. | frontend |
 | **P5** | **Morale / compliance**: `discipline` + `morale` attrs; compliance gating; instructions feed morale back. | engine + UI |
 | **Ongoing** | Grow the directive vocabulary, formation library, replays/sharing. | both |
