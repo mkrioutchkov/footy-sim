@@ -23,3 +23,12 @@ _testmatch.json
 server/data/
 *.sqlite
 *.sqlite-*
+
+# scratch / debug dumps — leading-underscore is the scratch convention
+_*
+/da.json
+/db.json
+/det_*.json
+/out_*.txt
+/err_*.txt
+/s88.json
