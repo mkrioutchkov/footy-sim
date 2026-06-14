@@ -398,6 +398,12 @@ public:
     // applyDirectives() (stateless, so deterministic).
     struct DirectiveBias { bool shootOnSight=false; double pushUp=0.0; int passTargetId=-1; double passTargetBias=0.0; };
     std::array<DirectiveBias, 22> directiveBias = {};
+    // Timed plan changes (P2): each entry REPLACES the active directive set once
+    // the clock reaches atMs. The match is then a pure function of seed + this
+    // timeline, so it replays identically. Applied at the top of applyDirectives.
+    struct TimelineEntry { double atMs = 0.0; std::vector<Directive> directives; };
+    std::vector<TimelineEntry> directiveTimeline;
+    size_t directiveTimelineIdx = 0;
     void applyDirectives();
 
     // ── Lifecycle ──

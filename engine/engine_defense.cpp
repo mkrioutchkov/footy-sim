@@ -19,6 +19,13 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
 // function of clock + score — NO rng (any draw here would desync the stream).
 void GameEngine::applyDirectives() {
     directiveBias.fill({});
+    // P2: advance the timeline — a plan change whose time has arrived replaces
+    // the active directive set. Clock-driven (no rng), so replays are identical.
+    while (directiveTimelineIdx < directiveTimeline.size()
+           && state.clockMs >= directiveTimeline[directiveTimelineIdx].atMs) {
+        directives = directiveTimeline[directiveTimelineIdx].directives;
+        directiveTimelineIdx++;
+    }
     if (directives.empty()) return;
     int minute = static_cast<int>(state.clockMs / 60000.0);
     for (const auto& d : directives) {

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <algorithm>
 
 namespace {
 // Load one team from a match-spec JSON object into a roster override + Config.
@@ -108,6 +109,20 @@ int main(int argc, char* argv[]) {
         loadTeam(spec["away"], engine.awayRoster, engine.awayConfig);
         if (spec.contains("directives") && spec["directives"].is_array())
             parseDirectives(spec["directives"], engine.directives);
+        // Timed plan changes (P2): [{atMs, directives:[...]}], applied when the
+        // clock reaches atMs. The watch flow records the manager's mid-match
+        // edits here so the match replays identically.
+        if (spec.contains("timeline") && spec["timeline"].is_array()) {
+            for (const auto& e : spec["timeline"]) {
+                GameEngine::TimelineEntry te;
+                te.atMs = e.contains("atMs") && e["atMs"].is_number() ? e["atMs"].get<double>() : 0.0;
+                if (e.contains("directives") && e["directives"].is_array())
+                    parseDirectives(e["directives"], te.directives);
+                engine.directiveTimeline.push_back(std::move(te));
+            }
+            std::sort(engine.directiveTimeline.begin(), engine.directiveTimeline.end(),
+                      [](const GameEngine::TimelineEntry& a, const GameEngine::TimelineEntry& b) { return a.atMs < b.atMs; });
+        }
         engine.configOverride = true;
         debugMode = false;  // never equalize a real team's attributes
     }
