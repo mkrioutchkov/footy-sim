@@ -39,6 +39,41 @@ void loadTeam(const nlohmann::json& t, GameEngine::RosterOverride& ro, GameEngin
     }
     ro.active = true;
 }
+
+// Parse the optional "directives" block (plain-English tactics, compiled to a
+// structured form by the caller). Player ids are already resolved to 0..21.
+// Shape: [{"playerId":3,"kind":"man_mark","targetId":19,"intensity":0.9,
+//          "when":{"minuteMod":2,"minuteEq":1,"scoreState":"losing","scoreBy":1}}]
+void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directive>& out) {
+    auto num = [](const nlohmann::json& o, const char* k, double d) {
+        return o.contains(k) && o[k].is_number() ? o[k].get<double>() : d;
+    };
+    for (const auto& d : arr) {
+        GameEngine::Directive dir;
+        dir.playerId = static_cast<int>(num(d, "playerId", -1));
+        std::string k = d.contains("kind") && d["kind"].is_string() ? d["kind"].get<std::string>() : "";
+        if (k == "man_mark")            dir.kind = GameEngine::DirectiveKind::ManMark;
+        else if (k == "shoot_on_sight") dir.kind = GameEngine::DirectiveKind::ShootOnSight;
+        else if (k == "get_forward")    dir.kind = GameEngine::DirectiveKind::GetForward;
+        else if (k == "sit_deep")       dir.kind = GameEngine::DirectiveKind::SitDeep;
+        else if (k == "target_player")  dir.kind = GameEngine::DirectiveKind::TargetPlayer;
+        else continue;                  // unknown directive — ignore
+        dir.targetId = static_cast<int>(num(d, "targetId", -1));
+        dir.intensity = num(d, "intensity", 1.0);
+        if (d.contains("when")) {
+            const auto& w = d["when"];
+            dir.minuteMod = std::max(1, static_cast<int>(num(w, "minuteMod", 1)));
+            dir.minuteEq  = static_cast<int>(num(w, "minuteEq", 0));
+            dir.scoreBy   = static_cast<int>(num(w, "scoreBy", 0));
+            std::string s = w.contains("scoreState") && w["scoreState"].is_string() ? w["scoreState"].get<std::string>() : "";
+            if (s == "winning")      dir.scoreState = GameEngine::CondScore::Winning;
+            else if (s == "drawing") dir.scoreState = GameEngine::CondScore::Drawing;
+            else if (s == "losing")  dir.scoreState = GameEngine::CondScore::Losing;
+        }
+        if (dir.playerId < 0 || dir.playerId >= 22) continue;   // fixed-22 guard
+        out.push_back(dir);
+    }
+}
 }
 
 int main(int argc, char* argv[]) {
@@ -71,6 +106,8 @@ int main(int argc, char* argv[]) {
         if (spec.contains("minutes") && spec["minutes"].is_number()) minutes = spec["minutes"].get<int>();
         loadTeam(spec["home"], engine.homeRoster, engine.homeConfig);
         loadTeam(spec["away"], engine.awayRoster, engine.awayConfig);
+        if (spec.contains("directives") && spec["directives"].is_array())
+            parseDirectives(spec["directives"], engine.directives);
         engine.configOverride = true;
         debugMode = false;  // never equalize a real team's attributes
     }

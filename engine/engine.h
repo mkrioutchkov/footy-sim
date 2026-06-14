@@ -377,6 +377,29 @@ public:
     RosterOverride homeRoster, awayRoster;
     bool configOverride = false;
 
+    // ── Plain-English tactics (P1): compiled directives the engine executes
+    // each tick. Player ids are resolved (0..21) by the caller. Conditions are a
+    // PURE function of clock + score (no rng — must not perturb the stream).
+    // See docs/TACTICS.md. ──
+    enum class DirectiveKind : uint8_t { ManMark, ShootOnSight, GetForward, SitDeep, TargetPlayer };
+    enum class CondScore : uint8_t { Any, Winning, Drawing, Losing };
+    struct Directive {
+        int playerId = -1;                          // who it applies to (engine id 0..21)
+        DirectiveKind kind = DirectiveKind::ManMark;
+        int targetId = -1;                          // man_mark / target_player target
+        double intensity = 1.0;
+        int minuteMod = 1;                          // active when minute % minuteMod == minuteEq (mod 1 => always)
+        int minuteEq = 0;
+        CondScore scoreState = CondScore::Any;      // active only in this score state
+        int scoreBy = 0;                            // ...by at least N goals (0 => any margin)
+    };
+    std::vector<Directive> directives;
+    // Per-player score nudges the scorers read THIS tick; rebuilt every tick by
+    // applyDirectives() (stateless, so deterministic).
+    struct DirectiveBias { bool shootOnSight=false; double pushUp=0.0; int passTargetId=-1; double passTargetBias=0.0; };
+    std::array<DirectiveBias, 22> directiveBias = {};
+    void applyDirectives();
+
     // ── Lifecycle ──
     GameEngine();
     void initWithSeed(int seed);

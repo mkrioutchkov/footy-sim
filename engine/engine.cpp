@@ -696,6 +696,7 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     // his first marker for the rest of the match, degrading coordination.
     for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; bb.markedOpponents.fill(-1); }
     updateTeamAssignments();
+    applyDirectives();
     tickAgents(sdt, true);
     if (goalKickMonitor.distributeTimer > 0) {
         goalKickMonitor.distributeTimer -= sdt;

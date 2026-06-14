@@ -11,6 +11,53 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
     assignmentByPlayer[player.id] = {role, opponentId, clamp(x, 35.0, PITCH_W - 35.0), clamp(y, 35.0, PITCH_H - 35.0)};
 }
 
+// ── Plain-English tactics interpreter ──
+// Runs once per tick AFTER updateTeamAssignments() (which wipes+rebuilds the
+// assignment array) and BEFORE tickAgents() reads it. man_mark overrides one
+// assignment slot (goal-side shadow + opponentId, reusing the LaneBlock
+// executor); the bias kinds stash a per-player nudge the scorers consult. Pure
+// function of clock + score — NO rng (any draw here would desync the stream).
+void GameEngine::applyDirectives() {
+    directiveBias.fill({});
+    if (directives.empty()) return;
+    int minute = static_cast<int>(state.clockMs / 60000.0);
+    for (const auto& d : directives) {
+        Player* p = playerById(d.playerId);
+        if (!p) continue;
+        // Condition: minute modulo (mod 1 => always active).
+        int want = ((d.minuteEq % d.minuteMod) + d.minuteMod) % d.minuteMod;
+        if ((minute % d.minuteMod) != want) continue;
+        // Condition: score state for this player's team.
+        if (d.scoreState != CondScore::Any) {
+            int diff = p->team == Team::Home ? state.homeScore - state.awayScore
+                                             : state.awayScore - state.homeScore;
+            int n = std::max(1, d.scoreBy);
+            bool ok = (d.scoreState == CondScore::Winning && diff >= n)
+                   || (d.scoreState == CondScore::Drawing && diff == 0)
+                   || (d.scoreState == CondScore::Losing  && diff <= -n);
+            if (!ok) continue;
+        }
+        switch (d.kind) {
+            case DirectiveKind::ManMark: {
+                Player* t = playerById(d.targetId);
+                if (!t) break;
+                double fd = fdFor(p->team), ownGoalX = ownGoalXFor(p->team);
+                double tx = lerp(t->x, ownGoalX + fd * 36.0, 0.20);   // goal-side of the man
+                double ty = lerp(t->y, PITCH_H / 2.0, 0.05);
+                setAssignment(*p, DefensiveTask::LaneBlock, tx, ty, d.targetId);
+                break;
+            }
+            case DirectiveKind::ShootOnSight: directiveBias[p->id].shootOnSight = true; break;
+            case DirectiveKind::GetForward:   directiveBias[p->id].pushUp += 90.0 * d.intensity; break;
+            case DirectiveKind::SitDeep:      directiveBias[p->id].pushUp -= 90.0 * d.intensity; break;
+            case DirectiveKind::TargetPlayer:
+                directiveBias[p->id].passTargetId = d.targetId;
+                directiveBias[p->id].passTargetBias = 0.30 * d.intensity;
+                break;
+        }
+    }
+}
+
 void GameEngine::updateTeamAssignments() {
     Player* carrier = playerById(state.ball.controllerId);
     if (!carrier || carrier->role == Role::GK) {
