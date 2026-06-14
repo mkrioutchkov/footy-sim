@@ -404,6 +404,13 @@ public:
     struct TimelineEntry { double atMs = 0.0; std::vector<Directive> directives; };
     std::vector<TimelineEntry> directiveTimeline;
     size_t directiveTimelineIdx = 0;
+    // get_forward/sit_deep relocate a player's formation ANCHOR (homeX) up or
+    // down the pitch — every positioning candidate keys off homeX, so the whole
+    // shape (attacking base AND defensive station) moves coherently. We snapshot
+    // the kickoff anchors once, then each tick rebuild homeX = base + fd*shift so
+    // dropping a directive restores the original station. Pure clock function.
+    std::array<double, 22> baseHomeX = {};
+    bool baseHomeXCaptured = false;
     void applyDirectives();
 
     // ── Lifecycle ──

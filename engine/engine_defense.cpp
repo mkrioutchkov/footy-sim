@@ -19,6 +19,14 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
 // function of clock + score — NO rng (any draw here would desync the stream).
 void GameEngine::applyDirectives() {
     directiveBias.fill({});
+    // Snapshot the kickoff formation anchors the first time through, then reset
+    // every player's homeX to its base — a get_forward/sit_deep that lapsed (time
+    // window passed, plan replaced) must spring back to the original station.
+    if (!baseHomeXCaptured) {
+        for (auto& p : state.players) baseHomeX[p.id] = p.homeX;
+        baseHomeXCaptured = true;
+    }
+    for (auto& p : state.players) p.homeX = baseHomeX[p.id];
     // P2: advance the timeline — a plan change whose time has arrived replaces
     // the active directive set. Clock-driven (no rng), so replays are identical.
     while (directiveTimelineIdx < directiveTimeline.size()
@@ -54,8 +62,15 @@ void GameEngine::applyDirectives() {
                 break;
             }
             case DirectiveKind::ShootOnSight: directiveBias[p->id].shootOnSight = true; break;
-            case DirectiveKind::GetForward:   directiveBias[p->id].pushUp += 90.0 * d.intensity; break;
-            case DirectiveKind::SitDeep:      directiveBias[p->id].pushUp -= 90.0 * d.intensity; break;
+            // Relocate the formation anchor up/down the pitch (fd-aware, clamped to
+            // a sane band so a CM can't end up parked in the opponent's six-yard
+            // box). 150px is a full role-band — visibly higher without breaking shape.
+            case DirectiveKind::GetForward:
+                p->homeX = clamp(baseHomeX[p->id] + fdFor(p->team) * 210.0 * d.intensity, 30.0, PITCH_W - 30.0);
+                break;
+            case DirectiveKind::SitDeep:
+                p->homeX = clamp(baseHomeX[p->id] - fdFor(p->team) * 150.0 * d.intensity, 30.0, PITCH_W - 30.0);
+                break;
             case DirectiveKind::TargetPlayer:
                 directiveBias[p->id].passTargetId = d.targetId;
                 directiveBias[p->id].passTargetBias = 0.30 * d.intensity;

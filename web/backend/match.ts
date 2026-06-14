@@ -191,6 +191,8 @@ export class MatchStream {
     if (!directives && typeof cmd.text === 'string' && cmd.text.trim()) {
       const r = await compileTactics(cmd.text, this.baseSpec);
       directives = r.directives;
+      console.log(`[tactics] "${cmd.text}" -> ${r.raw || 'llm'} | ${directives.length} directive(s)` +
+        (r.error ? ` | ERROR: ${r.error}` : '') + ` | ${JSON.stringify(directives)}`);
       if (this.ws.readyState === 1) {
         this.ws.send(JSON.stringify({ tacticsReceipt: { text: cmd.text, directives, error: r.error ?? null } }));
       }
