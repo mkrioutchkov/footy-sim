@@ -129,7 +129,7 @@ app.post('/api/fixtures/:id/play', async (req: any, reply) => {
   if (!fx) return reply.code(404).send({ error: 'fixture not found' });
   const team = getTeamWithPlayers(teamId)!;
   if (fx.league_id !== team.leagueId) return reply.code(403).send({ error: 'not your league' });
-  const result = playFixture(fx.id);
+  const result = await playFixture(fx.id);
   return { result, standings: standings(team.leagueId) };
 });
 
@@ -148,7 +148,8 @@ app.post('/api/advance', async (req: any, reply) => {
   const roundFixtures = db.prepare(
     'SELECT id FROM fixtures WHERE league_id = ? AND round = ? AND played = 0 ORDER BY id',
   ).all(team.leagueId, mine.round) as { id: number }[];
-  const results = roundFixtures.map(f => playFixture(f.id));
+  // Sim the whole matchday concurrently (non-blocking) instead of one-at-a-time.
+  const results = await Promise.all(roundFixtures.map(f => playFixture(f.id)));
   const myResult = results.find(r => r.fixtureId === mine.id) ?? null;
   return { round: mine.round, myFixtureId: mine.id, myResult, results, standings: standings(team.leagueId) };
 });
@@ -164,7 +165,7 @@ app.post('/api/play-next', async (req: any, reply) => {
        AND (home_team_id = ? OR away_team_id = ?) ORDER BY round, id LIMIT 1`,
   ).get(team.leagueId, teamId, teamId) as { id: number } | undefined;
   if (!fx) return reply.code(404).send({ error: 'no upcoming fixture' });
-  const result = playFixture(fx.id);
+  const result = await playFixture(fx.id);
   return { fixtureId: fx.id, result, standings: standings(team.leagueId) };
 });
 

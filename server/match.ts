@@ -1,4 +1,4 @@
-import { spawnSync, spawn, type ChildProcessByStdio } from 'node:child_process';
+import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -53,26 +53,36 @@ export interface PlayResult { fixtureId: number; homeScore: number; awayScore: n
 
 // Run a fixture through the engine (deterministic via the stored seed) and
 // persist the score. Idempotent: a played fixture returns its stored result.
-export function playFixture(fixtureId: number): PlayResult {
+// ASYNC (spawn, not spawnSync) so a ~1-2s (slower under load) match sim never
+// blocks the Node event loop — that froze the watch socket and serialised a
+// whole matchday. A round's fixtures can now sim concurrently (Promise.all).
+export function playFixture(fixtureId: number): Promise<PlayResult> {
   const fx = getFixture(fixtureId);
-  if (!fx) throw new Error('fixture not found');
+  if (!fx) return Promise.reject(new Error('fixture not found'));
   if (fx.played) {
-    return { fixtureId, homeScore: fx.home_score ?? 0, awayScore: fx.away_score ?? 0, alreadyPlayed: true };
+    return Promise.resolve({ fixtureId, homeScore: fx.home_score ?? 0, awayScore: fx.away_score ?? 0, alreadyPlayed: true });
   }
   const file = writeSpec(fx);
-  const res = spawnSync(ENGINE, ['--match', file, '--summary', '--no-debug'], {
-    encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 120000,
+  return new Promise<PlayResult>((resolve, reject) => {
+    const child = spawn(ENGINE, ['--match', file, '--summary', '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '', err = '';
+    child.stdout.on('data', d => { out += d.toString(); });
+    child.stderr.on('data', d => { err += d.toString(); });
+    const to = setTimeout(() => { child.kill(); reject(new Error('engine timeout')); }, 120000);
+    child.on('error', e => { clearTimeout(to); reject(e); });
+    child.on('close', () => {
+      clearTimeout(to);
+      try {
+        const lines = out.split(/\r?\n/).filter(l => l.trim().startsWith('{'));
+        const summary = JSON.parse(lines[lines.length - 1]);
+        const homeScore = summary.homeScore ?? 0;
+        const awayScore = summary.awayScore ?? 0;
+        db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?')
+          .run(homeScore, awayScore, fixtureId);
+        resolve({ fixtureId, homeScore, awayScore, alreadyPlayed: false });
+      } catch (e) { reject(new Error(`engine parse failed: ${err || String(e)}`)); }
+    });
   });
-  if (res.status !== 0 && !res.stdout) {
-    throw new Error(`engine failed: ${res.stderr || res.error?.message || 'unknown'}`);
-  }
-  const lines = res.stdout.split(/\r?\n/).filter(l => l.trim().startsWith('{'));
-  const summary = JSON.parse(lines[lines.length - 1]);
-  const homeScore = summary.homeScore ?? 0;
-  const awayScore = summary.awayScore ?? 0;
-  db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?')
-    .run(homeScore, awayScore, fixtureId);
-  return { fixtureId, homeScore, awayScore, alreadyPlayed: false };
 }
 
 // ── Live watch: spawn the engine for a fixture and pace frames to one client ──
