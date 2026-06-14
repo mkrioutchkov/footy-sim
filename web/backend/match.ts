@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
 import { db } from './db.ts';
@@ -99,20 +99,36 @@ export class MatchStream {
   private paused = false;
   private latest: any = null;
   private alive = true;
+  // P2: mid-match plan edits become a timeline of {atMs, directives}. Editing at
+  // 46' re-sims the match with the new timeline and resumes streaming from 46'
+  // (--stream-from) — seamless because frames 0..46' are byte-identical.
+  private timeline: { atMs: number; directives: unknown }[] = [];
+  private fromMs = 0;
+  private baseSpec: any;
+  private sessionSpecPath: string;
 
   constructor(
     private ws: WebSocket, private specPath: string, private seed: number,
     private homeName = 'HOME', private awayName = 'AWAY',
   ) {
+    this.baseSpec = JSON.parse(readFileSync(specPath, 'utf8'));
+    this.sessionSpecPath = specPath.replace(/\.json$/, '') + '.watch.json';
+    this.writeSessionSpec();
     this.start();
     ws.on('message', (d: Buffer) => this.onCommand(d));
     ws.on('close', () => this.dispose());
   }
 
+  private writeSessionSpec(): void {
+    writeFileSync(this.sessionSpecPath, JSON.stringify({ ...this.baseSpec, timeline: this.timeline }));
+  }
+
   private start(): void {
     this.stopProc();
     this.prevClock = null; this.pending = []; this.buffer = '';
-    const child = spawn(ENGINE, ['--match', this.specPath, '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] }) as Proc;
+    const args = ['--match', this.sessionSpecPath, '--no-debug'];
+    if (this.fromMs > 0) args.push('--stream-from', String(this.fromMs));
+    const child = spawn(ENGINE, args, { stdio: ['ignore', 'pipe', 'pipe'] }) as Proc;
     this.proc = child;
     child.stdout.on('data', (data: Buffer) => {
       if (this.proc !== child || !this.alive) return;
@@ -158,6 +174,15 @@ export class MatchStream {
       } else if (cmd.type === 'speed' && typeof cmd.value === 'number') {
         this.speed = Math.max(0.25, Math.min(60, cmd.value));
         if (this.latest) this.send(this.latest);
+      } else if (cmd.type === 'tactics' && Array.isArray((cmd as { directives?: unknown }).directives)) {
+        // Edit the plan mid-match: record it on the timeline at the watched clock,
+        // re-sim, and resume from there (frames before it are unchanged).
+        const t = this.latest?.clockMs ?? 0;
+        this.timeline.push({ atMs: t, directives: (cmd as { directives: unknown }).directives });
+        this.writeSessionSpec();
+        this.fromMs = t;
+        this.paused = false;
+        this.start();
       }
     } catch { /* ignore */ }
   }

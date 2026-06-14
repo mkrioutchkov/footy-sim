@@ -84,6 +84,7 @@ int main(int argc, char* argv[]) {
     bool debugMode = true;
     std::string tracePath;
     std::string matchPath;
+    double streamFromMs = 0;   // suppress frame output before this clock (live re-sim resume)
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -91,6 +92,7 @@ int main(int argc, char* argv[]) {
         else if (arg == "--no-debug") debugMode = false;
         else if (arg == "--trace" && i + 1 < argc) tracePath = argv[++i];
         else if (arg == "--match" && i + 1 < argc) matchPath = argv[++i];
+        else if (arg == "--stream-from" && i + 1 < argc) streamFromMs = std::atof(argv[++i]);
         else if (i == 1 && arg[0] != '-') seed = std::atoi(argv[i]);
         else if (i == 2 && arg[0] != '-') minutes = std::atoi(argv[i]);
     }
@@ -165,7 +167,7 @@ int main(int argc, char* argv[]) {
         engine.traceEventQueue.clear();
 
         // Output JSON every ~33ms (30fps) for real-time display
-        if (streamFrames && engine.state.clockMs - lastOutput >= 33.0) {
+        if (streamFrames && engine.state.clockMs >= streamFromMs && engine.state.clockMs - lastOutput >= 33.0) {
             lastOutput = engine.state.clockMs;
             std::cout << engine.getJSON() << std::endl;
         }
