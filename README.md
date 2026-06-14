@@ -1,175 +1,96 @@
-# Footy Sim
+# footy-sim
 
-2D football simulation engine. C++ simulation core, TypeScript browser renderer.
+An FM-style football game: a **deterministic C++ match engine** wrapped in a
+**web game layer** (create a club, set tactics, play a season of fixtures, watch
+the 2D match). You manage by setting tactics — matches simulate deterministically
+and you watch the replay.
 
-## Architecture
+## Layout
 
-```
-native/             C++ simulation engine
-  main.cpp          CLI entry point (live + benchmark modes)
-  engine.h          GameEngine class declaration
-  engine.cpp        Engine core loop
-  engine_actions.cpp     Action execution (passes, shots, tackles)
-  engine_physics.cpp     Physics (ball movement, collisions)
-  engine_defense.cpp     Defense logic and helpers
-  engine_defense_helpers.cpp
-  engine_gk.cpp      Goalkeeper-specific engine code
-  engine_setpiece.cpp    Set piece handling
-  agent.h/cpp        PlayerAI — outfield player decision-making
-  agent_defend.cpp       Defensive positioning and tactics
-  agent_movement.cpp     Movement and path logic
-  agent_pass.cpp         Passing decisions
-  agent_pass_helpers.cpp
-  agent_perception.cpp   Player perception and awareness
-  agent_positioning.cpp  Positioning logic
-  agent_positioning_helpers.cpp
-  agent_resolve.cpp      Resolution of ambiguous states
-  agent_scoring.cpp      Scoring chances and shots
-  agent_setpiece.cpp     Set piece AI
-  agent_shoot_dribble.cpp    Shooting and dribbling decisions
-  gk_ai.h/cpp        GKPlayerAI — goalkeeper-specific AI
-  role_ai.h/cpp      Role-specific AI subclasses (CF, WM, CM, CB, FB)
-  types.h/cpp        Core data types (Player, Ball, EngineState, enums)
-  constants.h        Named constants, utility functions
-  stats.h/cpp        StatsCollector — match telemetry
-  trace.h            Binary trace writer
-  rng.h              Deterministic PRNG (splitmix32)
-  small_vector.h     Utility template
-  build_version.h/cpp    Build metadata
-
-src/                TypeScript
-  cpp-server.ts      WebSocket relay for live.exe (paced 30fps)
-  renderer.ts        PixiJS browser renderer
-  native-batch.ts    Parallel benchmark runner
-  native-scenarios.ts    Deterministic scenario checks
-  types.ts           TypeScript type definitions
-  constants.ts       Constants
-
-scripts/            Build scripts (PowerShell)
-  build-native.ps1   C++ compilation and linking
-
-build/              Compiled binaries (gitignored)
-  live.exe           The simulation engine binary
-
-tools/              Python utilities
-  trace_reader.py    Parse and read binary trace files
-  diagnose_trace.py  Trace analysis helper
-
-third_party/        External dependencies
-  nlohmann/          JSON library (header-only)
-```
-
-## Building
-
-Requires Visual Studio with C++ workload (cl.exe) and Node.js.
+Role-based — the engine and the web app are cleanly separable (see
+[docs/CONTRACT.md](docs/CONTRACT.md)):
 
 ```
-npm run build           # Full build (native + TypeScript)
-npm run native:build    # Native C++ only (outputs build/live.exe)
+engine/        C++ match engine            -> build/live.exe   (deterministic sim)
+web/backend/   Fastify + node:sqlite       npm run game  (:4000)   API, auth, DB, match orchestration
+web/frontend/  vanilla-TS SPA + PixiJS     npm run dev   (:5173)   the game UI + 2D match renderer
+tools/         engine harness + py probes  npm run batch | scenarios
+scripts/       build-native.ps1            (engine build)
+docs/          ARCHITECTURE . CONTRACT . TACTICS
+build/  dist/  third_party/                build outputs + deps
 ```
 
-## Running
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full component diagram.
+
+## Quickstart — play the game
+
+Requires Node.js and Visual Studio with the C++ workload (`cl.exe`).
 
 ```
-npm run dev             # Vite dev server (browser)
-npm run cpp-server      # WebSocket relay for live match
-npm run benchmark       # 8×10min parallel benchmark
-npm run scenarios       # Deterministic scenario checks
+npm install
+npm run native:build      # compile the engine -> build/live.exe
+npm run game              # backend API + match-watch socket on :4000
+npm run dev               # frontend on :5173 (proxies /api + /ws -> 4000)
 ```
+Open http://localhost:5173 -> register -> create a club -> Play matchday -> Watch.
+The SQLite DB lives at `web/backend/data/footy.sqlite` (gitignored — delete it to
+wipe all accounts/leagues). `tsx` does **not** hot-reload: restart `npm run game`
+after any `web/backend/` or `engine/` change (rebuild the engine first).
 
-The `npm run benchmark` command runs 8 seeds (101–108) for 10 minutes each via parallel invocations of the native binary.
+## Engine development
 
-## Debugging
-
-### Binary Trace Files
-
-The engine can write per-tick binary traces for offline analysis:
-
-```
-build/live.exe 101 1 --trace match.bin
-```
-
-Then analyze with the Python reader:
-
-```python
-from tools.trace_reader import TraceReader
-t = TraceReader('match.bin')
-for f in t.frames_ms(22000, 24000):
-    b = f.ball
-    print(f'{f.clock_ms:.0f}ms ({b.x:.0f},{b.y:.0f}) ctrl={b.controller_id}')
-```
-
-The trace stores ball position/velocity, all 22 player states, scores, and tagged events (pass, shot, tackle). Useful for diagnosing position jumps, stuck play, and tactical issues.
-
-### Command-Line Arguments
-
-The binary accepts:
+The engine is a standalone deterministic binary:
 
 ```
 build/live.exe <seed> <minutes> [--summary] [--no-debug] [--trace <path>]
+build/live.exe --match <spec.json> [--summary]      # data-driven teams (see CONTRACT.md)
 ```
-
-- `<seed>`: RNG seed (integer, e.g., 101)
-- `<minutes>`: Match duration in minutes (integer, e.g., 10)
-- `--summary`: Output only final JSON summary (fast, no frame streaming)
-- `--no-debug`: Disable attribute equalization (players retain rolled variance)
-- `--trace <path>`: Write binary trace to file for analysis
-
-Examples:
+- `--summary` — print only the final JSON summary (fast; required for batch runs —
+  without it the process streams frames forever and locks the binary).
+- `--no-debug` — keep rolled attribute variance (don't equalize).
+- `--trace <path>` — write a per-tick binary trace for offline analysis.
 
 ```
-build/live.exe 103 10                    # Run seed 103 for 10 minutes, stream frames
-build/live.exe 103 10 --trace debug.bin  # Same, with trace for analysis
-build/live.exe 101 5 --summary           # Fast summary-only benchmark
-build/live.exe 101 5 --no-debug          # Realistic variance, no attribute equalization
+npm run batch            # parallel multi-seed benchmark (tools/native-batch.ts)
+npm run scenarios        # deterministic scenario checks
 ```
 
-### Quality Flags
+**Determinism**: same seed + same spec + same binary = byte-identical output. Use
+it to reproduce bugs and to verify pure refactors (metrics must match exactly).
+Measure on >= 30 seeds — small samples are noise.
 
-The engine tracks automated quality alerts in `StatsCollector`:
-
-| Flag | Detection |
-|------|-----------|
-| `ball_jump` | Ball moved >50px beyond what velocity explains (loose ball only) |
-| `stuckCarrier` | Carrier didn't move for 4.2s |
-| `simulationFreeze` | Ball didn't move for 1.5s |
-| `dizzySpin` | Player accumulated >720° rotation in 2s |
-| `questionableShot` | Shot from bad distance/angle |
-| `questionablePress` | Primary presser not the closest defender |
-
-These appear in the benchmark JSON output under `qualityFlags`.
-
-### Seeded Determinism
-
-All matches use `SeededRNG` (splitmix32). Same seed = identical match. Use this to reproduce bugs:
-
+**Traces**: `build/live.exe 101 1 --trace t.bin`, then read with the python tools:
+```python
+from tools.trace_reader import TraceReader
+t = TraceReader('t.bin')
+for f in t.frames: ...
 ```
-build/live.exe 103 10              # Run seed 103 for 10 minutes
-build/live.exe 103 10 --trace t.bin # With trace for analysis
-```
+The trace stores ball + all 22 player states, scores, and tagged events.
 
-### Comparing Benchmarks
+## Docs
 
-Run before and after a change with the same seeds:
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the full system diagram + components.
+- [docs/CONTRACT.md](docs/CONTRACT.md) — the engine<->web interface (spec.json in, summary/stream out, the `MatchEvent` types, tactic dials). Freeze before parallel work.
+- [docs/TACTICS.md](docs/TACTICS.md) — the plain-English tactics feature: design + phased roadmap.
 
-```
-npm run benchmark   # Uses seeds 101-108, 10 minutes each
-```
+## Roadmap
 
-Key metrics to compare: goals/match, shots/match, pass completion %, offsides, quality flags. All must match for a pure refactor. Behavioral changes should show measurable differences.
+The single-player core loop works end to end (auth -> create club -> 8-team league
+vs AI -> set the 5 tactic dials -> play matchdays -> watch -> live table).
 
-### Common Issues
+Next, in order:
+1. **Plain-English tactics** — the flagship feature; see [docs/TACTICS.md](docs/TACTICS.md).
+2. **Solo-loop depth** — pick-XI/lineup, persisted match reports + season
+   leaderboards, season rollover (champion, promotion/relegation, season 2).
+3. **Multiplayer** — shared leagues, human-vs-human fixtures, an auto-sim scheduler.
 
-**Build fails with missing cl.exe**: The build script calls `VsDevCmd.bat` from Visual Studio. Adjust the path in `scripts/build-native.ps1` if your VS install differs.
+Known engine debt: move per-player stats/alerts/decision-audits closer to the
+agent code; track time-in-offside by player/role (CF/WM); add CB-pair
+defensive-line telemetry (line gap, stagger, time holding the line).
 
-**Ball teleport / position jump**: Check the `ball_jump` quality flag. Run a trace and look for large position deltas. Common causes: set piece placement, `updateControlledBall` running during set pieces.
+## Code style
 
-**Blowout scores in 90-min matches**: Check attribute variance (35-90 range in `initWithSeed`). One team may roll significantly better players. The urgency system was removed — if scores seem unrealistic, check GK attribute variance.
-
-## Code Style
-
-- Spaced formatting: `if (x == y) { ... }`, not `if(x==y){...}`
-- Named constants in `constants.h`, not magic numbers
-- Enum comparisons, not string comparisons (`Role::GK` not `"GK"`)
-- Virtual dispatch for role-specific AI behavior
-- Forward declarations preferred over includes where possible
+- Spaced formatting: `if (x == y) { ... }`, not `if(x==y){...}`.
+- Named constants in `engine/constants.h`, not magic numbers.
+- Enum comparisons, not strings (`Role::GK`, not `"GK"`).
+- Virtual dispatch for role-specific AI; forward-declare over `#include` where practical.

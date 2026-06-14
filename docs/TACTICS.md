@@ -1,0 +1,103 @@
+# Plain-English tactics
+
+The differentiator: the manager controls the team by **typing**, not by dragging
+sliders. A perpetual tactical-plan textbox (editable at any moment, including
+mid-match) drives a real conditional instruction system the engine executes —
+not decorators over the 5 dials.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for where every component plugs in.
+
+## The model: a match is a script
+
+A match is a pure function of:
+
+```
+match = f( seed , ordered [ (clock_time, instruction_text) ] )
+```
+
+The textbox at kickoff is the entry at `t=0`; editing it at 46' / 88' appends
+`(46:00, text)` / `(88:00, text)`. That tuple *is* the match — it gives replays,
+highlights, "what-if" branching, and shareable matches (a seed + a script of
+shouts) for free.
+
+## How text becomes behaviour
+
+1. **Compile** (once, per shout): `text -> structured DSL`. A deterministic
+   **rules parser** handles ASCII lineups + simple orders; **Claude Haiku** (with
+   constrained JSON output + both rosters in context) handles the fuzzy/emotional
+   rest. The result is **cached by text-hash**, so the LLM runs once and replays
+   are byte-identical (the engine never calls the LLM).
+2. **Execute** (per tick, in the engine): the DSL is a set of conditional
+   directives that hook into the engine's already score-based decisions — as a
+   targeted score bias or a hard override — gated by player temperament.
+
+### The DSL (sketch)
+
+```jsonc
+{ "directives": [
+  { "player":"Nesta", "when":"minute % 2 == 1", "do":"man_mark", "target":"Messi",   "intensity":0.9 },
+  { "player":"Nesta", "when":"minute % 2 == 0", "do":"man_mark", "target":"Ronaldo", "intensity":0.9 }
+]}
+```
+
+- **Selectors**: a named player, a role ("all CBs"), or everyone.
+- **Conditions**: minute / minute-parity / time bands / score state (winning/
+  losing by N) / man up-or-down / ball zone / phase. (A tiny expression evaluator
+  covers `minute % 2`.)
+- **Directives** (v1, ~4, grows): `man_mark(target)`, `shoot_on_sight`,
+  `get_forward`/`sit_deep`, `target_player(X)`. Each maps onto an existing engine
+  knob (marking assignment, shoot score, positioning bias, pass-target bias).
+- **Compliance**: each directive is applied with weight ~ `intensity x
+  f(discipline, morale, instruction-sanity)` — a low-discipline player drifts off
+  a weird order; impossible orders are ignored and dent morale ("Messi angry").
+
+### ASCII lineups
+
+```
+messi ronaldo
+zidane xavi busquets iniesta
+bale chiellini nesta alves
+    buffon
+```
+Parses bottom-to-top into GK -> defense -> mid -> attack bands, left-to-right
+within a band, names fuzzy-matched to the squad. Illegal shapes (e.g. 5-5-2 = 12
+players) coerce to the nearest legal one (4-4-2) and tell you.
+
+### Subs = "shout to the officials"
+
+A text shout ("take off Nesta, bring on Terry") compiles to a sub, is validated
+(on the bench? subs left?), queues, and applies at the **next dead ball** — then
+the shout is consumed. Invalid -> the official waves you off (feedback).
+
+### Graceful degradation (the product rule)
+
+Every input yields **something reasonable + a visible "here's what I heard"**
+receipt. Impossible -> ignore (+ morale). Unknown name -> drop/ask. Out-of-grammar
+-> nearest supported set, stated. The LLM reads arbitrary intent; the engine only
+ever executes a **bounded palette** of effects, so it can't go off the rails.
+
+## LLM details
+
+- **Provider**: Claude **Haiku** via the Anthropic API (`ANTHROPIC_API_KEY` in the
+  backend env). Structured/tool JSON output forces valid DSL. Cost is trivial
+  (~500 in / ~300 out per shout, a few per match -> well under a cent).
+- **Determinism**: kept via cache-by-text (compile once, freeze). A local model
+  (Ollama, temp 0 + seed) is the fully-reproducible/free alternative; build the
+  compiler provider-agnostic (`compileTactics(text, context) -> DSL`).
+- **No-LLM baseline**: the rules parser alone (ASCII grids + simple orders) is a
+  shippable, fully-deterministic floor; the LLM is the upgrade for fuzzy text.
+
+## Roadmap (risk-first)
+
+| Phase | What | Where |
+|---|---|---|
+| **P1** | DSL + **engine interpreter**: ~4 directives + conditions; engine reads a `directives` block in `spec.json` and executes it. Prove "Nesta marks Messi" from hand-written JSON. **No LLM.** | engine + CONTRACT |
+| **P2** | **Live deltas + timeline**: engine accepts `(clock, delta)` at runtime over the watch channel; backend records the ordered timeline; match = seed + deltas. | engine + backend |
+| **P3** | **Text -> DSL compiler**: rules parser first, then Haiku fallback (constrained JSON, roster context, validate/coerce, cache). | backend |
+| **P4** | **Web UX**: perpetual tactics textbox, interpretation receipt, shout-to-officials subs, pause-to-order live application. | frontend |
+| **P5** | **Morale / compliance**: `discipline` + `morale` attrs; compliance gating; instructions feed morale back. | engine + UI |
+| **Ongoing** | Grow the directive vocabulary, formation library, replays/sharing. | both |
+
+P1 and P2 are valuable and fully deterministic on their own — you could
+hand-write tactical scripts and they'd work — so the feature has a real spine
+even before the LLM layer lands.
