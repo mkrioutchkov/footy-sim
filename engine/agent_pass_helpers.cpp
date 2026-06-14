@@ -67,6 +67,8 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool recyclePass = completion > 0.78 && bl == 0 && receiverPressure == 0 && d < 260.0 && fp >= -80.0 && fp <= 25.0;
     if (safeConnector) sc += (ownProgress < PITCH_W * 0.68 ? 0.18 : 0.10) * recycleMul;
     if (recyclePass) sc += (per.pressureCount <= 1 ? 0.12 : 0.20) * recycleMul;
+    if ((recyclePass || safeConnector) && engine.directiveBias[p.id].simplifyBias > 0.0)
+        sc += engine.directiveBias[p.id].simplifyBias;          // "keep it simple / pass it around"
     if (keeperOutlet) {
         sc += 0.04 + per.pressureCount * 0.04 + (movingTowardOwnGoal ? 0.06 : 0.0);
         if (bl == 0) sc += 0.02;
@@ -115,6 +117,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // ── Cross / cutback scoring ──
     if (isCross) {
         sc += 0.26;
+        if (engine.directiveBias[p.id].crossEarly) sc += 0.42;   // "whip it in early"
         if (t.role == Role::CF) sc += 0.30;
         else if (t.role == Role::WM) sc += 0.10;
         else if (t.role == Role::CM) sc -= 0.34;
@@ -200,6 +203,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     // ── Switch bonus ──
     if (pur == ActionPurpose::Switch) {
+        sc += engine.directiveBias[p.id].switchBias;            // "switch the play / spread it"
         bool carrierTop = (p.y < PITCH_H / 2.0);
         bool targetTop  = (t.y < PITCH_H / 2.0);
         if (carrierTop != targetTop) {

@@ -15,7 +15,7 @@ const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
 const ROLE_SLOTS = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'WM', 'CF', 'WM'];
 // Per-player kinds need a playerId; team-wide kinds need a teamScope (0/1).
 const PLAYER_KINDS = ['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', 'target_player',
-  'stay_wide', 'come_inside', 'stay_central'];
+  'stay_wide', 'come_inside', 'stay_central', 'cross_early', 'switch_play', 'play_simple'];
 const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 'play_it_long',
   'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down'];
 const VALID_KINDS = new Set([...PLAYER_KINDS, ...TEAM_KINDS]);
@@ -68,6 +68,9 @@ PER-PLAYER kinds (need playerId; omit teamScope):
 - stay_wide: hug the touchline / stay wide / hold the width / stretch the play (winger/full-back).
 - come_inside: tuck in / drift inside / cut inside.
 - stay_central: stay central / hold the middle / don't drift wide.
+- cross_early: whip it in / get your crosses in early / get it in the box / don't overdribble out wide.
+- switch_play: switch the play / spread it / change the angle / hit the far side.
+- play_simple: keep it simple / one-twos / don't force it / safe passes / recycle it.
 
 TEAM-WIDE kinds (set "teamScope":${myScope}, NO playerId) — for the whole side's shape/tempo:
 - all_out_attack: throw everyone forward / gung-ho / chase the game / go for it.

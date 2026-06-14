@@ -49,6 +49,6 @@ if __name__ == "__main__":
             print(f"  seed {s:>6}: {'PASS' if ok else 'FAIL'}  {h}  {d.get('homeScore')}-{d.get('awayScore')}")
             if not ok: bad.append(s)
         if bad:
-            print(f"\n❌ DEFAULT MATCH CHANGED for seeds {bad} — tactics work leaked into the no-directive path!")
+            print(f"\n[FAIL] DEFAULT MATCH CHANGED for seeds {bad} — tactics work leaked into the no-directive path!")
             sys.exit(1)
-        print(f"\n✅ default match unchanged across {len(cur)} seeds")
+        print(f"\n[OK] default match unchanged across {len(cur)} seeds")

@@ -121,6 +121,10 @@ void GameEngine::applyDirectives() {
             case DirectiveKind::StayCentral:
                 p->homeY = lerp(baseHomeY[p->id], PITCH_H / 2.0, 0.65 * d.intensity);
                 break;
+            // On-ball passing biases the carrier reads when choosing a pass.
+            case DirectiveKind::CrossEarly: directiveBias[p->id].crossEarly = true; break;
+            case DirectiveKind::SwitchPlay: directiveBias[p->id].switchBias  = 0.20 * d.intensity; break;
+            case DirectiveKind::PlaySimple: directiveBias[p->id].simplifyBias = 0.20 * d.intensity; break;
             default: break;   // team-scoped kinds handled above
         }
     }

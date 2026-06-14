@@ -259,6 +259,7 @@ const TEAM_LABEL: Record<string, string> = {
 const PLAYER_VERB: Record<string, string> = {
   shoot_on_sight: 'shoots on sight', get_forward: 'gets forward', sit_deep: 'sits deep',
   stay_wide: 'stays wide', come_inside: 'comes inside', stay_central: 'stays central',
+  cross_early: 'crosses early', switch_play: 'switches the play', play_simple: 'keeps it simple',
 };
 function condText(w: any): string {
   let c = '';
