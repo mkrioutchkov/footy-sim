@@ -604,7 +604,10 @@ export class MatchRenderer {
       ? `    ${this.restartLabel(state.setPieceState.reason ?? state.setPieceState.type)} ${(state.setPieceState.team ?? '').toUpperCase()}`
       : '';
     const addedTag = state.addedTime ? ` +${state.addedTimeAnnouncedMin ?? ''}` : '';
-    this.hudText.text = `HOME ${state.homeScore ?? 0}-${state.awayScore ?? 0} AWAY    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}${restartHud}`;
+    const clip = (s: string) => (s.length > 16 ? s.slice(0, 16) : s).toUpperCase();
+    const hn = clip(String((state as any).homeName ?? 'HOME'));
+    const an = clip(String((state as any).awayName ?? 'AWAY'));
+    this.hudText.text = `${hn} ${state.homeScore ?? 0}-${state.awayScore ?? 0} ${an}    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}${restartHud}`;
     this.hudText.visible = true;
     this.hudBg.clear();
     const hudW = this.hudText.width;

@@ -90,7 +90,10 @@ export class MatchStream {
   private latest: any = null;
   private alive = true;
 
-  constructor(private ws: WebSocket, private specPath: string, private seed: number) {
+  constructor(
+    private ws: WebSocket, private specPath: string, private seed: number,
+    private homeName = 'HOME', private awayName = 'AWAY',
+  ) {
     this.start();
     ws.on('message', (d: Buffer) => this.onCommand(d));
     ws.on('close', () => this.dispose());
@@ -117,7 +120,7 @@ export class MatchStream {
   private send(state: any): void {
     if (this.ws.readyState !== 1) return;
     this.latest = state;
-    this.ws.send(JSON.stringify({ ...state, seed: this.seed, speed: this.speed, matchState: this.paused ? 'paused' : state.matchState }));
+    this.ws.send(JSON.stringify({ ...state, seed: this.seed, speed: this.speed, homeName: this.homeName, awayName: this.awayName, matchState: this.paused ? 'paused' : state.matchState }));
   }
 
   private tick(): void {

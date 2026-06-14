@@ -192,7 +192,10 @@ server.on('upgrade', (request, socket, head) => {
   wss.handleUpgrade(request, socket, head, (ws) => {
     try {
       const specPath = writeSpec(fx);
-      new MatchStream(ws as any, specPath, fx.seed);
+      const nm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(fx.home_team_id, fx.away_team_id) as { id: number; name: string }[];
+      const homeName = nm.find(t => t.id === fx.home_team_id)?.name ?? 'HOME';
+      const awayName = nm.find(t => t.id === fx.away_team_id)?.name ?? 'AWAY';
+      new MatchStream(ws as any, specPath, fx.seed, homeName, awayName);
     } catch (e) { ws.close(); }
   });
 });

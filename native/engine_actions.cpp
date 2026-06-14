@@ -453,7 +453,11 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     bool boxEmergency = carrierGoalDist < EMERGENCY_BOX_DIST && !inPenaltyBox
         && std::abs(carrier.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
     bool ballPushedAhead = carrier.dribbleType == 2 || carrier.dribbleType == 3;
-    bool committed = chance >= 0.30 || boxEmergency
+    // aggression lowers the commit bar: a high-press side dives in on lower-%
+    // challenges (wins it back higher, but is beaten more); a contain side
+    // only commits to a clear chance. Centred at dial 50 = the old 0.30.
+    double commitBar = clamp(0.30 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13, 0.16, 0.44);
+    bool committed = chance >= commitBar || boxEmergency
         || (carrier.dribbleType == 0 && ballExposureDot > 0.0)
         || (ballPushedAhead && ballExposureDot > 0.15);  // nick the loose touch off an open carry
     if (!committed) return false;

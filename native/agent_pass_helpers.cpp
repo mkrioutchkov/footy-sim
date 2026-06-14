@@ -58,11 +58,15 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     double progression = clamp(fp / 240.0, -0.5, 1.0);
     double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
-    double sc = completion * (0.34 + std::max(0.0, progression) * 0.34) - (1.0 - completion) * turnoverCost;
+    // passingDirectness (centred at 50): high -> reward forward passes more and
+    // value safe recycling less (vertical, direct); low -> patient possession.
+    double directness = engine.configFor(p.team).passingDirectness / 50.0; // 0..2, 1 at 50
+    double sc = completion * (0.34 + std::max(0.0, progression) * 0.34 * directness) - (1.0 - completion) * turnoverCost;
+    double recycleMul = clamp(2.0 - directness, 0.4, 1.6); // direct sides recycle less
     bool safeConnector = completion > 0.74 && bl == 0 && receiverPressure == 0 && d < 300.0 && fp > -45.0 && fp < 95.0;
     bool recyclePass = completion > 0.78 && bl == 0 && receiverPressure == 0 && d < 260.0 && fp >= -80.0 && fp <= 25.0;
-    if (safeConnector) sc += (ownProgress < PITCH_W * 0.68 ? 0.18 : 0.10);
-    if (recyclePass) sc += (per.pressureCount <= 1 ? 0.12 : 0.20);
+    if (safeConnector) sc += (ownProgress < PITCH_W * 0.68 ? 0.18 : 0.10) * recycleMul;
+    if (recyclePass) sc += (per.pressureCount <= 1 ? 0.12 : 0.20) * recycleMul;
     if (keeperOutlet) {
         sc += 0.04 + per.pressureCount * 0.04 + (movingTowardOwnGoal ? 0.06 : 0.0);
         if (bl == 0) sc += 0.02;

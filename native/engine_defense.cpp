@@ -57,7 +57,10 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     danger = danger || carrierGoalDist < DANGER_ZONE_DIST;
     bool shootingRange = carrierGoalDist < 310.0 && std::abs(carrier.y - PITCH_H / 2.0) < 235.0;
     bool wideDanger = carrierGoalDist < 360.0 && std::abs(carrier.y - PITCH_H / 2.0) > 135.0;
-    double linePush = (tactics.defensiveLineHeight - 50.0) * 0.9;
+    // defensiveLineHeight: high line steps right up (compresses space, presses
+    // higher, leaves room behind); deep line sits in. Strengthened from 0.9 so
+    // the dial is actually felt — a high vs deep block is now ~190px apart.
+    double linePush = (tactics.defensiveLineHeight - 50.0) * 1.9;
     double lineProgress = danger
         ? 92.0
         : ((lerp(team == Team::Home ? 245.0 : PITCH_W - 245.0, carrier.x - fd * 108.0, 0.38) - ownGoalX) * fd) + linePush;

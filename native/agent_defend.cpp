@@ -136,7 +136,10 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     if (drivingAtGoal > 0.38 && d < TACKLE_RANGE + 24.0 && std::abs(ctrl->x - ownGoalX) < 300.0) sc += 0.14;
     if (drivingAtGoal < -0.25 && !emergencyBoxChallenge) sc -= 0.06;
 
-    sc += (engine.configFor(player.team).aggression / 100.0) * 0.10;
+    // aggression: an aggressive side hunts the ball (higher tackle desire);
+    // a passive side jockeys. Centred on the old +0.05 at dial 50 so defaults
+    // are unchanged, with a strong spread either side.
+    sc += 0.05 + ((engine.configFor(player.team).aggression - 50.0) / 50.0) * 0.15;
 
     // Added time: press harder in defending final third
     if (engine.phase.addedTimeActive) {

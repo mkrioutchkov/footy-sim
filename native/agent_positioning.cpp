@@ -8,9 +8,18 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
     Team ip = engine.teamInPossession();
     bool my = (per.ballControllerTeam == p.team);
     double ba = (fd == 1.0) ? b.x / PITCH_W : 1.0 - b.x / PITCH_W;
-    double pu = my ? fd * ba * 220.0 : 0.0;
+    // Tactics (centred at the dial's 50 = unchanged behaviour):
+    //  midfieldFreedom -> how far central midfielders advance/roam in attack.
+    //  overlapFrequency -> how high & wide full-backs bomb on.
+    const auto& tac = engine.configFor(p.team);
+    double freedom = tac.midfieldFreedom / 50.0;   // 0..2, 1 at dial 50
+    double overlap = tac.overlapFrequency / 50.0;
+    double cmAdvance = isCentralMidfielder() ? (0.70 + 0.30 * freedom) : 1.0;
+    double pu = my ? fd * ba * 220.0 * cmAdvance : 0.0;
     bool iw = (isFullBack() || isWideMidfielder());
-    double wp = (iw && my) ? fd * ba * 85.0 : 0.0;
+    double fbOverlap = isFullBack() ? (0.55 + 0.45 * overlap) : 1.0;
+    if (my && isFullBack()) pu *= (0.80 + 0.20 * overlap);
+    double wp = (iw && my) ? fd * ba * 85.0 * fbOverlap : 0.0;
 
     PositioningContext pc{fd, my, ba, pu, wp, ip};
     SmallVector<PositionCandidate, 32> c;
