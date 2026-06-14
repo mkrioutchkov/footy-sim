@@ -3,6 +3,7 @@
 
 Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
+    bool shootOnSight = engine.directiveBias[p.id].shootOnSight;   // directive: shoot from range
     double gx = goalXFor(p.team);
     double shotDistance = std::hypot(p.x - gx, p.y - PITCH_H / 2.0);
     double angleDeg = engine.goalOpeningAngleDeg(p.x, p.y, gx);
@@ -22,7 +23,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (!freshCross && !freshThrough && angleDeg < SHOT_ACUTE_SOFT_THRESH && shotDistance > 120.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    if ((!freshCross && shotDistance > 310.0) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && acuteGeometry))
+    if ((!freshCross && shotDistance > (shootOnSight ? 360.0 : 310.0)) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && !shootOnSight && acuteGeometry))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     if (!freshCross && !freshThrough && shotDistance > 285.0 && angleDeg < SHOT_ACUTE_HARD_THRESH)
@@ -30,17 +31,19 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 
     double hardMax = shotMaxDistance();
     if (freshCross) hardMax = std::max(hardMax, freshCrossMax);
+    if (shootOnSight) hardMax = std::max(hardMax, 330.0);
     if (shotDistance > hardMax)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    if (p.role == Role::CM && shotDistance > 225.0 && (angleDeg < 9.0 || per.pressureCount > 1))
+    if (!shootOnSight && p.role == Role::CM && shotDistance > 225.0 && (angleDeg < 9.0 || per.pressureCount > 1))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) > 180.0 && shotDistance > 155.0)
+    if (!shootOnSight && p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) > 180.0 && shotDistance > 155.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double mr = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
     // Clear sight of goal extends range: unpressured with a real opening,
     // a strike from just outside the usual band beats recycling sideways.
     double clearSightBoost = (per.pressureCount == 0 && angleDeg > 9.0) ? 24.0 : 0.0;
+    if (shootOnSight) clearSightBoost += 60.0;
     if (shotDistance > std::min(mr + 18.0 + clearSightBoost, hardMax + 12.0 + clearSightBoost))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
@@ -76,6 +79,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 100.0) sc += 0.14;
     if (shotDistance < 60.0)  sc += 0.12;
     sc += shotScoreBonus();
+    if (shootOnSight) sc += 0.30;   // directive: bias toward pulling the trigger
     sc += shotDistancePenalty(shotDistance);
     if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) < 140.0) sc += 0.08;
     if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= p.role == Role::WM ? 0.04 : 0.08;

@@ -332,6 +332,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (runnerInStride && fp > 10.0) sc += 0.14;
     }
 
+    // target_player directive: steer this passer's distribution toward a man.
+    if (engine.directiveBias[p.id].passTargetId == t.id)
+        sc += engine.directiveBias[p.id].passTargetBias;
+
     if (sc <= 0.0) return std::nullopt;
 
     return Action{
