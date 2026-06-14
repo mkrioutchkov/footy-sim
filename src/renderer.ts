@@ -690,7 +690,7 @@ export class MatchRenderer {
       this.seenEventKeys.clear();
     }
     this.lastClockMs = state.clockMs;
-    const notable = new Set(['goal', 'shot', 'save', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red']);
+    const notable = new Set(['goal', 'shot', 'save', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork']);
     for (const ev of (state.events ?? [])) {
       if (!notable.has(ev.type)) continue;
       const evClock = state.clockMs - (ev.age ?? 0);
@@ -740,6 +740,7 @@ export class MatchRenderer {
       case 'shot': return 'SHOT';
       case 'header': return 'HEADER';
       case 'punch': return 'PUNCH';
+      case 'woodwork': return 'WOODWORK';
       case 'dragback': return 'DRAG-BACK';
       default: return type.replace(/_/g, ' ').toUpperCase();
     }
@@ -749,6 +750,7 @@ export class MatchRenderer {
     switch (type) {
       case 'goal': return 0xffdd44;
       case 'save': return 0x44ddff;
+      case 'woodwork': return 0xffa033;
       case 'foul': return 0xff4444;
       case 'yellow': return 0xffd900;
       case 'red': return 0xff3030;

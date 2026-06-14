@@ -175,6 +175,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     // ── Completion penalties ──
     if (completion < 0.62) sc -= (0.62 - completion) * 0.55;
+    // Unforced-giveaway guard: with NO pressure on the ball there is no excuse
+    // to force a genuinely LOOSE pass — recycle and keep it. Targets only the
+    // clearly-risky balls so it doesn't make an unpressured carrier passive.
+    if (per.pressureCount == 0 && completion < 0.64) sc -= (0.64 - completion) * 0.55;
     if (fp > 110.0 && completion < 0.70) sc -= 0.10;
     if (fp > 180.0 && completion < 0.76) sc -= 0.08;
     sc -= bl * 0.12;
@@ -293,10 +297,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                           || (p.role == Role::CM && targetAttacker && !wideOutletTarget);
     if (!isWideDelivery && releasedRunner && goodThroughWindow) {
         pur = ActionPurpose::Through;
-        sc += 0.16 + attrFactor(p.attrs.creativity) * 0.15;
+        // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
+        sc += 0.24 + attrFactor(p.attrs.creativity) * 0.15;
         if (runnerForwardSpeed > 10.0) sc += 0.07;
         if (onsideGap > 8.0 && onsideGap < 70.0) sc += 0.08;
-        if (targetGoalDist < 250.0) sc += 0.08;
+        if (targetGoalDist < 250.0) sc += 0.14;
         if (receiverPressure > 0) sc -= 0.05;
     } else if (!isWideDelivery && releasedRunner && !runnerIntent && p.role == Role::CM) {
         sc -= 0.08;

@@ -160,6 +160,48 @@ bool GameEngine::checkGoal(){
     return false;
 }
 
+// Posts and crossbar. A ball arriving at the goal-frame plane that catches an
+// upright or the bar ricochets back into play (or down off the bar) instead of
+// passing cleanly — the rebound is then live for a follow-up. Runs each tick
+// before the goal/out checks; emits a "woodwork" event for the renderer.
+bool GameEngine::checkWoodwork() {
+    auto& b = state.ball;
+    if (b.controllerId >= 0) return false;
+    double goalX, inSign;
+    if (b.vx < -1.0 && b.x <= HOME_GOAL_X + BALL_R + 2.0 && b.x > HOME_GOAL_X - 28.0) { goalX = HOME_GOAL_X; inSign = 1.0; }
+    else if (b.vx > 1.0 && b.x >= AWAY_GOAL_X - BALL_R - 2.0 && b.x < AWAY_GOAL_X + 28.0) { goalX = AWAY_GOAL_X; inSign = -1.0; }
+    else return false;
+    double center = PITCH_H / 2.0, half = GOAL_W / 2.0;
+    double dyPost = std::abs(b.y - center);
+    double topOfBall = b.z + BALL_R;
+    bool withinPosts = dyPost <= half;
+    // ── Crossbar ── arriving at the bar height, between the uprights.
+    if (withinPosts && topOfBall >= GOAL_H - 1.0 && b.z <= GOAL_H + BALL_R + 4.0) {
+        b.x = goalX + inSign * (BALL_R + 2.0);
+        b.vx = -b.vx * 0.32;
+        b.vz = -std::abs(b.vz) * 0.45 - 30.0;
+        b.vy *= 0.70;
+        b.curl = 0.0;
+        lastLooseOrigin = "woodwork";
+        emitEvent("woodwork", goalX, b.y, b.lastToucherId);
+        return true;
+    }
+    // ── Post ── catching an upright (a sliver inside to just outside it), under
+    // the bar. Mostly turns near-misses into rattles; rebounds back into play.
+    if (topOfBall <= GOAL_H + 2.0 && dyPost >= half - 1.5 && dyPost <= half + BALL_R + 3.0) {
+        double postSide = (b.y >= center) ? 1.0 : -1.0;
+        b.x = goalX + inSign * (BALL_R + 2.0);
+        b.vx = -b.vx * 0.45;
+        b.vy = postSide * std::abs(b.vy) * 0.55;   // shove back off the upright
+        b.vz *= 0.6;
+        b.curl = 0.0;
+        lastLooseOrigin = "woodwork";
+        emitEvent("woodwork", goalX, center + postSide * half, b.lastToucherId);
+        return true;
+    }
+    return false;
+}
+
 bool GameEngine::checkOutOfPlay() {
     auto& b = state.ball;
     Team lt = b.lastTouchTeam;
@@ -175,7 +217,9 @@ bool GameEngine::checkOutOfPlay() {
         return true;
     }
     if (b.x + BALL_R < HOME_GOAL_X) {
-        bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2;
+        // A ball over the bar (or wide) is out — only one passing UNDER the bar
+        // between the posts was a goal (already taken by checkGoal).
+        bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
         if (!inGoal) {
             clearState();
             if(lt==Team::Home) awardCorner(Team::Away,true,b.y);
@@ -184,7 +228,7 @@ bool GameEngine::checkOutOfPlay() {
         }
     }
     if (b.x - BALL_R > AWAY_GOAL_X) {
-        bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2;
+        bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
         if (!inGoal) {
             clearState();
             if(lt==Team::Away) awardCorner(Team::Home,false,b.y);
@@ -200,6 +244,49 @@ void GameEngine::checkBallPlayerCollision(double){
     double bs=std::hypot(b.vx,b.vy);
     const double collectRadius=COLLECT_DIST;
     const double fastContactRadius=PLAYER_R+BALL_R-3.0;
+
+    // ── First-time finish ── A driven LOW cross/cutback reaching an attacking
+    // runner in the box is swept in FIRST-TIME rather than trapped: it is too
+    // quick to control (it would skid through, or the keeper would gather it),
+    // but a finisher meeting it goal-side can strike it clean. We route through
+    // shootBall so it is a genuine tracked shot, and stamp throughCollected for
+    // the clean first-touch error model (a FOOT finish, not a header). This sits
+    // ahead of the keeper-gather so the striker who is first to the ball wins —
+    // but only when he is actually closer to it than any keeper.
+    if (b.controllerId < 0 && pendingPass.active && pendingPass.isCross
+        && b.intendedReceiverId >= 0 && bs > 190.0 && b.z <= GROUND_MEET_MAX_Z + 6.0) {
+        Player* rcv = playerById(b.intendedReceiverId);
+        if (rcv && rcv->team == pendingPass.team
+            && (rcv->role == Role::CF || rcv->role == Role::WM || rcv->role == Role::CM)) {
+            double goalX = goalXFor(rcv->team);
+            double tgd = std::abs(rcv->x - goalX);
+            double dRcv = dist(rcv->x, rcv->y, b.x, b.y);
+            bool inBox = tgd < 175.0 && std::abs(rcv->y - PITCH_H / 2.0) < 200.0;
+            bool reachable = dRcv <= MEET_REACH_GROUND + 10.0;
+            bool keeperCloser = false;
+            int frontPress = 0;
+            for (auto& o : state.players) {
+                if (o.role == Role::GK && o.team != rcv->team
+                    && dist(o.x, o.y, b.x, b.y) < dRcv - 2.0) keeperCloser = true;
+                else if (o.team != rcv->team && o.role != Role::GK
+                    && dist(o.x, o.y, rcv->x, rcv->y) < 26.0) frontPress++;
+            }
+            if (inBox && reachable && !keeperCloser) {
+                double finishChance = clamp(0.50 + attrFactor(rcv->attrs.shooting) * 0.30
+                    - frontPress * 0.16 - clamp((bs - 250.0) / 600.0, 0.0, 0.16), 0.28, 0.88);
+                if (rng.random() < finishChance) {
+                    rcv->firstTouchFinish = 1400.0; // flat, clean foot finish (not a header)
+                    pendingPass.active = false;
+                    b.intendedReceiverId = -1;
+                    shootBall(*rcv, nullptr);
+                    return;
+                }
+                // Scuffed the first-time effort — the ball runs loose.
+                b.intendedReceiverId = -1;
+                blockReboundFor(rcv->id, 200);
+            }
+        }
+    }
 
     // A shot the keeper has already won the reflex roll on belongs to the
     // deferred-save resolver (parry/punch/tip/catch) — don't let the generic

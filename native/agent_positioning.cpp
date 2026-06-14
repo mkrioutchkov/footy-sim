@@ -79,22 +79,22 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         bool attackingRunPur = cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::RunAhead;
         double oppGx = goalXFor(p.team);
         bool boxTarget = std::abs(targetX - oppGx) < 200.0 && std::abs(targetY - PITCH_H / 2.0) < 200.0;
-        if (my && attackingRunPur && boxTarget) sf *= 0.12;
+        if (my && attackingRunPur && boxTarget) sf *= 0.06;
         bool counterOutlet = cn.pur == ActionPurpose::CounterOutlet || cn.pur == ActionPurpose::RestForward;
         double tac = my ? (targetX - p.homeX) * fd / PITCH_W * 0.5 : counterOutlet ? 0.0 : -(targetX - p.homeX) * fd / PITCH_W * 0.25;
         double og2 = ownGoalXFor(p.team);
         double db = !my ? clamp(((b.x - targetX) * fd) / (std::abs(b.x - og2) + 1.0), 0.0, 0.30) : 0.0;
         double bp2 = std::sqrt((targetX - b.x) * (targetX - b.x) + (targetY - b.y) * (targetY - b.y)) / 600.0 * 0.08;
         double ob = counterOutlet ? 0.44 :
-                    (cn.pur == ActionPurpose::RunAhead && isCenterForward() && ba > 0.40) ? 0.36 :
-                    (cn.pur == ActionPurpose::InsideRun && isCenterForward() && ba > 0.42) ? 0.30 :
-                    (cn.pur == ActionPurpose::InsideRun && isWideMidfielder() && ba > 0.36) ? 0.30 :
-                    (cn.pur == ActionPurpose::RunAhead && isWideMidfielder()) ? 0.24 :
-                    (cn.pur == ActionPurpose::CrossLane || cn.pur == ActionPurpose::Overlap) ? 0.24 :
+                    (cn.pur == ActionPurpose::RunAhead && isCenterForward() && ba > 0.40) ? 0.44 :
+                    (cn.pur == ActionPurpose::InsideRun && isCenterForward() && ba > 0.42) ? 0.38 :
+                    (cn.pur == ActionPurpose::InsideRun && isWideMidfielder() && ba > 0.36) ? 0.36 :
+                    (cn.pur == ActionPurpose::RunAhead && isWideMidfielder()) ? 0.30 :
+                    (cn.pur == ActionPurpose::CrossLane || cn.pur == ActionPurpose::Overlap) ? 0.28 :
                     (cn.pur == ActionPurpose::HoldWidth && isWideMidfielder() && ba > 0.45) ? 0.10 :
                     (cn.pur == ActionPurpose::Observe) ? 0.10 :
                     (cn.pur == ActionPurpose::Space && isWideMidfielder() && std::abs(cn.y - PITCH_H / 2.0) > 150.0 && ba > 0.4) ? 0.12 : 0.0;
-        if (deliveryImminent && boxTarget && (isCenterForward() || isWideMidfielder() || isCentralMidfielder())) ob += 0.46;
+        if (deliveryImminent && boxTarget && (isCenterForward() || isWideMidfielder() || isCentralMidfielder())) ob += 0.56;
 
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;
         double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 6.0;

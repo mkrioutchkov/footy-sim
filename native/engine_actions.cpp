@@ -331,7 +331,24 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         double aSpeed=clamp(CROSS_DRIVE_SPEED_BASE+aDist*CROSS_DRIVE_SPEED_PER_PX,
                             CROSS_DRIVE_SPEED_MIN,CROSS_DRIVE_SPEED_MAX)*(0.95+rng.random()*0.12);
         b.vx=adx/aDist*aSpeed; b.vy=ady/aDist*aSpeed;
-        applyWhipDelivery(aDist,aSpeed,goalX,CROSS_CURL_MIN,CROSS_CURL_RANGE);
+        // Low driven cross vs whipped loft. A runner attacking the near post or
+        // the 6-yard box gets the ball SKIDDED low and hard across the face —
+        // too quick for the keeper to claim, a tap-in if it's met. The runner
+        // now sweeps it FIRST-TIME (see the first-time-finish branch in
+        // checkBallPlayerCollision), so it's driven hard — no longer throttled
+        // to stay trappable. Deeper / far-post / aerial targets keep the
+        // whipped, dipping loft.
+        double tgdCross=std::abs(predX-goalX);
+        bool lowDriven=tgdCross<112.0 && std::abs(predY-PITCH_H/2.0)<120.0;
+        if(lowDriven){
+            double lowSpeed=clamp(aDist*0.95,250.0,330.0);
+            b.vx=adx/aDist*lowSpeed; b.vy=ady/aDist*lowSpeed;
+            b.z=0; b.vz=std::min(lowSpeed*0.12,24.0);
+            double cz=adx*(PITCH_H/2.0-f.y)-ady*(goalX-f.x);
+            b.curl=(cz>=0?1.0:-1.0)*CROSS_CURL_MIN*0.6;
+        } else {
+            applyWhipDelivery(aDist,aSpeed,goalX,CROSS_CURL_MIN,CROSS_CURL_RANGE);
+        }
     }
     if(whippedCross){
         // Incidental lofted wide balls keep the high floaty arc (they're just
@@ -642,19 +659,24 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double executionError=SHOT_ERROR_BASE+(1-accuracy)*SHOT_ERROR_SKILL+pressureCount*(freshCross?SHOT_ERROR_PRESSURE_CROSS:SHOT_ERROR_PRESSURE_NORMAL)+closePressure+laneBlockers*(freshCross?SHOT_ERROR_LANE_CROSS:SHOT_ERROR_LANE_NORMAL)
         +anglePenalty*SHOT_ERROR_ANGLE+distancePenalty*SHOT_ERROR_DISTANCE+longRangePenalty*SHOT_ERROR_LONG_RANGE;
     executionError=std::max(SHOT_ERROR_FLOOR,executionError+roleError);
-    bool credibleFinish=angleDeg>11.0&&shotDistance<200.0&&pressureCount<=2&&laneBlockers<=1;
+    bool credibleFinish=angleDeg>9.0&&shotDistance<200.0&&pressureCount<=2&&laneBlockers<=1;
     bool freshThrough=s.throughCollected>0.0&&shotDistance<245.0;
+    // First-time foot finish off a low cross: struck clean and FLAT (not a
+    // header, so shot.header stays false), with a tight error band — the whole
+    // point is to turn a swept low cross into an on-target chance.
+    bool firstTouch=s.firstTouchFinish>0.0&&shotDistance<235.0;
     bool directFreeKickShot=setPiece.type==SetPiece::FreeKick;
     // Dead ball, no pressure, twelve yards: penalty execution is near-pure
     // placement. Without this the open-play error model sprayed pens wide.
     bool penaltyKick=setPiece.type==SetPiece::Penalty;
-    if(credibleFinish)executionError*=shotDistance<95.0?0.55:0.64;
+    if(credibleFinish)executionError*=shotDistance<95.0?0.46:0.56;
     if(directFreeKickShot)executionError*=0.48;
     if(penaltyKick)executionError*=0.30;
-    if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.84:0.92;
+    if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.72:0.82;
     if(freshCross)executionError*=s.role==Role::CF?0.46:(s.role==Role::WM?0.62:0.82);
+    if(firstTouch)executionError*=shotDistance<120.0?0.50:0.62;
     double postAimScale=credibleFinish?0.92:1.0;
-    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(penaltyKick?0.36+accuracy*0.07:(0.26+accuracy*0.17)*postAimScale);
+    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(penaltyKick?0.36+accuracy*0.07:(0.33+accuracy*0.18)*postAimScale);
     double goalY=goalCenterY+aimedPost+(rng.random()+rng.random()-1.0)*executionError;
     if(acuteGeometry){
         double nearPostSide=s.y<goalCenterY?-1.0:1.0;
@@ -677,7 +699,19 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     placeBallForRelease(s,dx,dy);
     blockReboundFor(s.id,850);
     b.vx=dx/d*speed; b.vy=dy/d*speed;
-    b.intendedReceiverId=-1; b.z=b.vz=0;
+    // Elevation. A clean chance is struck down and flat; a rushed, long, or
+    // poorly-hit one leans back and rises — sometimes onto the bar, sometimes
+    // sailing over. Clean credible finishes stay essentially on the deck.
+    double loft=0.0;
+    if(!penaltyKick&&!directFreeKickShot&&!freshCross&&!firstTouch){
+        if(!credibleFinish)loft+=26.0;
+        loft+=pressureCount*20.0;
+        loft+=longRangePenalty*55.0;
+        loft+=(1.0-accuracy)*70.0;
+        loft*=0.5+rng.random();   // 0.5x..1.5x: some balloon over, some kept down
+        loft=std::min(loft,240.0);
+    }
+    b.intendedReceiverId=-1; b.z=0; b.vz=loft;
     // Direct free kick with a wall: CHIP it over, don't blast it through.
     // The old vz=speed*0.50 was tuned for ~470px/s shots; with realistic
     // ~210px/s shot pace the lift only reached ~1m (z=10), BELOW the 20px

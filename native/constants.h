@@ -29,7 +29,7 @@ inline constexpr double MAX_PLAYER_SPEED = 50.0;
 // ── Ball speed / physics ──
 inline constexpr double PASS_SPEED_BASE = 136.0;
 inline constexpr double PASS_SPEED_DIST = 0.105;
-inline constexpr double SHOT_SPEED_BASE = 205.0;
+inline constexpr double SHOT_SPEED_BASE = 285.0;
 inline constexpr double TACKLE_KICK_SPEED = 140.0;
 inline constexpr double BALL_FRICTION  = 0.70;
 inline constexpr double GRAVITY        = 500.0;
@@ -258,8 +258,8 @@ inline constexpr double PING_PONG_WINDOW_MS       = 300.0;
 
 // ── Shot error ──
 inline constexpr double SHOT_ERROR_FLOOR        = 12.0;
-inline constexpr double SHOT_ERROR_BASE         = 14.0;
-inline constexpr double SHOT_ERROR_SKILL        = 58.0;
+inline constexpr double SHOT_ERROR_BASE         = 11.0;
+inline constexpr double SHOT_ERROR_SKILL        = 44.0;
 inline constexpr double SHOT_ERROR_CLOSE_PRESSURE_NORMAL = 28.0;
 inline constexpr double SHOT_ERROR_PRESSURE_NORMAL = 34.0;
 inline constexpr double SHOT_ERROR_ANGLE        = 40.0;

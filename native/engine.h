@@ -409,6 +409,7 @@ public:
     void applyBallPhysics(double s);
     void clampBallPosition();
     bool checkGoal();
+    bool checkWoodwork();
     bool checkOutOfPlay();
     void checkBallPlayerCollision(double);
     void collectBall(Player& c);

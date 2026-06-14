@@ -155,6 +155,36 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             a.push_back(cdv);
         }
 
+        // ── Hoof under pressure ── A deep player swarmed with no safe outlet
+        // boots it long upfield rather than gifting possession in a dangerous
+        // area. Routed through Clear (scattered forcePassTo) so it's an honest
+        // 50/50 clearance toward the forwards, not a measured pass.
+        {
+            double fdh = fdFor(player.team);
+            double prog = (player.x - ownGoalXFor(player.team)) * fdh;
+            if (prog < PITCH_W * 0.30 && per.pressureCount >= 2) {
+                double bestSafe = 0.0;
+                for (auto& x : a)
+                    if (x.type == ActionType::Pass) bestSafe = std::max(bestSafe, x.audit.expectedCompletion);
+                if (bestSafe < 0.60) {
+                    Player* tgt = nullptr; double bestFx = -1e9;
+                    for (auto& t : engine.state.players) {
+                        if (t.team != player.team || t.id == player.id || t.role == Role::GK) continue;
+                        double fx = (t.x - ownGoalXFor(player.team)) * fdh;
+                        if (fx > bestFx) { bestFx = fx; tgt = &t; }
+                    }
+                    if (tgt) {
+                        ActionAudit au;
+                        au.distance = dist(player.x, player.y, tgt->x, tgt->y);
+                        au.forwardProgress = (tgt->x - player.x) * fdh;
+                        au.expectedCompletion = 0.4;
+                        a.push_back(Action{ActionType::Pass, 0.74 + (per.pressureCount - 2) * 0.05,
+                                           tgt, 0, 0, ActionPurpose::Clear, au});
+                    }
+                }
+            }
+        }
+
         int pc = per.pressureCount;
         double fd = fdFor(player.team);
         double progress = (player.x - ownGoalXFor(player.team)) * fd;

@@ -240,6 +240,7 @@ void GameEngine::updatePlayerAnimations(double sdt) {
         if (p.headingAnim > 0) p.headingAnim = std::max(0., p.headingAnim - sdt);
         if (p.crossCollected > 0) p.crossCollected = std::max(0., p.crossCollected - sdt);
         if (p.throughCollected > 0) p.throughCollected = std::max(0., p.throughCollected - sdt);
+        if (p.firstTouchFinish > 0) p.firstTouchFinish = std::max(0., p.firstTouchFinish - sdt);
     }
 }
 
@@ -685,6 +686,7 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
         applyBallPhysics(sec);
         clampBallPosition();
         tryGKSave();
+        if (checkWoodwork()) { cacheBallState(); return; }
         if (checkGoal()) { cacheBallState(); return; }
         if (checkOutOfPlay()) { cacheBallState(); return; }
         checkBallPlayerCollision(sec);
