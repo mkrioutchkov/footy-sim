@@ -1,0 +1,114 @@
+# CONTRACT — the engine ↔ web seam
+
+This file is the **frozen interface** between the two halves of the codebase so
+they can be built in parallel sessions. Changing anything in here is a
+cross-boundary change: announce it and update **both** sides in the same merge
+(e.g. the `woodwork` event needed `engine/` to emit it *and*
+`web/frontend/types.ts` to render it).
+
+## The two halves & ownership
+
+| Half | Owns | Talks to the other half via |
+|------|------|------------------------------|
+| **Engine session** | `engine/` (C++), `scripts/build-native.ps1`, `tools/` (engine harness + python probes), produces `build/live.exe` | the binary + the JSON I/O below |
+| **Web session** | `web/backend/` (Fastify + node:sqlite), `web/frontend/` (SPA + PixiJS renderer), `dist/` | spawns `build/live.exe`, reads its JSON |
+
+Build outputs and shared deps stay at the repo root by design: `build/`
+(engine binary), `dist/` (frontend build), `third_party/`. The **engine binary
+is the contract boundary** — the web side never reads C++; the engine side never
+reads TS.
+
+## Engine CLI (the binary the web side spawns)
+
+```
+build/live.exe SEED MINUTES --summary --no-debug                 # legend teams
+build/live.exe --match <spec.json> --summary --no-debug          # data-driven teams
+build/live.exe --match <spec.json> --trace out.bin               # + binary frame trace
+```
+- `--summary` prints ONE JSON object per line; the **last `{…}` line** is the
+  match summary. NEVER omit `--summary` (without it the process streams frames
+  forever and locks the binary).
+- Without `--summary`, the engine streams per-tick frames (`EngineState`, below)
+  to stdout — this is what the live-watch path consumes and paces to the client.
+- Determinism: same `SEED` + same `spec.json` + same binary ⇒ byte-identical
+  output. The web side relies on this (a fixture replays identically).
+
+## INPUT — `spec.json` (web → engine)
+
+Written by `web/backend/match.ts → buildSpec()`; consumed by the engine's
+`--match` reader (`engine/main.cpp` + `RosterOverride`/`configOverride` in
+`engine/engine.*`). Shape:
+
+```jsonc
+{
+  "seed": 123456,
+  "minutes": 90,
+  "home": {
+    "name": "Iron Lions",
+    "tactics": { /* the 5 dials + formation, see Tactics below */ },
+    "players": [ { "name": "…", "attrs": { /* PlayerAttributes */ } }, … ]  // 11, sorted by slot (GK first)
+  },
+  "away": { … same shape … }
+}
+```
+- `players`: exactly 11 per team, ordered by squad slot. `attrs` is
+  `PlayerAttributes` (`speed, passing, creativity, shooting, tackling,
+  positioning, stamina`, each 0–100) — see `web/frontend/types.ts`.
+- The fixed-22 invariant: home = engine ids 0–10, away = 11–21.
+
+## OUTPUT — summary JSON (engine → web)
+
+Last `{…}` line of `--summary`. The web backend reads `summary.homeScore` /
+`summary.awayScore` to persist a result (`web/backend/match.ts`). The object also
+carries rich stats the web UI may surface: `saves`, `shots`, `passes`,
+`passCompletionPct`, `goalsByDistance`, `shotsByDistance`, `crossesCompleted`,
+per-player stats, etc. **Treat extra fields as additive** — read what you need,
+ignore the rest.
+
+## OUTPUT — live frames (`EngineState`) for the watch socket
+
+The renderer consumes a per-tick `EngineState` (players, ball, clock, score,
+`events[]`, set-piece state, …). The **authoritative schema is
+`web/frontend/types.ts`** — do not duplicate it; import from there.
+
+### `MatchEvent.type` is part of the contract
+Adding an engine event means adding it to the `MatchEvent` union in
+`web/frontend/types.ts` AND giving it a label/colour in
+`web/frontend/renderer.ts`. Current set includes: `pass, shot, save, goal,
+header, woodwork, penalty, foul, offside, yellow, red, sub, …` (full list in
+types.ts).
+
+## Tactics (the 5 dials, + the planned plain-English layer)
+
+`tactics` in the spec = the manager dials (`web/frontend/types.ts →
+ManagerConfig`), all 0–100, centred at 50 = neutral:
+`aggression, passingDirectness, overlapFrequency, midfieldFreedom,
+defensiveLineHeight`, plus a `formation`. The engine maps these in
+`engine/*` (`configFor(team)` etc.).
+
+**Planned (not built yet):** a plain-English tactical-ambition field that the
+web side parses into these dials (and, later, into injected decision hints). If
+the web session adds a new tactics field, it must be (a) added to the spec here
+and (b) wired in the engine — coordinate before merging.
+
+## Repo layout & commands
+
+```
+engine/         C++ match engine            scripts/build-native.ps1  →  build/live.exe
+web/backend/    Fastify + node:sqlite        npm run game     (:4000)
+web/frontend/   SPA + PixiJS renderer        npm run dev      (:5173, proxies /api,/ws → 4000)
+tools/          engine harness + py probes   npm run batch | scenarios | cpp-server
+docs/           PLAN, TODO, this CONTRACT
+```
+- DB: SQLite via `node:sqlite`, file at `web/backend/data/footy.sqlite` (gitignored).
+- After `engine/` or `scripts/` edits: `npm run native:build`. After
+  `web/backend/` edits: restart `npm run game` (tsx has no hot-reload).
+- A fresh worktree needs `npm install` (node_modules is gitignored) and a
+  `npm run native:build` (build/ is gitignored).
+
+## Parallel workflow
+
+- Engine session → `master` (or an `engine` branch); Web session → a `web`
+  branch in its own git worktree. Merge via PRs/merges at milestones.
+- Touch only your half's dirs. The only shared files are this CONTRACT and the
+  schema in `web/frontend/types.ts` — change those deliberately, together.
