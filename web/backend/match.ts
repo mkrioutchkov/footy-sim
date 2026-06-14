@@ -7,7 +7,7 @@ import { db } from './db.ts';
 import { getTeamWithPlayers } from './game.ts';
 
 const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
-const SPEC_DIR = path.resolve(process.cwd(), 'server', 'data', 'specs');
+const SPEC_DIR = path.resolve(process.cwd(), 'web', 'backend', 'data', 'specs');
 mkdirSync(SPEC_DIR, { recursive: true });
 const MINUTES = Number.parseInt(process.env.FOOTY_MINUTES ?? '90', 10);
 

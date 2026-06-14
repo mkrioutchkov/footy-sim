@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$native = Join-Path $root 'native'
+$native = Join-Path $root 'engine'
 $thirdParty = Join-Path $root 'third_party'
 $outDir = Join-Path $root 'build'
 $vsDevCmd = 'C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\VsDevCmd.bat'

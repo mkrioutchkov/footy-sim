@@ -1,6 +1,6 @@
 import './styles.css';
 import { api, type TeamT, type Tactics, type LeagueT } from './api';
-import { MatchRenderer } from '../renderer';
+import { MatchRenderer } from './renderer';
 
 const root = document.getElementById('app')!;
 let user: { id: number; username: string } | null = null;

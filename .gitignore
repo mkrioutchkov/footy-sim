@@ -20,7 +20,7 @@ tools/_*.py
 
 # game-layer scratch
 _testmatch.json
-server/data/
+web/backend/data/
 *.sqlite
 *.sqlite-*
 

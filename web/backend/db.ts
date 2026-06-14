@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-const DATA_DIR = path.resolve(process.cwd(), 'server', 'data');
+const DATA_DIR = path.resolve(process.cwd(), 'web', 'backend', 'data');
 mkdirSync(DATA_DIR, { recursive: true });
 const DB_PATH = process.env.FOOTY_DB ?? path.join(DATA_DIR, 'footy.sqlite');
 

@@ -96,10 +96,15 @@ function localDebugLogPlugin() {
 const GAME_API = process.env.FOOTY_API ?? 'http://localhost:4000';
 
 export default defineConfig({
+  root: 'web/frontend',
   plugins: [localDebugLogPlugin()],
+  build: {
+    outDir: path.resolve(__dirname, 'dist'),
+    emptyOutDir: true,
+  },
   server: {
     watch: {
-      ignored: ['**/native/**'],
+      ignored: ['**/engine/**'],
     },
     proxy: {
       '/api': { target: GAME_API, changeOrigin: true },
