@@ -197,38 +197,39 @@ export async function compileTactics(text: string, spec: MatchSpec): Promise<Com
   const cacheKey = `${ctx} ${text.trim()}`;
   const hit = cache.get(cacheKey);
   if (hit) return { directives: hit, raw: '', cached: true };
-  // Fast-path: instant, offline, deterministic for clear orders.
-  const rp = rulesParse(text, spec);
-  if (rp.fullyParsed) {
-    const directives = validate(rp.directives as unknown[]);
-    cache.set(cacheKey, directives);
-    return { directives, raw: 'rules', cached: false };
-  }
-  // No key: best-effort with whatever the rules parser did manage.
-  if (!KEY) return { directives: validate(rp.directives as unknown[]), raw: 'rules', cached: false, error: 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
-  try {
+  // LLM-PRIMARY: the model is the main path — it handles arbitrary phrasing,
+  // slang, and typos a regex never will, and on a fast provider (Groq) it
+  // compiles in <1s. The offline rules parser is kept only as a graceful
+  // fallback for no-key / failure / timeout, so a network blip degrades the
+  // feature instead of killing it. Compiled directives are cached and frozen on
+  // the match timeline, so replay stays deterministic regardless of compiler.
+  if (KEY) try {
     const res = await fetch(`${BASE}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
       body: JSON.stringify({ model: MODEL, temperature: 0, max_tokens: 512, messages: [
         { role: 'system', content: SYSTEM(ctx) }, { role: 'user', content: text },
       ] }),
-      // Fail fast: MiMo flash latency is wildly inconsistent (often >30s). Most
-      // orders never reach here (the rules fast-path handles them); if the model
-      // is slow, bail quickly and tell the user to rephrase rather than hang.
-      signal: AbortSignal.timeout(18000),
+      signal: AbortSignal.timeout(12000),
     });
     const j = await res.json() as { choices?: { message?: { content?: string } }[]; error?: unknown };
-    if (!res.ok) return { directives: [], raw: JSON.stringify(j).slice(0, 300), cached: false, error: `LLM ${res.status}` };
-    const content = j.choices?.[0]?.message?.content ?? '[]';
-    const directives = validate(extractArray(content));
-    cache.set(cacheKey, directives);
-    return { directives, raw: content, cached: false };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const friendly = /timeout|abort/i.test(msg)
-      ? "the model was too slow — try plainer wording (e.g. “Bauer get forward”, “Cole mark their striker”)"
-      : msg;
-    return { directives: [], raw: '', cached: false, error: friendly };
-  }
+    if (res.ok) {
+      const content = j.choices?.[0]?.message?.content ?? '[]';
+      const directives = validate(extractArray(content));
+      // Model returned nothing usable: try the offline parser before giving up.
+      if (directives.length === 0) {
+        const rp = validate(rulesParse(text, spec).directives as unknown[]);
+        if (rp.length) { cache.set(cacheKey, rp); return { directives: rp, raw: 'llm-empty->rules', cached: false }; }
+      }
+      cache.set(cacheKey, directives);
+      return { directives, raw: content, cached: false };
+    }
+    // Non-2xx (rate limit, bad key, server error): fall through to the parser.
+  } catch { /* timeout / network error — fall through to the offline parser */ }
+
+  // Fallback: offline rules parser (no key, or the LLM call failed/timed out).
+  const fb = validate(rulesParse(text, spec).directives as unknown[]);
+  cache.set(cacheKey, fb);
+  return { directives: fb, raw: 'rules(fallback)', cached: false,
+    error: KEY ? 'the model was unreachable — used the offline parser' : 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
 }
