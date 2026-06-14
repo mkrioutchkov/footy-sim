@@ -246,6 +246,29 @@ function teardownWatch() {
   try { activeRenderer?.destroy(); } catch { /* */ } activeRenderer = null;
 }
 
+// ── live tactics panel helpers (P4) ──
+let watchPlayers: { id: number; name: string }[] = [];
+function pname(id: number): string {
+  return watchPlayers.find(p => p.id === id)?.name ?? `#${id}`;
+}
+function describeDirective(d: any): string {
+  const w = d.when || {};
+  let cond = '';
+  if (w.minuteMod === 2 && w.minuteEq === 1) cond += ' on odd minutes';
+  else if (w.minuteMod === 2 && w.minuteEq === 0) cond += ' on even minutes';
+  else if (w.minuteMod > 1) cond += ` every ${w.minuteMod} min`;
+  if (w.scoreState && w.scoreState !== 'any') cond += ` when ${w.scoreState}`;
+  const who = pname(d.playerId);
+  switch (d.kind) {
+    case 'man_mark': return `${who} man-marks ${pname(d.targetId)}${cond}`;
+    case 'target_player': return `${who} feeds ${pname(d.targetId)}${cond}`;
+    case 'shoot_on_sight': return `${who} shoots on sight${cond}`;
+    case 'get_forward': return `${who} gets forward${cond}`;
+    case 'sit_deep': return `${who} sits deep${cond}`;
+    default: return `${who}: ${d.kind}${cond}`;
+  }
+}
+
 async function screenWatch(fixtureId: number) {
   teardownWatch();
   // Ensure the result is recorded (idempotent, deterministic, same as the stream).
@@ -259,7 +282,34 @@ async function screenWatch(fixtureId: number) {
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'pause' })) }, 'Pause'),
   );
   document.body.appendChild(bar);
-  const cleanupBar = () => bar.remove();
+
+  // ── live tactics panel: type a plan, see what was understood, apply it ──
+  const receiptEl = h('div', { class: 'tactics-receipt' });
+  const ta = h('textarea', { class: 'tactics-input', rows: '2',
+    placeholder: 'Tactical plan — e.g. "Nesta mark Messi on odd minutes, Ronaldo shoot on sight when losing"' }) as HTMLTextAreaElement;
+  const applyPlan = () => {
+    const text = ta.value.trim();
+    if (!text || !activeWs) return;
+    receiptEl.replaceChildren(h('div', { class: 'muted' }, 'Applying…'));
+    activeWs.send(JSON.stringify({ type: 'tactics', text }));
+  };
+  const showReceipt = (r: any) => {
+    receiptEl.replaceChildren();
+    if (r?.error && (!r.directives || !r.directives.length)) {
+      receiptEl.appendChild(h('div', { class: 'warn' }, '⚠ ' + r.error)); return;
+    }
+    if (!r?.directives || !r.directives.length) {
+      receiptEl.appendChild(h('div', { class: 'muted' }, "Couldn't read any orders — name a player and an action.")); return;
+    }
+    receiptEl.appendChild(h('div', { class: 'ok' }, '✓ Understood:'));
+    for (const d of r.directives) receiptEl.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
+  };
+  const panel = h('div', { class: 'tactics-panel' },
+    h('div', { class: 'tactics-row' }, ta, h('button', { class: 'primary small', onclick: applyPlan }, 'Apply')),
+    receiptEl,
+  );
+  document.body.appendChild(panel);
+  const cleanupBar = () => { bar.remove(); panel.remove(); };
 
   const renderer = new MatchRenderer();
   activeRenderer = renderer;
@@ -268,7 +318,14 @@ async function screenWatch(fixtureId: number) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}`);
   activeWs = ws;
-  ws.onmessage = (ev) => { try { renderer.sync(JSON.parse(ev.data)); } catch { /* */ } };
+  ws.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
+      if (Array.isArray(msg.players)) watchPlayers = msg.players.map((p: any) => ({ id: p.id, name: p.name }));
+      renderer.sync(msg);
+    } catch { /* */ }
+  };
   ws.onclose = () => { /* match over or navigated away */ };
 
   // Hook hashchange once to tear down when leaving.
