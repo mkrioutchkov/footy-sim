@@ -96,6 +96,9 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
                     (cn.pur == ActionPurpose::Observe) ? 0.10 :
                     (cn.pur == ActionPurpose::Space && isWideMidfielder() && std::abs(cn.y - PITCH_H / 2.0) > 150.0 && ba > 0.4) ? 0.12 : 0.0;
         if (deliveryImminent && boxTarget && (isCenterForward() || isWideMidfielder() || isCentralMidfielder())) ob += 0.56;
+        // run_in_behind / make_runs: bias this player toward runs in behind.
+        if (my && (cn.pur == ActionPurpose::RunAhead || cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::CrossLane))
+            ob += engine.directiveBias[p.id].runAheadBias;
 
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;
         double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 6.0;

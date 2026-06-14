@@ -317,6 +317,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     }
     sc += openSpaceDribbleBonus(per.nearestOpponentDist);
     sc += nearGoalDribbleBonus(nearGoal, distToGoal);
+    sc += engine.directiveBias[p.id].dribbleBonus;   // "take them on / dribble more"
 
     if (cp.score > 0.70 && cp.nearestPlayer) {
         double ax = p.x - cp.nearestPlayer->x;

@@ -125,6 +125,10 @@ void GameEngine::applyDirectives() {
             case DirectiveKind::CrossEarly: directiveBias[p->id].crossEarly = true; break;
             case DirectiveKind::SwitchPlay: directiveBias[p->id].switchBias  = 0.20 * d.intensity; break;
             case DirectiveKind::PlaySimple: directiveBias[p->id].simplifyBias = 0.20 * d.intensity; break;
+            // Off-ball runs: bias the player toward run-in-behind candidates.
+            case DirectiveKind::RunInBehind: directiveBias[p->id].runAheadBias = 0.30 * d.intensity; break;
+            case DirectiveKind::MakeRuns:    directiveBias[p->id].runAheadBias = 0.16 * d.intensity; break;
+            case DirectiveKind::DribbleMore: directiveBias[p->id].dribbleBonus = 0.22 * d.intensity; break;
             default: break;   // team-scoped kinds handled above
         }
     }

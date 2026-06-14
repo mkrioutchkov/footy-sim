@@ -401,6 +401,7 @@ public:
         ManMark, ShootOnSight, GetForward, SitDeep, TargetPlayer,
         StayWide, ComeInside, StayCentral,
         CrossEarly, SwitchPlay, PlaySimple,
+        RunInBehind, MakeRuns, DribbleMore,
         // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
         AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
         KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
@@ -421,7 +422,8 @@ public:
     // Per-player score nudges the scorers read THIS tick; rebuilt every tick by
     // applyDirectives() (stateless, so deterministic).
     struct DirectiveBias { bool shootOnSight=false; double pushUp=0.0; int passTargetId=-1; double passTargetBias=0.0;
-        bool crossEarly=false; double switchBias=0.0; double simplifyBias=0.0; };
+        bool crossEarly=false; double switchBias=0.0; double simplifyBias=0.0;
+        double runAheadBias=0.0; double dribbleBonus=0.0; };
     std::array<DirectiveBias, 22> directiveBias = {};
     // Timed plan changes (P2): each entry REPLACES the active directive set once
     // the clock reaches atMs. The match is then a pure function of seed + this
