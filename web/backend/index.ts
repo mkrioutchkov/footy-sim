@@ -11,6 +11,7 @@ import {
   DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { playFixture, getFixture, writeSpec, MatchStream } from './match.ts';
+import { compileLineup } from './lineup.ts';
 
 const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
 const app = Fastify({ logger: false });
@@ -99,6 +100,29 @@ app.put('/api/tactics', async (req: any, reply) => {
   const tactics = validTactics(req.body?.tactics);
   db.prepare('UPDATE teams SET tactics = ? WHERE id = ?').run(JSON.stringify(tactics), teamId);
   return { tactics };
+});
+
+// Set the team's formation / XI from a free-text instruction ("play 4-4-2",
+// "AB at left back"). Compiles via the LLM lineup compiler, persists the shape +
+// XI on the team (so every match that team plays uses it), and returns the
+// resolved XI + note. Storing the default 4-3-3 identity as NULL keeps the
+// byte-identical spec path for un-customised teams.
+app.put('/api/lineup', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const text = String(req.body?.text ?? '').trim();
+  if (!text) return reply.code(400).send({ error: 'say how you want to line up' });
+  const team = getTeamWithPlayers(teamId)!;
+  const squad = { players: team.players.slice().sort((a, b) => a.slot - b.slot).map(p => ({ name: p.name, role: p.role, attrs: p.attrs })) };
+  const r = await compileLineup(text, squad);
+  if (r.error) return reply.code(503).send({ error: r.error });
+  if (!r.slots.length) return { formation: team.formation, lineup: team.lineup, slots: [], note: r.note || 'No change made.' };
+  const lineup = r.slots.map(s => s.fromSlot);
+  const isDefault = r.formation === '4-3-3' && lineup.every((v, i) => v === i);
+  db.prepare('UPDATE teams SET formation = ?, lineup = ? WHERE id = ?')
+    .run(r.formation, isDefault ? null : JSON.stringify(lineup), teamId);
+  return { formation: r.formation, lineup: isDefault ? null : lineup, slots: r.slots, note: r.note };
 });
 
 app.get('/api/league', async (req: any, reply) => {

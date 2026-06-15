@@ -12,6 +12,11 @@ import type { Role } from './game.ts';
 
 export interface Slot { role: Role; x: number; y: number }
 
+// Engine pitch length (goal-to-goal). The away side is the mirror: away_x = PITCH_W
+// - home_x (matches the engine's DEF_HX_AWAY = 1050 - DEF_HX_HOME). Width (y) is the
+// same in both frames, so only x flips.
+export const PITCH_W = 1050;
+
 // Touchline / channel y-anchors reused across shapes for consistency.
 const yR = 81.6, yRC = 226.6667, yC = 340, yLC = 453.3333, yL = 598.4;
 

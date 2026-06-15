@@ -6,6 +6,7 @@ import type { WebSocket } from 'ws';
 import { db } from './db.ts';
 import { getTeamWithPlayers } from './game.ts';
 import { compileTactics } from './tactics.ts';
+import { FORMATIONS, DEFAULT_FORMATION, PITCH_W } from './formations.ts';
 
 const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
 const SPEC_DIR = path.resolve(process.cwd(), 'web', 'backend', 'data', 'specs');
@@ -21,25 +22,43 @@ export function getFixture(id: number): Fixture | null {
   return (db.prepare('SELECT * FROM fixtures WHERE id = ?').get(id) as Fixture | undefined) ?? null;
 }
 
-function specForTeam(teamId: number) {
+const isIdentityXI = (lineup: number[] | null): boolean =>
+  !lineup || lineup.every((v, i) => v === i);
+
+function specForTeam(teamId: number, side: 'home' | 'away') {
   const t = getTeamWithPlayers(teamId);
   if (!t) throw new Error(`team ${teamId} not found`);
-  return {
-    name: t.name,
-    tactics: t.tactics,
-    players: t.players
-      .slice()
-      .sort((a, b) => a.slot - b.slot)
-      .map(p => ({ name: p.name, attrs: p.attrs })),
-  };
+  const bySlot = t.players.slice().sort((a, b) => a.slot - b.slot);
+  const formation = t.formation ?? DEFAULT_FORMATION;
+  const layout = FORMATIONS[formation];
+  // Byte-identical guard: a team on the default shape with the identity XI emits the
+  // exact pre-formation spec (no role/anchor fields) — so every existing team plays
+  // precisely as before. Only an opted-in team (non-default formation OR a reordered
+  // XI) gets an explicit per-slot layout.
+  if ((formation === DEFAULT_FORMATION && isIdentityXI(t.lineup)) || !layout) {
+    return { name: t.name, tactics: t.tactics, players: bySlot.map(p => ({ name: p.name, attrs: p.attrs })) };
+  }
+  // Emit per-slot role + home anchor. The away side mirrors x (PITCH_W - x) to match
+  // the engine's away frame; width (y) is shared. Slot 0 stays the keeper (the engine
+  // pins it regardless). lineup[i] = which squad slot fills formation slot i.
+  const lineup = t.lineup ?? bySlot.map((_, i) => i);
+  const players = layout.map((slot, i) => {
+    const p = bySlot[lineup[i]] ?? bySlot[i];
+    return {
+      name: p.name, attrs: p.attrs, role: slot.role,
+      homeX: side === 'away' ? PITCH_W - slot.x : slot.x,
+      homeY: slot.y,
+    };
+  });
+  return { name: t.name, tactics: t.tactics, players };
 }
 
 export function buildSpec(fixture: Fixture) {
   return {
     seed: fixture.seed,
     minutes: MINUTES,
-    home: specForTeam(fixture.home_team_id),
-    away: specForTeam(fixture.away_team_id),
+    home: specForTeam(fixture.home_team_id, 'home'),
+    away: specForTeam(fixture.away_team_id, 'away'),
   };
 }
 

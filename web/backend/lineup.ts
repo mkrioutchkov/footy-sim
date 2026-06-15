@@ -102,6 +102,15 @@ export function buildLineup(sq: Squad, formationKey: string | null, overrides: {
     if (si < 0) { notes.push(`Couldn't fit ${sq.players[pi].name} into ${key}.`); continue; }
     taken.add(si); locked.set(si, pi);
   }
+  // Keep the keeper in goal: pin slot 0 (always GK) to the squad's natural keeper
+  // unless an override already claimed that slot. Role-fit alone can hand the GK
+  // spot to a high-positioning outfielder (keepers' handling isn't always set), so
+  // an explicit pin is safer than trusting the fit there.
+  if (!taken.has(0)) {
+    let gk = sq.players.slice(0, 11).findIndex(p => (p.role ?? '').toUpperCase() === 'GK');
+    if (gk < 0) gk = 0;
+    if (![...locked.values()].includes(gk)) { locked.set(0, gk); taken.add(0); }
+  }
   const a = assign(sq, slots, locked);
   const out: SlotAssignment[] = slots.map((s, i) => ({
     slot: i, role: s.role, homeX: s.x, homeY: s.y,

@@ -169,17 +169,19 @@ export interface PlayerRow { slot: number; name: string; role: string; attrs: Re
 
 export function getTeamWithPlayers(teamId: number): {
   id: number; name: string; manager: string; leagueId: number; userId: number | null;
-  tactics: Tactics; players: PlayerRow[];
+  tactics: Tactics; formation: string; lineup: number[] | null; players: PlayerRow[];
 } | null {
-  const t = db.prepare('SELECT id, name, manager, league_id, user_id, tactics FROM teams WHERE id = ?')
-    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; tactics: string } | undefined;
+  const t = db.prepare('SELECT id, name, manager, league_id, user_id, tactics, formation, lineup FROM teams WHERE id = ?')
+    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; tactics: string; formation: string | null; lineup: string | null } | undefined;
   if (!t) return null;
   const players = (db.prepare('SELECT slot, name, role, attrs FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
     { slot: number; name: string; role: string; attrs: string }[])
     .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs) }));
+  let lineup: number[] | null = null;
+  try { const l = t.lineup ? JSON.parse(t.lineup) : null; if (Array.isArray(l) && l.length === 11) lineup = l.map(Number); } catch { /* ignore */ }
   return {
     id: t.id, name: t.name, manager: t.manager, leagueId: t.league_id, userId: t.user_id,
-    tactics: JSON.parse(t.tactics), players,
+    tactics: JSON.parse(t.tactics), formation: t.formation ?? '4-3-3', lineup, players,
   };
 }
 

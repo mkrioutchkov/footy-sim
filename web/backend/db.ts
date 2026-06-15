@@ -68,3 +68,13 @@ CREATE INDEX IF NOT EXISTS idx_teams_league   ON teams(league_id);
 CREATE INDEX IF NOT EXISTS idx_fixtures_league ON fixtures(league_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user  ON sessions(user_id);
 `);
+
+// Lightweight migrations (no framework): add a column only if it's missing, so an
+// existing DB upgrades in place. Each new column has a default that reproduces the
+// pre-migration behaviour (teams default to the 4-3-3 shape + identity XI).
+function ensureColumn(table: string, col: string, ddl: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some(c => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+ensureColumn('teams', 'formation', "formation TEXT NOT NULL DEFAULT '4-3-3'");
+ensureColumn('teams', 'lineup', 'lineup TEXT');   // json int[11]: formationSlot -> player slot; NULL = identity XI
