@@ -222,6 +222,30 @@ inline constexpr double GK_PARRY_SPEED_Y_RANGE  = 90.0;
 // Hold after a clean catch before distributing — 250ms read as a pinball.
 inline constexpr double GK_DISTRIBUTE_MS        = 950.0;
 
+// ── GK cross-claim (keeper commands his box) ──
+// A claim is a save of the DELIVERY: the keeper attacks an aerial cross that
+// nobody won in his 6-yard zone. Reuses catch/punch/tip physics — there is NO
+// central live drop (a reverted "spill" scored less than the wide parry it
+// replaced, because defenders mop up central drops). The z-band spans the full
+// aerial range [AERIAL_HEIGHT, HEADER_MAX_HEIGHT]; below it, low/ground balls
+// stay with the scoop/first-touch paths. The striker still gets first refusal
+// (the intended-receiver/dueler block runs before the claim gate).
+inline constexpr double GK_CLAIM_DEPTH       = 78.0;   // max |ball.x - ownGoalX| (~6-yd box +a touch)
+inline constexpr double GK_CLAIM_HALF_W      = 95.0;   // max |ball.y - PITCH_H/2| (goal corridor)
+inline constexpr double GK_CLAIM_MIN_Z       = 20.0;   // floor: at AERIAL_HEIGHT
+inline constexpr double GK_CLAIM_MAX_Z       = 64.0;   // ceiling: full aerial range (= HEADER_MAX_HEIGHT)
+inline constexpr double GK_CLAIM_REACH_Z     = 34.0;   // jump-and-hands reach height
+inline constexpr double GK_CLAIM_RADIUS      = 44.0;   // slant commit reach (incl. z) — a keeper reaching/jumping
+inline constexpr double GK_CLAIM_BASE        = 0.36;   // catch base
+inline constexpr double GK_CLAIM_SKILL       = 0.40;   // handling weight
+inline constexpr double GK_CLAIM_REACH_BONUS = 0.18;   // got-there-early comfort weight
+inline constexpr double GK_CLAIM_CROWD_PEN   = 0.22;   // pressure penalty
+inline constexpr double GK_CLAIM_PACE_FALL   = 560.0;  // pace penalty divisor
+inline constexpr double GK_CLAIM_MIN         = 0.10;
+inline constexpr double GK_CLAIM_MAX         = 0.88;
+inline constexpr double GK_CLAIM_CROWD_DIST  = 40.0;   // opponent-in-airspace radius
+inline constexpr double GK_CLAIM_PACE_PUNCH  = 320.0;  // above this, force a punch over a finesse hold
+
 // ── Tackle ──
 inline constexpr double TACKLE_BASE             = 0.18;
 inline constexpr double TACKLE_SKILL_WEIGHT     = 0.35;

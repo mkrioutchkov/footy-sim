@@ -76,6 +76,10 @@ public:
     void recordShotDistance(double distance) { shotDistTotal+=distance; if(distance<100)shotDistClose++; else if(distance<200)shotDistMedium++; else shotDistLong++; }
     void recordShotOnTarget();
     void recordSave() { saves++; }
+    // Keeper cross-claims (separate from shot saves so the save ledger stays clean).
+    void recordClaimCatch() { keeperClaimCatch++; }
+    void recordClaimPunch() { keeperClaimPunch++; }
+    void recordClaimTip()   { keeperClaimTip++; }
     void recordGoal(Team team, const std::string& source, double distance, double speed, std::optional<Role> scorerRole, bool headedGoal);
     void recordGkAssessment(bool unlikely, bool preventable) { gkAssessed++; if(unlikely) unlikelySaves++; if(preventable) preventableGoals++; }
     void recordShotSelection(double angle, double pressure, int credibleWindows, int deferred, int deferredPass, int deferredDribble, int closeWindows, int closeDeferred, bool betterPass, bool tightAngle) {
@@ -182,6 +186,7 @@ private:
     double offsidePositionMsGK=0, offsidePositionMsCB=0, offsidePositionMsFB=0;
     double offsidePositionMsCM=0, offsidePositionMsWM=0, offsidePositionMsCF=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;
+    int keeperClaimCatch=0, keeperClaimPunch=0, keeperClaimTip=0;
     int shotsGK=0, shotsCB=0, shotsFB=0, shotsCM=0, shotsWM=0, shotsCF=0, shotsUnknownRole=0;
     int touchesGK=0, touchesCB=0, touchesFB=0, touchesCM=0, touchesWM=0, touchesCF=0, touchesUnknownRole=0;
     int goalsHome=0, goalsAway=0;

@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "agent.h"
 #include <cmath>
 #include <numbers>
 
@@ -436,6 +437,34 @@ void GameEngine::checkBallPlayerCollision(double){
                     receiverShieldTargetId=-1;
                     blockReboundFor(intended->id,150);
                 }
+            }
+        }
+    }
+
+    // ── KEEPER CROSS-CLAIM ──
+    // A live cross the intended receiver did NOT win, hanging in the keeper's
+    // own 6-yard zone at takeable height: he comes and claims it. Sits AFTER the
+    // intended-receiver block (the striker gets first refusal) and BEFORE the
+    // generic loop, returning on commit so the GK-skip path never double-handles.
+    // Every gate condition is deterministic board state — NO rng before commit.
+    if (pendingPass.active && pendingPass.isCross && b.controllerId < 0
+        && b.z >= GK_CLAIM_MIN_Z && b.z <= GK_CLAIM_MAX_Z) {
+        Player* gk = nullptr;
+        for (auto& p : state.players) {
+            if (p.role != Role::GK || p.team == pendingPass.team) continue;  // defending keeper
+            if (!canContestBall(p)) continue;
+            gk = &p; break;
+        }
+        if (gk && agentFor(*gk)->canUseHands()) {
+            double goalX = ownGoalXFor(gk->team);
+            double bdg   = std::abs(b.x - goalX);
+            bool inZone  = bdg < GK_CLAIM_DEPTH
+                        && std::abs(b.y - PITCH_H / 2.0) < GK_CLAIM_HALF_W;
+            double dz     = std::max(0.0, b.z - GK_CLAIM_REACH_Z);
+            double claimD = std::hypot(dist(gk->x, gk->y, b.x, b.y), dz);
+            if (inZone && claimD <= GK_CLAIM_RADIUS) {
+                resolveCrossClaim(*gk, claimD);   // draws rng, then RETURNS
+                return;
             }
         }
     }

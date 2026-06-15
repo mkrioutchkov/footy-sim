@@ -65,6 +65,31 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
             return;
         }
     }
+    // Cross hanging into his box: come and ATTACK it — command the box. Without
+    // this he claims <1 cross/match (he's never within the 34px commit reach
+    // when the ball drops). He sprints to the ball's near-future point; the
+    // claim gate in updateBallCollection then resolves catch/punch/tip. The
+    // striker still gets first refusal (the intended-receiver block runs before
+    // the claim gate), and coming out then NOT claiming is a real risk — that's
+    // goalkeeping. Pure positioning, no rng.
+    {
+        double cbdg = std::abs(state.ball.x - goalX);
+        double cdy  = std::abs(state.ball.y - PITCH_H / 2.0);
+        bool crossComing = pendingSave.active == false
+            && pendingPass.active && pendingPass.isCross && state.ball.controllerId < 0
+            && state.ball.z > 12.0                        // a genuine aerial ball
+            && cbdg < GK_CLAIM_DEPTH + 46.0 && cdy < GK_CLAIM_HALF_W + 28.0;
+        if (crossComing) {
+            double lead = 0.14;
+            gk.targetX = clamp(state.ball.x + state.ball.vx * lead, goalX + fd * 4.0, goalX + fd * 150.0);
+            gk.targetY = clamp(state.ball.y + state.ball.vy * lead, PITCH_H * 0.10, PITCH_H * 0.90);
+            double sp = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 1.85;
+            double mvx = gk.targetX - gk.x, mvy = gk.targetY - gk.y, md = std::hypot(mvx, mvy);
+            if (md > 1.0) { double st = std::min(sp * secs, md); gk.x += mvx / md * st; gk.y += mvy / md * st; }
+            gk.facing = std::atan2(state.ball.y - gk.y, state.ball.x - gk.x);
+            return;
+        }
+    }
     bool ballInOurHalf = gk.team == Team::Home ? state.ball.x < PITCH_W * 0.55 : state.ball.x > PITCH_W * 0.45;
     bool towardGoal = gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0;
     double ballSpeed = std::hypot(state.ball.vx, state.ball.vy);
@@ -319,5 +344,88 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
     lastLooseOrigin = punch ? "goalkeeper_punch" : "goalkeeper_parry";
     recordBallImpulse();
+}
+
+// The keeper claims an aerial cross hanging in his box (committed by the
+// deterministic gate in updateBallCollection). Mirrors applySaveOutcome's
+// branch PHYSICS but is self-contained: catch (possession), or — never holding
+// it — punch (long + WIDE, never goalward) or tip behind for a corner. There is
+// deliberately NO central live drop: a reverted "spill" scored less than the
+// wide parry it replaced, because defenders mop up central drops.
+void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
+    auto& b = state.ball;
+    double speed = std::hypot(b.vx, b.vy);
+    double hf = attrFactor(gk.attrs.handling);
+    double fieldDir = fdFor(gk.team);
+    double diveSide = (b.y >= gk.y) ? 1.0 : -1.0;
+    gk.diveAnim = std::max(gk.diveAnim, 480.0);   // render-only stretch
+
+    // Crowd: an attacker contesting the keeper's airspace makes a clean claim
+    // harder — he's more likely to punch/flap than gather.
+    bool gkPressured = false;
+    for (auto& o : state.players)
+        if (o.team != gk.team && o.role != Role::GK
+            && dist(o.x, o.y, gk.x, gk.y) < GK_CLAIM_CROWD_DIST) { gkPressured = true; break; }
+
+    double reachMargin = clamp((GK_CLAIM_RADIUS - claimD) / GK_CLAIM_RADIUS, 0.0, 1.0);
+    double paceCost    = std::max(0.0, speed - 260.0) / GK_CLAIM_PACE_FALL;
+    double claimChance = clamp(GK_CLAIM_BASE + hf * GK_CLAIM_SKILL
+                               + reachMargin * GK_CLAIM_REACH_BONUS
+                               - (gkPressured ? GK_CLAIM_CROWD_PEN : 0.0)
+                               - paceCost, GK_CLAIM_MIN, GK_CLAIM_MAX);
+
+    // DRAW #1 — caught. The committed gate IS the short-circuit (exactly like
+    // the save roll), so this unconditional draw inside the block is safe.
+    if (rng.random() < claimChance) {                          // CATCH → possession
+        b.x = clamp(gk.x + fieldDir * 6.0, 10.0, PITCH_W - 10.0);
+        b.y = clamp(gk.y + diveSide * 4.0, 18.0, PITCH_H - 18.0);
+        b.vx = b.vy = b.vz = b.z = 0; b.curl = 0;
+        b.controllerId = gk.id;
+        b.intendedReceiverId = -1;
+        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
+        goalKickMonitor.distributeTimer = GK_DISTRIBUTE_MS;
+        lastLooseOrigin = "goalkeeper_claim";
+        stats.recordClaimCatch();
+        emitEvent("claim", gk.x, gk.y, gk.id);
+        blockReboundFor(pendingPass.fromId, 250);
+        recordBallImpulse();
+        pendingPass.active = false;
+        return;
+    }
+
+    // NOT caught — no central live drop. Punch (clear with authority) or tip.
+    double punchConfidence = clamp(0.30 + hf * 0.55
+                                   - (gkPressured ? 0.25 : 0.0)
+                                   - paceCost, 0.05, 0.85);
+    bool forcePunch = speed > GK_CLAIM_PACE_PUNCH;             // a hard whip gets fisted, not finessed
+
+    // DRAW #2 — punch vs tip (only on the not-caught branch).
+    bool doPunch = forcePunch || (rng.random() < punchConfidence);
+    if (doPunch) {                                             // PUNCH → long + WIDE, dive-side
+        emitEvent("punch", gk.x, gk.y, gk.id);
+        stats.recordClaimPunch();
+        double clearSpeed = std::max(speed, 260.0) * agentFor(gk)->punchPower();
+        // DRAW #3 — punch direction (only inside the punch branch).
+        double punchDir = 0.9 + (rng.random() - 0.5) * 0.5;
+        b.x = clamp(gk.x + fieldDir * 28, 10.0, PITCH_W - 10.0);
+        b.y = clamp(gk.y + diveSide * 20, 18.0, PITCH_H - 18.0);
+        b.vx = fieldDir * std::cos(punchDir) * clearSpeed;     // up the pitch, never goalward
+        b.vy = diveSide * std::abs(std::sin(punchDir)) * clearSpeed * 0.9;  // to the dive side
+        b.z = 6; b.vz = clearSpeed * 0.30;
+        b.curl = 0;
+        b.intendedReceiverId = -1;
+        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
+        lastLooseOrigin = "goalkeeper_punch";
+        blockReboundFor(gk.id, 900);
+        blockReboundFor(pendingPass.fromId, 900);
+        recordBallImpulse();
+        pendingPass.active = false;
+        return;
+    }
+    // TIP → corner (clean, dramatic; no live central ball). awardCorner draws nothing.
+    emitEvent("save", gk.x, gk.y, gk.id);
+    awardCorner(pendingPass.team, gk.team == Team::Home, b.y);
+    stats.recordClaimTip();
+    pendingPass.active = false;
 }
 

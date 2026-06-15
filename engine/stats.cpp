@@ -141,6 +141,9 @@ std::string StatsCollector::summaryJSON() const {
     j["shots"] = totalShots;
     j["shotsOnTarget"] = shotsOnTarget;
     j["saves"] = saves;
+    j["keeperClaimCatch"] = keeperClaimCatch;
+    j["keeperClaimPunch"] = keeperClaimPunch;
+    j["keeperClaimTip"] = keeperClaimTip;
 
     j["stuckCarrierAlerts"] = stuckAlerts;
     j["simulationFreezes"] = simFreezes;

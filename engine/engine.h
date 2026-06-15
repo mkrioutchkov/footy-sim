@@ -179,6 +179,9 @@ public:
     } pendingSave;
     void resolvePendingSave();
     void applySaveOutcome(Player& gk, int shooterId, double reach);
+    // Keeper claims an aerial cross in his box: catch / punch / tip-for-corner,
+    // keyed on handling. claimD is the slant distance (incl. z) at commit.
+    void resolveCrossClaim(Player& gk, double claimD);
 
     struct GKMonitor {
         double distributeTimer = 0;
