@@ -243,7 +243,11 @@ SmallVector<GameEngine::DefenseContext::Threat, 12> GameEngine::identifyThreats(
             if (!present) threats.push_back({rcv, std::abs(rcv->x - ctx.ownGoalX)});
         }
     }
-    if (threats.size() > (ctx.danger ? 6u : 4u)) threats.resize(ctx.danger ? 6u : 4u);
+    // Non-danger cap raised 4->5: with the attack now sending up to 4 runners +
+    // the receiver, a 4-slot list filled before the shallowest arriver (overlap
+    // FB / advancing CM) got a marker. +1 slot seats the 5th without stripping
+    // the block (danger stays 6).
+    if (threats.size() > (ctx.danger ? 6u : 5u)) threats.resize(ctx.danger ? 6u : 5u);
     return threats;
 }
 

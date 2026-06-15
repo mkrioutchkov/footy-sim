@@ -477,7 +477,32 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     // stay_on_feet raises it (jockey, only commit to a clear chance).
     double commitBar = clamp(0.30 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13
         - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.50);
-    bool committed = chance >= commitBar || boxEmergency
+    // Deliberate (cynical) foul: the last man, genuinely beaten on a transition
+    // break OUTSIDE the box, brings the carrier down to stop the counter. Pure
+    // state (no rng); it forces commitment so the challenge reaches the existing
+    // failed-tackle foul branch, where the foul/card thresholds are re-weighted.
+    int goalSideCover = 0;
+    for (auto& d : state.players)
+        if (d.team == tackler.team && d.role != Role::GK && d.id != tackler.id
+            && (d.x - carrier.x) * fdFor(tackler.team) < 0.0          // goal-side of the carrier
+            && std::abs(d.y - carrier.y) < CYNICAL_LASTMAN_LATERAL) goalSideCover++;
+    // The classic professional foul: a genuine last-man break (no cover goal-
+    // side) with the carrier driving at me in the approach band, where I can't
+    // win the ball. Not gated on the transition flag — a beaten last man is a
+    // beaten last man whenever it happens (that gate made it fire ~0/match).
+    // A beaten last man has the carrier breaking PAST him toward goal (not
+    // driving into him — that's a winnable front challenge). Key off the
+    // carrier's forward velocity toward our goal, not approachDot.
+    double carrierToGoal = carrierSpeed > 8.0 ? forwardX * fdFor(carrier.team) : 0.0;
+    bool cynical = !inPenaltyBox
+        && carrierGoalDist > CYNICAL_BAND_NEAR && carrierGoalDist < CYNICAL_BAND_FAR
+        && carrierToGoal > CYNICAL_FOUL_DRIVE                         // carrier breaking toward my goal
+        && carrierSpeed > CYNICAL_MIN_SPEED                          // a real sprint break
+        && goalSideCover == 0                                        // I am the last man
+        && chance < commitBar                                        // the tackle is genuinely unwinnable
+        && state.ball.controllerId == carrier.id                     // he's in control (a real break, not a loose 50/50)
+        && directiveBias[tackler.id].stayOnFeet < 0.5;               // a stay_on_feet order suppresses it
+    bool committed = chance >= commitBar || boxEmergency || cynical
         || (carrier.dribbleType == 0 && ballExposureDot > 0.0)
         || (ballPushedAhead && ballExposureDot > 0.15)   // nick the loose touch off an open carry
         || (ballExposureDot > 0.40);  // ball shown front-to-front at me — go, whatever the carry type
@@ -491,18 +516,22 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         double foulChance=(fromBehind?TACKLE_FOUL_FROM_BEHIND:TACKLE_FOUL_NORMAL)*boxFoulScale
             *(1.0 + directiveBias[tackler.id].tackleAggression * 0.35)   // tackle_hard: more reckless
             *(1.0 - directiveBias[tackler.id].stayOnFeet * 0.45);        // stay_on_feet: cleaner
+        // A deliberate cynical foul IS the foul — he means to bring the man down.
+        if(cynical) foulChance = CYNICAL_FOUL_PROB;
         // A booked player plays it safe — fewer reckless fouls, so second
-        // yellows (and the resulting reds) stay near real rates.
-        if(yellowCards[tackler.id]>=1)foulChance*=0.55;
+        // yellows (and the resulting reds) stay near real rates. (Even a booked
+        // last man still cynically fouls — he just risks the second yellow.)
+        if(yellowCards[tackler.id]>=1 && !cynical)foulChance*=0.55;
         if(rng.random()<foulChance){
             stats.recordTackleFoul();
+            if(cynical) stats.recordTacticalFoul();
             double foulX = carrier.x;
             double foulY = carrier.y;
             emitEvent("foul", foulX, foulY, tackler.id, carrier.id);
             // Bookings: reckless (from-behind) fouls risk a card. A second
             // yellow — or a straight red for a wild challenge — sends him off.
             // Tuned for ~3-4 yellows and ~0.25 reds per match (real-world).
-            double cardChance = fromBehind ? 0.36 : 0.095;
+            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.36 : 0.095);
             bool straightRed = fromBehind && rng.random() < 0.010;
             if (straightRed || rng.random() < cardChance) {
                 if (!straightRed) {

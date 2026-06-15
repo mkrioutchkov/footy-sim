@@ -132,4 +132,15 @@ public:
     double defensiveLineOffsetX(bool danger, double lineProgress) const override { return danger ? 104.0 : lineProgress + 8.0; }
     double defensiveLineTargetY(double homeY, double, double carrierY) const override { return lerp(homeY, carrierY, 0.20); }
     DefensiveTask defensiveLineRoleTask() const override { return DefensiveTask::WideCover; }
+    // An OVERLAPPING fullback was the one off-ball runner the defense never
+    // picked up (base isOffensiveThreat=false, base markerRoleBonus=1e9 = no
+    // marker). Detect him (wide by definition, no lateral gate) and let our own
+    // FB track him, with a CM/CB as fallback.
+    bool   isOffensiveThreat(double depth, bool danger, double) const override { return depth < (danger ? 250.0 : 200.0); }
+    double markerRoleBonus(const PlayerAI& defender, bool danger) const override {
+        (void)danger;
+        if (defender.isFullBack()) return -35.0;
+        if (defender.isCenterBack() || defender.isCentralMidfielder()) return 0.0;
+        return 1e9;
+    }
 };

@@ -254,6 +254,17 @@ inline constexpr double TACKLE_FOUL_FROM_BEHIND = 0.06;   // calibrated 2026-06-
 inline constexpr double TACKLE_FOUL_NORMAL      = 0.015;
 inline constexpr double TACKLE_CONTROL_BASE     = 0.28;
 inline constexpr double TACKLE_CONTROL_MAX      = 0.72;
+// Deliberate (cynical) foul: the last man, beaten on a transition break OUTSIDE
+// the box, hauls the carrier down to stop the counter — a yellow, never a
+// penalty (the band starts beyond the box, so the award path is always a free
+// kick). Folds into the existing foul/card draws (no new rng call site).
+inline constexpr double CYNICAL_FOUL_DRIVE      = 0.50;   // carrier breaking clearly toward our goal
+inline constexpr double CYNICAL_BAND_NEAR       = PENALTY_AREA_W * 1.2;  // never in/near the box (penalty guard)
+inline constexpr double CYNICAL_BAND_FAR        = 375.0;  // a genuine break in the approach band, not from deep
+inline constexpr double CYNICAL_MIN_SPEED       = 18.0;   // moving with it, not a standing duel
+inline constexpr double CYNICAL_LASTMAN_LATERAL = 175.0;  // truly the last man (cover lane → goalSideCover==0 ~ a clear break)
+inline constexpr double CYNICAL_FOUL_PROB       = 0.80;   // a committed cynical challenge is a deliberate foul
+inline constexpr double CYNICAL_CARD            = 0.55;   // a professional foul is usually bookable
 
 // ── Aerial / collision ──
 inline constexpr double AERIAL_HEIGHT           = 20.0;

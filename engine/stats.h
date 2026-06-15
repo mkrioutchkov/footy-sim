@@ -95,6 +95,7 @@ public:
     void recordTackleAttempt()               { tackleAttempts++; }
     void recordTackleWin(bool cleanControl)   { tackleWins++; if(cleanControl) tackleClean++; else tackleLoose++; }
     void recordTackleFoul()                  { tackleFouls++; }
+    void recordTacticalFoul()                { tacticalFouls++; }   // deliberate cynical foul (subset of fouls)
     void recordSlideTackleDistance()         { slideTackleDistance++; }
     void recordSlideTackleOob()              { slideTackleOob++; }
 
@@ -187,6 +188,7 @@ private:
     double offsidePositionMsCM=0, offsidePositionMsWM=0, offsidePositionMsCF=0;
     int shotsHome=0, shotsAway=0, shotsOnTarget=0, saves=0;
     int keeperClaimCatch=0, keeperClaimPunch=0, keeperClaimTip=0;
+    int tacticalFouls=0;
     int shotsGK=0, shotsCB=0, shotsFB=0, shotsCM=0, shotsWM=0, shotsCF=0, shotsUnknownRole=0;
     int touchesGK=0, touchesCB=0, touchesFB=0, touchesCM=0, touchesWM=0, touchesCF=0, touchesUnknownRole=0;
     int goalsHome=0, goalsAway=0;
