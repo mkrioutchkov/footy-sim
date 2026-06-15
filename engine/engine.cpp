@@ -238,6 +238,7 @@ void GameEngine::updatePlayerAnimations(double sdt) {
     for (auto& p : state.players) {
         if (p.tackleAnim > 0) p.tackleAnim = std::max(0., p.tackleAnim - sdt);
         if (p.headingAnim > 0) p.headingAnim = std::max(0., p.headingAnim - sdt);
+        if (p.diveAnim > 0) p.diveAnim = std::max(0., p.diveAnim - sdt);
         if (p.crossCollected > 0) p.crossCollected = std::max(0., p.crossCollected - sdt);
         if (p.throughCollected > 0) p.throughCollected = std::max(0., p.throughCollected - sdt);
         if (p.firstTouchFinish > 0) p.firstTouchFinish = std::max(0., p.firstTouchFinish - sdt);
@@ -863,6 +864,7 @@ std::string GameEngine::getJSON() const {
             {"stamina", std::round(p.stamina)}, {"facing", std::round(p.facing * 1000) / 1000},
             {"dribbleType", p.dribbleType},
             {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)},
+            {"diveAnim", std::round(p.diveAnim)},
             {"goals", pGoals[p.id]}, {"assists", pAssists[p.id]}, {"shots", pShots[p.id]},
             {"tackles", pTackles[p.id]}, {"yellow", yellowCards[p.id]},
             {"injured", p.injurySeverity > 0.05}, {"sentOff", p.sentOff}

@@ -177,6 +177,7 @@ struct Player {
     double facing      = 0.0;
     double tackleAnim  = 0.0;
     double headingAnim = 0.0;
+    double diveAnim    = 0.0;   // keeper diving-save stretch (ms, render-only; set on dive/save, decays)
     double crossCollected = 0.0;
     double throughCollected = 0.0;
     double firstTouchFinish = 0.0; // first-time foot finish off a low cross — flat & clean, but not a header

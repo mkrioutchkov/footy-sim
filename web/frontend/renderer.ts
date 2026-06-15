@@ -18,8 +18,10 @@ type PlayerEntry = {
   label: Text;
   drawn: boolean;
   wasSliding: boolean;
+  wasDiving: boolean;
   hadBall: boolean;
   slideAngle: number;
+  diveAngle: number;
   lastDribbleType: number;
   wasSprinting: boolean;
 };
@@ -343,8 +345,10 @@ export class MatchRenderer {
           label,
           drawn: false,
           wasSliding: false,
+          wasDiving: false,
           hadBall: false,
           slideAngle: p.team === 'home' ? 0 : Math.PI,
+          diveAngle: p.team === 'home' ? Math.PI : 0,
           lastDribbleType: p.dribbleType,
           wasSprinting: false,
         };
@@ -357,16 +361,24 @@ export class MatchRenderer {
       const hasBall = b.controllerId === p.id;
       const r = PLAYER_R;
       const vp = this.smoothPlayer(p.id, p.x, p.y);
-      const sliding = (p.tackleAnim ?? 0) > 0;
+      const diving = p.role === 'GK' && (p.diveAnim ?? 0) > 0;
+      const sliding = !diving && (p.tackleAnim ?? 0) > 0;
       const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
       const knockDribble = p.dribbleType === 3;
       const sprinting = knockDribble || speed > 39;
       if (sliding && !entry.wasSliding) {
         entry.slideAngle = Math.hypot(p.vx, p.vy) > 1 ? Math.atan2(p.vy, p.vx) : (p.team === 'home' ? 0 : Math.PI);
       }
-      const needsRedraw = !entry.drawn || sliding || entry.wasSliding || hasBall !== entry.hadBall
+      if (diving && !entry.wasDiving) {
+        // the keeper stretches toward the ball; locked in at dive onset so the
+        // reach direction doesn't swing once he's parried/punched it away.
+        entry.diveAngle = Math.atan2(b.y - vp.y, b.x - vp.x);
+      }
+      const needsRedraw = !entry.drawn || sliding || entry.wasSliding || diving || entry.wasDiving
+        || hasBall !== entry.hadBall
         || p.dribbleType !== entry.lastDribbleType || sprinting !== entry.wasSprinting;
       entry.wasSliding = sliding;
+      entry.wasDiving = diving;
       entry.hadBall = hasBall;
       entry.lastDribbleType = p.dribbleType;
       entry.wasSprinting = sprinting;
@@ -375,7 +387,31 @@ export class MatchRenderer {
       entry.body.alpha = hasBall ? 1 : 0.82; // consistent alpha: carriers pop, others uniform
       if (needsRedraw) {
         entry.body.clear();
-        if (sliding) {
+        if (diving) {
+          // diving save: full-length body stretched toward the ball with bright
+          // gloves outstretched at the reach tip + a motion smear behind. The
+          // stretch grows with dive intensity (p.diveAnim, peaks at the save).
+          const t = Math.min((p.diveAnim ?? 0) / 480, 1);
+          const reach = r * (1.45 + t * 0.95);
+          entry.body.rotation = entry.diveAngle;
+          // body — elongated oval offset toward the ball
+          entry.body.ellipse(r * 0.35, 0, reach, r * 0.55);
+          entry.body.fill({ color, alpha: 0.92 });
+          entry.body.ellipse(r * 0.35, 0, reach, r * 0.55);
+          entry.body.stroke({ width: 1.5, color: 0x000000 });
+          // outstretched gloves at the reach tip
+          const tipX = r * 0.35 + reach;
+          entry.body.circle(tipX, 0, r * 0.5);
+          entry.body.fill({ color: 0xffe27a });
+          entry.body.circle(tipX, 0, r * 0.5);
+          entry.body.stroke({ width: 1, color: 0x000000 });
+          // motion smear trailing the dive
+          entry.body.moveTo(-reach * 0.7, -r * 0.3);
+          entry.body.lineTo(-reach * 1.15, -r * 0.3);
+          entry.body.moveTo(-reach * 0.7, r * 0.3);
+          entry.body.lineTo(-reach * 1.15, r * 0.3);
+          entry.body.stroke({ width: 2, color: 0xffffff, alpha: 0.4 });
+        } else if (sliding) {
           // slide tackle: elongated oval + dust trail
           const angle = entry.slideAngle;
           entry.body.rotation = angle;
@@ -410,7 +446,7 @@ export class MatchRenderer {
             entry.body.stroke({ width: knockDribble ? 2 : 1.5, color: knockDribble ? 0xfff1a8 : 0xffffff, alpha: knockDribble ? 0.78 : 0.45 });
           }
         }
-        if (!sliding) entry.drawn = true;
+        if (!sliding && !diving) entry.drawn = true;
       }
 
       // arrow — redraw at relative coords

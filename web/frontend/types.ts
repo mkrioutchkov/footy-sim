@@ -30,6 +30,7 @@ export interface Player {
   attrs: PlayerAttributes;
   tackleAnim: number;
   headingAnim: number;
+  diveAnim: number;
   facing: number;
   crossCollected: number;
   dribbleType: number;

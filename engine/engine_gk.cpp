@@ -29,6 +29,10 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         double step = std::min(diveSpeed * secs, std::abs(dy));
         gk.y += (dy > 0 ? 1.0 : -1.0) * step;
         gk.facing = std::atan2(state.ball.y - gk.y, state.ball.x - gk.x);
+        // Held high while committed to the save so the renderer shows the full
+        // stretch through the dive, then lingers ~420ms after he lands. Bigger
+        // reach = bigger stretch (render-only field, no rng, no logic reads it).
+        gk.diveAnim = std::max(gk.diveAnim, clamp(260.0 + std::abs(dy) * 6.0, 260.0, 600.0));
         return;
     }
     double goalX = ownGoalXFor(gk.team);
@@ -227,6 +231,7 @@ void GameEngine::resolvePendingSave() {
 void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     auto& b = state.ball;
     double speed = std::hypot(b.vx, b.vy);
+    gk.diveAnim = std::max(gk.diveAnim, 480.0);   // the save itself: full stretch (render-only)
     double positioning = attrFactor(gk.attrs.positioning);
     bool canHandle = agentFor(gk)->canUseHands();
     // Natural handling decision: hold it only when comfortable — ball near

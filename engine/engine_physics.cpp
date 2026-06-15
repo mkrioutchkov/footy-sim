@@ -332,6 +332,7 @@ void GameEngine::checkBallPlayerCollision(double){
                     stats.recordShotOnTarget();
                     stats.recordSave();
                     emitEvent("save", keeperContact->x, keeperContact->y, keeperContact->id);
+                    keeperContact->diveAnim = std::max(keeperContact->diveAnim, 440.0);  // render-only stretch
                 }
             }
             collectBall(*keeperContact);
