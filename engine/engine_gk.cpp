@@ -158,12 +158,19 @@ void GameEngine::tryGKSave() {
     double timeToLineMs = dToGoal / std::max(std::abs(b.vx), 1.0) * 1000;
     double positioning = attrFactor(gk->attrs.positioning);
     double speedSkill = attrFactor(gk->attrs.speed);
-    // Natural save model: a save is the body getting there in the time
-    // available — reach coverage of the trajectory, scaled by reaction time,
-    // taxed by shot power. No abstract bonus stack.
-    double reach = PLAYER_R + BALL_R + 22.0 + positioning * 28.0
-        + speedSkill * clamp(timeToLineMs / 1970.0, 0.0, 0.50) * 80.0;
-    double reachCover = clamp((reach - trajectoryOffset) / reach, 0.0, 1.0);
+    // Realistic reach envelope: a STANDING arm reach the keeper always has, plus
+    // a lateral DIVE that's rationed by the time the ball gives him (fast shots
+    // far from his set line beat him), plus a HEIGHT cost so a lofted top-corner
+    // ball is harder than a flat one. `need` is the (lateral, height) miss the
+    // keeper must cover; `reach` is what he can cover. Handling proxy = 0.6 pos +
+    // 0.4 speed today; Step 3 swaps in a real attrs.handling.
+    double hand = 0.6 * positioning + 0.4 * speedSkill;
+    double tAvail = timeToLineMs / 1000.0;                                   // seconds of flight
+    double diveCover = (GK_MAX_DIVE_BASE + hand * GK_MAX_DIVE_SKILL) * clamp(tAvail / GK_DIVE_FULL_T, 0.0, 1.0);
+    double reach = GK_STAND_REACH + diveCover;
+    double zCost = std::max(0.0, b.z - GK_STAND_Z) * GK_Z_WEIGHT;            // top-corner tax
+    double need = std::hypot(trajectoryOffset, zCost);
+    double reachCover = clamp((reach - need) / reach, 0.0, 1.0);
     double reactTime = clamp(timeToLineMs / 1025.0, 0.18, 1.0);
     double power = clamp((speed - 180.0) / 195.0, 0.0, 0.30);
     double saveChance = clamp(reachCover * (0.435 + 0.42 * reactTime) + positioning * 0.125 - power,

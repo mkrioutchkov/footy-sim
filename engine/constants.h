@@ -200,6 +200,16 @@ inline constexpr double GK_SAVE_MIN             = 0.05;
 // is NOT the scoring throttle. Kept named (was a stray 0.84 literal in engine_gk).
 inline constexpr double GK_SAVE_MAX             = 0.84;
 inline constexpr double GK_CATCH_HANDLING_BASE  = 0.22;
+// ── Realistic reach envelope (10px = 1m) ── replaces the flat isotropic circle.
+// A keeper has a short STANDING reach but can EXTEND into a dive; a dive covers
+// ground over TIME, so a fast shot far from his set line beats him, and a lofted
+// ball adds a vertical cost he often can't pay. Centre/slow shots stay easy.
+inline constexpr double GK_STAND_REACH    = PLAYER_R + BALL_R + 7.0;  // ~23.5px standing arm reach
+inline constexpr double GK_MAX_DIVE_BASE  = 13.0;   // full lateral dive (base)
+inline constexpr double GK_MAX_DIVE_SKILL = 13.0;   // ...+ up to this with handling
+inline constexpr double GK_DIVE_FULL_T    = 0.42;   // seconds of flight to reach full stretch
+inline constexpr double GK_STAND_Z        = 8.0;    // free vertical reach (px) before height costs him
+inline constexpr double GK_Z_WEIGHT       = 1.35;   // going UP is slow/expensive vs going sideways
 inline constexpr double GK_CATCH_HANDLING_WEIGHT = 0.38;
 inline constexpr double GK_CATCH_SPEED_THRESH   = 520.0;
 inline constexpr double GK_CATCH_SPEED_RANGE    = 900.0;
