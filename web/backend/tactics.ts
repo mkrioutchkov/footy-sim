@@ -42,9 +42,12 @@ interface MatchSpec { home: TeamSpec; away: TeamSpec }
 const cache = new Map<string, Directive[]>();
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
+// Initials precomputed into the roster so the model matches "AB"/"DT" by lookup
+// rather than (unreliably) computing them itself.
+const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').toUpperCase();
 function rosterContext(spec: MatchSpec, myTeam: Side): string {
   const line = (t: TeamSpec, off: number) =>
-    t.players.slice(0, 11).map((p, i) => `id${off + i} ${p.name}(${ROLE_SLOTS[i]})`).join(', ');
+    t.players.slice(0, 11).map((p, i) => `id${off + i} ${p.name} [${initialsOf(p.name)}](${ROLE_SLOTS[i]})`).join(', ');
   const tag = (s: Side) => (s === myTeam ? 'YOUR TEAM' : 'OPPONENT');
   return `${tag('home')} (HOME): ${line(spec.home, 0)}\n${tag('away')} (AWAY): ${line(spec.away, 11)}`;
 }
@@ -65,8 +68,8 @@ PER-PLAYER kinds (need playerId; omit teamScope):
 - man_mark (targetId=opponent): stick tight to / shadow / pick up / mark a specific opponent.
 - target_player (targetId=team-mate): feed / supply / look for / give it to a team-mate.
 - shoot_on_sight: shoot more / from range / let fly / test the keeper / pull the trigger.
-- get_forward: push higher / join the attack / bomb on / get up the pitch / further forward.
-- sit_deep: drop back / sit deep / don't get forward / stay home / hold a deep position.
+- get_forward: push higher / join the attack / bomb on / get up the pitch / further forward / play striker / play up top / play as a striker / play up front / play further forward / lead the line / get him up there.
+- sit_deep: drop back / sit deep / don't get forward / stay home / hold a deep position / play deeper / play as a holding mid / sit in front of the back four / anchor the midfield.
 - stay_wide: hug the touchline / stay wide / hold the width / stretch the play (winger/full-back).
 - come_inside: tuck in / drift inside / cut inside.
 - stay_central: stay central / hold the middle / don't drift wide.
@@ -93,14 +96,18 @@ TEAM-WIDE kinds (set "teamScope":${myScope}, NO playerId) — for the whole side
 - slow_it_down: keep the ball / game management / take the sting out / kill the tempo / waste time.
 
 TARGETING:
-- Resolve names to ids from the rosters, tolerating typos/slang/phonetic spelling (e.g. "tanaka"=>Tanaka, "rodri"=>Rodriguez).
-- "their striker"=>opponent CF; "their keeper"=>opponent GK; "their winger(s)"=>opponent WM; "their best player/playmaker"=>their most advanced central id.
-- CRITICAL: if a named player is NOT in either roster (no confident match — same person, allowing only typos), DO NOT guess or substitute a different player. OMIT that directive entirely (or output [] if it was the only order). A wrong target is worse than none — never map a name to an unrelated roster player just to produce output.
+- Resolve names to ids from the rosters, tolerating typos/slang/phonetic spelling (e.g. "tanaka"=>Tanaka, "linqvist"=>Lindqvist, "rodri"=>Rodriguez).
+- INITIALS / ABBREVIATIONS: a 2-letter token (or dotted, "a.b.") is the player's first+last initials — match it to the roster player with those initials (e.g. "AB"=>Aron Bauer, "DT"=>Diego Tanaka, "tl"=>Tomas Lindqvist). A single capital or nickname ("Bau", "Lindy") matches by prefix. If two players share initials, pick the more attacking/prominent one.
+- "their striker"=>opponent CF; "their keeper"=>opponent GK; "their winger(s)"=>opponent WM; "their best player/playmaker"=>their most advanced central id. For man_mark the target is ALWAYS an OPPONENT — if a surname matches BOTH a team-mate and an opponent, pick the OPPONENT.
+- A positional / role order maps to the nearest kind: "play striker/up top/up front/lead the line"=>get_forward; "play deeper/holding/anchor/sit in"=>sit_deep; "play wide/out wide/hug the line"=>stay_wide; "tuck in/play narrow/inside"=>come_inside. NEVER drop such an order as unreadable — pick the closest kind.
+- CRITICAL: if a named player is NOT in either roster (no confident match — same person, allowing only typos/initials), DO NOT guess or substitute a different player. OMIT that directive (or output [] if it was the only order). A wrong target is worse than none — never map a name to an unrelated roster player just to produce output.
+- COMPOUND orders: one message may hold SEVERAL instructions (split on commas, "and", "then", or new lines, and on switching to a new player). Emit ONE directive per instruction — e.g. "AB mark their 10 and tanaka get forward, kovac press" => three directives.
 - Whole-team per-player intent ("all my midfielders get forward"): prefer a TEAM-WIDE kind if one fits; otherwise emit one per-player directive for each relevant id of YOUR team (midfielders=CM, defenders=CB/FB, forwards=CF/WM).
 
-CONDITIONS ("when", optional — omit fields not stated):
-- Time: "first half"=>toMin 45; "second half"=>fromMin 45; "last 20 min"=>fromMin 70; "after the 60th"/"from 60"=>fromMin 60; "first 15 min"=>toMin 15.
-- Score: scoreState + scoreBy (only when the order ties to the scoreline).
+CONDITIONS ("when", almost always OMITTED):
+- OMIT the "when" object ENTIRELY unless the order EXPLICITLY states a time window or the scoreline. A plain order ("stick to him", "play striker", "press high") has NO "when" — do NOT invent toMin/scoreState placeholders. Slang like "like a fly to shit" or "all game" is NOT a condition.
+- Time (only if stated): "first half"=>toMin 45; "second half"=>fromMin 45; "last 20 min"=>fromMin 70; "after the 60th"/"from 60"=>fromMin 60; "first 15 min"=>toMin 15.
+- Score (only if the order ties to the scoreline): scoreState + scoreBy.
 - SEQUENCED orders ("press high for the first 20 then drop off", "go for it early then see it out"): emit TWO directives with complementary time windows — the first with toMin N, the second with fromMin N (e.g. high_press toMin 20, then drop_off fromMin 20).
 
 IGNORE the impossible/contradictory/unsupported (e.g. "teleport", "play like Barcelona", "sub him off" — substitutions are not directives). Prefer the most specific kind; keep intensity 1 unless the order implies more/less.
@@ -116,11 +123,21 @@ function extractArray(content: string): unknown[] {
   try { const v = JSON.parse(content.slice(s, e + 1)); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 
+// A "when" condition is only honoured if the manager's TEXT actually mentions a
+// time window or the scoreline. The model otherwise stuffs placeholder
+// conditions onto plain orders (e.g. toMin:90 + scoreState:"drawing" on "stick
+// to him") which the UI then renders as "(first 90') when drawing". This guard
+// strips any condition the words don't justify — independent of the model.
+const TIME_WORDS = /\b(\d{1,3}\s*(?:'|min|mins|minute|minutes)|half|first|second|opening|closing|last|from the|after the|until|before|kick.?off|whistle|early on|late on)\b/i;
+const SCORE_WORDS = /\b(winning|losing|drawing|level|tied|all square|ahead|behind|trailing|chasing|in front|leading|protect|see it out|goal up|goal down|a man (?:up|down)|nil|equaliser|equalizer)\b/i;
+
 // Keep only well-formed, in-range directives; coerce the rest. Impossible /
 // malformed entries are dropped so the engine only ever sees valid input.
-function validate(raw: unknown[], myTeam: Side): Directive[] {
+function validate(raw: unknown[], myTeam: Side, text: string): Directive[] {
   const out: Directive[] = [];
   const myScope = myTeam === 'home' ? 0 : 1;
+  const timeOK = TIME_WORDS.test(text);
+  const scoreOK = SCORE_WORDS.test(text);
   for (const r of raw) {
     if (!r || typeof r !== 'object') continue;
     const d = r as Record<string, unknown>;
@@ -145,11 +162,17 @@ function validate(raw: unknown[], myTeam: Side): Directive[] {
     }
     const w = (d.when ?? {}) as Record<string, unknown>;
     const when: Directive['when'] = {};
-    when.fromMin = Math.max(0, Math.round(num(w.fromMin, 0)));
-    when.toMin = Math.round(num(w.toMin, 1000));
+    // Time window: only if the words mention time; a whole-match span (>=90) is
+    // no real bound, so normalize it away (kills the spurious "(first 90')").
+    const fromMin = Math.max(0, Math.round(num(w.fromMin, 0)));
+    let toMin = Math.round(num(w.toMin, 1000));
+    if (toMin >= 90) toMin = 1000;
+    when.fromMin = timeOK ? fromMin : 0;
+    when.toMin = timeOK ? toMin : 1000;
+    // Scoreline: only if the words mention the score (else drop the placeholder).
     const ss = String(w.scoreState ?? 'any');
-    when.scoreState = VALID_SCORE.has(ss) ? ss : 'any';
-    when.scoreBy = Math.round(num(w.scoreBy, 0));
+    when.scoreState = (scoreOK && VALID_SCORE.has(ss)) ? ss : 'any';
+    when.scoreBy = scoreOK ? Math.round(num(w.scoreBy, 0)) : 0;
     dir.when = when;
     out.push(dir);
   }
@@ -188,7 +211,7 @@ export async function compileTactics(text: string, spec: MatchSpec, myTeam: Side
       const j = await res.json() as { choices?: { message?: { content?: string } }[]; error?: unknown };
       if (res.ok) {
         const content = j.choices?.[0]?.message?.content ?? '[]';
-        const directives = validate(extractArray(content), myTeam);
+        const directives = validate(extractArray(content), myTeam, text);
         cache.set(cacheKey, directives);   // [] is a valid answer (nothing mapped) — don't guess
         return { directives, raw: content, cached: false };
       }
