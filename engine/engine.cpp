@@ -1141,6 +1141,7 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
     a.shooting = form(a.shooting); a.tackling = form(a.tackling); a.positioning = form(a.positioning);
     a.stamina = form(a.stamina);
     a.handling = a.positioning;   // legend keepers: handling = positioning (no extra rng roll — preserves the stream)
+    a.height = a.positioning;     // legends: height = positioning => aerial duel unchanged (golden-safe)
     return Player{id, legendNameFor(id, t), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
         a, t == Team::Home ? 0.0 : PI};
 }

@@ -38,6 +38,7 @@ void loadTeam(const nlohmann::json& t, GameEngine::RosterOverride& ro, GameEngin
         pa.positioning = num(a, "positioning", 50);
         pa.stamina     = num(a, "stamina", 90);
         pa.handling    = num(a, "handling", pa.positioning);   // keepers default handling to positioning
+        pa.height      = num(a, "height", pa.positioning);     // defaults to positioning => aerial duel unchanged
         // Optional formation layout: per-slot role + home anchor (engine frame).
         // Any one present flips hasLayout; missing anchors fall back to the slot
         // default in createHome/AwayTeam (anchor <=0 = "use default").

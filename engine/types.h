@@ -161,6 +161,7 @@ struct PlayerAttributes {
     double positioning = 50.0;
     double stamina     = 95.0;
     double handling    = 50.0;   // keeper catching/holding ability (defaults to positioning if unset)
+    double height      = 50.0;   // aerial dominance — headers/duels (defaults to positioning if unset)
 };
 
 struct Player {

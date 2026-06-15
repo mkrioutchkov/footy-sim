@@ -376,8 +376,14 @@ void GameEngine::checkBallPlayerCollision(double){
                     if(od<48.0&&ob3<=MEET_REACH_HEAD&&od<duelerDist){dueler=&opp;duelerDist=od;}
                 }
                 if(dueler){
+                    // Aerial duel blends positioning with HEIGHT (50/50): a tall
+                    // stopper out-jumps a small attacker on crosses. height defaults
+                    // to positioning, so this is byte-identical until a spec sets a
+                    // distinct height (then the tall man wins more).
+                    double dAer = 0.5*attrFactor(dueler->attrs.positioning)   + 0.5*attrFactor(dueler->attrs.height);
+                    double iAer = 0.5*attrFactor(intended->attrs.positioning) + 0.5*attrFactor(intended->attrs.height);
                     double duelChance=clamp(0.52
-                        +(attrFactor(dueler->attrs.positioning)-attrFactor(intended->attrs.positioning))*0.35
+                        +(dAer-iAer)*0.35
                         +(48.0-duelerDist)/48.0*0.18,0.12,0.76);
                     if(rng.random()<duelChance){
                         dueler->headingAnim=520.0;
