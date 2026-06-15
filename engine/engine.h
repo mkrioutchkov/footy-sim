@@ -414,6 +414,16 @@ public:
         bool active = false;
         std::array<PlayerAttributes, 11> attrs{};
         std::array<std::string, 11> names{};
+        // Formation/lineup: per-slot role + home anchor (engine frame, absolute —
+        // the backend mirrors for away). Default = the current 4-3-3 roles; anchors
+        // <=0 mean "use the hardcoded default for this slot". hasLayout=false =>
+        // the whole hardcoded literal layout (back-compat; no-directive match
+        // stays byte-identical).
+        std::array<Role, 11> roles{ Role::GK, Role::FB, Role::CB, Role::CB, Role::FB,
+                                    Role::CM, Role::CM, Role::CM, Role::WM, Role::CF, Role::WM };
+        std::array<double, 11> homeX{};
+        std::array<double, 11> homeY{};
+        bool hasLayout = false;
     };
     RosterOverride homeRoster, awayRoster;
     bool configOverride = false;
@@ -479,6 +489,7 @@ public:
     void equalizeAttributes(int val);
     void createHomeTeam();
     void createAwayTeam();
+    void buildTeam(Team team, const RosterOverride& ro, const double* defHX);
     Player mkPlayer(int id, Team t, Role r, double hx, double hy);
     void startMatch();
     void kickoff(Team t);

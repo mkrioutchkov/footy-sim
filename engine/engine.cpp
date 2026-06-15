@@ -1145,26 +1145,27 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
         a, t == Team::Home ? 0.0 : PI};
 }
 
-void GameEngine::createHomeTeam() {
-    std::vector<Player> home = {
-        mkPlayer(0,Team::Home,Role::GK,31.5,340),mkPlayer(1,Team::Home,Role::FB,157.5,81.6),
-        mkPlayer(2,Team::Home,Role::CB,189,226.6667),mkPlayer(3,Team::Home,Role::CB,189,453.3333),
-        mkPlayer(4,Team::Home,Role::FB,157.5,598.4),mkPlayer(5,Team::Home,Role::CM,420,170),
-        mkPlayer(6,Team::Home,Role::CM,420,340),mkPlayer(7,Team::Home,Role::CM,420,510),
-        mkPlayer(8,Team::Home,Role::WM,441,81.6),mkPlayer(9,Team::Home,Role::CF,756,340),
-        mkPlayer(10,Team::Home,Role::WM,441,598.4)
-    };
-    state.players.insert(state.players.end(), home.begin(), home.end());
+// Default 4-3-3 slot roles + home anchors (engine frame). When a spec carries a
+// formation layout (RosterOverride::hasLayout) these are overridden per slot;
+// otherwise they reproduce the original hardcoded literals exactly (so the
+// no-layout / default match stays byte-identical). Slot 0 is ALWAYS the GK on
+// the goal line — a bad spec can't field a keeperless side.
+namespace {
+constexpr Role   DEF_ROLES[11] = {Role::GK,Role::FB,Role::CB,Role::CB,Role::FB,Role::CM,Role::CM,Role::CM,Role::WM,Role::CF,Role::WM};
+constexpr double DEF_HX_HOME[11] = {31.5,157.5,189,189,157.5,420,420,420,441,756,441};
+constexpr double DEF_HX_AWAY[11] = {1018.5,892.5,861,861,892.5,630,630,630,609,294,609};
+constexpr double DEF_HY[11]      = {340,81.6,226.6667,453.3333,598.4,170,340,510,81.6,340,598.4};
 }
-
-void GameEngine::createAwayTeam() {
-    std::vector<Player> away = {
-        mkPlayer(11,Team::Away,Role::GK,1018.5,340),mkPlayer(12,Team::Away,Role::FB,892.5,81.6),
-        mkPlayer(13,Team::Away,Role::CB,861,226.6667),mkPlayer(14,Team::Away,Role::CB,861,453.3333),
-        mkPlayer(15,Team::Away,Role::FB,892.5,598.4),mkPlayer(16,Team::Away,Role::CM,630,170),
-        mkPlayer(17,Team::Away,Role::CM,630,340),mkPlayer(18,Team::Away,Role::CM,630,510),
-        mkPlayer(19,Team::Away,Role::WM,609,81.6),mkPlayer(20,Team::Away,Role::CF,294,340),
-        mkPlayer(21,Team::Away,Role::WM,609,598.4)
-    };
-    state.players.insert(state.players.end(), away.begin(), away.end());
+void GameEngine::buildTeam(Team team, const RosterOverride& ro, const double* defHX) {
+    int off = team == Team::Home ? 0 : 11;
+    bool L = ro.hasLayout;
+    for (int i = 0; i < 11; ++i) {
+        // slot 0 forced to GK on its default line; others read the layout when present
+        Role r   = (L && i > 0) ? ro.roles[i] : DEF_ROLES[i];
+        double hx = (L && i > 0 && ro.homeX[i] > 0.0) ? ro.homeX[i] : defHX[i];
+        double hy = (L && i > 0 && ro.homeY[i] > 0.0) ? ro.homeY[i] : DEF_HY[i];
+        state.players.push_back(mkPlayer(off + i, team, r, hx, hy));
+    }
 }
+void GameEngine::createHomeTeam() { buildTeam(Team::Home, homeRoster, DEF_HX_HOME); }
+void GameEngine::createAwayTeam() { buildTeam(Team::Away, awayRoster, DEF_HX_AWAY); }
