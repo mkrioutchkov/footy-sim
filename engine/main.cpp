@@ -166,14 +166,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "Trace enabled: " << tracePath << "\n";
     }
 
-    if (streamFrames) {
-        auto& p1 = engine.state.players[0];
-        std::cerr << "P1 attrs: spd=" << p1.attrs.speed << " pass=" << p1.attrs.passing
-                  << " shoot=" << p1.attrs.shooting << " tack=" << p1.attrs.tackling
-                  << " pos=" << p1.attrs.positioning << " cre=" << p1.attrs.creativity
-                  << " sta=" << p1.attrs.stamina << "\n";
-    }
-
     auto start = std::chrono::high_resolution_clock::now();
 
     double totalMs = minutes * 60.0 * 1000.0;
