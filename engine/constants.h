@@ -180,20 +180,11 @@ inline constexpr double PENALTY_SAVE_SKILL       = 0.10;
 inline constexpr double PENALTY_SCOOP_CHANCE     = 0.10;
 inline constexpr double SHOT_SCOOP_CHANCE        = 0.80;  // primary goal-rate dial
 
-// ── GK save ──
-inline constexpr double GK_SAVE_MIN_SPEED       = 200.0;
-inline constexpr double GK_SAVE_MAX_GOAL_DIST   = 250.0;
-inline constexpr double GK_SAVE_SKILL_POSITION  = 0.28;
-inline constexpr double GK_SAVE_SKILL_SPEED     = 0.13;
-inline constexpr double GK_SAVE_REACTION_ORIGIN = 55.0;
-inline constexpr double GK_SAVE_REACTION_DIST   = 330.0;
-inline constexpr double GK_SAVE_REACTION_MAX    = 0.16;
-inline constexpr double GK_SAVE_PLACEMENT_DIST  = 72.0;
-inline constexpr double GK_SAVE_PLACEMENT_MAX   = 0.58;
-inline constexpr double GK_SAVE_SPEED_PENALTY   = 430.0;
-inline constexpr double GK_SAVE_SPEED_RANGE     = 380.0;
-inline constexpr double GK_SAVE_SPEED_MAX       = 0.20;
-inline constexpr double GK_SAVE_BASE            = 0.08;
+// ── GK save-roll bounds ──
+// The old computed save-model inputs (MIN_SPEED, MAX_GOAL_DIST, SKILL_*,
+// REACTION_*, PLACEMENT_*, SPEED_*, BASE) were removed: dead since the keeper
+// became a physical tracker (he saves by reaching/collecting, not a placement
+// roll). Only the final clamp(roll, MIN, MAX) survives in engine_gk.
 inline constexpr double GK_SAVE_MIN             = 0.05;
 // Save-ROLL ceiling. NOTE: measured a near-no-op on goal rate — the keeper saves
 // mostly by physically COLLECTING the ball (the tracker), not this roll, so this
@@ -211,14 +202,8 @@ inline constexpr double GK_DIVE_FULL_T    = 0.42;   // seconds of flight to reac
 inline constexpr double GK_STAND_Z        = 8.0;    // free vertical reach (px) before height costs him
 inline constexpr double GK_Z_WEIGHT       = 1.35;   // going UP is slow/expensive vs going sideways
 inline constexpr double GK_CATCH_HANDLING_WEIGHT = 0.38;
-inline constexpr double GK_CATCH_SPEED_THRESH   = 520.0;
-inline constexpr double GK_CATCH_SPEED_RANGE    = 900.0;
-inline constexpr double GK_CATCH_MIN            = 0.12;
-inline constexpr double GK_CATCH_MAX            = 0.58;
-inline constexpr double GK_PARRY_SPEED_X_BASE   = 155.0;
-inline constexpr double GK_PARRY_SPEED_X_FACTOR = 0.10;
-inline constexpr double GK_PARRY_SPEED_Y_BASE   = 140.0;
-inline constexpr double GK_PARRY_SPEED_Y_RANGE  = 90.0;
+// (old GK_CATCH_SPEED_* and GK_PARRY_SPEED_* model constants removed — dead since
+//  the catch/parry outcome became handling-keyed in the keeper rework.)
 // Hold after a clean catch before distributing — 250ms read as a pinball.
 inline constexpr double GK_DISTRIBUTE_MS        = 950.0;
 
