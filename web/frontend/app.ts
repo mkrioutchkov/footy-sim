@@ -307,14 +307,19 @@ async function screenWatch(fixtureId: number) {
   };
   const showReceipt = (r: any) => {
     receiptEl.replaceChildren();
+    const note = (r?.note ?? '').trim();
     if (r?.error && (!r.directives || !r.directives.length)) {
       receiptEl.appendChild(h('div', { class: 'warn' }, '⚠ ' + r.error)); return;
     }
     if (!r?.directives || !r.directives.length) {
-      receiptEl.appendChild(h('div', { class: 'muted' }, "Couldn't read any orders — name a player and an action.")); return;
+      // The compiler couldn't map the order — show its own explanation if it gave one.
+      receiptEl.appendChild(h('div', { class: 'muted' },
+        note || "Couldn't read any orders — name a player and an action.")); return;
     }
     receiptEl.appendChild(h('div', { class: 'ok' }, '✓ Understood:'));
     for (const d of r.directives) receiptEl.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
+    // Partial / caveat: some orders mapped but the compiler flagged something.
+    if (note) receiptEl.appendChild(h('div', { class: 'muted' }, '• ' + note));
   };
   const panel = h('div', { class: 'tactics-panel' },
     h('div', { class: 'tactics-row' }, ta, h('button', { class: 'primary small', onclick: applyPlan }, 'Apply')),

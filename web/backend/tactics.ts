@@ -34,12 +34,12 @@ export interface Directive {
   when?: { fromMin?: number; toMin?: number; scoreState?: string; scoreBy?: number };
 }
 
-export interface CompileResult { directives: Directive[]; raw: string; cached: boolean; error?: string; }
+export interface CompileResult { directives: Directive[]; raw: string; cached: boolean; error?: string; note?: string; }
 
 interface TeamSpec { players: { name: string }[] }
 interface MatchSpec { home: TeamSpec; away: TeamSpec }
 
-const cache = new Map<string, Directive[]>();
+const cache = new Map<string, { directives: Directive[]; note: string }>();
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
 // Initials precomputed into the roster so the model matches "AB"/"DT" by lookup
@@ -56,7 +56,10 @@ const SYSTEM = (ctx: string, myTeam: Side) => {
   const myIds = myTeam === 'home' ? '0-10' : '11-21';
   const oppIds = myTeam === 'home' ? '11-21' : '0-10';
   const myScope = myTeam === 'home' ? 0 : 1;
-  return `You are a football tactics compiler. Convert the manager's plain-English order into a JSON array of directives. Output ONLY the JSON array — no prose, no markdown, no comments. If nothing maps, output [].
+  return `You are a football tactics compiler. Convert the manager's touchline shout into directives. Output ONLY a JSON object — no prose, no markdown, no comments:
+{"directives":[ ...zero or more directive objects... ], "note":""}
+- "directives": every order you can confidently map (may be []).
+- "note": a SHORT, plain message to the manager, used ONLY to flag a problem — an order you couldn't map, a name that isn't in the squad, or an ambiguous / contradictory / nonsensical instruction. Leave it "" when everything mapped cleanly. Always MAP WHAT YOU CAN and note only the rest; never refuse with prose, and never invent a directive just to avoid an empty list.
 
 YOU manage ${myTeam.toUpperCase()} (player ids ${myIds}); the opponent is ids ${oppIds}.
 - "we/us/our/I/my/the lads/the team/everyone/all/the whole side" => YOUR players (${myIds}).
@@ -110,17 +113,37 @@ CONDITIONS ("when", almost always OMITTED):
 - Score (only if the order ties to the scoreline): scoreState + scoreBy.
 - SEQUENCED orders ("press high for the first 20 then drop off", "go for it early then see it out"): emit TWO directives with complementary time windows — the first with toMin N, the second with fromMin N (e.g. high_press toMin 20, then drop_off fromMin 20).
 
-IGNORE the impossible/contradictory/unsupported (e.g. "teleport", "play like Barcelona", "sub him off" — substitutions are not directives). Prefer the most specific kind; keep intensity 1 unless the order implies more/less.
+WHEN TO WRITE A "note" (and emit fewer/no directives):
+- Unknown player: a named player isn't in either squad => directives for the rest, note e.g. "There's no 'Zlatan' in the squad." Never substitute a different player.
+- Ambiguous: the order is missing who or what (e.g. "stick to Lindqvist" with no marker named, "press" with no one named) => note e.g. "Who should mark Lindqvist?" Do NOT guess a player.
+- Nonsense / not a tactic: gibberish, abuse, off-topic, or impossible ("asdf", insults, "make me a sandwich", "teleport", "play like Barcelona", "sub him off" — subs aren't directives) => directives [], note e.g. "That's not a tactical instruction I can apply." Keep it brief and neutral; do not refuse with a lecture.
+- Contradictory: e.g. "sit deep but get forward" => map the clearer half (or neither) and note the conflict.
+- Partial: map the valid parts; note the part you dropped (e.g. "Ignored 'do a barrel roll'.").
+Prefer the most specific kind; keep intensity 1 unless the order implies more/less. A clean, fully-understood order has note "".
 
 Rosters (ids fixed):
 ${ctx}`;
 };
 
-function extractArray(content: string): unknown[] {
-  const s = content.indexOf('[');
-  const e = content.lastIndexOf(']');
-  if (s < 0 || e < s) return [];
-  try { const v = JSON.parse(content.slice(s, e + 1)); return Array.isArray(v) ? v : []; } catch { return []; }
+// Parse the model's reply into { directives, note }. Accepts the object form
+// {"directives":[...],"note":"..."} and tolerates a bare [...] array (no note)
+// for robustness against an off-format reply.
+function extractResult(content: string): { directives: unknown[]; note: string } {
+  const body = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try {
+    const v = JSON.parse(body);
+    if (Array.isArray(v)) return { directives: v, note: '' };
+    if (v && typeof v === 'object') return {
+      directives: Array.isArray((v as any).directives) ? (v as any).directives : [],
+      note: typeof (v as any).note === 'string' ? (v as any).note.trim() : '',
+    };
+  } catch { /* fall through to salvage */ }
+  // Salvage: pull the first [...] array out of a malformed reply.
+  const s = content.indexOf('['); const e = content.lastIndexOf(']');
+  if (s >= 0 && e > s) {
+    try { const v = JSON.parse(content.slice(s, e + 1)); if (Array.isArray(v)) return { directives: v, note: '' }; } catch { /* noop */ }
+  }
+  return { directives: [], note: '' };
 }
 
 // A "when" condition is only honoured if the manager's TEXT actually mentions a
@@ -189,7 +212,7 @@ export async function compileTactics(text: string, spec: MatchSpec, myTeam: Side
   const ctx = rosterContext(spec, myTeam);
   const cacheKey = `${ctx} ${text.trim()}`;
   const hit = cache.get(cacheKey);
-  if (hit) return { directives: hit, raw: '', cached: true };
+  if (hit) return { directives: hit.directives, note: hit.note, raw: '', cached: true };
   if (!KEY) return { directives: [], raw: '', cached: false,
     error: 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -210,10 +233,15 @@ export async function compileTactics(text: string, spec: MatchSpec, myTeam: Side
       }
       const j = await res.json() as { choices?: { message?: { content?: string } }[]; error?: unknown };
       if (res.ok) {
-        const content = j.choices?.[0]?.message?.content ?? '[]';
-        const directives = validate(extractArray(content), myTeam, text);
-        cache.set(cacheKey, directives);   // [] is a valid answer (nothing mapped) — don't guess
-        return { directives, raw: content, cached: false };
+        const content = j.choices?.[0]?.message?.content ?? '{}';
+        const parsed = extractResult(content);
+        const directives = validate(parsed.directives, myTeam, text);
+        // Trust the model's note (it's told to leave it "" when all clean). Only
+        // synthesize a generic nudge if it went silent — no directives AND no note.
+        let note = parsed.note;
+        if (!directives.length && !note) note = "I couldn't read that as a tactical order — name a player and what they should do.";
+        cache.set(cacheKey, { directives, note });
+        return { directives, note, raw: content, cached: false };
       }
       break;   // non-retryable non-2xx
     } catch { break; /* timeout / network error */ }
