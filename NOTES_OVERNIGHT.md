@@ -36,9 +36,14 @@ Working the prioritized backlog top-down. Each VERIFIED increment committed+push
   GK_SAVE_*/GK_CATCH_SPEED_*/GK_PARRY_*, superseded by the physical-tracker keeper) and the pass-completion,
   shot-floor, and tackle-outcome scoring models (23). Live geometry/threshold/foul constants kept.
 
+- **2/A2 formations wired into live games** (`7ff55ac` backend + `e9f3690` frontend): teams.formation/lineup
+  DB cols (idempotent migration), specForTeam emits role+anchors with a BYTE-IDENTICAL GUARD (default 4-3-3 +
+  identity XI -> exact old spec, so existing teams/saves untouched) + away mirror (PITCH_W-x, verified exact on a
+  temp DB), PUT /api/lineup endpoint, GK pinned to goal, and a dashboard Formation card ("play 4-4-2" / "AB at
+  left back"). Full feature is LIVE. Remaining polish: a drag-drop pitch view (text-driven works now); a
+  formation BALANCE audit (some shapes look strong head-to-head).
+
 ## ON THE BENCH / NEXT (in order)
-- Formation A2: wire A1+A3 into the live flow (DB teams.formation/lineup cols, match.ts specForTeam emits
-  role+homeX/homeY mirrored for away, pre-match screen). NEEDS REVIEW — touches DB + watch flow + UX (see below).
 - Item 5 remainder: ~29 single-use constants still flagged by the scan (physics: BOUNCE_*, GOAL_DEPTH,
   MIN_BALL_SPEED, SEPARATION_FORCE, *_LERP, CORNER_*, ONE_TWO_WINDOW_MS, REBOUND_BLOCK_MS, LOG_INTERVAL_MS,
   ADDED_TIME_WHISTLE_MS; plus PASS_VISION_CONE, PASS_RECEIVER_PRESS_CUT, SHOT_MAX_DISTANCE_HARD, SHOT_ANGLE_*,
