@@ -195,9 +195,10 @@ inline constexpr double GK_SAVE_SPEED_RANGE     = 380.0;
 inline constexpr double GK_SAVE_SPEED_MAX       = 0.20;
 inline constexpr double GK_SAVE_BASE            = 0.08;
 inline constexpr double GK_SAVE_MIN             = 0.05;
-// Arcade tilt: keepers are good, not supernatural — at the 10-goals/90
-// target the ceiling is the scoring throttle.
-inline constexpr double GK_SAVE_MAX             = 0.86;
+// Save-ROLL ceiling. NOTE: measured a near-no-op on goal rate — the keeper saves
+// mostly by physically COLLECTING the ball (the tracker), not this roll, so this
+// is NOT the scoring throttle. Kept named (was a stray 0.84 literal in engine_gk).
+inline constexpr double GK_SAVE_MAX             = 0.84;
 inline constexpr double GK_CATCH_HANDLING_BASE  = 0.22;
 inline constexpr double GK_CATCH_HANDLING_WEIGHT = 0.38;
 inline constexpr double GK_CATCH_SPEED_THRESH   = 520.0;

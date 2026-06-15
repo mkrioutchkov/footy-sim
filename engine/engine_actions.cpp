@@ -737,6 +737,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     pendingSave.active=false;   // a fresh shot supersedes any in-flight save
     receiverShieldTargetId=-1;
     shot.active=true; shot.tracked=true; shot.preventable=false; shot.header=freshCross; shot.dribble20m=dribble20mShot; shot.team=s.team; shot.shooterId=s.id; shot.originX=s.x; shot.originY=s.y;
+    shot.freshFinish = firstTouch || freshCross || freshThrough;   // snap finish — wrong-foots the keeper (engine_gk reaction)
     // ── Explicit shot-block roll: each defender in the lane gets ONE
     // deliberate, skill-based chance (squareness in lane x reaction time x
     // tackling). The winner is the only body allowed to touch the flight;

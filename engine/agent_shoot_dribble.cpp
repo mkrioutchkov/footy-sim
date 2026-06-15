@@ -111,7 +111,15 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     // keepers eat them, so working a better position should win the comparison.
     // The 200-235px band was over-rewarded to chase a goals target; from outside
     // the box (>=200px) working it closer should beat the speculative strike.
-    if (shotDistance > 175.0) sc -= 0.34;
+    // Long-range pot-shot tax — but SOFTENED in stoppage time so a trailing side
+    // has a go (drama), with a desperation premium for a clean look. Execution
+    // error (SHOT_ERROR_LONG_RANGE) is unchanged, so most still fly wide — this
+    // only shifts WHEN strikers try them, concentrating screamers into the nervy
+    // closing minutes rather than inflating the baseline goal rate.
+    bool lateGame = engine.phase.addedTimeActive;
+    if (shotDistance > 175.0) sc -= lateGame ? 0.18 : 0.34;
+    if (lateGame && shotDistance > 175.0 && shotDistance < 250.0 && per.pressureCount == 0 && angleDeg > 8.0)
+        sc += 0.24;
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
 }

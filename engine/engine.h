@@ -146,6 +146,7 @@ public:
         bool header = false;
         bool penalty = false;
         bool dribble20m = false;
+        bool freshFinish = false;   // first-touch / fresh cross or through-ball snap finish: keeper is wrong-footed
         Team team = Team::Home;
         int shooterId = -1;
         // Pre-rolled at launch: the one defender allowed to block this shot

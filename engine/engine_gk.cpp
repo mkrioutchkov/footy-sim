@@ -50,7 +50,12 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
             gk.targetX = goalX + fd * 10.0;
             gk.targetY = clamp(projY, PITCH_H / 2.0 - GOAL_W / 2.0 - 8.0, PITCH_H / 2.0 + GOAL_W / 2.0 + 8.0);
             double mvx = gk.targetX - gk.x, mvy = gk.targetY - gk.y, md = std::hypot(mvx, mvy);
-            double sp = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 1.6;
+            // A first-touch / fresh cross or through-ball finish gives the keeper no
+            // time to set: he reacts late, so cut his tracking burst. This is the
+            // real "beat the keeper" lever — the save-roll ceiling barely matters
+            // because he otherwise collects almost everything.
+            double trackMul = (shot.active && shot.freshFinish) ? 0.95 : 1.6;
+            double sp = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * trackMul;
             if (md > 1.0) { double st = std::min(sp * secs, md); gk.x += mvx / md * st; gk.y += mvy / md * st; }
             gk.facing = std::atan2(state.ball.y - gk.y, state.ball.x - gk.x);
             return;
@@ -162,7 +167,7 @@ void GameEngine::tryGKSave() {
     double reactTime = clamp(timeToLineMs / 1025.0, 0.18, 1.0);
     double power = clamp((speed - 180.0) / 195.0, 0.0, 0.30);
     double saveChance = clamp(reachCover * (0.435 + 0.42 * reactTime) + positioning * 0.125 - power,
-                              GK_SAVE_MIN, 0.84);
+                              GK_SAVE_MIN, GK_SAVE_MAX);
     // Penalties: from 12 yards the keeper is guessing — real save rate is
     // ~17-25%. The reach model overrates him (short flight, centered start).
     if (shot.penalty) saveChance = std::min(saveChance, PENALTY_SAVE_BASE + positioning * PENALTY_SAVE_SKILL);
