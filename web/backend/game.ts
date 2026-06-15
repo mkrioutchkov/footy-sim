@@ -30,11 +30,16 @@ const ROLE_BIAS: Record<Role, Partial<Record<string, number>>> = {
   CF: { shooting: 20, speed: 12, creativity: 12, tackling: -22, positioning: 6 },
 };
 const ATTR_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'] as const;
+// Height is generated INDEPENDENT of skill (a poor player can be a giant), centred
+// ~54 with role tendency: centre-backs + keepers tall, playmakers/wide men shorter.
+// Feeds the engine's aerial-duel blend + 'target the tall man' targeting.
+const HEIGHT_BIAS: Partial<Record<Role, number>> = { GK: 16, CB: 24, CF: 12, FB: -2, CM: -8, WM: -6 };
 
 export function genAttrs(role: Role, base: number): Record<string, number> {
   const bias = ROLE_BIAS[role];
   const a: Record<string, number> = {};
   for (const k of ATTR_KEYS) a[k] = clamp(jitter(base + (bias[k] ?? 0)));
+  a.height = clamp(jitter(54 + (HEIGHT_BIAS[role] ?? 0)));
   return a;
 }
 
