@@ -22,14 +22,14 @@ const jitter = (n: number) => n + (Math.random() * 2 - 1) * 6;
 // Attribute bias per role, added to a team's base strength. Keeps a GK strong
 // in positioning, a striker in shooting, a CB in tackling, etc.
 const ROLE_BIAS: Record<Role, Partial<Record<string, number>>> = {
-  GK: { positioning: 30, passing: -2, shooting: -25, speed: -10, tackling: -10 },
+  GK: { positioning: 30, handling: 35, passing: -2, shooting: -25, speed: -10, tackling: -10 },
   FB: { speed: 14, stamina: 14, tackling: 8, positioning: 4, shooting: -8 },
   CB: { tackling: 18, positioning: 16, speed: -6, shooting: -16, creativity: -8 },
   CM: { passing: 16, creativity: 12, stamina: 12, positioning: 6 },
   WM: { speed: 16, creativity: 14, shooting: 8, tackling: -16, stamina: 6 },
   CF: { shooting: 20, speed: 12, creativity: 12, tackling: -22, positioning: 6 },
 };
-const ATTR_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'] as const;
+const ATTR_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina', 'handling'] as const;
 // Height is generated INDEPENDENT of skill (a poor player can be a giant), centred
 // ~54 with role tendency: centre-backs + keepers tall, playmakers/wide men shorter.
 // Feeds the engine's aerial-duel blend + 'target the tall man' targeting.
@@ -178,7 +178,16 @@ export function getTeamWithPlayers(teamId: number): {
     { slot: number; name: string; role: string; attrs: string }[])
     .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs) }));
   let lineup: number[] | null = null;
-  try { const l = t.lineup ? JSON.parse(t.lineup) : null; if (Array.isArray(l) && l.length === 11) lineup = l.map(Number); } catch { /* ignore */ }
+  // Accept the stored lineup only if it's a clean permutation of 0..10 (11 distinct
+  // in-range slots). A malformed/legacy/tampered value falls back to the identity XI
+  // (null), so a bad row can never duplicate or drop a player in the match spec.
+  try {
+    const l = t.lineup ? JSON.parse(t.lineup) : null;
+    if (Array.isArray(l) && l.length === 11) {
+      const nums = l.map(Number);
+      if (nums.every(n => Number.isInteger(n) && n >= 0 && n <= 10) && new Set(nums).size === 11) lineup = nums;
+    }
+  } catch { /* ignore */ }
   return {
     id: t.id, name: t.name, manager: t.manager, leagueId: t.league_id, userId: t.user_id,
     tactics: JSON.parse(t.tactics), formation: t.formation ?? '4-3-3', lineup, players,

@@ -88,28 +88,29 @@ export function buildLineup(sq: Squad, formationKey: string | null, overrides: {
   const key = (formationKey && FORMATIONS[formationKey]) ? formationKey : DEFAULT_FORMATION;
   const slots = FORMATIONS[key];
   const names = sq.players.slice(0, 11).map(p => p.name.toLowerCase());
+  const inits = sq.players.slice(0, 11).map(p => p.name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').toLowerCase());
   const taken = new Set<number>();
   const locked = new Map<number, number>();
   const notes: string[] = [];
+  // Pin slot 0 (always GK) to the natural keeper FIRST. Doing it before overrides
+  // means an override can neither claim the GK slot nor drag the keeper outfield (he
+  // is already locked), so the XI always has exactly one keeper and he is in goal.
+  const gk = Math.max(0, sq.players.slice(0, 11).findIndex(p => (p.role ?? '').toUpperCase() === 'GK'));
+  locked.set(0, gk); taken.add(0);
   for (const ov of overrides) {
     const want = String(ov.player ?? '').toLowerCase().trim();
     if (!want) continue;
     let pi = names.indexOf(want);
-    if (pi < 0) pi = names.findIndex(n => n.includes(want) || want.includes(n));   // loose match
+    if (pi < 0) pi = inits.indexOf(want);                              // "AB" -> initials
+    if (pi < 0 && want.length >= 3) pi = names.findIndex(n => n.includes(want));  // safe: want inside a name only
     if (pi < 0) { notes.push(`No "${ov.player}" in the squad.`); continue; }
+    if ([...locked.values()].includes(pi)) {                          // already placed (incl. the keeper)
+      notes.push(`${sq.players[pi].name} is already in the XI; ignored the duplicate.`); continue;
+    }
     const role = (ROLES.has(ov.role as Role) ? ov.role : 'CM') as Role;
     const si = pickSlot(slots, role, String(ov.side ?? 'C').toUpperCase(), taken);
     if (si < 0) { notes.push(`Couldn't fit ${sq.players[pi].name} into ${key}.`); continue; }
     taken.add(si); locked.set(si, pi);
-  }
-  // Keep the keeper in goal: pin slot 0 (always GK) to the squad's natural keeper
-  // unless an override already claimed that slot. Role-fit alone can hand the GK
-  // spot to a high-positioning outfielder (keepers' handling isn't always set), so
-  // an explicit pin is safer than trusting the fit there.
-  if (!taken.has(0)) {
-    let gk = sq.players.slice(0, 11).findIndex(p => (p.role ?? '').toUpperCase() === 'GK');
-    if (gk < 0) gk = 0;
-    if (![...locked.values()].includes(gk)) { locked.set(0, gk); taken.add(0); }
   }
   const a = assign(sq, slots, locked);
   const out: SlotAssignment[] = slots.map((s, i) => ({

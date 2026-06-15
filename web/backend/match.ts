@@ -43,7 +43,8 @@ function specForTeam(teamId: number, side: 'home' | 'away') {
   // pins it regardless). lineup[i] = which squad slot fills formation slot i.
   const lineup = t.lineup ?? bySlot.map((_, i) => i);
   const players = layout.map((slot, i) => {
-    const p = bySlot[lineup[i]] ?? bySlot[i];
+    const idx = lineup[i];
+    const p = bySlot[(Number.isInteger(idx) && idx >= 0 && idx < bySlot.length) ? idx : i] ?? bySlot[i];
     return {
       name: p.name, attrs: p.attrs, role: slot.role,
       homeX: side === 'away' ? PITCH_W - slot.x : slot.x,

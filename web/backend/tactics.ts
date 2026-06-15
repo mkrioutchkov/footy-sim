@@ -47,8 +47,11 @@ const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite
 // rather than (unreliably) computing them itself.
 const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').toUpperCase();
 function rosterContext(spec: MatchSpec, myTeam: Side): string {
+  // Use the spec's per-slot role when present (a team on a non-default formation
+  // emits it); fall back to the default 4-3-3 slot roles otherwise. Otherwise the
+  // LLM would see e.g. a 3-5-2 wing-back labelled "CM" and misread the order.
   const line = (t: TeamSpec, off: number) =>
-    t.players.slice(0, 11).map((p, i) => `id${off + i} ${p.name} [${initialsOf(p.name)}](${ROLE_SLOTS[i]})`).join(', ');
+    t.players.slice(0, 11).map((p, i) => `id${off + i} ${p.name} [${initialsOf(p.name)}](${(p as any).role ?? ROLE_SLOTS[i]})`).join(', ');
   const tag = (s: Side) => (s === myTeam ? 'YOUR TEAM' : 'OPPONENT');
   return `${tag('home')} (HOME): ${line(spec.home, 0)}\n${tag('away')} (AWAY): ${line(spec.away, 11)}`;
 }
