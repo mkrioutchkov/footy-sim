@@ -72,7 +72,9 @@ The manager has **two textareas**, not one:
   - *Defending*: `press_hard`, `tackle_hard`, `stay_on_feet`.
   - *Team-wide (the 5 dials at runtime)*: `all_out_attack`, `park_the_bus`,
     `high_press`, `drop_off`, `play_it_long`, `keep_it_on_ground`, `get_it_wide`,
-    `play_narrow`, `push_up`, `slow_it_down`.
+    `play_narrow`, `push_up`, `slow_it_down`, `counter_attack` (amplifies the
+    quick-transition through-ball + run bonuses), `offside_trap` (holds a high
+    line in the danger zone to spring late runners offside).
 - **Measured**: directive effects validated where a clean stat exists, e.g.
   `cross_early` +8% crosses, `shoot_on_sight` +88% shots, `tackle_hard` +62%
   bookings. `play_it_long` nudges directness but the engine has no strong

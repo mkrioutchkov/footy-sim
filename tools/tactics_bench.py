@@ -10,7 +10,10 @@ frame-position jobs (for the movement kinds) stream a few short matches.
   python tools/tactics_bench.py
 """
 import json, subprocess, copy, os, sys
-from concurrent.futures import ProcessPoolExecutor
+# ThreadPool (not Process): the work is subprocess-bound (GIL released during the
+# match run), so threads give real parallelism without Windows pickling/respawn
+# overhead — and avoid the ProcessPool OOM/crash this hit before.
+from concurrent.futures import ThreadPoolExecutor as ProcessPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(ROOT, "build", "live.exe")
@@ -75,6 +78,16 @@ STAT = [
     ("high_press",     T("high_press"),                 lambda d: num(d.get("tackles")), "up",     "home"),
     ("drop_off",       T("drop_off"),                   lambda d: num(d.get("tackles")), "down",   "home"),
     ("keep_it_on_ground", T("keep_it_on_ground"),       lambda d: num(d.get("passCompletionPct")), "up", "home"),
+    # added 2026-06-15 — coverage for the previously-unbenchmarked kinds
+    ("man_mark",       [{"playerId":2,"kind":"man_mark","targetId":20},{"playerId":3,"kind":"man_mark","targetId":20}],
+                                                         lambda d: num(d.get("awayShots")), "down", "2 CBs on their CF #20"),
+    ("press_hard",     P([1,2,3,4], "press_hard"),       lambda d: num(d.get("tackles")), "up",     "home def"),
+    ("play_simple",    P([5,6,7], "play_simple"),        lambda d: num(d.get("passCompletionPct")), "up", "home CM"),
+    ("play_it_long",   T("play_it_long"),                lambda d: num(d.get("passCompletionPct")), "down", "home"),
+    ("slow_it_down",   T("slow_it_down"),                lambda d: num(d.get("passCompletionPct")), "up", "home"),
+    ("dribble_more",   P([8,9,10], "dribble_more"),      lambda d: num(d.get("dribbleTypes")), "up", "home att"),
+    ("counter_attack", T("counter_attack"),              lambda d: num(d.get("throughBallsCompleted")), "up", "home break"),
+    ("offside_trap",   T("offside_trap"),                lambda d: num(d.get("offsides")), "up", "home traps away"),
 ]
 # ── movement benchmarks: (name, directives, pid, axis x|absy, up/down) ──
 POS = [
@@ -84,6 +97,9 @@ POS = [
     ("come_inside",   [{"playerId": 10, "kind": "come_inside"}],10, "absy", "down", "WM #10"),
     ("get_it_wide",   [{"teamScope": 0, "kind": "get_it_wide"}], 1, "absy", "up",   "home FB #1 width"),
     ("play_narrow",   [{"teamScope": 0, "kind": "play_narrow"}], 1, "absy", "down", "home FB #1 width"),
+    ("run_in_behind", [{"playerId": 9, "kind": "run_in_behind"}], 9, "x",    "up",   "CF #9 advances"),
+    ("stay_central",  [{"playerId": 10, "kind": "stay_central"}],10, "absy", "down", "WM #10 narrows"),
+    ("push_up",       [{"teamScope": 0, "kind": "push_up"}],      2, "x",    "up",   "home CB #2 line"),
 ]
 ALL_KINDS = [  # one of every kind, for the determinism torture spec
     {"playerId":2,"kind":"man_mark","targetId":20},{"playerId":9,"kind":"shoot_on_sight"},
@@ -95,11 +111,12 @@ ALL_KINDS = [  # one of every kind, for the determinism torture spec
     {"teamScope":0,"kind":"all_out_attack"},{"teamScope":1,"kind":"park_the_bus"},
     {"playerId":6,"kind":"get_forward","when":{"fromMin":20,"toMin":70}},
     {"teamScope":0,"kind":"high_press","when":{"scoreState":"losing"}},
+    {"teamScope":0,"kind":"counter_attack"},{"teamScope":1,"kind":"offside_trap"},
 ]
 
 def main():
     SEEDS = list(range(1, 31)); MIN = 35
-    POS_SEEDS = list(range(1, 6)); POS_MIN = 12
+    POS_SEEDS = list(range(1, 13)); POS_MIN = 14   # 5 seeds false-failed get_forward (noise); 12 is reliable
     fails = []
 
     # 1. determinism (all kinds in one spec, x2)

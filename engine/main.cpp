@@ -83,6 +83,8 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
         else if (k == "play_narrow")       { dir.kind = DK::PlayNarrow;     team = true; }
         else if (k == "push_up")           { dir.kind = DK::PushUp;         team = true; }
         else if (k == "slow_it_down")      { dir.kind = DK::SlowItDown;     team = true; }
+        else if (k == "counter_attack")    { dir.kind = DK::CounterAttack;  team = true; }
+        else if (k == "offside_trap")      { dir.kind = DK::OffsideTrap;    team = true; }
         else continue;                  // unknown directive — ignore
         dir.teamScope = team ? static_cast<int>(num(d, "teamScope", 0)) : -1;
         dir.targetId = static_cast<int>(num(d, "targetId", -1));

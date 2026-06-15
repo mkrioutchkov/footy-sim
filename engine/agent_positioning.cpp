@@ -111,8 +111,10 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         if (my && (cn.pur == ActionPurpose::RunAhead || cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::CrossLane)) {
             ob += engine.directiveBias[p.id].runAheadBias;
             // Quick transition: sprint in behind while the defence is unset (counters).
+            // counter_attack amplifies it symmetrically with the through-ball bonus.
             if (engine.state.clockMs < engine.transitionUntilMs)
-                ob += 0.20 * clamp((engine.transitionUntilMs - engine.state.clockMs) / 400.0, 0.0, 1.0);
+                ob += 0.20 * (1.0 + engine.counterAttackBonus[p.team == Team::Home ? 0 : 1])
+                           * clamp((engine.transitionUntilMs - engine.state.clockMs) / 400.0, 0.0, 1.0);
         }
 
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;

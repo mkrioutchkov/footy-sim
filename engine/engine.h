@@ -272,6 +272,12 @@ public:
     // coupling the long-ball gamble to it would change default play. This stays
     // 0 unless the directive sets it, keeping the no-directive match identical.
     std::array<double, 2> longBallBias{};
+    // counter_attack: per-team amplifier on the quick-transition through-ball +
+    // off-ball-run bonuses (0 => no-directive match identical). offside_trap:
+    // per-team flag that holds the line high in the danger zone. Both reset every
+    // tick in applyDirectives (pure clock/score functions, no rng).
+    std::array<double, 2> counterAttackBonus{};
+    std::array<bool, 2> offsideTrapActive{};
     [[nodiscard]] Config configFor(Team team) const {
         Config c = team==Team::Home ? homeConfig : awayConfig;
         const ConfigDelta& dv = dialOverride[team==Team::Home ? 0 : 1];
@@ -426,6 +432,7 @@ public:
         // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
         AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
         KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
+        CounterAttack, OffsideTrap,
     };
     enum class CondScore : uint8_t { Any, Winning, Drawing, Losing };
     struct Directive {

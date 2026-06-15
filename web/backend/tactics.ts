@@ -19,7 +19,8 @@ const PLAYER_KINDS = ['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', '
   'stay_wide', 'come_inside', 'stay_central', 'cross_early', 'switch_play', 'play_simple',
   'run_in_behind', 'make_runs', 'dribble_more', 'press_hard', 'tackle_hard', 'stay_on_feet'];
 const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 'play_it_long',
-  'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down'];
+  'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down',
+  'counter_attack', 'offside_trap'];
 const VALID_KINDS = new Set([...PLAYER_KINDS, ...TEAM_KINDS]);
 const TEAM_KIND_SET = new Set(TEAM_KINDS);
 const VALID_SCORE = new Set(['winning', 'drawing', 'losing', 'any']);
@@ -97,6 +98,8 @@ TEAM-WIDE kinds (set "teamScope":${myScope}, NO playerId) — for the whole side
 - play_narrow: stay compact / play through the middle / narrow.
 - push_up: squeeze up / higher line / step up / push the line up.
 - slow_it_down: keep the ball / game management / take the sting out / kill the tempo / waste time.
+- counter_attack: break fast / hit them on the counter / catch them on the break / get out quick when we win it / spring the counter.
+- offside_trap: play an offside trap / step up / catch them offside / squeeze and spring the line / hold a high line.
 
 TARGETING:
 - Resolve names to ids from the rosters, tolerating typos/slang/phonetic spelling (e.g. "tanaka"=>Tanaka, "linqvist"=>Lindqvist, "rodri"=>Rodriguez).

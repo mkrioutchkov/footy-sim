@@ -57,7 +57,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // play_it_long: direct sides gamble on lower-completion (longer) balls. 0 by
     // default => floor stays 0.44 => the no-directive match is unchanged.
     double longBall = engine.longBallBias[p.team == Team::Home ? 0 : 1];
-    if (completion < 0.44 - longBall * 0.16) return std::nullopt;
+    if (completion < 0.44 - longBall * 0.24) return std::nullopt;   // play_it_long: allow riskier long balls
 
     double progression = clamp(fp / 240.0, -0.5, 1.0);
     double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
@@ -65,15 +65,18 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // value safe recycling less (vertical, direct); low -> patient possession.
     double directness = engine.configFor(p.team).passingDirectness / 50.0; // 0..2, 1 at 50
     double sc = completion * (0.34 + std::max(0.0, progression) * 0.34 * directness) - (1.0 - completion) * turnoverCost;
-    if (longBall > 0.0 && fp > 90.0) {                          // play_it_long: make the direct long ball win
-        sc += longBall * (0.26 + std::min(fp, 360.0) / 360.0 * 0.34);   // longer => bigger reward
-        sc += (1.0 - completion) * turnoverCost * longBall * 0.7;       // forgive most of the long-ball risk
+    if (longBall > 0.0 && fp > 80.0) {                          // play_it_long: make the direct long ball win
+        sc += longBall * (0.38 + std::min(fp, 360.0) / 360.0 * 0.46);   // longer => bigger reward (boosted to commit)
+        sc += (1.0 - completion) * turnoverCost * longBall * 0.8;       // forgive most of the long-ball risk
     }
     double recycleMul = clamp(2.0 - directness, 0.4, 1.6); // direct sides recycle less
+    // play_it_long also SUPPRESSES safe recycling — a long-ball side stops passing
+    // it square and commits forward. This is what makes the order actually "commit".
+    double recycleSuppress = clamp(1.0 - longBall * 0.7, 0.2, 1.0);
     bool safeConnector = completion > 0.74 && bl == 0 && receiverPressure == 0 && d < 300.0 && fp > -45.0 && fp < 95.0;
     bool recyclePass = completion > 0.78 && bl == 0 && receiverPressure == 0 && d < 260.0 && fp >= -80.0 && fp <= 25.0;
-    if (safeConnector) sc += (ownProgress < PITCH_W * 0.68 ? 0.18 : 0.10) * recycleMul;
-    if (recyclePass) sc += (per.pressureCount <= 1 ? 0.12 : 0.20) * recycleMul;
+    if (safeConnector) sc += (ownProgress < PITCH_W * 0.68 ? 0.18 : 0.10) * recycleMul * recycleSuppress;
+    if (recyclePass) sc += (per.pressureCount <= 1 ? 0.12 : 0.20) * recycleMul * recycleSuppress;
     if ((recyclePass || safeConnector) && engine.directiveBias[p.id].simplifyBias > 0.0)
         sc += engine.directiveBias[p.id].simplifyBias;          // "keep it simple / pass it around"
     if (keeperOutlet) {
@@ -314,8 +317,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
         sc += 0.24 + attrFactor(p.attrs.creativity) * 0.15;
         // Quick transition: hit the runner FAST while the defence is unset.
+        // counter_attack amplifies this (and the matching off-ball-run bonus).
         if (engine.state.clockMs < engine.transitionUntilMs)
-            sc += 0.18 * clamp((engine.transitionUntilMs - engine.state.clockMs) / 400.0, 0.0, 1.0);
+            sc += 0.18 * (1.0 + engine.counterAttackBonus[p.team == Team::Home ? 0 : 1])
+                       * clamp((engine.transitionUntilMs - engine.state.clockMs) / 400.0, 0.0, 1.0);
         if (runnerForwardSpeed > 10.0) sc += 0.07;
         if (onsideGap > 8.0 && onsideGap < 70.0) sc += 0.08;
         if (targetGoalDist < 250.0) sc += 0.14;

@@ -21,6 +21,8 @@ void GameEngine::applyDirectives() {
     directiveBias.fill({});
     dialOverride = {};      // reset team-wide dial deltas each tick (clock-driven)
     longBallBias = {};      // reset play_it_long pass-scorer hook each tick
+    counterAttackBonus = {};   // reset counter_attack transition amplifier each tick
+    offsideTrapActive = {};    // reset offside_trap line-hold flag each tick
     // Snapshot the kickoff formation anchors the first time through, then reset
     // every player's homeX/homeY to base — a directive that lapsed (time window
     // passed, plan replaced) must spring back to its original station.
@@ -74,7 +76,8 @@ void GameEngine::applyDirectives() {
                 case DirectiveKind::ParkTheBus:     dv.aggression-=28*k; dv.defensiveLineHeight-=32*k; dv.overlapFrequency-=25*k; dv.midfieldFreedom-=15*k; break;
                 case DirectiveKind::HighPress:      dv.aggression+=35*k; dv.defensiveLineHeight+=22*k; dv.midfieldFreedom+=6*k;  break;
                 case DirectiveKind::DropOff:        dv.aggression-=22*k; dv.defensiveLineHeight-=26*k; break;
-                case DirectiveKind::PlayItLong:     dv.passingDirectness+=45*k; dv.midfieldFreedom-=10*k; dv.overlapFrequency-=5*k; longBallBias[d.teamScope]+=k; break;
+                case DirectiveKind::PlayItLong:     dv.passingDirectness+=58*k; dv.midfieldFreedom-=14*k; dv.overlapFrequency-=5*k; longBallBias[d.teamScope]+=k; break;
+                case DirectiveKind::CounterAttack:  counterAttackBonus[d.teamScope]+=k; break;
                 case DirectiveKind::KeepItOnGround: dv.passingDirectness-=30*k; dv.midfieldFreedom+=10*k; break;
                 case DirectiveKind::GetItWide:
                     // overlapFrequency only pushes FBs FORWARD (widthPush adds to homeX),
@@ -93,6 +96,7 @@ void GameEngine::applyDirectives() {
                             wp2.homeY = lerp(baseHomeY[wp2.id], PITCH_H / 2.0, 0.35 * k);
                     break;
                 case DirectiveKind::PushUp:         dv.defensiveLineHeight+=30*k; dv.aggression+=10*k; break;
+                case DirectiveKind::OffsideTrap:    dv.defensiveLineHeight+=45*k; dv.aggression+=15*k; offsideTrapActive[d.teamScope]=true; break;
                 case DirectiveKind::SlowItDown:     dv.passingDirectness-=22*k; dv.aggression-=15*k; break;
                 default: break;
             }
@@ -275,7 +279,12 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     // higher, leaves room behind); deep line sits in. Strengthened from 0.9 so
     // the dial is actually felt — a high vs deep block is now ~190px apart.
     double linePush = (tactics.defensiveLineHeight - 50.0) * 1.9;
-    double lineProgress = danger
+    // offside_trap: hold the raised line in the danger zone instead of the 92px
+    // safety drop — the high line (driven by the +45 dial above) springs late
+    // runners offside. The deepest-runner clamp below still keeps it goal-side of
+    // the most advanced attacker, so it traps mistimed runs, not every ball.
+    bool holdLine = offsideTrapActive[team == Team::Home ? 0 : 1];
+    double lineProgress = (danger && !holdLine)
         ? 92.0
         : ((lerp(team == Team::Home ? 245.0 : PITCH_W - 245.0, carrier.x - fd * 108.0, 0.38) - ownGoalX) * fd) + linePush;
     // Retreat with an advancing carrier: a fixed ~245px line left the box empty
@@ -290,7 +299,10 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
         if (p.team == team || p.role == Role::GK || p.id == carrier.id) continue;
         deepestRunner = std::min(deepestRunner, std::abs(p.x - ownGoalX));
     }
-    if (deepestRunner < 1e9) lineProgress = std::min(lineProgress, std::max(70.0, deepestRunner - 26.0));
+    // Normally the line stays a stride goal-side of the deepest runner (keeps him
+    // onside-marked). offside_trap deliberately SKIPS this so the raised line can
+    // step PAST a loitering attacker and spring him offside — the gamble.
+    if (deepestRunner < 1e9 && !holdLine) lineProgress = std::min(lineProgress, std::max(70.0, deepestRunner - 26.0));
     lineProgress = clamp(lineProgress, 70.0, 360.0);
 
     DefenseContext ctx{team, fd, ownGoalX, danger, tactics, lineProgress, shootingRange, wideDanger,
