@@ -23,6 +23,7 @@ void GameEngine::applyDirectives() {
     longBallBias = {};      // reset play_it_long pass-scorer hook each tick
     counterAttackBonus = {};   // reset counter_attack transition amplifier each tick
     offsideTrapActive = {};    // reset offside_trap line-hold flag each tick
+    allOutActive = {};         // reset all_out_attack runner-commit flag each tick
     // Snapshot the kickoff formation anchors the first time through, then reset
     // every player's homeX/homeY to base — a directive that lapsed (time window
     // passed, plan replaced) must spring back to its original station.
@@ -72,10 +73,10 @@ void GameEngine::applyDirectives() {
             ConfigDelta& dv = dialOverride[d.teamScope];
             double k = d.intensity;
             switch (d.kind) {
-                case DirectiveKind::AllOutAttack:   dv.aggression+=30*k; dv.defensiveLineHeight+=25*k; dv.overlapFrequency+=25*k; dv.midfieldFreedom+=20*k; break;
+                case DirectiveKind::AllOutAttack:   dv.aggression+=30*k; dv.defensiveLineHeight+=25*k; dv.overlapFrequency+=25*k; dv.midfieldFreedom+=20*k; allOutActive[d.teamScope]=true; break;
                 case DirectiveKind::ParkTheBus:     dv.aggression-=28*k; dv.defensiveLineHeight-=32*k; dv.overlapFrequency-=25*k; dv.midfieldFreedom-=15*k; break;
                 case DirectiveKind::HighPress:      dv.aggression+=35*k; dv.defensiveLineHeight+=22*k; dv.midfieldFreedom+=6*k;  break;
-                case DirectiveKind::DropOff:        dv.aggression-=22*k; dv.defensiveLineHeight-=26*k; break;
+                case DirectiveKind::DropOff:        dv.aggression-=32*k; dv.defensiveLineHeight-=40*k; break;
                 case DirectiveKind::PlayItLong:     dv.passingDirectness+=58*k; dv.midfieldFreedom-=14*k; dv.overlapFrequency-=5*k; longBallBias[d.teamScope]+=k; break;
                 case DirectiveKind::CounterAttack:  counterAttackBonus[d.teamScope]+=k; break;
                 case DirectiveKind::KeepItOnGround: dv.passingDirectness-=30*k; dv.midfieldFreedom+=10*k; break;
@@ -97,7 +98,7 @@ void GameEngine::applyDirectives() {
                     break;
                 case DirectiveKind::PushUp:         dv.defensiveLineHeight+=30*k; dv.aggression+=10*k; break;
                 case DirectiveKind::OffsideTrap:    dv.defensiveLineHeight+=45*k; dv.aggression+=15*k; offsideTrapActive[d.teamScope]=true; break;
-                case DirectiveKind::SlowItDown:     dv.passingDirectness-=22*k; dv.aggression-=15*k; break;
+                case DirectiveKind::SlowItDown:     dv.passingDirectness-=34*k; dv.aggression-=22*k; dv.overlapFrequency-=12*k; break;
                 default: break;
             }
             continue;
@@ -228,9 +229,11 @@ void GameEngine::assignAttackingRoles(Team team, Player& carrier) {
         setAssignment(*insideRun, DefensiveTask::InsideRun, oppGoalX - fd * 70.0, farPostY, -1);
     }
 
-    // 3) Overlap + cutback CM — only when the carrier is wide and high enough
-    //    (the over-commit guard: at most these 2 extra runners, wide attacks only).
-    if (ballAdvance > 0.40 && carrierWide) {
+    // 3) Overlap + cutback CM — normally only on a wide, advanced carry (the
+    //    over-commit guard). all_out_attack relaxes it: throw the FB + a CM
+    //    forward on central carries and a touch earlier too.
+    bool allOut = allOutActive[team == Team::Home ? 0 : 1];
+    if ((ballAdvance > 0.40 && carrierWide) || (allOut && ballAdvance > 0.30)) {
         Player* fbOver = nullptr; double bestFb = -1e9;
         for (auto& p : state.players) {
             if (p.team != team || p.id == carrier.id || p.role != Role::FB) continue;

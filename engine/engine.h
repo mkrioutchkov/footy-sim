@@ -278,6 +278,11 @@ public:
     // tick in applyDirectives (pure clock/score functions, no rng).
     std::array<double, 2> counterAttackBonus{};
     std::array<bool, 2> offsideTrapActive{};
+    // all_out_attack: commit the overlap FB + a CM forward even on central /
+    // slightly-earlier carries (throw bodies forward), read by assignAttackingRoles.
+    // One-tick lagged (updateTeamAssignments precedes applyDirectives) — fine for a
+    // match-long order; deterministic. 0/false by default => no-directive identical.
+    std::array<bool, 2> allOutActive{};
     [[nodiscard]] Config configFor(Team team) const {
         Config c = team==Team::Home ? homeConfig : awayConfig;
         const ConfigDelta& dv = dialOverride[team==Team::Home ? 0 : 1];
