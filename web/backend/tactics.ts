@@ -1,7 +1,8 @@
 // Plain-English tactics compiler (P3). Turns a manager's free text into the
 // engine's directive JSON, resolving player names to engine ids. Provider-
-// agnostic: any OpenAI-compatible /chat/completions endpoint (defaults to
-// Xiaomi MiMo's budget model). Configure via env — the key lives in
+// agnostic: any OpenAI-compatible /chat/completions endpoint. LLM-ONLY — the
+// model is the sole compiler (the old offline rules fast-path was removed; its
+// fuzzy name-matcher mis-resolved orders). Configure via env — the key lives in
 // web/backend/.env, never in code:
 //   TACTICS_LLM_BASE_URL  (default https://api.xiaomimimo.com/v1)
 //   TACTICS_LLM_MODEL     (default mimo-v2-flash)
@@ -92,8 +93,9 @@ TEAM-WIDE kinds (set "teamScope":${myScope}, NO playerId) — for the whole side
 - slow_it_down: keep the ball / game management / take the sting out / kill the tempo / waste time.
 
 TARGETING:
-- Resolve names (tolerate typos/slang) to ids from the rosters.
+- Resolve names to ids from the rosters, tolerating typos/slang/phonetic spelling (e.g. "tanaka"=>Tanaka, "rodri"=>Rodriguez).
 - "their striker"=>opponent CF; "their keeper"=>opponent GK; "their winger(s)"=>opponent WM; "their best player/playmaker"=>their most advanced central id.
+- CRITICAL: if a named player is NOT in either roster (no confident match — same person, allowing only typos), DO NOT guess or substitute a different player. OMIT that directive entirely (or output [] if it was the only order). A wrong target is worse than none — never map a name to an unrelated roster player just to produce output.
 - Whole-team per-player intent ("all my midfielders get forward"): prefer a TEAM-WIDE kind if one fits; otherwise emit one per-player directive for each relevant id of YOUR team (midfielders=CM, defenders=CB/FB, forwards=CF/WM).
 
 CONDITIONS ("when", optional — omit fields not stated):
@@ -154,122 +156,20 @@ function validate(raw: unknown[], myTeam: Side): Directive[] {
   return out;
 }
 
-// ── Rules fast-path ── common, explicit orders compile instantly + offline,
-// no LLM. Conservative: a clause matches only if it has exactly ONE directive
-// family and resolvable player(s); fuzzy/compound/ambiguous -> fullyParsed=false
-// so the LLM takes over.
-interface NameRef { token: string; id: number }
-function nameIndex(spec: MatchSpec): NameRef[] {
-  const idx: NameRef[] = [];
-  const add = (t: TeamSpec, off: number) => t.players.slice(0, 11).forEach((p, i) => {
-    const name = (p.name ?? '').toLowerCase().trim();
-    if (name) idx.push({ token: name, id: off + i });
-    for (const tok of name.split(/\s+/)) if (tok.length >= 3) idx.push({ token: tok, id: off + i });
-  });
-  add(spec.home, 0); add(spec.away, 11);
-  return idx.sort((a, b) => b.token.length - a.token.length);   // full names beat surnames
-}
-// Levenshtein, capped: returns >2 fast when the names can't be within edit
-// distance 2 (all we care about for typo tolerance).
-function lev(a: string, b: string): number {
-  if (Math.abs(a.length - b.length) > 2) return 3;
-  const m = a.length; const dp = Array.from({ length: m + 1 }, (_, i) => i);
-  for (let j = 1; j <= b.length; j++) {
-    let prev = dp[0]; dp[0] = j;
-    for (let i = 1; i <= m; i++) {
-      const tmp = dp[i];
-      dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
-      prev = tmp;
-    }
-  }
-  return dp[m];
-}
-function playersIn(clause: string, idx: NameRef[]): number[] {
-  const lc = clause.toLowerCase();
-  const words = lc.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
-  const wordSet = new Set(words);
-  const hits: { id: number; pos: number }[] = [];
-  const take = (id: number, pos: number) => { if (!hits.some(h => h.id === id)) hits.push({ id, pos }); };
-  // exact (incl. multi-word full names)
-  for (const { token, id } of idx) {
-    const ok = token.includes(' ') ? lc.includes(token) : wordSet.has(token);
-    if (ok) take(id, lc.indexOf(token.split(' ')[0]));
-  }
-  // fuzzy: typo-tolerant single-token match (edit distance <= 2 on 4+ char names)
-  for (const w of words) {
-    if (w.length < 4 || wordSet.has(w) && idx.some(r => r.token === w)) continue;
-    let best: { id: number; pos: number } | null = null, bestD = 3;
-    for (const { token, id } of idx) {
-      if (token.includes(' ') || token.length < 4) continue;
-      const d = lev(w, token);
-      if (d < bestD) { bestD = d; best = { id, pos: lc.indexOf(w) }; }
-    }
-    if (best && bestD <= 2) take(best.id, best.pos);
-  }
-  return hits.sort((a, b) => a.pos - b.pos).map(h => h.id);
-}
-const FAMILIES: [string, RegExp][] = [
-  ['man_mark', /\b(man.?marks?|marks? up|marks?|sticks? (?:to|with|tight|on)|picks? up|tracks?|tight on|shadows?|stays? with|keep tabs on|locks? down|stay close to)\b/],
-  ['target_player', /\b(feeds?|passes? to|gives? it to|finds?|looks? for|plays? it to|supply|supplies|service|get the ball to|work it to|looks? to|give the ball to)\b/],
-  ['shoot_on_sight', /\b(shoots? on sight|shoots? more|shoots? from|lets? fly|has? a (?:go|crack|pop)|pulls? the trigger|test the keeper|takes? shots|get shots off|try your luck|hit it|shoot whenever|shoot when|shoot from range|just shoot)\b/],
-  ['get_forward', /\b(gets? forward|goes? forward|go forward|pushes? up|pushes? forward|bombs? on|get up the pitch|gets? up top|goes? up top|go up top|goes? up front|go up front|plays? up front|join the attack|support the attack|attacks? more|get up there|gets? higher|advances?|overlaps?|go and attack|get stuck in up top)\b/],
-  ['sit_deep', /\b(sits? deep|sits? back|drops? back|stays? back|holds? position|stays? deep|sits? in|don.?t go forward|stays? home|tucks? in|drops? off|defend deeper|hold the line|stay put|stay deep)\b/],
-];
-function parseConditions(lc: string): Directive['when'] {
-  const when: Directive['when'] = {};
-  let m: RegExpMatchArray | null;
-  if (/\bfirst half\b/.test(lc)) when.toMin = 45;
-  else if (/\bsecond half\b/.test(lc)) when.fromMin = 45;
-  if ((m = lc.match(/last (\d+)\s*min/))) when.fromMin = Math.max(0, 90 - parseInt(m[1], 10));
-  if ((m = lc.match(/(?:from|after)(?: the)?\s*(\d+)(?:st|nd|rd|th)?\b/))) when.fromMin = parseInt(m[1], 10);
-  if ((m = lc.match(/first (\d+)\s*min/))) when.toMin = parseInt(m[1], 10);
-  if (/\b(losing|behind|chasing|trailing)\b/.test(lc)) when.scoreState = 'losing';
-  else if (/\b(winning|ahead|in front|protect.{0,8}lead|hold.{0,8}lead)\b/.test(lc)) when.scoreState = 'winning';
-  else if (/\b(drawing|level|tied|all square)\b/.test(lc)) when.scoreState = 'drawing';
-  return when;
-}
-function parseClause(clause: string, idx: NameRef[]): Directive | null {
-  const lc = clause.toLowerCase();
-  const fams = FAMILIES.filter(([, re]) => re.test(lc));
-  if (fams.length !== 1) return null;                 // none or compound -> defer to LLM
-  const kind = fams[0][0];
-  const players = playersIn(clause, idx);
-  const when = parseConditions(lc);
-  if (kind === 'man_mark' || kind === 'target_player') {
-    if (players.length < 2) return null;
-    return { playerId: players[0], kind, targetId: players[1], when };
-  }
-  if (players.length < 1) return null;
-  return { playerId: players[0], kind, when };
-}
-export function rulesParse(text: string, spec: MatchSpec): { directives: Directive[]; fullyParsed: boolean } {
-  const idx = nameIndex(spec);
-  const clauses = text.split(/[,.;\n]+|\bthen\b/i).map(c => c.trim()).filter(c => c.length > 2);
-  if (!clauses.length) return { directives: [], fullyParsed: false };
-  const directives: Directive[] = [];
-  let allParsed = true;
-  for (const c of clauses) {
-    const d = parseClause(c, idx);
-    if (d) directives.push(d); else allParsed = false;
-  }
-  return { directives, fullyParsed: allParsed && directives.length > 0 };
-}
-
-// Compile free text -> directives. The rules fast-path handles common orders
-// instantly (no LLM); anything fuzzy falls back to the model. Cached by
-// (roster + text) so a given instruction compiles once and replays are stable.
+// Compile free text -> directives. LLM-ONLY: the model is the sole compiler.
+// The old offline rules fast-path was REMOVED — its fuzzy name-matcher
+// mis-resolved orders (a stray word like "cunt"/"stick", or an unknown name,
+// matched to the wrong player). If the model is unreachable we degrade to NO
+// directives + an error, rather than guess. Cached by (roster + text) so a
+// given instruction compiles once and replays stay deterministic.
 export async function compileTactics(text: string, spec: MatchSpec, myTeam: Side = 'home'): Promise<CompileResult> {
   const ctx = rosterContext(spec, myTeam);
-  const cacheKey = `${ctx} ${text.trim()}`;
+  const cacheKey = `${ctx} ${text.trim()}`;
   const hit = cache.get(cacheKey);
   if (hit) return { directives: hit, raw: '', cached: true };
-  // LLM-PRIMARY: the model is the main path — it handles arbitrary phrasing,
-  // slang, and typos a regex never will, and on a fast provider (Groq) it
-  // compiles in <1s. The offline rules parser is kept only as a graceful
-  // fallback for no-key / failure / timeout, so a network blip degrades the
-  // feature instead of killing it. Compiled directives are cached and frozen on
-  // the match timeline, so replay stays deterministic regardless of compiler.
-  if (KEY) for (let attempt = 0; attempt < 2; attempt++) {
+  if (!KEY) return { directives: [], raw: '', cached: false,
+    error: 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(`${BASE}/chat/completions`, {
         method: 'POST',
@@ -279,9 +179,7 @@ export async function compileTactics(text: string, spec: MatchSpec, myTeam: Side
         ] }),
         signal: AbortSignal.timeout(12000),
       });
-      // Rate-limited (429) or transient 5xx: wait the suggested time and retry
-      // once before degrading to the offline parser — keeps a quick burst of
-      // mid-match shouts on the (good) LLM path instead of the limited regex.
+      // Rate-limited (429) or transient 5xx: wait the suggested time and retry once.
       if ((res.status === 429 || res.status >= 500) && attempt === 0) {
         const ra = Number(res.headers.get('retry-after'));
         await new Promise(r => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra : 1.2, 4) * 1000));
@@ -291,21 +189,11 @@ export async function compileTactics(text: string, spec: MatchSpec, myTeam: Side
       if (res.ok) {
         const content = j.choices?.[0]?.message?.content ?? '[]';
         const directives = validate(extractArray(content), myTeam);
-        // Model returned nothing usable: try the offline parser before giving up.
-        if (directives.length === 0) {
-          const rp = validate(rulesParse(text, spec).directives as unknown[], myTeam);
-          if (rp.length) { cache.set(cacheKey, rp); return { directives: rp, raw: 'llm-empty->rules', cached: false }; }
-        }
-        cache.set(cacheKey, directives);
+        cache.set(cacheKey, directives);   // [] is a valid answer (nothing mapped) — don't guess
         return { directives, raw: content, cached: false };
       }
-      break;   // non-retryable non-2xx — fall through to the parser
-    } catch { break; /* timeout / network error — fall through to the offline parser */ }
+      break;   // non-retryable non-2xx
+    } catch { break; /* timeout / network error */ }
   }
-
-  // Fallback: offline rules parser (no key, or the LLM call failed/timed out).
-  const fb = validate(rulesParse(text, spec).directives as unknown[], myTeam);
-  cache.set(cacheKey, fb);
-  return { directives: fb, raw: 'rules(fallback)', cached: false,
-    error: KEY ? 'the model was unreachable — used the offline parser' : 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
+  return { directives: [], raw: '', cached: false, error: 'the tactics model was unreachable' };
 }
