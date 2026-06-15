@@ -30,10 +30,22 @@ Working the prioritized backlog top-down. Each VERIFIED increment committed+push
   Groq: shapes + overrides honoured, Messi/"cup of tea" correctly noted-not-substituted. Standalone module (not
   yet imported by the server) — no live-flow risk.
 
+- **5. dead-constant cleanup** (2 commits): removed 44 constants referenced nowhere — found via a scan for
+  names appearing only at their definition, each verified behaviour-neutral (rebuild compiles clean + golden
+  byte-identical across 7 seeds). They were orphaned by this session's reworks: the GK save-roll model (21:
+  GK_SAVE_*/GK_CATCH_SPEED_*/GK_PARRY_*, superseded by the physical-tracker keeper) and the pass-completion,
+  shot-floor, and tackle-outcome scoring models (23). Live geometry/threshold/foul constants kept.
+
 ## ON THE BENCH / NEXT (in order)
 - Formation A2: wire A1+A3 into the live flow (DB teams.formation/lineup cols, match.ts specForTeam emits
   role+homeX/homeY mirrored for away, pre-match screen). NEEDS REVIEW — touches DB + watch flow + UX (see below).
-- Item 5: goalKickExitedOwnThird is NOT a safe tidy — it's a real metric (goal kicks clearing the def third in
+- Item 5 remainder: ~29 single-use constants still flagged by the scan (physics: BOUNCE_*, GOAL_DEPTH,
+  MIN_BALL_SPEED, SEPARATION_FORCE, *_LERP, CORNER_*, ONE_TWO_WINDOW_MS, REBOUND_BLOCK_MS, LOG_INTERVAL_MS,
+  ADDED_TIME_WHISTLE_MS; plus PASS_VISION_CONE, PASS_RECEIVER_PRESS_CUT, SHOT_MAX_DISTANCE_HARD, SHOT_ANGLE_*,
+  TACKLE_KICK_SPEED). LEFT for a focused pass — they're scattered (interleaved with live constants, fiddlier
+  edits) and some may be intentional knobs/documentation rather than truly dead. Safe to remove via the same
+  remove→rebuild→golden gate when you want them gone.
+- Item 5 goalKickExitedOwnThird is NOT a safe tidy — it's a real metric (goal kicks clearing the def third in
   18s) and golden hashes the FULL summary JSON, so removing it breaks golden + native-batch.ts. Left as-is.
 
 ## DECISIONS WAITING FOR MAX (need your taste / touch the live flow — NOT guessed per the brief)
