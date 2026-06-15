@@ -341,6 +341,10 @@ public:
     void auditStuckCarrier(double sdt);
     void updateTeamAssignments();
     void assignDefensiveRoles(Team team, Player& carrier);
+    // Wake the in-possession team's off-ball runners: designate up to 3 attacking
+    // roles (RunAhead/InsideRun/Overlap/AdvanceMidfield) so the dormant assignment-
+    // gated pass bonuses + run-target overrides fire. Pure geometry, no rng.
+    void assignAttackingRoles(Team team, Player& carrier);
     void setAssignment(Player& player, DefensiveTask role, double x, double y, int opponentId=-1);
     // Defense pipeline helpers
     struct DefenseContext {

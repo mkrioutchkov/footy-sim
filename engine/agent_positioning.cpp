@@ -78,9 +78,20 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         // crosses arrive to an empty box (measured 0.1 teammates in the box
         // during wide final-third carries).
         bool attackingRunPur = cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::RunAhead;
+        // A deliberately-sent runner (woken attacking assignment) reaches the box
+        // via a Task candidate, not a RunAhead/InsideRun purpose — waive its
+        // proximity penalty too, else we repel the very runner we just assigned.
+        auto* atask = engine.assignmentFor(p.id);
+        bool assignedArrival = cn.pur == ActionPurpose::Task && atask
+            && (atask->role == DefensiveTask::RunAhead || atask->role == DefensiveTask::InsideRun
+                || atask->role == DefensiveTask::Overlap || atask->role == DefensiveTask::AdvanceMidfield);
         double oppGx = goalXFor(p.team);
         bool boxTarget = std::abs(targetX - oppGx) < 200.0 && std::abs(targetY - PITCH_H / 2.0) < 200.0;
-        if (my && attackingRunPur && boxTarget) sf *= 0.06;
+        // Graded throttle (was a blanket ×0.06 that repelled every box run): keep
+        // runs entering defended space, but let the penalty-spot/cutback band fill
+        // rather than everyone clustering on the keeper at the 6-yard line.
+        if (my && (attackingRunPur || assignedArrival) && boxTarget)
+            sf *= (std::abs(targetX - oppGx) < 95.0 ? 0.12 : 0.35);
         bool counterOutlet = cn.pur == ActionPurpose::CounterOutlet || cn.pur == ActionPurpose::RestForward;
         double tac = my ? (targetX - p.homeX) * fd / PITCH_W * 0.5 : counterOutlet ? 0.0 : -(targetX - p.homeX) * fd / PITCH_W * 0.25;
         double og2 = ownGoalXFor(p.team);

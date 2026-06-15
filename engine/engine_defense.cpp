@@ -173,7 +173,79 @@ void GameEngine::updateTeamAssignments() {
     assignmentByPlayer.fill({});
     Team defending = carrier->team == Team::Home ? Team::Away : Team::Home;
     assignDefensiveRoles(defending, *carrier);
+    assignAttackingRoles(carrier->team, *carrier);
     auditTacticalCoverage(*carrier);
+}
+
+// Designate the in-possession team's off-ball runners. Without this the
+// attacking half of assignmentByPlayer was always empty, so every assignment-
+// gated attacking branch (through-ball releasedRunner, Overlap/InsideRun pass
+// bonuses, the RunAhead/InsideRun/Overlap run-target overrides) was dormant —
+// runners drifted to safe width and the box stayed empty (~0.1 attackers in
+// the box on final-third carries). Pure geometry + clock, NO rng.
+void GameEngine::assignAttackingRoles(Team team, Player& carrier) {
+    double fd = fdFor(team);
+    double oppGoalX = goalXFor(team);                       // the goal we attack
+    double carrierGoalDist = std::abs(carrier.x - oppGoalX);
+    // Only commit runners when genuinely attacking (carrier past own 45%) or in
+    // the quick-transition window — never over-commit from our own half.
+    if (!(carrierGoalDist < PITCH_W * 0.55 || state.clockMs < transitionUntilMs)) return;
+
+    double cy = PITCH_H / 2.0;
+    double line = offsideLineFor(team);                     // offside shoulder x
+    double ballAdvance = clamp((PITCH_W - carrierGoalDist) / PITCH_W, 0.0, 1.0);
+    bool carrierWide = std::abs(carrier.y - cy) > 140.0;
+    double ballSide = carrier.y >= cy ? 1.0 : -1.0;         // vertical half the ball is in
+
+    // 1) RunAhead — the most advanced CF sits on the shoulder, ball-side, poised
+    //    to run in behind (feeds the through-ball releasedRunner path).
+    Player* runAhead = nullptr; double bestAdv = -1e9;
+    for (auto& p : state.players) {
+        if (p.team != team || p.id == carrier.id || p.role != Role::CF) continue;
+        double adv = p.x * fd;
+        if (adv > bestAdv) { bestAdv = adv; runAhead = &p; }
+    }
+    if (runAhead) {
+        double tx = (fd > 0.0 ? std::max(line, carrier.x) : std::min(line, carrier.x)) - fd * 5.0;
+        double ty = clamp(cy + ballSide * 60.0, 60.0, PITCH_H - 60.0);
+        setAssignment(*runAhead, DefensiveTask::RunAhead, tx, ty, -1);
+    }
+
+    // 2) InsideRun — the weak-side WM attacks the far post.
+    Player* insideRun = nullptr; double farY = -1.0;
+    for (auto& p : state.players) {
+        if (p.team != team || p.id == carrier.id || p.role != Role::WM) continue;
+        if (runAhead && p.id == runAhead->id) continue;
+        double dy = std::abs(p.homeY - carrier.y);
+        if (dy > farY) { farY = dy; insideRun = &p; }
+    }
+    if (insideRun) {
+        double farPostY = clamp(cy - ballSide * 55.0, 55.0, PITCH_H - 55.0);
+        setAssignment(*insideRun, DefensiveTask::InsideRun, oppGoalX - fd * 70.0, farPostY, -1);
+    }
+
+    // 3) Overlap + cutback CM — only when the carrier is wide and high enough
+    //    (the over-commit guard: at most these 2 extra runners, wide attacks only).
+    if (ballAdvance > 0.40 && carrierWide) {
+        Player* fbOver = nullptr; double bestFb = -1e9;
+        for (auto& p : state.players) {
+            if (p.team != team || p.id == carrier.id || p.role != Role::FB) continue;
+            if ((p.homeY >= cy) != (carrier.y >= cy)) continue;   // ball-side FB only
+            double adv = p.x * fd;
+            if (adv > bestFb) { bestFb = adv; fbOver = &p; }
+        }
+        if (fbOver) {
+            double ty = clamp(cy + ballSide * 200.0, 40.0, PITCH_H - 40.0);
+            setAssignment(*fbOver, DefensiveTask::Overlap, oppGoalX - fd * 110.0, ty, -1);
+        }
+        Player* cmCut = nullptr; double bestCm = -1e9;
+        for (auto& p : state.players) {
+            if (p.team != team || p.id == carrier.id || p.role != Role::CM) continue;
+            double adv = p.x * fd;
+            if (adv > bestCm) { bestCm = adv; cmCut = &p; }
+        }
+        if (cmCut) setAssignment(*cmCut, DefensiveTask::AdvanceMidfield, oppGoalX - fd * 135.0, cy, -1);
+    }
 }
 
 void GameEngine::auditCredibleShotWindow(const Player& player, double distance, double angleDeg,
