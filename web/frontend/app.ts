@@ -128,6 +128,38 @@ function tacticsSliders(tactics: Tactics): HTMLElement {
   return box;
 }
 
+// Formation control: a plain-text shout ("play 4-4-2", "AB at left back") sets the
+// team's shape + XI for every match it plays. Shows the resolved XI + any note.
+function formationPanel(team: TeamT): HTMLElement {
+  const badge = h('span', { class: 'pill', style: 'margin-left:8px' }, team.formation ?? '4-3-3');
+  const input = h('input', { placeholder: 'e.g. play 4-4-2  ·  “AB at left back”' }) as HTMLInputElement;
+  const out = h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px' });
+  const xiBox = h('div', { class: 'players', style: 'margin-top:10px' });
+  const renderXI = (slots: { role: string; playerName: string }[]) => {
+    xiBox.replaceChildren(...slots.map(s => h('div', { class: 'pcard' },
+      h('div', { class: 'role' }, s.role), h('div', { class: 'pn' }, s.playerName || '—'))));
+  };
+  const setBtn = h('button', { class: 'primary small' }, 'Set');
+  const apply = async () => {
+    const text = input.value.trim(); if (!text) return;
+    setBtn.setAttribute('disabled', 'true'); setBtn.textContent = '…';
+    try {
+      const r = await api.setLineup(text);
+      badge.textContent = r.formation;
+      out.textContent = r.note || `Lined up in a ${r.formation}.`;
+      if (r.slots?.length) renderXI(r.slots);
+    } catch (e: any) { out.textContent = e.message; }
+    setBtn.removeAttribute('disabled'); setBtn.textContent = 'Set';
+  };
+  setBtn.addEventListener('click', apply);
+  input.addEventListener('keydown', (ev: any) => { if (ev.key === 'Enter') apply(); });
+  return h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Formation', badge),
+    h('div', { class: 'tactics-row' }, input, setBtn),
+    out, xiBox,
+  );
+}
+
 // ── dashboard ──
 async function screenDashboard() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
@@ -210,7 +242,10 @@ async function screenDashboard() {
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'League table'), table),
     h('div', { class: 'grid', style: 'grid-template-columns:1.2fr .8fr;align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
-      h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, `Squad · ${team.name}`), squad),
+      h('div', {},
+        formationPanel(team),
+        h('div', { class: 'card', style: 'margin-top:14px' }, h('div', { class: 'section-title', style: 'margin-top:0' }, `Squad · ${team.name}`), squad),
+      ),
     ),
   ));
 }

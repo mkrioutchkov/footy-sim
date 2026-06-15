@@ -21,7 +21,10 @@ export interface PlayerT { slot: number; name: string; role: string; attrs: Reco
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
+  formation: string; lineup: number[] | null;
 }
+export interface LineupSlotT { slot: number; role: string; homeX: number; homeY: number; playerName: string; fromSlot: number; }
+export interface LineupResultT { formation: string; lineup: number[] | null; slots: LineupSlotT[]; note: string; }
 export interface StandingT {
   teamId: number; name: string; manager: string; isUser: boolean;
   played: number; won: number; drawn: number; lost: number;
@@ -42,6 +45,7 @@ export const api = {
   createTeam: (name: string, tactics?: Tactics) => req<{ teamId: number; leagueId: number }>('POST', '/team', { name, tactics }),
   team: () => req<TeamT>('GET', '/team'),
   setTactics: (tactics: Tactics) => req<{ tactics: Tactics }>('PUT', '/tactics', { tactics }),
+  setLineup: (text: string) => req<LineupResultT>('PUT', '/lineup', { text }),
   league: () => req<LeagueT>('GET', '/league'),
   playFixture: (id: number) => req<{ result: { homeScore: number; awayScore: number; alreadyPlayed: boolean }; standings: StandingT[] }>('POST', `/fixtures/${id}/play`),
   playNext: () => req<{ fixtureId: number; result: { homeScore: number; awayScore: number }; standings: StandingT[] }>('POST', '/play-next'),
