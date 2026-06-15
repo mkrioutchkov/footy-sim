@@ -1,0 +1,152 @@
+// Lineup / formation compiler (A3). Turns a manager's free text — "play 4-4-2",
+// "switch to 3-5-2 and put Bale at left back", an ASCII shape — into a concrete
+// XI: a formation from the registry + which of the 11 squad players fills each
+// slot. The LLM does the NL parsing (which shape, which explicit overrides); the
+// CODE does the role-fit assignment (deterministic given attributes) so the best
+// tackler lands at CB, the quickest out wide, etc. Same provider/env as tactics.ts.
+import { FORMATIONS, DEFAULT_FORMATION, normalizeFormation, roleFit, type Slot } from './formations.ts';
+import type { Role } from './game.ts';
+
+const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
+const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
+const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
+
+export interface Squad { players: { name: string; role?: string; attrs: Record<string, number> }[] }
+export interface SlotAssignment { slot: number; role: Role; homeX: number; homeY: number; playerName: string; fromSlot: number }
+export interface LineupResult { formation: string; slots: SlotAssignment[]; note: string; raw?: string; cached?: boolean; error?: string }
+
+const ROLES = new Set<Role>(['GK', 'CB', 'FB', 'CM', 'WM', 'CF']);
+const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').toUpperCase();
+
+function squadContext(sq: Squad): string {
+  return sq.players.slice(0, 11)
+    .map((p, i) => `slot${i} ${p.name} [${initialsOf(p.name)}]${p.role ? `(${p.role})` : ''}`)
+    .join(', ');
+}
+
+const SYSTEM = (ctx: string) => `You are a football lineup compiler. The manager wants to set the team's shape and/or move specific players. Output ONLY a JSON object — no prose, no markdown:
+{"formation":"<one of: ${Object.keys(FORMATIONS).join(', ')}, or null to keep the current shape>","overrides":[{"player":"<exact squad name>","role":"<GK|CB|FB|CM|WM|CF>","side":"<L|R|C>"}],"note":""}
+
+- "formation": the shape the manager asked for, normalised to one of the listed keys. "four-four-two"/"442"/"4 4 2" => "4-4-2"; "a back three"/"three at the back" => "3-5-2"; "two banks of four" => "4-4-2"; "lone striker"/"one up top" => "4-2-3-1". If they only move players and don't name a shape, use null.
+- "overrides": ONE entry per player the manager explicitly places. Resolve the name from the squad (tolerate typos/initials: "AB"=>the player with those initials, "bale"=>Gareth Bale). Map the football position to an engine role + side:
+    GK=>GK,C  ·  RB/RWB=>FB,R  ·  LB/LWB=>FB,L  ·  RCB=>CB,R  ·  LCB=>CB,L  ·  CB/centre-half=>CB,C
+    CDM/DM/anchor/holding=>CM,C  ·  CM/box-to-box=>CM,C  ·  CAM/AM/number 10=>CM,C  ·  RM/RW/right wing=>WM,R  ·  LM/LW/left wing=>WM,L
+    ST/CF/striker/up top/target man=>CF,C  ·  RF=>CF,R  ·  LF=>CF,L
+  Side: L=left, R=right, C=central. Only include players the manager NAMES — never invent placements; the rest are auto-picked by the engine.
+- ASCII / drawn formations: read the rows top(defence)->bottom(attack) or as drawn, infer the closest listed shape, set "formation". If players are written into the grid, add them as overrides.
+- "note": SHORT, only to flag a problem — an unknown shape you couldn't map, a named player not in the squad (never substitute a different player — drop that override and note it), or nonsense/abuse ("note":"That's not a lineup instruction I can apply.", formation null, overrides []). Leave "" when everything mapped.
+
+Squad (slot = current position; 11 players, no bench):
+${ctx}`;
+
+function extract(content: string): { formation: unknown; overrides: unknown[]; note: string } {
+  const body = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try {
+    const v = JSON.parse(body) as Record<string, unknown>;
+    if (v && typeof v === 'object') return {
+      formation: v.formation,
+      overrides: Array.isArray(v.overrides) ? v.overrides : [],
+      note: typeof v.note === 'string' ? v.note.trim() : '',
+    };
+  } catch { /* salvage below */ }
+  return { formation: null, overrides: [], note: '' };
+}
+
+// Pick the free slot best matching (role, side): prefer a role match, then the
+// slot whose width (y) sits on the requested side. R = nearer y≈0, L = nearer
+// y≈680, C = nearest centre (340). Returns the slot index or -1 if none free.
+function pickSlot(slots: Slot[], role: Role, side: string, taken: Set<number>): number {
+  const idx = slots.map((s, i) => i).filter(i => !taken.has(i));
+  const byRole = idx.filter(i => slots[i].role === role);
+  const pool = byRole.length ? byRole : idx;            // relax role only if none match
+  if (!pool.length) return -1;
+  const key = (i: number) => side === 'R' ? slots[i].y : side === 'L' ? -slots[i].y : Math.abs(slots[i].y - 340);
+  return pool.sort((a, b) => key(a) - key(b))[0];
+}
+
+// Greedy max-weight assignment of the remaining players to the remaining slots by
+// role fit. n=11 so the O(n²·log) sort is trivial; good enough vs a full Hungarian.
+function assign(sq: Squad, slots: Slot[], locked: Map<number, number>): number[] {
+  const out = new Array(slots.length).fill(-1);
+  const usedP = new Set<number>();
+  for (const [si, pi] of locked) { out[si] = pi; usedP.add(pi); }
+  const freeS = slots.map((_, i) => i).filter(i => out[i] < 0);
+  const freeP = sq.players.map((_, i) => i).filter(i => !usedP.has(i)).slice(0, 11);
+  const pairs: { si: number; pi: number; fit: number }[] = [];
+  for (const si of freeS) for (const pi of freeP)
+    pairs.push({ si, pi, fit: roleFit(sq.players[pi].attrs, slots[si].role) });
+  pairs.sort((a, b) => b.fit - a.fit);
+  for (const p of pairs) if (out[p.si] < 0 && !usedP.has(p.pi)) { out[p.si] = p.pi; usedP.add(p.pi); }
+  return out;
+}
+
+const cache = new Map<string, { formation: string; slots: SlotAssignment[]; note: string }>();
+
+// Build the XI deterministically from the LLM's parse. Exported for unit tests
+// (no network): given a parsed formation + overrides, produce the assignment.
+export function buildLineup(sq: Squad, formationKey: string | null, overrides: { player: string; role: string; side: string }[]): { formation: string; slots: SlotAssignment[]; note: string } {
+  const key = (formationKey && FORMATIONS[formationKey]) ? formationKey : DEFAULT_FORMATION;
+  const slots = FORMATIONS[key];
+  const names = sq.players.slice(0, 11).map(p => p.name.toLowerCase());
+  const taken = new Set<number>();
+  const locked = new Map<number, number>();
+  const notes: string[] = [];
+  for (const ov of overrides) {
+    const want = String(ov.player ?? '').toLowerCase().trim();
+    if (!want) continue;
+    let pi = names.indexOf(want);
+    if (pi < 0) pi = names.findIndex(n => n.includes(want) || want.includes(n));   // loose match
+    if (pi < 0) { notes.push(`No "${ov.player}" in the squad.`); continue; }
+    const role = (ROLES.has(ov.role as Role) ? ov.role : 'CM') as Role;
+    const si = pickSlot(slots, role, String(ov.side ?? 'C').toUpperCase(), taken);
+    if (si < 0) { notes.push(`Couldn't fit ${sq.players[pi].name} into ${key}.`); continue; }
+    taken.add(si); locked.set(si, pi);
+  }
+  const a = assign(sq, slots, locked);
+  const out: SlotAssignment[] = slots.map((s, i) => ({
+    slot: i, role: s.role, homeX: s.x, homeY: s.y,
+    playerName: a[i] >= 0 ? sq.players[a[i]].name : '', fromSlot: a[i],
+  }));
+  return { formation: key, slots: out, note: notes.join(' ') };
+}
+
+// Compile free text -> a concrete XI. LLM parses intent; buildLineup assigns.
+// Cached by (squad + text) so a given instruction compiles once (deterministic).
+export async function compileLineup(text: string, sq: Squad): Promise<LineupResult> {
+  const ctx = squadContext(sq);
+  const cacheKey = `${ctx} ${text.trim()}`;
+  const hit = cache.get(cacheKey);
+  if (hit) return { ...hit, cached: true };
+  if (!KEY) return { formation: DEFAULT_FORMATION, slots: [], note: '', error: 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: MODEL, temperature: 0, max_tokens: 512, messages: [
+          { role: 'system', content: SYSTEM(ctx) }, { role: 'user', content: text },
+        ] }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if ((res.status === 429 || res.status >= 500) && attempt === 0) {
+        const ra = Number(res.headers.get('retry-after'));
+        await new Promise(r => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra : 1.2, 4) * 1000));
+        continue;
+      }
+      const j = await res.json() as { choices?: { message?: { content?: string } }[] };
+      if (res.ok) {
+        const content = j.choices?.[0]?.message?.content ?? '{}';
+        const p = extract(content);
+        const fk = typeof p.formation === 'string' ? normalizeFormation(p.formation) : null;
+        const ovs = (p.overrides as { player: string; role: string; side: string }[]).filter(o => o && typeof o === 'object');
+        const built = buildLineup(sq, fk, ovs);
+        const note = [p.note, built.note].filter(Boolean).join(' ');
+        const result = { formation: built.formation, slots: built.slots, note };
+        cache.set(cacheKey, result);
+        return { ...result, raw: content, cached: false };
+      }
+      break;
+    } catch { break; }
+  }
+  return { formation: DEFAULT_FORMATION, slots: [], note: '', error: 'the lineup model was unreachable' };
+}
