@@ -37,6 +37,7 @@ void loadTeam(const nlohmann::json& t, GameEngine::RosterOverride& ro, GameEngin
         pa.tackling    = num(a, "tackling", 50);
         pa.positioning = num(a, "positioning", 50);
         pa.stamina     = num(a, "stamina", 90);
+        pa.handling    = num(a, "handling", pa.positioning);   // keepers default handling to positioning
     }
     ro.active = true;
 }

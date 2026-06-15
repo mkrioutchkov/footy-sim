@@ -160,6 +160,7 @@ struct PlayerAttributes {
     double tackling    = 50.0;
     double positioning = 50.0;
     double stamina     = 95.0;
+    double handling    = 50.0;   // keeper catching/holding ability (defaults to positioning if unset)
 };
 
 struct Player {

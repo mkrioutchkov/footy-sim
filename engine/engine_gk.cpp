@@ -238,7 +238,11 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     }
     double contactOffset = dist(b.x, b.y, gk.x, gk.y);
     bool comfortable = contactOffset < reach * 0.45 && speed < 265.0;
-    double catchChance = clamp(0.42 + positioning * 0.42 - std::max(0.0, speed - 185.0) / 370.0, 0.12, 0.86);
+    // Handling now governs catch confidence (was positioning). Keep the SAME
+    // short-circuit as before — rng.random() must only be drawn when the first
+    // three gates pass, or the extra draw shifts the whole deterministic stream.
+    double hf = attrFactor(gk.attrs.handling);
+    double catchChance = clamp(0.42 + hf * 0.42 - std::max(0.0, speed - 185.0) / 370.0, 0.12, 0.86);
     bool caught = canHandle && comfortable && !gkPressured && rng.random() < catchChance;
     double fieldDir = fdFor(gk.team);
     double diveSide = (b.y >= gk.y) ? 1.0 : -1.0;
@@ -256,6 +260,10 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
         recordBallImpulse();
         return;
     }
+    // Low handling lowers catchChance above → more shots fall through to the
+    // parry below (a LIVE wide rebound), which is the real "couldn't hold it"
+    // drama. A central spill-in-front was tried and reverted: defenders mopped
+    // it up, so it scored LESS than the wide parry it replaced.
     // Tipped behind: a stretched keeper turning a hard shot around the post or
     // over the bar concedes a corner — the iconic save the engine never made,
     // so corners were near-extinct. More likely the further he had to reach
