@@ -109,21 +109,8 @@ inline constexpr double CORNER_ZONE             = 80.0;
 inline constexpr double CORNER_TRAP_SIZE        = 80.0;
 
 // ── Pass scoring ──
-inline constexpr double PASS_BASE_COMPLETION    = 0.89;
-inline constexpr double PASS_SKILL_WEIGHT       = 0.10;
-inline constexpr double PASS_RECEIVER_SKILL     = 0.06;
-inline constexpr double PASS_DIST_FACTOR        = 0.28;
-inline constexpr double PASS_BLOCKER_PENALTY    = 0.21;
-inline constexpr double PASS_PRESSURE_PENALTY   = 0.12;
-inline constexpr double PASS_MIN_COMPLETION     = 0.08;
-inline constexpr double PASS_MAX_COMPLETION     = 0.98;
-inline constexpr double PASS_PROGRESS_NORM      = 240.0;
-inline constexpr double PASS_TURNOVER_OWN_THIRD = 0.42;
-inline constexpr double PASS_TURNOVER_MID       = 0.25;
-inline constexpr double PASS_FORWARD_WEIGHT     = 0.34;
-inline constexpr double PASS_COMPLETION_WEIGHT  = 0.38;
-inline constexpr double PASS_REPEAT_PENALTY     = 0.18;
-inline constexpr double PASS_REPEAT_WINDOW_MS   = 3000.0;
+// (old pass-completion-probability / turnover / pass-scoring weight constants
+//  removed — dead after the pass-decision rework; the live pass geometry below stays.)
 inline constexpr double PASS_MIN_DISTANCE       = 42.0;
 inline constexpr double PASS_MAX_DISTANCE       = 550.0;
 inline constexpr double PASS_MAX_DISTANCE_KEEPER = 455.0;
@@ -141,12 +128,8 @@ inline constexpr double CARRIER_PRESSURE_RANGE   = 70.0;
 inline constexpr double CARRIER_PRESSURE_COUNT_DIST = 48.0;
 
 // ── Shot scoring ──
-inline constexpr double SHOT_FLOOR_CLOSE        = 0.35;
-inline constexpr double SHOT_FLOOR_MEDIUM       = 0.52;
-inline constexpr double SHOT_FLOOR_POINT_BLANK  = 0.70;
-inline constexpr double SHOT_CLOSE_DISTANCE     = 90.0;
-inline constexpr double SHOT_MEDIUM_DISTANCE    = 50.0;
-inline constexpr double SHOT_POINT_BLANK        = 30.0;
+// (old shot-floor + shot-distance-band scoring constants removed — dead after the
+//  shot-quality rework; the live acute-angle thresholds below stay.)
 inline constexpr double SHOT_ANGLE_ACUTE_THRESH  = 7.5;
 inline constexpr double SHOT_ACUTE_SOFT_THRESH   = 8.0;
 inline constexpr double SHOT_ACUTE_HARD_THRESH    = 7.0;
@@ -231,14 +214,11 @@ inline constexpr double GK_CLAIM_MAX         = 0.88;
 inline constexpr double GK_CLAIM_CROWD_DIST  = 40.0;   // opponent-in-airspace radius
 inline constexpr double GK_CLAIM_PACE_PUNCH  = 320.0;  // above this, force a punch over a finesse hold
 
-// ── Tackle ──
-inline constexpr double TACKLE_BASE             = 0.18;
-inline constexpr double TACKLE_SKILL_WEIGHT     = 0.35;
-inline constexpr double TACKLE_CARRIER_CONTROL  = 0.15;
+// ── Tackle ── (the old tackle-outcome model — TACKLE_BASE/SKILL_WEIGHT/
+// CARRIER_CONTROL/CONTROL_BASE/CONTROL_MAX — was removed as dead after the rework;
+// only the live foul-probability constants remain.)
 inline constexpr double TACKLE_FOUL_FROM_BEHIND = 0.06;   // calibrated 2026-06-11 (0.34 gave ~190 fouls/match)
 inline constexpr double TACKLE_FOUL_NORMAL      = 0.015;
-inline constexpr double TACKLE_CONTROL_BASE     = 0.28;
-inline constexpr double TACKLE_CONTROL_MAX      = 0.72;
 // Deliberate (cynical) foul: the last man, beaten on a transition break OUTSIDE
 // the box, hauls the carrier down to stop the counter — a yellow, never a
 // penalty (the band starts beyond the box, so the award path is always a free
