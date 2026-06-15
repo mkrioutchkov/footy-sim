@@ -246,6 +246,14 @@ void GameEngine::updatePlayerAnimations(double sdt) {
 
 void GameEngine::updatePossessionTracking(double sdt) {
     auto* c = playerById(state.ball.controllerId);
+    // Detect a live turnover (control flips teams in open play) -> open the
+    // quick-transition window. Suppressed during set-piece restarts.
+    if (c && !setPiece.armed) {
+        if (transitionHadCtrl && c->team != transitionLastCtrlTeam)
+            transitionUntilMs = state.clockMs + 400.0;
+        transitionLastCtrlTeam = c->team;
+        transitionHadCtrl = true;
+    }
     if (c) {
         if (c->team == Team::Home) metrics.possessionHome += sdt;
         else metrics.possessionAway += sdt;

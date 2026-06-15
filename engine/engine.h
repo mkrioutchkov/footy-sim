@@ -138,6 +138,13 @@ public:
     double prevBallVx = 0, prevBallVy = 0;
     int prevControllerId = -1;
     int ballImpulseGraceTicks = 0;
+    // Quick-transition window: for ~400ms after a LIVE turnover the defence is
+    // unset, so reward fast vertical passes + forward runs to manufacture
+    // counters and 1v1s (end-to-end excitement; breakaway finishes also feed the
+    // first-touch keeper wrong-foot). Pure clock+controller function — no rng.
+    double transitionUntilMs = 0.0;
+    Team transitionLastCtrlTeam = Team::Home;
+    bool transitionHadCtrl = false;
 
     struct ShotTracking {
         bool active = false;

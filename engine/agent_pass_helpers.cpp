@@ -313,6 +313,9 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         pur = ActionPurpose::Through;
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
         sc += 0.24 + attrFactor(p.attrs.creativity) * 0.15;
+        // Quick transition: hit the runner FAST while the defence is unset.
+        if (engine.state.clockMs < engine.transitionUntilMs)
+            sc += 0.18 * clamp((engine.transitionUntilMs - engine.state.clockMs) / 400.0, 0.0, 1.0);
         if (runnerForwardSpeed > 10.0) sc += 0.07;
         if (onsideGap > 8.0 && onsideGap < 70.0) sc += 0.08;
         if (targetGoalDist < 250.0) sc += 0.14;
