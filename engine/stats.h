@@ -38,7 +38,7 @@ public:
     }
     void recordThroughBallAttempt() { throughBallsAttempted++; }
     void recordThroughBallComplete() { throughBallsCompleted++; }
-    void recordCrossAttempt() { crossesAttempted++; }
+    void recordCrossAttempt(bool home) { crossesAttempted++; (home ? homeCrossesAttempted : awayCrossesAttempted)++; }
     void recordCrossComplete() { crossesCompleted++; }
     void recordHeader(double incomingZ, double deliveryDist, double speed, bool unrealistic) {
         headers++;
@@ -168,6 +168,7 @@ private:
     int passesAttempted=0, passesCompleted=0, passesIntercepted=0, passesIntended=0, wrongTeammate=0;
     int throughBallsAttempted=0, throughBallsCompleted=0;
     int crossesAttempted=0, crossesCompleted=0, headers=0, headedShots=0;
+    int homeCrossesAttempted=0, awayCrossesAttempted=0;   // per-team (the combined total is possession-confounded for benchmarks)
     int headerClearances=0, headerLayoffs=0, headerControls=0;
     int unrealisticHeaders=0;
     double headerZTotal=0, headerZMin=0, headerZMax=0;

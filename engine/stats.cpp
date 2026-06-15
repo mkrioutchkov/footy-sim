@@ -101,6 +101,8 @@ std::string StatsCollector::summaryJSON() const {
     j["throughBallsAttempted"] = throughBallsAttempted;
     j["throughBallsCompleted"] = throughBallsCompleted;
     j["crossesAttempted"] = crossesAttempted;
+    j["homeCrossesAttempted"] = homeCrossesAttempted;
+    j["awayCrossesAttempted"] = awayCrossesAttempted;
     j["crossesCompleted"] = crossesCompleted;
     j["headers"] = headers;
     j["headerClearances"] = headerClearances;

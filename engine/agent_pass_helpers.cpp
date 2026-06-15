@@ -117,14 +117,17 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         && centralBoxTarget
         && (t.role == Role::CF || t.role == Role::CM || t.role == Role::WM)
         && fp < 75.0;
-    bool isCross   = isWideDelivery && !cutbackTarget && dgW < 340.0
+    // cross_early extends the cross window deeper (whip it in early, don't dribble
+    // to the byline first).
+    double crossRange = engine.directiveBias[p.id].crossEarly ? 420.0 : 340.0;
+    bool isCross   = isWideDelivery && !cutbackTarget && dgW < crossRange
         && std::abs(p.y - PITCH_H / 2.0) > 120.0 && (fp > -45.0 || aerialTarget);
     bool isCutback = isWideDelivery && !isCross;
 
     // ── Cross / cutback scoring ──
     if (isCross) {
         sc += 0.26;
-        if (engine.directiveBias[p.id].crossEarly) sc += 0.42;   // "whip it in early"
+        if (engine.directiveBias[p.id].crossEarly) sc += 0.55;   // "whip it in early"
         if (t.role == Role::CF) sc += 0.30;
         else if (t.role == Role::WM) sc += 0.10;
         else if (t.role == Role::CM) sc -= 0.34;

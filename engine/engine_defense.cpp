@@ -76,8 +76,22 @@ void GameEngine::applyDirectives() {
                 case DirectiveKind::DropOff:        dv.aggression-=22*k; dv.defensiveLineHeight-=26*k; break;
                 case DirectiveKind::PlayItLong:     dv.passingDirectness+=45*k; dv.midfieldFreedom-=10*k; dv.overlapFrequency-=5*k; longBallBias[d.teamScope]+=k; break;
                 case DirectiveKind::KeepItOnGround: dv.passingDirectness-=30*k; dv.midfieldFreedom+=10*k; break;
-                case DirectiveKind::GetItWide:      dv.overlapFrequency+=35*k; dv.midfieldFreedom-=15*k; break;
-                case DirectiveKind::PlayNarrow:     dv.overlapFrequency-=30*k; dv.midfieldFreedom+=15*k; break;
+                case DirectiveKind::GetItWide:
+                    // overlapFrequency only pushes FBs FORWARD (widthPush adds to homeX),
+                    // so "get it wide" must actually widen the wide players' lateral anchor.
+                    dv.overlapFrequency+=20*k;
+                    for (auto& wp2 : state.players)
+                        if ((wp2.team == Team::Home) == (d.teamScope == 0) && (wp2.role == Role::WM || wp2.role == Role::FB)) {
+                            double sgn = baseHomeY[wp2.id] < PITCH_H / 2.0 ? -1.0 : 1.0;
+                            wp2.homeY = clamp(baseHomeY[wp2.id] + sgn * 75.0 * k, 24.0, PITCH_H - 24.0);
+                        }
+                    break;
+                case DirectiveKind::PlayNarrow:
+                    dv.overlapFrequency-=20*k; dv.midfieldFreedom+=15*k;
+                    for (auto& wp2 : state.players)
+                        if ((wp2.team == Team::Home) == (d.teamScope == 0) && (wp2.role == Role::WM || wp2.role == Role::FB))
+                            wp2.homeY = lerp(baseHomeY[wp2.id], PITCH_H / 2.0, 0.35 * k);
+                    break;
                 case DirectiveKind::PushUp:         dv.defensiveLineHeight+=30*k; dv.aggression+=10*k; break;
                 case DirectiveKind::SlowItDown:     dv.passingDirectness-=22*k; dv.aggression-=15*k; break;
                 default: break;

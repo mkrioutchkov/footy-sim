@@ -286,7 +286,10 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     }
     if (finalThird && per.nearestOpponentDist > 70.0 && densityAhead <= 1) {
         sc += 0.28;
-        if (engine.directiveBias[p.id].crossEarly) sc -= 0.34;   // cross instead of dribbling on
+        // (cross_early no longer penalises this carry — the benchmark showed
+        // suppressing it stops the player reaching a crossing position, so crosses
+        // DROP. cross_early now lives purely in the cross-score bonus + an earlier
+        // cross window in agent_pass_helpers.)
         tx = p.x + fd * (activeLongCarry ? 190.0 : 165.0);
         ty = lerp(p.y, PITCH_H / 2.0, 0.18);
     } else if (!inOwnHalf && per.nearestOpponentDist > 115.0 && densityAhead <= 1) {
