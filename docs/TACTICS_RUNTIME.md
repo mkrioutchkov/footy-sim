@@ -18,7 +18,7 @@ against the working tree 2026-06-16.
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ MANAGER (browser) · web/frontend/app.ts                                        │
-│  • standing PLAN box (plain-English, editable any time incl. mid-match)         │
+│  • SHOUT box (type orders) → edits the READ-ONLY standing composite plan        │
 │  • type a shout ── WS {type:'tactics', text} ──▶        ◀── {tacticsReceipt}   │
 └───────────────┬───────────────────────────────────────────────▲───────────────┘
                 │ /ws/match                                       │ "here's what
@@ -93,7 +93,13 @@ nuke / no-op), plus an optional `formation` and a `motivation[]` judgement.
 ## 2. Shouts
 
 There is **no separate "shouts" compiler** — every mid-match shout is an **edit to
-the single standing composite plan** (`this.plan` on `MatchStream`).
+the single standing composite plan** (`this.plan` on `MatchStream`). The UI is **one
+shout input** plus a **read-only** standing-plan display (the receipt, refreshed each
+shout) — the manager never edits the plan directly; shouts do (`app.ts` live tactics
+panel: a `tactics-input` textarea → `{type:'tactics'}` → the receipt re-renders the
+"Standing plan:" directive list). The plan starts **empty** each watch session
+(`EMPTY_PLAN`) — there is no pre-match plain-English plan; pre-match you set only the
+5 dials + formation (which do persist).
 
 - **Edit by intent**: amend one player · overhaul · **nuke** ("forget all that" →
   `directives:[]`) · **no-op** (pure motivation, directives echoed verbatim).
