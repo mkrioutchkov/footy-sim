@@ -152,14 +152,18 @@ target is the determinism golden; every realism number is "tuned by feel."
 
 ## The two engine I/O surfaces a calibration harness uses
 
-- **`--summary` JSON** (last line of `build/live.exe … --summary`). Already emits
-  most counters a scorecard needs: `goalsPerMatch`, `shotsPer90`,
-  `shotsOnTargetPct`, `goalsPerShotPct`, `savePct`, `passCompletionPct` (+ fwd/side/
-  back split), `crossesPerMatch`, `throughBallCompletionPct`, `tackleWinPct`,
-  `tacklesAttemptedPerMatch`, `offsidesPerMatch`, `penaltiesAwardedPerMatch`,
-  `cards`, `shotsByDistance{close,medium,long}`, `goalsByDistance{…}`, `possession%`.
-  A scorecard is a **pure consumer** — zero engine change. (`tools/native-batch.ts`
-  runs this over many seeds.)
+- **`--summary` JSON** (last line of `build/live.exe … --summary`) — **per-match**
+  raw counters: `homeScore`/`awayScore`, `saves`, `shots`, `passes`,
+  `passCompletionPct` (+ fwd/side/back split), `shotsByDistance{close,medium,long}`,
+  `goalsByDistance{…}`, `crossesCompleted`, `throughBallCompletionPct`, offsides,
+  cards, per-player stats, etc. **`tools/native-batch.ts`** runs this over many seeds
+  and aggregates into the **rates** a scorecard checks (`goalsPerMatch`,
+  `shotsPer90`, `shotsOnTargetPct`, `goalsPerShotPct`, `savePct`, `tackleWinPct`,
+  `tacklesAttemptedPerMatch`, `penaltiesAwardedPerMatch`, …). **So the scorecard
+  consumes `native-batch` output, not raw `--summary` directly** — still a pure
+  consumer, zero engine change. (Field names here are indicative — confirm against
+  `engine/stats.cpp` and `tools/native-batch.ts` before wiring; the "engine field"
+  column in Part 3 is a per-match raw counter or a native-batch rate accordingly.)
 - **`--trace out.bin`** — a binary, **per-tick (60 Hz) freeze-frame of all 22
   players + the ball + tagged events**. Read with `tools/trace_reader.py`. This is
   what makes **xG-shape validation** possible: reconstruct the engine's own
@@ -263,7 +267,7 @@ If the engine's 83% is measured over *all* shots faced, it isn't comparable.
 
 | Metric | Target | Band | Engine field / lever | Source | Caveat |
 |---|---|---|---|---|---|
-| Tackle win % | **~50%** (ball-won) | 45–55; "true tackle" 65–72 | `tackleWinPct` | Opta/FBref | **Trap: two definitions** (won-ball vs got-a-touch) |
+| Tackle win % | **~55%** (ball-won) | 50–65; "true tackle" 65–72 | `tackleWinPct` | Opta/FBref/StatsBomb | **Trap: two definitions** (won-ball vs got-a-touch); providers diverge ±30% |
 | Take-on / dribble success | **~37%** (retain+advance) or ~50–55% (beat-man) | 36–60 | dribble conversion | Opta/The Analyst | **Trap: pick the engine's success condition** |
 | Defender stops dribbler | ~50–60% | elite 80–87%, poor ~32% | 1v1 take-on resolution | Opta/PL | Mirror of take-on success |
 | Aerial win % (population) | 50% | 49–51 | header counters (conservation check) | structural | One winner per duel |
@@ -343,7 +347,7 @@ attack a known engine debt:
 7. Distance-band conversion ladder → close **30–35%** / medium **9–12%** / long **3–4%**
 8. `offsidesPerMatch` → **~1.85/team**
 9. `penaltiesAwardedPerMatch` → **0.20–0.35** ; penalty conversion **76–79%**
-10. `tacklesAttemptedPerMatch` → **16–18** ; `tackleWinPct` → ~50% (won-ball def.)
+10. `tacklesAttemptedPerMatch` → **16–18** ; `tackleWinPct` → **~55%** (50–65 band, won-ball def.)
 11. Yellow `cards` → **3.5–4.0/match** ; red **~0.15–0.20/match**
 12. `crossesPerMatch` (confirm open-play vs total) ; cross→goal ~1.6%
 
@@ -392,25 +396,39 @@ clearances, recoveries, corners, fouls, PPDA) are valuable but require a
 
 Read events from `$SB_OPEN_DATA_DIR/data/events/<match_id>.json`; filter to a clean
 league-wide competition (3.5). All open-play unless noted (`shot.type`/`pass.type`
-filters exclude set pieces/penalties).
+filters exclude set pieces/penalties). **Two universal gotchas:** (a) **exclude
+penalty-shootout events (`period==5`)** from every aggregate; (b) StatsBomb fields
+are **event-type-conditional** — most keys are absent unless relevant, so read
+defensively and treat a missing key as its "default" outcome.
 
-- **Goals/match, shots/match, conversion:** count `type=='Shot'`; goal =
-  `shot.outcome.name=='Goal'`; on-target = outcome ∈ {Goal, Saved, Saved to Post,
-  Saved Off Target}; conversion = goals / shots. Per-band: bin `shot.location`
-  distance-to-`(120,40)`, convert to the engine's pixel bands (`×8.75/×8.5` →
-  `<100/<200 px`).
-- **Save%:** `saves / (saves + goals)` over **on-target** shots (above). This is the
-  one to compare against the engine's re-measured `savePct`.
+- **Goals/match, shots/match, conversion:** count `type=='Shot'` with
+  `shot.outcome.name=='Goal'`, **plus own goals** (`type=='Own Goal For'`);
+  on-target = outcome ∈ {Goal, Saved, Saved to Post, Saved Off Target}; conversion =
+  goals / shots. Per-band: bin `shot.location` distance-to-`(120,40)`, convert to
+  the engine's pixel bands (`×8.75/×8.5` → `<100/<200 px`).
+- **Save%:** `saves / (saves + goals)` over **on-target** shots only (exclude
+  Blocked/Off T/Post/Wayward and penalties). Cross-check via `Goal Keeper` events
+  (`goalkeeper.type ∈ {Shot Saved, Save, Penalty Saved}`). This is the one to
+  compare against the engine's re-measured `savePct` (expect ~0.67–0.70).
 - **Pass completion by length/direction:** `type=='Pass'`; completed = `pass.outcome`
-  **absent** (incomplete/out are explicit); band by `pass.length` (convert units!);
-  direction from `pass.angle` (0 = straight ahead, ±π); `under_pressure` splits
-  pressured vs not.
-- **Penalty conversion / save:** `shot.type=='Penalty'`; scored vs `GoalKeeper`
-  outcome `Penalty Saved`; off-target = outcome `Off T`/`Post`/`Wayward`.
-- **Duels / take-ons / aerials:** `Duel` (Tackle/Aerial Lost), `Dribble`
-  (Complete/Incomplete), `50/50`, `Clearance.aerial_won` → win-rate per type.
-- **Fouls / cards / offsides / penalties awarded:** `Foul Committed` (+`card`),
-  `Offside`/`pass.outcome=='Pass Offside'`, `foul_committed.penalty`.
+  **absent** (Incomplete/Out/Pass Offside are explicit failures); band by
+  `pass.length` (in **yards** — `×0.9144` → m, `×10` → px); direction from
+  `pass.angle` (0 = +x toward attacking goal): forward `|angle|<π/4`, backward
+  `|angle|>3π/4`, else sideways; `under_pressure` splits pressured vs not.
+- **Penalty conversion / save:** `shot.type=='Penalty'` (exclude `period==5`); scored
+  vs `Goal Keeper` outcome `Penalty Saved`; off-target = outcome `Off T`/`Post`/
+  `Wayward`. Each penalty also carries `shot.statsbomb_xg ≈ 0.78`.
+- **Duels / take-ons / aerials:** `Duel` `duel.type=='Tackle'` (outcome Won/Success
+  vs Lost) for tackle win%; `Dribble` (Complete/Incomplete) for take-on% (the
+  "beat-your-man" ~50–55% definition; require retain+progress to approximate Opta's
+  37%); aerial-won is encoded via `clearance.aerial_won` / `pass.aerial_won` /
+  `shot.aerial_won` (the `Duel` `Aerial Lost` marks only **losses**) — split by
+  `lineups.json` position for the CB ~60% vs FB/forward ~47% role spread.
+- **Fouls / cards / offsides / penalties awarded:** `Foul Committed`;
+  **cards = sum of `foul_committed.card` AND `bad_behaviour.card`** (Yellow / Second
+  Yellow / Red); offsides = `type=='Offside'` **plus** `pass.outcome=='Pass Offside'`;
+  penalties = `shot.type=='Penalty'` **plus** `foul_won.penalty==true` (awarded but
+  not taken).
 - **Set-piece goal share:** group goals by `play_pattern` (From Corner / Free Kick /
   Throw In) vs Regular Play / From Counter.
 - **xG sanity (the calibration identity):** sum `shot.statsbomb_xg` ≈ goals over a
