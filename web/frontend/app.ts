@@ -37,6 +37,50 @@ function toast(msg: string) {
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 2600);
 }
+
+// ── in-app modals (replace native confirm()/prompt(), which are ugly + block the event loop) ──
+// Both resolve a promise: cancel → false/null, confirm → true/the input value. ESC and a
+// backdrop click cancel; Enter confirms. The focused control is set on open for keyboard use.
+function confirmModal(title: string, message: string, okLabel = 'Confirm'): Promise<boolean> {
+  return new Promise(resolve => {
+    let done = false;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(false); else if (e.key === 'Enter') finish(true); };
+    const onHash = () => finish(false);   // navigating away closes the modal (it lives on body, not root)
+    const finish = (v: boolean) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); resolve(v); };
+    const ok = h('button', { class: 'primary', onclick: () => finish(true) }, okLabel);
+    const card = h('div', { class: 'modal-card' },
+      h('h3', { style: 'margin-bottom:10px' }, title),
+      h('div', { class: 'muted', style: 'margin-bottom:18px;line-height:1.5;white-space:pre-wrap' }, message),
+      h('div', { class: 'row', style: 'justify-content:flex-end' }, h('button', { class: 'ghost', onclick: () => finish(false) }, 'Cancel'), ok));
+    const backdrop = h('div', { class: 'modal-backdrop', onmousedown: (e: MouseEvent) => { if (e.target === backdrop) finish(false); } }, card);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('hashchange', onHash);
+    document.body.appendChild(backdrop);
+    ok.focus();
+  });
+}
+function promptModal(title: string, message: string, value = '', okLabel = 'Submit'): Promise<string | null> {
+  return new Promise(resolve => {
+    let done = false;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(null); };
+    const onHash = () => finish(null);   // navigating away closes the modal (it lives on body, not root)
+    const finish = (v: string | null) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); resolve(v); };
+    const input = h('input', { type: 'text', value }) as HTMLInputElement;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(input.value); } });
+    const card = h('div', { class: 'modal-card' },
+      h('h3', { style: 'margin-bottom:10px' }, title),
+      message ? h('div', { class: 'muted', style: 'margin-bottom:12px;line-height:1.5;white-space:pre-wrap' }, message) : '',
+      h('div', { style: 'margin-bottom:16px' }, input),
+      h('div', { class: 'row', style: 'justify-content:flex-end' },
+        h('button', { class: 'ghost', onclick: () => finish(null) }, 'Cancel'),
+        h('button', { class: 'primary', onclick: () => finish(input.value) }, okLabel)));
+    const backdrop = h('div', { class: 'modal-backdrop', onmousedown: (e: MouseEvent) => { if (e.target === backdrop) finish(null); } }, card);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('hashchange', onHash);
+    document.body.appendChild(backdrop);
+    input.focus(); input.select();
+  });
+}
 function fmtMoney(n: number): string {
   if (n >= 1e6) return `£${(n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1)}M`;
   if (n >= 1e3) return `£${Math.round(n / 1e3)}K`;
@@ -619,6 +663,12 @@ async function screenMarket() {
   }
 
   function render() {
+    // Preserve scroll across the full re-render each action triggers (signing/listing/bidding
+    // otherwise jumps every list back to the top). Capture the current panes before mount, restore after.
+    const scrollPos: Record<string, number> = {};
+    root.querySelectorAll<HTMLElement>('[data-scroll]').forEach(el => { if (el.dataset.scroll) scrollPos[el.dataset.scroll] = el.scrollTop; });
+    const winY = window.scrollY;
+
     // free-agent pool — sign to your squad
     const faBody = h('tbody');
     if (!market.freeAgents.length) faBody.append(h('tr', {}, h('td', { colspan: '7', class: 'muted' }, 'No free agents left.')));
@@ -687,14 +737,16 @@ async function screenMarket() {
         if (r.status === 'accepted') { market = r.market; toast(`Signed ${r.player} for ${fmtMoney(r.fee!)} (${r.placed === 'xi' ? 'straight into the XI' : 'to the bench'})`); render(); }
         else if (r.status === 'countered') {
           market = r.market;
-          if (confirm(`${r.club} want ${fmtMoney(r.counterFee!)} for ${r.player}. Match their valuation?`)) await sendBid(playerId, r.counterFee!);
+          if (await confirmModal('Counter-offer', `${r.club} want ${fmtMoney(r.counterFee!)} for ${r.player}. Match their valuation?`, 'Match it')) await sendBid(playerId, r.counterFee!);
           else render();
         } else { toast(r.error || `${r.club} rejected the bid`); render(); }
       } catch (e: any) { toast(e.message); render(); }
     };
-    const doBid = (t: typeof market.transferTargets[number]): void => {
+    const doBid = async (t: typeof market.transferTargets[number]): Promise<void> => {
       const ask = t.askPrice ?? t.value;
-      const raw = prompt(`Bid for ${t.name} — ${t.club} are asking ${fmtMoney(ask)}.\nYour budget: ${fmtMoney(market.budget)}.\n(enter a number, or shorthand like 1.5m / 500k)`, String(ask));
+      const raw = await promptModal(`Bid for ${t.name}`,
+        `${t.club} are asking ${fmtMoney(ask)}. Your budget: ${fmtMoney(market.budget)}.\nEnter a number, or shorthand like 1.5m / 500k.`,
+        String(ask), 'Submit bid');
       if (raw == null) return;
       // accept plain numbers AND the shorthand the screen shows (£1.5M, 500k) — strip symbols,
       // then scale by a trailing m/k so "1.5m" reads as 1,500,000 rather than 2.
@@ -705,7 +757,7 @@ async function screenMarket() {
       void sendBid(t.id, fee);
     };
     const doLoan = async (t: typeof market.transferTargets[number]): Promise<void> => {
-      if (!confirm(`Take ${t.name} (${t.club}) on loan for the season? He returns to his club at the end of the campaign — no fee, but you carry his wages.`)) return;
+      if (!await confirmModal('Loan deal', `Take ${t.name} (${t.club}) on loan for the season? He returns to his club at the end of the campaign — no fee, but you carry his wages.`, 'Take on loan')) return;
       try { const r = await api.loan(t.id); market = r.market; toast(`${r.player} joins on loan from ${r.from}`); render(); }
       catch (e: any) { toast(e.message); render(); }
     };
@@ -715,7 +767,7 @@ async function screenMarket() {
       const bid = h('button', { class: 'ghost small' }, 'Bid');
       const loan = h('button', { class: 'ghost small', style: 'margin-left:4px' }, 'Loan');
       if (!win.open) { for (const b of [bid, loan]) { b.setAttribute('disabled', 'true'); b.setAttribute('title', 'Transfer window is shut'); } }
-      else { bid.addEventListener('click', () => doBid(t)); loan.addEventListener('click', () => void doLoan(t)); }
+      else { bid.addEventListener('click', () => void doBid(t)); loan.addEventListener('click', () => void doLoan(t)); }
       const tPot = t.potential != null && t.potential > t.overall;
       tgtBody.append(h('tr', {},
         h('td', {}, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + t.club)),
@@ -740,17 +792,24 @@ async function screenMarket() {
       h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Free agents'),
-          h('div', { style: 'max-height:520px;overflow:auto' }, h('table', {}, headRow('Player'), faBody))),
+          h('div', { style: 'max-height:520px;overflow:auto', 'data-scroll': 'fa' }, h('table', {}, headRow('Player'), faBody))),
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your squad'),
           h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, 'List a player to sell him — an AI club may buy once you have squad depth (12+).'),
-          h('div', { style: 'max-height:520px;overflow:auto' }, h('table', {}, headRow('Player'), sqBody))),
+          h('div', { style: 'max-height:520px;overflow:auto', 'data-scroll': 'squad' }, h('table', {}, headRow('Player'), sqBody))),
       ),
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'For sale — other clubs'),
         h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, win.open ? 'Bid for a listed player — the club may accept, counter, or reject.' : 'Bidding opens during a transfer window.'),
-        h('div', { style: 'max-height:420px;overflow:auto' }, h('table', {}, headRow('Player'), tgtBody))),
+        h('div', { style: 'max-height:420px;overflow:auto', 'data-scroll': 'targets' }, h('table', {}, headRow('Player'), tgtBody))),
     ));
+
+    // Restore the captured scroll positions onto the freshly-mounted panes.
+    root.querySelectorAll<HTMLElement>('[data-scroll]').forEach(el => {
+      const v = el.dataset.scroll ? scrollPos[el.dataset.scroll] : undefined;
+      if (typeof v === 'number') el.scrollTop = v;
+    });
+    window.scrollTo(0, winY);
   }
   render();
 }
