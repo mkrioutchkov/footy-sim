@@ -177,13 +177,29 @@ async function screenDashboard() {
   const squad = h('div', { class: 'players' });
   for (const p of team.players) {
     const ovr = Math.round(Object.values(p.attrs).reduce((a, b) => a + b, 0) / Object.keys(p.attrs).length);
-    squad.append(h('div', { class: 'pcard' },
+    const per = p.personality;
+    const card = h('div', { class: 'pcard' },
       h('div', { class: 'role' }, `${p.role} · OVR ${ovr}`),
       h('div', { class: 'pn' }, p.name),
       h('div', { class: 'at' }, `SPD ${p.attrs.speed} · PAS ${p.attrs.passing} · SHO ${p.attrs.shooting}`,
         h('br'), `TAC ${p.attrs.tackling} · POS ${p.attrs.positioning} · CRE ${p.attrs.creativity}`),
-    ));
+    );
+    if (per && per.tagline) {
+      card.setAttribute('title', `${per.nationality}${per.nationality ? ' · ' : ''}${per.backstory}`);
+      card.append(h('div', { class: 'persona' },
+        h('span', { class: 'tag' }, `“${per.tagline}”`),
+        per.nationality ? h('span', { class: 'muted', style: 'font-size:11px' }, ` ${per.nationality}`) : '',
+      ));
+    }
+    squad.append(card);
   }
+  const needsPersonalities = team.players.some(p => !p.personality);
+  const genPersBtn = h('button', { class: 'ghost small' }, 'Generate personalities');
+  genPersBtn.addEventListener('click', async () => {
+    genPersBtn.setAttribute('disabled', 'true'); genPersBtn.textContent = 'Generating…';
+    try { await api.generatePersonalities(); toast('Personalities generated'); screenDashboard(); }
+    catch (e: any) { toast(e.message); genPersBtn.removeAttribute('disabled'); genPersBtn.textContent = 'Generate personalities'; }
+  });
 
   const advanceBtn = h('button', {}, myNext ? `Play matchday ${myNext.round}` : 'Season complete');
   if (!myNext) advanceBtn.setAttribute('disabled', 'true');
@@ -244,7 +260,12 @@ async function screenDashboard() {
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
       h('div', {},
         formationPanel(team),
-        h('div', { class: 'card', style: 'margin-top:14px' }, h('div', { class: 'section-title', style: 'margin-top:0' }, `Squad · ${team.name}`), squad),
+        h('div', { class: 'card', style: 'margin-top:14px' },
+          h('div', { class: 'between', style: 'margin-bottom:8px' },
+            h('div', { class: 'section-title', style: 'margin:0' }, `Squad · ${team.name}`),
+            needsPersonalities ? genPersBtn : '',
+          ),
+          squad),
       ),
     ),
   ));

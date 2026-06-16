@@ -60,6 +60,8 @@ tr.me td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .pcard .role { font-size: 11px; color: var(--accent); font-weight: 700; }
 .pcard .pn { font-weight: 600; margin: 1px 0 4px; }
 .pcard .at { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.pcard .persona { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 11px; }
+.pcard .persona .tag { color: var(--accent); font-style: italic; }
 
 .slider-row { display: grid; grid-template-columns: 180px 1fr 38px; align-items: center; gap: 12px; margin: 10px 0; }
 .slider-row .lab { font-size: 13px; }

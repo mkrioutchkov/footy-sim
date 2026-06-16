@@ -8,6 +8,7 @@ import { registerUser, loginUser, createSession, destroySession, getUserBySessio
 import { db } from './db.ts';
 import {
   newSeasonForUser, getTeamWithPlayers, standings, teamForUser,
+  assignPersonalities, needsPersonalities,
   DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { playFixture, getFixture, writeSpec, MatchStream } from './match.ts';
@@ -83,7 +84,20 @@ app.post('/api/team', async (req: any, reply) => {
   const name = String(req.body?.name ?? '').trim().slice(0, 40) || `${user.username} FC`;
   const tactics = req.body?.tactics ? validTactics(req.body.tactics) : DEFAULT_TACTICS;
   const { teamId, leagueId } = newSeasonForUser(user.id, user.username, name, tactics);
+  // Generate the squad's personalities in the background (best-effort, ~3s) so team
+  // creation returns immediately; the dashboard backfills via /api/personalities.
+  void assignPersonalities(teamId).catch(() => { /* defaults already stored on failure */ });
   return { teamId, leagueId };
+});
+
+// Generate personalities for the user's squad if any are missing (backfills teams
+// created before this feature, and resolves the post-creation race). Returns the team.
+app.post('/api/personalities', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  if (needsPersonalities(teamId)) await assignPersonalities(teamId);
+  return getTeamWithPlayers(teamId);
 });
 
 app.get('/api/team', async (req: any, reply) => {

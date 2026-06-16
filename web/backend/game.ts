@@ -1,5 +1,8 @@
 import { db } from './db.ts';
 import { randomPlayerName, randomTeamName } from './names.ts';
+import { generateSquadPersonalities } from './personality.ts';
+
+const parseJSON = (s: string | null): unknown | null => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 
 // Engine formation slots 0..10 -> role. Must match native createHome/AwayTeam.
 export const ROLE_SLOTS = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'WM', 'CF', 'WM'] as const;
@@ -165,7 +168,7 @@ export function standings(leagueId: number): Standing[] {
   return out;
 }
 
-export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; }
+export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; }
 
 export function getTeamWithPlayers(teamId: number): {
   id: number; name: string; manager: string; leagueId: number; userId: number | null;
@@ -174,9 +177,9 @@ export function getTeamWithPlayers(teamId: number): {
   const t = db.prepare('SELECT id, name, manager, league_id, user_id, tactics, formation, lineup FROM teams WHERE id = ?')
     .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; tactics: string; formation: string | null; lineup: string | null } | undefined;
   if (!t) return null;
-  const players = (db.prepare('SELECT slot, name, role, attrs FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
-    { slot: number; name: string; role: string; attrs: string }[])
-    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs) }));
+  const players = (db.prepare('SELECT slot, name, role, attrs, personality FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
+    { slot: number; name: string; role: string; attrs: string; personality: string | null }[])
+    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality) }));
   let lineup: number[] | null = null;
   // Accept the stored lineup only if it's a clean permutation of 0..10 (11 distinct
   // in-range slots). A malformed/legacy/tampered value falls back to the identity XI
@@ -197,4 +200,21 @@ export function getTeamWithPlayers(teamId: number): {
 export function teamForUser(userId: number): number | null {
   const row = db.prepare('SELECT id FROM teams WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(userId) as { id: number } | undefined;
   return row ? row.id : null;
+}
+
+// True if any of the team's players still lacks a generated personality.
+export function needsPersonalities(teamId: number): boolean {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM players WHERE team_id = ? AND personality IS NULL').get(teamId) as { n: number };
+  return row.n > 0;
+}
+
+// Generate + persist a personality per player (one batched LLM call; neutral
+// defaults on failure so it never blocks). Idempotent-ish: regenerates all 11.
+export async function assignPersonalities(teamId: number): Promise<void> {
+  const rows = db.prepare('SELECT slot, name, role, attrs FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
+    { slot: number; name: string; role: string; attrs: string }[];
+  if (!rows.length) return;
+  const ps = await generateSquadPersonalities(rows.map(r => ({ name: r.name, role: r.role, attrs: JSON.parse(r.attrs) })));
+  const upd = db.prepare('UPDATE players SET personality = ? WHERE team_id = ? AND slot = ?');
+  rows.forEach((r, i) => upd.run(JSON.stringify(ps[i]), teamId, r.slot));
 }

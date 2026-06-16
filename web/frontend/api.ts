@@ -17,7 +17,11 @@ export interface Tactics {
   aggression: number; passingDirectness: number; overlapFrequency: number;
   midfieldFreedom: number; defensiveLineHeight: number;
 }
-export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; }
+export interface PersonalityT {
+  traits: { temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number; consistency: number; leadership: number; professionalism: number; ego: number };
+  nationality: string; backstory: string; tagline: string;
+}
+export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; }
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
@@ -46,6 +50,7 @@ export const api = {
   team: () => req<TeamT>('GET', '/team'),
   setTactics: (tactics: Tactics) => req<{ tactics: Tactics }>('PUT', '/tactics', { tactics }),
   setLineup: (text: string) => req<LineupResultT>('PUT', '/lineup', { text }),
+  generatePersonalities: () => req<TeamT>('POST', '/personalities'),
   league: () => req<LeagueT>('GET', '/league'),
   playFixture: (id: number) => req<{ result: { homeScore: number; awayScore: number; alreadyPlayed: boolean }; standings: StandingT[] }>('POST', `/fixtures/${id}/play`),
   playNext: () => req<{ fixtureId: number; result: { homeScore: number; awayScore: number }; standings: StandingT[] }>('POST', '/play-next'),

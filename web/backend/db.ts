@@ -78,3 +78,4 @@ function ensureColumn(table: string, col: string, ddl: string): void {
 }
 ensureColumn('teams', 'formation', "formation TEXT NOT NULL DEFAULT '4-3-3'");
 ensureColumn('teams', 'lineup', 'lineup TEXT');   // json int[11]: formationSlot -> player slot; NULL = identity XI
+ensureColumn('players', 'personality', 'personality TEXT');   // json: LLM-generated traits/nationality/backstory/tagline; NULL = not generated yet
