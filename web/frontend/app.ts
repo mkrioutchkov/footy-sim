@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type Tactics, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT } from './api';
+import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT } from './api';
 import { MatchRenderer } from './renderer';
 
 const root = document.getElementById('app')!;
@@ -61,13 +61,6 @@ function otherDivisions(league: LeagueT): HTMLElement {
     h('div', { class: 'grid', style: `grid-template-columns:repeat(${cards.length},1fr);align-items:start` }, ...cards));
 }
 
-const TACTIC_DEFS: { key: keyof Tactics; label: string; lo: string; hi: string }[] = [
-  { key: 'aggression', label: 'Aggression', lo: 'Contain', hi: 'Press hard' },
-  { key: 'passingDirectness', label: 'Passing', lo: 'Patient', hi: 'Direct' },
-  { key: 'overlapFrequency', label: 'Overlaps', lo: 'Stay home', hi: 'Bomb on' },
-  { key: 'midfieldFreedom', label: 'Midfield', lo: 'Disciplined', hi: 'Free roam' },
-  { key: 'defensiveLineHeight', label: 'Def. line', lo: 'Deep', hi: 'High' },
-];
 
 function header(): HTMLElement {
   return h('header', { class: 'top' },
@@ -129,39 +122,72 @@ function screenAuth() {
 
 // ── create team ──
 function screenCreateTeam() {
-  const tactics: Tactics = { aggression: 50, passingDirectness: 50, overlapFrequency: 50, midfieldFreedom: 50, defensiveLineHeight: 50 };
   const name = h('input', { placeholder: 'e.g. Brisbane Roar', value: `${user!.username} FC` }) as HTMLInputElement;
+  const planInput = h('textarea', { class: 'tactics-input', rows: '3',
+    placeholder: 'Optional — your tactical plan in plain English: "high press, build from the back, full-backs bomb on, sit deeper if 2-0 up". You can set or change it any time from Tactics.' }) as HTMLTextAreaElement;
   const err = h('div', { class: 'err' });
   const create = h('button', {}, 'Create team & start season');
   create.addEventListener('click', async () => {
     create.setAttribute('disabled', 'true');
-    try { await api.createTeam(name.value.trim(), tactics); route(); }
-    catch (e: any) { err.textContent = e.message; create.removeAttribute('disabled'); }
+    try {
+      await api.createTeam(name.value.trim());
+      const plan = planInput.value.trim();
+      if (plan) await api.teamPlan(plan).catch(() => { /* graceful — they can set it on the Tactics screen */ });
+      route();
+    } catch (e: any) { err.textContent = e.message; create.removeAttribute('disabled'); }
   });
   mount(header(), h('div', { class: 'wrap' },
     h('div', { class: 'card' },
       h('h2', {}, 'Create your club'),
       h('div', { class: 'muted', style: 'margin-bottom:16px' }, 'We’ll generate your 11 players and drop you into an 8-team league against AI managers.'),
       h('div', { class: 'field' }, h('label', {}, 'Club name'), name),
-      h('div', { class: 'section-title' }, 'Starting tactics'),
-      tacticsSliders(tactics),
+      h('div', { class: 'section-title' }, 'Tactical plan'),
+      planInput,
       h('div', { style: 'margin-top:16px' }, create), err,
     ),
   ));
 }
 
-function tacticsSliders(tactics: Tactics): HTMLElement {
-  const box = h('div', {});
-  for (const def of TACTIC_DEFS) {
-    const val = h('span', { class: 'num' }, String(tactics[def.key]));
-    const range = h('input', { type: 'range', min: '0', max: '100', value: String(tactics[def.key]) }) as HTMLInputElement;
-    range.addEventListener('input', () => { tactics[def.key] = +range.value; val.textContent = range.value; });
-    box.append(h('div', { class: 'slider-row' },
-      h('div', { class: 'lab' }, def.label, h('div', { class: 'muted', style: 'font-size:11px' }, `${def.lo} → ${def.hi}`)),
-      range, val,
-    ));
-  }
-  return box;
+// The standing tactical plan: a plain-English textarea + a read-only resolved-plan display
+// (the compiled directives), mirroring the live shout receipt. Replaces the old 5-dial sliders.
+function planPanel(team: TeamT): HTMLElement {
+  // resolve the plan's team-relative ids (0-10) to player names for describeDirective
+  watchPlayers = team.players.slice(0, 11).map((p, i) => ({ id: i, name: p.name }));
+  const input = h('textarea', { class: 'tactics-input', rows: '3',
+    placeholder: '"high press, build from the back, full-backs bomb on, sit deeper if 2-0 up"' }) as HTMLTextAreaElement;
+  input.value = team.planText ?? '';
+  const out = h('div', { class: 'tactics-receipt', style: 'margin-top:10px' });
+  const renderPlan = (plan: { summary: string; directives: any[] } | null | undefined, note?: string, error?: string | null) => {
+    out.replaceChildren();
+    if (error) out.appendChild(h('div', { class: 'warn' }, '⚠ ' + error + ' — saved your text; the team plays the neutral base until the plan compiles.'));
+    if (plan?.summary) out.appendChild(h('div', { class: 'ok' }, plan.summary));
+    const dirs = plan?.directives ?? [];
+    if (dirs.length) {
+      out.appendChild(h('div', { class: 'muted', style: 'margin-top:6px' }, 'Standing plan:'));
+      for (const d of dirs) out.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
+    } else if (!error && (team.planText || input.value.trim())) {
+      out.appendChild(h('div', { class: 'muted' }, "Couldn't read that as tactical orders — try plainer instructions."));
+    }
+    if (note) out.appendChild(h('div', { class: 'muted', style: 'margin-top:6px' }, '• ' + note));
+  };
+  const save = h('button', { class: 'primary small' }, 'Save plan');
+  save.addEventListener('click', async () => {
+    save.setAttribute('disabled', 'true'); save.textContent = '…';
+    try {
+      const r = await api.teamPlan(input.value.trim());
+      team.planText = r.planText; team.plan = r.plan;
+      renderPlan(r.plan, r.note, r.error);
+      toast(input.value.trim() ? 'Plan saved' : 'Plan cleared');
+    } catch (e: any) { out.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message)); }
+    save.removeAttribute('disabled'); save.textContent = 'Save plan';
+  });
+  renderPlan(team.plan);
+  return h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Tactical plan'),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'Type a standing plan in plain English — it’s compiled to your team’s instructions and seeds every match (and your live shouts). Mid-match, the shout box edits it.'),
+    h('div', { class: 'tactics-row' }, input, save),
+    out,
+  );
 }
 
 // Formation control: a plain-text shout ("play 4-4-2", "AB at left back") sets the
@@ -389,22 +415,12 @@ async function screenDashboard() {
 async function screenTactics() {
   let team: TeamT;
   try { team = await api.team(); } catch { return route(); }
-  const tactics = { ...team.tactics };
-  const err = h('div', { class: 'err' });
-  const save = h('button', {}, 'Save tactics');
-  save.addEventListener('click', async () => {
-    save.setAttribute('disabled', 'true');
-    try { await api.setTactics(tactics); toast('Tactics saved'); location.hash = '#/'; }
-    catch (e: any) { err.textContent = e.message; save.removeAttribute('disabled'); }
-  });
-  mount(header(), h('div', { class: 'wrap' },
-    h('div', { class: 'card' },
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
       h('h2', {}, 'Tactics'),
-      h('div', { class: 'muted', style: 'margin-bottom:14px' }, 'These drive your team’s behaviour in every match. Applied to your next fixtures.'),
-      tacticsSliders(tactics),
-      h('div', { class: 'row', style: 'margin-top:16px' }, save,
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, 'Back')), err,
-    ),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    planPanel(team),
+    formationPanel(team),
   ));
 }
 

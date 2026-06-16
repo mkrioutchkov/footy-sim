@@ -6,8 +6,9 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
 import { db } from './db.ts';
-import { getTeamWithPlayers, fitFirstSelection, ROLE_SLOTS } from './game.ts';
+import { getTeamWithPlayers, fitFirstSelection, ROLE_SLOTS, DEFAULT_TACTICS } from './game.ts';
 import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer } from './plan.ts';
+import type { Directive } from './tactics.ts';
 import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation } from './formations.ts';
 
 const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
@@ -33,9 +34,39 @@ export function getFixture(id: number): Fixture | null {
 const isIdentityXI = (lineup: number[] | null): boolean =>
   !lineup || lineup.every((v, i) => v === i);
 
-function specForTeam(teamId: number, side: 'home' | 'away') {
+// Resolve a persisted plan (TEAM-RELATIVE squad-slot ids, teamScope 0) to THIS match's engine ids.
+// slotToEngine maps a squad slot to its POSITION in the emitted spec.players — which differs from
+// slot order under a custom XI, a non-default formation, or an injury-cover swap, so a directive
+// must be translated through it (not just +11'd). A per-player order whose slot isn't in the
+// fielded XI is dropped; team-wide orders take the side's teamScope; the away side then shifts
+// engine ids by +11. (Pre-match plans carry no man_mark of a specific opponent — only a
+// target_player's team-mate target is remapped.)
+function resolvePlanDirectives(dirs: Directive[] | undefined, slotToEngine: Map<number, number>, side: 'home' | 'away'): Directive[] {
+  if (!dirs?.length) return [];
+  const off = side === 'away' ? 11 : 0;
+  const out: Directive[] = [];
+  for (const d of dirs) {
+    if (d.teamScope === 0 || d.teamScope === 1) { out.push({ ...d, teamScope: side === 'away' ? 1 : 0 }); continue; }
+    const eng = slotToEngine.get(d.playerId);
+    if (eng === undefined) continue;                      // that slot isn't on the pitch — drop the order
+    const r: Directive = { ...d, playerId: eng + off };
+    if (d.kind === 'target_player' && typeof d.targetId === 'number') {
+      const tEng = slotToEngine.get(d.targetId);
+      if (tEng === undefined) continue;                   // the team-mate to feed isn't fielded — drop
+      r.targetId = tEng + off;
+    }
+    out.push(r);
+  }
+  return out;
+}
+
+// Returns the per-team spec object + this side's engine-id-resolved standing directives (combined
+// into the top-level spec.directives by buildTieSpec). A HUMAN team's dials are forced neutral —
+// the plain-English plan (directives) is the manager's only tactical input now; AI keeps its dials.
+function specForTeam(teamId: number, side: 'home' | 'away'): { spec: Record<string, unknown>; directives: Directive[] } {
   const t = getTeamWithPlayers(teamId);
   if (!t) throw new Error(`team ${teamId} not found`);
+  const tactics = t.userId != null ? DEFAULT_TACTICS : t.tactics;
   const bySlot = t.players.slice().sort((a, b) => a.slot - b.slot);
   // Draw the XI from fit men first (shared with fitnessTick via fitFirstSelection so "who
   // played" can never diverge from "who got drained"). A fully fit squad is unchanged
@@ -44,6 +75,10 @@ function specForTeam(teamId: number, side: 'home' | 'away') {
   const available = fitFirstSelection(bySlot, p => !!p.injuredMatches);
   const formation = t.formation ?? DEFAULT_FORMATION;
   const layout = FORMATIONS[formation];
+  // squad slot -> position in the emitted spec.players (the engine id) — fit-first selection / a
+  // custom XI / a formation reorder make this differ from slot order, so the plan resolves through it.
+  const slotToEngine = new Map<number, number>();
+  let players: Record<string, unknown>[];
   // Byte-identical guard: a team on the default shape with the identity XI emits the
   // exact pre-formation spec (no role/anchor fields) — so every existing team plays
   // precisely as before. Only an opted-in team (non-default formation OR a reordered
@@ -54,38 +89,51 @@ function specForTeam(teamId: number, side: 'home' | 'away') {
     // slice(0,11) starts the first 11 by slot — a no-op for an 11-player squad (so
     // existing teams emit a byte-identical spec) but it keeps bench depth (slots 11+,
     // added by the transfer market) out of the match.
-    return { name: t.name, tactics: t.tactics, players: available.slice(0, 11).map(p => ({ name: p.name, attrs: p.attrs, personality: p.personality ?? null })) };
+    const xi = available.slice(0, 11);
+    players = xi.map(p => ({ name: p.name, attrs: p.attrs, personality: p.personality ?? null }));
+    xi.forEach((p, i) => slotToEngine.set(p.slot, i));
+  } else {
+    // Emit per-slot role + home anchor. The away side mirrors x (PITCH_W - x) to match
+    // the engine's away frame; width (y) is shared. Slot 0 stays the keeper (the engine
+    // pins it regardless). lineup[i] = which squad slot fills formation slot i; an injured
+    // pick is swapped for the best fit, unused player so the XI is always fit + complete.
+    const lineup = t.lineup ?? bySlot.map((_, i) => i);
+    // indices already destined for the XI — a substitute must come from OUTSIDE this set (a
+    // genuine fit bench player), else two slots could end up sharing a player.
+    const inXI = new Set(lineup.slice(0, layout.length).filter(n => Number.isInteger(n) && n >= 0 && n < bySlot.length));
+    const used = new Set<number>();
+    players = layout.map((slot, i) => {
+      const want = lineup[i];
+      let idx = (Number.isInteger(want) && want >= 0 && want < bySlot.length) ? want : i;
+      if (bySlot[idx]?.injuredMatches) {
+        const subIdx = bySlot.findIndex((q, qi) => !q.injuredMatches && !used.has(qi) && !inXI.has(qi));
+        if (subIdx >= 0) idx = subIdx;
+      }
+      const p = bySlot[idx] ?? bySlot[i];
+      used.add(idx);
+      slotToEngine.set(p.slot, i);
+      return {
+        name: p.name, attrs: p.attrs, role: slot.role, personality: p.personality ?? null,
+        homeX: side === 'away' ? PITCH_W - slot.x : slot.x,
+        homeY: slot.y,
+      };
+    });
   }
-  // Emit per-slot role + home anchor. The away side mirrors x (PITCH_W - x) to match
-  // the engine's away frame; width (y) is shared. Slot 0 stays the keeper (the engine
-  // pins it regardless). lineup[i] = which squad slot fills formation slot i; an injured
-  // pick is swapped for the best fit, unused player so the XI is always fit + complete.
-  const lineup = t.lineup ?? bySlot.map((_, i) => i);
-  // indices already destined for the XI — a substitute must come from OUTSIDE this set (a
-  // genuine fit bench player), else two slots could end up sharing a player.
-  const inXI = new Set(lineup.slice(0, layout.length).filter(n => Number.isInteger(n) && n >= 0 && n < bySlot.length));
-  const used = new Set<number>();
-  const players = layout.map((slot, i) => {
-    const want = lineup[i];
-    let idx = (Number.isInteger(want) && want >= 0 && want < bySlot.length) ? want : i;
-    if (bySlot[idx]?.injuredMatches) {
-      const subIdx = bySlot.findIndex((q, qi) => !q.injuredMatches && !used.has(qi) && !inXI.has(qi));
-      if (subIdx >= 0) idx = subIdx;
-    }
-    const p = bySlot[idx] ?? bySlot[i];
-    used.add(idx);
-    return {
-      name: p.name, attrs: p.attrs, role: slot.role, personality: p.personality ?? null,
-      homeX: side === 'away' ? PITCH_W - slot.x : slot.x,
-      homeY: slot.y,
-    };
-  });
-  return { name: t.name, tactics: t.tactics, players };
+  const directives = resolvePlanDirectives(t.plan?.directives, slotToEngine, side);
+  return { spec: { name: t.name, tactics, players }, directives };
 }
 
-// Build a match spec for two teams (shared by league fixtures + cup ties).
+// Build a match spec for two teams (shared by league fixtures + cup ties). Each team's persisted
+// standing plan is resolved to engine ids and merged into the top-level `directives` the engine
+// reads (home 0-10, away +11) — omitted entirely when neither team has a plan, so AI-vs-AI specs
+// are unchanged. Tactics dials are neutral for human teams (their plan is the tactical input).
 export function buildTieSpec(homeTeamId: number, awayTeamId: number, seed: number) {
-  return { seed, minutes: MINUTES, home: specForTeam(homeTeamId, 'home'), away: specForTeam(awayTeamId, 'away') };
+  const home = specForTeam(homeTeamId, 'home');
+  const away = specForTeam(awayTeamId, 'away');
+  const directives = [...home.directives, ...away.directives];
+  const spec: Record<string, unknown> = { seed, minutes: MINUTES, home: home.spec, away: away.spec };
+  if (directives.length) spec.directives = directives;
+  return spec;
 }
 export function buildSpec(fixture: Fixture) {
   return buildTieSpec(fixture.home_team_id, fixture.away_team_id, fixture.seed);
@@ -437,10 +485,21 @@ export class MatchStream extends FramePacer {
     ws: WebSocket, specPath: string, seed: number,
     homeName = 'HOME', awayName = 'AWAY',
     myTeam: 'home' | 'away' = 'home',
+    seedPlan?: Plan | null,
   ) {
     super(ws, seed, homeName, awayName);
     this.myTeam = myTeam;
     this.baseSpec = JSON.parse(readFileSync(specPath, 'utf8'));
+    // Seed the running plan from the STANDING plan the engine is ALREADY running — this side's
+    // slice of the spec's resolved directives — so the first live shout edits the standing plan
+    // (using the same watch-roster ids squads() emits), not an empty one. (No re-resolution: the
+    // spec.directives are already correct engine ids, so the seed can't drift from what's running.)
+    if (seedPlan) {
+      const all: Directive[] = Array.isArray(this.baseSpec.directives) ? this.baseSpec.directives : [];
+      const wantScope = myTeam === 'away' ? 1 : 0, lo = myTeam === 'away' ? 11 : 0;
+      const mine = all.filter(d => (d.teamScope === 0 || d.teamScope === 1) ? d.teamScope === wantScope : (d.playerId >= lo && d.playerId <= lo + 10));
+      if (mine.length || (seedPlan.summary && seedPlan.summary !== EMPTY_PLAN.summary)) this.plan = { summary: seedPlan.summary || EMPTY_PLAN.summary, directives: mine };
+    }
     this.sessionSpecPath = specPath.replace(/\.json$/, '') + '.watch.json';
     this.writeSessionSpec();
     this.start();

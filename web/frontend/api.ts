@@ -17,6 +17,8 @@ export interface Tactics {
   aggression: number; passingDirectness: number; overlapFrequency: number;
   midfieldFreedom: number; defensiveLineHeight: number;
 }
+export interface DirectiveT { playerId: number; kind: string; targetId?: number; teamScope?: number; intensity?: number; when?: { fromMin?: number; toMin?: number; scoreState?: string; scoreBy?: number }; }
+export interface PlanT { summary: string; directives: DirectiveT[]; }
 export interface PersonalityT {
   traits: { temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number; consistency: number; leadership: number; professionalism: number; ego: number };
   nationality: string; backstory: string; tagline: string;
@@ -26,6 +28,7 @@ export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
   formation: string; lineup: number[] | null; budget?: number; trainingFocus?: string;
+  planText?: string | null; plan?: PlanT | null;
 }
 export interface LineupSlotT { slot: number; role: string; homeX: number; homeY: number; playerName: string; fromSlot: number; }
 export interface LineupResultT { formation: string; lineup: number[] | null; slots: LineupSlotT[]; note: string; }
@@ -77,6 +80,7 @@ export const api = {
   createTeam: (name: string, tactics?: Tactics) => req<{ teamId: number; leagueId: number }>('POST', '/team', { name, tactics }),
   team: () => req<TeamT>('GET', '/team'),
   setTactics: (tactics: Tactics) => req<{ tactics: Tactics }>('PUT', '/tactics', { tactics }),
+  teamPlan: (text: string) => req<{ planText: string; plan: PlanT; note: string; error: string | null }>('POST', '/team/plan', { text }),
   setLineup: (text: string) => req<LineupResultT>('PUT', '/lineup', { text }),
   generatePersonalities: () => req<TeamT>('POST', '/personalities'),
   league: () => req<LeagueT>('GET', '/league'),

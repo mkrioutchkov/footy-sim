@@ -2,6 +2,7 @@ import { db } from './db.ts';
 import { randomPlayerName, randomTeamName } from './names.ts';
 import { generateSquadPersonalities } from './personality.ts';
 import { createCup } from './cup.ts';
+import type { Plan } from './plan.ts';
 
 const parseJSON = (s: string | null): unknown | null => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 
@@ -322,10 +323,11 @@ export interface PlayerRow { slot: number; name: string; role: string; attrs: Re
 
 export function getTeamWithPlayers(teamId: number): {
   id: number; name: string; manager: string; leagueId: number; userId: number | null;
-  budget: number; wageBudget: number; trainingFocus: string; tactics: Tactics; formation: string; lineup: number[] | null; players: PlayerRow[];
+  budget: number; wageBudget: number; trainingFocus: string; tactics: Tactics; formation: string; lineup: number[] | null;
+  planText: string | null; plan: Plan | null; players: PlayerRow[];
 } | null {
-  const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, wage_budget, training_focus, tactics, formation, lineup FROM teams WHERE id = ?')
-    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; wage_budget: number; training_focus: string | null; tactics: string; formation: string | null; lineup: string | null } | undefined;
+  const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, wage_budget, training_focus, tactics, formation, lineup, plan_text, plan_directives FROM teams WHERE id = ?')
+    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; wage_budget: number; training_focus: string | null; tactics: string; formation: string | null; lineup: string | null; plan_text: string | null; plan_directives: string | null } | undefined;
   if (!t) return null;
   const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, potential, listed, ask_price, wage, contract_years, fitness, injured_matches, morale FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
     { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; listed: number; ask_price: number | null; wage: number | null; contract_years: number; fitness: number; injured_matches: number; morale: number }[])
@@ -343,10 +345,13 @@ export function getTeamWithPlayers(teamId: number): {
       if (nums.every(n => Number.isInteger(n) && n >= 0 && n < players.length) && new Set(nums).size === 11) lineup = nums;
     }
   } catch { /* ignore */ }
+  // the compiled standing plan (team-relative ids); null = none yet
+  const plan = parseJSON(t.plan_directives) as Plan | null;
   return {
     id: t.id, name: t.name, manager: t.manager, leagueId: t.league_id, userId: t.user_id,
     budget: t.budget, wageBudget: t.wage_budget, trainingFocus: t.training_focus ?? 'balanced', tactics: JSON.parse(t.tactics),
-    formation: t.formation ?? '4-3-3', lineup, players,
+    formation: t.formation ?? '4-3-3', lineup,
+    planText: t.plan_text, plan: plan && Array.isArray(plan.directives) ? plan : null, players,
   };
 }
 

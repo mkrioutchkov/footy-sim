@@ -78,6 +78,12 @@ function ensureColumn(table: string, col: string, ddl: string): void {
 }
 ensureColumn('teams', 'formation', "formation TEXT NOT NULL DEFAULT '4-3-3'");
 ensureColumn('teams', 'lineup', 'lineup TEXT');   // json int[11]: formationSlot -> player slot; NULL = identity XI
+// Plain-English standing tactical plan (replaces the human 5-dial UI). plan_text = the manager's
+// raw input; plan_directives = the compiled plan JSON {summary, directives} with TEAM-RELATIVE
+// player ids (0-10), frozen, resolved to engine ids at spec-build. Both NULL = no plan yet
+// (plays the neutral base). teams.tactics is kept (engine still gets dials; AI uses them).
+ensureColumn('teams', 'plan_text', 'plan_text TEXT');
+ensureColumn('teams', 'plan_directives', 'plan_directives TEXT');
 ensureColumn('players', 'personality', 'personality TEXT');   // json: LLM-generated traits/nationality/backstory/tagline; NULL = not generated yet
 
 // ── Transfer market (pillar 1) ──────────────────────────────────────────────

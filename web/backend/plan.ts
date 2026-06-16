@@ -157,6 +157,15 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
   return { plan: { summary, directives }, changed, motivation, note, formation };
 }
 
+// Pre-match: compile a manager's plain-English STANDING plan into the composite plan, against an
+// EMPTY base (the text IS the whole plan, not an edit). Squad ids are TEAM-RELATIVE (0-10, the XI);
+// there is no opponent pre-match, so any man_mark of a specific opponent is dropped by validate()
+// (that's a live shout). Same graceful failure as a shout: no key / model down -> empty plan + a note.
+export async function compileInitialPlan(text: string, squad: SquadPlayer[]): Promise<PlanResult> {
+  if (!text.trim()) return { plan: EMPTY_PLAN, changed: '', motivation: [], note: '' };
+  return compilePlanEdit(EMPTY_PLAN, text, squad, [], 'home', {});
+}
+
 const cache = new Map<string, { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation: string | null }>();
 
 // Apply one shout to the running plan. Returns the FULL new plan + the shout's

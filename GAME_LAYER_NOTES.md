@@ -343,6 +343,20 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     **Young Player of the Season** (U-21) by average rating over ≥3 games, as `player_news` rows
     (🏆/🌟). Adversarial review: clean (0 findings). Verified by `tools/_news_test.ts` (23 — morale
     up/down, the tally, no-double-apply, the awards) + multiseason (83, awards + reset across 8 seasons).
+  - **Plain-English tactics plan (replaces the 5-dial human UI).** Pre-match, the manager types a
+    standing plan ("high press, build from the back, full-backs bomb on, sit deeper if 2-0 up");
+    `plan.ts compileInitialPlan` (reusing `compilePlanEdit`) compiles it to directives, persisted on
+    `teams.plan_text` + `teams.plan_directives` (TEAM-RELATIVE slot ids 0-10, frozen). At spec build,
+    a HUMAN team's dials go NEUTRAL (the plan is its tactical input); AI keeps its dials. `specForTeam`
+    builds a slot→engine-position map (so a custom XI / formation / injury-cover swap retargets
+    correctly — review fix) and `resolvePlanDirectives` resolves the plan to engine ids (home 0-10,
+    away +11), merged into top-level `spec.directives` (omitted when no plan → AI-vs-AI specs
+    unchanged). NO engine/contract change. `MatchStream` seeds its live plan from the spec's resolved
+    directives so the first shout edits the standing plan. `POST /api/team/plan` (graceful no-key:
+    text saved, empty directives + note). UI: a plan textarea + read-only resolved display (reusing
+    `describeDirective`) on create-team + `#/tactics`; the 5 sliders are gone. Verified by
+    `tools/_plan_test.ts` (18 — persistence, home/away + slot→engine resolution, neutral-human /
+    AI-keeps-dials, AI-vs-AI unchanged) + smoke (41). Reviewed; the one finding (slot→engine remap) fixed.
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
   negotiation + loans + dynamic player-news + ratings→morale & season awards are all SHIPPED.

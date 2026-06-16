@@ -16,6 +16,7 @@ import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStre
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn } from './market.ts';
+import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings } from './season.ts';
 import { aiManagerTick } from './ai.ts';
@@ -122,6 +123,24 @@ app.get('/api/team', async (req: any, reply) => {
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team yet' });
   return getTeamWithPlayers(teamId);
+});
+
+// Set the club's plain-English STANDING tactical plan: compile it to directives (team-relative
+// ids) and persist both the text + the compiled plan. Empty text clears the plan. Graceful — if
+// the compiler is unreachable, the text is saved with no directives + a note (plays the neutral base).
+app.post('/api/team/plan', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const text = String(req.body?.text ?? '').trim().slice(0, 600);
+  const t = getTeamWithPlayers(teamId)!;
+  // team-relative XI: the first 11 by slot, id = 0..10 (resolved to engine ids at spec-build time)
+  const squad = t.players.slice(0, 11).map((p, i) => ({ id: i, name: p.name, role: p.role, personality: p.personality as { traits?: Record<string, number> } | null }));
+  const r = await compileInitialPlan(text, squad);
+  const plan = { summary: r.plan.summary, directives: r.plan.directives };
+  db.prepare('UPDATE teams SET plan_text = ?, plan_directives = ? WHERE id = ?')
+    .run(text || null, text ? JSON.stringify(plan) : null, teamId);
+  return { planText: text, plan, note: r.note || '', error: r.error || null };
 });
 
 app.put('/api/tactics', async (req: any, reply) => {
@@ -475,7 +494,10 @@ server.on('upgrade', (request, socket, head) => {
       const rec = recordingFor('fixture', fixtureId);
       const frames = rec ? loadRecording(rec) : [];
       if (frames.length) { new ReplayStream(ws as any, frames, fx.seed, homeName, awayName); return; }
-      new MatchStream(ws as any, writeSpec(fx), fx.seed, homeName, awayName, myTeam);
+      // Seed the live shout box from the manager's persisted standing plan (team-relative ids;
+      // MatchStream resolves them to this watch's roster) so shouts edit the standing plan.
+      const seedPlan = myTeamId ? (getTeamWithPlayers(myTeamId)?.plan ?? null) : null;
+      new MatchStream(ws as any, writeSpec(fx), fx.seed, homeName, awayName, myTeam, seedPlan);
     } catch (e) { ws.close(); }
   });
 });
