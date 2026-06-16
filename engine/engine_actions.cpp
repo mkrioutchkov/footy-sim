@@ -151,7 +151,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             Player* outlet = nullptr;
             double bestScore = -1e9;
             for (auto& t : state.players) {
-                if (t.team != receiver.team || t.id == receiver.id || t.role == Role::GK) continue;
+                if (t.team != receiver.team || t.id == receiver.id || t.role == Role::GK || t.sentOff) continue;
                 double d = dist(receiver.x, receiver.y, t.x, t.y);
                 if (d < 28.0 || d > 285.0) continue;
                 double progress = (t.x - receiver.x) * fd;
@@ -499,7 +499,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     // failed-tackle foul branch, where the foul/card thresholds are re-weighted.
     int goalSideCover = 0;
     for (auto& d : state.players)
-        if (d.team == tackler.team && d.role != Role::GK && d.id != tackler.id
+        if (d.team == tackler.team && d.role != Role::GK && d.id != tackler.id && !d.sentOff
             && (d.x - carrier.x) * fdFor(tackler.team) < 0.0          // goal-side of the carrier
             && std::abs(d.y - carrier.y) < CYNICAL_LASTMAN_LATERAL) goalSideCover++;
     // The classic professional foul: a genuine last-man break (no cover goal-
@@ -679,7 +679,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double dxGoal=gx-s.x, dyGoal=goalCenterY-s.y, laneLenSq=dxGoal*dxGoal+dyGoal*dyGoal;
     if(laneLenSq>1.0){
         for(auto&o:state.players){
-            if(o.team==s.team||o.role==Role::GK)continue;
+            if(o.team==s.team||o.role==Role::GK||o.sentOff)continue;
             double along=((o.x-s.x)*dxGoal+(o.y-s.y)*dyGoal)/laneLenSq;
             if(along<=0.06||along>=0.92)continue;
             double perp=std::hypot(o.x-s.x-along*dxGoal,o.y-s.y-along*dyGoal);
@@ -852,7 +852,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     if(!penaltyKick){
         double ndx=dx/d, ndy=dy/d;
         for(auto& o:state.players){
-            if(o.team==s.team||o.role==Role::GK)continue;
+            if(o.team==s.team||o.role==Role::GK||o.sentOff)continue;
             double ox=o.x-s.x, oy=o.y-s.y;
             double along=ox*ndx+oy*ndy;
             if(along<14.0||along>d*0.94)continue;
@@ -879,7 +879,7 @@ bool GameEngine::knockBallAhead(Player& carrier, double targetX, double targetY)
     int nearestId = -1;
     double nearestDist = 1e9;
     for (auto& opponent : state.players) {
-        if (opponent.team == carrier.team || opponent.role == Role::GK) continue;
+        if (opponent.team == carrier.team || opponent.role == Role::GK || opponent.sentOff) continue;
         double d = dist(opponent.x, opponent.y, carrier.x, carrier.y);
         if (d < nearestDist) { nearestDist = d; nearestId = opponent.id; }
     }

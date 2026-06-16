@@ -194,7 +194,7 @@ void PlayerAI::applyMovement(double sdt) {
         double nearOppDist = 1e9;
         double nearOppX = 0, nearOppY = 0;
         for (auto& o : engine.state.players) {
-            if (o.team != p.team && o.role != Role::GK) {
+            if (o.team != p.team && o.role != Role::GK && !o.sentOff) {
                 double d = dist(p.x, p.y, o.x, o.y);
                 if (d < nearOppDist) { nearOppDist = d; nearOppX = o.x; nearOppY = o.y; }
             }

@@ -16,7 +16,7 @@ double GameEngine::offsideLineFor(Team t) const {
     const Player* d1=nullptr,*d2=nullptr;
     double v1=-1e9, v2=-1e9;
     for(auto&p:state.players){
-        if(p.team==t)continue;
+        if(p.team==t||p.sentOff)continue;   // a parked sent-off defender must not set the offside line
         double v=p.x*fd;
         if(v>v1){v2=v1;d2=d1;v1=v;d1=&p;}
         else if(v>v2){v2=v;d2=&p;}
@@ -201,14 +201,14 @@ void GameEngine::releaseGoalKick(Player& holder){
     Player* outlet=nullptr;
     double best=-1e9;
     for(auto& p:state.players){
-        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
+        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
         double progress=(p.x-ownGoalX)*fd;
         if(progress<430.0)continue;
         double lane=std::abs(p.y-PITCH_H/2.0);
         double roleBonus=p.role==Role::CF?150.0:p.role==Role::WM?125.0:p.role==Role::FB?25.0:0.0;
         double pressurePenalty=0.0;
         for(auto& o:state.players){
-            if(o.team==holder.team||o.role==Role::GK)continue;
+            if(o.team==holder.team||o.role==Role::GK||o.sentOff)continue;
             double od=dist(o.x,o.y,p.x,p.y);
             if(od<90.0)pressurePenalty+=(90.0-od)*0.65;
         }
@@ -217,7 +217,7 @@ void GameEngine::releaseGoalKick(Player& holder){
     }
     if(!outlet){
         for(auto& p:state.players){
-            if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
+            if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
             double progress=(p.x-ownGoalX)*fd;
             double score=progress+(p.role==Role::CF?100.0:p.role==Role::WM?80.0:0.0);
             if(score>best){best=score;outlet=&p;}
@@ -266,7 +266,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
     int closeKeeperPressure=0;
     Player* nearestPress=nullptr;
     for(auto& o:state.players){
-        if(o.team==holder.team||o.role==Role::GK)continue;
+        if(o.team==holder.team||o.role==Role::GK||o.sentOff)continue;
         double od=dist(holder.x,holder.y,o.x,o.y);
         if(od<nearestKeeperPressure){nearestKeeperPressure=od;nearestPress=&o;}
         if(od<112.0)closeKeeperPressure++;
@@ -276,7 +276,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         Player* outlet=nullptr;
         double best=-1e9;
         for(auto& p:state.players){
-            if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
+            if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
             double progress=(p.x-ownGoalX)*fd;
             double wide=std::abs(p.y-PITCH_H/2.0);
             double roleBonus=p.role==Role::WM?85.0:p.role==Role::CF?70.0:p.role==Role::FB?35.0:0.0;
@@ -311,7 +311,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
 
     SmallVector<RatedTarget, 11> rated;
     for(auto& p:state.players){
-        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
+        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
         double d=dist(holder.x,holder.y,p.x,p.y);
         if(d<(wasGoalKick?220.0:95.0)||d>590.0)continue;
         double progress=(p.x-ownGoalX)*fd;
@@ -319,7 +319,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         int pressure=0;
         double nearestOpp=1e9;
         for(auto& o:state.players){
-            if(o.team==holder.team||o.role==Role::GK)continue;
+            if(o.team==holder.team||o.role==Role::GK||o.sentOff)continue;
             double od=dist(o.x,o.y,p.x,p.y);
             nearestOpp=std::min(nearestOpp,od);
             if(od<62.0)pressure++;
@@ -398,12 +398,12 @@ void GameEngine::releaseThrowIn(Player& holder){
     SmallVector<RatedTarget, 11> targets;
     double fd = fdFor(holder.team);
     for(auto&p:state.players){
-        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
+        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
         double d=dist(holder.x,holder.y,p.x,p.y);
         if(d<30.0||d>400.0)continue;
         double nearestOpp=1e9;
         for(auto&o:state.players){
-            if(o.team==holder.team||o.role==Role::GK)continue;
+            if(o.team==holder.team||o.role==Role::GK||o.sentOff)continue;
             nearestOpp=std::min(nearestOpp,dist(o.x,o.y,p.x,p.y));
         }
         int laneBlockers = countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_THROWIN, 0.12, 0.92);
@@ -448,7 +448,7 @@ void GameEngine::releaseCornerKick(Player& holder){
     double goalX=holder.x<HALF_X?HOME_GOAL_X:AWAY_GOAL_X;
     SmallVector<RatedTarget, 11> targets;
     for(auto& p:state.players){
-        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK)continue;
+        if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
         double goalDist=std::abs(p.x-goalX);
         double central=std::abs(p.y-PITCH_H/2.0);
         double roleBonus=p.role==Role::CF?0.35:p.role==Role::CM?0.18:p.role==Role::WM?0.10:p.role==Role::CB?0.06:-0.05;

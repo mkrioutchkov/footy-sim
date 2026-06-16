@@ -269,7 +269,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
         bool intendedUnderPressure = false;
         if (intended) {
             for (auto& opponent : engine.state.players) {
-                if (opponent.team != player.team && opponent.role != Role::GK
+                if (opponent.team != player.team && opponent.role != Role::GK && !opponent.sentOff
                     && dist(opponent.x, opponent.y, intended->x, intended->y) < 45.0) {
                     intendedUnderPressure = true;
                     break;

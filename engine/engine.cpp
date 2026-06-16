@@ -925,6 +925,11 @@ GameEngine::GameEngine() {
 }
 
 void GameEngine::initWithSeed(int seed) {
+    // One-shot guard: GameEngine is ONE-MATCH-PER-INSTANCE. A second call would
+    // append to state.players again (no clear), reallocating the vector and
+    // dangling every Player& the agents hold. Make a re-init a safe no-op.
+    if (initialized_) return;
+    initialized_ = true;
     rng.setSeed(seed);
     if (!configOverride) {
         // No tactics supplied: random "manager" personalities (legend exhibition).
@@ -1074,6 +1079,8 @@ void GameEngine::equalizeAttributes(int val) {
         p.attrs.positioning = val;
         p.attrs.creativity = val;
         p.attrs.stamina = val;
+        p.attrs.handling = val;   // (mkPlayer derives these from positioning; equalize must set all 9)
+        p.attrs.height = val;
     }
 }
 

@@ -47,8 +47,9 @@ void GameEngine::applyDirectives() {
         const auto& lx = directiveTimeline[directiveTimelineIdx].layoutHX;
         const auto& ly = directiveTimeline[directiveTimelineIdx].layoutHY;
         const auto& lr = directiveTimeline[directiveTimelineIdx].layoutRole;
+        const auto& ls = directiveTimeline[directiveTimelineIdx].layoutSet;
         for (int i = 0; i < 22 && i < (int)state.players.size(); ++i) {
-            if (lx[i] <= 0.0 || state.players[i].sentOff || state.players[i].role == Role::GK) continue;
+            if (!ls[i] || state.players[i].sentOff || state.players[i].role == Role::GK) continue;
             baseHomeX[i] = lx[i]; baseHomeY[i] = ly[i];
             state.players[i].homeX = lx[i]; state.players[i].homeY = ly[i];
             reassignAgent(state.players[i], lr[i]);
@@ -326,6 +327,11 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
 
     DefenseContext ctx{team, fd, ownGoalX, danger, tactics, lineProgress, shootingRange, wideDanger,
                        carrierGoalDist, {}, std::move(ranked), {}};
+
+    // Sent-off defenders are parked off-pitch — pre-mark them assigned so every
+    // phase below (press / lanes / cover / marking / box) skips them via ctx.used().
+    for (auto& p : state.players)
+        if (p.team == team && p.sentOff) ctx.assigned[p.id] = true;
 
     // Phase 2-3: Press
     assignPrimaryPress(ctx, carrier);

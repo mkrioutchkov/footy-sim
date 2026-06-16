@@ -490,6 +490,10 @@ public:
         std::array<double, 22> layoutHX{};
         std::array<double, 22> layoutHY{};
         std::array<Role, 22>   layoutRole{};
+        // A layout slot is APPLIED only when role+homeX+homeY were ALL present in
+        // the spec — guards against a partial row defaulting role to GK / homeY to 0,
+        // and lets a legit homeX==0 (left touchline) anchor through.
+        std::array<bool, 22>   layoutSet{};
     };
     std::vector<TimelineEntry> directiveTimeline;
     size_t directiveTimelineIdx = 0;
@@ -521,6 +525,7 @@ public:
     void fixedUpdate(double sdt);
     void tickAgents(double sdt, bool ic);
 private:
+    bool initialized_ = false;   // one-shot guard: GameEngine is one-match-per-instance (initWithSeed)
     void cacheBallState();
     void updatePlayerAnimations(double sdt);
     void updatePossessionTracking(double sdt);

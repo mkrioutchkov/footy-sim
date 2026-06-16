@@ -179,9 +179,23 @@ int main(int argc, char* argv[]) {
                         if (!L.contains("playerId") || !L["playerId"].is_number()) continue;
                         int id = L["playerId"].get<int>();
                         if (id < 0 || id >= 22) continue;
-                        if (L.contains("homeX") && L["homeX"].is_number()) te.layoutHX[id] = L["homeX"].get<double>();
-                        if (L.contains("homeY") && L["homeY"].is_number()) te.layoutHY[id] = L["homeY"].get<double>();
-                        if (L.contains("role") && L["role"].is_string()) te.layoutRole[id] = roleFromStr(L["role"].get<std::string>());
+                        // Apply a layout slot ONLY if role+homeX+homeY are ALL present —
+                        // a partial row would otherwise default role to GK / homeY to 0
+                        // and corrupt the player (the apply gate keys on layoutSet).
+                        bool hasRole = L.contains("role")  && L["role"].is_string();
+                        bool hasHX   = L.contains("homeX") && L["homeX"].is_number();
+                        bool hasHY   = L.contains("homeY") && L["homeY"].is_number();
+                        if (!hasRole || !hasHX || !hasHY) {
+                            if (hasRole || hasHX || hasHY)
+                                std::cerr << "Skipping incomplete timeline layout for player " << id
+                                          << " (missing " << (!hasRole ? "role " : "") << (!hasHX ? "homeX " : "")
+                                          << (!hasHY ? "homeY" : "") << ")\n";
+                            continue;
+                        }
+                        te.layoutHX[id]   = L["homeX"].get<double>();
+                        te.layoutHY[id]   = L["homeY"].get<double>();
+                        te.layoutRole[id] = roleFromStr(L["role"].get<std::string>());
+                        te.layoutSet[id]  = true;
                     }
                 }
                 engine.directiveTimeline.push_back(std::move(te));
@@ -202,8 +216,10 @@ int main(int argc, char* argv[]) {
 
     TraceWriter trace;
     if (!tracePath.empty()) {
-        trace.open(tracePath, seed, minutes * 60.0 * 1000.0);
-        std::cerr << "Trace enabled: " << tracePath << "\n";
+        if (trace.open(tracePath, seed, minutes * 60.0 * 1000.0))
+            std::cerr << "Trace enabled: " << tracePath << "\n";
+        else
+            std::cerr << "Failed to open trace file: " << tracePath << "\n";
     }
 
     auto start = std::chrono::high_resolution_clock::now();

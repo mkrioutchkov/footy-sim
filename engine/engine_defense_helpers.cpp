@@ -14,7 +14,7 @@ SmallVector<GameEngine::DefenseContext::Rated, 12> GameEngine::rankDefenders(Tea
     SmallVector<DefenseContext::Rated, 12> ranked;
     bool danger = std::abs(carrier.x - ownGoalXFor(team)) < DANGER_ZONE_DIST;
     for (auto& p : state.players) {
-        if (p.team != team || p.role == Role::GK) continue;
+        if (p.team != team || p.role == Role::GK || p.sentOff) continue;
         double distance = dist(p.x, p.y, carrier.x, carrier.y);
         double speed = std::max(18.0, attrFactor(p.attrs.speed) * SPEED_SPRINT);
         double roleCost = agentFor(p)->defensivePressCost(danger);
@@ -392,7 +392,7 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
 
 void GameEngine::assignDefensiveLine(DefenseContext& ctx, Player& carrier) {
     for (auto& defender : state.players) {
-        if (defender.team != ctx.team || ctx.used(&defender)
+        if (defender.team != ctx.team || ctx.used(&defender) || defender.sentOff
             || (defender.role != Role::CB && defender.role != Role::FB)) continue;
         double targetX = ctx.danger
             ? ctx.ownGoalX + ctx.fd * agentFor(defender)->defensiveLineOffsetX(true, ctx.lineProgress)

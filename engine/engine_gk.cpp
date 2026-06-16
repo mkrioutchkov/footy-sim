@@ -10,11 +10,11 @@
 void GameEngine::updateGK(double sdt) {
     double secs = sdt / 1000.0;
     Player* gk = findGK(Team::Home);
-    if (gk) {
+    if (gk && !gk->sentOff) {
         updateOneGK(*gk, secs);
     }
     gk = findGK(Team::Away);
-    if (gk) {
+    if (gk && !gk->sentOff) {
         updateOneGK(*gk, secs);
     }
 }
@@ -171,7 +171,7 @@ void GameEngine::tryGKSave() {
     Team attacking = shot.tracked ? shot.team : b.lastTouchTeam;
     Team defending = attacking == Team::Home ? Team::Away : Team::Home;
     Player* gk = findGK(defending);
-    if (!gk) return;
+    if (!gk || gk->sentOff) return;
     double speed = std::hypot(b.vx, b.vy);
     if (speed < 130) return;
     double goalX = ownGoalXFor(gk->team);
@@ -269,7 +269,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     // pressure or against heat, get a fist on it instead of gambling.
     bool gkPressured = false;
     for (auto& o : state.players) {
-        if (o.team != gk.team && o.role != Role::GK && dist(o.x, o.y, gk.x, gk.y) < 52.0) { gkPressured = true; break; }
+        if (o.team != gk.team && o.role != Role::GK && !o.sentOff && dist(o.x, o.y, gk.x, gk.y) < 52.0) { gkPressured = true; break; }
     }
     double contactOffset = dist(b.x, b.y, gk.x, gk.y);
     bool comfortable = contactOffset < reach * 0.45 && speed < 265.0;
@@ -305,7 +305,8 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     // and the harder the shot.
     double tipChance = clamp(0.18 + (contactOffset - reach * 0.3) / reach * 0.5 + (speed - 185.0) / 430.0, 0.0, 0.6);
     if (!caught && rng.random() < tipChance) {
-        emitEvent("save", gk.x, gk.y, gk.id);
+        // (no "save" emit here — resolvePendingSave already emitted it before
+        // calling us; a second emit double-counted the visual on a tip.)
         Team attackingTeam = gk.team == Team::Home ? Team::Away : Team::Home;
         awardCorner(attackingTeam, gk.team == Team::Home, b.y);
         return;
@@ -369,7 +370,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
     // harder — he's more likely to punch/flap than gather.
     bool gkPressured = false;
     for (auto& o : state.players)
-        if (o.team != gk.team && o.role != Role::GK
+        if (o.team != gk.team && o.role != Role::GK && !o.sentOff
             && dist(o.x, o.y, gk.x, gk.y) < GK_CLAIM_CROWD_DIST) { gkPressured = true; break; }
 
     double reachMargin = clamp((GK_CLAIM_RADIUS - claimD) / GK_CLAIM_RADIUS, 0.0, 1.0);

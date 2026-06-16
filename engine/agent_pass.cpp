@@ -15,7 +15,7 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
 
     auto clearOutfieldOutletExists = [&]() {
         for (auto& t : engine.state.players) {
-            if (t.team != p.team || t.id == p.id || t.role == Role::GK) continue;
+            if (t.team != p.team || t.id == p.id || t.role == Role::GK || t.sentOff) continue;
             if (engine.isOffsideTargetPerceived(p, t)) continue;
             double d = dist(p.x, p.y, t.x, t.y);
             if (d < PASS_MIN_DISTANCE || d > 360.0) continue;
@@ -66,7 +66,7 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
         Player* bestRunner = nullptr;
         double bestScore = -1e9;
         for (auto& t : engine.state.players) {
-            if (t.team != p.team || t.id == p.id || t.role == Role::GK) continue;
+            if (t.team != p.team || t.id == p.id || t.role == Role::GK || t.sentOff) continue;
             if (engine.isOffsideTargetPerceived(p, t)) continue;
             double targetGoalDist = std::abs(t.x - goalX);
             if (targetGoalDist > 430.0 || std::abs(t.y - PITCH_H / 2.0) > 255.0) continue;

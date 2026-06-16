@@ -270,6 +270,7 @@ void GameEngine::checkBallPlayerCollision(double){
             bool keeperCloser = false;
             int frontPress = 0;
             for (auto& o : state.players) {
+                if (o.sentOff) continue;
                 if (o.role == Role::GK && o.team != rcv->team
                     && dist(o.x, o.y, b.x, b.y) < dRcv - 2.0) keeperCloser = true;
                 else if (o.team != rcv->team && o.role != Role::GK
@@ -413,7 +414,7 @@ void GameEngine::checkBallPlayerCollision(double){
                     double ifd=fdFor(intended->team);
                     double nearOppD=1e9; double frontPress=0.0; int tightMarkers=0;
                     for(auto& opponent:state.players){
-                        if(opponent.team==intended->team||opponent.role==Role::GK)continue;
+                        if(opponent.team==intended->team||opponent.role==Role::GK||opponent.sentOff)continue;
                         double od=dist(opponent.x,opponent.y,intended->x,intended->y);
                         if(od<32.0)tightMarkers++;   // sandwiched count
                         if(od<nearOppD){

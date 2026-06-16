@@ -15,6 +15,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     const auto& p = player;
 
     // ── Gate checks ──
+    if (t.sentOff) return std::nullopt;   // never pass to an ejected team-mate (parked off-pitch)
     bool keeperOutlet = t.role == Role::GK && urgentKeeperNeed && !hasClearOutfieldOutlet;
     if (t.role == Role::GK && !keeperOutlet) return std::nullopt;
     double d = dist(p.x, p.y, t.x, t.y);
@@ -28,7 +29,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     int pointBlank = 0;
     for (auto& o : engine.state.players) {
-        if (o.team == p.team || o.role == Role::GK) continue;
+        if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
         double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
         double perp = std::sqrt((o.x - p.x - t2 * dx) * (o.x - p.x - t2 * dx)
                               + (o.y - p.y - t2 * dy) * (o.y - p.y - t2 * dy));
@@ -52,7 +53,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     int receiverPressure = 0;
     for (auto& o : engine.state.players) {
-        if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < PASS_RECEIVER_PRESS_MAX) receiverPressure++;
+        if (o.team != p.team && o.role != Role::GK && !o.sentOff && dist(o.x, o.y, t.x, t.y) < PASS_RECEIVER_PRESS_MAX) receiverPressure++;
     }
     if (receiverPressure >= 3) return std::nullopt;
 

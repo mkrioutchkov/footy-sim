@@ -106,7 +106,7 @@ public:
 
     void writeFrame(const EngineState& state, double physicsMs = 0, double agentMs = 0) {
         if (!active) return;
-        TraceFrame frame;
+        TraceFrame frame{};
         frame.clockMs = state.clockMs;
         frame.homeScore = state.homeScore;
         frame.awayScore = state.awayScore;
