@@ -216,9 +216,10 @@ async function screenDashboard() {
     const per = p.personality;
     const potText = p.potential != null && p.potential > ovr ? ` → ${p.potential}` : '';
     const ageText = p.age != null ? ` · ${p.age}y` : '';
+    const fitText = (p.injuredMatches ?? 0) > 0 ? ` · 🤕${p.injuredMatches}` : (p.fitness != null && p.fitness < 90 ? ` · ${p.fitness}%` : '');
     const r = (n: number) => Math.round(n);
     const card = h('div', { class: 'pcard', style: 'cursor:pointer', title: 'View profile & personality', onclick: () => (location.hash = `#/player/${p.slot}`) },
-      h('div', { class: 'role' }, `${p.role} · OVR ${ovr}${potText}${ageText}`),
+      h('div', { class: 'role' }, `${p.role} · OVR ${ovr}${potText}${ageText}${fitText}`),
       h('div', { class: 'pn' }, p.name),
       h('div', { class: 'at' }, `SPD ${r(p.attrs.speed)} · PAS ${r(p.attrs.passing)} · SHO ${r(p.attrs.shooting)}`,
         h('br'), `TAC ${r(p.attrs.tackling)} · POS ${r(p.attrs.positioning)} · CRE ${r(p.attrs.creativity)}`),
@@ -257,6 +258,8 @@ async function screenDashboard() {
           ? `Transfer: ${t.teamName} ${verb} ${t.player} (${fmtMoney(t.fee)})`
           : `${r.transfers.length} transfers around the league`);
       }
+      const myInj = (r.injuries ?? []).filter(i => i.teamId === team.id);
+      if (myInj.length) toast(`🤕 ${myInj.map(i => `${i.player} out ${i.matches} match${i.matches > 1 ? 'es' : ''}`).join(' · ')}`);
       if (r.rollover) {
         const ro = r.rollover;
         const up = ro.promoted.find(p => p.teamId === team.id);
@@ -687,7 +690,10 @@ async function screenPlayer(slot: number) {
               catch (e: any) { toast(e.message); renew.removeAttribute('disabled'); }
             });
             return renew;
-          })()) : ''),
+          })()) : '',
+        (p.injuredMatches ?? 0) > 0
+          ? h('div', { style: 'font-size:12px;color:#e8896b' }, `🤕 Injured — out ${p.injuredMatches} match${(p.injuredMatches ?? 0) > 1 ? 'es' : ''}`)
+          : (p.fitness != null ? h('div', { class: 'muted', style: 'font-size:12px' }, `Match fitness ${p.fitness}%`) : '')),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
     h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },

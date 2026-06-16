@@ -215,8 +215,18 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     re-derives their weights), a wage + a 3-yr deal — capped at the 24-man squad. Closes the
     ageing loop: squads now renew across seasons. `market.ts` `removePlayerFromSquad` is shared
     by retirement + release. Verified by `tools/_youth_test.ts` (17) + season (36) regression.
+  - **Injuries & match fitness** (`fitness.ts`). Condition 0–100: the XI that plays drains
+    (~10–17), the rest recover (+20); low fitness raises injury risk (3% fresh → 13% exhausted,
+    out 1–5 matchdays), so neglecting rotation bites. Injured players can't be selected —
+    `specForTeam` draws the XI fit-first (byte-identical when fully fit), and a shared
+    `fitFirstSelection` (game.ts) keeps "who played" (fitnessTick) identical to "who's
+    fielded". `resetFitness` at rollover (pre-season). Fired first each matchday in
+    `/api/advance`. Verified by `tools/_fitness_test.ts` (incl. the depleted-squad edge a
+    review caught). Known limits: injury cover isn't role-aware (emergency out-of-position
+    cover); fitness bookkeeping uses the first-11-by-slot, so a custom-lineup user can see a
+    small skew; a fatigue→performance penalty (vs only injury risk) is a future refinement.
 - **DESIGNED:** the four original pillars + round 5 (story-traits, wages, contracts, youth)
-  are all SHIPPED.
+  + injuries/fitness are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.

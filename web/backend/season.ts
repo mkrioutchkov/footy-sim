@@ -8,6 +8,7 @@ import { db } from './db.ts';
 import { standings, generateFixtures, seedFreeAgents, tierFinance, type Standing } from './game.ts';
 import { tickContracts, type ContractEvent } from './contracts.ts';
 import { youthAndRetirement, type YouthEvent } from './youth.ts';
+import { resetFitness } from './fitness.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -127,6 +128,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       if (FA_REFRESH) { db.prepare('DELETE FROM free_agents WHERE league_id = ?').run(l.id); seedFreeAgents(l.id); }
       out.contracts.push(...tickContracts(l.id));
       out.youth.push(...youthAndRetirement(l.id));     // retire veterans + bring through prospects
+      resetFitness(l.id);                              // pre-season: everyone reports back fit
       db.prepare('DELETE FROM fixtures WHERE league_id = ?').run(l.id);
       generateFixtures(l.id);
     }

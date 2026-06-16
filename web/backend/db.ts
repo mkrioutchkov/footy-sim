@@ -136,3 +136,10 @@ ensureColumn('teams', 'wage_budget', 'wage_budget INTEGER NOT NULL DEFAULT 40000
 // Seasons left on a player's deal; at rollover it ticks down and expiring players leave
 // (pillar 5.2b). Existing rows default to a comfortable 3.
 ensureColumn('players', 'contract_years', 'contract_years INTEGER NOT NULL DEFAULT 3');
+
+// ── Injuries & match fitness (core stream) ──────────────────────────────────
+// Condition (0..100): playing drains it, resting restores it; low fitness raises injury
+// risk. injured_matches = matchdays still sidelined (0 = available). Defaults are the
+// healthy state, so existing squads are unaffected + still emit a byte-identical spec.
+ensureColumn('players', 'fitness', 'fitness INTEGER NOT NULL DEFAULT 100');
+ensureColumn('players', 'injured_matches', 'injured_matches INTEGER NOT NULL DEFAULT 0');

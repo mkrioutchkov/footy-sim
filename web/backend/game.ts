@@ -105,6 +105,18 @@ export const TIER_FINANCE: Record<number, { transferBudget: number; wageBudget: 
 };
 export const tierFinance = (tier: number) => TIER_FINANCE[tier] ?? TIER_FINANCE[2];
 
+// The fit-first selection pool, shared by specForTeam (who plays) and fitnessTick (who gets
+// drained/recovered) so the two can never diverge. Injured players sink to the back ONLY when
+// there are >=11 fit to cover; with a fully fit squad (or one too injury-hit to field 11 fit)
+// the input order is returned unchanged — so a healthy team stays byte-identical and a
+// depleted team plays its injured in their own slots. Input must already be in slot order.
+export function fitFirstSelection<T>(bySlot: T[], isInjured: (x: T) => boolean): T[] {
+  const fitCount = bySlot.reduce((n, p) => n + (isInjured(p) ? 0 : 1), 0);
+  return (fitCount >= 11 && fitCount < bySlot.length)
+    ? [...bySlot.filter(p => !isInjured(p)), ...bySlot.filter(isInjured)]
+    : bySlot;
+}
+
 // New-player age: a realistic spread centred on the mid-20s (18..34), skewed to prime.
 function genAge(): number {
   const r = (Math.random() + Math.random()) / 2;   // triangular, peaks at .5
@@ -304,7 +316,7 @@ export function standings(leagueId: number): Standing[] {
   return out;
 }
 
-export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; age: number; potential: number | null; listed: boolean; askPrice: number | null; wage: number; contractYears: number; }
+export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; age: number; potential: number | null; listed: boolean; askPrice: number | null; wage: number; contractYears: number; fitness: number; injuredMatches: number; }
 
 export function getTeamWithPlayers(teamId: number): {
   id: number; name: string; manager: string; leagueId: number; userId: number | null;
@@ -313,9 +325,9 @@ export function getTeamWithPlayers(teamId: number): {
   const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, wage_budget, training_focus, tactics, formation, lineup FROM teams WHERE id = ?')
     .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; wage_budget: number; training_focus: string | null; tactics: string; formation: string | null; lineup: string | null } | undefined;
   if (!t) return null;
-  const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, potential, listed, ask_price, wage, contract_years FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
-    { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; listed: number; ask_price: number | null; wage: number | null; contract_years: number }[])
-    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality), age: p.age, potential: p.potential, listed: !!p.listed, askPrice: p.ask_price, wage: p.wage ?? 0, contractYears: p.contract_years }));
+  const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, potential, listed, ask_price, wage, contract_years, fitness, injured_matches FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
+    { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; listed: number; ask_price: number | null; wage: number | null; contract_years: number; fitness: number; injured_matches: number }[])
+    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality), age: p.age, potential: p.potential, listed: !!p.listed, askPrice: p.ask_price, wage: p.wage ?? 0, contractYears: p.contract_years, fitness: p.fitness ?? 100, injuredMatches: p.injured_matches ?? 0 }));
   let lineup: number[] | null = null;
   // Accept the stored lineup only if it's a clean 11-long permutation of valid squad
   // indices (0..squadSize-1, all distinct). A malformed/legacy/tampered value falls
