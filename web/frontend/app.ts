@@ -756,7 +756,7 @@ async function screenMarket() {
       const mult = s.endsWith('m') ? 1e6 : s.endsWith('k') ? 1e3 : 1;
       const fee = Math.round(parseFloat(s) * mult);
       if (!fee || fee <= 0) { toast('Enter a valid bid'); return; }
-      void sendBid(t.id, fee);
+      await sendBid(t.id, fee);   // awaited so the click guard spans the full request, not just the modal
     };
     const doLoan = async (t: typeof market.transferTargets[number]): Promise<void> => {
       if (!await confirmModal('Loan deal', `Take ${t.name} (${t.club}) on loan for the season? He returns to his club at the end of the campaign — no fee, but you carry his wages.`, 'Take on loan')) return;
@@ -768,8 +768,16 @@ async function screenMarket() {
     for (const t of market.transferTargets) {
       const bid = h('button', { class: 'ghost small' }, 'Bid');
       const loan = h('button', { class: 'ghost small', style: 'margin-left:4px' }, 'Loan');
+      // Disable the button for the whole action (modal + request) so an impatient re-click on a
+      // slow network can't fire a second concurrent bid/loan for the same player — the same guard
+      // Sign/List use. render() rebuilds fresh buttons on success; the finally re-enables on cancel.
+      const guard = (btn: HTMLElement, fn: () => Promise<void>) => async () => {
+        if (btn.hasAttribute('disabled')) return;
+        btn.setAttribute('disabled', 'true');
+        try { await fn(); } finally { btn.removeAttribute('disabled'); }
+      };
       if (!win.open) { for (const b of [bid, loan]) { b.setAttribute('disabled', 'true'); b.setAttribute('title', 'Transfer window is shut'); } }
-      else { bid.addEventListener('click', () => void doBid(t)); loan.addEventListener('click', () => void doLoan(t)); }
+      else { bid.addEventListener('click', guard(bid, () => doBid(t))); loan.addEventListener('click', guard(loan, () => doLoan(t))); }
       const tPot = t.potential != null && t.potential > t.overall;
       tgtBody.append(h('tr', {},
         h('td', {}, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + t.club)),
