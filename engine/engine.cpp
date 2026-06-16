@@ -102,6 +102,7 @@ void GameEngine::kickoff(Team t){
     shot.penalty=false;
     shot.dribble20m=false;
     pendingSave.active=false;   // no stale dive carried across a restart
+    advantage.active=false;     // a goal/half-time supersedes any pending advantage
     lastLooseOrigin.clear();
     for(auto&p:state.players){
         if(p.sentOff){p.x=clamp(p.homeX,30.0,PITCH_W-30.0);p.y=-40.0;p.targetX=p.x;p.targetY=p.y;p.vx=p.vy=0;continue;}
@@ -161,6 +162,24 @@ void GameEngine::fixedUpdate(double sdt) {
         if (state.ball.controllerId == p.id) { state.ball.controllerId = -1; state.ball.intendedReceiverId = -1; lastLooseOrigin.clear(); }
         p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0); p.y = -40.0;
         p.targetX = p.x; p.targetY = p.y; p.vx = p.vy = 0;
+    }
+    // Played-advantage recall: the ref waved a foul on. If, within ~4s, the fouled
+    // side LOSES the ball to an outfield opponent (a clean turnover — not a keeper
+    // save, which means the advantage produced a shot), bring the free kick BACK to
+    // the foul spot. Otherwise the advantage stands. Clock-driven, no rng.
+    if (advantage.active) {
+        Player* ctrl = playerById(state.ball.controllerId);
+        if (state.clockMs - advantage.grantMs > 4000.0) {
+            advantage.active = false;                          // it ran its course — stands
+        } else if (!setPiece.armed && ctrl && ctrl->team != advantage.team && ctrl->role != Role::GK) {
+            auto& b = state.ball;
+            b.x = clamp(advantage.foulX, 20.0, PITCH_W - 20.0);
+            b.y = clamp(advantage.foulY, 20.0, PITCH_H - 20.0);
+            b.lastTouchTeam = advantage.team; b.lastToucherId = -1; b.intendedReceiverId = -1;
+            lastLooseOrigin.clear();
+            awardSetPiece(SetPiece::FreeKick, advantage.team);  // zeroes vel+control, sets spot+armed
+            advantage.active = false;
+        }
     }
     // Stoppage time accrues while the ball is dead — set pieces, kickoffs,
     // the halftime pause. The board announces a real +N at 45:00/90:00.

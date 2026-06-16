@@ -134,6 +134,16 @@ public:
         std::string reason;
     } setPiece;
 
+    // A played advantage: the ref waved a foul on because the fouled side kept the
+    // ball. If they LOSE it to the offending team within the window, the ref brings
+    // the free kick BACK to the foul spot (real-ref recall); otherwise it stands.
+    // Set on grant in attemptTackle, resolved atop fixedUpdate, cleared on kickoff.
+    struct AdvantageState {
+        bool active = false;
+        Team team = Team::Home;        // the FOULED side — gets the FK if recalled
+        double foulX = 0, foulY = 0, grantMs = 0;
+    } advantage;
+
     double prevBallX = 525, prevBallY = 340;
     double prevBallVx = 0, prevBallVy = 0;
     int prevControllerId = -1;

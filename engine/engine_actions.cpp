@@ -578,6 +578,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             bool nearOppBox = std::abs(carrier.x - defGoalX0) < PENALTY_AREA_W * 1.4;
             if (inAttackingHalf && !nearOppBox && carrier.injurySeverity < 0.18 && rng.random() < 0.35) {
                 emitEvent("advantage", foulX, foulY, carrier.id, tackler.id);
+                advantage = {true, carrier.team, foulX, foulY, state.clockMs};   // recall if it fizzles
                 blockReboundFor(tackler.id, 500);   // fouler can't re-lunge instantly
                 return false;                         // carrier plays on
             }
