@@ -38,7 +38,10 @@ function specForTeam(teamId: number, side: 'home' | 'away') {
   if ((formation === DEFAULT_FORMATION && isIdentityXI(t.lineup)) || !layout) {
     // personality rides along (engine ignores it) so the watch flow can read each
     // player's personality by engine id without re-deriving the lineup order.
-    return { name: t.name, tactics: t.tactics, players: bySlot.map(p => ({ name: p.name, attrs: p.attrs, personality: p.personality ?? null })) };
+    // slice(0,11) starts the first 11 by slot — a no-op for an 11-player squad (so
+    // existing teams emit a byte-identical spec) but it keeps bench depth (slots 11+,
+    // added by the transfer market) out of the match.
+    return { name: t.name, tactics: t.tactics, players: bySlot.slice(0, 11).map(p => ({ name: p.name, attrs: p.attrs, personality: p.personality ?? null })) };
   }
   // Emit per-slot role + home anchor. The away side mirrors x (PITCH_W - x) to match
   // the engine's away frame; width (y) is shared. Slot 0 stays the keeper (the engine

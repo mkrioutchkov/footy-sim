@@ -18,7 +18,7 @@ const clamp = (v: unknown) => Math.max(0, Math.min(100, Math.round(Number.isFini
 
 // A neutral fallback so the game never blocks on the model — every player still
 // gets a usable (if bland) personality if the LLM is unreachable or off-format.
-export function defaultPersonality(name: string, role: string): Personality {
+export function defaultPersonality(_name: string, role: string): Personality {
   return {
     traits: { temperament: 50, criticismResponse: 50, praiseResponse: 50, bigGame: 50, consistency: 50, leadership: role === 'GK' || role === 'CB' ? 60 : 50, professionalism: 50, ego: 50 },
     nationality: '', backstory: '', tagline: '',

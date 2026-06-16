@@ -79,3 +79,34 @@ function ensureColumn(table: string, col: string, ddl: string): void {
 ensureColumn('teams', 'formation', "formation TEXT NOT NULL DEFAULT '4-3-3'");
 ensureColumn('teams', 'lineup', 'lineup TEXT');   // json int[11]: formationSlot -> player slot; NULL = identity XI
 ensureColumn('players', 'personality', 'personality TEXT');   // json: LLM-generated traits/nationality/backstory/tagline; NULL = not generated yet
+
+// ── Transfer market (pillar 1) ──────────────────────────────────────────────
+// Every team gets a transfer kitty; defaults so existing teams are unaffected.
+ensureColumn('teams', 'budget', 'budget INTEGER NOT NULL DEFAULT 50000000');   // 50M starting funds
+// Marks whether a league's free-agent pool has been seeded. Defaults 0 so leagues
+// that predate the market (or any new league before seeding) get a one-time backfill
+// (backfillFreeAgents at startup) without ever re-seeding a pool the user has drained.
+ensureColumn('leagues', 'market_seeded', 'market_seeded INTEGER NOT NULL DEFAULT 0');
+// Age feeds the value formula (and pillar-2 development). Existing players default
+// to a neutral 24 — they keep playing identically (the engine never sees age).
+ensureColumn('players', 'age', 'age INTEGER NOT NULL DEFAULT 24');
+// Transfer-listing: a player can be offered for sale at an asking price.
+ensureColumn('players', 'listed', 'listed INTEGER NOT NULL DEFAULT 0');
+ensureColumn('players', 'ask_price', 'ask_price INTEGER');
+
+// Free-agent pool — unattached players a team can sign. Kept in its own table (NOT
+// as players rows with a null team) so every existing player query and the fixed-22
+// match invariant stay untouched. Buying = INSERT into players + DELETE the agent.
+db.exec(`
+CREATE TABLE IF NOT EXISTS free_agents (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  league_id   INTEGER NOT NULL REFERENCES leagues(id),
+  name        TEXT NOT NULL,
+  role        TEXT NOT NULL,        -- GK|FB|CB|CM|WM|CF
+  attrs       TEXT NOT NULL,        -- json (same shape as players.attrs)
+  personality TEXT,                 -- json | NULL (generated lazily)
+  age         INTEGER NOT NULL DEFAULT 24,
+  value       INTEGER NOT NULL DEFAULT 0   -- snapshot at generation
+);
+CREATE INDEX IF NOT EXISTS idx_free_agents_league ON free_agents(league_id);
+`);

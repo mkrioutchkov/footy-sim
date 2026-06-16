@@ -140,6 +140,17 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
 
 ## Status ledger
 
-- **SHIPPED:** _(none yet — baseline only)_
-- **DESIGNED:** transfer market, training, seasons, AI managers (this doc).
-- **AWAITING YOUR TASTE:** economy scale, training rates, league structure, prize money.
+- **SHIPPED:**
+  - **Pillar 1 — Transfer market.** `teams.budget` (50M), `players.age/listed/ask_price`,
+    a league-scoped `free_agents` pool (+ idempotent `market_seeded` backfill for
+    pre-market saves). `playerValue` (convex-in-overall × age curve × personality).
+    Backend `market.ts`: `buyFreeAgent` (auto-upgrade-into-XI or bench), `listPlayer`/
+    `unlistPlayer`, `getMarket`, and `marketTick` (AI signs its weakest role + buys
+    listed players each matchday, with a role-aware starter backfill on sales).
+    `/api/market*` endpoints, tick hooked into `/api/advance`, a `#/market` SPA screen.
+    Verified by `tools/_market_test.ts` (46 assertions: seeding, value, money
+    conservation, squad caps, the always-11 spec invariant, both review fixes) +
+    an ad-hoc real-`buildSpec` check (11/side, byte-identical default, no bench leak).
+- **DESIGNED:** training, seasons, AI managers (this doc).
+- **AWAITING YOUR TASTE:** economy scale (50M budgets, `(ovr/100)^3 × 55M` value
+  curve, 24-man cap), training rates, league structure, prize money.

@@ -8,13 +8,16 @@ import { registerUser, loginUser, createSession, destroySession, getUserBySessio
 import { db } from './db.ts';
 import {
   newSeasonForUser, getTeamWithPlayers, standings, teamForUser,
-  assignPersonalities, needsPersonalities,
+  assignPersonalities, needsPersonalities, backfillFreeAgents,
   DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { playFixture, getFixture, writeSpec, MatchStream } from './match.ts';
 import { compileLineup } from './lineup.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick } from './market.ts';
 
 const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
+// Give any pre-market league a free-agent pool (one-time, idempotent).
+backfillFreeAgents();
 const app = Fastify({ logger: false });
 await app.register(cookie);
 
@@ -139,6 +142,47 @@ app.put('/api/lineup', async (req: any, reply) => {
   return { formation: r.formation, lineup: isDefault ? null : lineup, slots: r.slots, note: r.note };
 });
 
+// ── transfer market (pillar 1) ──
+app.get('/api/market', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return getMarket(teamId);
+});
+
+app.post('/api/market/buy', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const agentId = Number(req.body?.agentId);
+  if (!Number.isInteger(agentId)) return reply.code(400).send({ error: 'agentId required' });
+  const r = buyFreeAgent(teamId, agentId);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, market: getMarket(teamId) };
+});
+
+app.post('/api/market/list', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.body?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
+  const price = req.body?.price != null ? Number(req.body.price) : undefined;
+  const r = listPlayer(teamId, slot, price);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, market: getMarket(teamId) };
+});
+
+app.post('/api/market/unlist', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.body?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
+  unlistPlayer(teamId, slot);
+  return { ok: true, market: getMarket(teamId) };
+});
+
 app.get('/api/league', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
@@ -189,7 +233,10 @@ app.post('/api/advance', async (req: any, reply) => {
   // Sim the whole matchday concurrently (non-blocking) instead of one-at-a-time.
   const results = await Promise.all(roundFixtures.map(f => playFixture(f.id)));
   const myResult = results.find(r => r.fixtureId === mine.id) ?? null;
-  return { round: mine.round, myFixtureId: mine.id, myResult, results, standings: standings(team.leagueId) };
+  // The market lives between matchdays: let the AI teams sign + trade once per round
+  // so the squads (and the user's listings) churn as the season runs.
+  const transfers = marketTick(team.leagueId);
+  return { round: mine.round, myFixtureId: mine.id, myResult, results, transfers, standings: standings(team.leagueId) };
 });
 
 // Convenience: play my next unplayed fixture.

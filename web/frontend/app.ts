@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type Tactics, type LeagueT } from './api';
+import { api, type TeamT, type Tactics, type LeagueT, type MarketT } from './api';
 import { MatchRenderer } from './renderer';
 
 const root = document.getElementById('app')!;
@@ -23,6 +23,11 @@ function toast(msg: string) {
   const t = h('div', { class: 'toast' }, msg);
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 2600);
+}
+function fmtMoney(n: number): string {
+  if (n >= 1e6) return `£${(n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1)}M`;
+  if (n >= 1e3) return `£${Math.round(n / 1e3)}K`;
+  return `£${n}`;
 }
 
 const TACTIC_DEFS: { key: keyof Tactics; label: string; lo: string; hi: string }[] = [
@@ -208,6 +213,13 @@ async function screenDashboard() {
     try {
       const r = await api.advance();
       if (r.myResult) toast(`Your match: ${r.myResult.homeScore}–${r.myResult.awayScore}`);
+      if (r.transfers?.length) {
+        const t = r.transfers[0];
+        const verb = t.type === 'buy_listed' ? 'bought' : 'signed';
+        toast(r.transfers.length === 1
+          ? `Transfer: ${t.teamName} ${verb} ${t.player} (${fmtMoney(t.fee)})`
+          : `${r.transfers.length} transfers around the league`);
+      }
       screenDashboard();
     } catch (e: any) { toast(e.message); screenDashboard(); }
   });
@@ -253,6 +265,7 @@ async function screenDashboard() {
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' }, `Managed by ${team.manager} · League position ${myPos}/${league.standings.length}`)),
       h('div', { class: 'row' }, watchBtn, advanceBtn,
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
     ),
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'League table'), table),
@@ -419,6 +432,88 @@ async function screenWatch(fixtureId: number) {
   window.addEventListener('hashchange', onLeave);
 }
 
+// ── transfer market ──
+async function screenMarket() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
+  let market: MarketT;
+  try { market = await api.market(); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+  }
+
+  function render() {
+    // free-agent pool — sign to your squad
+    const faBody = h('tbody');
+    if (!market.freeAgents.length) faBody.append(h('tr', {}, h('td', { colspan: '6', class: 'muted' }, 'No free agents left.')));
+    for (const a of market.freeAgents) {
+      const afford = market.budget >= a.value, room = market.squad.length < market.squadMax;
+      const sign = h('button', { class: 'ghost small' }, 'Sign');
+      if (!afford || !room) sign.setAttribute('disabled', 'true');
+      sign.addEventListener('click', async () => {
+        sign.setAttribute('disabled', 'true'); sign.textContent = '…';
+        try { const r = await api.buyAgent(a.id); market = r.market; toast(`Signed ${r.name} — ${fmtMoney(r.value)} (${r.placed === 'xi' ? 'straight into the XI' : 'to the bench'})`); render(); }
+        catch (e: any) { toast(e.message); render(); }
+      });
+      faBody.append(h('tr', {},
+        h('td', {}, a.name),
+        h('td', {}, h('span', { class: 'pill' }, a.role)),
+        h('td', { class: 'num' }, String(a.age)),
+        h('td', { class: 'num' }, String(a.overall)),
+        h('td', { class: 'num' }, fmtMoney(a.value)),
+        h('td', { class: 'num' }, sign)));
+    }
+
+    // your squad — transfer-list for sale (or pull the listing)
+    const sqBody = h('tbody');
+    for (const p of market.squad) {
+      const canSell = market.squad.length > market.squadMin;
+      const btn = p.listed
+        ? h('button', { class: 'ghost small' }, 'Unlist')
+        : h('button', { class: 'ghost small' }, 'List');
+      if (!p.listed && !canSell) btn.setAttribute('disabled', 'true');
+      btn.addEventListener('click', async () => {
+        btn.setAttribute('disabled', 'true'); btn.textContent = '…';
+        try {
+          const r = p.listed ? await api.unlistPlayer(p.slot) : await api.listPlayer(p.slot);
+          market = r.market; toast(p.listed ? `${p.name} taken off the market` : `${p.name} listed for ${fmtMoney((r as any).askPrice)}`); render();
+        } catch (e: any) { toast(e.message); render(); }
+      });
+      sqBody.append(h('tr', {},
+        h('td', {}, p.name, p.starter ? '' : h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench'),
+          p.listed ? h('span', { class: 'pill', style: 'margin-left:6px' }, p.askPrice != null ? fmtMoney(p.askPrice) : 'listed') : ''),
+        h('td', {}, h('span', { class: 'pill' }, p.role)),
+        h('td', { class: 'num' }, String(p.age)),
+        h('td', { class: 'num' }, String(p.overall)),
+        h('td', { class: 'num' }, fmtMoney(p.value)),
+        h('td', { class: 'num' }, btn)));
+    }
+
+    const headRow = (label: string) => h('thead', {}, h('tr', {},
+      h('th', {}, label), h('th', {}, 'Pos'),
+      h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'),
+      h('th', { class: 'num' }, 'Value'), h('th', { class: 'num' }, '')));
+
+    mount(header(), h('div', { class: 'wrap grid' },
+      h('div', { class: 'between' },
+        h('div', {}, h('h2', {}, 'Transfer market'),
+          h('div', { class: 'muted' }, `Budget ${fmtMoney(market.budget)} · squad ${market.squad.length}/${market.squadMax}`)),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
+      ),
+      h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+        h('div', { class: 'card' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Free agents'),
+          h('div', { style: 'max-height:520px;overflow:auto' }, h('table', {}, headRow('Player'), faBody))),
+        h('div', { class: 'card' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your squad'),
+          h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, 'List a player to sell him — an AI club may buy once you have squad depth (12+).'),
+          h('div', { style: 'max-height:520px;overflow:auto' }, h('table', {}, headRow('Player'), sqBody))),
+      ),
+    ));
+  }
+  render();
+}
+
 // ── router ──
 function route() {
   const hash = location.hash;
@@ -426,6 +521,7 @@ function route() {
   if (!hash.startsWith('#/watch/')) teardownWatch();
   if (hash.startsWith('#/watch/')) screenWatch(Number(hash.split('/')[2]));
   else if (hash === '#/tactics') screenTactics();
+  else if (hash === '#/market') screenMarket();
   else screenDashboard();
 }
 

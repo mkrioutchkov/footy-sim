@@ -46,6 +46,51 @@ export function genAttrs(role: Role, base: number): Record<string, number> {
   return a;
 }
 
+// ── Player value (pillar 1) ─────────────────────────────────────────────────
+// `overall` = mean of the 7 core skill attrs (height + handling excluded — height
+// is a physical trait, handling only matters for a keeper). Used for value + the
+// AI's weakest-role logic. TASTE: see GAME_LAYER_NOTES.md for the chosen curve.
+const SKILL_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'] as const;
+export function overall(attrs: Record<string, number>): number {
+  let s = 0, n = 0;
+  for (const k of SKILL_KEYS) if (typeof attrs[k] === 'number') { s += attrs[k]; n++; }
+  return n ? Math.round(s / n) : 50;
+}
+
+// Age multiplier on transfer value: ramps up to a 24-26 peak, gentle decline to 30,
+// steep fall after. A 19-y/o is discounted (raw) but a 33-y/o far more so.
+function ageMult(age: number): number {
+  const a = Math.max(16, Math.min(40, age));
+  if (a <= 24) return 0.80 + (a - 18) * (0.20 / 6);          // 18 -> .80, 24 -> 1.00
+  if (a <= 26) return 1.00;                                  // prime
+  if (a <= 30) return 1.00 - (a - 26) * (0.15 / 4);          // 26 -> 1.00, 30 -> .85
+  return Math.max(0.28, 0.85 - (a - 30) * 0.11);             // 30 -> .85, 33 -> .52, 35 -> .30
+}
+
+// Personality nudge: pros/consistent/big-game players command a premium; big egos a
+// small discount. Neutral (or missing) personality => ×1.0.
+function personalityMult(personality: unknown): number {
+  const t = (personality as { traits?: Record<string, number> } | null)?.traits;
+  if (!t) return 1;
+  const pos = ((t.professionalism ?? 50) + (t.consistency ?? 50) + (t.bigGame ?? 50)) / 3;
+  const ego = t.ego ?? 50;
+  return 1 + ((pos - 50) / 50) * 0.15 - (Math.max(0, ego - 60) / 40) * 0.08;
+}
+
+// Transfer value in currency units. Convex in overall so a star is worth far more
+// than a squad filler; rounded to the nearest 100k with a 50k floor.
+export function playerValue(attrs: Record<string, number>, age: number, personality: unknown): number {
+  const base = Math.pow(overall(attrs) / 100, 3) * 55_000_000;
+  const v = base * ageMult(age) * personalityMult(personality);
+  return Math.max(50_000, Math.round(v / 100_000) * 100_000);
+}
+
+// New-player age: a realistic spread centred on the mid-20s (18..34), skewed to prime.
+function genAge(): number {
+  const r = (Math.random() + Math.random()) / 2;   // triangular, peaks at .5
+  return Math.round(18 + r * 16);
+}
+
 export function randomTactics(): Tactics {
   const r = (lo: number, hi: number) => Math.round(lo + Math.random() * (hi - lo));
   return {
@@ -56,11 +101,39 @@ export function randomTactics(): Tactics {
 
 function insertRoster(teamId: number, base: number): void {
   const ins = db.prepare(
-    'INSERT INTO players (team_id, slot, name, role, attrs) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO players (team_id, slot, name, role, attrs, age) VALUES (?, ?, ?, ?, ?, ?)',
   );
   ROLE_SLOTS.forEach((role, slot) => {
-    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(genAttrs(role, base)));
+    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(genAttrs(role, base)), genAge());
   });
+}
+
+// Seed a league's free-agent pool. Quality is skewed low (a bargain bin with the
+// occasional gem) so signings stay affordable and the AI's weakest-role buys are
+// meaningful. Personalities are left NULL (generated lazily) to skip an LLM call.
+export const FREE_AGENT_COUNT = 28;
+const FA_ROLES: Role[] = ['GK', 'FB', 'CB', 'CM', 'WM', 'CF'];
+export function seedFreeAgents(leagueId: number, count = FREE_AGENT_COUNT): void {
+  const ins = db.prepare(
+    'INSERT INTO free_agents (league_id, name, role, attrs, personality, age, value) VALUES (?, ?, ?, ?, NULL, ?, ?)',
+  );
+  for (let i = 0; i < count; i++) {
+    const role = FA_ROLES[Math.floor(Math.random() * FA_ROLES.length)];
+    const baseStrength = Math.round(38 + Math.pow(Math.random(), 2) * 42);   // 38..80, skewed low
+    const attrs = genAttrs(role, baseStrength);
+    const age = genAge();
+    ins.run(leagueId, randomPlayerName(), role, JSON.stringify(attrs), age, playerValue(attrs, age, null));
+  }
+  db.prepare('UPDATE leagues SET market_seeded = 1 WHERE id = ?').run(leagueId);
+}
+
+// One-time backfill for leagues that predate the transfer market (or were created
+// before seeding): seed any league still flagged unseeded. seedFreeAgents sets the
+// flag, so a pool the user has since drained is never silently refilled. Idempotent —
+// safe to call on every server start.
+export function backfillFreeAgents(): void {
+  const unseeded = db.prepare('SELECT id FROM leagues WHERE market_seeded = 0').all() as { id: number }[];
+  for (const l of unseeded) seedFreeAgents(l.id);
 }
 
 export function createTeam(opts: {
@@ -129,6 +202,7 @@ export function newSeasonForUser(userId: number, username: string, teamName: str
     });
   }
   generateFixtures(leagueId);
+  seedFreeAgents(leagueId);
   return { leagueId, teamId };
 }
 
@@ -168,32 +242,34 @@ export function standings(leagueId: number): Standing[] {
   return out;
 }
 
-export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; }
+export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; age: number; listed: boolean; askPrice: number | null; }
 
 export function getTeamWithPlayers(teamId: number): {
   id: number; name: string; manager: string; leagueId: number; userId: number | null;
-  tactics: Tactics; formation: string; lineup: number[] | null; players: PlayerRow[];
+  budget: number; tactics: Tactics; formation: string; lineup: number[] | null; players: PlayerRow[];
 } | null {
-  const t = db.prepare('SELECT id, name, manager, league_id, user_id, tactics, formation, lineup FROM teams WHERE id = ?')
-    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; tactics: string; formation: string | null; lineup: string | null } | undefined;
+  const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, tactics, formation, lineup FROM teams WHERE id = ?')
+    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; tactics: string; formation: string | null; lineup: string | null } | undefined;
   if (!t) return null;
-  const players = (db.prepare('SELECT slot, name, role, attrs, personality FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
-    { slot: number; name: string; role: string; attrs: string; personality: string | null }[])
-    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality) }));
+  const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, listed, ask_price FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
+    { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; listed: number; ask_price: number | null }[])
+    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality), age: p.age, listed: !!p.listed, askPrice: p.ask_price }));
   let lineup: number[] | null = null;
-  // Accept the stored lineup only if it's a clean permutation of 0..10 (11 distinct
-  // in-range slots). A malformed/legacy/tampered value falls back to the identity XI
-  // (null), so a bad row can never duplicate or drop a player in the match spec.
+  // Accept the stored lineup only if it's a clean 11-long permutation of valid squad
+  // indices (0..squadSize-1, all distinct). A malformed/legacy/tampered value falls
+  // back to the identity XI (null), so a bad row can never duplicate or drop a player
+  // in the match spec. (Upper bound is squadSize, not 10, so a bench player can start
+  // — for an 11-player squad this is byte-identical to the old 0..10 guard.)
   try {
     const l = t.lineup ? JSON.parse(t.lineup) : null;
     if (Array.isArray(l) && l.length === 11) {
       const nums = l.map(Number);
-      if (nums.every(n => Number.isInteger(n) && n >= 0 && n <= 10) && new Set(nums).size === 11) lineup = nums;
+      if (nums.every(n => Number.isInteger(n) && n >= 0 && n < players.length) && new Set(nums).size === 11) lineup = nums;
     }
   } catch { /* ignore */ }
   return {
     id: t.id, name: t.name, manager: t.manager, leagueId: t.league_id, userId: t.user_id,
-    tactics: JSON.parse(t.tactics), formation: t.formation ?? '4-3-3', lineup, players,
+    budget: t.budget, tactics: JSON.parse(t.tactics), formation: t.formation ?? '4-3-3', lineup, players,
   };
 }
 
