@@ -266,6 +266,9 @@ async function screenDashboard() {
         const released = (ro.contracts ?? []).filter(c => c.teamId === team.id && c.type === 'released');
         toast(`${verdict}${mine ? ` Prize money: ${fmtMoney(mine.amount)}.` : ''} Season ${ro.season} begins.`);
         if (released.length) toast(`${released.length} player(s) left on a free transfer — re-sign from the market, or renew deals earlier next season.`);
+        const myYouth = (ro.youth ?? []).filter(y => y.teamId === team.id);
+        const retired = myYouth.filter(y => y.type === 'retired'), intake = myYouth.filter(y => y.type === 'intake');
+        if (retired.length || intake.length) toast(`Academy: ${intake.length} prospect(s) promoted${retired.length ? `, ${retired.length} veteran(s) retired` : ''}.`);
       }
       screenDashboard();
     } catch (e: any) { toast(e.message); screenDashboard(); }

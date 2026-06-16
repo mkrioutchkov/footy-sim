@@ -202,9 +202,18 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     are force-renewed). `PUT /api/player/:slot/renew` recomputes the wage and commits a new
     deal (budget-gated). The market shows the wage bill/budget; the player profile a Renew
     button. Verified by `tools/_contracts_test.ts` (18) + `_market_test.ts` (53) + HTTP smoke (26).
-- **DESIGNED:** the four original pillars + round 5 (story-traits, wages, contracts) are SHIPPED.
-- **NOT YET (future):** prune the free-agent pool across seasons (it grows as players are
-  released); youth intake + retirement to renew aging squads; AI formation choice.
+  - **5.3 Youth & retirement.** At each rollover (`youth.ts`, after the contract tick) players
+    aged ≥37 retire (leave the game, floor-guarded to never drop below a legal XI) and every
+    club brings through `YOUTH_INTAKE` (2) prospects — raw teens (attrs 40–55) with high
+    `genPotential` upside, a neutral personality to flesh out via the story editor (which
+    re-derives their weights), a wage + a 3-yr deal — capped at the 24-man squad. Closes the
+    ageing loop: squads now renew across seasons. `market.ts` `removePlayerFromSquad` is shared
+    by retirement + release. Verified by `tools/_youth_test.ts` (17) + season (36) regression.
+- **DESIGNED:** the four original pillars + round 5 (story-traits, wages, contracts, youth)
+  are all SHIPPED.
+- **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
+  shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
+  morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.
 - **AWAITING YOUR TASTE:** economy scale (50M budgets, `(ovr/100)^3 × 55M` value
   curve, 24-man cap), training/decline rates per age band, division sizes / promotion
   counts (2 of 8), the prize-money schedule.

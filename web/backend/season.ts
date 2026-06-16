@@ -7,6 +7,7 @@
 import { db } from './db.ts';
 import { standings, generateFixtures, seedFreeAgents, type Standing } from './game.ts';
 import { tickContracts, type ContractEvent } from './contracts.ts';
+import { youthAndRetirement, type YouthEvent } from './youth.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -71,6 +72,7 @@ export interface RolloverResult {
   relegated: { teamId: number; team: string; fromTier: number; toTier: number }[];
   prizeMoney: { teamId: number; team: string; amount: number }[];
   contracts: ContractEvent[];
+  youth: YouthEvent[];
 }
 
 // Roll the world's season over. Returns a summary, or null if the season isn't complete.
@@ -81,7 +83,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
   const finals = leagues.map(l => ({ league: l, table: standings(l.id) }));
 
   return tx(() => {
-    const out: RolloverResult = { season: (leagues[0].season ?? 1) + 1, divisions: [], promoted: [], relegated: [], prizeMoney: [], contracts: [] };
+    const out: RolloverResult = { season: (leagues[0].season ?? 1) + 1, divisions: [], promoted: [], relegated: [], prizeMoney: [], contracts: [], youth: [] };
 
     // 1. prize money by final position
     for (const { league, table } of finals) {
@@ -120,6 +122,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       db.prepare('UPDATE leagues SET season = season + 1 WHERE id = ?').run(l.id);
       if (FA_REFRESH) { db.prepare('DELETE FROM free_agents WHERE league_id = ?').run(l.id); seedFreeAgents(l.id); }
       out.contracts.push(...tickContracts(l.id));
+      out.youth.push(...youthAndRetirement(l.id));     // retire veterans + bring through prospects
       db.prepare('DELETE FROM fixtures WHERE league_id = ?').run(l.id);
       generateFixtures(l.id);
     }
