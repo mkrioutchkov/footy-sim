@@ -3,6 +3,22 @@
 Working the prioritized backlog top-down. Each VERIFIED increment committed+pushed to master
 (determinism + golden green; paired-measured; revert if noise/backfire).
 
+## ⚑ STATUS: the whole backlog (items 0–5) is DONE. Formations, composite-plan shouts, and
+## personalities+motivation are all live + hardened (two adversarial-review workflows, 14 bugs
+## fixed). One important catch along the way:
+
+### GOLDEN WAS STALE (now fixed, `a979912`)
+A clean rebuild (backend stopped) revealed the saved golden hashes matched NO recent commit.
+Root cause: `npm run game` spawns build/live.exe per sim/watch and intermittently locks the
+binary, so several rebuilds silently didn't relink and golden was checked/saved against an old
+binary (see [[live-exe-locks-binary]]). Bisect proved the engine's no-directive behaviour is
+byte-identical + deterministic across 4be4e43→HEAD — NO regression; only the baseline file was
+stale (captured at 4be4e43's legit counter-round change on a locked binary). Re-baselined on a
+guaranteed-clean build. THEN re-verified every engine feature on the clean binary: formation
+4-3-3==default 5/5 + 4-4-2 differs 5/5; morale hook bites 5/5; timeline morale channel
+golden-safe 5/5 + bites 5/5; determinism 5/5 throughout. All good.
+LESSON (now in memory): stop the backend before any rebuild you'll golden-check.
+
 ## SHIPPED (this overnight run)
 - **2/A2 + hardening — FORMATIONS FULLY LIVE** (`7ff55ac`, `96b15c6`): teams.formation/lineup wired into real
   games (byte-identical guard for default teams, away mirror verified exact), PUT /api/lineup, dashboard
