@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type Tactics, type LeagueT, type MarketT } from './api';
+import { api, type TeamT, type Tactics, type LeagueT, type MarketT, type CupT } from './api';
 import { MatchRenderer } from './renderer';
 
 const root = document.getElementById('app')!;
@@ -260,6 +260,13 @@ async function screenDashboard() {
       }
       const myInj = (r.injuries ?? []).filter(i => i.teamId === team.id);
       if (myInj.length) toast(`🤕 ${myInj.map(i => `${i.player} out ${i.matches} match${i.matches > 1 ? 'es' : ''}`).join(' · ')}`);
+      const wonCup = r.cup?.champion != null && r.cup.champion === team.id;
+      if (r.cup?.myTie && !wonCup) {
+        const c = r.cup.myTie;
+        const pens = c.homeScore === c.awayScore ? ' (on pens)' : '';
+        toast(`Cup: ${c.won ? 'beat' : 'lost to'} ${c.opponent} ${c.homeScore}–${c.awayScore}${pens}${c.won ? ' — through' : ' — knocked out'}`);
+      }
+      if (wonCup) toast('🏆 You won the Cup!');
       if (r.rollover) {
         const ro = r.rollover;
         const up = ro.promoted.find(p => p.teamId === team.id);
@@ -321,6 +328,7 @@ async function screenDashboard() {
       h('div', { class: 'row' }, watchBtn, advanceBtn,
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/cup') }, 'Cup'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
     ),
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table),
@@ -709,6 +717,34 @@ async function screenPlayer(slot: number) {
   ));
 }
 
+// ── cup (knockout bracket) ──
+async function screenCup() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
+  let cup: CupT;
+  try { cup = await api.cup(); }
+  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  if (!cup.rounds.length) return mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' }, h('h2', {}, 'Cup'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    h('div', { class: 'card muted' }, 'No cup this season.')));
+
+  const teamRow = (name: string | null, score: number | null, won: boolean, isMe: boolean) =>
+    h('div', { class: 'between', style: `font-size:12px;gap:10px;${won ? 'font-weight:700;' : 'opacity:.7;'}${isMe ? 'color:var(--accent,#4ea1ff);' : ''}` },
+      h('span', {}, name ?? 'TBD'), h('span', {}, score != null ? String(score) : ''));
+  const cols = cup.rounds.map(rd => h('div', { style: 'min-width:170px' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, rd.name),
+    ...rd.ties.map(t => h('div', { class: 'card', style: 'padding:8px;margin-bottom:8px' },
+      teamRow(t.home, t.homeScore, t.winnerTeamId != null && t.winnerTeamId === t.homeTeamId, t.homeTeamId === cup.myTeamId),
+      teamRow(t.away, t.awayScore, t.winnerTeamId != null && t.winnerTeamId === t.awayTeamId, t.awayTeamId === cup.myTeamId)))));
+
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
+      h('div', {}, h('h2', {}, 'Cup'),
+        h('div', { class: 'muted' }, cup.champion ? `🏆 Winners: ${cup.champion}` : 'Single elimination — win it or go home. Ties play out across the season.')),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    h('div', { class: 'card' }, h('div', { style: 'display:flex;gap:14px;overflow:auto;align-items:flex-start' }, ...cols)),
+  ));
+}
+
 // ── router ──
 function route() {
   const hash = location.hash;
@@ -718,6 +754,7 @@ function route() {
   else if (hash === '#/tactics') screenTactics();
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
+  else if (hash === '#/cup') screenCup();
   else if (hash.startsWith('#/player/')) screenPlayer(Number(hash.split('/')[2]));
   else screenDashboard();
 }

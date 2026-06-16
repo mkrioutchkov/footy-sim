@@ -234,7 +234,19 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     Verified by `tools/_newgen_test.ts` (targeting + non-destructive + regens start needy).
     Note: only the user's regens are enriched (AI regens stay neutral — cost); an offline
     archetype-variety generator is a future add.
-- **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen backstories
+  - **Cup competition** (`cup.ts`). A single-elimination knockout of every world club (16,
+    or 8 for a legacy single league), drawn at random each season (so a Championship side can
+    draw + dump out a PL one — giant-killings come from the engine result). Spread across the
+    season — round R plays once the league reaches matchday R×3 (final at MD12, before the MD14
+    rollover). Drawn ties → a deterministic seeded shootout. `createCup` (idempotent) at world
+    creation + each rollover; `advanceCupRound` (idempotent, won't duplicate a round — also a
+    `uq_cup_tie` unique index); `cupView`/`pendingCupRound`/`cupTieFor`. `match.ts` shares a
+    `runEngineSummary` + `buildTieSpec` between league fixtures + `playCupTie`. `/api/cup` +
+    a `#/cup` bracket screen. `/api/advance` is now per-user-locked (a 409 on a concurrent
+    advance) so overlapping requests can't double-run ticks or duplicate a cup round (a review
+    finding). Verified by `tools/_cup_test.ts` (incl. idempotency + the draw shootout + a full
+    16→1 run) + HTTP smoke.
+- **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup
   are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;

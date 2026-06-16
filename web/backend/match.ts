@@ -75,13 +75,12 @@ function specForTeam(teamId: number, side: 'home' | 'away') {
   return { name: t.name, tactics: t.tactics, players };
 }
 
+// Build a match spec for two teams (shared by league fixtures + cup ties).
+export function buildTieSpec(homeTeamId: number, awayTeamId: number, seed: number) {
+  return { seed, minutes: MINUTES, home: specForTeam(homeTeamId, 'home'), away: specForTeam(awayTeamId, 'away') };
+}
 export function buildSpec(fixture: Fixture) {
-  return {
-    seed: fixture.seed,
-    minutes: MINUTES,
-    home: specForTeam(fixture.home_team_id, 'home'),
-    away: specForTeam(fixture.away_team_id, 'away'),
-  };
+  return buildTieSpec(fixture.home_team_id, fixture.away_team_id, fixture.seed);
 }
 
 export function writeSpec(fixture: Fixture): string {
@@ -98,15 +97,12 @@ export interface PlayResult { fixtureId: number; homeScore: number; awayScore: n
 // ASYNC (spawn, not spawnSync) so a ~1-2s (slower under load) match sim never
 // blocks the Node event loop — that froze the watch socket and serialised a
 // whole matchday. A round's fixtures can now sim concurrently (Promise.all).
-export function playFixture(fixtureId: number): Promise<PlayResult> {
-  const fx = getFixture(fixtureId);
-  if (!fx) return Promise.reject(new Error('fixture not found'));
-  if (fx.played) {
-    return Promise.resolve({ fixtureId, homeScore: fx.home_score ?? 0, awayScore: fx.away_score ?? 0, alreadyPlayed: true });
-  }
-  const file = writeSpec(fx);
-  return new Promise<PlayResult>((resolve, reject) => {
-    const child = spawn(ENGINE, ['--match', file, '--summary', '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
+// Run a written spec through the engine (--summary, deterministic via its seed) and return
+// the parsed score. Async (spawn) so a ~1-2s sim never blocks the event loop. Shared by
+// league fixtures + cup ties so they sim identically.
+function runEngineSummary(specPath: string): Promise<{ homeScore: number; awayScore: number }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ENGINE, ['--match', specPath, '--summary', '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '', err = '';
     child.stdout.on('data', d => { out += d.toString(); });
     child.stderr.on('data', d => { err += d.toString(); });
@@ -117,13 +113,37 @@ export function playFixture(fixtureId: number): Promise<PlayResult> {
       try {
         const lines = out.split(/\r?\n/).filter(l => l.trim().startsWith('{'));
         const summary = JSON.parse(lines[lines.length - 1]);
-        const homeScore = summary.homeScore ?? 0;
-        const awayScore = summary.awayScore ?? 0;
-        db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?')
-          .run(homeScore, awayScore, fixtureId);
-        resolve({ fixtureId, homeScore, awayScore, alreadyPlayed: false });
+        resolve({ homeScore: summary.homeScore ?? 0, awayScore: summary.awayScore ?? 0 });
       } catch (e) { reject(new Error(`engine parse failed: ${err || String(e)}`)); }
     });
+  });
+}
+
+export function playFixture(fixtureId: number): Promise<PlayResult> {
+  const fx = getFixture(fixtureId);
+  if (!fx) return Promise.reject(new Error('fixture not found'));
+  if (fx.played) {
+    return Promise.resolve({ fixtureId, homeScore: fx.home_score ?? 0, awayScore: fx.away_score ?? 0, alreadyPlayed: true });
+  }
+  return runEngineSummary(writeSpec(fx)).then(({ homeScore, awayScore }) => {
+    db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, fixtureId);
+    return { fixtureId, homeScore, awayScore, alreadyPlayed: false };
+  });
+}
+
+export interface CupTieResult { tieId: number; homeScore: number; awayScore: number; alreadyPlayed: boolean }
+
+// Play a cup tie through the engine and persist its score. Idempotent.
+export function playCupTie(tieId: number): Promise<CupTieResult> {
+  const t = db.prepare('SELECT home_team_id, away_team_id, seed, played, home_score, away_score FROM cup_ties WHERE id = ?')
+    .get(tieId) as { home_team_id: number | null; away_team_id: number | null; seed: number; played: number; home_score: number | null; away_score: number | null } | undefined;
+  if (!t || t.home_team_id == null || t.away_team_id == null) return Promise.reject(new Error('cup tie not ready'));
+  if (t.played) return Promise.resolve({ tieId, homeScore: t.home_score ?? 0, awayScore: t.away_score ?? 0, alreadyPlayed: true });
+  const file = path.join(SPEC_DIR, `cup-${tieId}.json`);
+  writeFileSync(file, JSON.stringify(buildTieSpec(t.home_team_id, t.away_team_id, t.seed)));
+  return runEngineSummary(file).then(({ homeScore, awayScore }) => {
+    db.prepare('UPDATE cup_ties SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, tieId);
+    return { tieId, homeScore, awayScore, alreadyPlayed: false };
   });
 }
 

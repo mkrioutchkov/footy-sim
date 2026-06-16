@@ -1,6 +1,7 @@
 import { db } from './db.ts';
 import { randomPlayerName, randomTeamName } from './names.ts';
 import { generateSquadPersonalities } from './personality.ts';
+import { createCup } from './cup.ts';
 
 const parseJSON = (s: string | null): unknown | null => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 
@@ -277,6 +278,7 @@ export function newSeasonForUser(userId: number, username: string, teamName: str
   }
   generateFixtures(worldId); generateFixtures(secondId);
   seedFreeAgents(worldId); seedFreeAgents(secondId);
+  createCup(secondId);                                   // a knockout cup of all 16 clubs
   return { leagueId: secondId, teamId, worldId };
 }
 

@@ -9,6 +9,7 @@ import { standings, generateFixtures, seedFreeAgents, tierFinance, type Standing
 import { tickContracts, type ContractEvent } from './contracts.ts';
 import { youthAndRetirement, type YouthEvent } from './youth.ts';
 import { resetFitness } from './fitness.ts';
+import { createCup } from './cup.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -132,6 +133,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       db.prepare('DELETE FROM fixtures WHERE league_id = ?').run(l.id);
       generateFixtures(l.id);
     }
+    createCup(leagues[0].id);                            // a fresh cup for the new season
     return out;
   });
 }

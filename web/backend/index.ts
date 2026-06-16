@@ -12,7 +12,8 @@ import {
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
-import { playFixture, getFixture, writeSpec, MatchStream } from './match.ts';
+import { playFixture, playCupTie, getFixture, writeSpec, MatchStream } from './match.ts';
+import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick } from './market.ts';
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
@@ -242,6 +243,15 @@ app.put('/api/training', async (req: any, reply) => {
   return setTrainingFocus(teamId, focus);
 });
 
+// The cup bracket for the user's world this season.
+app.get('/api/cup', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const team = getTeamWithPlayers(teamId)!;
+  return { ...cupView(team.leagueId), myTeamId: teamId };
+});
+
 app.get('/api/league', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
@@ -287,10 +297,16 @@ app.post('/api/fixtures/:id/play', async (req: any, reply) => {
 // both tables move together), then run the market + training ticks for each division. If
 // that completes the season, roll it over (prize money, promotion/relegation, ageing, new
 // fixtures) and return the summary.
+const advancing = new Set<number>();   // per-user lock: a matchday mutates many tables + plays
 app.post('/api/advance', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
+  // serialise per user so two overlapping advances (two tabs, a mid-request refresh) can't
+  // double-run the ticks or duplicate a cup round.
+  if (advancing.has(user.id)) return reply.code(409).send({ error: 'a matchday is already in progress' });
+  advancing.add(user.id);
+  try {
   const team = getTeamWithPlayers(teamId)!;
   const leagues = worldLeagues(team.leagueId);
   // the round number the user's own division is completing this matchday (for the UI)
@@ -309,6 +325,15 @@ app.post('/api/advance', async (req: any, reply) => {
   const injuries: any[] = [];
   let developed = 0;
   for (const l of leagues) { injuries.push(...fitnessTick(l.id)); transfers.push(...marketTick(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players; }
+  // The cup is spread across the season — round R plays once the league reaches matchday R*3,
+  // so it concludes (the final at matchday 12) before the season rolls over.
+  let cup: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null = null;
+  const pend = pendingCupRound(team.leagueId);
+  if (pend && userRound != null && pend.round * 3 <= userRound) {
+    await Promise.all(pend.tieIds.map(id => playCupTie(id)));
+    const adv = advanceCupRound(team.leagueId, pend.round);
+    cup = { round: pend.round, champion: adv?.champion ?? null, myTie: cupTieFor(teamId, team.leagueId, pend.round) };
+  }
   // End of season? Roll it over and report the new standings of whichever division the
   // user now sits in (they may have just been promoted or relegated).
   const rollover = seasonComplete(team.leagueId) ? rolloverSeason(team.leagueId) : null;
@@ -318,9 +343,10 @@ app.post('/api/advance', async (req: any, reply) => {
   const nowLeagueId = getTeamWithPlayers(teamId)!.leagueId;
   return {
     round: userRound, myFixtureId: myFx?.id ?? null, myResult, results,
-    transfers, development: { players: developed }, injuries, rollover,
+    transfers, development: { players: developed }, injuries, cup, rollover,
     standings: standings(nowLeagueId),
   };
+  } finally { advancing.delete(user.id); }
 });
 
 // Convenience: play my next unplayed fixture.

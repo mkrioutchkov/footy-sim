@@ -143,3 +143,27 @@ ensureColumn('players', 'contract_years', 'contract_years INTEGER NOT NULL DEFAU
 // healthy state, so existing squads are unaffected + still emit a byte-identical spec.
 ensureColumn('players', 'fitness', 'fitness INTEGER NOT NULL DEFAULT 100');
 ensureColumn('players', 'injured_matches', 'injured_matches INTEGER NOT NULL DEFAULT 0');
+
+// ── Cup competition (core stream) ───────────────────────────────────────────
+// A single-elimination knockout of all the world's clubs, run alongside the league each
+// season. round 1 = the first round, rising to the final; slot orders the bracket. Later-
+// round ties have NULL teams until the feeding ties resolve. A drawn tie is settled by a
+// deterministic seeded shootout. New table, so existing saves are unaffected.
+db.exec(`
+CREATE TABLE IF NOT EXISTS cup_ties (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  world_id       INTEGER NOT NULL,
+  season         INTEGER NOT NULL,
+  round          INTEGER NOT NULL,
+  slot           INTEGER NOT NULL,
+  home_team_id   INTEGER,
+  away_team_id   INTEGER,
+  seed           INTEGER NOT NULL,
+  played         INTEGER NOT NULL DEFAULT 0,
+  home_score     INTEGER,
+  away_score     INTEGER,
+  winner_team_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_cup_world_season ON cup_ties(world_id, season);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cup_tie ON cup_ties(world_id, season, round, slot);
+`);
