@@ -14,6 +14,7 @@ import { createCup } from './cup.ts';
 import { purgeRecordings } from './match.ts';
 import { purgeReports } from './report.ts';
 import { returnLoans } from './market.ts';
+import { recordSeasonAwards } from './news.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -97,6 +98,13 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
     //    (before ageing / contract ticking, so he's home on the books for the new campaign).
     returnLoans(leagues.map(l => l.id));
 
+    // 0b. season awards for each human-managed club, from the rating tally (before it resets in
+    //     the per-league loop below). endSeason = the campaign that just finished.
+    const endSeason = leagues[0].season ?? 1;
+    const lph = leagues.map(() => '?').join(',');
+    const humanTeams = db.prepare(`SELECT id FROM teams WHERE league_id IN (${lph}) AND user_id IS NOT NULL`).all(...leagues.map(l => l.id)) as { id: number }[];
+    for (const t of humanTeams) recordSeasonAwards(t.id, endSeason);
+
     // 1. prize money by final position
     for (const { league, table } of finals) {
       table.forEach((s, i) => {
@@ -139,6 +147,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       out.youth.push(...youthAndRetirement(l.id));     // retire veterans + bring through prospects
       resetFitness(l.id);                              // pre-season: everyone reports back fit
       resetMorale(l.id);                               // and morale resets to fresh optimism
+      db.prepare('UPDATE players SET season_rating_sum = 0, season_apps = 0 WHERE team_id IN (SELECT id FROM teams WHERE league_id = ?)').run(l.id);   // fresh rating tally
       // the old fixtures are about to vanish — drop their recordings + cached reports too, so
       // those tables don't accumulate rows (and gzip files) keyed to dead fixture ids.
       const oldFixtures = (db.prepare('SELECT id FROM fixtures WHERE league_id = ?').all(l.id) as { id: number }[]).map(r => r.id);

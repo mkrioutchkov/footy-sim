@@ -22,7 +22,7 @@ import { aiManagerTick } from './ai.ts';
 import { renewContract } from './contracts.ts';
 import { applyPressConference } from './press.ts';
 import { buildMatchReport } from './report.ts';
-import { processPlayerNews, recentNews } from './news.ts';
+import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
 
@@ -401,10 +401,11 @@ app.post('/api/advance', async (req: any, reply) => {
     const adv = advanceCupRound(team.leagueId, pend.round);
     cup = { round: pend.round, champion: adv?.champion ?? null, myTie: cupTieFor(teamId, team.leagueId, pend.round) };
   }
-  // Notable events this matchday (a hat-trick, a red card, a long injury…) become news AND evolve
-  // the player's backstory + dials. Background + best-effort, like the personality backfill, so it
-  // never blocks the matchday. Fired before rollover so the squad map matches the match just played.
-  if (myFx) void processPlayerNews(teamId, myFx.id, injuries).catch(() => { /* news is ambient */ });
+  // The match aftermath for the user's players: rating -> morale + season tally, and notable
+  // events (hat-trick, red card, long injury…) become news + evolve the backstory/dials.
+  // Background + best-effort, like the personality backfill; fired before rollover so the squad
+  // map + the season tally reflect the match just played (rollover then crowns the awards).
+  if (myFx) void processMatchAftermath(teamId, myFx.id, injuries).catch(() => { /* aftermath is ambient */ });
   // End of season? Roll it over and report the new standings of whichever division the
   // user now sits in (they may have just been promoted or relegated).
   const rollover = seasonComplete(team.leagueId) ? rolloverSeason(team.leagueId) : null;

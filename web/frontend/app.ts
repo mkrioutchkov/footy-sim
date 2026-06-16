@@ -341,7 +341,7 @@ async function screenDashboard() {
     pressInput, h('div', { style: 'margin-top:6px' }, pressBtn));
 
   // ── club news: events that evolved a player's story + dials ──
-  const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕' };
+  const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟' };
   // link by CURRENT name → slot (slots renumber on transfers, so a stored slot can drift); only
   // unique names link (a duplicate name can't be resolved to one player), and a player who has
   // since left the club just isn't a link.

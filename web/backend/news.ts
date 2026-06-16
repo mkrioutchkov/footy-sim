@@ -14,13 +14,14 @@ const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v
 const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
 const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
 
-export type NewsType = 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury';
+export type EvolveType = 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury';   // events that evolve the story
+export type NewsType = EvolveType | 'pots' | 'young_pots';                              // + season awards (no story change)
 
 // Each event: the feed headline + a cue-rich "development" sentence. The sentence is woven into
 // the backstory (the LLM rewrites around it; the fallback appends it verbatim) — its phrases are
 // the deterministic keyword cues in personality.ts, so re-deriving moves the right dials: a
 // hat-trick lifts ego + big-game, a red card the temperament, a long injury dents consistency, etc.
-const EVENTS: Record<NewsType, { headline: (player: string) => string; dev: string }> = {
+const EVENTS: Record<EvolveType, { headline: (player: string) => string; dev: string }> = {
   hat_trick: { headline: p => `${p} fires home a hat-trick!`, dev: 'Fresh off a match-ball hat-trick — box office now, and rises to the big occasion.' },
   brace: { headline: p => `${p} bags a brace`, dev: 'Red-hot in front of goal — a confidence player who feeds off the crowd.' },
   red_card: { headline: p => `${p} sees red`, dev: 'A rash sending-off laid bare the short fuse and fiery temper once again.' },
@@ -73,7 +74,7 @@ async function rewriteStory(name: string, role: string, p: Personality, dev: str
   return fallback();
 }
 
-interface Event { id: number; slot: number; player: string; type: NewsType }
+interface Event { id: number; slot: number; player: string; type: EvolveType }
 
 // One player's evolution + news row, in a fresh tx-free write (caller batches). Keyed by the
 // player's stable DB id (captured synchronously at detection) — so a deferred write never lands on
@@ -98,19 +99,24 @@ const LONG_INJURY = 3;   // matchdays sidelined that counts as "a lay-off"
 // Detect + apply a matchday's player-news for the user's team: notable events in his match (from
 // its recording) + any long injury that landed (from the fitness tick). Idempotent per fixture.
 // Returns the headlines produced (also persisted). Best-effort — call in the background.
-export async function processPlayerNews(teamId: number, fixtureId: number, injuries: { teamId: number; player: string; matches: number }[]): Promise<string[]> {
-  if (db.prepare('SELECT 1 FROM player_news WHERE team_id = ? AND ref_id = ?').get(teamId, fixtureId)) return [];   // already processed this matchday
+const RATING_MORALE = 2.5;   // morale points per rating-point either side of 6.5 (capped at ±8)
+
+// The player-facing aftermath of the user's match: each man who played has his RATING nudge his
+// morale and feed his season tally (-> awards), and standout / low-light events evolve his story
+// and make the news. Read once from the recording; guarded per-fixture by fixtures.aftermath_done
+// so it can't double-apply (e.g. the user watches the match, then advances). Story work is
+// best-effort; the morale + tally are claimed up front. Names resolve to a player only when UNIQUE
+// in the squad (a duplicate name drops rather than mis-attributes), capturing the stable DB id.
+export async function processMatchAftermath(teamId: number, fixtureId: number, injuries: { teamId: number; player: string; matches: number }[]): Promise<string[]> {
+  const done = db.prepare('SELECT aftermath_done FROM fixtures WHERE id = ?').get(fixtureId) as { aftermath_done: number } | undefined;
+  if (!done || done.aftermath_done) return [];
   const squad = db.prepare('SELECT id, slot, name FROM players WHERE team_id = ?').all(teamId) as { id: number; slot: number; name: string }[];
-  // Resolve events to a player by name, but ONLY when the name is unique in the squad — player
-  // names aren't guaranteed unique, and mis-evolving a same-named team-mate is worse than dropping
-  // the rare ambiguous event. Captures the stable DB id (synchronously, pre any rollover).
   const nameCount = new Map<string, number>();
   for (const p of squad) nameCount.set(p.name, (nameCount.get(p.name) ?? 0) + 1);
   const byName = new Map(squad.filter(p => nameCount.get(p.name) === 1).map(p => [p.name, p]));
   const season = (db.prepare('SELECT l.season AS s FROM leagues l JOIN teams t ON t.league_id = l.id WHERE t.id = ?').get(teamId) as { s: number } | undefined)?.s ?? 1;
 
   const events: Event[] = [];
-  // match events — read the recording (deterministic, no engine), user's side only, one per player
   const rec = recordingFor('fixture', fixtureId);
   const fx = getFixture(fixtureId);
   if (rec && fx) {
@@ -119,24 +125,46 @@ export async function processPlayerNews(teamId: number, fixtureId: number, injur
       const facts = analyzeRecording(frames);
       const side: 'home' | 'away' = fx.home_team_id === teamId ? 'home' : 'away';
       const sentOff = new Set(facts.timeline.filter(e => e.type === 'red' && e.team === side).map(e => e.name));   // user's side only
+      const upd = db.prepare('UPDATE players SET morale = MAX(0, MIN(100, morale + ?)), season_rating_sum = season_rating_sum + ?, season_apps = season_apps + 1 WHERE id = ?');
       for (const r of facts.ratings.filter(x => x.team === side)) {
         const p = byName.get(r.name);
         if (!p) continue;
-        const type: NewsType | null = r.goals >= 3 ? 'hat_trick' : sentOff.has(r.name) ? 'red_card' : r.goals === 2 ? 'brace' : r.rating >= 8.5 ? 'star' : null;
+        const delta = Math.max(-8, Math.min(8, Math.round((r.rating - 6.5) * RATING_MORALE)));
+        upd.run(delta, r.rating, p.id);   // rating -> morale nudge + season tally (in one write)
+        const type: EvolveType | null = r.goals >= 3 ? 'hat_trick' : sentOff.has(r.name) ? 'red_card' : r.goals === 2 ? 'brace' : r.rating >= 8.5 ? 'star' : null;
         if (type) events.push({ id: p.id, slot: p.slot, player: r.name, type });
       }
     }
   }
-  // injury events — a long lay-off for one of the user's players
   for (const i of injuries) {
     if (i.teamId !== teamId || i.matches < LONG_INJURY) continue;
     const p = byName.get(i.player);
     if (p) events.push({ id: p.id, slot: p.slot, player: i.player, type: 'long_injury' });
   }
+  // Claim the matchday now that morale + tally are applied — a re-fire can't double them; the
+  // (slower, LLM) story evolution below is best-effort on top.
+  db.prepare('UPDATE fixtures SET aftermath_done = 1 WHERE id = ?').run(fixtureId);
 
   const headlines: string[] = [];
   for (const ev of events) { await applyEvent(teamId, fixtureId, season, ev); headlines.push(EVENTS[ev.type].headline(ev.player)); }
   return headlines;
+}
+
+const MIN_AWARD_APPS = 3;   // games played to be eligible for a season award
+
+// Crown the club's Player + Young Player of the Season from the accumulated rating tally, as news
+// (no story change). Called at rollover BEFORE the tally resets; no eligible player -> no award.
+export function recordSeasonAwards(teamId: number, season: number): void {
+  const rated = (db.prepare('SELECT slot, name, age, season_rating_sum AS sum, season_apps AS apps FROM players WHERE team_id = ? AND season_apps >= ?').all(teamId, MIN_AWARD_APPS) as
+    { slot: number; name: string; age: number; sum: number; apps: number }[])
+    .map(p => ({ ...p, avg: p.sum / p.apps }));
+  if (!rated.length) return;
+  const ins = db.prepare('INSERT INTO player_news (team_id, player_slot, player_name, type, headline, ref_id, season, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)');
+  const now = Date.now();
+  const pots = [...rated].sort((a, b) => b.avg - a.avg)[0];
+  ins.run(teamId, pots.slot, pots.name, 'pots', `${pots.name} — your Player of the Season (avg ${pots.avg.toFixed(1)} over ${pots.apps} games)`, season, now);
+  const young = [...rated].filter(p => p.age <= 21).sort((a, b) => b.avg - a.avg)[0];
+  if (young && young.name !== pots.name) ins.run(teamId, young.slot, young.name, 'young_pots', `${young.name} — your Young Player of the Season (avg ${young.avg.toFixed(1)})`, season, now);
 }
 
 export interface NewsRow { player: string; type: NewsType; headline: string; season: number; slot: number }

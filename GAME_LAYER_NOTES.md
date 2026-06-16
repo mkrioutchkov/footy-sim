@@ -328,14 +328,24 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     recording (no engine), user-side only; injuries from the fitness tick. Attribution is by stable
     DB **id** captured at detection (immune to slot renumbering), via a UNIQUE-name map (a duplicate
     squad name drops the event rather than mis-evolve a team-mate), and the red-card set is
-    side-filtered (review fixes). Idempotent per matchday (`ref_id` = fixture). `players.personality`
-    is updated in place; `player_news` is the club's persistent feed (kept across seasons — NOT
-    purged at rollover). Fired in the background from `/api/advance`; `GET /api/news` + a Club-news
-    dashboard card (links by current name). Verified by `tools/_news_test.ts` (17 — detection,
-    story+dial evolution, idempotency, + the two name-collision regressions — no engine, keyless).
+    side-filtered (review fixes). `players.personality` is updated in place; `player_news` is the
+    club's persistent feed (kept across seasons — NOT purged at rollover). `GET /api/news` + a
+    Club-news dashboard card (links by current name). (The detector lives in `processMatchAftermath`
+    — see Awards below.) Verified by `tools/_news_test.ts` (no engine, keyless).
+  - **Ratings → morale + season awards.** The per-match player ratings (report.ts) finally drive
+    something. `news.ts processMatchAftermath` (the renamed news detector, fired in the background
+    from `/api/advance` before rollover): one pass over the user-side ratings nudges each player's
+    morale by `clamp(round((rating−6.5)×2.5), ±8)` AND accumulates a season tally (`players.
+    season_rating_sum/season_apps`) — alongside the story-evolving news events. Guarded per-fixture
+    by `fixtures.aftermath_done` (set after the synchronous morale/tally pass, before the async LLM
+    story loop) so the watch-then-advance path can't double-apply. `recordSeasonAwards` at rollover
+    (step 0b, before ageing + before the tally resets) crowns the club's **Player of the Season** +
+    **Young Player of the Season** (U-21) by average rating over ≥3 games, as `player_news` rows
+    (🏆/🌟). Adversarial review: clean (0 findings). Verified by `tools/_news_test.ts` (23 — morale
+    up/down, the tally, no-double-apply, the awards) + multiseason (83, awards + reset across 8 seasons).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
-  negotiation + loans + dynamic player-news are all SHIPPED.
+  negotiation + loans + dynamic player-news + ratings→morale & season awards are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.

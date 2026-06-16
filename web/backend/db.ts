@@ -177,6 +177,16 @@ CREATE TABLE IF NOT EXISTS player_news (
 CREATE INDEX IF NOT EXISTS idx_news_team ON player_news(team_id, id);
 `);
 
+// ── Ratings → morale + season awards (core/LLM stream) ──────────────────────
+// A player's match rating (from the recording) nudges his morale and accumulates a season
+// tally; at rollover the tally crowns a Player / Young Player of the Season. aftermath_done
+// guards the per-fixture aftermath (morale + tally + news) against a double-apply (e.g. the
+// user watches then advances). All default to the neutral/zero state, so existing saves are
+// unaffected.
+ensureColumn('fixtures', 'aftermath_done', 'aftermath_done INTEGER NOT NULL DEFAULT 0');
+ensureColumn('players', 'season_rating_sum', 'season_rating_sum REAL NOT NULL DEFAULT 0');
+ensureColumn('players', 'season_apps', 'season_apps INTEGER NOT NULL DEFAULT 0');
+
 // ── Cup competition (core stream) ───────────────────────────────────────────
 // A single-elimination knockout of all the world's clubs, run alongside the league each
 // season. round 1 = the first round, rising to the final; slot orders the bracket. Later-

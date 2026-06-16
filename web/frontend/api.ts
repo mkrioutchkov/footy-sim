@@ -67,7 +67,7 @@ export interface TimelineEventT { minute: number; team: 'home' | 'away'; name: s
 export interface MatchFactsT { homeScore: number; awayScore: number; possessionHome: number; shots: { home: number; away: number }; shotsOnTarget: number; saves: number; corners: number; timeline: TimelineEventT[]; ratings: PlayerRatingT[]; }
 export interface ReportT { homeName: string; awayName: string; headline: string; body: string; facts: MatchFactsT; ratings: PlayerRatingT[]; }
 
-export interface NewsItemT { player: string; type: 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury'; headline: string; season: number; slot: number; }
+export interface NewsItemT { player: string; type: 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury' | 'pots' | 'young_pots'; headline: string; season: number; slot: number; }
 
 export const api = {
   me: () => req<{ user: UserT | null; teamId?: number | null }>('GET', '/me'),
