@@ -126,3 +126,13 @@ ensureColumn('teams', 'training_focus', "training_focus TEXT NOT NULL DEFAULT 'b
 // lone division (no promotion/relegation), so the original single-league flow is intact.
 ensureColumn('leagues', 'tier', 'tier INTEGER NOT NULL DEFAULT 1');
 ensureColumn('leagues', 'world_id', 'world_id INTEGER');
+
+// ── Wages & contracts (pillar 5.2) ──────────────────────────────────────────
+// Annual wage (a recurring commitment, separate from the one-off transfer fee) + a wage
+// budget per club. NULL wages are backfilled (backfillContracts) from OVR/age/ego.
+ensureColumn('players', 'wage', 'wage INTEGER');
+ensureColumn('free_agents', 'wage', 'wage INTEGER');
+ensureColumn('teams', 'wage_budget', 'wage_budget INTEGER NOT NULL DEFAULT 40000000');
+// Seasons left on a player's deal; at rollover it ticks down and expiring players leave
+// (pillar 5.2b). Existing rows default to a comfortable 3.
+ensureColumn('players', 'contract_years', 'contract_years INTEGER NOT NULL DEFAULT 3');

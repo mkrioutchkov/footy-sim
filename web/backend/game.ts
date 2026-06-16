@@ -85,6 +85,16 @@ export function playerValue(attrs: Record<string, number>, age: number, personal
   return Math.max(50_000, Math.round(v / 100_000) * 100_000);
 }
 
+// Annual wage = a fraction of the (ego-neutral) transfer value, then a big ego pushes the
+// demand up. Separate from value so a diva costs more to PAY even when worth less to BUY.
+// TASTE: the 8% ratio + ego premium — see GAME_LAYER_NOTES.md.
+export function playerWage(attrs: Record<string, number>, age: number, personality: unknown): number {
+  const base = playerValue(attrs, age, null) * 0.08;
+  const ego = ((personality as { traits?: { ego?: number } } | null)?.traits?.ego) ?? 50;
+  const egoMult = 1 + (Math.max(0, ego - 50) / 50) * 0.25;        // up to +25% for a maxed ego
+  return Math.max(50_000, Math.round((base * egoMult) / 50_000) * 50_000);
+}
+
 // New-player age: a realistic spread centred on the mid-20s (18..34), skewed to prime.
 function genAge(): number {
   const r = (Math.random() + Math.random()) / 2;   // triangular, peaks at .5
@@ -109,12 +119,12 @@ export function randomTactics(): Tactics {
 
 function insertRoster(teamId: number, base: number): void {
   const ins = db.prepare(
-    'INSERT INTO players (team_id, slot, name, role, attrs, age, potential) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO players (team_id, slot, name, role, attrs, age, potential, wage, contract_years) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
   ROLE_SLOTS.forEach((role, slot) => {
     const attrs = genAttrs(role, base);
     const age = genAge();
-    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age));
+    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), playerWage(attrs, age, null), 2 + Math.floor(Math.random() * 3));
   });
 }
 
@@ -125,14 +135,14 @@ export const FREE_AGENT_COUNT = 28;
 const FA_ROLES: Role[] = ['GK', 'FB', 'CB', 'CM', 'WM', 'CF'];
 export function seedFreeAgents(leagueId: number, count = FREE_AGENT_COUNT): void {
   const ins = db.prepare(
-    'INSERT INTO free_agents (league_id, name, role, attrs, personality, age, potential, value) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)',
+    'INSERT INTO free_agents (league_id, name, role, attrs, personality, age, potential, value, wage) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)',
   );
   for (let i = 0; i < count; i++) {
     const role = FA_ROLES[Math.floor(Math.random() * FA_ROLES.length)];
     const baseStrength = Math.round(38 + Math.pow(Math.random(), 2) * 42);   // 38..80, skewed low
     const attrs = genAttrs(role, baseStrength);
     const age = genAge();
-    ins.run(leagueId, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), playerValue(attrs, age, null));
+    ins.run(leagueId, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), playerValue(attrs, age, null), playerWage(attrs, age, null));
   }
   db.prepare('UPDATE leagues SET market_seeded = 1 WHERE id = ?').run(leagueId);
 }
@@ -146,6 +156,17 @@ export function backfillPotentials(): void {
   const fas = db.prepare('SELECT id, attrs, age FROM free_agents WHERE potential IS NULL').all() as { id: number; attrs: string; age: number }[];
   const upF = db.prepare('UPDATE free_agents SET potential = ? WHERE id = ?');
   for (const f of fas) upF.run(genPotential(overall(JSON.parse(f.attrs)), f.age), f.id);
+}
+
+// Backfill wages for players + free agents that predate pillar 5.2 (wage NULL), from
+// OVR/age/ego. Idempotent. contract_years already defaulted to 3 by the migration.
+export function backfillContracts(): void {
+  const players = db.prepare('SELECT id, attrs, age, personality FROM players WHERE wage IS NULL').all() as { id: number; attrs: string; age: number; personality: string | null }[];
+  const upP = db.prepare('UPDATE players SET wage = ? WHERE id = ?');
+  for (const p of players) upP.run(playerWage(JSON.parse(p.attrs), p.age, parseJSON(p.personality)), p.id);
+  const fas = db.prepare('SELECT id, attrs, age FROM free_agents WHERE wage IS NULL').all() as { id: number; attrs: string; age: number }[];
+  const upF = db.prepare('UPDATE free_agents SET wage = ? WHERE id = ?');
+  for (const f of fas) upF.run(playerWage(JSON.parse(f.attrs), f.age, null), f.id);
 }
 
 // One-time backfill for leagues that predate the transfer market (or were created
@@ -269,18 +290,18 @@ export function standings(leagueId: number): Standing[] {
   return out;
 }
 
-export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; age: number; potential: number | null; listed: boolean; askPrice: number | null; }
+export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; age: number; potential: number | null; listed: boolean; askPrice: number | null; wage: number; contractYears: number; }
 
 export function getTeamWithPlayers(teamId: number): {
   id: number; name: string; manager: string; leagueId: number; userId: number | null;
-  budget: number; trainingFocus: string; tactics: Tactics; formation: string; lineup: number[] | null; players: PlayerRow[];
+  budget: number; wageBudget: number; trainingFocus: string; tactics: Tactics; formation: string; lineup: number[] | null; players: PlayerRow[];
 } | null {
-  const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, training_focus, tactics, formation, lineup FROM teams WHERE id = ?')
-    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; training_focus: string | null; tactics: string; formation: string | null; lineup: string | null } | undefined;
+  const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, wage_budget, training_focus, tactics, formation, lineup FROM teams WHERE id = ?')
+    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; wage_budget: number; training_focus: string | null; tactics: string; formation: string | null; lineup: string | null } | undefined;
   if (!t) return null;
-  const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, potential, listed, ask_price FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
-    { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; listed: number; ask_price: number | null }[])
-    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality), age: p.age, potential: p.potential, listed: !!p.listed, askPrice: p.ask_price }));
+  const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, potential, listed, ask_price, wage, contract_years FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
+    { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; listed: number; ask_price: number | null; wage: number | null; contract_years: number }[])
+    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality), age: p.age, potential: p.potential, listed: !!p.listed, askPrice: p.ask_price, wage: p.wage ?? 0, contractYears: p.contract_years }));
   let lineup: number[] | null = null;
   // Accept the stored lineup only if it's a clean 11-long permutation of valid squad
   // indices (0..squadSize-1, all distinct). A malformed/legacy/tampered value falls
@@ -296,7 +317,7 @@ export function getTeamWithPlayers(teamId: number): {
   } catch { /* ignore */ }
   return {
     id: t.id, name: t.name, manager: t.manager, leagueId: t.league_id, userId: t.user_id,
-    budget: t.budget, trainingFocus: t.training_focus ?? 'balanced', tactics: JSON.parse(t.tactics),
+    budget: t.budget, wageBudget: t.wage_budget, trainingFocus: t.training_focus ?? 'balanced', tactics: JSON.parse(t.tactics),
     formation: t.formation ?? '4-3-3', lineup, players,
   };
 }

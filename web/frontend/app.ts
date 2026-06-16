@@ -494,10 +494,14 @@ async function screenMarket() {
     // free-agent pool — sign to your squad
     const faBody = h('tbody');
     if (!market.freeAgents.length) faBody.append(h('tr', {}, h('td', { colspan: '7', class: 'muted' }, 'No free agents left.')));
+    const wageHeadroom = market.wageBudget - market.wageBill;
+    const moneyCell = (value: number, wage: number) => h('td', { class: 'num' }, fmtMoney(value),
+      h('div', { class: 'muted', style: 'font-size:10px' }, `${fmtMoney(wage)}/yr`));
     for (const a of market.freeAgents) {
-      const afford = market.budget >= a.value, room = market.squad.length < market.squadMax;
+      const afford = market.budget >= a.value, room = market.squad.length < market.squadMax, wageOk = a.wage <= wageHeadroom;
       const sign = h('button', { class: 'ghost small' }, 'Sign');
-      if (!afford || !room) sign.setAttribute('disabled', 'true');
+      if (!afford || !room || !wageOk) sign.setAttribute('disabled', 'true');
+      if (afford && room && !wageOk) sign.setAttribute('title', 'Not enough wage budget');
       sign.addEventListener('click', async () => {
         sign.setAttribute('disabled', 'true'); sign.textContent = '…';
         try { const r = await api.buyAgent(a.id); market = r.market; toast(`Signed ${r.name} — ${fmtMoney(r.value)} (${r.placed === 'xi' ? 'straight into the XI' : 'to the bench'})`); render(); }
@@ -510,7 +514,7 @@ async function screenMarket() {
         h('td', { class: 'num' }, String(a.age)),
         h('td', { class: 'num' }, String(a.overall)),
         h('td', { class: 'num' }, faPot ? h('span', { class: 'a' }, String(a.potential)) : (a.potential != null ? String(a.potential) : '—')),
-        h('td', { class: 'num' }, fmtMoney(a.value)),
+        moneyCell(a.value, a.wage),
         h('td', { class: 'num' }, sign)));
     }
 
@@ -537,19 +541,20 @@ async function screenMarket() {
         h('td', { class: 'num' }, String(p.age)),
         h('td', { class: 'num' }, String(p.overall)),
         h('td', { class: 'num' }, sqPot ? h('span', { class: 'a' }, String(p.potential)) : (p.potential != null ? String(p.potential) : '—')),
-        h('td', { class: 'num' }, fmtMoney(p.value)),
+        moneyCell(p.value, p.wage),
         h('td', { class: 'num' }, btn)));
     }
 
     const headRow = (label: string) => h('thead', {}, h('tr', {},
       h('th', {}, label), h('th', {}, 'Pos'),
       h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'POT'),
-      h('th', { class: 'num' }, 'Value'), h('th', { class: 'num' }, '')));
+      h('th', { class: 'num' }, 'Fee/Wage'), h('th', { class: 'num' }, '')));
 
+    const wagePct = market.wageBudget > 0 ? Math.round((market.wageBill / market.wageBudget) * 100) : 0;
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Transfer market'),
-          h('div', { class: 'muted' }, `Budget ${fmtMoney(market.budget)} · squad ${market.squad.length}/${market.squadMax}`)),
+          h('div', { class: 'muted' }, `Budget ${fmtMoney(market.budget)} · wages ${fmtMoney(market.wageBill)}/${fmtMoney(market.wageBudget)} (${wagePct}%) · squad ${market.squad.length}/${market.squadMax}`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
       ),
       h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
@@ -666,7 +671,8 @@ async function screenPlayer(slot: number) {
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, p.name),
-        h('div', { class: 'muted' }, `${p.role} · OVR ${ovr}${p.potential && p.potential > ovr ? ` → ${p.potential}` : ''}${p.age != null ? ` · ${p.age}y` : ''}${p.personality?.nationality ? ` · ${p.personality.nationality}` : ''}`)),
+        h('div', { class: 'muted' }, `${p.role} · OVR ${ovr}${p.potential && p.potential > ovr ? ` → ${p.potential}` : ''}${p.age != null ? ` · ${p.age}y` : ''}${p.personality?.nationality ? ` · ${p.personality.nationality}` : ''}`),
+        p.wage != null ? h('div', { class: 'muted', style: 'font-size:12px' }, `Wage ${fmtMoney(p.wage)}/yr · ${p.contractYears ?? 0}y left on contract`) : ''),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
     h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },

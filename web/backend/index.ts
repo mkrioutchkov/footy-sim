@@ -8,7 +8,7 @@ import { registerUser, loginUser, createSession, destroySession, getUserBySessio
 import { db } from './db.ts';
 import {
   newSeasonForUser, getTeamWithPlayers, standings, teamForUser,
-  assignPersonalities, needsPersonalities, backfillFreeAgents, backfillPotentials,
+  assignPersonalities, needsPersonalities, backfillFreeAgents, backfillPotentials, backfillContracts,
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
@@ -24,6 +24,7 @@ const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
 // idempotent backfills for saves that predate pillars 1 & 2).
 backfillFreeAgents();
 backfillPotentials();
+backfillContracts();
 const app = Fastify({ logger: false });
 await app.register(cookie);
 

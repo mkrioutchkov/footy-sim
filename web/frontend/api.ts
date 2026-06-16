@@ -21,7 +21,7 @@ export interface PersonalityT {
   traits: { temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number; consistency: number; leadership: number; professionalism: number; ego: number };
   nationality: string; backstory: string; tagline: string;
 }
-export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; }
+export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; }
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
@@ -51,9 +51,9 @@ export interface RolloverT {
   relegated: { teamId: number; team: string; fromTier: number; toTier: number }[];
   prizeMoney: { teamId: number; team: string; amount: number }[];
 }
-export interface FreeAgentT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; }
-export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; listed: boolean; askPrice: number | null; starter: boolean; }
-export interface MarketT { budget: number; squadMax: number; squadMin: number; freeAgents: FreeAgentT[]; squad: MarketPlayerT[]; }
+export interface FreeAgentT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; }
+export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; contractYears: number; listed: boolean; askPrice: number | null; starter: boolean; }
+export interface MarketT { budget: number; wageBudget: number; wageBill: number; squadMax: number; squadMin: number; freeAgents: FreeAgentT[]; squad: MarketPlayerT[]; }
 export interface TransferT { teamId: number; teamName: string; type: 'sign' | 'buy_listed'; player: string; role: string; fee: number; from?: string; }
 
 export const api = {

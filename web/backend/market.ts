@@ -22,14 +22,17 @@ function tx<T>(fn: () => T): T {
   catch (e) { try { db.exec('ROLLBACK'); } catch { /* ignore */ } throw e; }
 }
 
-interface TeamRow { id: number; league_id: number; budget: number; user_id: number | null; lineup: string | null; name: string; }
-interface PRow { id: number; slot: number; name: string; role: string; attrs: string; age: number; potential: number | null; personality: string | null; listed: number; ask_price: number | null; }
-interface FARow { id: number; league_id: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; value: number; }
+interface TeamRow { id: number; league_id: number; budget: number; wage_budget: number; user_id: number | null; lineup: string | null; name: string; }
+interface PRow { id: number; slot: number; name: string; role: string; attrs: string; age: number; potential: number | null; personality: string | null; listed: number; ask_price: number | null; wage: number | null; }
+interface FARow { id: number; league_id: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; value: number; wage: number | null; }
 
 const teamRow = (id: number): TeamRow | undefined =>
-  db.prepare('SELECT id, league_id, budget, user_id, lineup, name FROM teams WHERE id = ?').get(id) as TeamRow | undefined;
+  db.prepare('SELECT id, league_id, budget, wage_budget, user_id, lineup, name FROM teams WHERE id = ?').get(id) as TeamRow | undefined;
 const teamPlayers = (id: number): PRow[] =>
-  db.prepare('SELECT id, slot, name, role, attrs, age, potential, personality, listed, ask_price FROM players WHERE team_id = ? ORDER BY slot').all(id) as unknown as PRow[];
+  db.prepare('SELECT id, slot, name, role, attrs, age, potential, personality, listed, ask_price, wage FROM players WHERE team_id = ? ORDER BY slot').all(id) as unknown as PRow[];
+// Current annual wage commitment; headroom = wage_budget - wageBill gates new signings.
+const wageBill = (teamId: number): number =>
+  (db.prepare('SELECT COALESCE(SUM(wage), 0) AS w FROM players WHERE team_id = ?').get(teamId) as { w: number }).w;
 
 // Compact slots to a contiguous 0..N-1 in slot order (so a hole from a sale closes
 // and the first 11 stay the XI). Resets a custom lineup to identity — the index→slot
@@ -59,13 +62,14 @@ export function backfillStarterSlot(teamId: number, slot: number): void {
 }
 
 // Insert a recruit into a squad. Upgrade-into-XI only on the identity lineup; else bench.
+const SIGN_CONTRACT_YEARS = 3;   // a new signing's deal length
 function placeRecruit(
   team: TeamRow, players: PRow[],
-  recruit: { name: string; role: string; attrsJson: string; age: number; potential: number | null; personalityJson: string | null },
+  recruit: { name: string; role: string; attrsJson: string; age: number; potential: number | null; personalityJson: string | null; wage: number },
 ): 'xi' | 'bench' {
   const maxSlot = players.reduce((m, p) => Math.max(m, p.slot), -1);
   const recOvr = overall(JSON.parse(recruit.attrsJson));
-  const ins = db.prepare('INSERT INTO players (team_id, slot, name, role, attrs, age, potential, personality, listed, ask_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)');
+  const ins = db.prepare('INSERT INTO players (team_id, slot, name, role, attrs, age, potential, personality, listed, ask_price, wage, contract_years) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)');
   // The XI starter of this role with the lowest overall is the upgrade target.
   let occupant: PRow | null = null, occOvr = 0;
   players.slice(0, 11).forEach((p, i) => {
@@ -76,10 +80,10 @@ function placeRecruit(
   if (!team.lineup && occupant && recOvr > occOvr) {
     const occ = occupant as PRow;
     db.prepare('UPDATE players SET slot = ? WHERE id = ?').run(maxSlot + 1, occ.id);     // bench the weaker man
-    ins.run(team.id, occ.slot, recruit.name, recruit.role, recruit.attrsJson, recruit.age, recruit.potential, recruit.personalityJson);
+    ins.run(team.id, occ.slot, recruit.name, recruit.role, recruit.attrsJson, recruit.age, recruit.potential, recruit.personalityJson, recruit.wage, SIGN_CONTRACT_YEARS);
     return 'xi';
   }
-  ins.run(team.id, maxSlot + 1, recruit.name, recruit.role, recruit.attrsJson, recruit.age, recruit.potential, recruit.personalityJson);
+  ins.run(team.id, maxSlot + 1, recruit.name, recruit.role, recruit.attrsJson, recruit.age, recruit.potential, recruit.personalityJson, recruit.wage, SIGN_CONTRACT_YEARS);
   return 'bench';
 }
 
@@ -96,7 +100,9 @@ export function buyFreeAgent(teamId: number, agentId: number): BuyResult {
     const players = teamPlayers(teamId);
     if (players.length >= SQUAD_MAX) return { ok: false, error: `squad full (max ${SQUAD_MAX})` };
     if (team.budget < agent.value) return { ok: false, error: 'not enough budget' };
-    const placed = placeRecruit(team, players, { name: agent.name, role: agent.role, attrsJson: agent.attrs, age: agent.age, potential: agent.potential, personalityJson: agent.personality });
+    const wage = agent.wage ?? 0;
+    if (wageBill(teamId) + wage > team.wage_budget) return { ok: false, error: 'not enough wage budget' };
+    const placed = placeRecruit(team, players, { name: agent.name, role: agent.role, attrsJson: agent.attrs, age: agent.age, potential: agent.potential, personalityJson: agent.personality, wage });
     db.prepare('UPDATE teams SET budget = budget - ? WHERE id = ?').run(agent.value, teamId);
     db.prepare('DELETE FROM free_agents WHERE id = ?').run(agentId);
     return { ok: true, placed, value: agent.value, name: agent.name };
@@ -119,22 +125,23 @@ export function unlistPlayer(teamId: number, slot: number): { ok: boolean } {
 }
 
 export interface MarketView {
-  budget: number; squadMax: number; squadMin: number;
-  freeAgents: { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number }[];
-  squad: { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; listed: boolean; askPrice: number | null; starter: boolean }[];
+  budget: number; wageBudget: number; wageBill: number; squadMax: number; squadMin: number;
+  freeAgents: { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number }[];
+  squad: { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; contractYears: number; listed: boolean; askPrice: number | null; starter: boolean }[];
 }
 
 export function getMarket(teamId: number): MarketView | null {
   const team = teamRow(teamId);
   if (!team) return null;
-  const freeAgents = (db.prepare('SELECT id, name, role, attrs, age, potential, value FROM free_agents WHERE league_id = ? ORDER BY value DESC').all(team.league_id) as
-    { id: number; name: string; role: string; attrs: string; age: number; potential: number | null; value: number }[])
-    .map(a => ({ id: a.id, name: a.name, role: a.role, age: a.age, overall: overall(JSON.parse(a.attrs)), potential: a.potential, value: a.value }));
-  const squad = teamPlayers(teamId).map((p, i) => {
+  const freeAgents = (db.prepare('SELECT id, name, role, attrs, age, potential, value, wage FROM free_agents WHERE league_id = ? ORDER BY value DESC').all(team.league_id) as
+    { id: number; name: string; role: string; attrs: string; age: number; potential: number | null; value: number; wage: number | null }[])
+    .map(a => ({ id: a.id, name: a.name, role: a.role, age: a.age, overall: overall(JSON.parse(a.attrs)), potential: a.potential, value: a.value, wage: a.wage ?? 0 }));
+  const players = db.prepare('SELECT slot, name, role, attrs, age, potential, personality, listed, ask_price, wage, contract_years FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as unknown as (PRow & { contract_years: number })[];
+  const squad = players.map((p, i) => {
     const attrs = JSON.parse(p.attrs);
-    return { slot: p.slot, name: p.name, role: p.role, age: p.age, overall: overall(attrs), potential: p.potential, value: playerValue(attrs, p.age, parseJSON(p.personality)), listed: !!p.listed, askPrice: p.ask_price, starter: i < 11 };
+    return { slot: p.slot, name: p.name, role: p.role, age: p.age, overall: overall(attrs), potential: p.potential, value: playerValue(attrs, p.age, parseJSON(p.personality)), wage: p.wage ?? 0, contractYears: p.contract_years, listed: !!p.listed, askPrice: p.ask_price, starter: i < 11 };
   });
-  return { budget: team.budget, squadMax: SQUAD_MAX, squadMin: SQUAD_MIN, freeAgents, squad };
+  return { budget: team.budget, wageBudget: team.wage_budget, wageBill: wageBill(teamId), squadMax: SQUAD_MAX, squadMin: SQUAD_MIN, freeAgents, squad };
 }
 
 // The role whose weakest XI starter is poorest — the AI's upgrade target.
@@ -160,7 +167,8 @@ function transferListed(buyerId: number, sellerId: number, player: PRow, fee: nu
   if (player.slot < 11) backfillStarterSlot(sellerId, player.slot);   // keep the seller's XI on-role
   renumberSquad(sellerId);
   const buyer = teamRow(buyerId)!;
-  const placed = placeRecruit(buyer, teamPlayers(buyerId), { name: player.name, role: player.role, attrsJson: player.attrs, age: player.age, potential: player.potential, personalityJson: player.personality });
+  // the player keeps their existing wage/contract — it moves with them onto the buyer's bill
+  const placed = placeRecruit(buyer, teamPlayers(buyerId), { name: player.name, role: player.role, attrsJson: player.attrs, age: player.age, potential: player.potential, personalityJson: player.personality, wage: player.wage ?? 0 });
   db.prepare('UPDATE teams SET budget = budget + ? WHERE id = ?').run(fee, sellerId);
   db.prepare('UPDATE teams SET budget = budget - ? WHERE id = ?').run(fee, buyerId);
   return placed;
@@ -181,26 +189,27 @@ export function marketTick(leagueId: number): MarketEvent[] {
     const players = teamPlayers(id);
     if (players.length >= SQUAD_MAX) continue;
     const weak = weakestRole(players); if (!weak) continue;
+    const headroom = team.wage_budget - wageBill(id);          // wages the club can still take on
 
-    // 1) Best affordable free agent of the weak role that beats the weak link.
+    // 1) Best free agent of the weak role that beats the weak link AND fits both budgets.
     const fas = db.prepare('SELECT * FROM free_agents WHERE league_id = ? AND role = ? AND value <= ? ORDER BY value DESC')
       .all(leagueId, weak.role, team.budget) as unknown as FARow[];
-    const recruit = fas.find(a => overall(JSON.parse(a.attrs)) > weak.target);
+    const recruit = fas.find(a => overall(JSON.parse(a.attrs)) > weak.target && (a.wage ?? 0) <= headroom);
     if (recruit) {
       const r = buyFreeAgent(id, recruit.id);
       if (r.ok) { events.push({ teamId: id, teamName: team.name, type: 'sign', player: recruit.name, role: recruit.role, fee: recruit.value }); continue; }
     }
 
     // 2) Else a transfer-listed player of the weak role from another team (seller must
-    // keep a legal XI), cheapest first, that upgrades the weak link.
+    // keep a legal XI), cheapest first, that upgrades the weak link + fits the wage budget.
     const listings = db.prepare(`
-      SELECT p.id, p.slot, p.name, p.role, p.attrs, p.age, p.potential, p.personality, p.listed, p.ask_price,
+      SELECT p.id, p.slot, p.name, p.role, p.attrs, p.age, p.potential, p.personality, p.listed, p.ask_price, p.wage,
              p.team_id AS seller_id, t.name AS seller_name,
              (SELECT COUNT(*) FROM players px WHERE px.team_id = p.team_id) AS seller_count
       FROM players p JOIN teams t ON t.id = p.team_id
       WHERE t.league_id = ? AND p.listed = 1 AND p.team_id != ? AND p.role = ? AND p.ask_price <= ?
       ORDER BY p.ask_price ASC`).all(leagueId, id, weak.role, team.budget) as unknown as (PRow & { seller_id: number; seller_name: string; seller_count: number })[];
-    const pick = listings.find(l => l.seller_count > SQUAD_MIN && overall(JSON.parse(l.attrs)) > weak.target);
+    const pick = listings.find(l => l.seller_count > SQUAD_MIN && overall(JSON.parse(l.attrs)) > weak.target && (l.wage ?? 0) <= headroom);
     if (pick) {
       tx(() => transferListed(id, pick.seller_id, pick, pick.ask_price!));
       events.push({ teamId: id, teamName: team.name, type: 'buy_listed', player: pick.name, role: pick.role, fee: pick.ask_price!, from: pick.seller_name });
