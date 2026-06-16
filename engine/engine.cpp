@@ -1166,6 +1166,7 @@ void GameEngine::buildTeam(Team team, const RosterOverride& ro, const double* de
         double hx = (L && i > 0 && ro.homeX[i] > 0.0) ? ro.homeX[i] : defHX[i];
         double hy = (L && i > 0 && ro.homeY[i] > 0.0) ? ro.homeY[i] : DEF_HY[i];
         state.players.push_back(mkPlayer(off + i, team, r, hx, hy));
+        state.players.back().moraleBoost = ro.moraleBoost[i];   // 0 by default => no effect
     }
 }
 void GameEngine::createHomeTeam() { buildTeam(Team::Home, homeRoster, DEF_HX_HOME); }

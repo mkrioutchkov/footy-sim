@@ -48,6 +48,8 @@ void loadTeam(const nlohmann::json& t, GameEngine::RosterOverride& ro, GameEngin
         }
         if (p.contains("homeX") && p["homeX"].is_number()) { ro.homeX[i] = p["homeX"].get<double>(); ro.hasLayout = true; }
         if (p.contains("homeY") && p["homeY"].is_number()) { ro.homeY[i] = p["homeY"].get<double>(); ro.hasLayout = true; }
+        // Optional pre-match morale shading (runtime state, not a static attribute).
+        if (p.contains("moraleBoost") && p["moraleBoost"].is_number()) ro.moraleBoost[i] = p["moraleBoost"].get<double>();
     }
     ro.active = true;
 }

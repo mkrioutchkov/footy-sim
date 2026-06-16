@@ -186,6 +186,11 @@ struct Player {
     // Knock from a hard foul: decays over time, scales down max speed while
     // it lasts. A player carrying a real injury is a substitution candidate.
     double injurySeverity = 0.0;
+    // Morale shading: deviation from neutral in [-1,1] (+ lifts effort/pace, - saps
+    // it), decaying toward 0 over the match. Default 0 = NO effect (golden-safe).
+    // Seeded from the spec (pre-match morale) / nudged by motivational shouts later —
+    // small, deterministic, no rng in the apply (mirrors injurySeverity).
+    double moraleBoost = 0.0;
     // Sent off (second yellow / straight red): the slot stays in the fixed-22
     // array (every pointer/lookup depends on that) but the player is parked
     // off the pitch and excluded from play — the team is genuinely a man down.

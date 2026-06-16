@@ -32,6 +32,14 @@ void PlayerAI::applyMovement(double sdt) {
         sf *= clamp(1.0 - p.injurySeverity * 0.5, 0.45, 1.0);
         p.injurySeverity = std::max(0.0, p.injurySeverity - secs / 90.0);
     }
+    // Morale shades effort/pace a little and decays toward neutral over ~4 min.
+    // Default 0 = no effect (golden-safe). Driven by pre-match morale + shouts later.
+    if (p.moraleBoost != 0.0) {
+        sf *= clamp(1.0 + p.moraleBoost * 0.12, 0.88, 1.10);
+        double dec = secs / 240.0;
+        p.moraleBoost = p.moraleBoost > 0.0 ? std::max(0.0, p.moraleBoost - dec)
+                                            : std::min(0.0, p.moraleBoost + dec);
+    }
 
     double dx = p.targetX - p.x, dy = p.targetY - p.y;
     double d = std::sqrt(dx * dx + dy * dy);

@@ -429,6 +429,8 @@ public:
         std::array<double, 11> homeX{};
         std::array<double, 11> homeY{};
         bool hasLayout = false;
+        // Optional per-slot pre-match morale shading in [-1,1] (default 0 = neutral).
+        std::array<double, 11> moraleBoost{};
     };
     RosterOverride homeRoster, awayRoster;
     bool configOverride = false;
