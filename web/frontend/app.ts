@@ -411,9 +411,15 @@ async function screenTactics() {
 // ── watch ──
 let activeRenderer: MatchRenderer | null = null;
 let activeWs: WebSocket | null = null;
+let watchBar: HTMLElement | null = null;
+let watchPanel: HTMLElement | null = null;
+let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
 function teardownWatch() {
+  watchEpoch++;
   try { activeWs?.close(); } catch { /* */ } activeWs = null;
   try { activeRenderer?.destroy(); } catch { /* */ } activeRenderer = null;
+  watchBar?.remove(); watchBar = null;     // teardown owns the floating control bar + tactics panel,
+  watchPanel?.remove(); watchPanel = null; // so navigation (incl. watch→watch) never leaves them stacked
 }
 
 // ── live tactics panel helpers (P4) ──
@@ -454,6 +460,7 @@ function describeDirective(d: any): string {
 
 async function screenWatch(fixtureId: number) {
   teardownWatch();
+  const myEpoch = watchEpoch;   // if another teardown/navigation bumps this during init, we bail below
   // Ensure the result is recorded (idempotent, deterministic, same as the stream).
   api.playFixture(fixtureId).catch(() => { /* may already be played */ });
 
@@ -469,6 +476,7 @@ async function screenWatch(fixtureId: number) {
     rewindBtn,
   );
   document.body.appendChild(bar);
+  watchBar = bar;
 
   // ── live tactics panel: type a plan, see what was understood, apply it ──
   const receiptEl = h('div', { class: 'tactics-receipt' });
@@ -509,11 +517,14 @@ async function screenWatch(fixtureId: number) {
     receiptEl,
   );
   document.body.appendChild(panel);
-  const cleanupBar = () => { bar.remove(); panel.remove(); };
+  watchPanel = panel;
 
   const renderer = new MatchRenderer();
   activeRenderer = renderer;
   await renderer.init();
+  // If the user navigated away (or to another match) during the async init, this screen is stale:
+  // teardownWatch already ran — destroy this orphan renderer and stop before opening a socket.
+  if (myEpoch !== watchEpoch) { renderer.destroy(); return; }
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}`);
@@ -530,14 +541,9 @@ async function screenWatch(fixtureId: number) {
     } catch { /* */ }
   };
   ws.onclose = () => { /* match over or navigated away */ };
-
-  // Hook hashchange once to tear down when leaving.
-  const onLeave = () => {
-    if (!location.hash.startsWith('#/watch/')) {
-      teardownWatch(); cleanupBar(); window.removeEventListener('hashchange', onLeave);
-    }
-  };
-  window.addEventListener('hashchange', onLeave);
+  // Teardown is owned centrally by route() (it calls teardownWatch() on leaving '#/watch/') and by
+  // the next screenWatch() (which calls teardownWatch() up front) — so no per-screen hashchange
+  // listener is needed here. Adding one per visit used to leak a listener on every watch→watch.
 }
 
 // ── transfer market ──

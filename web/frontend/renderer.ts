@@ -67,6 +67,12 @@ export class MatchRenderer {
   private animTime = 0;
   private facingAngles: Map<number, number> = new Map();
   private prevFacingAngles: Map<number, number> = new Map();
+  // lifecycle + resize wiring (kept so destroy() can unhook — see the frontend audit)
+  private inited = false;
+  private destroyed = false;
+  private resizeObs: ResizeObserver | null = null;
+  private readonly onResize = () => { if (!this.destroyed) this.calcTransform(); };
+  private pitchGfx = new Graphics();   // reused across redraws (not re-allocated per resize)
 
   constructor() {
     this.app = new Application();
@@ -120,10 +126,13 @@ export class MatchRenderer {
   }
 
   async init(): Promise<void> {
+    if (this.inited) return;                 // one init per renderer
+    this.inited = true;
     await this.app.init({
       resizeTo: window, backgroundColor: 0x1a1a2e,
       antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true,
     });
+    if (this.destroyed) { try { this.app.destroy(true, { children: true, texture: true }); } catch { /* */ } return; }   // destroy() raced init — bail before touching the stage
 
     document.getElementById('app')!.appendChild(this.app.canvas);
     this.app.stage.addChild(this.pitchContainer);
@@ -185,15 +194,22 @@ export class MatchRenderer {
     // Recalculate the pitch transform whenever the canvas actually changes
     // size. Window 'resize' alone misses canvas-size changes (and Pixi v8's
     // renderer emits no resize event), leaving the pitch at a stale scale.
-    new ResizeObserver(() => this.calcTransform()).observe(this.app.canvas);
-    window.addEventListener('resize', () => this.calcTransform());
+    this.resizeObs = new ResizeObserver(this.onResize);
+    this.resizeObs.observe(this.app.canvas);
+    window.addEventListener('resize', this.onResize);
     // Dev convenience: expose the app for console/screenshot tooling.
     (window as unknown as { __app: Application }).__app = this.app;
   }
 
-  // Tear down for SPA navigation: remove the body-level overlays and the
-  // Pixi app (which detaches the canvas). Safe to call once.
+  // Tear down for SPA navigation: unhook the resize observer/listener, remove the
+  // body-level overlays, and destroy the Pixi app (detaching the canvas). Idempotent —
+  // screenWatch may bail-destroy a renderer that route() already tore down.
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    try { this.resizeObs?.disconnect(); } catch { /* */ } this.resizeObs = null;
+    try { window.removeEventListener('resize', this.onResize); } catch { /* */ }
+    try { delete (window as unknown as { __app?: Application }).__app; } catch { /* */ }
     try { this.tickerEl?.remove(); } catch { /* */ }
     try { this.bannerEl?.remove(); } catch { /* */ }
     try { this.panelEl?.remove(); } catch { /* */ }
@@ -201,6 +217,7 @@ export class MatchRenderer {
   }
 
   private calcTransform(): void {
+    if (this.destroyed) return;
     const sw = this.app.screen.width;
     // Reserve a strip at the bottom for the live tactics panel so the whole
     // pitch stays visible above it (the canvas is full-window).
@@ -228,7 +245,8 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.setPieceGfx);
     this.pitchContainer.addChild(this.setPieceText);
 
-    const g = new Graphics();
+    const g = this.pitchGfx;   // reused (clear + redraw) so a resize/recalc doesn't leak a Graphics each time
+    g.clear();
     g.rect(-GOAL_DEPTH, 0, PITCH_W + GOAL_DEPTH * 2, PITCH_H); g.fill(PITCH_GREEN);
     // mowing stripes
     const stripeCount = 14;
