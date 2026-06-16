@@ -23,6 +23,7 @@ import { aiManagerTick } from './ai.ts';
 import { renewContract } from './contracts.ts';
 import { applyPressConference } from './press.ts';
 import { buildMatchReport } from './report.ts';
+import { buildScoutReport } from './scout.ts';
 import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
@@ -369,6 +370,17 @@ app.get('/api/report', async (req: any, reply) => {
   const report = await buildMatchReport('fixture', fx.id, homeName, awayName);
   if (!report) return reply.code(404).send({ error: 'no recording for this match' });
   return { homeName, awayName, ...report };
+});
+
+// Pre-match opponent scouting report for an upcoming fixture the user is in (form, table
+// position, danger men, a read of how they play). 404 if the fixture isn't the user's.
+app.get('/api/scout', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const report = buildScoutReport(Number(req.query?.fixture), teamId);
+  if (!report) return reply.code(404).send({ error: 'no scout report for this fixture' });
+  return report;
 });
 
 // The club's player-news feed (events that evolved a player's story this/past seasons).

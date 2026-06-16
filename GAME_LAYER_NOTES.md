@@ -357,6 +357,18 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     `describeDirective`) on create-team + `#/tactics`; the 5 sliders are gone. Verified by
     `tools/_plan_test.ts` (18 — persistence, home/away + slot→engine resolution, neutral-human /
     AI-keeps-dials, AI-vs-AI unchanged) + smoke (41). Reviewed; the one finding (slot→engine remap) fixed.
+  - **Frontend polish sweep (P1–P7).** Watch connecting/error overlay; typed `ApiError` + network-error
+    mapping; removed the `innerHTML` escape hatch from `h()` (XSS hardening) + a11y (focus rings,
+    reduced-motion, dvh, meta/noscript); honest no-personality profile state; renderer perf (per-frame
+    id→player Map replacing `state.players.find()`, debug logs behind `RENDER_DEBUG`, defensive marker
+    prune); typed live-watch socket envelope (`WatchMessage`) + EngineState drift fix (home/awayName);
+    market in-app bid/confirm modals (ESC/Enter/backdrop/close-on-nav) + scroll preservation across the
+    per-action re-render.
+  - **Pre-match opponent scouting report (`scout.ts`, `GET /api/scout?fixture=`, `#/scout/:id`).** For an
+    upcoming fixture the user is in: the opponent's table position + last-5 form, a plain-English read of
+    how they play (derived from their dials, NOT their plan text — no human team-talk leak), and the top-5
+    key players in the likely XI with one danger man flagged. A 🔍 Scout button sits on each upcoming
+    fixture row. No engine run. Verified by `tools/_scout_test.ts` (20) + smoke (46, incl. the scout probe).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
   negotiation + loans + dynamic player-news + ratings→morale & season awards are all SHIPPED.

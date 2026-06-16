@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT } from './api';
+import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -404,7 +404,9 @@ async function screenDashboard() {
       ? h('span', { style: 'display:flex;gap:6px' },
           h('button', { class: 'ghost small', onclick: () => (location.hash = `#/watch/${f.id}`) }, 'Watch'),
           h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report'))
-      : h('span', { class: 'pill' }, `R${f.round}`);
+      : h('span', { style: 'display:flex;gap:6px;align-items:center' },
+          h('button', { class: 'ghost small', onclick: () => (location.hash = `#/scout/${f.id}`) }, '🔍 Scout'),
+          h('span', { class: 'pill' }, `R${f.round}`));
     fxBox.append(h('div', { class: 'fx me' },
       h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
   }
@@ -1025,6 +1027,59 @@ async function screenReport(fixtureId: number) {
   ));
 }
 
+// ── pre-match opponent scouting report ──
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+}
+async function screenScout(fixtureId: number) {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Scouting the opposition…')));
+  let s: ScoutT;
+  try { s = await api.scout(fixtureId); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' },
+      h('div', { class: 'err' }, e.message),
+      h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => (location.hash = '#/') }, '← Back')));
+  }
+  const o = s.opponent;
+
+  const formRow = h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' });
+  if (!s.form.length) formRow.append(h('span', { class: 'muted', style: 'font-size:13px' }, 'No games played yet this season.'));
+  else for (const f of s.form) formRow.append(h('span', {
+    class: 'form-badge ' + (f.result === 'W' ? 'w' : f.result === 'L' ? 'l' : 'd'),
+    title: `R${f.round} · ${f.venue === 'H' ? 'home' : 'away'} ${f.gf}–${f.ga} vs ${f.opponent}`,
+  }, f.result));
+
+  const players = s.keyPlayers.length
+    ? s.keyPlayers.map(p => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0' },
+        h('span', {}, p.danger ? h('span', { title: 'danger man', style: 'margin-right:5px' }, '⚠️') : '',
+          p.name, h('span', { class: 'muted', style: 'font-size:11px' }, ` ${p.role} · ${p.age}y`)),
+        h('span', { style: p.danger ? 'font-weight:700;color:var(--gold)' : '' },
+          `OVR ${p.overall}${p.potential && p.potential > p.overall ? ` → ${p.potential}` : ''}`)))
+    : [h('div', { class: 'muted', style: 'font-size:13px' }, 'Squad not available.')];
+
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
+      h('div', {}, h('h2', {}, `Scouting — ${o.name}`),
+        h('div', { class: 'muted' },
+          `${o.manager} · ${o.formation} · ${o.position != null ? ordinal(o.position) + ' in the table' : 'unranked'} · you play ${s.venue === 'home' ? 'at home' : 'away'} (R${s.round})`)),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+      h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Form & record'),
+        h('div', { class: 'muted', style: 'margin-bottom:10px;font-size:13px' },
+          `P${o.played}  ·  W${o.won} D${o.drawn} L${o.lost}  ·  ${o.gf}:${o.ga} (${o.gd >= 0 ? '+' : ''}${o.gd})  ·  ${o.points} pts`),
+        formRow,
+        h('div', { class: 'section-title' }, 'How they play'),
+        h('ul', { style: 'margin:0;padding-left:18px;line-height:1.7' }, ...s.approach.map(a => h('li', {}, a)))),
+      h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Danger men'),
+        h('div', { class: 'muted', style: 'margin:-4px 0 8px;font-size:12px' }, 'Their highest-rated players in the likely XI.'),
+        ...players)),
+  ));
+}
+
 function route() {
   const hash = location.hash;
   if (!user) { screenAuth(); return; }
@@ -1035,6 +1090,7 @@ function route() {
   else if (hash === '#/training') screenTraining();
   else if (hash === '#/cup') screenCup();
   else if (hash.startsWith('#/report/')) screenReport(Number(hash.split('/')[2]));
+  else if (hash.startsWith('#/scout/')) screenScout(Number(hash.split('/')[2]));
   else if (hash.startsWith('#/player/')) screenPlayer(Number(hash.split('/')[2]));
   else screenDashboard();
 }

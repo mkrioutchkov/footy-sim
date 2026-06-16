@@ -83,6 +83,14 @@ export interface ReportT { homeName: string; awayName: string; headline: string;
 
 export interface NewsItemT { player: string; type: 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury' | 'pots' | 'young_pots'; headline: string; season: number; slot: number; }
 
+export interface ScoutPlayerT { name: string; role: string; age: number; overall: number; potential: number | null; danger: boolean; }
+export interface ScoutFormT { round: number; opponent: string; venue: 'H' | 'A'; gf: number; ga: number; result: 'W' | 'D' | 'L'; }
+export interface ScoutT {
+  opponent: { teamId: number; name: string; manager: string; formation: string; position: number | null;
+    played: number; won: number; drawn: number; lost: number; gf: number; ga: number; gd: number; points: number; };
+  venue: 'home' | 'away'; round: number; approach: string[]; form: ScoutFormT[]; keyPlayers: ScoutPlayerT[];
+}
+
 export const api = {
   me: () => req<{ user: UserT | null; teamId?: number | null }>('GET', '/me'),
   register: (username: string, password: string) => req<{ user: UserT }>('POST', '/register', { username, password }),
@@ -112,5 +120,6 @@ export const api = {
   renewPlayer: (slot: number, years?: number) =>
     req<{ ok: boolean; wage: number; years: number }>('PUT', `/player/${slot}/renew`, { years }),
   report: (fixtureId: number) => req<ReportT>('GET', `/report?fixture=${fixtureId}`),
+  scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: () => req<{ news: NewsItemT[] }>('GET', '/news'),
 };

@@ -84,6 +84,11 @@ input[type=range] { accent-color: var(--accent); }
   background: rgba(4,8,14,.6); backdrop-filter: blur(2px); }
 .modal-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px;
   width: 100%; max-width: 420px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+.form-badge { display: inline-grid; place-items: center; width: 23px; height: 23px; border-radius: 6px;
+  font-size: 11px; font-weight: 700; color: #0b1018; cursor: default; }
+.form-badge.w { background: var(--accent); }
+.form-badge.d { background: var(--muted); }
+.form-badge.l { background: var(--danger); }
 .spin { color: var(--muted); }
 .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 22px 0 10px; }
 
