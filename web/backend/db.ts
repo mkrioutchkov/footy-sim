@@ -173,3 +173,25 @@ CREATE TABLE IF NOT EXISTS cup_ties (
 CREATE INDEX IF NOT EXISTS idx_cup_world_season ON cup_ties(world_id, season);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cup_tie ON cup_ties(world_id, season, round, slot);
 `);
+
+// Record-and-replay: a played match's frame stream is recorded ONCE and later replayed instead
+// of re-simulating per viewer (cheaper, and it can't drift from the stored scoreline the way a
+// re-sim does after the squad changed). The frames live as a gzipped NDJSON file on disk (under
+// <data>/recordings, gitignored, pruned by tools/recordings_gc.ts) so the store scales toward
+// object storage and the sqlite file stays small; this row is just metadata + a relative path.
+// New table — existing saves are unaffected, and a match with no row stays watchable via re-sim.
+db.exec(`
+CREATE TABLE IF NOT EXISTS match_recordings (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL,              -- 'fixture' | 'cup'
+  ref_id     INTEGER NOT NULL,           -- fixtures.id / cup_ties.id
+  format     INTEGER NOT NULL DEFAULT 1, -- bump when the on-disk frame shape changes
+  home_score INTEGER NOT NULL,           -- derived from the final frame (can't disagree with it)
+  away_score INTEGER NOT NULL,
+  path       TEXT NOT NULL,              -- gzipped NDJSON, relative to the data dir
+  frames     INTEGER NOT NULL DEFAULT 0, -- frame count (quick stats / UI)
+  bytes      INTEGER NOT NULL DEFAULT 0, -- compressed size on disk
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recording_ref ON match_recordings(kind, ref_id);
+`);

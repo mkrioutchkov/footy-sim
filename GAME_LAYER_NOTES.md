@@ -260,8 +260,28 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     `applyPressConference` writes morale relative-in-SQL (`morale + delta`, clamped) so it can't
     clobber a concurrent matchday morale tick across the LLM await (a review finding). `POST
     /api/press` + a dashboard press box. Verified by `tools/_press_test.ts` + HTTP smoke (30).
+  - **Record & replay (Phase 1).** A played match's frame stream is recorded ONCE and replayed
+    instead of re-simulating per viewer — cheaper, and it can't drift from the stored scoreline
+    the way a re-sim does after the squad changed. `match.ts`: a match with a human stakeholder
+    (a human manager on either side, even if absent; spectators later) is played FULL-FRAME and
+    its frames gzipped to `<data>/recordings/<kind>-<ref>.ndjson.gz` (`persistRecording`), the
+    score derived from the final frame so the two can't disagree; pure AI-vs-AI keeps the
+    lightweight `--summary` path so idle matchdays + the engine benchmark never pay the capture
+    cost. `MatchStream`'s pacing/speed/pause is refactored into a shared `FramePacer` (pure
+    `paceStep` core) with a pluggable source: the live engine (`MatchStream`) or a stored
+    recording (`ReplayStream`, with rewind/seek). `/ws/match` replays a recording if one exists,
+    else falls back to the live re-sim. **Also fixed the 4× fast-forward bug** — the old pacer
+    capped every `>1×` at one frame per 33ms (so 2×/4×/60× all played identically); it now
+    frame-skips, advancing ~speed× of match-clock per render. `tools/recordings_gc.ts` prunes by
+    retention. Adversarial-review hardening: capture STREAMS to a gzipped temp file (O(1) memory —
+    a 90' match is ~200k frames / GBs, which buffering would OOM / blow V8's max string length)
+    and is published via an atomic rename **only on a complete match** (final frame matchState
+    `"finished"`), so a crash/timeout/kill leaves a discarded `.tmp`, never a partial recording or
+    a scoreline that disagrees with an unplayed fixture; a metadata row that outlived its file
+    falls back to the live re-sim instead of hanging the watch. Verified by `tools/_replay_test.ts`
+    (31, synthetic frames + a synthetic capture stream — no engine) + typecheck + HTTP smoke (30).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
-  + press conferences are all SHIPPED.
+  + press conferences + record/replay (Phase 1) are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.
@@ -271,11 +291,14 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
 
 ## Known limitations / future enhancements (flag for the user)
 
-- **Watch is a re-sim, not a replay.** The match-watch socket re-runs the engine from the
-  team's CURRENT spec, so a match watched after the squad changed (transfers, a matchday of
-  development, or an AI lineup re-pick) can differ from the stored scoreline. This pre-dates
-  these pillars (development already mutated attrs between matchdays) but is now more
-  visible. A faithful replay would need per-fixture spec snapshots.
+- **Watch: replay where recorded, re-sim otherwise.** Human-stake matches are now recorded at
+  play time and the watch socket replays that exact stored stream — faithful to the scoreline,
+  no engine spawn (Record & replay, above). A match with no recording (a pure AI-vs-AI game the
+  user spectates) still falls back to re-running the engine from the team's CURRENT spec, which
+  can drift from the stored scoreline after the squad changed. Decisions noted: **files on disk**
+  (not a DB blob) so the store scales toward object storage; recorded **iff a human stakeholder**;
+  **headless capture at `/api/advance`** for now — folding "the live watched session IS the
+  recording" + a one-compute-many-viewers broadcast + record-everything is **Phase 2**.
 - **No retirement / youth intake.** Players age +1 each season and decline past ~30 but are
   never retired/regenerated, so over many seasons squads grey out. A release-at-38 +
   generated-youth intake at rollover is the natural next step.

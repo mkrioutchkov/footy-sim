@@ -437,11 +437,15 @@ async function screenWatch(fixtureId: number) {
   api.playFixture(fixtureId).catch(() => { /* may already be played */ });
 
   root.replaceChildren();
+  // Rewind to the start — only meaningful for a finished recording (revealed on the first
+  // replay frame), since a live re-sim can't seek backwards.
+  const rewindBtn = h('button', { class: 'ghost small', style: 'display:none', onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: 0 })) }, '⏮ Rewind');
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 4 })) }, '4×'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 1 })) }, '1×'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'pause' })) }, 'Pause'),
+    rewindBtn,
   );
   document.body.appendChild(bar);
 
@@ -493,9 +497,12 @@ async function screenWatch(fixtureId: number) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}`);
   activeWs = ws;
+  let replayUiApplied = false;
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data);
+      // A replayed recording is finished playback: drop the live-only shout box and offer rewind.
+      if (msg.replay && !replayUiApplied) { replayUiApplied = true; panel.style.display = 'none'; rewindBtn.style.display = ''; }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map((p: any) => ({ id: p.id, name: p.name }));
       renderer.sync(msg);

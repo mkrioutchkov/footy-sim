@@ -5,6 +5,7 @@ build/
 *.bin
 *.jsonl
 *.jsonl.gz
+*.ndjson.gz
 __pycache__/
 .gh_pat
 # secrets — never commit API keys

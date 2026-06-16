@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
-import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync, existsSync, rmSync, createWriteStream, renameSync, statSync } from 'node:fs';
+import { gzip, gunzipSync, createGzip } from 'node:zlib';
+import { promisify } from 'node:util';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
 import { db } from './db.ts';
@@ -9,8 +11,14 @@ import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer } from './plan
 import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation } from './formations.ts';
 
 const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
+// Recordings live next to the DB (so a temp-DB test writes them to its temp dir, never the
+// real save), and the SPEC scratch under the canonical data dir.
+const DATA_DIR = process.env.FOOTY_DB ? path.dirname(process.env.FOOTY_DB) : path.resolve(process.cwd(), 'web', 'backend', 'data');
 const SPEC_DIR = path.resolve(process.cwd(), 'web', 'backend', 'data', 'specs');
+const REC_DIR = path.join(DATA_DIR, 'recordings');
 mkdirSync(SPEC_DIR, { recursive: true });
+mkdirSync(REC_DIR, { recursive: true });
+const gzipAsync = promisify(gzip);
 const MINUTES = Number.parseInt(process.env.FOOTY_MINUTES ?? '90', 10);
 
 interface Fixture {
@@ -119,13 +127,167 @@ function runEngineSummary(specPath: string): Promise<{ homeScore: number; awaySc
   });
 }
 
+// ── Recordings: store a match's frame stream once, replay it instead of re-simulating ──
+// Files (gzipped NDJSON on disk) rather than a DB blob, so the store scales toward object
+// storage and the sqlite file stays small; the DB row is metadata + a relative path.
+export type RecKind = 'fixture' | 'cup';
+export interface Recording { kind: RecKind; refId: number; path: string; homeScore: number; awayScore: number; frames: number; bytes: number }
+
+const recRel = (kind: RecKind, refId: number): string => `recordings/${kind}-${refId}.ndjson.gz`;
+
+// A match is recorded iff it has a human stakeholder — a human manager on either side (even if
+// they aren't watching) or, later, a spectator. Pure AI-vs-AI stays the lightweight --summary
+// path, so an idle matchday (and the engine benchmark, which never touches this layer) never
+// pays the full-frame capture cost.
+function hasHumanStake(homeTeamId: number, awayTeamId: number): boolean {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM teams WHERE id IN (?, ?) AND user_id IS NOT NULL').get(homeTeamId, awayTeamId) as { n: number };
+  return row.n > 0;
+}
+
+// Upsert the metadata row (idempotent — re-recording REPLACES via the unique kind+ref_id index).
+function upsertRecordingRow(kind: RecKind, refId: number, homeScore: number, awayScore: number, rel: string, frames: number, bytes: number): void {
+  db.prepare(`INSERT INTO match_recordings (kind, ref_id, format, home_score, away_score, path, frames, bytes, created_at)
+    VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(kind, ref_id) DO UPDATE SET
+      format = 1, home_score = excluded.home_score, away_score = excluded.away_score,
+      path = excluded.path, frames = excluded.frames, bytes = excluded.bytes, created_at = excluded.created_at`)
+    .run(kind, refId, homeScore, awayScore, rel, frames, bytes, Date.now());
+}
+
+// Persist a bounded, in-memory frame array (the exact NDJSON lines a watch consumes): gzip to
+// disk + upsert the row, deriving the score from the LAST scored frame so the recording and the
+// stored scoreline can never disagree. For SYNTHETIC/small inputs (tests) — the live engine path
+// uses recordMatch, which streams to disk so it never holds a whole match in memory.
+export async function persistRecording(kind: RecKind, refId: number, lines: string[]): Promise<{ homeScore: number; awayScore: number; frames: number }> {
+  let homeScore = 0, awayScore = 0;
+  for (const l of lines) { try { const f = JSON.parse(l); if (typeof f.homeScore === 'number') { homeScore = f.homeScore; awayScore = f.awayScore ?? 0; } } catch { /* skip non-frame line */ } }
+  const rel = recRel(kind, refId);
+  const blob = await gzipAsync(Buffer.from(lines.length ? lines.join('\n') + '\n' : '', 'utf8'));
+  writeFileSync(path.join(DATA_DIR, rel), blob);
+  upsertRecordingRow(kind, refId, homeScore, awayScore, rel, lines.length, blob.byteLength);
+  return { homeScore, awayScore, frames: lines.length };
+}
+
+// The recording for a match, or null (caller falls back to a re-sim).
+export function recordingFor(kind: RecKind, refId: number): Recording | null {
+  const r = db.prepare('SELECT kind, ref_id, path, home_score, away_score, frames, bytes FROM match_recordings WHERE kind = ? AND ref_id = ?')
+    .get(kind, refId) as { kind: RecKind; ref_id: number; path: string; home_score: number; away_score: number; frames: number; bytes: number } | undefined;
+  return r ? { kind: r.kind, refId: r.ref_id, path: r.path, homeScore: r.home_score, awayScore: r.away_score, frames: r.frames, bytes: r.bytes } : null;
+}
+
+// Decompress a recording into its raw engine frame lines (exactly what a live watch streamed).
+export function loadRecording(rec: Recording): string[] {
+  const abs = path.join(DATA_DIR, rec.path);
+  if (!existsSync(abs)) return [];
+  return gunzipSync(readFileSync(abs)).toString('utf8').split(/\r?\n/).filter(l => l.length > 0);
+}
+
+// Prototype housekeeping: prune recordings beyond a retention policy (file + row). Used by
+// tools/recordings_gc.ts. `now` is injectable for tests. Newest-first; keeps `keep` of them.
+export function pruneRecordings(opts: { keep?: number; maxAgeDays?: number; now?: number } = {}): { pruned: number; files: number; kept: number } {
+  const keep = opts.keep ?? 100;
+  const now = opts.now ?? Date.now();
+  const cutoff = opts.maxAgeDays != null ? now - opts.maxAgeDays * 86_400_000 : null;
+  const all = db.prepare('SELECT id, path, created_at FROM match_recordings ORDER BY created_at DESC').all() as unknown as { id: number; path: string; created_at: number }[];
+  const doomed = all.filter((r, i) => i >= keep || (cutoff != null && r.created_at < cutoff));
+  const del = db.prepare('DELETE FROM match_recordings WHERE id = ?');
+  let files = 0;
+  for (const r of doomed) {
+    const abs = path.join(DATA_DIR, r.path);
+    if (existsSync(abs)) { rmSync(abs, { force: true }); files++; }
+    del.run(r.id);
+  }
+  return { pruned: doomed.length, files, kept: all.length - doomed.length };
+}
+
+// STREAM a line-oriented frame source straight to a gzipped temp file — O(1) memory, never the
+// whole match at once (a 90' match is ~200k frames / multi-GB uncompressed, which buffering would
+// OOM / blow V8's max string length). The score is tracked from the last scored frame as lines
+// flow past, and backpressure pauses the source while the gzip drains. We publish (atomic rename
+// + row) ONLY on a CLEAN, COMPLETE finish — the source ended AND the final frame's matchState is
+// "finished" — so a crashed/timed-out/killed run (stream errored, or EOF'd before the final
+// whistle) leaves only a discarded .tmp, never a partial recording or a scoreline that disagrees
+// with an unplayed fixture. Exported (not just internal) so a synthetic-stream test exercises it
+// without spawning the engine. Returns the derived score + frame count.
+export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.ReadableStream): Promise<{ homeScore: number; awayScore: number; frames: number }> {
+  return new Promise((resolve, reject) => {
+    const rel = recRel(kind, refId);
+    const abs = path.join(DATA_DIR, rel);
+    const tmp = abs + '.tmp';
+    const gz = createGzip();
+    const out = createWriteStream(tmp);
+    gz.pipe(out);
+    let buffer = '', frames = 0, homeScore = 0, awayScore = 0, lastState = '', settled = false;
+    const fail = (e: Error): void => {
+      if (settled) return; settled = true;
+      gz.destroy(); out.destroy();
+      try { if (existsSync(tmp)) rmSync(tmp, { force: true }); } catch { /* best effort */ }
+      reject(e);
+    };
+    const writeLine = (l: string): void => {
+      if (!l.length) return;
+      frames++;
+      if (!gz.write(l + '\n')) src.pause();   // backpressure -> bounded memory
+      try { const f = JSON.parse(l); if (typeof f.homeScore === 'number') { homeScore = f.homeScore; awayScore = f.awayScore ?? 0; } if (typeof f.matchState === 'string') lastState = f.matchState; } catch { /* skip non-frame line */ }
+    };
+    gz.on('drain', () => { if (!settled) src.resume(); });
+    src.on('data', (d: Buffer) => {
+      buffer += d.toString();
+      const parts = buffer.split(/\r?\n/); buffer = parts.pop() ?? '';
+      for (const l of parts) writeLine(l);
+    });
+    src.on('error', e => fail(e));
+    out.on('error', e => fail(e));
+    src.on('end', () => {
+      if (settled) return;
+      if (buffer.trim().length) writeLine(buffer.trim());
+      if (!frames || lastState !== 'finished') { fail(new Error(`incomplete capture (${frames} frames, last "${lastState}")`)); return; }
+      gz.end();   // flush the gzip trailer through to the file
+      out.on('finish', () => {
+        if (settled) return; settled = true;
+        try {
+          renameSync(tmp, abs);   // atomic publish: the recording appears only once fully written
+          upsertRecordingRow(kind, refId, homeScore, awayScore, rel, frames, statSync(abs).size);
+          resolve({ homeScore, awayScore, frames });
+        } catch (e) {
+          try { if (existsSync(tmp)) rmSync(tmp, { force: true }); } catch { /* best effort */ }
+          reject(e as Error);
+        }
+      });
+    });
+  });
+}
+
+// Run a match through the engine FULL-FRAME (no --summary) and capture it. Wires the child's
+// lifecycle to the stream: a spawn error or a 120s hang destroys stdout (→ the capture rejects +
+// cleans up); a crash EOFs stdout without a "finished" frame, which captureLineStream rejects.
+function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ homeScore: number; awayScore: number }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ENGINE, ['--match', specPath, '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let err = '';
+    child.stderr.on('data', (d: Buffer) => { err += d.toString(); });
+    const to = setTimeout(() => { try { child.kill(); } catch { /* gone */ } child.stdout.destroy(new Error(`engine timeout: ${err}`)); }, 120000);
+    child.on('error', e => { try { child.stdout.destroy(e); } catch { /* gone */ } });
+    captureLineStream(kind, refId, child.stdout).then(
+      r => { clearTimeout(to); resolve({ homeScore: r.homeScore, awayScore: r.awayScore }); },
+      e => { clearTimeout(to); try { child.kill(); } catch { /* gone */ } reject(e); },
+    );
+  });
+}
+
 export function playFixture(fixtureId: number): Promise<PlayResult> {
   const fx = getFixture(fixtureId);
   if (!fx) return Promise.reject(new Error('fixture not found'));
   if (fx.played) {
     return Promise.resolve({ fixtureId, homeScore: fx.home_score ?? 0, awayScore: fx.away_score ?? 0, alreadyPlayed: true });
   }
-  return runEngineSummary(writeSpec(fx)).then(({ homeScore, awayScore }) => {
+  const specPath = writeSpec(fx);
+  // Human-stake matches are recorded (full-frame) so watching replays the recording; AI-only
+  // matches take the lightweight --summary path (no frames kept).
+  const play = hasHumanStake(fx.home_team_id, fx.away_team_id)
+    ? recordMatch('fixture', fixtureId, specPath)
+    : runEngineSummary(specPath);
+  return play.then(({ homeScore, awayScore }) => {
     db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, fixtureId);
     return { fixtureId, homeScore, awayScore, alreadyPlayed: false };
   });
@@ -141,26 +303,107 @@ export function playCupTie(tieId: number): Promise<CupTieResult> {
   if (t.played) return Promise.resolve({ tieId, homeScore: t.home_score ?? 0, awayScore: t.away_score ?? 0, alreadyPlayed: true });
   const file = path.join(SPEC_DIR, `cup-${tieId}.json`);
   writeFileSync(file, JSON.stringify(buildTieSpec(t.home_team_id, t.away_team_id, t.seed)));
-  return runEngineSummary(file).then(({ homeScore, awayScore }) => {
+  const play = hasHumanStake(t.home_team_id, t.away_team_id)
+    ? recordMatch('cup', tieId, file)
+    : runEngineSummary(file);
+  return play.then(({ homeScore, awayScore }) => {
     db.prepare('UPDATE cup_ties SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, tieId);
     return { tieId, homeScore, awayScore, alreadyPlayed: false };
   });
 }
 
-// ── Live watch: spawn the engine for a fixture and pace frames to one client ──
-const DEFAULT_FRAME_MS = 1000 / 30;
+// ── Live watch / replay: pace a frame stream to one client ──
+export const DEFAULT_FRAME_MS = 1000 / 30;
 type Proc = ChildProcessByStdio<null, Readable, Readable>;
 
-export class MatchStream {
+// One pacing step over a frame queue (pure, so it's unit-testable). At ≤1× every frame is paced
+// by its own clock delta / speed (real-time or slow-mo). At >1× we FRAME-SKIP: drain ~speed× of
+// match-clock per render and send only the last frame — so 4× is genuinely 4× wall-clock while
+// the render cadence stays ~30fps and the socket never floods. (The old code capped EVERY >1× at
+// one frame per 33ms, so 2×/4×/60× all played identically — the "fast-forward does nothing" bug.)
+// Mutates `pending` — shifts the consumed frame(s) off it.
+export interface PaceStep { state: any | null; prevClock: number | null; delayMs: number; drained: number }
+export function paceStep(pending: string[], prevClock: number | null, speed: number): PaceStep {
+  if (pending.length === 0) return { state: null, prevClock, delayMs: DEFAULT_FRAME_MS, drained: 0 };
+  if (speed > 1) {
+    const budget = DEFAULT_FRAME_MS * speed;
+    let advanced = 0, drained = 0, pc = prevClock, state: any = null;
+    while (pending.length && advanced < budget) {
+      const line = pending.shift()!; drained++;
+      let f: any; try { f = JSON.parse(line); } catch { continue; }
+      advanced += pc === null ? DEFAULT_FRAME_MS : Math.max(0, (f.clockMs ?? pc) - pc);
+      pc = f.clockMs ?? pc; state = f;
+    }
+    return { state, prevClock: pc, delayMs: DEFAULT_FRAME_MS, drained };
+  }
+  const line = pending.shift()!;
+  let state: any; try { state = JSON.parse(line); } catch { return { state: null, prevClock, delayMs: 1, drained: 1 }; }
+  const delta = prevClock === null ? DEFAULT_FRAME_MS : Math.max(1, state.clockMs - prevClock);
+  return { state, prevClock: state.clockMs, delayMs: Math.max(1, delta / speed), drained: 1 };
+}
+
+// Shared pacer: holds the frame queue + speed/pause/clock and the tick loop. Subclasses supply
+// the frame SOURCE — the live engine (MatchStream) or a stored recording (ReplayStream) — via
+// refill() (called when the queue drains) plus their own command handling.
+abstract class FramePacer {
+  protected pending: string[] = [];
+  protected timer: ReturnType<typeof setTimeout> | null = null;
+  protected prevClock: number | null = null;
+  protected speed = 1;
+  protected paused = false;
+  protected latest: any = null;
+  protected alive = true;
+  protected replay = false;   // tags the wire frame so the client hides live-only controls
+  // explicit fields (not constructor parameter properties) — the tools tsconfig type-checks this
+  // file under erasableSyntaxOnly, which disallows that syntax.
+  protected ws: WebSocket;
+  protected seed: number;
+  protected homeName: string;
+  protected awayName: string;
+
+  constructor(ws: WebSocket, seed: number, homeName: string, awayName: string) {
+    this.ws = ws; this.seed = seed; this.homeName = homeName; this.awayName = awayName;
+  }
+
+  protected send(state: any): void {
+    if (this.ws.readyState !== 1) return;
+    this.latest = state;
+    this.ws.send(JSON.stringify({ ...state, seed: this.seed, speed: this.speed, homeName: this.homeName, awayName: this.awayName, replay: this.replay, matchState: this.paused ? 'paused' : state.matchState }));
+  }
+
+  protected tick(): void {
+    if (this.timer || this.paused || !this.alive) return;
+    if (this.pending.length === 0) { this.refill(); return; }
+    const r = paceStep(this.pending, this.prevClock, this.speed);
+    this.prevClock = r.prevClock;
+    if (r.state === null) { this.tick(); return; }   // parse-skip / nothing drained — try the next
+    this.send(r.state);
+    this.timer = setTimeout(() => { this.timer = null; this.tick(); }, r.delayMs);
+  }
+
+  // Queue drained: the live source resumes the engine's stdout; a finished recording does nothing.
+  protected abstract refill(): void;
+
+  protected setSpeed(v: number): void {
+    this.speed = Math.max(0.25, Math.min(60, v));
+    if (this.latest) this.send(this.latest);
+  }
+  protected togglePause(): void {
+    this.paused = !this.paused;
+    if (this.paused && this.timer) { clearTimeout(this.timer); this.timer = null; }
+    if (this.latest) this.send(this.latest);
+    if (!this.paused) this.tick();
+  }
+
+  dispose(): void {
+    this.alive = false;
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+  }
+}
+
+export class MatchStream extends FramePacer {
   private proc: Proc | null = null;
   private buffer = '';
-  private pending: string[] = [];
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private prevClock: number | null = null;
-  private speed = 1;
-  private paused = false;
-  private latest: any = null;
-  private alive = true;
   // P2: mid-match plan edits become a timeline of {atMs, directives}. Editing at
   // 46' re-sims the match with the new timeline and resumes streaming from 46'
   // (--stream-from) — seamless because frames 0..46' are byte-identical.
@@ -174,12 +417,15 @@ export class MatchStream {
   private fromMs = 0;
   private baseSpec: any;
   private sessionSpecPath: string;
+  private myTeam: 'home' | 'away';
 
   constructor(
-    private ws: WebSocket, private specPath: string, private seed: number,
-    private homeName = 'HOME', private awayName = 'AWAY',
-    private myTeam: 'home' | 'away' = 'home',
+    ws: WebSocket, specPath: string, seed: number,
+    homeName = 'HOME', awayName = 'AWAY',
+    myTeam: 'home' | 'away' = 'home',
   ) {
+    super(ws, seed, homeName, awayName);
+    this.myTeam = myTeam;
     this.baseSpec = JSON.parse(readFileSync(specPath, 'utf8'));
     this.sessionSpecPath = specPath.replace(/\.json$/, '') + '.watch.json';
     this.writeSessionSpec();
@@ -212,43 +458,20 @@ export class MatchStream {
     child.on('close', () => { if (this.proc === child) this.tick(); });
   }
 
-  private send(state: any): void {
-    if (this.ws.readyState !== 1) return;
-    this.latest = state;
-    this.ws.send(JSON.stringify({ ...state, seed: this.seed, speed: this.speed, homeName: this.homeName, awayName: this.awayName, matchState: this.paused ? 'paused' : state.matchState }));
-  }
-
-  private tick(): void {
-    if (this.timer || this.paused || !this.alive) return;
-    if (this.pending.length === 0) { this.proc?.stdout.resume(); return; }
-    const line = this.pending.shift()!;
-    let state: any;
-    try { state = JSON.parse(line); } catch { this.tick(); return; }
-    const delta = this.prevClock === null ? DEFAULT_FRAME_MS : Math.max(1, state.clockMs - this.prevClock);
-    this.prevClock = state.clockMs;
-    this.send(state);
-    const delay = this.speed > 1 ? DEFAULT_FRAME_MS : Math.max(1, delta / this.speed);
-    this.timer = setTimeout(() => { this.timer = null; this.tick(); }, delay);
-  }
+  // Live source: the engine streamed faster than we paced, so the queue drained — let it flow on.
+  protected refill(): void { this.proc?.stdout.resume(); }
 
   private onCommand(d: Buffer): void {
     try {
-      const cmd = JSON.parse(d.toString()) as { type?: string; value?: unknown };
+      const cmd = JSON.parse(d.toString()) as { type?: string; value?: unknown; text?: string };
       if (cmd.type === 'restart') { this.paused = false; this.start(); }
-      else if (cmd.type === 'pause') {
-        this.paused = !this.paused;
-        if (this.paused && this.timer) { clearTimeout(this.timer); this.timer = null; }
-        if (this.latest) this.send(this.latest);
-        if (!this.paused) this.tick();
-      } else if (cmd.type === 'speed' && typeof cmd.value === 'number') {
-        this.speed = Math.max(0.25, Math.min(60, cmd.value));
-        if (this.latest) this.send(this.latest);
-      } else if (cmd.type === 'tactics') {
-        // Edit the plan mid-match (text -> plan + motivation; the compile calls the
-        // LLM). Serialised: each shout waits for the prior edit to finish so the cap,
-        // plan and fromMs advance in arrival order, never racing or rewinding.
-        const c = cmd as { text?: string };
-        this.editLock = this.editLock.then(() => this.applyTacticsEdit(c)).catch(() => { /* ignore */ });
+      else if (cmd.type === 'pause') this.togglePause();
+      else if (cmd.type === 'speed' && typeof cmd.value === 'number') this.setSpeed(cmd.value);
+      else if (cmd.type === 'tactics') {
+        // Edit the plan mid-match (text -> plan + motivation; the compile calls the LLM).
+        // Serialised: each shout waits for the prior edit to finish so the cap, plan and fromMs
+        // advance in arrival order, never racing or rewinding.
+        this.editLock = this.editLock.then(() => this.applyTacticsEdit(cmd)).catch(() => { /* ignore */ });
       }
     } catch { /* ignore */ }
   }
@@ -323,8 +546,48 @@ export class MatchStream {
     if (this.proc) { this.proc.kill(); this.proc = null; }
   }
 
-  dispose(): void {
-    this.alive = false;
+  override dispose(): void {
+    super.dispose();
     this.stopProc();
+  }
+}
+
+// Replay a stored recording through the same pacer — no engine spawn, no re-sim drift. A
+// recording is finished + immutable, so playback supports random-access seek/rewind (re-fill the
+// queue from a different clock) but no shouts; the client hides the tactics box on a replay.
+export class ReplayStream extends FramePacer {
+  private frames: string[];
+  // Takes the already-loaded frames (loaded once by the caller) — so /ws/match can verify the
+  // recording actually has frames before choosing replay over the live re-sim, never leaving a
+  // viewer staring at a blank pitch because a row outlived its file.
+  constructor(ws: WebSocket, frames: string[], seed: number, homeName: string, awayName: string) {
+    super(ws, seed, homeName, awayName);
+    this.replay = true;
+    this.frames = frames;
+    ws.on('message', (d: Buffer) => this.onCommand(d));
+    ws.on('close', () => this.dispose());
+    this.seekTo(0);
+  }
+
+  // Load every frame at/after `fromMs` into the queue and (re)start pacing from there.
+  private seekTo(fromMs: number): void {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    this.prevClock = null;
+    this.pending = fromMs <= 0 ? this.frames.slice()
+      : this.frames.filter(l => { try { return (JSON.parse(l).clockMs ?? 0) >= fromMs; } catch { return false; } });
+    this.paused = false;
+    this.tick();
+  }
+
+  protected refill(): void { /* recording exhausted — playback is complete, leave the final frame up */ }
+
+  private onCommand(d: Buffer): void {
+    try {
+      const cmd = JSON.parse(d.toString()) as { type?: string; value?: unknown };
+      if (cmd.type === 'pause') this.togglePause();
+      else if (cmd.type === 'speed' && typeof cmd.value === 'number') this.setSpeed(cmd.value);
+      else if (cmd.type === 'restart') this.seekTo(0);
+      else if (cmd.type === 'seek' && typeof cmd.value === 'number') this.seekTo(Math.max(0, cmd.value));
+    } catch { /* ignore */ }
   }
 }

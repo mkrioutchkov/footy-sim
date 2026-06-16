@@ -12,7 +12,7 @@ import {
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
-import { playFixture, playCupTie, getFixture, writeSpec, MatchStream } from './match.ts';
+import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording } from './match.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick } from './market.ts';
@@ -407,11 +407,17 @@ server.on('upgrade', (request, socket, head) => {
   const myTeam: 'home' | 'away' = myTeamId === fx.away_team_id ? 'away' : 'home';
   wss.handleUpgrade(request, socket, head, (ws) => {
     try {
-      const specPath = writeSpec(fx);
       const nm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(fx.home_team_id, fx.away_team_id) as { id: number; name: string }[];
       const homeName = nm.find(t => t.id === fx.home_team_id)?.name ?? 'HOME';
       const awayName = nm.find(t => t.id === fx.away_team_id)?.name ?? 'AWAY';
-      new MatchStream(ws as any, specPath, fx.seed, homeName, awayName, myTeam);
+      // A recorded match replays its stored frames (no engine spawn, no re-sim drift). We load
+      // the frames here and only replay if there ARE frames — a metadata row that outlived its
+      // file (manual disk clear, an interrupted prune) falls through to the live re-sim instead
+      // of hanging the watch on a blank pitch. No recording at all → live re-sim (with shouts).
+      const rec = recordingFor('fixture', fixtureId);
+      const frames = rec ? loadRecording(rec) : [];
+      if (frames.length) { new ReplayStream(ws as any, frames, fx.seed, homeName, awayName); return; }
+      new MatchStream(ws as any, writeSpec(fx), fx.seed, homeName, awayName, myTeam);
     } catch (e) { ws.close(); }
   });
 });
