@@ -475,8 +475,17 @@ public:
     // the clock reaches atMs. The match is then a pure function of seed + this
     // timeline, so it replays identically. Applied at the top of applyDirectives.
     // moraleDelta[id] is added to that player's moraleBoost when the entry fires (a
-    // motivational shout's effect); 0 for everyone by default.
-    struct TimelineEntry { double atMs = 0.0; std::vector<Directive> directives; std::array<double, 22> moraleDelta{}; };
+    // motivational shout's effect); 0 for everyone by default. A mid-match FORMATION
+    // change also carries a per-player layout: where layoutHX[id] > 0, that player
+    // re-anchors (base + current) + re-roles + gets a fresh role-AI on fire.
+    struct TimelineEntry {
+        double atMs = 0.0;
+        std::vector<Directive> directives;
+        std::array<double, 22> moraleDelta{};
+        std::array<double, 22> layoutHX{};
+        std::array<double, 22> layoutHY{};
+        std::array<Role, 22>   layoutRole{};
+    };
     std::vector<TimelineEntry> directiveTimeline;
     size_t directiveTimelineIdx = 0;
     // get_forward/sit_deep relocate a player's formation ANCHOR (homeX) up or
@@ -500,6 +509,7 @@ public:
     void createAwayTeam();
     void buildTeam(Team team, const RosterOverride& ro, const double* defHX);
     Player mkPlayer(int id, Team t, Role r, double hx, double hy);
+    void reassignAgent(Player& p, Role r);   // mid-match role change: swap the player's role-AI
     void startMatch();
     void kickoff(Team t);
     void update(double dM);

@@ -1171,3 +1171,20 @@ void GameEngine::buildTeam(Team team, const RosterOverride& ro, const double* de
 }
 void GameEngine::createHomeTeam() { buildTeam(Team::Home, homeRoster, DEF_HX_HOME); }
 void GameEngine::createAwayTeam() { buildTeam(Team::Away, awayRoster, DEF_HX_AWAY); }
+
+// Mid-match role change (a formation shout): set the player's role and swap in a
+// fresh role-AI for the new role. Same factory as the kickoff setup; the engine
+// re-fetches agents[id] every tick (never caches), so the swap is safe in-tick.
+void GameEngine::reassignAgent(Player& p, Role r) {
+    if (p.id < 0 || p.id >= (int)agents.size()) return;
+    p.role = r;
+    switch (r) {
+        case Role::GK: agents[p.id] = std::make_unique<GKPlayerAI>(p, *this); break;
+        case Role::CF: agents[p.id] = std::make_unique<CFPlayerAI>(p, *this); break;
+        case Role::WM: agents[p.id] = std::make_unique<WMPlayerAI>(p, *this); break;
+        case Role::CM: agents[p.id] = std::make_unique<CMPlayerAI>(p, *this); break;
+        case Role::CB: agents[p.id] = std::make_unique<CBPlayerAI>(p, *this); break;
+        case Role::FB: agents[p.id] = std::make_unique<FBPlayerAI>(p, *this); break;
+        default:       agents[p.id] = std::make_unique<PlayerAI>(p, *this); break;
+    }
+}

@@ -171,6 +171,18 @@ int main(int argc, char* argv[]) {
                         }
                     }
                 }
+                // Optional mid-match formation change: per-player new role + anchor.
+                // Shape: "layout":[{playerId, role, homeX, homeY}] (engine frame).
+                if (e.contains("layout") && e["layout"].is_array()) {
+                    for (const auto& L : e["layout"]) {
+                        if (!L.contains("playerId") || !L["playerId"].is_number()) continue;
+                        int id = L["playerId"].get<int>();
+                        if (id < 0 || id >= 22) continue;
+                        if (L.contains("homeX") && L["homeX"].is_number()) te.layoutHX[id] = L["homeX"].get<double>();
+                        if (L.contains("homeY") && L["homeY"].is_number()) te.layoutHY[id] = L["homeY"].get<double>();
+                        if (L.contains("role") && L["role"].is_string()) te.layoutRole[id] = roleFromStr(L["role"].get<std::string>());
+                    }
+                }
                 engine.directiveTimeline.push_back(std::move(te));
             }
             std::sort(engine.directiveTimeline.begin(), engine.directiveTimeline.end(),

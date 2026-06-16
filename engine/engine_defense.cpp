@@ -41,6 +41,18 @@ void GameEngine::applyDirectives() {
         const auto& md = directiveTimeline[directiveTimelineIdx].moraleDelta;
         for (int i = 0; i < 22 && i < (int)state.players.size(); ++i)
             if (md[i] != 0.0 && !state.players[i].sentOff) state.players[i].moraleBoost = clamp(state.players[i].moraleBoost + md[i], -1.0, 1.0);
+        // A formation shout re-shapes the team: re-anchor (base + current) + re-role
+        // + swap the role-AI for each listed player. The per-tick homeX reset above
+        // then springs everyone to their new station; directives still layer on top.
+        const auto& lx = directiveTimeline[directiveTimelineIdx].layoutHX;
+        const auto& ly = directiveTimeline[directiveTimelineIdx].layoutHY;
+        const auto& lr = directiveTimeline[directiveTimelineIdx].layoutRole;
+        for (int i = 0; i < 22 && i < (int)state.players.size(); ++i) {
+            if (lx[i] <= 0.0 || state.players[i].sentOff || state.players[i].role == Role::GK) continue;
+            baseHomeX[i] = lx[i]; baseHomeY[i] = ly[i];
+            state.players[i].homeX = lx[i]; state.players[i].homeY = ly[i];
+            reassignAgent(state.players[i], lr[i]);
+        }
         directiveTimelineIdx++;
     }
     if (directives.empty()) return;
