@@ -39,7 +39,18 @@ export interface FixtureT {
   homeTeamId: number; awayTeamId: number; played: boolean;
   homeScore: number | null; awayScore: number | null; involvesMe: boolean;
 }
-export interface LeagueT { leagueId: number; myTeamId: number; standings: StandingT[]; fixtures: FixtureT[]; }
+export interface DivisionT { tier: number; name: string; season: number; standings: StandingT[]; }
+export interface LeagueT {
+  leagueId: number; myTeamId: number; standings: StandingT[]; fixtures: FixtureT[];
+  season?: number; tier?: number; divisionName?: string; world?: DivisionT[]; seasonComplete?: boolean;
+}
+export interface RolloverT {
+  season: number;
+  divisions: { tier: number; name: string; champion: string }[];
+  promoted: { teamId: number; team: string; fromTier: number; toTier: number }[];
+  relegated: { teamId: number; team: string; fromTier: number; toTier: number }[];
+  prizeMoney: { teamId: number; team: string; amount: number }[];
+}
 export interface FreeAgentT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; }
 export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; listed: boolean; askPrice: number | null; starter: boolean; }
 export interface MarketT { budget: number; squadMax: number; squadMin: number; freeAgents: FreeAgentT[]; squad: MarketPlayerT[]; }
@@ -58,7 +69,7 @@ export const api = {
   league: () => req<LeagueT>('GET', '/league'),
   playFixture: (id: number) => req<{ result: { homeScore: number; awayScore: number; alreadyPlayed: boolean }; standings: StandingT[] }>('POST', `/fixtures/${id}/play`),
   playNext: () => req<{ fixtureId: number; result: { homeScore: number; awayScore: number }; standings: StandingT[] }>('POST', '/play-next'),
-  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; standings: StandingT[] }>('POST', '/advance'),
+  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; rollover?: RolloverT | null; standings: StandingT[] }>('POST', '/advance'),
   market: () => req<MarketT>('GET', '/market'),
   buyAgent: (agentId: number) => req<{ ok: boolean; placed: 'xi' | 'bench'; value: number; name: string; market: MarketT }>('POST', '/market/buy', { agentId }),
   listPlayer: (slot: number, price?: number) => req<{ ok: boolean; askPrice: number; value: number; market: MarketT }>('POST', '/market/list', { slot, price }),

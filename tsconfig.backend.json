@@ -1,0 +1,10 @@
+{
+  "//": "Type-checks the Node backend (web/backend), which the main tsconfig excludes and tsx runs unchecked. Loosens only the lint flags the backend intentionally uses (constructor parameter properties, unused params) so real errors — missing imports (TS2304), type mismatches — are still caught. Run: npx tsc -p tsconfig.backend.json --noEmit",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "erasableSyntaxOnly": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["web/backend", "web/frontend", "tools"]
+}

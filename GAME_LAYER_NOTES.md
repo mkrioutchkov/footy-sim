@@ -162,6 +162,21 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     Verified by `tools/_training_test.ts` (25 assertions: convergence, decline, focus,
     diligence, clamp, backfill, tick, signing-carries-potential) + `tools/_http_smoke.ts`
     (15 assertions: the live pillar 1+2 endpoints on a temp-DB backend).
-- **DESIGNED:** seasons, AI managers (this doc).
+  - **Pillar 3 — Seasons & divisions.** A new user's world is now TWO divisions
+    (`leagues.tier` + `world_id`): the user starts in Division 2 among weaker AI, with a
+    stronger Division 1 above. `season.ts`: `worldLeagues`, `pendingMatchday` (each
+    division's earliest incomplete round — so a watched-ahead fixture's round is completed,
+    not orphaned), `seasonComplete`, and `rolloverSeason` (one tx: prize money by position,
+    promotion/relegation of the bottom-2 ↔ top-2 of adjacent tiers + a promotion bonus,
+    every player ages +1, season++, fixtures regenerated, free-agent pools refreshed).
+    `/api/advance` plays a matchday across every division then rolls over; `/api/league`
+    carries season/tier/division + every division's table; the dashboard shows the
+    division, season, an "other divisions" peek, and a rollover summary. Legacy single
+    leagues (world_id NULL) still roll over as a lone division (no promotion). Added
+    `tsconfig.backend.json` + `npm run typecheck` so the tsx-run backend is type-checked
+    (the main tsconfig excludes it — a missing import had shipped past it; a multi-agent
+    review caught it). Verified by `tools/_season_test.ts` (34 assertions) + the HTTP smoke
+    (20, incl. the league/world shape).
+- **DESIGNED:** AI managers (this doc).
 - **AWAITING YOUR TASTE:** economy scale (50M budgets, `(ovr/100)^3 × 55M` value
   curve, 24-man cap), training/decline rates per age band, league structure, prize money.

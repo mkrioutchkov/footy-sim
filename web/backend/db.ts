@@ -119,3 +119,10 @@ ensureColumn('players', 'potential', 'potential INTEGER');
 ensureColumn('free_agents', 'potential', 'potential INTEGER');   // for pillar-1 pools that predate this
 // Which attribute a club trains hardest ('balanced' or an attr key); nudges the drift.
 ensureColumn('teams', 'training_focus', "training_focus TEXT NOT NULL DEFAULT 'balanced'");
+
+// ── Seasons / divisions (pillar 3) ──────────────────────────────────────────
+// A league is one division; divisions of a world are linked by world_id and ranked by
+// tier (1 = top). Legacy single leagues keep tier 1 + world_id NULL and roll over as a
+// lone division (no promotion/relegation), so the original single-league flow is intact.
+ensureColumn('leagues', 'tier', 'tier INTEGER NOT NULL DEFAULT 1');
+ensureColumn('leagues', 'world_id', 'world_id INTEGER');

@@ -37,6 +37,30 @@ function skillOvr(attrs: Record<string, number>): number {
   return Math.round(SKILL_KEYS.reduce((s, k) => s + (attrs[k] ?? 0), 0) / SKILL_KEYS.length);
 }
 
+// Compact tables for the world's OTHER divisions (the user's own is the main table above).
+// Empty for a legacy single-division world.
+function otherDivisions(league: LeagueT): HTMLElement {
+  const others = (league.world ?? []).filter(d => d.tier !== league.tier);
+  if (!others.length) return h('div', { style: 'display:none' });
+  const cards = others.map(d => {
+    const tb = h('tbody');
+    d.standings.forEach((s, i) => tb.append(h('tr', { class: s.isUser ? 'me' : '' },
+      h('td', { class: 'num' }, String(i + 1)),
+      h('td', {}, s.name, s.isUser ? h('span', { class: 'pill', style: 'margin-left:8px' }, 'you') : ''),
+      h('td', { class: 'num' }, String(s.played)),
+      h('td', { class: 'num' }, (s.gd > 0 ? '+' : '') + s.gd),
+      h('td', { class: 'num', style: 'font-weight:700' }, String(s.points)))));
+    return h('div', {},
+      h('div', { class: 'section-title', style: 'margin-top:0' }, d.name),
+      h('table', {}, h('thead', {}, h('tr', {},
+        h('th', { class: 'num' }, '#'), h('th', {}, 'Club'),
+        h('th', { class: 'num' }, 'P'), h('th', { class: 'num' }, 'GD'), h('th', { class: 'num' }, 'Pts'))), tb));
+  });
+  return h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Other divisions'),
+    h('div', { class: 'grid', style: `grid-template-columns:repeat(${cards.length},1fr);align-items:start` }, ...cards));
+}
+
 const TACTIC_DEFS: { key: keyof Tactics; label: string; lo: string; hi: string }[] = [
   { key: 'aggression', label: 'Aggression', lo: 'Contain', hi: 'Press hard' },
   { key: 'passingDirectness', label: 'Passing', lo: 'Patient', hi: 'Direct' },
@@ -216,8 +240,11 @@ async function screenDashboard() {
     catch (e: any) { toast(e.message); genPersBtn.removeAttribute('disabled'); genPersBtn.textContent = 'Generate personalities'; }
   });
 
-  const advanceBtn = h('button', {}, myNext ? `Play matchday ${myNext.round}` : 'Season complete');
-  if (!myNext) advanceBtn.setAttribute('disabled', 'true');
+  // advance is gated on the WHOLE world having games left (the user may have watched all
+  // their own matches yet other fixtures still need playing before the season can roll).
+  const canAdvance = league.seasonComplete != null ? !league.seasonComplete : !!myNext;
+  const advanceBtn = h('button', {}, myNext ? `Play matchday ${myNext.round}` : (canAdvance ? 'Advance matchday' : 'Season complete'));
+  if (!canAdvance) advanceBtn.setAttribute('disabled', 'true');
   advanceBtn.addEventListener('click', async () => {
     advanceBtn.setAttribute('disabled', 'true'); advanceBtn.textContent = 'Simulating…';
     try {
@@ -229,6 +256,14 @@ async function screenDashboard() {
         toast(r.transfers.length === 1
           ? `Transfer: ${t.teamName} ${verb} ${t.player} (${fmtMoney(t.fee)})`
           : `${r.transfers.length} transfers around the league`);
+      }
+      if (r.rollover) {
+        const ro = r.rollover;
+        const up = ro.promoted.find(p => p.teamId === team.id);
+        const down = ro.relegated.find(p => p.teamId === team.id);
+        const mine = ro.prizeMoney.find(p => p.teamId === team.id);
+        const verdict = up ? `🎉 PROMOTED to Division ${up.toTier}!` : down ? `Relegated to Division ${down.toTier}.` : 'Season complete.';
+        toast(`${verdict}${mine ? ` Prize money: ${fmtMoney(mine.amount)}.` : ''} Season ${ro.season} begins.`);
       }
       screenDashboard();
     } catch (e: any) { toast(e.message); screenDashboard(); }
@@ -273,13 +308,15 @@ async function screenDashboard() {
 
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
-      h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' }, `Managed by ${team.manager} · League position ${myPos}/${league.standings.length}`)),
+      h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
+        `Managed by ${team.manager} · ${league.divisionName ?? 'League'}${league.season ? ` · Season ${league.season}` : ''} · Position ${myPos}/${league.standings.length}`)),
       h('div', { class: 'row' }, watchBtn, advanceBtn,
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
     ),
-    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'League table'), table),
+    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table),
+    otherDivisions(league),
     h('div', { class: 'grid', style: 'grid-template-columns:1.2fr .8fr;align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
       h('div', {},

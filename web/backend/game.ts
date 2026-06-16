@@ -203,28 +203,34 @@ export function generateFixtures(leagueId: number): void {
   void arr;
 }
 
-// Create a fresh league, the user's team, AI opponents to fill it, and fixtures.
+// Create a fresh two-division WORLD: a top division (tier 1, all AI, stronger) and a
+// second division (tier 2) where the user starts among weaker AI, so the first goal is
+// to win promotion. Both divisions get fixtures + a free-agent pool. The two leagues
+// share a world_id (= the tier-1 league id) so promotion/relegation + season rollover
+// can move teams between them. Returns the USER's (tier-2) league id for compatibility.
 export function newSeasonForUser(userId: number, username: string, teamName: string, tactics: Tactics): {
-  leagueId: number; teamId: number;
+  leagueId: number; teamId: number; worldId: number;
 } {
-  const lg = db.prepare("INSERT INTO leagues (name, season, status) VALUES (?, 1, 'running')")
-    .run(`${username}'s League`);
-  const leagueId = Number(lg.lastInsertRowid);
+  const top = db.prepare("INSERT INTO leagues (name, season, status, tier) VALUES (?, 1, 'running', 1)")
+    .run(`${username}'s World — Division 1`);
+  const worldId = Number(top.lastInsertRowid);
+  db.prepare('UPDATE leagues SET world_id = ? WHERE id = ?').run(worldId, worldId);
+  const second = db.prepare("INSERT INTO leagues (name, season, status, tier, world_id) VALUES (?, 1, 'running', 2, ?)")
+    .run(`${username}'s World — Division 2`, worldId);
+  const secondId = Number(second.lastInsertRowid);
 
-  const teamId = createTeam({
-    leagueId, userId, name: teamName, manager: username, tactics, base: 70,
-  });
-
+  // user starts in the second division
+  const teamId = createTeam({ leagueId: secondId, userId, name: teamName, manager: username, tactics, base: 70 });
   for (let i = 0; i < LEAGUE_SIZE - 1; i++) {
-    createTeam({
-      leagueId, userId: null, name: randomTeamName(),
-      manager: 'AI', tactics: randomTactics(),
-      base: Math.round(60 + Math.random() * 18), // AI strength 60..78
-    });
+    createTeam({ leagueId: secondId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(55 + Math.random() * 15) }); // 55..70
   }
-  generateFixtures(leagueId);
-  seedFreeAgents(leagueId);
-  return { leagueId, teamId };
+  // top division: a full slate of stronger AI sides
+  for (let i = 0; i < LEAGUE_SIZE; i++) {
+    createTeam({ leagueId: worldId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(66 + Math.random() * 14) }); // 66..80
+  }
+  generateFixtures(worldId); generateFixtures(secondId);
+  seedFreeAgents(worldId); seedFreeAgents(secondId);
+  return { leagueId: secondId, teamId, worldId };
 }
 
 export interface Standing {

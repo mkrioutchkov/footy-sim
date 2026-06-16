@@ -15,6 +15,7 @@ import { playFixture, getFixture, writeSpec, MatchStream } from './match.ts';
 import { compileLineup } from './lineup.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick } from './market.ts';
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
+import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings } from './season.ts';
 
 const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
 // Give any pre-market league a free-agent pool + every player a potential (one-time,
@@ -213,7 +214,16 @@ app.get('/api/league', async (req: any, reply) => {
     played: !!f.played, homeScore: f.home_score, awayScore: f.away_score,
     involvesMe: f.home_team_id === teamId || f.away_team_id === teamId,
   }));
-  return { leagueId, myTeamId: teamId, standings: standings(leagueId), fixtures };
+  const lg = db.prepare('SELECT season, tier, name FROM leagues WHERE id = ?').get(leagueId) as { season: number; tier: number; name: string };
+  // world = every division's table (for the "other divisions" peek); the user's row is
+  // flagged isUser within each division's standings.
+  return {
+    leagueId, myTeamId: teamId, standings: standings(leagueId), fixtures,
+    season: lg.season, tier: lg.tier, divisionName: lg.name, world: worldStandings(leagueId),
+    // gates the "advance" button on the whole world, not just the user's own fixtures:
+    // a user who watched all their matches still needs to play out the other games.
+    seasonComplete: seasonComplete(leagueId),
+  };
 });
 
 // Play a specific fixture (must be in my league). Returns result + standings.
@@ -229,28 +239,38 @@ app.post('/api/fixtures/:id/play', async (req: any, reply) => {
   return { result, standings: standings(team.leagueId) };
 });
 
-// Advance a matchday: play my next unplayed fixture AND every other unplayed
-// fixture in that same round, so the whole league table moves together.
+// Advance a matchday: play my next unplayed round across EVERY division of my world (so
+// both tables move together), then run the market + training ticks for each division. If
+// that completes the season, roll it over (prize money, promotion/relegation, ageing, new
+// fixtures) and return the summary.
 app.post('/api/advance', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   const team = getTeamWithPlayers(teamId)!;
-  const mine = db.prepare(
-    `SELECT id, round FROM fixtures WHERE league_id = ? AND played = 0
-       AND (home_team_id = ? OR away_team_id = ?) ORDER BY round, id LIMIT 1`,
-  ).get(team.leagueId, teamId, teamId) as { id: number; round: number } | undefined;
-  if (!mine) return reply.code(404).send({ error: 'season complete' });
-  const roundFixtures = db.prepare(
-    'SELECT id FROM fixtures WHERE league_id = ? AND round = ? AND played = 0 ORDER BY id',
-  ).all(team.leagueId, mine.round) as { id: number }[];
-  // Sim the whole matchday concurrently (non-blocking) instead of one-at-a-time.
-  const results = await Promise.all(roundFixtures.map(f => playFixture(f.id)));
-  const myResult = results.find(r => r.fixtureId === mine.id) ?? null;
-  // Between matchdays the world progresses: AI clubs trade, then every player trains.
-  const transfers = marketTick(team.leagueId);
-  const development = developmentTick(team.leagueId);
-  return { round: mine.round, myFixtureId: mine.id, myResult, results, transfers, development, standings: standings(team.leagueId) };
+  const leagues = worldLeagues(team.leagueId);
+  // the round number the user's own division is completing this matchday (for the UI)
+  const userRound = (db.prepare('SELECT MIN(round) AS r FROM fixtures WHERE league_id = ? AND played = 0').get(team.leagueId) as { r: number | null }).r;
+  const toPlay = pendingMatchday(team.leagueId);
+  if (!toPlay.length) return reply.code(404).send({ error: 'season complete' });
+  const results = await Promise.all(toPlay.map(id => playFixture(id)));
+  // the user's match this matchday (null if they'd already played/watched it ahead)
+  const myFx = userRound == null ? null
+    : db.prepare('SELECT id FROM fixtures WHERE league_id = ? AND round = ? AND (home_team_id = ? OR away_team_id = ?) LIMIT 1').get(team.leagueId, userRound, teamId, teamId) as { id: number } | undefined;
+  const myResult = myFx ? results.find(r => r.fixtureId === myFx.id) ?? null : null;
+  // The world progresses between matchdays: AI clubs trade, then every player trains.
+  const transfers: any[] = [];
+  let developed = 0;
+  for (const l of leagues) { transfers.push(...marketTick(l.id)); developed += developmentTick(l.id).players; }
+  // End of season? Roll it over and report the new standings of whichever division the
+  // user now sits in (they may have just been promoted or relegated).
+  const rollover = seasonComplete(team.leagueId) ? rolloverSeason(team.leagueId) : null;
+  const nowLeagueId = getTeamWithPlayers(teamId)!.leagueId;
+  return {
+    round: userRound, myFixtureId: myFx?.id ?? null, myResult, results,
+    transfers, development: { players: developed }, rollover,
+    standings: standings(nowLeagueId),
+  };
 });
 
 // Convenience: play my next unplayed fixture.
