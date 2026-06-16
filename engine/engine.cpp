@@ -170,7 +170,13 @@ void GameEngine::fixedUpdate(double sdt) {
     double halfEndMs = (phase.half == 1) ? halfDurationMs : matchDurationMs;
     if (state.clockMs >= halfEndMs) {
         if (!phase.addedTimeActive) {
-            phase.announcedAddedMs = clamp(std::round(phase.stoppageMs * 0.35 / 60000.0), 1.0, 5.0) * 60000.0;
+            // The 1-5 minute band assumes a 45-min half. Scale it to the ACTUAL
+            // half length so a short exhibition/test match doesn't get a full
+            // minute of added time (a "5-min" match was running ~6:00, and its
+            // second-half kickoff then landed mid-play and read as a glitch).
+            // Ratio is exactly 1.0 for a 90-min match → standard game unchanged.
+            double addedScale = std::min(1.0, halfDurationMs / (45.0 * 60000.0));
+            phase.announcedAddedMs = clamp(std::round(phase.stoppageMs * 0.35 / 60000.0), 1.0, 5.0) * 60000.0 * addedScale;
         }
         phase.addedTimeActive = true;
         double overtimeMs = state.clockMs - halfEndMs;
