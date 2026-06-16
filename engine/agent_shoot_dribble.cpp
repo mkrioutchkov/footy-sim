@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "agent.h"
+#include <cstdio>
 
 Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
@@ -354,6 +355,38 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
             tx = p.x + fd * (touchlineCarry ? 78.0 : 55.0);
             ty = clamp(p.y + side * (touchlineCarry ? 70.0 : 46.0), 35.0, PITCH_H - 35.0);
             sc -= possessionBackward < -140.0 ? 0.50 : 0.28;
+        }
+    }
+
+    // ── Round the keeper — he's charged off his line and you're clean through:
+    // knock it past him and run on, rather than shooting into him. Steer the
+    // carry to a point beside-and-beyond him, toward the open net, and prefer it
+    // over a shot (the tap-in fires next ticks once he's behind you). Beating him
+    // by taking him on is the one thing placement/pace/chip don't cover.
+    if (const Player* gk = engine.findGK(p.team == Team::Home ? Team::Away : Team::Home)) {
+        double gkOff = std::abs(gk->x - gx);                  // keeper genuinely off his line
+        double gkToCarrier = dist(p.x, p.y, gk->x, gk->y);
+        bool keeperAhead = (gk->x - p.x) * fd > 4.0;          // keeper is goal-side of me
+        double gkPerp = std::abs(gk->y - p.y);                // ...and roughly in my path
+        // Truly clean through: nobody (bar the keeper) goal-side and near.
+        int goalSideDef = 0;
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team || o.role == Role::GK) continue;
+            if ((o.x - p.x) * fd > -8.0 && dist(p.x, p.y, o.x, o.y) < 110.0) goalSideDef++;
+        }
+        bool chargedRush = gkOff > 62.0 && keeperAhead && gkPerp < 58.0
+                         && distToGoal > 70.0 && distToGoal < 215.0;
+        bool cleanThrough = per.pressureCount == 0 && goalSideDef == 0 && gkToCarrier < 130.0 && gkToCarrier > 16.0 && !inOwnHalf;
+        if (chargedRush && cleanThrough) {
+            // Take the side of the keeper with more room, a stride beyond him,
+            // staying within the goal mouth so the next touch faces the net.
+            double sideTop = densityAt(gk->x + fd * 28.0, gk->y - 48.0);
+            double sideBot = densityAt(gk->x + fd * 28.0, gk->y + 48.0);
+            double roundSide = (sideTop <= sideBot) ? -1.0 : 1.0;
+            tx = clamp(gk->x + fd * 42.0, 35.0, PITCH_W - 35.0);
+            ty = clamp(gk->y + roundSide * 46.0, PITCH_H / 2.0 - GOAL_W * 0.6, PITCH_H / 2.0 + GOAL_W * 0.6);
+            sc += 0.35;   // prefer taking him on over shooting into him
+            if (engine.passDebug) fprintf(stderr, "ROUNDGK id=%d gkOff=%d d2g=%d\n", p.id, (int)gkOff, (int)distToGoal);
         }
     }
 
