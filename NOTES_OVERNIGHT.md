@@ -70,17 +70,18 @@ Working the prioritized backlog top-down. Each VERIFIED increment committed+push
   because the AI away side doesn't punish vacated flanks" — i.e. a defensive-intelligence gap (item 7), not just
   anchor values. Whether formations should be balanced vs risk/reward is YOUR call — left untuned.
 
-## THE REMAINING CAPSTONE — composite-plan + motivation loop (items 3 + 4.3-driver), ONE coherent unit
-Both FOUNDATIONS are now in place: personalities (4.2, the inputs) + the morale engine hook (4.3, the output).
-What's left is the unit the design doc §3b specs as ONE LLM call, plus its live-flow integration — UX/taste:
-  1. plan.ts compiler: {currentPlan, shout, squad+personalities, ctx} → {plan:{summary,directives}, changed,
-     motivation:[{playerId,moraleDelta,reaction,durationMin}], note}. Reuses tactics.ts name/condition guards.
-  2. Transport: the watch timeline already carries directives per shout; ADD a moraleBoost delta channel so a
-     motivational shout injects morale mid-match (the engine seeds moraleBoost from spec; needs a timeline path).
-  3. Live tactics box: each shout EDITS the persistent plan (amend/overhaul/nuke/no-op) vs a fresh compile;
-     read-only plan textarea; per-player motivation cap (~2/game). Brief: keep the single-shout flow working.
-This touches the live tactics box + watch replay + is a UX surface → I did NOT build it unsupervised. Ready to
-build the plan.ts compiler foundation + the transport on your word; the live-box UX wants your direction.
+## CAPSTONE SHIPPED — composite-plan + motivation (items 3 + 4.3 driver) FULLY LIVE
+After "keep going" I built the whole unit end-to-end:
+- **plan.ts** (`e79387c`): stateful plan editor + personality-driven motivation. compilePlanEdit → {plan, changed,
+  motivation, note}. Verified over a 5-shout sequence: plan accumulates then nukes; same rocket fires +20 on a
+  thick-skinned stopper but −20 on a fragile big-ego striker; 2/game cap tracked.
+- **engine timeline morale channel** (`5faa45f`): TimelineEntry.moraleDelta[22] injects morale when an entry
+  fires; golden byte-identical (empty morale == no timeline 5/5), bites 5/5, deterministic 5/5.
+- **live-box integration** (`a028147`): MatchStream holds the running plan; each shout edits it, freezes plan +
+  morale on the timeline, re-sims. Receipt shows changed / morale swings (green-up/red-down) / standing plan.
+  Verified END-TO-END on a temp-DB backend over a real WebSocket watch: shout → man_mark + push_up + a named
+  player motivated +10, and the sim KEPT STREAMING after the edit (watch flow intact).
+Items 3 + 4 are now COMPLETE. (An adversarial review of this capstone is running; fixes will follow if any.)
 
 ## DECISIONS WAITING FOR MAX (need your taste / touch the live flow — NOT guessed per the brief)
 - **Formation A2 + frontend (the user-facing "play 4-4-2" path).** A0 (engine) + A4 (height) are in; A1 registry
