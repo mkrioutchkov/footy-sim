@@ -464,9 +464,9 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     else if(ballExposureDot>0.10) shieldingBonus=0.12;    // partly exposed
     if(exposedToFacingTackler) shieldingBonus+=0.10;      // and he's squared up
 
-    double chance=clamp(0.18+tackleSkill*0.35-carrierControl*0.15+facingBonus
+    double chance=clamp(0.20+tackleSkill*0.38-carrierControl*0.15+facingBonus
         -(carrierShielded?0.20:0)-(fromBehind?0.14:0)
-        +(approachDot>0.3&&approachDot<0.85?0.06:0)+dribbleBonus+shieldingBonus,0.06,0.72);
+        +(approachDot>0.3&&approachDot<0.85?0.06:0)+dribbleBonus+shieldingBonus,0.06,0.75);
     // Contain by default: a defender only COMMITS to a challenge when he has a
     // real chance of winning it (or it's an emergency, or the carrier has
     // stopped and exposed the ball). Otherwise he stays on his feet and
