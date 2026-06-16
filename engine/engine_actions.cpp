@@ -3,6 +3,7 @@
 #include "agent_helpers.h"
 #include <cmath>
 #include <numbers>
+#include <cstdio>
 
 // ══════════════════════════════════════════════════════════════
 // Actions
@@ -195,6 +196,20 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
     else {
         stats.recordPassIntercepted();
         emitEvent("intercept", receiver.x, receiver.y, receiver.id, pendingPass.toId);
+        if (passDebug) {
+            const Player* intended = playerById(pendingPass.toId);
+            double laneFrac = -1.0, passDist = 0.0;
+            if (intended) {
+                double dx = intended->x - pendingPass.passerX, dy = intended->y - pendingPass.passerY, ls = dx*dx + dy*dy;
+                if (ls > 1.0) laneFrac = clamp(((receiver.x - pendingPass.passerX)*dx + (receiver.y - pendingPass.passerY)*dy)/ls, 0.0, 1.0);
+                passDist = std::hypot(dx, dy);
+            }
+            // lane% = where along the passer->receiver line it was cut (0=at passer, 100=at receiver).
+            fprintf(stderr, "INTCPT t=%d comp=%d blk=%d press=%d fwd=%d dist=%d lane=%d cross=%d thru=%d saferComp=%d\n",
+                    (int)(state.clockMs/1000), (int)(pendingPass.auComp*100), pendingPass.auBlk, pendingPass.auPress,
+                    (int)pendingPass.auFwd, (int)passDist, (int)(laneFrac*100), (int)pendingPass.isCross,
+                    (int)pendingPass.isThrough, (int)(pendingPass.auSafer*100));
+        }
     }
     if (pendingPass.isCross && receiver.team == pendingPass.team) {
         stats.recordCrossComplete();
@@ -365,6 +380,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         stats.recordPassSelection(audit->distance,audit->expectedCompletion,audit->blockers,audit->receiverPressure,riskyFlag,audit->saferOptionTargetId);
     }
     beginTrackedPass(f,t,selectedCross,throughBall);
+    if(audit){ pendingPass.auComp=audit->expectedCompletion; pendingPass.auBlk=audit->blockers; pendingPass.auPress=(int)audit->receiverPressure; pendingPass.auFwd=audit->forwardProgress; pendingPass.auSafer=audit->saferOptionCompletion; pendingPass.auSaferId=audit->saferOptionTargetId; }
     return true;
 }
 

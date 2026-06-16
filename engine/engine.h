@@ -226,7 +226,11 @@ public:
         double passerX = 0.0;
         double passerY = 0.0;
         double offsideLine = 0.0;
+        // Pass-decision audit, carried to the interception site (FOOTY_PASSDEBUG).
+        double auComp = 0.0; int auBlk = 0; int auPress = 0; double auFwd = 0.0;
+        double auSafer = 0.0; int auSaferId = -1;
     } pendingPass;
+    bool passDebug = false;   // FOOTY_PASSDEBUG: dump each intercepted pass's decision context to stderr
     struct ActiveKnockAhead {
         bool active = false;
         int playerId = -1;

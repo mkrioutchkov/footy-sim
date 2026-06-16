@@ -21,7 +21,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (d < PASS_MIN_DISTANCE || d > (keeperOutlet ? PASS_MAX_DISTANCE_KEEPER : PASS_MAX_DISTANCE)) return std::nullopt;
     if (!keeperOutlet && engine.isOffsideTargetPerceived(p, t)) return std::nullopt;
 
-    int bl = 0;
+    int bl = 0, nearBl = 0;
     double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
     if (ls < 1.0) return std::nullopt;
 
@@ -32,6 +32,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         double perp = std::sqrt((o.x - p.x - t2 * dx) * (o.x - p.x - t2 * dx)
                               + (o.y - p.y - t2 * dy) * (o.y - p.y - t2 * dy));
         if (perp < PASS_BLOCKER_PERP) bl++;
+        // Defender CLOSING on the lane (just outside the strict radius, in the
+        // middle of the flight): the pass audit found 43% of interceptions had
+        // ZERO strict blockers — a defender stepped in during flight. Counting
+        // these near-lane bodies as soft risk makes the model pass more accurately.
+        else if (perp < PASS_BLOCKER_PERP + 42.0 && t2 > 0.12 && t2 < 0.90) nearBl++;
         // Opponent right on the boot at release: near-certain deflection that
         // the wide lane radius under-weighted (passes straight into a marker
         // 17px away looked like normal 1-blocker passes).
@@ -52,7 +57,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // ── Base scoring ──
     double completion = clamp(
         0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - bl * 0.23
-            - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),
+            - nearBl * 0.07 - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),
         0.08, 0.98);
     // play_it_long: direct sides gamble on lower-completion (longer) balls. 0 by
     // default => floor stays 0.44 => the no-directive match is unchanged.
@@ -198,6 +203,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (fp > 110.0 && completion < 0.70) sc -= 0.10;
     if (fp > 180.0 && completion < 0.76) sc -= 0.08;
     sc -= bl * 0.12;
+    sc -= nearBl * 0.06;   // steer away from lanes a defender is about to close (see pass audit)
     if (fp > 0.0) {
         sc += 0.08 + (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.20;
     } else {

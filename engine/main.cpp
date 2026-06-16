@@ -5,6 +5,7 @@
 #include <fstream>
 #include <chrono>
 #include <algorithm>
+#include <cstdlib>
 
 namespace {
 // Load one team from a match-spec JSON object into a roster override + Config.
@@ -191,6 +192,8 @@ int main(int argc, char* argv[]) {
         engine.configOverride = true;
         debugMode = false;  // never equalize a real team's attributes
     }
+
+    if (const char* pd = std::getenv("FOOTY_PASSDEBUG")) engine.passDebug = (pd[0] == '1' || pd[0] == 't' || pd[0] == 'y');
 
     engine.initWithSeed(seed);
     engine.setMatchLengthMinutes(minutes);
