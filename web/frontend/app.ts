@@ -562,7 +562,7 @@ async function screenWatch(fixtureId: number) {
     try {
       const msg = JSON.parse(ev.data);
       // A replayed recording is finished playback: drop the live-only shout box and offer rewind.
-      if (msg.replay && !replayUiApplied) { replayUiApplied = true; panel.style.display = 'none'; rewindBtn.style.display = ''; }
+      if (msg.replay && !replayUiApplied) { replayUiApplied = true; panel.style.display = 'none'; rewindBtn.style.display = ''; syncReserve(); }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map((p: any) => ({ id: p.id, name: p.name }));
       renderer.sync(msg);
