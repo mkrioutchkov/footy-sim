@@ -9,9 +9,11 @@ let user: { id: number; username: string } | null = null;
 type Attrs = Record<string, any>;
 function h(tag: string, attrs: Attrs = {}, ...kids: (Node | string)[]): HTMLElement {
   const e = document.createElement(tag);
+  // No `innerHTML` escape hatch on purpose — every value goes in as text or an attribute, so
+  // user-supplied strings (team/player names, plans) can never inject markup. Build structure
+  // with child nodes instead.
   for (const [k, v] of Object.entries(attrs)) {
     if (k === 'class') e.className = v;
-    else if (k === 'html') e.innerHTML = v;
     else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v);
     else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, String(v));
   }
@@ -65,7 +67,7 @@ function otherDivisions(league: LeagueT): HTMLElement {
 function header(): HTMLElement {
   return h('header', { class: 'top' },
     h('div', { class: 'wrap' },
-      h('div', { class: 'brand' , html: 'FOOTY <span class="a">MANAGER</span>' }),
+      h('div', { class: 'brand' }, 'FOOTY ', h('span', { class: 'a' }, 'MANAGER')),
       h('div', { class: 'row' },
         h('span', { class: 'muted' }, user ? user.username : ''),
         h('button', { class: 'ghost small', onclick: async () => { await api.logout(); user = null; route(); } }, 'Log out'),
@@ -110,7 +112,7 @@ function screenAuth() {
 
   mount(h('div', { class: 'center' },
     h('div', { class: 'card', style: 'width:360px' },
-      h('div', { class: 'brand', style: 'font-size:24px;margin-bottom:6px', html: 'FOOTY <span class="a">MANAGER</span>' }),
+      h('div', { class: 'brand', style: 'font-size:24px;margin-bottom:6px' }, 'FOOTY ', h('span', { class: 'a' }, 'MANAGER')),
       h('div', { class: 'muted', style: 'margin-bottom:18px' }, 'Build a team. Set your tactics. Play the season.'),
       tabs,
       h('div', { class: 'field' }, h('label', {}, 'Username'), uname),
@@ -429,6 +431,7 @@ let activeRenderer: MatchRenderer | null = null;
 let activeWs: WebSocket | null = null;
 let watchBar: HTMLElement | null = null;
 let watchPanel: HTMLElement | null = null;
+let watchStatus: HTMLElement | null = null;   // connecting / connection-lost overlay
 let watchPanelObs: ResizeObserver | null = null;   // keeps the pitch sized to the space the panel leaves
 let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
 function teardownWatch() {
@@ -438,6 +441,7 @@ function teardownWatch() {
   try { activeRenderer?.destroy(); } catch { /* */ } activeRenderer = null;
   watchBar?.remove(); watchBar = null;     // teardown owns the floating control bar + tactics panel,
   watchPanel?.remove(); watchPanel = null; // so navigation (incl. watch→watch) never leaves them stacked
+  watchStatus?.remove(); watchStatus = null;
 }
 
 // ── live tactics panel helpers (P4) ──
@@ -554,10 +558,25 @@ async function screenWatch(fixtureId: number) {
   watchPanelObs.observe(panel);
   syncReserve();
 
+  // Connecting overlay — the canvas is otherwise a blank dark void until the first frame
+  // arrives (and silently stays one if the match never starts). Cleared on the first frame.
+  const status = h('div', { class: 'watch-status' }, h('div', { class: 'spin' }, 'Connecting to match…'));
+  document.body.appendChild(status);
+  watchStatus = status;
+  const showStatusError = (msg: string) => {
+    if (myEpoch !== watchEpoch) return;   // superseded — don't resurrect an overlay teardown removed
+    status.replaceChildren(
+      h('div', { class: 'err' }, msg),
+      h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
+    );
+    status.style.display = '';
+  };
+
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}`);
   activeWs = ws;
   let replayUiApplied = false;
+  let gotFrame = false;
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data);
@@ -565,10 +584,14 @@ async function screenWatch(fixtureId: number) {
       if (msg.replay && !replayUiApplied) { replayUiApplied = true; panel.style.display = 'none'; rewindBtn.style.display = ''; syncReserve(); }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map((p: any) => ({ id: p.id, name: p.name }));
+      if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; }
       renderer.sync(msg);
     } catch { /* */ }
   };
-  ws.onclose = () => { /* match over or navigated away */ };
+  ws.onerror = () => { if (!gotFrame) showStatusError('Could not connect to the match.'); };
+  // A close before any frame means the match never streamed (engine missing / failed to start);
+  // a close after frames is just the match ending or navigating away — nothing to flag.
+  ws.onclose = () => { if (!gotFrame) showStatusError('The match could not be started.'); };
   // Teardown is owned centrally by route() (it calls teardownWatch() on leaving '#/watch/') and by
   // the next screenWatch() (which calls teardownWatch() up front) — so no per-screen hashchange
   // listener is needed here. Adding one per visit used to leak a listener on every watch→watch.
@@ -800,7 +823,11 @@ async function screenPlayer(slot: number) {
 
   const traitsEl = h('div', {});
   const renderTraits = (tr: Record<string, number>) => traitsEl.replaceChildren(...TRAIT_LABELS.map(t => traitBar(t.label, tr?.[t.key] ?? 50)));
-  renderTraits((p.personality?.traits as any) ?? {});
+  // Don't fabricate eight 50-bars for a player with no personality — that reads as real data.
+  // The backstory editor below still works (saving derives the personality), so point there.
+  if (p.personality?.traits) renderTraits(p.personality.traits as any);
+  else traitsEl.replaceChildren(h('div', { class: 'muted', style: 'font-size:13px;line-height:1.5' },
+    'No personality yet — write a backstory below and save to derive these dials, or generate the whole squad’s personalities from the squad screen.'));
 
   const back = h('textarea', { class: 'tactics-input', rows: '4', placeholder: 'Backstory — e.g. "A model professional and ice-cool penalty taker who rises on the big occasion."' }, p.personality?.backstory ?? '') as HTMLTextAreaElement;
   const tag = h('input', { placeholder: 'Tagline (≤6 words, in character)', value: p.personality?.tagline ?? '' }) as HTMLInputElement;

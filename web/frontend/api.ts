@@ -1,14 +1,25 @@
 // Thin client for the game backend. Same-origin in prod; Vite proxies /api in dev.
 
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) { super(message); this.status = status; this.name = 'ApiError'; }
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers: body ? { 'content-type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: 'include',
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'include',
+    });
+  } catch {
+    // Network failure (offline, server down) — fetch rejects rather than resolving.
+    throw new ApiError(0, 'Network error — is the server running?');
+  }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && (data.error as string)) || `HTTP ${res.status}`);
+  if (!res.ok) throw new ApiError(res.status, (data && (data.error as string)) || `HTTP ${res.status}`);
   return data as T;
 }
 
