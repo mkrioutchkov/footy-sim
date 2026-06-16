@@ -195,3 +195,22 @@ CREATE TABLE IF NOT EXISTS match_recordings (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_recording_ref ON match_recordings(kind, ref_id);
 `);
+
+// Match reports: a cached post-match narrative + per-player ratings, derived ONCE from a
+// recording's frames (the recording is the source of truth — goal/card timeline from score
+// changes, ratings from the final frame's per-player stats) and an LLM-written report (with a
+// deterministic template fallback). Lazily generated on first view, then served from here. New
+// table; only exists for matches that have a recording, so existing saves are unaffected.
+db.exec(`
+CREATE TABLE IF NOT EXISTS match_reports (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL,              -- 'fixture' | 'cup'
+  ref_id     INTEGER NOT NULL,           -- fixtures.id / cup_ties.id
+  headline   TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  ratings    TEXT NOT NULL,              -- json: [{id,name,team,role,rating,goals,assists,shots,tackles}]
+  facts      TEXT NOT NULL,              -- json: MatchFacts (scorers, cards, possession, shots) for the UI
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_report_ref ON match_reports(kind, ref_id);
+`);

@@ -11,6 +11,8 @@ import { youthAndRetirement, type YouthEvent } from './youth.ts';
 import { resetFitness } from './fitness.ts';
 import { resetMorale } from './morale.ts';
 import { createCup } from './cup.ts';
+import { purgeRecordings } from './match.ts';
+import { purgeReports } from './report.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -132,6 +134,11 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       out.youth.push(...youthAndRetirement(l.id));     // retire veterans + bring through prospects
       resetFitness(l.id);                              // pre-season: everyone reports back fit
       resetMorale(l.id);                               // and morale resets to fresh optimism
+      // the old fixtures are about to vanish — drop their recordings + cached reports too, so
+      // those tables don't accumulate rows (and gzip files) keyed to dead fixture ids.
+      const oldFixtures = (db.prepare('SELECT id FROM fixtures WHERE league_id = ?').all(l.id) as { id: number }[]).map(r => r.id);
+      purgeRecordings('fixture', oldFixtures);
+      purgeReports('fixture', oldFixtures);
       db.prepare('DELETE FROM fixtures WHERE league_id = ?').run(l.id);
       generateFixtures(l.id);
     }

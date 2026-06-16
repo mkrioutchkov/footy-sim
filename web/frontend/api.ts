@@ -60,6 +60,11 @@ export interface TransferT { teamId: number; teamName: string; type: 'sign' | 'b
 export interface CupTieT { id: number; round: number; slot: number; home: string | null; away: string | null; homeTeamId: number | null; awayTeamId: number | null; played: boolean; homeScore: number | null; awayScore: number | null; winnerTeamId: number | null; }
 export interface CupT { rounds: { round: number; name: string; ties: CupTieT[] }[]; totalRounds: number; champion: string | null; myTeamId: number; }
 
+export interface PlayerRatingT { id: number; name: string; team: 'home' | 'away'; role: string; rating: number; goals: number; assists: number; shots: number; tackles: number; }
+export interface TimelineEventT { minute: number; team: 'home' | 'away'; name: string; type: 'goal' | 'yellow' | 'red'; }
+export interface MatchFactsT { homeScore: number; awayScore: number; possessionHome: number; shots: { home: number; away: number }; shotsOnTarget: number; saves: number; corners: number; timeline: TimelineEventT[]; ratings: PlayerRatingT[]; }
+export interface ReportT { homeName: string; awayName: string; headline: string; body: string; facts: MatchFactsT; ratings: PlayerRatingT[]; }
+
 export const api = {
   me: () => req<{ user: UserT | null; teamId?: number | null }>('GET', '/me'),
   register: (username: string, password: string) => req<{ user: UserT }>('POST', '/register', { username, password }),
@@ -85,4 +90,5 @@ export const api = {
   press: (text: string) => req<{ reactions: { slot: number; name: string; delta: number }[]; lifted: number; unsettled: number; team: TeamT }>('POST', '/press', { text }),
   renewPlayer: (slot: number, years?: number) =>
     req<{ ok: boolean; wage: number; years: number }>('PUT', `/player/${slot}/renew`, { years }),
+  report: (fixtureId: number) => req<ReportT>('GET', `/report?fixture=${fixtureId}`),
 };

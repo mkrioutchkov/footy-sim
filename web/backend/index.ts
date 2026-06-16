@@ -21,6 +21,7 @@ import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldSta
 import { aiManagerTick } from './ai.ts';
 import { renewContract } from './contracts.ts';
 import { applyPressConference } from './press.ts';
+import { buildMatchReport } from './report.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
 
@@ -305,6 +306,24 @@ app.post('/api/fixtures/:id/play', async (req: any, reply) => {
   if (fx.league_id !== team.leagueId) return reply.code(403).send({ error: 'not your league' });
   const result = await playFixture(fx.id);
   return { result, standings: standings(team.leagueId) };
+});
+
+// Post-match report + ratings for a played fixture (cached; generated from the recording on
+// first view). 404 if the match has no recording (e.g. a distant AI-vs-AI game).
+app.get('/api/report', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const fx = getFixture(Number(req.query?.fixture));
+  if (!fx) return reply.code(404).send({ error: 'fixture not found' });
+  const team = getTeamWithPlayers(teamId)!;
+  if (fx.league_id !== team.leagueId) return reply.code(403).send({ error: 'not your league' });
+  const nm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(fx.home_team_id, fx.away_team_id) as { id: number; name: string }[];
+  const homeName = nm.find(t => t.id === fx.home_team_id)?.name ?? 'Home';
+  const awayName = nm.find(t => t.id === fx.away_team_id)?.name ?? 'Away';
+  const report = await buildMatchReport('fixture', fx.id, homeName, awayName);
+  if (!report) return reply.code(404).send({ error: 'no recording for this match' });
+  return { homeName, awayName, ...report };
 });
 
 // Advance a matchday: play my next unplayed round across EVERY division of my world (so

@@ -200,6 +200,20 @@ export function pruneRecordings(opts: { keep?: number; maxAgeDays?: number; now?
   return { pruned: doomed.length, files, kept: all.length - doomed.length };
 }
 
+// Delete the recordings (files + rows) for a specific set of matches. Called when the underlying
+// fixtures are removed at season rollover, so match_recordings doesn't accumulate rows keyed to
+// dead fixture ids. (Report rows are cleaned separately by report.ts.)
+export function purgeRecordings(kind: RecKind, refIds: number[]): void {
+  if (!refIds.length) return;
+  const sel = db.prepare('SELECT path FROM match_recordings WHERE kind = ? AND ref_id = ?');
+  const del = db.prepare('DELETE FROM match_recordings WHERE kind = ? AND ref_id = ?');
+  for (const id of refIds) {
+    const row = sel.get(kind, id) as { path: string } | undefined;
+    if (row) { try { const abs = path.join(DATA_DIR, row.path); if (existsSync(abs)) rmSync(abs, { force: true }); } catch { /* best effort */ } }
+    del.run(kind, id);
+  }
+}
+
 // STREAM a line-oriented frame source straight to a gzipped temp file — O(1) memory, never the
 // whole match at once (a 90' match is ~200k frames / multi-GB uncompressed, which buffering would
 // OOM / blow V8's max string length). The score is tracked from the last scored frame as lines

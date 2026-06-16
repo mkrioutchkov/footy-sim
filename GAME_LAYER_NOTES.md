@@ -280,8 +280,21 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     a scoreline that disagrees with an unplayed fixture; a metadata row that outlived its file
     falls back to the live re-sim instead of hanging the watch. Verified by `tools/_replay_test.ts`
     (31, synthetic frames + a synthetic capture stream — no engine) + typecheck + HTTP smoke (30).
+  - **Match reports + ratings (LLM).** `report.ts`: after a match, its RECORDING is the source of
+    truth — `analyzeRecording` scans the frames for the goal/card timeline (goals driven by the
+    SCORE delta so the timeline can't disagree with the headline; an own goal the engine credits
+    to the conceding player shows as "Own goal", not a goal for the wrong team, and earns no
+    rating) and reads the final frame for deterministic 1–10 player ratings. `writeNarrative` is
+    LLM-primary (Groq) for the prose body with a deterministic template fallback; the HEADLINE is
+    ALWAYS the deterministic facts-derived scoreline (the LLM can't move the score). Cached in
+    `match_reports`, generated lazily on first `GET /api/report?fixture=ID` (single-flighted so
+    concurrent first-views don't double-call the LLM). `#/report/:id` screen (headline, narrative,
+    timeline, possession/shots, two-column ratings) + a Report link on every played fixture. Old
+    recordings + reports are purged at season rollover (`purgeRecordings`/`purgeReports`) so the
+    tables don't accumulate rows for deleted fixtures. Verified by `tools/_report_test.ts` (28,
+    synthetic recording incl. an own-goal + purge cases — no engine) + typecheck + HTTP smoke (32).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
-  + press conferences + record/replay (Phase 1) are all SHIPPED.
+  + press conferences + record/replay (Phase 1) + match reports/ratings are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.
@@ -299,6 +312,16 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
   (not a DB blob) so the store scales toward object storage; recorded **iff a human stakeholder**;
   **headless capture at `/api/advance`** for now — folding "the live watched session IS the
   recording" + a one-compute-many-viewers broadcast + record-everything is **Phase 2**.
+- **Loading a recording is whole-file (replay + reports).** `loadRecording` gunzips the entire
+  recording into one string/array. Fine at short/prototype match lengths, but a full 90' match
+  (~200k frames, multi-GB decompressed) would blow V8's max string length — capture already
+  streams (bounded memory), but the LOAD path (both `ReplayStream` and `analyzeRecording`, which
+  is already written to iterate-not-accumulate) needs a streaming gunzip reader. To do alongside
+  the live-path Phase 2 work, when a real 90' recording can be produced + verified with the exe.
+- **Cup match reports/watching aren't surfaced.** Cup ties ARE recorded (`kind='cup'`) and
+  `buildMatchReport('cup', …)` works, but the report endpoint + the cup screen are fixture-only —
+  no UI path reaches a cup tie's replay or report yet. Wiring a cup watch/report entry point is a
+  small follow-on.
 - **No retirement / youth intake.** Players age +1 each season and decline past ~30 but are
   never retired/regenerated, so over many seasons squads grey out. A release-at-38 +
   generated-youth intake at rollover is the natural next step.

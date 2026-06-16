@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type Tactics, type LeagueT, type MarketT, type CupT } from './api';
+import { api, type TeamT, type Tactics, type LeagueT, type MarketT, type CupT, type ReportT } from './api';
 import { MatchRenderer } from './renderer';
 
 const root = document.getElementById('app')!;
@@ -316,7 +316,9 @@ async function screenDashboard() {
   for (const f of league.fixtures.filter(x => x.involvesMe)) {
     const score = f.played ? h('span', { class: 'sc' }, `${f.homeScore}–${f.awayScore}`) : h('span', { class: 'sc muted' }, 'vs');
     const action = f.played
-      ? h('button', { class: 'ghost small', onclick: () => (location.hash = `#/watch/${f.id}`) }, 'Watch')
+      ? h('span', { style: 'display:flex;gap:6px' },
+          h('button', { class: 'ghost small', onclick: () => (location.hash = `#/watch/${f.id}`) }, 'Watch'),
+          h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report'))
       : h('span', { class: 'pill' }, `R${f.round}`);
     fxBox.append(h('div', { class: 'fx me' },
       h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
@@ -769,6 +771,54 @@ async function screenCup() {
 }
 
 // ── router ──
+// ── post-match report + player ratings (generated from the recording) ──
+async function screenReport(fixtureId: number) {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Reading the match…')));
+  let rep: ReportT;
+  try { rep = await api.report(fixtureId); }
+  catch (e: any) {
+    const msg = String(e.message).includes('no recording')
+      ? "No report yet — this match wasn't recorded (play or watch it first)."
+      : e.message;
+    return mount(header(), h('div', { class: 'wrap grid' },
+      h('div', { class: 'between' }, h('h2', {}, 'Match report'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+      h('div', { class: 'card muted' }, msg)));
+  }
+
+  const icon = (t: string) => t === 'goal' ? '⚽' : t === 'red' ? '🟥' : '🟨';
+  const timeline = rep.facts.timeline.length
+    ? h('div', { class: 'card', style: 'margin-top:10px' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Timeline'),
+        ...rep.facts.timeline.map(e => h('div', { class: 'between', style: 'font-size:13px;padding:2px 0' },
+          h('span', {}, `${icon(e.type)} ${e.name}`),
+          h('span', { class: 'muted' }, `${e.minute}'${e.team === 'home' ? ` · ${rep.homeName}` : ` · ${rep.awayName}`}`))))
+    : '';
+
+  // ratings, one column per side, best first
+  const ratingsCol = (team: 'home' | 'away', label: string) => h('div', { style: 'flex:1;min-width:200px' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, label),
+    ...rep.ratings.filter(r => r.team === team).sort((a, b) => b.rating - a.rating).map(r => {
+      const tag = (n: number, s: string) => n > 0 ? h('span', { class: 'pill', style: 'margin-left:4px' }, `${n}${s}`) : '';
+      const hot = r.rating >= 7.5 ? 'color:var(--accent,#4ea1ff);font-weight:700;' : r.rating < 5 ? 'opacity:.6;' : '';
+      return h('div', { class: 'between', style: 'font-size:13px;padding:2px 0' },
+        h('span', {}, `${r.name} `, h('span', { class: 'muted', style: 'font-size:11px' }, r.role), tag(r.goals, '⚽'), tag(r.assists, '🅰')),
+        h('span', { style: hot }, r.rating.toFixed(1)));
+    }));
+
+  const f = rep.facts;
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' }, h('h2', {}, rep.headline), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    h('div', { class: 'card' },
+      h('div', { style: 'white-space:pre-wrap;line-height:1.5' }, rep.body),
+      h('div', { class: 'muted', style: 'margin-top:10px;font-size:12px' },
+        `Possession ${f.possessionHome}%–${100 - f.possessionHome}% · Shots ${f.shots.home}–${f.shots.away} (${f.shotsOnTarget} on target) · ${f.saves} saves · ${f.corners} corners`)),
+    timeline,
+    h('div', { class: 'card', style: 'margin-top:10px' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, 'Player ratings'),
+      h('div', { style: 'display:flex;gap:24px;flex-wrap:wrap' }, ratingsCol('home', rep.homeName), ratingsCol('away', rep.awayName))),
+  ));
+}
+
 function route() {
   const hash = location.hash;
   if (!user) { screenAuth(); return; }
@@ -778,6 +828,7 @@ function route() {
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
   else if (hash === '#/cup') screenCup();
+  else if (hash.startsWith('#/report/')) screenReport(Number(hash.split('/')[2]));
   else if (hash.startsWith('#/player/')) screenPlayer(Number(hash.split('/')[2]));
   else screenDashboard();
 }
