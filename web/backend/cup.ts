@@ -97,9 +97,9 @@ export function cupTieFor(teamId: number, leagueId: number, round: number): { ho
 export interface CupTieView { id: number; round: number; slot: number; home: string | null; away: string | null; homeTeamId: number | null; awayTeamId: number | null; played: boolean; homeScore: number | null; awayScore: number | null; winnerTeamId: number | null }
 
 // The whole bracket for the world's current-season cup (for the cup screen).
-export function cupView(leagueId: number): { rounds: { round: number; name: string; ties: CupTieView[] }[]; totalRounds: number; champion: string | null } {
+export function cupView(leagueId: number): { rounds: { round: number; name: string; ties: CupTieView[] }[]; totalRounds: number; champion: string | null; championTeamId: number | null } {
   const w = worldOf(leagueId);
-  if (!w) return { rounds: [], totalRounds: 0, champion: null };
+  if (!w) return { rounds: [], totalRounds: 0, champion: null, championTeamId: null };
   const ties = db.prepare('SELECT * FROM cup_ties WHERE world_id = ? AND season = ? ORDER BY round, slot').all(w.worldId, w.season) as unknown as CupTie[];
   const names = new Map((db.prepare(`SELECT id, name FROM teams WHERE league_id IN (${w.leagueIds.map(() => '?').join(',')})`).all(...w.leagueIds) as { id: number; name: string }[]).map(t => [t.id, t.name]));
   // total rounds derives from the round-1 size (8 ties -> 4 rounds, 4 ties -> 3 rounds)
@@ -113,6 +113,7 @@ export function cupView(leagueId: number): { rounds: { round: number; name: stri
   }
   const rounds = [...byRound.keys()].sort((a, b) => a - b).map(round => ({ round, name: roundName(round, total), ties: byRound.get(round)! }));
   const finalTie = ties.find(t => t.round === total);
-  const champion = finalTie?.winner_team_id != null ? (names.get(finalTie.winner_team_id) ?? null) : null;
-  return { rounds, totalRounds: total, champion };
+  const championTeamId = finalTie?.winner_team_id ?? null;
+  const champion = championTeamId != null ? (names.get(championTeamId) ?? null) : null;
+  return { rounds, totalRounds: total, champion, championTeamId };
 }

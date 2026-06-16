@@ -136,16 +136,17 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
     // 2b. archive each human club's finished season for the History screen — BEFORE the fixtures
     //     are purged + the season counter advances (that data is otherwise unrecoverable). The
     //     cup still reflects the just-finished campaign here (createCup runs later, in step 4).
-    const cupChampion = cupView(leagues[0].id).champion;
+    const cupChampionTeamId = cupView(leagues[0].id).championTeamId;
     for (const t of humanTeams) {
       const fin = finals.find(f => f.table.some(s => s.teamId === t.id));
       if (!fin) continue;
-      const me = fin.table.find(s => s.teamId === t.id)!;
       recordSeasonHistory({
         teamId: t.id, season: endSeason, tier: fin.league.tier, division: fin.league.name, table: fin.table,
         promoted: out.promoted.some(p => p.teamId === t.id),
         relegated: out.relegated.some(r => r.teamId === t.id),
-        cupWon: cupChampion != null && cupChampion === me.name,
+        // attribute the cup by team id, not name — club names aren't unique (no UNIQUE constraint),
+        // so a same-named club winning it must not phantom-award this club (review fix).
+        cupWon: cupChampionTeamId != null && cupChampionTeamId === t.id,
       });
     }
 
