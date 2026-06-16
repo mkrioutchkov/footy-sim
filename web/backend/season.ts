@@ -5,22 +5,24 @@
 // regenerated and the free-agent pools refreshed. A legacy single league (world_id NULL)
 // rolls over as a lone division — carryover + prize money + ageing, no promotion.
 import { db } from './db.ts';
-import { standings, generateFixtures, seedFreeAgents, type Standing } from './game.ts';
+import { standings, generateFixtures, seedFreeAgents, tierFinance, type Standing } from './game.ts';
 import { tickContracts, type ContractEvent } from './contracts.ts';
 import { youthAndRetirement, type YouthEvent } from './youth.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
 
-// Prize money by tier + final position. Injected into budgets each season so clubs can
-// keep trading. TASTE: see GAME_LAYER_NOTES.md.
+// Prize money (TV + merit) by tier + final position — roughly real-world: the Premier League
+// (tier 1) pays a huge, relatively flat purse (~£160M champion down to a ~£100M floor — even
+// last place banks the TV windfall); the Championship (tier 2) pays a modest £12M→£3M. This
+// is the income that funds transfers. TASTE: see GAME_LAYER_NOTES.md.
 export function prizeMoney(tier: number, position: number, size: number): number {
-  const top = tier === 1 ? 40_000_000 : 18_000_000;
-  const bottom = tier === 1 ? 12_000_000 : 4_000_000;
+  const top = tier === 1 ? 160_000_000 : 12_000_000;
+  const bottom = tier === 1 ? 100_000_000 : 3_000_000;
   const frac = size > 1 ? (position - 1) / (size - 1) : 0;       // 0 at 1st place, 1 at last
-  return Math.round((top - (top - bottom) * frac) / 100_000) * 100_000;
+  return Math.round((top - (top - bottom) * frac) / 1_000_000) * 1_000_000;
 }
-const PROMOTION_BONUS = 15_000_000;   // windfall for going up a division
+const PROMOTION_BONUS = 40_000_000;   // a promoted club's summer war chest (the windfall of going up)
 
 function tx<T>(fn: () => T): T {
   db.exec('BEGIN');
@@ -100,12 +102,14 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       const upper = finals[i], lower = finals[i + 1];
       const goingDown = upper.table.slice(-PROMOTE);          // bottom N of the upper division
       const goingUp = lower.table.slice(0, PROMOTE);          // top N of the lower division
+      // relegation drops the club to the lower tier's (smaller) wage budget; promotion lifts
+      // it to the upper tier's wage budget AND hands a transfer windfall (the riches of going up).
       for (const s of goingDown) {
-        db.prepare('UPDATE teams SET league_id = ? WHERE id = ?').run(lower.league.id, s.teamId);
+        db.prepare('UPDATE teams SET league_id = ?, wage_budget = ? WHERE id = ?').run(lower.league.id, tierFinance(lower.league.tier).wageBudget, s.teamId);
         out.relegated.push({ teamId: s.teamId, team: s.name, fromTier: upper.league.tier, toTier: lower.league.tier });
       }
       for (const s of goingUp) {
-        db.prepare('UPDATE teams SET league_id = ?, budget = budget + ? WHERE id = ?').run(upper.league.id, PROMOTION_BONUS, s.teamId);
+        db.prepare('UPDATE teams SET league_id = ?, wage_budget = ?, budget = budget + ? WHERE id = ?').run(upper.league.id, tierFinance(upper.league.tier).wageBudget, PROMOTION_BONUS, s.teamId);
         out.promoted.push({ teamId: s.teamId, team: s.name, fromTier: lower.league.tier, toTier: upper.league.tier });
       }
     }

@@ -128,7 +128,13 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
 
 ## Open TASTE questions (defaults chosen; flag for the user)
 
-- **Economy scale**: 50M budgets, value curve `(ovr/100)^3 * 60M`. Right ballpark?
+- **Economy scale (now PL/Championship-based, 2026-06-16):** value = `((ovr−30)/65)^4 × 130M`
+  × age × personality (95-rated ≈ £130M, 85 ≈ £67M, 70 ≈ £19M, 50 ≈ £1.2M); wage ≈ 10% of the
+  ego-neutral value + ego premium. Tier finances: **Premier League** (tier 1) £80M transfer /
+  £140M wages, prize money £160M (champ) → £100M (last); **Championship** (tier 2) £18M / £40M,
+  prize £12M → £3M. Promotion = +£40M windfall and the jump to the PL wage budget; relegation
+  drops to the Championship wage budget. (Parachute payments that decay over 3 years are a
+  future refinement.) Right ballpark?
 - **Squad cap**: 24 max / 11 min. OK?
 - **Training rates**: how fast should a 19-y/o with 80 potential close the gap? (chosen:
   a few OVR points/season.)

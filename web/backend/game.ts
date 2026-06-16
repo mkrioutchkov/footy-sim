@@ -77,23 +77,33 @@ function personalityMult(personality: unknown): number {
   return 1 + ((pos - 50) / 50) * 0.15 - (Math.max(0, ego - 60) / 40) * 0.08;
 }
 
-// Transfer value in currency units. Convex in overall so a star is worth far more
-// than a squad filler; rounded to the nearest 100k with a 50k floor.
+// Transfer value, on a real Premier-League scale: steeply convex in overall so a ~95-rated
+// star is worth ~£130M while a 50-rated squad filler is well under £1M (a 65-rated ~£11M, an
+// 80-rated ~£46M). Shifting by 30 + the 4th power gives that spread. TASTE: see notes.
 export function playerValue(attrs: Record<string, number>, age: number, personality: unknown): number {
-  const base = Math.pow(overall(attrs) / 100, 3) * 55_000_000;
+  const base = Math.pow(Math.max(0, overall(attrs) - 30) / 65, 4) * 130_000_000;
   const v = base * ageMult(age) * personalityMult(personality);
-  return Math.max(50_000, Math.round(v / 100_000) * 100_000);
+  return Math.max(25_000, Math.round(v / 50_000) * 50_000);
 }
 
-// Annual wage = a fraction of the (ego-neutral) transfer value, then a big ego pushes the
-// demand up. Separate from value so a diva costs more to PAY even when worth less to BUY.
-// TASTE: the 8% ratio + ego premium — see GAME_LAYER_NOTES.md.
+// Annual wage ≈ 10% of the (ego-neutral) value, then a big ego pushes the demand up — so a
+// £67M (85-rated) star earns ~£6.7M/yr (~£130k/wk) and a diva costs more to PAY even when
+// worth less to BUY. Separate from the one-off transfer fee. TASTE: the 10% ratio + ego premium.
 export function playerWage(attrs: Record<string, number>, age: number, personality: unknown): number {
-  const base = playerValue(attrs, age, null) * 0.08;
+  const base = playerValue(attrs, age, null) * 0.10;
   const ego = ((personality as { traits?: { ego?: number } } | null)?.traits?.ego) ?? 50;
   const egoMult = 1 + (Math.max(0, ego - 50) / 50) * 0.25;        // up to +25% for a maxed ego
-  return Math.max(50_000, Math.round((base * egoMult) / 50_000) * 50_000);
+  return Math.max(25_000, Math.round((base * egoMult) / 25_000) * 25_000);
 }
+
+// Rough Premier League (tier 1) vs Championship (tier 2) club finances: PL clubs run on a
+// far bigger transfer kitty + wage budget than the Championship. Used at world creation and
+// reset on promotion/relegation. TASTE — see GAME_LAYER_NOTES.md.
+export const TIER_FINANCE: Record<number, { transferBudget: number; wageBudget: number }> = {
+  1: { transferBudget: 80_000_000, wageBudget: 140_000_000 },
+  2: { transferBudget: 18_000_000, wageBudget: 40_000_000 },
+};
+export const tierFinance = (tier: number) => TIER_FINANCE[tier] ?? TIER_FINANCE[2];
 
 // New-player age: a realistic spread centred on the mid-20s (18..34), skewed to prime.
 function genAge(): number {
@@ -181,11 +191,14 @@ export function backfillFreeAgents(): void {
 export function createTeam(opts: {
   leagueId: number; userId: number | null; name: string;
   manager: string; tactics: Tactics; base: number;
+  budget?: number; wageBudget?: number;            // default to Championship-tier finances
 }): number {
+  const fin = TIER_FINANCE[2];
   const info = db.prepare(
-    `INSERT INTO teams (user_id, league_id, name, manager, tactics, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(opts.userId, opts.leagueId, opts.name, opts.manager, JSON.stringify(opts.tactics), Date.now());
+    `INSERT INTO teams (user_id, league_id, name, manager, tactics, budget, wage_budget, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(opts.userId, opts.leagueId, opts.name, opts.manager, JSON.stringify(opts.tactics),
+    opts.budget ?? fin.transferBudget, opts.wageBudget ?? fin.wageBudget, Date.now());
   const teamId = Number(info.lastInsertRowid);
   insertRoster(teamId, opts.base);
   return teamId;
@@ -240,14 +253,15 @@ export function newSeasonForUser(userId: number, username: string, teamName: str
     .run(`${username}'s World — Division 2`, worldId);
   const secondId = Number(second.lastInsertRowid);
 
-  // user starts in the second division
-  const teamId = createTeam({ leagueId: secondId, userId, name: teamName, manager: username, tactics, base: 70 });
+  const fin1 = TIER_FINANCE[1], fin2 = TIER_FINANCE[2];
+  // user starts in the second division (Championship money)
+  const teamId = createTeam({ leagueId: secondId, userId, name: teamName, manager: username, tactics, base: 70, budget: fin2.transferBudget, wageBudget: fin2.wageBudget });
   for (let i = 0; i < LEAGUE_SIZE - 1; i++) {
-    createTeam({ leagueId: secondId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(55 + Math.random() * 15) }); // 55..70
+    createTeam({ leagueId: secondId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(55 + Math.random() * 15), budget: fin2.transferBudget, wageBudget: fin2.wageBudget }); // 55..70
   }
-  // top division: a full slate of stronger AI sides
+  // top division: a full slate of stronger AI sides on Premier-League money
   for (let i = 0; i < LEAGUE_SIZE; i++) {
-    createTeam({ leagueId: worldId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(66 + Math.random() * 14) }); // 66..80
+    createTeam({ leagueId: worldId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(70 + Math.random() * 15), budget: fin1.transferBudget, wageBudget: fin1.wageBudget }); // 70..85
   }
   generateFixtures(worldId); generateFixtures(secondId);
   seedFreeAgents(worldId); seedFreeAgents(secondId);
