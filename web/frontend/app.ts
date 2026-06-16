@@ -591,6 +591,48 @@ async function screenMarket() {
       h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'POT'),
       h('th', { class: 'num' }, 'Fee/Wage'), h('th', { class: 'num' }, '')));
 
+    // ── club-to-club transfers: bid for a listed player at another club, with negotiation ──
+    const win = market.window;
+    const sendBid = async (playerId: number, fee: number): Promise<void> => {
+      try {
+        const r = await api.bid(playerId, fee);
+        if (r.status === 'accepted') { market = r.market; toast(`Signed ${r.player} for ${fmtMoney(r.fee!)} (${r.placed === 'xi' ? 'straight into the XI' : 'to the bench'})`); render(); }
+        else if (r.status === 'countered') {
+          market = r.market;
+          if (confirm(`${r.club} want ${fmtMoney(r.counterFee!)} for ${r.player}. Match their valuation?`)) await sendBid(playerId, r.counterFee!);
+          else render();
+        } else { toast(r.error || `${r.club} rejected the bid`); render(); }
+      } catch (e: any) { toast(e.message); render(); }
+    };
+    const doBid = (t: typeof market.transferTargets[number]): void => {
+      const ask = t.askPrice ?? t.value;
+      const raw = prompt(`Bid for ${t.name} — ${t.club} are asking ${fmtMoney(ask)}.\nYour budget: ${fmtMoney(market.budget)}.\n(enter a number, or shorthand like 1.5m / 500k)`, String(ask));
+      if (raw == null) return;
+      // accept plain numbers AND the shorthand the screen shows (£1.5M, 500k) — strip symbols,
+      // then scale by a trailing m/k so "1.5m" reads as 1,500,000 rather than 2.
+      const s = raw.trim().toLowerCase().replace(/[£,\s]/g, '');
+      const mult = s.endsWith('m') ? 1e6 : s.endsWith('k') ? 1e3 : 1;
+      const fee = Math.round(parseFloat(s) * mult);
+      if (!fee || fee <= 0) { toast('Enter a valid bid'); return; }
+      void sendBid(t.id, fee);
+    };
+    const tgtBody = h('tbody');
+    if (!market.transferTargets.length) tgtBody.append(h('tr', {}, h('td', { colspan: '7', class: 'muted' }, 'No players listed for sale at other clubs.')));
+    for (const t of market.transferTargets) {
+      const bid = h('button', { class: 'ghost small' }, 'Bid');
+      if (!win.open) { bid.setAttribute('disabled', 'true'); bid.setAttribute('title', 'Transfer window is shut'); }
+      else bid.addEventListener('click', () => doBid(t));
+      const tPot = t.potential != null && t.potential > t.overall;
+      tgtBody.append(h('tr', {},
+        h('td', {}, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + t.club)),
+        h('td', {}, h('span', { class: 'pill' }, t.role)),
+        h('td', { class: 'num' }, String(t.age)),
+        h('td', { class: 'num' }, String(t.overall)),
+        h('td', { class: 'num' }, tPot ? h('span', { class: 'a' }, String(t.potential)) : (t.potential != null ? String(t.potential) : '—')),
+        moneyCell(t.askPrice ?? t.value, t.wage),
+        h('td', { class: 'num' }, bid)));
+    }
+
     const wagePct = market.wageBudget > 0 ? Math.round((market.wageBill / market.wageBudget) * 100) : 0;
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
@@ -598,6 +640,9 @@ async function screenMarket() {
           h('div', { class: 'muted' }, `Budget ${fmtMoney(market.budget)} · wages ${fmtMoney(market.wageBill)}/${fmtMoney(market.wageBudget)} (${wagePct}%) · squad ${market.squad.length}/${market.squadMax}`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
       ),
+      h('div', { class: 'card', style: `padding:8px 12px;${win.open ? 'border-left:3px solid var(--accent,#4ea1ff)' : 'opacity:.8'}` },
+        h('span', { style: win.open ? 'font-weight:600' : '' }, (win.open ? '🟢 ' : '🔒 ') + win.label),
+        h('span', { class: 'muted', style: 'margin-left:8px;font-size:12px' }, 'Free agents can be signed any time; club-to-club deals need an open window.')),
       h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Free agents'),
@@ -607,6 +652,10 @@ async function screenMarket() {
           h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, 'List a player to sell him — an AI club may buy once you have squad depth (12+).'),
           h('div', { style: 'max-height:520px;overflow:auto' }, h('table', {}, headRow('Player'), sqBody))),
       ),
+      h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'For sale — other clubs'),
+        h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, win.open ? 'Bid for a listed player — the club may accept, counter, or reject.' : 'Bidding opens during a transfer window.'),
+        h('div', { style: 'max-height:420px;overflow:auto' }, h('table', {}, headRow('Player'), tgtBody))),
     ));
   }
   render();

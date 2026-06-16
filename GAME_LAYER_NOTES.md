@@ -293,11 +293,29 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     recordings + reports are purged at season rollover (`purgeRecordings`/`purgeReports`) so the
     tables don't accumulate rows for deleted fixtures. Verified by `tools/_report_test.ts` (28,
     synthetic recording incl. an own-goal + purge cases — no engine) + typecheck + HTTP smoke (32).
+  - **Transfer windows + club-to-club negotiation.** `market.ts`: `transferWindow(leagueId)`
+    derives a **summer** (pre-season) + **winter** (mid-season) window from the fixture rounds;
+    free agents are signable any time, but **club-to-club deals are window-gated** — both the user
+    (`bidForPlayer`) and the AI (`marketTick` step 2). `bidForPlayer(buyer, targetPlayerId, fee)`
+    is real negotiation: the seller accepts at/above its price (a listed player's ask, else
+    `value × 1.4` to prise an unlisted one away), counters at that price if the bid is close
+    (≥ 80%), else rejects — and won't sell down to the minimum squad. On acceptance the deal runs
+    immediately (reusing `transferListed`; the player keeps his wage + remaining contract years),
+    buyer budget/wage/squad permitting. Stateless: a counter just returns the price and the user
+    re-bids. `POST /api/transfer/bid` (200 for accept/counter/reject, 400 for an illegal bid);
+    `getMarket` now carries the window + `transferTargets` (listed players across the world). A
+    window banner + a "For sale — other clubs" table with a bid flow. Verified by
+    `tools/_transfer_test.ts` (19 — window progression, reject/counter/accept with money conserved
+    + squads legal, unlisted premium, seller-min refusal, window-shut blocking) + smoke (36).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
-  + press conferences + record/replay (Phase 1) + match reports/ratings are all SHIPPED.
+  + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
+  negotiation are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.
+  Deferred transfer follow-ons: **loans** (a player borrowed for a window/season, wages split,
+  auto-return) — the immediate next step; **NL/LLM negotiation** (haggle in natural language) —
+  an LLM-stream item; the AI making its OWN bids for the user's unlisted stars; cross-window deadline-day feel.
 - **AWAITING YOUR TASTE:** economy scale (50M budgets, `(ovr/100)^3 × 55M` value
   curve, 24-man cap), training/decline rates per age band, division sizes / promotion
   counts (2 of 8), the prize-money schedule.
