@@ -157,6 +157,26 @@ ensureColumn('players', 'morale', 'morale INTEGER NOT NULL DEFAULT 65');
 ensureColumn('players', 'parent_team_id', 'parent_team_id INTEGER');   // NULL = owned outright; else the lending club
 ensureColumn('players', 'loan_until', 'loan_until INTEGER');           // season the loan ends (returns at that rollover)
 
+// ── Dynamic player-news (LLM stream) ────────────────────────────────────────
+// Notable events (a hat-trick, a red card, a long injury…) weave a development into a player's
+// backstory and RE-DERIVE his trait dials (the text↔dial coupling), surfaced as a news feed.
+// One row per event; player_name is snapshotted (slots renumber on transfers); ref_id is the
+// matchday fixture that produced it (dedup). New table, so existing saves are unaffected.
+db.exec(`
+CREATE TABLE IF NOT EXISTS player_news (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id     INTEGER NOT NULL,
+  player_slot INTEGER NOT NULL,           -- slot at the time (best-effort profile link)
+  player_name TEXT NOT NULL,              -- snapshot (immune to later renumbering)
+  type        TEXT NOT NULL,              -- hat_trick | brace | red_card | star | long_injury
+  headline    TEXT NOT NULL,
+  ref_id      INTEGER NOT NULL DEFAULT 0, -- the matchday fixture id (dedup); 0 = none
+  season      INTEGER NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_news_team ON player_news(team_id, id);
+`);
+
 // ── Cup competition (core stream) ───────────────────────────────────────────
 // A single-elimination knockout of all the world's clubs, run alongside the league each
 // season. round 1 = the first round, rising to the final; slot orders the bracket. Later-

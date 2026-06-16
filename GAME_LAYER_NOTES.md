@@ -318,9 +318,24 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     /api/transfer/loan` + a Loan button on the targets table + a "loan" squad marker (List
     disabled). Verified by `tools/_loans_test.ts` (18 — no-fee move with id preserved, owner-min
     refusal, the guards, window gating, return-to-parent + idempotent).
+  - **Dynamic player-news (LLM).** `news.ts`: notable events — a hat-trick, brace, red card,
+    man-of-the-match, a long injury — become a news item AND evolve the player: a cue-rich
+    development is woven into his backstory and his trait dials are RE-DERIVED from the new text
+    (the text↔dial coupling, so a hat-trick lifts big-game/ego, a red card temperament, a long
+    injury fragility). Because the dials feed training rate + transfer value, form reshapes who he
+    is. LLM-primary rewrite (`rewriteStory`) with a deterministic cue-append fallback that PREPENDS
+    so the newest cue survives the cap; `deriveTraits` re-derives. Match events are read from the
+    recording (no engine), user-side only; injuries from the fitness tick. Attribution is by stable
+    DB **id** captured at detection (immune to slot renumbering), via a UNIQUE-name map (a duplicate
+    squad name drops the event rather than mis-evolve a team-mate), and the red-card set is
+    side-filtered (review fixes). Idempotent per matchday (`ref_id` = fixture). `players.personality`
+    is updated in place; `player_news` is the club's persistent feed (kept across seasons — NOT
+    purged at rollover). Fired in the background from `/api/advance`; `GET /api/news` + a Club-news
+    dashboard card (links by current name). Verified by `tools/_news_test.ts` (17 — detection,
+    story+dial evolution, idempotency, + the two name-collision regressions — no engine, keyless).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
-  negotiation + loans are all SHIPPED.
+  negotiation + loans + dynamic player-news are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.

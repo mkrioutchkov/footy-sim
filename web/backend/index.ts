@@ -22,6 +22,7 @@ import { aiManagerTick } from './ai.ts';
 import { renewContract } from './contracts.ts';
 import { applyPressConference } from './press.ts';
 import { buildMatchReport } from './report.ts';
+import { processPlayerNews, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
 
@@ -351,6 +352,14 @@ app.get('/api/report', async (req: any, reply) => {
   return { homeName, awayName, ...report };
 });
 
+// The club's player-news feed (events that evolved a player's story this/past seasons).
+app.get('/api/news', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { news: recentNews(teamId) };
+});
+
 // Advance a matchday: play my next unplayed round across EVERY division of my world (so
 // both tables move together), then run the market + training ticks for each division. If
 // that completes the season, roll it over (prize money, promotion/relegation, ageing, new
@@ -392,6 +401,10 @@ app.post('/api/advance', async (req: any, reply) => {
     const adv = advanceCupRound(team.leagueId, pend.round);
     cup = { round: pend.round, champion: adv?.champion ?? null, myTie: cupTieFor(teamId, team.leagueId, pend.round) };
   }
+  // Notable events this matchday (a hat-trick, a red card, a long injury…) become news AND evolve
+  // the player's backstory + dials. Background + best-effort, like the personality backfill, so it
+  // never blocks the matchday. Fired before rollover so the squad map matches the match just played.
+  if (myFx) void processPlayerNews(teamId, myFx.id, injuries).catch(() => { /* news is ambient */ });
   // End of season? Roll it over and report the new standings of whichever division the
   // user now sits in (they may have just been promoted or relegated).
   const rollover = seasonComplete(team.leagueId) ? rolloverSeason(team.leagueId) : null;

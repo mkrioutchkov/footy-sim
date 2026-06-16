@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type Tactics, type LeagueT, type MarketT, type CupT, type ReportT } from './api';
+import { api, type TeamT, type Tactics, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT } from './api';
 import { MatchRenderer } from './renderer';
 
 const root = document.getElementById('app')!;
@@ -199,9 +199,11 @@ function formationPanel(team: TeamT): HTMLElement {
 // ── dashboard ──
 async function screenDashboard() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
-  let team: TeamT, league: LeagueT;
-  try { [team, league] = await Promise.all([api.team(), api.league()]); }
-  catch (e: any) {
+  let team: TeamT, league: LeagueT, news: NewsItemT[] = [];
+  try {
+    const [t, l, n] = await Promise.all([api.team(), api.league(), api.news().catch(() => ({ news: [] }))]);
+    team = t; league = l; news = n.news;
+  } catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
@@ -338,6 +340,22 @@ async function screenDashboard() {
     h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px' }, 'What you say moves squad morale — each player reacts through his own personality.'),
     pressInput, h('div', { style: 'margin-top:6px' }, pressBtn));
 
+  // ── club news: events that evolved a player's story + dials ──
+  const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕' };
+  // link by CURRENT name → slot (slots renumber on transfers, so a stored slot can drift); only
+  // unique names link (a duplicate name can't be resolved to one player), and a player who has
+  // since left the club just isn't a link.
+  const nameCount = new Map<string, number>();
+  for (const p of team.players) nameCount.set(p.name, (nameCount.get(p.name) ?? 0) + 1);
+  const slotByName = new Map(team.players.filter(p => nameCount.get(p.name) === 1).map(p => [p.name, p.slot]));
+  const newsCard = h('div', { class: 'card', style: 'margin-top:14px' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Club news'),
+    news.length
+      ? h('div', {}, ...news.slice(0, 8).map(n => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0;' + (slotByName.has(n.player) ? 'cursor:pointer' : ''), onclick: () => { const s = slotByName.get(n.player); if (s != null) location.hash = `#/player/${s}`; } },
+          h('span', {}, `${NEWS_ICON[n.type] ?? '•'} ${n.headline}`),
+          h('span', { class: 'muted', style: 'font-size:11px' }, `S${n.season}`))))
+      : h('div', { class: 'muted', style: 'font-size:12px' }, 'No headlines yet — play on and your players will make news.'));
+
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
@@ -354,6 +372,7 @@ async function screenDashboard() {
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
       h('div', {},
         formationPanel(team),
+        newsCard,
         pressCard,
         h('div', { class: 'card', style: 'margin-top:14px' },
           h('div', { class: 'between', style: 'margin-bottom:8px' },
