@@ -185,6 +185,14 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     training + lineup choices, so the whole world manages itself. Strictly AI-only — a human
     manager's focus and hand-picked lineup are never touched. Verified by `tools/_ai_test.ts`
     (12 assertions) + a multi-agent review (zero findings).
+- **SHIPPED — Round 5 (toward FM depth):**
+  - **5.1 Story-driven traits.** The trait dials are now first-class as the machine-readable
+    projection of a player's backstory. `personality.ts` `deriveTraits` (LLM primary) +
+    `deriveTraitsFromText` (deterministic keyword projection) re-derive the 8 dials from the
+    text; `PUT /api/player/:slot/story` rewrites a backstory and re-derives, so the training
+    rate (training.ts reads professionalism/consistency) and transfer value (game.ts reads
+    the dials) move with the story. A `#/player/:slot` profile shows the dials + an editable
+    backstory. Verified by `tools/_personality_test.ts` (14) + the HTTP smoke (24).
 - **DESIGNED:** all four pillars are now SHIPPED.
 - **AWAITING YOUR TASTE:** economy scale (50M budgets, `(ovr/100)^3 × 55M` value
   curve, 24-man cap), training/decline rates per age band, division sizes / promotion

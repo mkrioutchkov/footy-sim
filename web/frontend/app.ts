@@ -217,7 +217,7 @@ async function screenDashboard() {
     const potText = p.potential != null && p.potential > ovr ? ` → ${p.potential}` : '';
     const ageText = p.age != null ? ` · ${p.age}y` : '';
     const r = (n: number) => Math.round(n);
-    const card = h('div', { class: 'pcard' },
+    const card = h('div', { class: 'pcard', style: 'cursor:pointer', title: 'View profile & personality', onclick: () => (location.hash = `#/player/${p.slot}`) },
       h('div', { class: 'role' }, `${p.role} · OVR ${ovr}${potText}${ageText}`),
       h('div', { class: 'pn' }, p.name),
       h('div', { class: 'at' }, `SPD ${r(p.attrs.speed)} · PAS ${r(p.attrs.passing)} · SHO ${r(p.attrs.shooting)}`,
@@ -621,6 +621,67 @@ async function screenTraining() {
   ));
 }
 
+// ── player profile (personality + the story↔traits coupling) ──
+const TRAIT_LABELS: { key: string; label: string }[] = [
+  { key: 'professionalism', label: 'Professionalism' }, { key: 'consistency', label: 'Consistency' },
+  { key: 'bigGame', label: 'Big-game' }, { key: 'leadership', label: 'Leadership' },
+  { key: 'temperament', label: 'Temperament (fiery)' }, { key: 'ego', label: 'Ego' },
+  { key: 'criticismResponse', label: 'Responds to criticism' }, { key: 'praiseResponse', label: 'Responds to praise' },
+];
+function traitBar(label: string, v: number): HTMLElement {
+  return h('div', { style: 'margin-bottom:7px' },
+    h('div', { class: 'between', style: 'font-size:12px;margin-bottom:2px' }, h('span', { class: 'muted' }, label), h('span', {}, String(v))),
+    h('div', { style: 'height:6px;background:var(--panel2,#161f30);border-radius:3px;overflow:hidden' },
+      h('div', { style: `height:100%;width:${Math.max(0, Math.min(100, v))}%;background:var(--accent,#4ea1ff)` })));
+}
+async function screenPlayer(slot: number) {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
+  let team: TeamT;
+  try { team = await api.team(); }
+  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  const p = team.players.find(x => x.slot === slot);
+  if (!p) { location.hash = '#/'; return; }
+  const ovr = skillOvr(p.attrs);
+
+  const traitsEl = h('div', {});
+  const renderTraits = (tr: Record<string, number>) => traitsEl.replaceChildren(...TRAIT_LABELS.map(t => traitBar(t.label, tr?.[t.key] ?? 50)));
+  renderTraits((p.personality?.traits as any) ?? {});
+
+  const back = h('textarea', { class: 'tactics-input', rows: '4', placeholder: 'Backstory — e.g. "A model professional and ice-cool penalty taker who rises on the big occasion."' }, p.personality?.backstory ?? '') as HTMLTextAreaElement;
+  const tag = h('input', { placeholder: 'Tagline (≤6 words, in character)', value: p.personality?.tagline ?? '' }) as HTMLInputElement;
+  const valEl = h('span', { class: 'muted', style: 'font-size:12px' });
+  const save = h('button', {}, 'Save story & re-derive traits');
+  save.addEventListener('click', async () => {
+    if (!back.value.trim()) { toast('Write a backstory first'); return; }
+    save.setAttribute('disabled', 'true'); save.textContent = 'Re-deriving…';
+    try {
+      const r = await api.setPlayerStory(slot, back.value.trim(), tag.value.trim());
+      renderTraits(r.personality.traits as any);
+      valEl.textContent = `Re-derived · value ${fmtMoney(r.value)}`;
+      toast('Traits re-derived from the new story');
+    } catch (e: any) { toast(e.message); }
+    finally { save.removeAttribute('disabled'); save.textContent = 'Save story & re-derive traits'; }
+  });
+
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
+      h('div', {}, h('h2', {}, p.name),
+        h('div', { class: 'muted' }, `${p.role} · OVR ${ovr}${p.potential && p.potential > ovr ? ` → ${p.potential}` : ''}${p.age != null ? ` · ${p.age}y` : ''}${p.personality?.nationality ? ` · ${p.personality.nationality}` : ''}`)),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
+    ),
+    h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+      h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Personality dials'), traitsEl),
+      h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Backstory'),
+        h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'These dials are read off the backstory — and the player’s training rate and transfer value read the dials. Rewrite the story and the numbers re-derive.'),
+        h('div', { class: 'field' }, h('label', {}, 'Backstory'), back),
+        h('div', { class: 'field' }, h('label', {}, 'Tagline'), tag),
+        h('div', { class: 'row', style: 'align-items:center;gap:10px' }, save, valEl),
+      ),
+    ),
+  ));
+}
+
 // ── router ──
 function route() {
   const hash = location.hash;
@@ -630,6 +691,7 @@ function route() {
   else if (hash === '#/tactics') screenTactics();
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
+  else if (hash.startsWith('#/player/')) screenPlayer(Number(hash.split('/')[2]));
   else screenDashboard();
 }
 

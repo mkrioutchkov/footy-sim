@@ -75,4 +75,6 @@ export const api = {
   listPlayer: (slot: number, price?: number) => req<{ ok: boolean; askPrice: number; value: number; market: MarketT }>('POST', '/market/list', { slot, price }),
   unlistPlayer: (slot: number) => req<{ ok: boolean; market: MarketT }>('POST', '/market/unlist', { slot }),
   setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
+  setPlayerStory: (slot: number, backstory: string, tagline: string) =>
+    req<{ slot: number; personality: PersonalityT; value: number }>('PUT', `/player/${slot}/story`, { backstory, tagline }),
 };

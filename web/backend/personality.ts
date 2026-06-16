@@ -25,6 +25,73 @@ export function defaultPersonality(_name: string, role: string): Personality {
   };
 }
 
+// ── Text → dials (the canonical coupling) ────────────────────────────────────
+// The trait dials are the machine-readable PROJECTION of a player's backstory. The
+// engine-facing weights (training rate in training.ts, transfer value in game.ts) read
+// ONLY the dials, so they stay deterministic — but they must re-derive whenever the
+// story changes. deriveTraits() is that re-derivation: the LLM is the rich primary, and
+// deriveTraitsFromText() is a deterministic keyword projection that never blocks. See the
+// project memory on the text↔dial coupling.
+const TRAIT_CUES: Record<keyof Traits, { up: string[]; down: string[] }> = {
+  professionalism: { up: ['professional', 'dedicat', 'model pro', 'disciplin', 'hard work', 'grafter', 'diligent', 'meticulous', 'first to train', 'studious'], down: ['lazy', 'party', 'unprofessional', 'trouble', 'turns up late', 'nightlife', 'wayward', 'undisciplined', 'casual'] },
+  temperament: { up: ['fiery', 'hothead', 'hot-head', 'temper', 'volatile', 'rash', 'short fuse', 'aggressive', 'combust', 'wind-up'], down: ['ice-cool', 'ice cool', 'calm', 'composed', 'cool head', 'unflappable', 'serene', 'level-headed'] },
+  consistency: { up: ['consistent', 'reliable', 'metronom', 'dependable', 'ever-present', 'machine', 'rock', 'week in week out'], down: ['inconsistent', 'erratic', 'streaky', 'flaky', 'fragile', 'mercurial', 'maddening', 'on his day'] },
+  leadership: { up: ['captain', 'leader', 'commands', 'organis', 'organiz', 'vocal', 'talisman', 'general', 'drives the', 'inspires'], down: ['quiet', 'follower', 'timid', 'shy', 'keeps to himself', 'leads by example only'] },
+  bigGame: { up: ['big-game', 'big game', 'clutch', 'rises to', 'big occasion', 'cup specialist', 'when it matters', 'thrives under pressure', 'finals'], down: ['bottler', 'shrinks', 'freezes', 'goes missing', 'flat-track', 'fades on the big'] },
+  ego: { up: ['ego', 'arrogant', 'self-important', 'diva', 'prima donna', 'entitled', 'me-first', 'box office', 'showman'], down: ['humble', 'selfless', 'team-first', 'modest', 'grounded', 'unassuming', 'no fuss'] },
+  criticismResponse: { up: ['thrives on criticism', 'responds to a rocket', 'needs the hairdryer', 'channels criticism', 'point to prove'], down: ['wilts', 'sensitive to criticism', 'crumbles', 'sulks', 'thin-skinned'] },
+  praiseResponse: { up: ['loves praise', 'needs encouragement', 'confidence player', 'feeds off', 'flourishes when backed', 'arm round'], down: ['unmoved by praise', 'takes praise in stride', 'praise rolls off'] },
+};
+const CUE_STEP = 18;
+export function deriveTraitsFromText(backstory: string, tagline: string, role: string): Traits {
+  const text = `${backstory} ${tagline}`.toLowerCase();
+  const base = defaultPersonality('', role).traits;     // role baseline (GK/CB lean leaderly)
+  const out = {} as Traits;
+  for (const k of TRAIT_KEYS) {
+    let v = base[k];
+    for (const cue of TRAIT_CUES[k].up) if (text.includes(cue)) v += CUE_STEP;
+    for (const cue of TRAIT_CUES[k].down) if (text.includes(cue)) v -= CUE_STEP;
+    out[k] = Math.max(0, Math.min(100, Math.round(v)));
+  }
+  return out;
+}
+
+function extractObject(content: string): Record<string, unknown> | null {
+  const body = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try { const v = JSON.parse(body); if (v && typeof v === 'object') return v as Record<string, unknown>; } catch { /* salvage */ }
+  const s = content.indexOf('{'), e = content.lastIndexOf('}');
+  if (s >= 0 && e > s) { try { const v = JSON.parse(content.slice(s, e + 1)); if (v && typeof v === 'object') return v as Record<string, unknown>; } catch { /* noop */ } }
+  return null;
+}
+
+const DERIVE_SYSTEM = `You convert one football player's backstory into 8 personality trait dials (0-100) that FAITHFULLY match the text. Output ONLY a JSON object: {"traits":{"temperament":0-100,"criticismResponse":0-100,"praiseResponse":0-100,"bigGame":0-100,"consistency":0-100,"leadership":0-100,"professionalism":0-100,"ego":0-100}}
+Meanings (0=low,100=high): temperament=fiery vs ice-cool; criticismResponse=HIGH thrives on a rocket / LOW wilts; praiseResponse=how much praise lifts them; bigGame=steps up on the big occasion; consistency=match-to-match reliability; leadership=drives team-mates; professionalism=training/lifestyle; ego=self-importance. Reflect the backstory exactly — a "model professional" scores high professionalism, a "hothead" high temperament, etc.`;
+
+// Re-derive a player's trait dials from their (possibly just-edited or evolved) story.
+// LLM primary, deterministic keyword projection as the always-available fallback.
+export async function deriveTraits(name: string, role: string, backstory: string, tagline: string): Promise<Traits> {
+  const fallback = () => deriveTraitsFromText(backstory, tagline, role);
+  if (!KEY || !backstory.trim()) return fallback();
+  try {
+    const res = await fetch(`${BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: MODEL, temperature: 0.3, max_tokens: 300, messages: [
+        { role: 'system', content: DERIVE_SYSTEM },
+        { role: 'user', content: `${name} — ${role}.\nBackstory: ${backstory}\nTagline: ${tagline}` },
+      ] }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (res.ok) {
+      const j = await res.json() as { choices?: { message?: { content?: string } }[] };
+      const o = extractObject(j.choices?.[0]?.message?.content ?? '');
+      const t = (o?.traits ?? o) as Record<string, unknown> | null;
+      if (t) { const out = {} as Traits; for (const k of TRAIT_KEYS) out[k] = clamp(t[k]); return out; }
+    }
+  } catch { /* fall through */ }
+  return fallback();
+}
+
 function coerce(raw: unknown, name: string, role: string): Personality {
   const d = defaultPersonality(name, role);
   if (!raw || typeof raw !== 'object') return d;

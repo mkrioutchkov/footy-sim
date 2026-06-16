@@ -9,8 +9,9 @@ import { db } from './db.ts';
 import {
   newSeasonForUser, getTeamWithPlayers, standings, teamForUser,
   assignPersonalities, needsPersonalities, backfillFreeAgents, backfillPotentials,
-  DEFAULT_TACTICS, type Tactics,
+  playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
+import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
 import { playFixture, getFixture, writeSpec, MatchStream } from './match.ts';
 import { compileLineup } from './lineup.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick } from './market.ts';
@@ -186,6 +187,31 @@ app.post('/api/market/unlist', async (req: any, reply) => {
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
   unlistPlayer(teamId, slot);
   return { ok: true, market: getMarket(teamId) };
+});
+
+// Rewrite a player's backstory/tagline and RE-DERIVE their trait dials from the new text
+// (the text↔dial coupling: the dials are the story's machine-readable projection, and the
+// training rate + transfer value read the dials live, so editing the story changes the
+// player's underlying weights). LLM-primary with a deterministic keyword fallback.
+app.put('/api/player/:slot/story', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.params.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+  const backstory = String(req.body?.backstory ?? '').trim().slice(0, 400);
+  const tagline = String(req.body?.tagline ?? '').trim().slice(0, 80);
+  if (!backstory) return reply.code(400).send({ error: 'a backstory is required' });
+  const row = db.prepare('SELECT name, role, attrs, age, personality FROM players WHERE team_id = ? AND slot = ?')
+    .get(teamId, slot) as { name: string; role: string; attrs: string; age: number; personality: string | null } | undefined;
+  if (!row) return reply.code(404).send({ error: 'player not found' });
+  let prev: Personality | null = null;
+  try { prev = row.personality ? JSON.parse(row.personality) : null; } catch { /* ignore */ }
+  const traits = await deriveTraits(row.name, row.role, backstory, tagline);
+  const personality: Personality = { traits, nationality: prev?.nationality ?? defaultPersonality(row.name, row.role).nationality, backstory, tagline };
+  db.prepare('UPDATE players SET personality = ? WHERE team_id = ? AND slot = ?').run(JSON.stringify(personality), teamId, slot);
+  // return the re-derived weights so the UI can show the story drove the numbers
+  return { slot, personality, value: playerValue(JSON.parse(row.attrs), row.age, personality) };
 });
 
 // Set the club's training focus ('balanced' or a trainable attribute). Drives the
