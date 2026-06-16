@@ -246,7 +246,14 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     advance) so overlapping requests can't double-run ticks or duplicate a cup round (a review
     finding). Verified by `tools/_cup_test.ts` (incl. idempotency + the draw shootout + a full
     16→1 run) + HTTP smoke.
-- **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup
+  - **Morale** (`morale.ts`). Persistent squad morale 0–100 (default 65 = neutral): `moraleTick`
+    each matchday drifts it 15% toward neutral and shifts it with the latest league result (win
+    +8 / draw +2 / loss −7); morale modulates development (`moraleDevFactor`, 65 → ×1.0 so it's
+    backward-compatible — happy squads improve faster, unhappy ones stall). `resetMorale` to
+    fresh optimism at rollover. Shown on the squad card (😊/😟) + profile. Verified by
+    `tools/_morale_test.ts`. (Morale → match performance is deliberately NOT a spec-attr scale —
+    kept off the byte-identical match path; it drives development instead.)
+- **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;

@@ -9,6 +9,7 @@ import { standings, generateFixtures, seedFreeAgents, tierFinance, type Standing
 import { tickContracts, type ContractEvent } from './contracts.ts';
 import { youthAndRetirement, type YouthEvent } from './youth.ts';
 import { resetFitness } from './fitness.ts';
+import { resetMorale } from './morale.ts';
 import { createCup } from './cup.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
@@ -130,6 +131,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       out.contracts.push(...tickContracts(l.id));
       out.youth.push(...youthAndRetirement(l.id));     // retire veterans + bring through prospects
       resetFitness(l.id);                              // pre-season: everyone reports back fit
+      resetMorale(l.id);                               // and morale resets to fresh optimism
       db.prepare('DELETE FROM fixtures WHERE league_id = ?').run(l.id);
       generateFixtures(l.id);
     }

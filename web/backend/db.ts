@@ -144,6 +144,12 @@ ensureColumn('players', 'contract_years', 'contract_years INTEGER NOT NULL DEFAU
 ensureColumn('players', 'fitness', 'fitness INTEGER NOT NULL DEFAULT 100');
 ensureColumn('players', 'injured_matches', 'injured_matches INTEGER NOT NULL DEFAULT 0');
 
+// ── Morale (LLM stream) ─────────────────────────────────────────────────────
+// Squad morale 0..100: it drifts with results, is moved by press conferences (via each
+// player's criticism/praise dials), and modulates development. Default 65 is neutral — its
+// dev factor is exactly 1.0, so existing saves develop identically.
+ensureColumn('players', 'morale', 'morale INTEGER NOT NULL DEFAULT 65');
+
 // ── Cup competition (core stream) ───────────────────────────────────────────
 // A single-elimination knockout of all the world's clubs, run alongside the league each
 // season. round 1 = the first round, rising to the final; slot orders the bracket. Later-

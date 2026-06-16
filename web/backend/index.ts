@@ -21,6 +21,7 @@ import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldSta
 import { aiManagerTick } from './ai.ts';
 import { renewContract } from './contracts.ts';
 import { fitnessTick } from './fitness.ts';
+import { moraleTick } from './morale.ts';
 
 const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
 // Give any pre-market league a free-agent pool + every player a potential (one-time,
@@ -324,7 +325,7 @@ app.post('/api/advance', async (req: any, reply) => {
   const transfers: any[] = [];
   const injuries: any[] = [];
   let developed = 0;
-  for (const l of leagues) { injuries.push(...fitnessTick(l.id)); transfers.push(...marketTick(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players; }
+  for (const l of leagues) { injuries.push(...fitnessTick(l.id)); moraleTick(l.id); transfers.push(...marketTick(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players; }
   // The cup is spread across the season — round R plays once the league reaches matchday R*3,
   // so it concludes (the final at matchday 12) before the season rolls over.
   let cup: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null = null;

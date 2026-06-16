@@ -217,9 +217,10 @@ async function screenDashboard() {
     const potText = p.potential != null && p.potential > ovr ? ` → ${p.potential}` : '';
     const ageText = p.age != null ? ` · ${p.age}y` : '';
     const fitText = (p.injuredMatches ?? 0) > 0 ? ` · 🤕${p.injuredMatches}` : (p.fitness != null && p.fitness < 90 ? ` · ${p.fitness}%` : '');
+    const moraleText = p.morale != null ? (p.morale >= 75 ? ' · 😊' : p.morale <= 40 ? ' · 😟' : '') : '';
     const r = (n: number) => Math.round(n);
     const card = h('div', { class: 'pcard', style: 'cursor:pointer', title: 'View profile & personality', onclick: () => (location.hash = `#/player/${p.slot}`) },
-      h('div', { class: 'role' }, `${p.role} · OVR ${ovr}${potText}${ageText}${fitText}`),
+      h('div', { class: 'role' }, `${p.role} · OVR ${ovr}${potText}${ageText}${fitText}${moraleText}`),
       h('div', { class: 'pn' }, p.name),
       h('div', { class: 'at' }, `SPD ${r(p.attrs.speed)} · PAS ${r(p.attrs.passing)} · SHO ${r(p.attrs.shooting)}`,
         h('br'), `TAC ${r(p.attrs.tackling)} · POS ${r(p.attrs.positioning)} · CRE ${r(p.attrs.creativity)}`),
@@ -700,8 +701,8 @@ async function screenPlayer(slot: number) {
             return renew;
           })()) : '',
         (p.injuredMatches ?? 0) > 0
-          ? h('div', { style: 'font-size:12px;color:#e8896b' }, `🤕 Injured — out ${p.injuredMatches} match${(p.injuredMatches ?? 0) > 1 ? 'es' : ''}`)
-          : (p.fitness != null ? h('div', { class: 'muted', style: 'font-size:12px' }, `Match fitness ${p.fitness}%`) : '')),
+          ? h('div', { style: 'font-size:12px;color:#e8896b' }, `🤕 Injured — out ${p.injuredMatches} match${(p.injuredMatches ?? 0) > 1 ? 'es' : ''}${p.morale != null ? ` · Morale ${p.morale}` : ''}`)
+          : h('div', { class: 'muted', style: 'font-size:12px' }, `Match fitness ${p.fitness ?? 100}%${p.morale != null ? ` · Morale ${p.morale}` : ''}`)),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
     h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
