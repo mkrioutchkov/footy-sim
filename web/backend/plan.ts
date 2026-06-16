@@ -66,7 +66,7 @@ DIRECTIVES (same vocabulary as the tactics compiler):
 {"playerId":<id, per-player kinds>,"kind":"<kind>","targetId":<id, man_mark/target_player only>,"intensity":0.1-1,"teamScope":${myScope} <team-wide kinds, no playerId>,"when":{"fromMin","toMin","scoreState","scoreBy"}}
 per-player: man_mark target_player shoot_on_sight get_forward sit_deep stay_wide come_inside stay_central cross_early switch_play play_simple run_in_behind make_runs dribble_more press_hard tackle_hard stay_on_feet.
 team-wide (teamScope ${myScope}): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap.
-Resolve names/initials from the squad (tolerate typos); man_mark targets are OPPONENT ids. Never invent a player not in a squad — omit + note. OMIT "when" unless the shout states a time/score.
+Resolve names/initials from the squad (tolerate typos); man_mark targets are OPPONENT ids, target_player targets are TEAM-MATE ids. Never invent a player not in a squad — omit + note. OMIT "when" unless the shout states a time/score.
 
 MOTIVATION (the shout's emotional effect — separate from tactics):
 - Judge from the addressed player's PERSONALITY, not the literal words: criticismResponse HIGH => a rocket FIRES them up (positive delta); LOW => they wilt (negative). praiseResponse scales how much praise lifts. High ego => praise risks complacency (smaller/negative). temperament high => bigger swings.
@@ -109,9 +109,13 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
       const pid = num(d.playerId, -1);
       if (!mineIds.has(pid) && !oppIds.has(pid)) continue;
       dir = { playerId: pid, kind, intensity };
-      if (kind === 'man_mark' || kind === 'target_player') {
+      if (kind === 'man_mark') {
         const t = num(d.targetId, -1);
-        if (!mineIds.has(t) && !oppIds.has(t)) continue;
+        if (!oppIds.has(t)) continue;          // mark an OPPONENT (else the engine ignores it)
+        dir.targetId = t;
+      } else if (kind === 'target_player') {
+        const t = num(d.targetId, -1);
+        if (!mineIds.has(t)) continue;         // feed a TEAM-MATE
         dir.targetId = t;
       }
     }

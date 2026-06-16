@@ -40,7 +40,7 @@ void GameEngine::applyDirectives() {
         // A motivational shout on this entry shifts morale (clock-driven, no rng).
         const auto& md = directiveTimeline[directiveTimelineIdx].moraleDelta;
         for (int i = 0; i < 22 && i < (int)state.players.size(); ++i)
-            if (md[i] != 0.0) state.players[i].moraleBoost = clamp(state.players[i].moraleBoost + md[i], -1.0, 1.0);
+            if (md[i] != 0.0 && !state.players[i].sentOff) state.players[i].moraleBoost = clamp(state.players[i].moraleBoost + md[i], -1.0, 1.0);
         directiveTimelineIdx++;
     }
     if (directives.empty()) return;

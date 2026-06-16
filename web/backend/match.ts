@@ -130,6 +130,8 @@ export class MatchStream {
   // per-player motivation-change tally for the cap.
   private plan: Plan = EMPTY_PLAN;
   private motivationUsed = new Map<number, number>();
+  private moraleEst = new Map<number, number>();        // cumulative morale points injected per player (LLM context)
+  private editLock: Promise<void> = Promise.resolve();  // serialises shouts so the cap/plan/fromMs update without a race
   private fromMs = 0;
   private baseSpec: any;
   private sessionSpecPath: string;
@@ -203,9 +205,11 @@ export class MatchStream {
         this.speed = Math.max(0.25, Math.min(60, cmd.value));
         if (this.latest) this.send(this.latest);
       } else if (cmd.type === 'tactics') {
-        // Edit the plan mid-match — text (compiled to directives) or pre-compiled
-        // directives. Handled async (the compile may call the LLM).
-        void this.applyTacticsEdit(cmd as { text?: string; directives?: unknown });
+        // Edit the plan mid-match (text -> plan + motivation; the compile calls the
+        // LLM). Serialised: each shout waits for the prior edit to finish so the cap,
+        // plan and fromMs advance in arrival order, never racing or rewinding.
+        const c = cmd as { text?: string };
+        this.editLock = this.editLock.then(() => this.applyTacticsEdit(c)).catch(() => { /* ignore */ });
       }
     } catch { /* ignore */ }
   }
@@ -219,7 +223,7 @@ export class MatchStream {
     const away = make(this.baseSpec.away?.players, 11);
     const mineArr = this.myTeam === 'home' ? home : away;
     const oppArr = this.myTeam === 'home' ? away : home;
-    const mine: SquadPlayer[] = mineArr.map(p => ({ id: p.id, name: p.name, role: p.role, personality: p.personality, morale: 50, motivationUsed: this.motivationUsed.get(p.id) ?? 0 }));
+    const mine: SquadPlayer[] = mineArr.map(p => ({ id: p.id, name: p.name, role: p.role, personality: p.personality, morale: Math.max(0, Math.min(100, 50 + (this.moraleEst.get(p.id) ?? 0))), motivationUsed: this.motivationUsed.get(p.id) ?? 0 }));
     const opp = oppArr.map(p => ({ id: p.id, name: p.name, role: p.role }));
     return { mine, opp };
   }
@@ -227,15 +231,7 @@ export class MatchStream {
   // Mid-match shout: EDIT the running composite plan (and judge its motivational
   // effect via personality), send a receipt, freeze the new plan + morale on the
   // timeline at the watched clock, re-sim, and resume there.
-  private async applyTacticsEdit(cmd: { text?: string; directives?: unknown }): Promise<void> {
-    // Back-compat: a client may still push pre-compiled directives — apply as a raw
-    // plan replacement with no motivation.
-    if (Array.isArray(cmd.directives)) {
-      if (!this.alive) return;
-      this.plan = { summary: this.plan.summary, directives: cmd.directives as Plan['directives'] };
-      this.commitEdit(cmd.directives, []);
-      return;
-    }
+  private async applyTacticsEdit(cmd: { text?: string }): Promise<void> {
     if (typeof cmd.text !== 'string' || !cmd.text.trim()) return;
     const { mine, opp } = this.squads();
     const t = this.latest?.clockMs ?? 0;
@@ -250,6 +246,7 @@ export class MatchStream {
     // morale delta (points) -> moraleBoost delta (/50); tally the per-player cap.
     const morale = r.motivation.map(m => {
       this.motivationUsed.set(m.playerId, (this.motivationUsed.get(m.playerId) ?? 0) + 1);
+      this.moraleEst.set(m.playerId, (this.moraleEst.get(m.playerId) ?? 0) + m.moraleDelta);
       return { playerId: m.playerId, delta: m.moraleDelta / 50 };
     });
     this.commitEdit(r.plan.directives, morale);
@@ -259,7 +256,7 @@ export class MatchStream {
     const t = this.latest?.clockMs ?? 0;
     this.timeline.push({ atMs: t, directives, morale });
     this.writeSessionSpec();
-    this.fromMs = t;
+    this.fromMs = Math.max(this.fromMs, t);   // monotonic — never rewind already-streamed frames
     this.paused = false;
     this.start();
   }
