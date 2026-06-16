@@ -81,6 +81,39 @@ export const FORMATIONS: Record<string, Slot[]> = {
     { role: 'CM', x: 400, y: 405 }, { role: 'WM', x: 440, y: 605 },
     { role: 'WM', x: 660, y: 105 }, { role: 'CF', x: 760, y: yC }, { role: 'WM', x: 660, y: 575 },
   ],
+  // === 4-1-2-1-2 — narrow midfield diamond, strike pair ===
+  '4-1-2-1-2': [
+    { role: 'GK', x: 31.5, y: yC },
+    { role: 'FB', x: 170, y: yR }, { role: 'CB', x: 185, y: 250 },
+    { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 170, y: yL },
+    { role: 'CM', x: 330, y: yC }, { role: 'CM', x: 440, y: 215 }, { role: 'CM', x: 440, y: 465 },
+    { role: 'CM', x: 575, y: yC }, { role: 'CF', x: 745, y: 285 }, { role: 'CF', x: 745, y: 395 },
+  ],
+  // === 4-3-2-1 — the "christmas tree", two behind a lone striker ===
+  '4-3-2-1': [
+    { role: 'GK', x: 31.5, y: yC },
+    { role: 'FB', x: 170, y: yR }, { role: 'CB', x: 185, y: 250 },
+    { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 170, y: yL },
+    { role: 'CM', x: 400, y: 235 }, { role: 'CM', x: 380, y: yC }, { role: 'CM', x: 400, y: 445 },
+    { role: 'CF', x: 615, y: 270 }, { role: 'CF', x: 615, y: 410 }, { role: 'CF', x: 770, y: yC },
+  ],
+  // === 5-4-1 — back five, packed midfield four, lone striker (deep block) ===
+  '5-4-1': [
+    { role: 'GK', x: 31.5, y: yC },
+    { role: 'FB', x: 175, y: 70 }, { role: 'CB', x: 185, y: 210 }, { role: 'CB', x: 190, y: yC },
+    { role: 'CB', x: 185, y: 470 }, { role: 'FB', x: 175, y: 610 },
+    { role: 'WM', x: 430, y: 90 }, { role: 'CM', x: 400, y: 270 },
+    { role: 'CM', x: 400, y: 410 }, { role: 'WM', x: 430, y: 590 }, { role: 'CF', x: 730, y: yC },
+  ],
+  // === 4-4-1-1 — bank of four, a second striker dropping off the line ===
+  '4-4-1-1': [
+    { role: 'GK', x: 31.5, y: yC },
+    { role: 'FB', x: 170, y: yR }, { role: 'CB', x: 185, y: 250 },
+    { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 170, y: yL },
+    { role: 'WM', x: 420, y: 90 }, { role: 'CM', x: 400, y: 270 },
+    { role: 'CM', x: 400, y: 410 }, { role: 'WM', x: 420, y: 590 },
+    { role: 'CF', x: 600, y: yC }, { role: 'CF', x: 765, y: yC },
+  ],
 };
 
 export const DEFAULT_FORMATION = '4-3-3';
@@ -110,7 +143,7 @@ export function roleFit(attrs: Record<string, number>, role: Role): number {
 // safety net for plain "442" / "4-4-2" / "4 4 2".
 export function normalizeFormation(s: string): string | null {
   const digits = s.replace(/[^0-9]/g, '');
-  if (digits.length >= 3 && digits.length <= 4) {
+  if (digits.length >= 3 && digits.length <= 5) {     // "433","442","4231","41212","4411"…
     const key = digits.split('').join('-');
     if (FORMATIONS[key]) return key;
   }
