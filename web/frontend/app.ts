@@ -311,6 +311,7 @@ const TEAM_LABEL: Record<string, string> = {
   all_out_attack: 'All-out attack', park_the_bus: 'Park the bus', high_press: 'High press',
   drop_off: 'Drop off / contain', play_it_long: 'Play it long', keep_it_on_ground: 'Keep it on the ground',
   get_it_wide: 'Get it wide', play_narrow: 'Play narrow', push_up: 'Push the line up', slow_it_down: 'Slow it down',
+  counter_attack: 'Counter-attack', offside_trap: 'Offside trap',
 };
 const PLAYER_VERB: Record<string, string> = {
   shoot_on_sight: 'shoots on sight', get_forward: 'gets forward', sit_deep: 'sits deep',
@@ -354,7 +355,7 @@ async function screenWatch(fixtureId: number) {
   // ── live tactics panel: type a plan, see what was understood, apply it ──
   const receiptEl = h('div', { class: 'tactics-receipt' });
   const ta = h('textarea', { class: 'tactics-input', rows: '2',
-    placeholder: 'Tactical plan — e.g. "Nesta mark Messi on odd minutes, Ronaldo shoot on sight when losing"' }) as HTMLTextAreaElement;
+    placeholder: 'Shout at your team — "AB mark their striker, everyone push up", or rev them up: "come on Lange, sort it out". Each shout edits your standing plan.' }) as HTMLTextAreaElement;
   const applyPlan = () => {
     const text = ta.value.trim();
     if (!text || !activeWs) return;
@@ -363,18 +364,25 @@ async function screenWatch(fixtureId: number) {
   };
   const showReceipt = (r: any) => {
     receiptEl.replaceChildren();
+    if (r?.error) { receiptEl.appendChild(h('div', { class: 'warn' }, '⚠ ' + r.error)); return; }
     const note = (r?.note ?? '').trim();
-    if (r?.error && (!r.directives || !r.directives.length)) {
-      receiptEl.appendChild(h('div', { class: 'warn' }, '⚠ ' + r.error)); return;
+    const changed = (r?.changed ?? '').trim();
+    const motivation = Array.isArray(r?.motivation) ? r.motivation : [];
+    const dirs = (r?.plan?.directives ?? r?.directives ?? []);
+    // What this shout did.
+    if (changed) receiptEl.appendChild(h('div', { class: 'ok' }, '✓ ' + changed));
+    // Motivational reactions (personality-driven morale swings).
+    for (const m of motivation) {
+      receiptEl.appendChild(h('div', { class: 'receipt-line ' + (m.moraleDelta > 0 ? 'up' : 'down') },
+        `${m.moraleDelta > 0 ? '▲' : '▼'} ${pname(m.playerId)} ${m.moraleDelta > 0 ? '+' : ''}${m.moraleDelta} morale${m.reaction ? ` — “${m.reaction}”` : ''}`));
     }
-    if (!r?.directives || !r.directives.length) {
-      // The compiler couldn't map the order — show its own explanation if it gave one.
-      receiptEl.appendChild(h('div', { class: 'muted' },
-        note || "Couldn't read any orders — name a player and an action.")); return;
+    // The full standing composite plan.
+    if (dirs.length) {
+      receiptEl.appendChild(h('div', { class: 'muted', style: 'margin-top:6px' }, 'Standing plan:'));
+      for (const d of dirs) receiptEl.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
+    } else if (!motivation.length && !changed && !note) {
+      receiptEl.appendChild(h('div', { class: 'muted' }, "Couldn't read that as an order or a word to the players.")); return;
     }
-    receiptEl.appendChild(h('div', { class: 'ok' }, '✓ Understood:'));
-    for (const d of r.directives) receiptEl.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
-    // Partial / caveat: some orders mapped but the compiler flagged something.
     if (note) receiptEl.appendChild(h('div', { class: 'muted' }, '• ' + note));
   };
   const panel = h('div', { class: 'tactics-panel' },

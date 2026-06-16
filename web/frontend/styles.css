@@ -93,3 +93,5 @@ input[type=range] { accent-color: var(--accent); }
 .tactics-receipt .ok { color: var(--gold); font-weight: 600; }
 .tactics-receipt .warn { color: var(--danger); }
 .tactics-receipt .receipt-line { color: var(--accent, #e8edf2); padding-left: 4px; }
+.tactics-receipt .receipt-line.up { color: #66e0a0; }
+.tactics-receipt .receipt-line.down { color: #ff8585; }

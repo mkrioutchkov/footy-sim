@@ -4,8 +4,8 @@ import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
 import { db } from './db.ts';
-import { getTeamWithPlayers } from './game.ts';
-import { compileTactics } from './tactics.ts';
+import { getTeamWithPlayers, ROLE_SLOTS } from './game.ts';
+import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer } from './plan.ts';
 import { FORMATIONS, DEFAULT_FORMATION, PITCH_W } from './formations.ts';
 
 const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
@@ -36,7 +36,9 @@ function specForTeam(teamId: number, side: 'home' | 'away') {
   // precisely as before. Only an opted-in team (non-default formation OR a reordered
   // XI) gets an explicit per-slot layout.
   if ((formation === DEFAULT_FORMATION && isIdentityXI(t.lineup)) || !layout) {
-    return { name: t.name, tactics: t.tactics, players: bySlot.map(p => ({ name: p.name, attrs: p.attrs })) };
+    // personality rides along (engine ignores it) so the watch flow can read each
+    // player's personality by engine id without re-deriving the lineup order.
+    return { name: t.name, tactics: t.tactics, players: bySlot.map(p => ({ name: p.name, attrs: p.attrs, personality: p.personality ?? null })) };
   }
   // Emit per-slot role + home anchor. The away side mirrors x (PITCH_W - x) to match
   // the engine's away frame; width (y) is shared. Slot 0 stays the keeper (the engine
@@ -46,7 +48,7 @@ function specForTeam(teamId: number, side: 'home' | 'away') {
     const idx = lineup[i];
     const p = bySlot[(Number.isInteger(idx) && idx >= 0 && idx < bySlot.length) ? idx : i] ?? bySlot[i];
     return {
-      name: p.name, attrs: p.attrs, role: slot.role,
+      name: p.name, attrs: p.attrs, role: slot.role, personality: p.personality ?? null,
       homeX: side === 'away' ? PITCH_W - slot.x : slot.x,
       homeY: slot.y,
     };
@@ -123,7 +125,11 @@ export class MatchStream {
   // P2: mid-match plan edits become a timeline of {atMs, directives}. Editing at
   // 46' re-sims the match with the new timeline and resumes streaming from 46'
   // (--stream-from) — seamless because frames 0..46' are byte-identical.
-  private timeline: { atMs: number; directives: unknown }[] = [];
+  private timeline: { atMs: number; directives: unknown; morale?: { playerId: number; delta: number }[] }[] = [];
+  // P5: the manager's running composite plan (stateful — each shout edits it) and a
+  // per-player motivation-change tally for the cap.
+  private plan: Plan = EMPTY_PLAN;
+  private motivationUsed = new Map<number, number>();
   private fromMs = 0;
   private baseSpec: any;
   private sessionSpecPath: string;
@@ -204,23 +210,54 @@ export class MatchStream {
     } catch { /* ignore */ }
   }
 
-  // Mid-match plan edit: compile the manager's text to directives (or use ones
-  // already compiled by the client), send back a receipt of what was understood,
-  // record it on the timeline at the watched clock, re-sim, and resume there.
+  // Build my squad (with personalities for motivation) + the opponent, by engine id
+  // (= spec order). Personalities ride on the spec via specForTeam.
+  private squads(): { mine: SquadPlayer[]; opp: { id: number; name: string; role: string }[] } {
+    const make = (players: any[] | undefined, off: number) =>
+      (players ?? []).slice(0, 11).map((p: any, i: number) => ({ id: off + i, name: p.name as string, role: (p.role as string) ?? ROLE_SLOTS[i], personality: p.personality ?? null }));
+    const home = make(this.baseSpec.home?.players, 0);
+    const away = make(this.baseSpec.away?.players, 11);
+    const mineArr = this.myTeam === 'home' ? home : away;
+    const oppArr = this.myTeam === 'home' ? away : home;
+    const mine: SquadPlayer[] = mineArr.map(p => ({ id: p.id, name: p.name, role: p.role, personality: p.personality, morale: 50, motivationUsed: this.motivationUsed.get(p.id) ?? 0 }));
+    const opp = oppArr.map(p => ({ id: p.id, name: p.name, role: p.role }));
+    return { mine, opp };
+  }
+
+  // Mid-match shout: EDIT the running composite plan (and judge its motivational
+  // effect via personality), send a receipt, freeze the new plan + morale on the
+  // timeline at the watched clock, re-sim, and resume there.
   private async applyTacticsEdit(cmd: { text?: string; directives?: unknown }): Promise<void> {
-    let directives = Array.isArray(cmd.directives) ? cmd.directives : null;
-    if (!directives && typeof cmd.text === 'string' && cmd.text.trim()) {
-      const r = await compileTactics(cmd.text, this.baseSpec, this.myTeam);
-      directives = r.directives;
-      console.log(`[tactics] "${cmd.text}" -> ${r.raw || 'llm'} | ${directives.length} directive(s)` +
-        (r.error ? ` | ERROR: ${r.error}` : '') + ` | ${JSON.stringify(directives)}`);
-      if (this.ws.readyState === 1) {
-        this.ws.send(JSON.stringify({ tacticsReceipt: { text: cmd.text, directives, error: r.error ?? null, note: r.note ?? null } }));
-      }
+    // Back-compat: a client may still push pre-compiled directives — apply as a raw
+    // plan replacement with no motivation.
+    if (Array.isArray(cmd.directives)) {
+      if (!this.alive) return;
+      this.plan = { summary: this.plan.summary, directives: cmd.directives as Plan['directives'] };
+      this.commitEdit(cmd.directives, []);
+      return;
     }
-    if (!this.alive || !Array.isArray(directives)) return;
+    if (typeof cmd.text !== 'string' || !cmd.text.trim()) return;
+    const { mine, opp } = this.squads();
     const t = this.latest?.clockMs ?? 0;
-    this.timeline.push({ atMs: t, directives });
+    const ctx = { minute: Math.floor(t / 60000), score: this.latest ? `${this.latest.homeScore ?? 0}-${this.latest.awayScore ?? 0}` : undefined };
+    const r = await compilePlanEdit(this.plan, cmd.text, mine, opp, this.myTeam, ctx);
+    console.log(`[plan] "${cmd.text}" -> ${r.error ? `ERROR ${r.error}` : `${r.plan.directives.length} dir, ${r.motivation.length} mot | ${r.changed}`}`);
+    if (this.ws.readyState === 1) {
+      this.ws.send(JSON.stringify({ tacticsReceipt: { text: cmd.text, plan: r.plan, changed: r.changed, motivation: r.motivation, directives: r.plan.directives, error: r.error ?? null, note: r.note ?? null } }));
+    }
+    if (r.error || !this.alive) return;
+    this.plan = r.plan;
+    // morale delta (points) -> moraleBoost delta (/50); tally the per-player cap.
+    const morale = r.motivation.map(m => {
+      this.motivationUsed.set(m.playerId, (this.motivationUsed.get(m.playerId) ?? 0) + 1);
+      return { playerId: m.playerId, delta: m.moraleDelta / 50 };
+    });
+    this.commitEdit(r.plan.directives, morale);
+  }
+
+  private commitEdit(directives: unknown, morale: { playerId: number; delta: number }[]): void {
+    const t = this.latest?.clockMs ?? 0;
+    this.timeline.push({ atMs: t, directives, morale });
     this.writeSessionSpec();
     this.fromMs = t;
     this.paused = false;
