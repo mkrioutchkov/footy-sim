@@ -81,18 +81,78 @@ carries rich stats the web UI may surface: `saves`, `shots`, `passes`,
 per-player stats, etc. **Treat extra fields as additive** — read what you need,
 ignore the rest.
 
-## OUTPUT — live frames (`EngineState`) for the watch socket
+## OUTPUT — live frames (`EngineState`) — render stream **and recorded artifact**
 
-The renderer consumes a per-tick `EngineState` (players, ball, clock, score,
-`events[]`, set-piece state, …). The **authoritative schema is
-`web/frontend/types.ts`** — do not duplicate it; import from there.
+The engine streams a per-tick `EngineState` (players, ball, clock, score,
+`events[]`, set-piece state, per-player stats, team stats, …) to the watch socket.
+The **authoritative schema is `web/frontend/types.ts`** (`EngineState` + the
+per-player `Player`) — do not duplicate it; import from there.
+
+> ⚠️ **Live frames are no longer transient render data — they are persisted and
+> re-read.** Human-stake matches are captured **full-frame** (the engine is spawned
+> *without* `--summary`: `live.exe --match spec --no-debug`, via `web/backend/match.ts`
+> `recordMatch`; non-stake fixtures still use the `--summary` quick path) and gzipped
+> to **`web/backend/data/recordings/{kind}-{id}.ndjson.gz`** (NDJSON, one frame per
+> line). `web/backend/report.ts` (match reports + player **ratings**) and
+> `web/backend/news.ts` (dynamic player-news) **re-read** these recordings later
+> (`recordingFor` → `loadRecording` → `analyzeRecording`). **The frame JSON is
+> therefore a storage-frozen contract: a silent change to a frame field the analysis
+> reads breaks every existing recording.** The `match_recordings` table carries a
+> `format INTEGER NOT NULL DEFAULT 1` version column (`web/backend/db.ts`) for
+> *deliberate* schema bumps — **bump it when you change the recorded frame shape.**
+> (Caveat: today `format` is written but **not read** anywhere — there is no
+> read-side version branch / migration yet, so the bump is a manual-discipline
+> marker, not an enforced gate. A reader/migration is the natural follow-up.)
+
+### Frame fields the game layer depends on (now part of the contract)
+
+`report.ts → analyzeRecording` reads these out of the recorded frames; changing or
+removing one breaks reports / ratings / news:
+
+- **Per-player** (off every frame's `players[]`): `goals`, `assists`, `shots`,
+  `tackles`, `yellow`, `sentOff` (+ `id`, `name`, `team`, `role`).
+- **Team** (read off the **final** frame): `homeScore`, `awayScore`, `possessionPct`,
+  `homeShots`, `awayShots`, `shotsOnTarget`, `saves`, `cornersAwarded`. These team
+  stats are the **`--summary` stats object merged into every frame** by the engine
+  (`engine.cpp` `j.update(summary)`), so they ride on the live frame as well as the
+  summary.
+
+### Own-goal attribution — per-player `goals` is last-toucher; the SCORE is authoritative
+
+The engine credits per-player **`goals` to the *last toucher*, regardless of which
+net the ball entered** (`engine_physics.cpp` — both goal branches call
+`creditGoal(lastGoal.toucherId)`; the increment is unconditional). So an own-goal
+deflector's own `goals` tally rises while the **opponent's** score increases. The web
+layer never trusts per-player `goals` for attribution: `report.ts analyzeRecording`
+attributes goals by **score DELTA** (`homeScore`/`awayScore` change between frames),
+matches it to a same-side per-player increment for the scorer name, and labels the
+unmatched case the literal string **`"Own goal"`**; own goals are excluded from a
+player's rating credit (`legitGoals`). **`homeScore`/`awayScore` are the authoritative
+scoreline — never reconstruct the score by summing per-player `goals`** (that
+mis-sides own goals).
+
+### Completion marker — `matchState: "finished"`
+
+A recording is only published once the stream ends **and** the final frame's
+`matchState === "finished"` (the capture gate in `match.ts`; incomplete captures are
+rejected). The *readers* (`report.ts`/`news.ts`) do **not** re-check `matchState` —
+they trust the persisted recording is complete and treat the **last frame as
+full-time**. So `"finished"` is the capture-completeness contract, and the last
+recorded frame is the authoritative final state.
 
 ### `MatchEvent.type` is part of the contract
 Adding an engine event means adding it to the `MatchEvent` union in
-`web/frontend/types.ts` AND giving it a label/colour in
-`web/frontend/renderer.ts`. Current set includes: `pass, shot, save, goal,
-header, woodwork, penalty, foul, offside, yellow, red, sub, …` (full list in
-types.ts).
+`web/frontend/types.ts` AND giving it a label/colour in `web/frontend/renderer.ts`.
+Current set includes: `pass, shot, save, goal, header, woodwork, penalty, foul,
+offside, yellow, red, sub, …` (full list in types.ts).
+
+### ⚠️ Known contract gap — chip filed for Boris
+`shotsOnTarget`, `saves`, and `cornersAwarded` ride on the recorded frame (merged
+from `--summary`) and `report.ts` reads them off the last frame, but they are **not
+declared on `EngineState`/`Player` in `web/frontend/types.ts`** — the type lags the
+wire. **Boris → add `shotsOnTarget`, `saves`, `cornersAwarded` to `EngineState` in
+`web/frontend/types.ts`** so the recorded-frame contract is fully typed. (EngineState
+already types `homeShots`/`awayShots`/`possessionPct`; these three are the omission.)
 
 ## Tactics (the 5 dials + the plain-English layer)
 
