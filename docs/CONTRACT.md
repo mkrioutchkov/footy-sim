@@ -163,10 +163,11 @@ defensiveLineHeight`, plus a `formation`. The engine maps these in
 `engine/*` (`configFor(team)` etc.).
 
 **Shipped:** the plain-English tactics layer. The web side compiles free text into
-the `directives` block (team-wide kinds also nudge the 5 dials at runtime) via an LLM
-(`web/backend/tactics.ts`, default Groq), with the output **cached and frozen on the
-timeline** — the engine only ever sees compiled directives, so replays stay
-byte-identical. See [docs/TACTICS.md](TACTICS.md).
+the `directives` block (team-wide kinds also nudge the 5 dials at runtime) via the LLM
+plan compiler (`web/backend/plan.ts` `compilePlanEdit`; `tactics.ts` holds the shared
+directive vocabulary), with the output **cached and frozen on the timeline** — the
+engine only ever sees compiled directives, so replays stay byte-identical. See
+[docs/TACTICS.md](TACTICS.md) and [docs/TACTICS_RUNTIME.md](TACTICS_RUNTIME.md).
 
 ## Repo layout & commands
 

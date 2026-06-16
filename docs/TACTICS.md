@@ -115,7 +115,15 @@ receipt. Impossible -> ignore (+ morale). Unknown name -> drop/ask. Out-of-gramm
 -> nearest supported set, stated. The LLM reads arbitrary intent; the engine only
 ever executes a **bounded palette** of effects, so it can't go off the rails.
 
-## LLM details (built — `web/backend/tactics.ts`)
+## LLM details (live compiler `web/backend/plan.ts`; vocabulary `web/backend/tactics.ts`)
+
+> The **live mid-match compiler is `plan.ts` `compilePlanEdit`** — a *stateful*
+> composite-plan editor (current plan + shout + squad personalities + minute/score →
+> the full new directive set + formation + motivation). `tactics.ts` still owns the
+> shared directive **vocabulary** (`VALID_KINDS`, `validate`) that `plan.ts` reuses;
+> its single-shot `compileTactics` is now **test-only**. The provider / cache /
+> robustness notes below apply to both. See [TACTICS_RUNTIME.md](TACTICS_RUNTIME.md)
+> for the full runtime flow + persistence model.
 
 - **Provider-agnostic**: any **OpenAI-compatible** `/chat/completions` endpoint,
   configured by env vars in `web/backend/.env` (gitignored):
@@ -146,7 +154,7 @@ ever executes a **bounded palette** of effects, so it can't go off the rails.
 |---|---|---|
 | **P1 ✅ done** | DSL + **engine interpreter**: 5 directives (man_mark, shoot_on_sight, get_forward, sit_deep, target_player) + minute/score conditions; engine reads a `directives` block in `spec.json` and executes it each tick. Proven from hand-written specs ("Nesta marks Messi on odd minutes"), deterministic, **no LLM**. | engine + CONTRACT |
 | **P2 ✅ done** | **Live deltas + timeline**: a match is `seed + timeline` of timed directive sets (engine applies them at the recorded clocks — replays identically). A mid-watch `tactics` edit appends to the timeline at the watched clock and re-sims with `--stream-from`, resuming seamlessly (the prefix is byte-identical). Verified live: edit at 2533ms resumed there and engaged the mark. | engine + backend |
-| **P3 ✅ done** | **Text -> DSL compiler** (`web/backend/tactics.ts`): provider-agnostic OpenAI-compatible call, strict-schema prompt + roster context, validate/coerce + cache. Wired into the watch socket ({type:'tactics', text} -> compile -> receipt -> timeline). Now **LLM-primary on Groq** with the rules parser as offline fallback + 429 retry. | backend |
+| **P3 ✅ done** | **Text -> DSL compiler**: provider-agnostic OpenAI-compatible call, strict-schema prompt + roster context, validate/coerce + cache. Wired into the watch socket ({type:'tactics', text} -> compile -> receipt -> timeline). **LLM-only on Groq** + 429 retry. (Live path is now `web/backend/plan.ts` `compilePlanEdit`, a stateful composite-plan editor; the original single-shot `tactics.ts` `compileTactics` is test-only.) | backend |
 | **P4 ✅ done** | **Web UX**: tactical-plan textbox in the watch view → sends text on the socket → shows an interpretation receipt of what was understood, match re-sims live. Verified in-browser. Panel scrolls (long receipts don't truncate). Follow-on: the consumed "Shouts" box for subs (needs the engine runtime sub-trigger). | frontend |
 | **P4.5 ✅ done** | **Vocabulary expansion + provider**: 17 per-player + 12 team-wide directives (movement, on-ball, defending, the 5 dials at runtime), opponent-by-role + whole-team ("we/us/all", manager-side plumbed end-to-end) + sequenced conditions. Swapped the flaky MiMo for Groq (LLM-primary). Golden regression guard locks the default match. Effects measured where a clean stat exists. | engine + backend + frontend |
 | **P5 ◑ partial** | **Morale SHIPPED** (squad morale shades effort/decisions; shouts move morale via personality — see SHOUTS_AND_PERSONALITY.md). **Still to build**: per-directive compliance gating by temperament. | engine + UI |
