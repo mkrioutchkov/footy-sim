@@ -857,11 +857,11 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
             double along=ox*ndx+oy*ndy;
             if(along<14.0||along>d*0.94)continue;
             double perp=std::abs(ox*ndy-oy*ndx);
-            double reachR=PLAYER_R+BALL_R+7.0;
+            double reachR=PLAYER_R+BALL_R+11.0;   // throw a body/leg across the lane
             if(perp>reachR)continue;
             double inLine=1.0-perp/reachR;
             double reactFactor=clamp(along/90.0,0.25,1.0);
-            double chance=clamp((0.16+attrFactor(o.attrs.tackling)*0.30)*inLine*reactFactor,0.03,0.52);
+            double chance=clamp((0.21+attrFactor(o.attrs.tackling)*0.36)*inLine*reactFactor,0.03,0.62);
             if(rng.random()<chance){shot.blockerId=o.id;break;}
         }
     }
