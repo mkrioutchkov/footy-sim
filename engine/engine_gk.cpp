@@ -198,7 +198,10 @@ void GameEngine::tryGKSave() {
     double diveCover = (GK_MAX_DIVE_BASE + hand * GK_MAX_DIVE_SKILL) * clamp(tAvail / GK_DIVE_FULL_T, 0.0, 1.0);
     double reach = GK_STAND_REACH + diveCover;
     double zCost = std::max(0.0, b.z - GK_STAND_Z) * GK_Z_WEIGHT;            // top-corner tax
-    double need = std::hypot(trajectoryOffset, zCost);
+    // A curling ball keeps bending after the keeper has read its line: the
+    // lateral he never accounts for (~v·ω·t²/2) adds to what he must cover.
+    double curlBend = std::min(std::abs(b.curl) * tAvail * tAvail * speed * 0.5, 30.0);
+    double need = std::hypot(trajectoryOffset + curlBend, zCost);
     double reachCover = clamp((reach - need) / reach, 0.0, 1.0);
     double reactTime = clamp(timeToLineMs / 1025.0, 0.18, 1.0);
     double power = clamp((speed - 180.0) / 195.0, 0.0, 0.30);
@@ -207,6 +210,8 @@ void GameEngine::tryGKSave() {
     // Penalties: from 12 yards the keeper is guessing — real save rate is
     // ~17-25%. The reach model overrates him (short flight, centered start).
     if (shot.penalty) saveChance = std::min(saveChance, PENALTY_SAVE_BASE + positioning * PENALTY_SAVE_SKILL);
+    if (passDebug) fprintf(stderr, "SAVEROLL type=%d sc=%.3f off=%d z=%d spd=%d t=%d\n",
+                           shot.type, saveChance, (int)trajectoryOffset, (int)b.z, (int)speed, (int)timeToLineMs);
     stats.recordShotOnTarget();
     shot.active = false;
     if (rng.random() >= saveChance) {

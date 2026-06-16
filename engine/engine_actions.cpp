@@ -725,8 +725,38 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.72:0.82;
     if(freshCross)executionError*=s.role==Role::CF?0.46:(s.role==Role::WM?0.62:0.82);
     if(firstTouch)executionError*=shotDistance<120.0?0.50:0.62;
+    // ── Shot type — pick HOW to beat the keeper and route to the physics.
+    // 0 normal · 1 finesse (placement) · 2 power (pace) · 3 curl (bend round
+    // him). Chip + dribble-the-keeper come in phase 2. Set pieces, headers and
+    // first-touch finishes keep their bespoke models untouched.
+    Player* dgk=findGK(s.team==Team::Home?Team::Away:Team::Home);
+    double gkY=dgk?dgk->y:goalCenterY;
+    int shotType=0;
+    bool clearSight=pressureCount<=1&&laneBlockers==0;
+    bool bespoke=penaltyKick||directFreeKickShot||freshCross||firstTouch||acuteGeometry;
+    if(!bespoke){
+        bool wideAngle=outsideGoalLane&&angleDeg>=7.0&&angleDeg<=22.0;
+        if(credibleFinish&&shotDistance<175.0&&pressureCount<=1&&accuracy>0.50) shotType=1;       // finesse
+        else if(wideAngle&&shotDistance>=110.0&&shotDistance<=235.0&&clearSight) shotType=3;       // curl
+        else if(clearSight&&shotDistance>=120.0&&shotDistance<=250.0&&accuracy>0.45) shotType=2;   // power
+    }
+    if(passDebug)fprintf(stderr,"SHOTTYPE t=%d dist=%d ang=%d pr=%d\n",shotType,(int)shotDistance,(int)angleDeg,pressureCount);
+    // Placed shots (finesse/curl) aim for the corner the keeper is NOT shading;
+    // the random side stays for instinctive/power strikes (keep the rng draw so
+    // the deterministic stream count is unchanged — only the value moves).
+    double openSide=(gkY>=goalCenterY?-1.0:1.0);
     double postAimScale=credibleFinish?0.92:1.0;
-    double aimedPost=(rng.random()<0.5?-1.0:1.0)*GOAL_W*(penaltyKick?0.36+accuracy*0.07:(0.33+accuracy*0.18)*postAimScale);
+    double postFrac=penaltyKick?0.36+accuracy*0.07:(0.33+accuracy*0.18)*postAimScale;
+    if(shotType==1) postFrac=0.34+accuracy*0.09;       // finesse: placed off-centre, room to the post
+    else if(shotType==2) postFrac=0.30+accuracy*0.10;  // power: firm, slightly placed
+    else if(shotType==3) postFrac=0.24+accuracy*0.06;  // curl: aim INSIDE the post — the bend carries it out to the corner, on-frame
+    double postRoll=(rng.random()<0.5?-1.0:1.0);
+    double postSide=shotType?openSide:postRoll;        // every deliberate type aims off the keeper
+    double aimedPost=postSide*GOAL_W*postFrac;
+    // Composed strikes are struck cleaner than a snatched effort — tighten the
+    // spread a little so they keep finding the frame, but not so far that the
+    // off-centre aim starts spraying wide (that cost on-target last iteration).
+    if(shotType) executionError*=(shotType==2?0.88:0.80);
     double goalY=goalCenterY+aimedPost+(rng.random()+rng.random()-1.0)*executionError;
     if(acuteGeometry){
         double nearPostSide=s.y<goalCenterY?-1.0:1.0;
@@ -744,6 +774,10 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double speed=SHOT_SPEED_BASE+accuracy*118.0-pressureCount*(freshCross?10.0:24.0)
         -laneBlockers*(freshCross?13.0:28.0)-longRangePenalty*44+(credibleFinish?28.0:0.0);
     speed=std::max(185.0,speed);
+    if(shotType==1) speed*=0.94;        // finesse: a touch off pace, mostly placement
+    else if(shotType==2) speed*=1.15;   // power: blast it past him
+    else if(shotType==3) speed*=0.96;   // curl: enough pace to hold the bend
+    speed=clamp(speed,185.0,455.0);     // stay inside the keeper-model's anchored band
     auto& b=state.ball;
     b.controllerId=-1;
     placeBallForRelease(s,dx,dy);
@@ -760,6 +794,19 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         loft+=(1.0-accuracy)*70.0;
         loft*=0.5+rng.random();   // 0.5x..1.5x: some balloon over, some kept down
         loft=std::min(loft,240.0);
+    }
+    // Finesse and power are struck DOWN — a placed side-foot or a driven laces
+    // shot stays under the bar. Without this the loft model floated them over
+    // the frame, so they beat the keeper's save roll yet sailed the goal (the
+    // conversion gap the save-roll probe exposed). On the deck = on frame.
+    if(shotType==1||shotType==2) loft=std::min(loft,10.0);
+    // Curl: give it just enough air to keep the spin alive (curl dies fast on
+    // the deck) and bend it toward the open corner — a bent flight the keeper,
+    // who reads a straight line, mis-sets for (see engine_gk deception term).
+    if(shotType==3){
+        loft=clamp(loft,45.0,85.0);   // a little air so the spin lives, but down by the line
+        double vxSign=(dx>=0.0?1.0:-1.0);
+        b.curl=openSide*vxSign*(0.12+accuracy*0.08);   // bend enough to round the keeper, not so far it sails the post
     }
     b.intendedReceiverId=-1; b.z=0; b.vz=loft;
     // Direct free kick with a wall: CHIP it over, don't blast it through.
@@ -783,6 +830,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     receiverShieldTargetId=-1;
     shot.active=true; shot.tracked=true; shot.preventable=false; shot.header=freshCross; shot.dribble20m=dribble20mShot; shot.team=s.team; shot.shooterId=s.id; shot.originX=s.x; shot.originY=s.y;
     shot.freshFinish = firstTouch || freshCross || freshThrough;   // snap finish — wrong-foots the keeper (engine_gk reaction)
+    shot.type = shotType;   // carried to the save roll for the per-type probe (debug only)
     // ── Explicit shot-block roll: each defender in the lane gets ONE
     // deliberate, skill-based chance (squareness in lane x reaction time x
     // tackling). The winner is the only body allowed to touch the flight;

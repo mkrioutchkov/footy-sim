@@ -1,6 +1,7 @@
 #include "engine.h"
 #include "agent.h"
 #include <cmath>
+#include <cstdio>
 #include <numbers>
 
 // ══════════════════════════════════════════════════════════════
@@ -141,6 +142,7 @@ bool GameEngine::checkGoal(){
         if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
         if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
         stats.recordGoal(Team::Away,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        if(passDebug&&shot.tracked)fprintf(stderr,"GOALSCORED type=%d src=%s\n",shot.type,lastGoal.source.c_str());
         creditGoal(lastGoal.toucherId);
         emitEvent("goal", HOME_GOAL_X, b.y, lastGoal.toucherId);
         state.awayScore++; shot.active=false; shot.clearFlags(); kickoff(Team::Home); return true;
@@ -154,6 +156,7 @@ bool GameEngine::checkGoal(){
         if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
         if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
         stats.recordGoal(Team::Home,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        if(passDebug&&shot.tracked)fprintf(stderr,"GOALSCORED type=%d src=%s\n",shot.type,lastGoal.source.c_str());
         creditGoal(lastGoal.toucherId);
         emitEvent("goal", AWAY_GOAL_X, b.y, lastGoal.toucherId);
         state.homeScore++; shot.active=false; shot.clearFlags(); kickoff(Team::Away); return true;
