@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "agent.h"
+#include <cstdio>
 
 Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) {
     if (engine.setPiece.armed) return Action{ActionType::Tackle, 0.0};
@@ -314,6 +315,29 @@ Action PlayerAI::scoreChase(const Perception& per) {
                       clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
                       clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
                       ActionPurpose::RecoverOwnTouch};
+    }
+
+    // ── Lane interception: READ an opponent's pass and STEP INTO it ──
+    // The reactive incomingLooseBall gate above only fires when the ball heads
+    // straight AT the player (approachDot) within 100px — so a pass crossing
+    // within a defender's reach, but not aimed at him, sailed past untouched
+    // (the "why didn't he just step across?" misses). Here any contest-eligible
+    // opponent the ball will pass within a stride of, soon enough to get there,
+    // steps to the closest-approach point and cuts it out. The passer's own team
+    // is excluded (lastTouchTeam), so this only helps the side WITHOUT the ball.
+    if (canContest && !isIntendedReceiver && b.controllerId < 0 && b.z <= AERIAL_HEIGHT
+        && ballSpeed > 45.0 && b.lastTouchTeam != player.team) {
+        double t = ((player.x - b.x) * b.vx + (player.y - b.y) * b.vy) / (ballSpeed * ballSpeed);  // sec to closest approach
+        if (t > 0.03 && t < 1.30) {
+            double cx = b.x + b.vx * t, cy = b.y + b.vy * t;        // where the ball is nearest him
+            double perp = dist(player.x, player.y, cx, cy);         // how far he must travel to the lane
+            if (perp < 22.0 + 90.0 * t) {                          // reachable: ~90px/s of close-down + a stride
+                if (engine.passDebug) fprintf(stderr, "LANECUT id=%d t=%d perp=%d\n", player.id, (int)(engine.state.clockMs / 1000), (int)perp);
+                return Action{ActionType::Chase, 1.06, nullptr,
+                              clamp(cx, 10.0, PITCH_W - 10.0), clamp(cy, 10.0, PITCH_H - 10.0),
+                              ActionPurpose::RecoverLoose};
+            }
+        }
     }
 
     if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun)
