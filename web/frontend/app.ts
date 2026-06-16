@@ -29,6 +29,13 @@ function fmtMoney(n: number): string {
   if (n >= 1e3) return `£${Math.round(n / 1e3)}K`;
   return `£${n}`;
 }
+// OVR = mean of the 7 core skills (excludes height/handling) — matches the backend's
+// overall() and the market/training screens, so a player's OVR reads the same everywhere
+// and the potential headroom (a skill-based ceiling) compares against the right number.
+const SKILL_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
+function skillOvr(attrs: Record<string, number>): number {
+  return Math.round(SKILL_KEYS.reduce((s, k) => s + (attrs[k] ?? 0), 0) / SKILL_KEYS.length);
+}
 
 const TACTIC_DEFS: { key: keyof Tactics; label: string; lo: string; hi: string }[] = [
   { key: 'aggression', label: 'Aggression', lo: 'Contain', hi: 'Press hard' },
@@ -181,13 +188,16 @@ async function screenDashboard() {
   // team / squad card
   const squad = h('div', { class: 'players' });
   for (const p of team.players) {
-    const ovr = Math.round(Object.values(p.attrs).reduce((a, b) => a + b, 0) / Object.keys(p.attrs).length);
+    const ovr = skillOvr(p.attrs);
     const per = p.personality;
+    const potText = p.potential != null && p.potential > ovr ? ` → ${p.potential}` : '';
+    const ageText = p.age != null ? ` · ${p.age}y` : '';
+    const r = (n: number) => Math.round(n);
     const card = h('div', { class: 'pcard' },
-      h('div', { class: 'role' }, `${p.role} · OVR ${ovr}`),
+      h('div', { class: 'role' }, `${p.role} · OVR ${ovr}${potText}${ageText}`),
       h('div', { class: 'pn' }, p.name),
-      h('div', { class: 'at' }, `SPD ${p.attrs.speed} · PAS ${p.attrs.passing} · SHO ${p.attrs.shooting}`,
-        h('br'), `TAC ${p.attrs.tackling} · POS ${p.attrs.positioning} · CRE ${p.attrs.creativity}`),
+      h('div', { class: 'at' }, `SPD ${r(p.attrs.speed)} · PAS ${r(p.attrs.passing)} · SHO ${r(p.attrs.shooting)}`,
+        h('br'), `TAC ${r(p.attrs.tackling)} · POS ${r(p.attrs.positioning)} · CRE ${r(p.attrs.creativity)}`),
     );
     if (per && per.tagline) {
       card.setAttribute('title', `${per.nationality}${per.nationality ? ' · ' : ''}${per.backstory}`);
@@ -266,6 +276,7 @@ async function screenDashboard() {
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' }, `Managed by ${team.manager} · League position ${myPos}/${league.standings.length}`)),
       h('div', { class: 'row' }, watchBtn, advanceBtn,
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
     ),
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'League table'), table),
@@ -445,7 +456,7 @@ async function screenMarket() {
   function render() {
     // free-agent pool — sign to your squad
     const faBody = h('tbody');
-    if (!market.freeAgents.length) faBody.append(h('tr', {}, h('td', { colspan: '6', class: 'muted' }, 'No free agents left.')));
+    if (!market.freeAgents.length) faBody.append(h('tr', {}, h('td', { colspan: '7', class: 'muted' }, 'No free agents left.')));
     for (const a of market.freeAgents) {
       const afford = market.budget >= a.value, room = market.squad.length < market.squadMax;
       const sign = h('button', { class: 'ghost small' }, 'Sign');
@@ -455,11 +466,13 @@ async function screenMarket() {
         try { const r = await api.buyAgent(a.id); market = r.market; toast(`Signed ${r.name} — ${fmtMoney(r.value)} (${r.placed === 'xi' ? 'straight into the XI' : 'to the bench'})`); render(); }
         catch (e: any) { toast(e.message); render(); }
       });
+      const faPot = a.potential != null && a.potential > a.overall;
       faBody.append(h('tr', {},
         h('td', {}, a.name),
         h('td', {}, h('span', { class: 'pill' }, a.role)),
         h('td', { class: 'num' }, String(a.age)),
         h('td', { class: 'num' }, String(a.overall)),
+        h('td', { class: 'num' }, faPot ? h('span', { class: 'a' }, String(a.potential)) : (a.potential != null ? String(a.potential) : '—')),
         h('td', { class: 'num' }, fmtMoney(a.value)),
         h('td', { class: 'num' }, sign)));
     }
@@ -479,19 +492,21 @@ async function screenMarket() {
           market = r.market; toast(p.listed ? `${p.name} taken off the market` : `${p.name} listed for ${fmtMoney((r as any).askPrice)}`); render();
         } catch (e: any) { toast(e.message); render(); }
       });
+      const sqPot = p.potential != null && p.potential > p.overall;
       sqBody.append(h('tr', {},
         h('td', {}, p.name, p.starter ? '' : h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench'),
           p.listed ? h('span', { class: 'pill', style: 'margin-left:6px' }, p.askPrice != null ? fmtMoney(p.askPrice) : 'listed') : ''),
         h('td', {}, h('span', { class: 'pill' }, p.role)),
         h('td', { class: 'num' }, String(p.age)),
         h('td', { class: 'num' }, String(p.overall)),
+        h('td', { class: 'num' }, sqPot ? h('span', { class: 'a' }, String(p.potential)) : (p.potential != null ? String(p.potential) : '—')),
         h('td', { class: 'num' }, fmtMoney(p.value)),
         h('td', { class: 'num' }, btn)));
     }
 
     const headRow = (label: string) => h('thead', {}, h('tr', {},
       h('th', {}, label), h('th', {}, 'Pos'),
-      h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'),
+      h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'POT'),
       h('th', { class: 'num' }, 'Value'), h('th', { class: 'num' }, '')));
 
     mount(header(), h('div', { class: 'wrap grid' },
@@ -514,6 +529,61 @@ async function screenMarket() {
   render();
 }
 
+// ── training / development ──
+const TRAINING_FOCI = ['balanced', 'speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
+async function screenTraining() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
+  let team: TeamT;
+  try { team = await api.team(); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+  }
+  const ovrOf = (p: typeof team.players[number]) => skillOvr(p.attrs);
+
+  const sel = h('select', { class: 'focus-select' }) as HTMLSelectElement;
+  for (const f of TRAINING_FOCI) {
+    const o = h('option', { value: f }, f[0].toUpperCase() + f.slice(1)) as HTMLOptionElement;
+    if (f === (team.trainingFocus ?? 'balanced')) o.selected = true;
+    sel.append(o);
+  }
+  sel.addEventListener('change', async () => {
+    try { const r = await api.setTraining(sel.value); toast(`Training focus: ${r.focus}`); }
+    catch (e: any) { toast(e.message); }
+  });
+
+  const body = h('tbody');
+  for (const p of [...team.players].sort((a, b) => a.slot - b.slot)) {
+    const ovr = ovrOf(p), pot = p.potential ?? ovr;
+    const room = pot - ovr;
+    body.append(h('tr', {},
+      h('td', {}, p.name, p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench') : ''),
+      h('td', {}, h('span', { class: 'pill' }, p.role)),
+      h('td', { class: 'num' }, p.age != null ? String(p.age) : '—'),
+      h('td', { class: 'num' }, String(ovr)),
+      h('td', { class: 'num' }, room > 0 ? h('span', { class: 'a' }, `${pot} (+${room})`) : String(pot)),
+    ));
+  }
+
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
+      h('div', {}, h('h2', {}, 'Training'),
+        h('div', { class: 'muted' }, 'Players drift toward their potential each matchday — faster while young and for the diligent. Pick a focus to push one attribute harder.')),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
+    ),
+    h('div', { class: 'card' },
+      h('div', { class: 'row', style: 'align-items:center;gap:10px;margin-bottom:6px' },
+        h('span', { class: 'section-title', style: 'margin:0' }, 'Training focus'), sel),
+      h('div', { style: 'max-height:540px;overflow:auto;margin-top:8px' },
+        h('table', {},
+          h('thead', {}, h('tr', {},
+            h('th', {}, 'Player'), h('th', {}, 'Pos'),
+            h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'))),
+          body)),
+    ),
+  ));
+}
+
 // ── router ──
 function route() {
   const hash = location.hash;
@@ -522,6 +592,7 @@ function route() {
   if (hash.startsWith('#/watch/')) screenWatch(Number(hash.split('/')[2]));
   else if (hash === '#/tactics') screenTactics();
   else if (hash === '#/market') screenMarket();
+  else if (hash === '#/training') screenTraining();
   else screenDashboard();
 }
 

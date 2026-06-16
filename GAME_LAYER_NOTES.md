@@ -151,6 +151,17 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     Verified by `tools/_market_test.ts` (46 assertions: seeding, value, money
     conservation, squad caps, the always-11 spec invariant, both review fixes) +
     an ad-hoc real-`buildSpec` check (11/side, byte-identical default, no bench leak).
-- **DESIGNED:** training, seasons, AI managers (this doc).
+  - **Pillar 2 — Training / development.** `players.potential` (youth-weighted ceiling,
+    backfilled for old saves) + `teams.training_focus`. `training.ts`: `developAttrs`
+    (pure, deterministic — attrs drift toward potential, scaled by age + professionalism/
+    consistency; the focus attr trains ~80% faster; the legs fade first with age; growth
+    caps at potential, decline floors at 30) and `developmentTick` (every league player,
+    once per matchday after the market tick). Potential threads through every signing.
+    `PUT /api/training`, a `#/training` screen, a POT column in the market, age/potential
+    on dashboard cards, and a shared `skillOvr` so OVR reads the same on every screen.
+    Verified by `tools/_training_test.ts` (25 assertions: convergence, decline, focus,
+    diligence, clamp, backfill, tick, signing-carries-potential) + `tools/_http_smoke.ts`
+    (15 assertions: the live pillar 1+2 endpoints on a temp-DB backend).
+- **DESIGNED:** seasons, AI managers (this doc).
 - **AWAITING YOUR TASTE:** economy scale (50M budgets, `(ovr/100)^3 × 55M` value
-  curve, 24-man cap), training rates, league structure, prize money.
+  curve, 24-man cap), training/decline rates per age band, league structure, prize money.

@@ -8,16 +8,19 @@ import { registerUser, loginUser, createSession, destroySession, getUserBySessio
 import { db } from './db.ts';
 import {
   newSeasonForUser, getTeamWithPlayers, standings, teamForUser,
-  assignPersonalities, needsPersonalities, backfillFreeAgents,
+  assignPersonalities, needsPersonalities, backfillFreeAgents, backfillPotentials,
   DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { playFixture, getFixture, writeSpec, MatchStream } from './match.ts';
 import { compileLineup } from './lineup.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick } from './market.ts';
+import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
 
 const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
-// Give any pre-market league a free-agent pool (one-time, idempotent).
+// Give any pre-market league a free-agent pool + every player a potential (one-time,
+// idempotent backfills for saves that predate pillars 1 & 2).
 backfillFreeAgents();
+backfillPotentials();
 const app = Fastify({ logger: false });
 await app.register(cookie);
 
@@ -183,6 +186,17 @@ app.post('/api/market/unlist', async (req: any, reply) => {
   return { ok: true, market: getMarket(teamId) };
 });
 
+// Set the club's training focus ('balanced' or a trainable attribute). Drives the
+// development tick that runs each matchday.
+app.put('/api/training', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const focus = String(req.body?.focus ?? '');
+  if (!VALID_FOCUS.has(focus)) return reply.code(400).send({ error: `focus must be one of: balanced, ${TRAINABLE.join(', ')}` });
+  return setTrainingFocus(teamId, focus);
+});
+
 app.get('/api/league', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
@@ -233,10 +247,10 @@ app.post('/api/advance', async (req: any, reply) => {
   // Sim the whole matchday concurrently (non-blocking) instead of one-at-a-time.
   const results = await Promise.all(roundFixtures.map(f => playFixture(f.id)));
   const myResult = results.find(r => r.fixtureId === mine.id) ?? null;
-  // The market lives between matchdays: let the AI teams sign + trade once per round
-  // so the squads (and the user's listings) churn as the season runs.
+  // Between matchdays the world progresses: AI clubs trade, then every player trains.
   const transfers = marketTick(team.leagueId);
-  return { round: mine.round, myFixtureId: mine.id, myResult, results, transfers, standings: standings(team.leagueId) };
+  const development = developmentTick(team.leagueId);
+  return { round: mine.round, myFixtureId: mine.id, myResult, results, transfers, development, standings: standings(team.leagueId) };
 });
 
 // Convenience: play my next unplayed fixture.

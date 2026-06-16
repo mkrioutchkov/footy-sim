@@ -106,7 +106,16 @@ CREATE TABLE IF NOT EXISTS free_agents (
   attrs       TEXT NOT NULL,        -- json (same shape as players.attrs)
   personality TEXT,                 -- json | NULL (generated lazily)
   age         INTEGER NOT NULL DEFAULT 24,
+  potential   INTEGER,              -- ceiling OVR (pillar 2); NULL on legacy rows
   value       INTEGER NOT NULL DEFAULT 0   -- snapshot at generation
 );
 CREATE INDEX IF NOT EXISTS idx_free_agents_league ON free_agents(league_id);
 `);
+
+// ── Training / development (pillar 2) ───────────────────────────────────────
+// A player's ceiling OVR — attrs drift toward it each matchday. NULL on pre-pillar-2
+// rows; backfillPotentials() sets it from current OVR + an age-based headroom.
+ensureColumn('players', 'potential', 'potential INTEGER');
+ensureColumn('free_agents', 'potential', 'potential INTEGER');   // for pillar-1 pools that predate this
+// Which attribute a club trains hardest ('balanced' or an attr key); nudges the drift.
+ensureColumn('teams', 'training_focus', "training_focus TEXT NOT NULL DEFAULT 'balanced'");

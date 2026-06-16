@@ -21,11 +21,11 @@ export interface PersonalityT {
   traits: { temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number; consistency: number; leadership: number; professionalism: number; ego: number };
   nationality: string; backstory: string; tagline: string;
 }
-export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; }
+export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; }
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
-  formation: string; lineup: number[] | null;
+  formation: string; lineup: number[] | null; budget?: number; trainingFocus?: string;
 }
 export interface LineupSlotT { slot: number; role: string; homeX: number; homeY: number; playerName: string; fromSlot: number; }
 export interface LineupResultT { formation: string; lineup: number[] | null; slots: LineupSlotT[]; note: string; }
@@ -40,8 +40,8 @@ export interface FixtureT {
   homeScore: number | null; awayScore: number | null; involvesMe: boolean;
 }
 export interface LeagueT { leagueId: number; myTeamId: number; standings: StandingT[]; fixtures: FixtureT[]; }
-export interface FreeAgentT { id: number; name: string; role: string; age: number; overall: number; value: number; }
-export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; value: number; listed: boolean; askPrice: number | null; starter: boolean; }
+export interface FreeAgentT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; }
+export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; listed: boolean; askPrice: number | null; starter: boolean; }
 export interface MarketT { budget: number; squadMax: number; squadMin: number; freeAgents: FreeAgentT[]; squad: MarketPlayerT[]; }
 export interface TransferT { teamId: number; teamName: string; type: 'sign' | 'buy_listed'; player: string; role: string; fee: number; from?: string; }
 
@@ -58,9 +58,10 @@ export const api = {
   league: () => req<LeagueT>('GET', '/league'),
   playFixture: (id: number) => req<{ result: { homeScore: number; awayScore: number; alreadyPlayed: boolean }; standings: StandingT[] }>('POST', `/fixtures/${id}/play`),
   playNext: () => req<{ fixtureId: number; result: { homeScore: number; awayScore: number }; standings: StandingT[] }>('POST', '/play-next'),
-  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; standings: StandingT[] }>('POST', '/advance'),
+  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; standings: StandingT[] }>('POST', '/advance'),
   market: () => req<MarketT>('GET', '/market'),
   buyAgent: (agentId: number) => req<{ ok: boolean; placed: 'xi' | 'bench'; value: number; name: string; market: MarketT }>('POST', '/market/buy', { agentId }),
   listPlayer: (slot: number, price?: number) => req<{ ok: boolean; askPrice: number; value: number; market: MarketT }>('POST', '/market/list', { slot, price }),
   unlistPlayer: (slot: number) => req<{ ok: boolean; market: MarketT }>('POST', '/market/unlist', { slot }),
+  setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
 };

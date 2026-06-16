@@ -91,6 +91,14 @@ function genAge(): number {
   return Math.round(18 + r * 16);
 }
 
+// Potential = ceiling OVR (pillar 2). Younger players carry more upside; a 30+ player
+// is essentially at their ceiling. Always >= current OVR. TASTE: the headroom curve.
+export function genPotential(currentOverall: number, age: number): number {
+  const youth = Math.max(0, 28 - age);                       // 0 at 28+, up to 10 at 18
+  const headroom = Math.round(youth * (0.4 + Math.random() * 0.9));   // ~0..15
+  return Math.min(95, Math.max(currentOverall, currentOverall + headroom));
+}
+
 export function randomTactics(): Tactics {
   const r = (lo: number, hi: number) => Math.round(lo + Math.random() * (hi - lo));
   return {
@@ -101,10 +109,12 @@ export function randomTactics(): Tactics {
 
 function insertRoster(teamId: number, base: number): void {
   const ins = db.prepare(
-    'INSERT INTO players (team_id, slot, name, role, attrs, age) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO players (team_id, slot, name, role, attrs, age, potential) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
   ROLE_SLOTS.forEach((role, slot) => {
-    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(genAttrs(role, base)), genAge());
+    const attrs = genAttrs(role, base);
+    const age = genAge();
+    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age));
   });
 }
 
@@ -115,16 +125,27 @@ export const FREE_AGENT_COUNT = 28;
 const FA_ROLES: Role[] = ['GK', 'FB', 'CB', 'CM', 'WM', 'CF'];
 export function seedFreeAgents(leagueId: number, count = FREE_AGENT_COUNT): void {
   const ins = db.prepare(
-    'INSERT INTO free_agents (league_id, name, role, attrs, personality, age, value) VALUES (?, ?, ?, ?, NULL, ?, ?)',
+    'INSERT INTO free_agents (league_id, name, role, attrs, personality, age, potential, value) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)',
   );
   for (let i = 0; i < count; i++) {
     const role = FA_ROLES[Math.floor(Math.random() * FA_ROLES.length)];
     const baseStrength = Math.round(38 + Math.pow(Math.random(), 2) * 42);   // 38..80, skewed low
     const attrs = genAttrs(role, baseStrength);
     const age = genAge();
-    ins.run(leagueId, randomPlayerName(), role, JSON.stringify(attrs), age, playerValue(attrs, age, null));
+    ins.run(leagueId, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), playerValue(attrs, age, null));
   }
   db.prepare('UPDATE leagues SET market_seeded = 1 WHERE id = ?').run(leagueId);
+}
+
+// Backfill potential for players + free agents that predate pillar 2 (potential NULL):
+// set it from current OVR + age headroom. Idempotent — only touches NULL rows.
+export function backfillPotentials(): void {
+  const players = db.prepare('SELECT id, attrs, age FROM players WHERE potential IS NULL').all() as { id: number; attrs: string; age: number }[];
+  const upP = db.prepare('UPDATE players SET potential = ? WHERE id = ?');
+  for (const p of players) upP.run(genPotential(overall(JSON.parse(p.attrs)), p.age), p.id);
+  const fas = db.prepare('SELECT id, attrs, age FROM free_agents WHERE potential IS NULL').all() as { id: number; attrs: string; age: number }[];
+  const upF = db.prepare('UPDATE free_agents SET potential = ? WHERE id = ?');
+  for (const f of fas) upF.run(genPotential(overall(JSON.parse(f.attrs)), f.age), f.id);
 }
 
 // One-time backfill for leagues that predate the transfer market (or were created
@@ -242,18 +263,18 @@ export function standings(leagueId: number): Standing[] {
   return out;
 }
 
-export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; age: number; listed: boolean; askPrice: number | null; }
+export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; age: number; potential: number | null; listed: boolean; askPrice: number | null; }
 
 export function getTeamWithPlayers(teamId: number): {
   id: number; name: string; manager: string; leagueId: number; userId: number | null;
-  budget: number; tactics: Tactics; formation: string; lineup: number[] | null; players: PlayerRow[];
+  budget: number; trainingFocus: string; tactics: Tactics; formation: string; lineup: number[] | null; players: PlayerRow[];
 } | null {
-  const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, tactics, formation, lineup FROM teams WHERE id = ?')
-    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; tactics: string; formation: string | null; lineup: string | null } | undefined;
+  const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, training_focus, tactics, formation, lineup FROM teams WHERE id = ?')
+    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; training_focus: string | null; tactics: string; formation: string | null; lineup: string | null } | undefined;
   if (!t) return null;
-  const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, listed, ask_price FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
-    { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; listed: number; ask_price: number | null }[])
-    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality), age: p.age, listed: !!p.listed, askPrice: p.ask_price }));
+  const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, potential, listed, ask_price FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
+    { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; listed: number; ask_price: number | null }[])
+    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality), age: p.age, potential: p.potential, listed: !!p.listed, askPrice: p.ask_price }));
   let lineup: number[] | null = null;
   // Accept the stored lineup only if it's a clean 11-long permutation of valid squad
   // indices (0..squadSize-1, all distinct). A malformed/legacy/tampered value falls
@@ -269,7 +290,8 @@ export function getTeamWithPlayers(teamId: number): {
   } catch { /* ignore */ }
   return {
     id: t.id, name: t.name, manager: t.manager, leagueId: t.league_id, userId: t.user_id,
-    budget: t.budget, tactics: JSON.parse(t.tactics), formation: t.formation ?? '4-3-3', lineup, players,
+    budget: t.budget, trainingFocus: t.training_focus ?? 'balanced', tactics: JSON.parse(t.tactics),
+    formation: t.formation ?? '4-3-3', lineup, players,
   };
 }
 
