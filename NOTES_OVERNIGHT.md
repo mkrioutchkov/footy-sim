@@ -4,6 +4,17 @@ Working the prioritized backlog top-down. Each VERIFIED increment committed+push
 (determinism + golden green; paired-measured; revert if noise/backfire).
 
 ## SHIPPED (this overnight run)
+- **2/A2 + hardening — FORMATIONS FULLY LIVE** (`7ff55ac`, `96b15c6`): teams.formation/lineup wired into real
+  games (byte-identical guard for default teams, away mirror verified exact), PUT /api/lineup, dashboard
+  Formation card. A 5-lens adversarial-review workflow found 7 real bugs (duplicate-player, out-of-range lineup,
+  GK pin inverted, tactics role-tag, etc.) — all fixed + re-verified (permutation fuzz, corrupt-lineup rejection,
+  GK pinned). Balance audit (paired-8, see below) recorded.
+- **4.2 PLAYER PERSONALITIES** (`7915046`): LLM-generated traits (8 dials) + nationality/backstory/tagline at
+  squad creation; one batched Groq call per squad, neutral defaults on failure. DB col + endpoints + dashboard
+  display. Verified: 11 varied in-range personalities in ~3s; temp-DB create→assign→read passes.
+- **4.3 MORALE ENGINE HOOK** (`a29d6b8`): per-player moraleBoost in [-1,1] shades pace ±12%, decays over ~4 min
+  (mirrors injurySeverity). Default 0 = no effect → golden byte-identical (7/7), determinism 5/5, bites 5/5.
+  The engine half of the motivation loop; the shout→morale DRIVER is the remaining taste step.
 - **0. SHOUTS_AND_PERSONALITY.md** committed (`5eaeda1`) + memory pointer.
 - **1c. weak dials strengthened** (`ae1daa1`): all_out_attack amplified via the attacking-runs mechanism
   (allOutActive flag → commit FB+CM forward on central carries) — homeShots 10.1→11.5 (win 45%→59%),
@@ -52,6 +63,24 @@ Working the prioritized backlog top-down. Each VERIFIED increment committed+push
   remove→rebuild→golden gate when you want them gone.
 - Item 5 goalKickExitedOwnThird is NOT a safe tidy — it's a real metric (goal kicks clearing the def third in
   18s) and golden hashes the FULL summary JSON, so removing it breaks golden + native-batch.ts. Left as-is.
+
+## FORMATION BALANCE AUDIT (paired-8, fixture-1, each shape HOME vs default-4-3-3 away; delta vs 4-3-3==4-3-3 baseline +1.62 GD)
+  4-3-3 +0.00 (sanity: registry==default) · 4-2-3-1 +0.75 · 4-5-1 +0.00 · 3-4-3 −0.25 · 5-3-2 +1.38 ·
+  **4-4-2 +2.00 · 3-5-2 +3.50 (over-strong)**. The gap is really "more bodies forward, no defensive cost
+  because the AI away side doesn't punish vacated flanks" — i.e. a defensive-intelligence gap (item 7), not just
+  anchor values. Whether formations should be balanced vs risk/reward is YOUR call — left untuned.
+
+## THE REMAINING CAPSTONE — composite-plan + motivation loop (items 3 + 4.3-driver), ONE coherent unit
+Both FOUNDATIONS are now in place: personalities (4.2, the inputs) + the morale engine hook (4.3, the output).
+What's left is the unit the design doc §3b specs as ONE LLM call, plus its live-flow integration — UX/taste:
+  1. plan.ts compiler: {currentPlan, shout, squad+personalities, ctx} → {plan:{summary,directives}, changed,
+     motivation:[{playerId,moraleDelta,reaction,durationMin}], note}. Reuses tactics.ts name/condition guards.
+  2. Transport: the watch timeline already carries directives per shout; ADD a moraleBoost delta channel so a
+     motivational shout injects morale mid-match (the engine seeds moraleBoost from spec; needs a timeline path).
+  3. Live tactics box: each shout EDITS the persistent plan (amend/overhaul/nuke/no-op) vs a fresh compile;
+     read-only plan textarea; per-player motivation cap (~2/game). Brief: keep the single-shout flow working.
+This touches the live tactics box + watch replay + is a UX surface → I did NOT build it unsupervised. Ready to
+build the plan.ts compiler foundation + the transport on your word; the live-box UX wants your direction.
 
 ## DECISIONS WAITING FOR MAX (need your taste / touch the live flow — NOT guessed per the brief)
 - **Formation A2 + frontend (the user-facing "play 4-4-2" path).** A0 (engine) + A4 (height) are in; A1 registry
