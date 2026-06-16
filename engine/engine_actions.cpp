@@ -727,18 +727,23 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     if(firstTouch)executionError*=shotDistance<120.0?0.50:0.62;
     // ── Shot type — pick HOW to beat the keeper and route to the physics.
     // 0 normal · 1 finesse (placement) · 2 power (pace) · 3 curl (bend round
-    // him). Chip + dribble-the-keeper come in phase 2. Set pieces, headers and
+    // him) · 4 chip (loop over an onrushing keeper). Set pieces, headers and
     // first-touch finishes keep their bespoke models untouched.
     Player* dgk=findGK(s.team==Team::Home?Team::Away:Team::Home);
     double gkY=dgk?dgk->y:goalCenterY;
+    double gkAdvance=dgk?std::abs(dgk->x-gx):0.0;   // how far the keeper has come off his line
     int shotType=0;
     bool clearSight=pressureCount<=1&&laneBlockers==0;
     bool bespoke=penaltyKick||directFreeKickShot||freshCross||firstTouch||acuteGeometry;
     if(!bespoke){
         bool wideAngle=outsideGoalLane&&angleDeg>=7.0&&angleDeg<=22.0;
-        if(credibleFinish&&shotDistance<175.0&&pressureCount<=1&&accuracy>0.50) shotType=1;       // finesse
-        else if(wideAngle&&shotDistance>=110.0&&shotDistance<=235.0&&clearSight) shotType=3;       // curl
-        else if(clearSight&&shotDistance>=120.0&&shotDistance<=250.0&&accuracy>0.45) shotType=2;   // power
+        // Keeper has rushed well off his line and the shooter is behind him with
+        // a clear sight: dink it over his head into the empty net.
+        bool keeperRushed=gkAdvance>72.0&&shotDistance>gkAdvance+50.0&&shotDistance<340.0&&angleDeg>10.0;
+        if(keeperRushed&&clearSight) shotType=4;                                                    // chip
+        else if(credibleFinish&&shotDistance<175.0&&pressureCount<=1&&accuracy>0.50) shotType=1;    // finesse
+        else if(wideAngle&&shotDistance>=110.0&&shotDistance<=235.0&&clearSight) shotType=3;        // curl
+        else if(clearSight&&shotDistance>=120.0&&shotDistance<=250.0&&accuracy>0.45) shotType=2;    // power
     }
     if(passDebug)fprintf(stderr,"SHOTTYPE t=%d dist=%d ang=%d pr=%d\n",shotType,(int)shotDistance,(int)angleDeg,pressureCount);
     // Placed shots (finesse/curl) aim for the corner the keeper is NOT shading;
@@ -750,6 +755,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     if(shotType==1) postFrac=0.34+accuracy*0.09;       // finesse: placed off-centre, room to the post
     else if(shotType==2) postFrac=0.30+accuracy*0.10;  // power: firm, slightly placed
     else if(shotType==3) postFrac=0.24+accuracy*0.06;  // curl: aim INSIDE the post — the bend carries it out to the corner, on-frame
+    else if(shotType==4) postFrac=0.18+accuracy*0.06;  // chip: net is open with the keeper out — aim safely inside
     double postRoll=(rng.random()<0.5?-1.0:1.0);
     double postSide=shotType?openSide:postRoll;        // every deliberate type aims off the keeper
     double aimedPost=postSide*GOAL_W*postFrac;
@@ -777,6 +783,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     if(shotType==1) speed*=0.94;        // finesse: a touch off pace, mostly placement
     else if(shotType==2) speed*=1.15;   // power: blast it past him
     else if(shotType==3) speed*=0.96;   // curl: enough pace to hold the bend
+    else if(shotType==4) speed=clamp(shotDistance*1.25,205.0,300.0);  // chip: gentle, judged pace
     speed=clamp(speed,185.0,455.0);     // stay inside the keeper-model's anchored band
     auto& b=state.ball;
     b.controllerId=-1;
@@ -808,6 +815,10 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         double vxSign=(dx>=0.0?1.0:-1.0);
         b.curl=openSide*vxSign*(0.12+accuracy*0.08);   // bend enough to round the keeper, not so far it sails the post
     }
+    // Chip: loft sized so the parabola loops OVER the advanced keeper and is just
+    // descending through the frame at the line. vz≈0.5·g·t (lands at the line)
+    // ×1.08 so it crosses a hair above the deck, not bouncing short of it.
+    if(shotType==4) loft=clamp(0.5*GRAVITY*(d/std::max(speed,1.0))*1.08,150.0,340.0);
     b.intendedReceiverId=-1; b.z=0; b.vz=loft;
     // Direct free kick with a wall: CHIP it over, don't blast it through.
     // The old vz=speed*0.50 was tuned for ~470px/s shots; with realistic
