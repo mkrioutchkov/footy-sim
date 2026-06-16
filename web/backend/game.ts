@@ -369,3 +369,18 @@ export async function assignPersonalities(teamId: number): Promise<void> {
   const upd = db.prepare('UPDATE players SET personality = ? WHERE team_id = ? AND slot = ?');
   rows.forEach((r, i) => upd.run(JSON.stringify(ps[i]), teamId, r.slot));
 }
+
+// Give an LLM-written backstory + matching dials to players that lack one — i.e. fresh youth
+// regens (created with a blank-backstory neutral personality), WITHOUT touching established or
+// hand-edited players. Best-effort + async, so it runs in the background after a season
+// rollover (never inside the rollover tx). With no LLM the regens simply stay neutral until
+// the manager writes their story (which then re-derives the dials).
+export async function fillMissingPersonalities(teamId: number): Promise<void> {
+  const rows = db.prepare('SELECT slot, name, role, attrs, personality FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
+    { slot: number; name: string; role: string; attrs: string; personality: string | null }[];
+  const needy = rows.filter(r => { const p = parseJSON(r.personality) as { backstory?: string } | null; return !p || !p.backstory; });
+  if (!needy.length) return;
+  const ps = await generateSquadPersonalities(needy.map(r => ({ name: r.name, role: r.role, attrs: JSON.parse(r.attrs) })));
+  const upd = db.prepare('UPDATE players SET personality = ? WHERE team_id = ? AND slot = ?');
+  needy.forEach((r, i) => { if (ps[i]) upd.run(JSON.stringify(ps[i]), teamId, r.slot); });
+}

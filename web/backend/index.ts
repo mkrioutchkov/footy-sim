@@ -8,7 +8,7 @@ import { registerUser, loginUser, createSession, destroySession, getUserBySessio
 import { db } from './db.ts';
 import {
   newSeasonForUser, getTeamWithPlayers, standings, teamForUser,
-  assignPersonalities, needsPersonalities, backfillFreeAgents, backfillPotentials, backfillContracts,
+  assignPersonalities, needsPersonalities, fillMissingPersonalities, backfillFreeAgents, backfillPotentials, backfillContracts,
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
@@ -312,6 +312,9 @@ app.post('/api/advance', async (req: any, reply) => {
   // End of season? Roll it over and report the new standings of whichever division the
   // user now sits in (they may have just been promoted or relegated).
   const rollover = seasonComplete(team.leagueId) ? rolloverSeason(team.leagueId) : null;
+  // a rollover may have brought academy regens through — give them LLM backstories + dials in
+  // the background (best-effort; never blocks the response, never touches established players).
+  if (rollover) void fillMissingPersonalities(teamId).catch(() => { /* regens stay neutral on failure */ });
   const nowLeagueId = getTeamWithPlayers(teamId)!.leagueId;
   return {
     round: userRound, myFixtureId: myFx?.id ?? null, myResult, results,

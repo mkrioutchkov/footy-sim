@@ -225,8 +225,17 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     review caught). Known limits: injury cover isn't role-aware (emergency out-of-position
     cover); fitness bookkeeping uses the first-11-by-slot, so a custom-lineup user can see a
     small skew; a fatigue→performance penalty (vs only injury risk) is a future refinement.
-- **DESIGNED:** the four original pillars + round 5 (story-traits, wages, contracts, youth)
-  + injuries/fitness are all SHIPPED.
+  - **Newgen backstories (LLM).** `game.ts fillMissingPersonalities(teamId)` gives an LLM-
+    written backstory + matching dials to players lacking one (fresh academy regens, created
+    with a blank-backstory neutral personality), WITHOUT touching established/hand-edited
+    players. Kicked off in the background after a season rollover (`void` in /api/advance — off
+    the rollover tx, like team-creation's `assignPersonalities`). With no LLM, regens stay
+    neutral until the manager writes their story (which re-derives the dials — the coupling).
+    Verified by `tools/_newgen_test.ts` (targeting + non-destructive + regens start needy).
+    Note: only the user's regens are enriched (AI regens stay neutral — cost); an offline
+    archetype-variety generator is a future add.
+- **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen backstories
+  are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.
