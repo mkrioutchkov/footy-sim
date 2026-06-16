@@ -82,6 +82,7 @@ export const api = {
   setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
   setPlayerStory: (slot: number, backstory: string, tagline: string) =>
     req<{ slot: number; personality: PersonalityT; value: number }>('PUT', `/player/${slot}/story`, { backstory, tagline }),
+  press: (text: string) => req<{ reactions: { slot: number; name: string; delta: number }[]; lifted: number; unsettled: number; team: TeamT }>('POST', '/press', { text }),
   renewPlayer: (slot: number, years?: number) =>
     req<{ ok: boolean; wage: number; years: number }>('PUT', `/player/${slot}/renew`, { years }),
 };

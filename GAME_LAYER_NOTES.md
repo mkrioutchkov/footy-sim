@@ -253,8 +253,15 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     fresh optimism at rollover. Shown on the squad card (😊/😟) + profile. Verified by
     `tools/_morale_test.ts`. (Morale → match performance is deliberately NOT a spec-attr scale —
     kept off the byte-identical match path; it drives development instead.)
+  - **Press conferences (LLM).** `press.ts`: the manager's free-text media statement is judged
+    against each player's dials to move morale — praise lifts the praise-hungry + big egos; a
+    public rocket lifts the criticism-responsive but dents the sensitive + hot-heads. LLM-primary
+    (`judgePressConference`) with a deterministic keyword-tone fallback; deltas clamp to ±15.
+    `applyPressConference` writes morale relative-in-SQL (`morale + delta`, clamped) so it can't
+    clobber a concurrent matchday morale tick across the LLM await (a review finding). `POST
+    /api/press` + a dashboard press box. Verified by `tools/_press_test.ts` + HTTP smoke (30).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
-  are all SHIPPED.
+  + press conferences are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.

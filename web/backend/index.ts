@@ -20,6 +20,7 @@ import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './tra
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings } from './season.ts';
 import { aiManagerTick } from './ai.ts';
 import { renewContract } from './contracts.ts';
+import { applyPressConference } from './press.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
 
@@ -231,6 +232,18 @@ app.put('/api/player/:slot/renew', async (req: any, reply) => {
   const r = renewContract(teamId, slot, years);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return r;
+});
+
+// Hold a press conference: the manager's statement (free text) is judged against each
+// player's personality dials to move squad morale. LLM-primary with a deterministic fallback.
+app.post('/api/press', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const text = String(req.body?.text ?? '').trim().slice(0, 400);
+  if (!text) return reply.code(400).send({ error: 'say something to the media' });
+  const r = await applyPressConference(teamId, text);
+  return { ...r, team: getTeamWithPlayers(teamId) };
 });
 
 // Set the club's training focus ('balanced' or a trainable attribute). Drives the

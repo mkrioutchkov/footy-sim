@@ -322,6 +322,20 @@ async function screenDashboard() {
       h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
   }
 
+  // press conference — your words move squad morale via each player's dials
+  const pressInput = h('textarea', { class: 'tactics-input', rows: '2', placeholder: 'Address the media — back your players, demand more, or stay ice-cool…' }) as HTMLTextAreaElement;
+  const pressBtn = h('button', { class: 'ghost small' }, 'Address the media');
+  pressBtn.addEventListener('click', async () => {
+    const txt = pressInput.value.trim(); if (!txt) { toast('Say something to the media first'); return; }
+    pressBtn.setAttribute('disabled', 'true'); pressBtn.textContent = '…';
+    try { const r = await api.press(txt); toast(`Media reaction: ${r.lifted} lifted${r.unsettled ? `, ${r.unsettled} unsettled` : ''}`); pressInput.value = ''; screenDashboard(); }
+    catch (e: any) { toast(e.message); pressBtn.removeAttribute('disabled'); pressBtn.textContent = 'Address the media'; }
+  });
+  const pressCard = h('div', { class: 'card', style: 'margin-top:14px' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Press conference'),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px' }, 'What you say moves squad morale — each player reacts through his own personality.'),
+    pressInput, h('div', { style: 'margin-top:6px' }, pressBtn));
+
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
@@ -338,6 +352,7 @@ async function screenDashboard() {
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
       h('div', {},
         formationPanel(team),
+        pressCard,
         h('div', { class: 'card', style: 'margin-top:14px' },
           h('div', { class: 'between', style: 'margin-bottom:8px' },
             h('div', { class: 'section-title', style: 'margin:0' }, `Squad · ${team.name}`),
