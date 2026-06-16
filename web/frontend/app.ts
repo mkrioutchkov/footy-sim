@@ -429,9 +429,11 @@ let activeRenderer: MatchRenderer | null = null;
 let activeWs: WebSocket | null = null;
 let watchBar: HTMLElement | null = null;
 let watchPanel: HTMLElement | null = null;
+let watchPanelObs: ResizeObserver | null = null;   // keeps the pitch sized to the space the panel leaves
 let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
 function teardownWatch() {
   watchEpoch++;
+  try { watchPanelObs?.disconnect(); } catch { /* */ } watchPanelObs = null;
   try { activeWs?.close(); } catch { /* */ } activeWs = null;
   try { activeRenderer?.destroy(); } catch { /* */ } activeRenderer = null;
   watchBar?.remove(); watchBar = null;     // teardown owns the floating control bar + tactics panel,
@@ -541,6 +543,16 @@ async function screenWatch(fixtureId: number) {
   // If the user navigated away (or to another match) during the async init, this screen is stale:
   // teardownWatch already ran — destroy this orphan renderer and stop before opening a socket.
   if (myEpoch !== watchEpoch) { renderer.destroy(); return; }
+
+  // Keep the pitch above the floating panel: reserve exactly the panel's height (+margins),
+  // so a tall standing plan doesn't overlap the pitch and a hidden panel (replay) frees the space.
+  const syncReserve = () => {
+    const visible = panel.style.display !== 'none' && panel.offsetHeight > 0;
+    renderer.setReservedBottom(visible ? panel.offsetHeight + 24 : 8);
+  };
+  watchPanelObs = new ResizeObserver(syncReserve);
+  watchPanelObs.observe(panel);
+  syncReserve();
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}`);

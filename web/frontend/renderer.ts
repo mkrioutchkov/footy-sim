@@ -73,6 +73,10 @@ export class MatchRenderer {
   private resizeObs: ResizeObserver | null = null;
   private readonly onResize = () => { if (!this.destroyed) this.calcTransform(); };
   private pitchGfx = new Graphics();   // reused across redraws (not re-allocated per resize)
+  // Bottom strip (px) kept clear for the live tactics panel that floats over the canvas.
+  // screenWatch drives this from the panel's real height so the pitch never sits under it
+  // and grows back when the panel is short or hidden (e.g. a replay drops the shout box).
+  private reservedBottom = 180;
 
   constructor() {
     this.app = new Application();
@@ -216,13 +220,23 @@ export class MatchRenderer {
     try { this.app.destroy(true, { children: true, texture: true }); } catch { /* */ }
   }
 
+  // Resize the reserved bottom strip (the live tactics panel floats over the canvas, so
+  // the pitch must stay above it). Recomputes the transform immediately; no-op if unchanged
+  // or before the renderer is ready / after it's torn down.
+  setReservedBottom(px: number): void {
+    const v = Math.max(0, Math.round(px));
+    if (v === this.reservedBottom) return;
+    this.reservedBottom = v;
+    if (!this.destroyed && this.app.renderer) this.calcTransform();
+  }
+
   private calcTransform(): void {
     if (this.destroyed) return;
     const sw = this.app.screen.width;
     // Reserve a strip at the bottom for the live tactics panel so the whole
     // pitch stays visible above it (the canvas is full-window).
     const reserveTop = 8;
-    const reserveBottom = 180;
+    const reserveBottom = this.reservedBottom;
     const sh = this.app.screen.height - reserveTop - reserveBottom;
     this.scale = Math.min(sw / (PITCH_W + GOAL_DEPTH * 2), sh / (PITCH_H + 40)) * 0.92;
     this.offsetX = (sw - PITCH_W * this.scale) / 2;
