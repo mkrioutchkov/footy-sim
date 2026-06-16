@@ -54,9 +54,11 @@ export interface FixtureT {
   homeScore: number | null; awayScore: number | null; involvesMe: boolean;
 }
 export interface DivisionT { tier: number; name: string; season: number; standings: StandingT[]; }
+export interface ObjectiveT { kind: string; target: number; season: number; label: string; }
 export interface LeagueT {
   leagueId: number; myTeamId: number; standings: StandingT[]; fixtures: FixtureT[];
   season?: number; tier?: number; divisionName?: string; world?: DivisionT[]; seasonComplete?: boolean;
+  objective?: ObjectiveT | null;
 }
 export interface RolloverT {
   season: number;
@@ -95,6 +97,7 @@ export interface SeasonHistoryT {
   season: number; tier: number; division: string; position: number;
   played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
   champion: boolean; promoted: boolean; relegated: boolean; cupWon: boolean; pots: string | null;
+  objective: { kind: string; target: number; met: boolean } | null;
 }
 
 export const api = {

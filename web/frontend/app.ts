@@ -452,6 +452,17 @@ async function screenDashboard() {
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/history') }, 'History'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
     ),
+    // board objective + live progress (where you are vs the target the board set)
+    (() => {
+      const obj = league.objective;
+      if (!obj) return h('div', { style: 'display:none' });
+      const onTrack = myPos <= obj.target, close = !onTrack && myPos <= obj.target + 2;
+      const c = onTrack ? 'var(--accent)' : close ? 'var(--gold)' : 'var(--danger)';
+      return h('div', { class: 'card', style: 'padding:10px 14px;border-left:3px solid ' + c },
+        h('span', { style: 'font-weight:600' }, '📋 Board objective: ' + obj.label),
+        h('span', { class: 'muted', style: 'margin-left:8px;font-size:13px' }, `currently ${ordinal(myPos)} — `),
+        h('span', { style: `color:${c};font-size:13px;font-weight:600` }, onTrack ? 'on track' : close ? 'just outside it' : 'work to do'));
+    })(),
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table),
     otherDivisions(league),
     h('div', { class: 'grid', style: 'grid-template-columns:1.2fr .8fr;align-items:start' },
@@ -1090,6 +1101,9 @@ async function screenScout(fixtureId: number) {
 }
 
 // ── club history / honours archive ──
+const OBJ_LABEL: Record<string, string> = {
+  title: 'Win the league', promotion: 'Win promotion', top_half: 'Finish in the top half', survival: 'Avoid relegation',
+};
 function trophy(icon: string, n: number, label: string): HTMLElement {
   return h('div', { style: 'text-align:center;min-width:74px' },
     h('div', { style: 'font-size:26px' }, icon),
@@ -1122,6 +1136,7 @@ async function screenHistory() {
     if (s.promoted) honours.append(h('span', { class: 'pill', title: 'Promoted' }, '⬆️ Promoted'));
     if (s.relegated) honours.append(h('span', { class: 'pill', title: 'Relegated', style: 'background:#3a1f24;color:#ff9a9a' }, '⬇️ Relegated'));
     if (s.cupWon) honours.append(h('span', { class: 'pill', title: 'Cup winners', style: 'background:var(--gold);color:#1a1205' }, '🥇 Cup'));
+    if (s.objective) honours.append(h('span', { class: 'pill', title: `Board objective: ${OBJ_LABEL[s.objective.kind] ?? 'season target'}`, style: s.objective.met ? '' : 'background:#3a1f24;color:#ff9a9a' }, (s.objective.met ? '✅' : '❌') + ' Board'));
     if (s.pots) honours.append(h('span', { class: 'muted', style: 'font-size:11px' }, `POTS: ${s.pots}`));
     body.append(h('tr', {},
       h('td', { class: 'num' }, String(s.season)),

@@ -25,6 +25,7 @@ import { applyPressConference } from './press.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory } from './history.ts';
+import { getObjective } from './objectives.ts';
 import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
@@ -339,6 +340,7 @@ app.get('/api/league', async (req: any, reply) => {
     // gates the "advance" button on the whole world, not just the user's own fixtures:
     // a user who watched all their matches still needs to play out the other games.
     seasonComplete: seasonComplete(leagueId),
+    objective: getObjective(teamId),   // the board's expectation this season (null if unset)
   };
 });
 

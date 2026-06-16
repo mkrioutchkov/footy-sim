@@ -2,6 +2,7 @@ import { db } from './db.ts';
 import { randomPlayerName, randomTeamName } from './names.ts';
 import { generateSquadPersonalities } from './personality.ts';
 import { createCup } from './cup.ts';
+import { deriveObjective, setSeasonObjective } from './objectives.ts';
 import type { Plan } from './plan.ts';
 
 const parseJSON = (s: string | null): unknown | null => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
@@ -280,6 +281,9 @@ export function newSeasonForUser(userId: number, username: string, teamName: str
   generateFixtures(worldId); generateFixtures(secondId);
   seedFreeAgents(worldId); seedFreeAgents(secondId);
   createCup(secondId);                                   // a knockout cup of all 16 clubs
+  // the board's opening expectation: a strong fresh club in the second tier is expected to go up
+  // (2 = PROMOTE; passed as a literal to keep game.ts free of a season.ts import cycle).
+  setSeasonObjective(teamId, 1, deriveObjective({ tier: 2, size: LEAGUE_SIZE, promote: 2, isTopTier: false }));
   return { leagueId: secondId, teamId, worldId };
 }
 

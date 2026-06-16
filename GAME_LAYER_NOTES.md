@@ -378,6 +378,14 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     promotions/seasons) + a season-by-season table with honour badges. Verified by
     `tools/_history_test.ts` (17 — champion/promotion/cup/POTS, most-recent-first, idempotency) +
     smoke (47) + the 8-season multiseason regression (83, rollover unaffected).
+  - **Board objectives (`objectives.ts`, teams + season_history columns, `/api/league.objective`).** The
+    board sets a season expectation (`deriveObjective` from tier + last finish + promotion/relegation:
+    title / promotion / top-half / survival, each a position target met if final ≤ target). Set at club
+    creation + each rollover (for the NEW tier); the finished season's target + verdict are archived into
+    season_history alongside the honours. The dashboard shows the objective + a live on-track / just-
+    outside / work-to-do indicator (from current position); the History screen shows a ✅/❌ Board badge
+    per season. No morale/balance effect — purely the season narrative. Verified by `tools/_history_test.ts`
+    (30 — derive cases, MET archival, promotion→survival→title progression) + smoke (48) + multiseason (83).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
   negotiation + loans + dynamic player-news + ratings→morale & season awards are all SHIPPED.

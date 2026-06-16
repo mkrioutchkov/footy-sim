@@ -16,6 +16,7 @@ import { purgeReports } from './report.ts';
 import { returnLoans } from './market.ts';
 import { recordSeasonAwards } from './news.ts';
 import { recordSeasonHistory } from './history.ts';
+import { getObjective, setSeasonObjective, deriveObjective, objectiveMet } from './objectives.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -140,14 +141,28 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
     for (const t of humanTeams) {
       const fin = finals.find(f => f.table.some(s => s.teamId === t.id));
       if (!fin) continue;
+      const pos = fin.table.findIndex(s => s.teamId === t.id) + 1;
+      const promo = out.promoted.find(p => p.teamId === t.id);
+      const releg = out.relegated.find(r => r.teamId === t.id);
+      // the board target set for the season that just finished → its verdict, archived with the row
+      const finishedObj = getObjective(t.id);
+      const objForHistory = finishedObj && finishedObj.season === endSeason
+        ? { kind: finishedObj.kind, target: finishedObj.target, met: objectiveMet(finishedObj.target, pos) } : null;
       recordSeasonHistory({
         teamId: t.id, season: endSeason, tier: fin.league.tier, division: fin.league.name, table: fin.table,
-        promoted: out.promoted.some(p => p.teamId === t.id),
-        relegated: out.relegated.some(r => r.teamId === t.id),
+        promoted: !!promo, relegated: !!releg,
         // attribute the cup by team id, not name — club names aren't unique (no UNIQUE constraint),
         // so a same-named club winning it must not phantom-award this club (review fix).
         cupWon: cupChampionTeamId != null && cupChampionTeamId === t.id,
+        objective: objForHistory,
       });
+      // set the board's expectation for the coming season, from the club's NEW tier (promotion/
+      // relegation already moved league_id at step 2) + how it just finished.
+      const newTier = promo ? promo.toTier : releg ? releg.toTier : fin.league.tier;
+      setSeasonObjective(t.id, out.season, deriveObjective({
+        tier: newTier, size: fin.table.length, promote: PROMOTE, prevPosition: pos,
+        justPromoted: !!promo, justRelegated: !!releg, isTopTier: newTier === 1,
+      }));
     }
 
     // 3. age every player in the world a year
