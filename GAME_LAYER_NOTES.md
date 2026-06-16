@@ -177,6 +177,31 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     (the main tsconfig excludes it — a missing import had shipped past it; a multi-agent
     review caught it). Verified by `tools/_season_test.ts` (34 assertions) + the HTTP smoke
     (20, incl. the league/world shape).
-- **DESIGNED:** AI managers (this doc).
+  - **Pillar 4 — AI managers.** `ai.ts`: each matchday every AI club (in `aiManagerTick`,
+    fired per division in `/api/advance` after the market tick) sets a training focus
+    (`pickTrainingFocus` — its outfield XI's weakest attribute, else balanced) and fields
+    its strongest role-correct XI (`optimizeLineup` — best player per role-slot, rest
+    benched). Combined with the market's existing AI signings, AI clubs now make transfer +
+    training + lineup choices, so the whole world manages itself. Strictly AI-only — a human
+    manager's focus and hand-picked lineup are never touched. Verified by `tools/_ai_test.ts`
+    (12 assertions) + a multi-agent review (zero findings).
+- **DESIGNED:** all four pillars are now SHIPPED.
 - **AWAITING YOUR TASTE:** economy scale (50M budgets, `(ovr/100)^3 × 55M` value
-  curve, 24-man cap), training/decline rates per age band, league structure, prize money.
+  curve, 24-man cap), training/decline rates per age band, division sizes / promotion
+  counts (2 of 8), the prize-money schedule.
+
+## Known limitations / future enhancements (flag for the user)
+
+- **Watch is a re-sim, not a replay.** The match-watch socket re-runs the engine from the
+  team's CURRENT spec, so a match watched after the squad changed (transfers, a matchday of
+  development, or an AI lineup re-pick) can differ from the stored scoreline. This pre-dates
+  these pillars (development already mutated attrs between matchdays) but is now more
+  visible. A faithful replay would need per-fixture spec snapshots.
+- **No retirement / youth intake.** Players age +1 each season and decline past ~30 but are
+  never retired/regenerated, so over many seasons squads grey out. A release-at-38 +
+  generated-youth intake at rollover is the natural next step.
+- **AI keeps the default 4-3-3 shape.** AI optimises WHICH 11 start, not the formation —
+  picking a shape to suit the squad (the `formations.ts` registry is already there) is a
+  future enhancement.
+- **Season history isn't archived.** Rollover regenerates fixtures, discarding the played
+  results; a `season_results` table would preserve past tables/honours.

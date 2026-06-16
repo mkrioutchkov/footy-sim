@@ -16,6 +16,7 @@ import { compileLineup } from './lineup.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick } from './market.ts';
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings } from './season.ts';
+import { aiManagerTick } from './ai.ts';
 
 const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
 // Give any pre-market league a free-agent pool + every player a potential (one-time,
@@ -258,10 +259,11 @@ app.post('/api/advance', async (req: any, reply) => {
   const myFx = userRound == null ? null
     : db.prepare('SELECT id FROM fixtures WHERE league_id = ? AND round = ? AND (home_team_id = ? OR away_team_id = ?) LIMIT 1').get(team.leagueId, userRound, teamId, teamId) as { id: number } | undefined;
   const myResult = myFx ? results.find(r => r.fixtureId === myFx.id) ?? null : null;
-  // The world progresses between matchdays: AI clubs trade, then every player trains.
+  // The world progresses between matchdays: AI clubs trade + manage, then every player
+  // trains. (marketTick = transfers; aiManagerTick = training focus + best XI; then dev.)
   const transfers: any[] = [];
   let developed = 0;
-  for (const l of leagues) { transfers.push(...marketTick(l.id)); developed += developmentTick(l.id).players; }
+  for (const l of leagues) { transfers.push(...marketTick(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players; }
   // End of season? Roll it over and report the new standings of whichever division the
   // user now sits in (they may have just been promoted or relegated).
   const rollover = seasonComplete(team.leagueId) ? rolloverSeason(team.leagueId) : null;
