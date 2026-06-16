@@ -18,6 +18,7 @@ import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick } from '.
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings } from './season.ts';
 import { aiManagerTick } from './ai.ts';
+import { renewContract } from './contracts.ts';
 
 const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
 // Give any pre-market league a free-agent pool + every player a potential (one-time,
@@ -213,6 +214,20 @@ app.put('/api/player/:slot/story', async (req: any, reply) => {
   db.prepare('UPDATE players SET personality = ? WHERE team_id = ? AND slot = ?').run(JSON.stringify(personality), teamId, slot);
   // return the re-derived weights so the UI can show the story drove the numbers
   return { slot, personality, value: playerValue(JSON.parse(row.attrs), row.age, personality) };
+});
+
+// Renew a player's contract: recompute their wage from current ability + commit a fresh
+// deal (gated by the wage budget). Keeps a player who'd otherwise leave at season's end.
+app.put('/api/player/:slot/renew', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.params.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+  const years = req.body?.years != null ? Number(req.body.years) : undefined;
+  const r = renewContract(teamId, slot, years);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return r;
 });
 
 // Set the club's training focus ('balanced' or a trainable attribute). Drives the

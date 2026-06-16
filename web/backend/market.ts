@@ -7,7 +7,7 @@
 // on the identity XI; otherwise they join the bench so a hand-picked lineup is never
 // silently rearranged. Selling removes a player and renumbers the squad.
 import { db } from './db.ts';
-import { overall, playerValue, ROLE_SLOTS, type Role } from './game.ts';
+import { overall, playerValue, playerWage, ROLE_SLOTS, type Role } from './game.ts';
 
 export const SQUAD_MAX = 24;
 export const SQUAD_MIN = 11;
@@ -172,6 +172,25 @@ function transferListed(buyerId: number, sellerId: number, player: PRow, fee: nu
   db.prepare('UPDATE teams SET budget = budget + ? WHERE id = ?').run(fee, sellerId);
   db.prepare('UPDATE teams SET budget = budget - ? WHERE id = ?').run(fee, buyerId);
   return placed;
+}
+
+// Release one player onto the free-agent pool (contract expiry). Carries their full
+// snapshot (attrs/age/potential/personality/value/wage) into free_agents, then keeps the
+// squad legal: a vacated XI slot is backfilled on-role and the squad renumbers. NO tx of
+// its own — call inside one (e.g. the rollover) or standalone (autocommit).
+export function releasePlayerToFreeAgents(teamId: number, slot: number): boolean {
+  const t = teamRow(teamId); if (!t) return false;
+  const p = db.prepare('SELECT id, name, role, attrs, age, potential, personality, wage FROM players WHERE team_id = ? AND slot = ?')
+    .get(teamId, slot) as { id: number; name: string; role: string; attrs: string; age: number; potential: number | null; personality: string | null; wage: number | null } | undefined;
+  if (!p) return false;
+  const attrs = JSON.parse(p.attrs);
+  const value = playerValue(attrs, p.age, parseJSON(p.personality));
+  db.prepare('INSERT INTO free_agents (league_id, name, role, attrs, personality, age, potential, value, wage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(t.league_id, p.name, p.role, p.attrs, p.personality, p.age, p.potential, value, p.wage ?? playerWage(attrs, p.age, parseJSON(p.personality)));
+  db.prepare('DELETE FROM players WHERE id = ?').run(p.id);
+  if (slot < 11) backfillStarterSlot(teamId, slot);
+  renumberSquad(teamId);
+  return true;
 }
 
 export interface MarketEvent { teamId: number; teamName: string; type: 'sign' | 'buy_listed'; player: string; role: string; fee: number; from?: string; }

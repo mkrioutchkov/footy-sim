@@ -6,6 +6,7 @@
 // rolls over as a lone division — carryover + prize money + ageing, no promotion.
 import { db } from './db.ts';
 import { standings, generateFixtures, seedFreeAgents, type Standing } from './game.ts';
+import { tickContracts, type ContractEvent } from './contracts.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -69,6 +70,7 @@ export interface RolloverResult {
   promoted: { teamId: number; team: string; fromTier: number; toTier: number }[];
   relegated: { teamId: number; team: string; fromTier: number; toTier: number }[];
   prizeMoney: { teamId: number; team: string; amount: number }[];
+  contracts: ContractEvent[];
 }
 
 // Roll the world's season over. Returns a summary, or null if the season isn't complete.
@@ -79,7 +81,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
   const finals = leagues.map(l => ({ league: l, table: standings(l.id) }));
 
   return tx(() => {
-    const out: RolloverResult = { season: (leagues[0].season ?? 1) + 1, divisions: [], promoted: [], relegated: [], prizeMoney: [] };
+    const out: RolloverResult = { season: (leagues[0].season ?? 1) + 1, divisions: [], promoted: [], relegated: [], prizeMoney: [], contracts: [] };
 
     // 1. prize money by final position
     for (const { league, table } of finals) {
@@ -111,13 +113,15 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
     const ph = ids.map(() => '?').join(',');
     db.prepare(`UPDATE players SET age = age + 1 WHERE team_id IN (SELECT id FROM teams WHERE league_id IN (${ph}))`).run(...ids);
 
-    // 4. new season: bump the counter, regenerate fixtures (with the new rosters), refresh
-    //    each division's free-agent pool (a fresh transfer-window crop).
+    // 4. new season: bump the counter, refresh each division's free-agent pool (a fresh
+    //    transfer-window crop), then tick contracts (expiring players join that fresh pool),
+    //    and finally regenerate fixtures against the settled rosters.
     for (const l of leagues) {
       db.prepare('UPDATE leagues SET season = season + 1 WHERE id = ?').run(l.id);
+      if (FA_REFRESH) { db.prepare('DELETE FROM free_agents WHERE league_id = ?').run(l.id); seedFreeAgents(l.id); }
+      out.contracts.push(...tickContracts(l.id));
       db.prepare('DELETE FROM fixtures WHERE league_id = ?').run(l.id);
       generateFixtures(l.id);
-      if (FA_REFRESH) { db.prepare('DELETE FROM free_agents WHERE league_id = ?').run(l.id); seedFreeAgents(l.id); }
     }
     return out;
   });

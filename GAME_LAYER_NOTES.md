@@ -193,7 +193,18 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     rate (training.ts reads professionalism/consistency) and transfer value (game.ts reads
     the dials) move with the story. A `#/player/:slot` profile shows the dials + an editable
     backstory. Verified by `tools/_personality_test.ts` (14) + the HTTP smoke (24).
-- **DESIGNED:** all four pillars are now SHIPPED.
+  - **5.2 Contracts & wages.** Every player draws an annual `wage` (≈8% of the ego-neutral
+    value × an ego premium — a diva costs more to PAY) and holds a `contract_years` deal;
+    each club has a `wage_budget` (40M) separate from the transfer kitty. Signing is gated by
+    BOTH a fee and wage headroom (`market.ts`, AI included). At season rollover `tickContracts`
+    (in `contracts.ts`) ticks every deal down: AI clubs force-renew (stable world); a human's
+    expiring players are released to the pool worst-first but never below a legal XI (the rest
+    are force-renewed). `PUT /api/player/:slot/renew` recomputes the wage and commits a new
+    deal (budget-gated). The market shows the wage bill/budget; the player profile a Renew
+    button. Verified by `tools/_contracts_test.ts` (18) + `_market_test.ts` (53) + HTTP smoke (26).
+- **DESIGNED:** the four original pillars + round 5 (story-traits, wages, contracts) are SHIPPED.
+- **NOT YET (future):** prune the free-agent pool across seasons (it grows as players are
+  released); youth intake + retirement to renew aging squads; AI formation choice.
 - **AWAITING YOUR TASTE:** economy scale (50M budgets, `(ovr/100)^3 × 55M` value
   curve, 24-man cap), training/decline rates per age band, division sizes / promotion
   counts (2 of 8), the prize-money schedule.

@@ -50,6 +50,7 @@ export interface RolloverT {
   promoted: { teamId: number; team: string; fromTier: number; toTier: number }[];
   relegated: { teamId: number; team: string; fromTier: number; toTier: number }[];
   prizeMoney: { teamId: number; team: string; amount: number }[];
+  contracts: { teamId: number; player: string; type: 'renewed' | 'released' }[];
 }
 export interface FreeAgentT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; }
 export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; contractYears: number; listed: boolean; askPrice: number | null; starter: boolean; }
@@ -77,4 +78,6 @@ export const api = {
   setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
   setPlayerStory: (slot: number, backstory: string, tagline: string) =>
     req<{ slot: number; personality: PersonalityT; value: number }>('PUT', `/player/${slot}/story`, { backstory, tagline }),
+  renewPlayer: (slot: number, years?: number) =>
+    req<{ ok: boolean; wage: number; years: number }>('PUT', `/player/${slot}/renew`, { years }),
 };

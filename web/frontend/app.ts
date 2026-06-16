@@ -263,7 +263,9 @@ async function screenDashboard() {
         const down = ro.relegated.find(p => p.teamId === team.id);
         const mine = ro.prizeMoney.find(p => p.teamId === team.id);
         const verdict = up ? `🎉 PROMOTED to Division ${up.toTier}!` : down ? `Relegated to Division ${down.toTier}.` : 'Season complete.';
+        const released = (ro.contracts ?? []).filter(c => c.teamId === team.id && c.type === 'released');
         toast(`${verdict}${mine ? ` Prize money: ${fmtMoney(mine.amount)}.` : ''} Season ${ro.season} begins.`);
+        if (released.length) toast(`${released.length} player(s) left on a free transfer — re-sign from the market, or renew deals earlier next season.`);
       }
       screenDashboard();
     } catch (e: any) { toast(e.message); screenDashboard(); }
@@ -672,7 +674,17 @@ async function screenPlayer(slot: number) {
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, p.name),
         h('div', { class: 'muted' }, `${p.role} · OVR ${ovr}${p.potential && p.potential > ovr ? ` → ${p.potential}` : ''}${p.age != null ? ` · ${p.age}y` : ''}${p.personality?.nationality ? ` · ${p.personality.nationality}` : ''}`),
-        p.wage != null ? h('div', { class: 'muted', style: 'font-size:12px' }, `Wage ${fmtMoney(p.wage)}/yr · ${p.contractYears ?? 0}y left on contract`) : ''),
+        p.wage != null ? h('div', { class: 'row', style: 'align-items:center;gap:10px;font-size:12px' },
+          h('span', { class: 'muted' }, `Wage ${fmtMoney(p.wage)}/yr · ${p.contractYears ?? 0}y left`),
+          (() => {
+            const renew = h('button', { class: 'ghost small' }, 'Renew (3y)');
+            renew.addEventListener('click', async () => {
+              renew.setAttribute('disabled', 'true');
+              try { const r = await api.renewPlayer(slot, 3); toast(`Renewed — ${fmtMoney(r.wage)}/yr for ${r.years}y`); screenPlayer(slot); }
+              catch (e: any) { toast(e.message); renew.removeAttribute('disabled'); }
+            });
+            return renew;
+          })()) : ''),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
     h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
