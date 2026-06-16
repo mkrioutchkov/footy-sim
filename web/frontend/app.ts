@@ -1,6 +1,17 @@
 import './styles.css';
-import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT } from './api';
+import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT } from './api';
 import { MatchRenderer } from './renderer';
+import type { EngineState } from './types';
+
+// ── live-watch socket envelope ── the web backend wraps each engine frame with team names +
+// a replay flag, and pushes a tacticsReceipt message in reply to a shout. Typed here (not in
+// types.ts) because it's the web transport layer, not the engine contract.
+interface MotivationReaction { playerId: number; moraleDelta: number; reaction?: string; }
+interface TacticsReceipt {
+  error?: string; formation?: string; note?: string; changed?: string;
+  motivation?: MotivationReaction[]; plan?: PlanT | null; directives?: DirectiveT[];
+}
+type WatchMessage = EngineState & { homeName?: string; awayName?: string; replay?: boolean; tacticsReceipt?: TacticsReceipt };
 
 const root = document.getElementById('app')!;
 let user: { id: number; username: string } | null = null;
@@ -510,14 +521,14 @@ async function screenWatch(fixtureId: number) {
     receiptEl.replaceChildren(h('div', { class: 'muted' }, 'Applying…'));
     activeWs.send(JSON.stringify({ type: 'tactics', text }));
   };
-  const showReceipt = (r: any) => {
+  const showReceipt = (r: TacticsReceipt) => {
     receiptEl.replaceChildren();
-    if (r?.error) { receiptEl.appendChild(h('div', { class: 'warn' }, '⚠ ' + r.error)); return; }
-    if (r?.formation) receiptEl.appendChild(h('div', { class: 'ok' }, `✓ Shape → ${r.formation}`));
-    const note = (r?.note ?? '').trim();
-    const changed = (r?.changed ?? '').trim();
-    const motivation = Array.isArray(r?.motivation) ? r.motivation : [];
-    const dirs = (r?.plan?.directives ?? r?.directives ?? []);
+    if (r.error) { receiptEl.appendChild(h('div', { class: 'warn' }, '⚠ ' + r.error)); return; }
+    if (r.formation) receiptEl.appendChild(h('div', { class: 'ok' }, `✓ Shape → ${r.formation}`));
+    const note = (r.note ?? '').trim();
+    const changed = (r.changed ?? '').trim();
+    const motivation: MotivationReaction[] = Array.isArray(r.motivation) ? r.motivation : [];
+    const dirs: DirectiveT[] = r.plan?.directives ?? r.directives ?? [];
     // What this shout did.
     if (changed) receiptEl.appendChild(h('div', { class: 'ok' }, '✓ ' + changed));
     // Motivational reactions (personality-driven morale swings).
@@ -579,11 +590,11 @@ async function screenWatch(fixtureId: number) {
   let gotFrame = false;
   ws.onmessage = (ev) => {
     try {
-      const msg = JSON.parse(ev.data);
+      const msg = JSON.parse(ev.data) as WatchMessage;
       // A replayed recording is finished playback: drop the live-only shout box and offer rewind.
       if (msg.replay && !replayUiApplied) { replayUiApplied = true; panel.style.display = 'none'; rewindBtn.style.display = ''; syncReserve(); }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
-      if (Array.isArray(msg.players)) watchPlayers = msg.players.map((p: any) => ({ id: p.id, name: p.name }));
+      if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
       if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; }
       renderer.sync(msg);
     } catch { /* */ }

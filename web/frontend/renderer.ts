@@ -11,6 +11,9 @@ import {
 import type { EngineState } from './types';
 
 const TRAIL_LENGTH = 16;
+// Gate the per-frame diagnostic logging (first-sync dump + facing-flicker warnings). Off in
+// normal play so the hot path doesn't do per-player bookkeeping or spam the console.
+const RENDER_DEBUG = false;
 
 type PlayerEntry = {
   body: Graphics;
@@ -67,6 +70,9 @@ export class MatchRenderer {
   private animTime = 0;
   private facingAngles: Map<number, number> = new Map();
   private prevFacingAngles: Map<number, number> = new Map();
+  // Per-frame id→player index, rebuilt each sync() — replaces O(n) state.players.find() lookups
+  // (carrier ring, dribble touches, pass/skill events, ticker) that ran several times a frame.
+  private playerById: Map<number, EngineState['players'][number]> = new Map();
   // lifecycle + resize wiring (kept so destroy() can unhook — see the frontend audit)
   private inited = false;
   private destroyed = false;
@@ -292,8 +298,11 @@ export class MatchRenderer {
   }
 
   sync(state: EngineState): void {
-    if (this.animTime === 0) console.log('[HUD] first sync, state keys:', Object.keys(state).filter(k => ['homeScore','homeShots','possessionPct','clockMs','matchState'].includes(k)).map(k => `${k}=${(state as any)[k]}`).join(', '));
+    if (RENDER_DEBUG && this.animTime === 0) console.log('[HUD] first sync, state keys:', Object.keys(state).filter(k => ['homeScore','homeShots','possessionPct','clockMs','matchState'].includes(k)).map(k => `${k}=${(state as any)[k]}`).join(', '));
     this.animTime++;
+    const byId = this.playerById;
+    byId.clear();
+    for (const p of state.players) byId.set(p.id, p);
     if (state.version) {
       const seedText = typeof state.seed === 'number' ? `seed:${state.seed} ` : '';
       this.versionText.text = `${seedText}eng:${state.version} ${this.uiVersion}`;
@@ -505,14 +514,17 @@ export class MatchRenderer {
         angle = this.turnTowards(angle, lookAngle, Math.PI / 60);
       }
       this.facingAngles.set(p.id, angle);
-      // Diagnose unexpected facing jumps even though ordinary turns are capped.
-      const prevA = this.prevFacingAngles.get(p.id);
-      if (prevA !== undefined) {
-        const aDiff = Math.abs(angle - prevA);
-        const na = aDiff > Math.PI ? 2*Math.PI - aDiff : aDiff;
-        if (na > Math.PI * 0.7) console.warn(`[facing_flicker] player ${p.id} (${p.role}) angle jumped ${Math.round(na * 180 / Math.PI)} deg - speed=${Math.round(speed)}`);
+      // Diagnose unexpected facing jumps even though ordinary turns are capped (debug-only —
+      // skips a per-player map get/set every frame in normal play).
+      if (RENDER_DEBUG) {
+        const prevA = this.prevFacingAngles.get(p.id);
+        if (prevA !== undefined) {
+          const aDiff = Math.abs(angle - prevA);
+          const na = aDiff > Math.PI ? 2*Math.PI - aDiff : aDiff;
+          if (na > Math.PI * 0.7) console.warn(`[facing_flicker] player ${p.id} (${p.role}) angle jumped ${Math.round(na * 180 / Math.PI)} deg - speed=${Math.round(speed)}`);
+        }
+        this.prevFacingAngles.set(p.id, angle);
       }
-      this.prevFacingAngles.set(p.id, angle);
       const heading = (p.headingAnim ?? 0) > 0;
       const forwardX = Math.cos(angle);
       const forwardY = Math.sin(angle);
@@ -557,10 +569,19 @@ export class MatchRenderer {
       entry.label.position.set(vp.x, vp.y + r + 3);
     }
 
+    // Defensive: drop markers for ids no longer in the frame. The fixed-22 roster makes this a
+    // no-op in normal play (only fires when the player set actually shrinks), so it costs nothing
+    // per frame — but it stops a removed player being left drawn at a stale position.
+    if (this.playerEntries.size > state.players.length) {
+      for (const [id, e] of this.playerEntries) {
+        if (!byId.has(id)) { e.body.destroy(); e.arrow.destroy(); e.label.destroy(); this.playerEntries.delete(id); }
+      }
+    }
+
     // ── carrier ring ──
     this.ringGfx.clear();
     if (b.controllerId !== null) {
-      const ctrl = state.players.find(p => p.id === b.controllerId);
+      const ctrl = byId.get(b.controllerId);
       if (ctrl) {
         const vc = this.visualPlayers.get(ctrl.id) ?? { x: ctrl.x, y: ctrl.y };
         const pulse = 0.25 + 0.35 * Math.sin(this.animTime * 0.08);
@@ -578,7 +599,7 @@ export class MatchRenderer {
     // as touches rather than the ball being glued to the player
     let touchX = 0, touchY = 0;
     if (b.controllerId !== null && vb.z < 2) {
-      const ctrl = state.players.find(p => p.id === b.controllerId);
+      const ctrl = byId.get(b.controllerId);
       const cspd = ctrl ? Math.hypot(ctrl.vx, ctrl.vy) : 0;
       if (ctrl && cspd > 12) {
         const ma = Math.atan2(ctrl.vy, ctrl.vx);
@@ -612,7 +633,7 @@ export class MatchRenderer {
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
       if (ev.type === 'pass') {
-        const target = state.players.find(p => p.id === ev.targetId);
+        const target = ev.targetId != null ? byId.get(ev.targetId) : undefined;
         if (target) {
           this.eventGfx.moveTo(ev.x, ev.y);
           this.eventGfx.lineTo(target.x, target.y);
@@ -622,7 +643,7 @@ export class MatchRenderer {
       }
       if (skillLike) {
         // Swirl around the trickster: two counter-rotating arcs that expand and fade
-        const mover = state.players.find(p => p.id === ev.playerId);
+        const mover = ev.playerId != null ? byId.get(ev.playerId) : undefined;
         const cx = mover ? (this.visualPlayers.get(mover.id)?.x ?? mover.x) : ev.x;
         const cy = mover ? (this.visualPlayers.get(mover.id)?.y ?? mover.y) : ev.y;
         const t = ev.age / lifetime;
@@ -677,8 +698,8 @@ export class MatchRenderer {
       : '';
     const addedTag = state.addedTime ? ` +${state.addedTimeAnnouncedMin ?? ''}` : '';
     const clip = (s: string) => (s.length > 16 ? s.slice(0, 16) : s).toUpperCase();
-    const hn = clip(String((state as any).homeName ?? 'HOME'));
-    const an = clip(String((state as any).awayName ?? 'AWAY'));
+    const hn = clip(state.homeName ?? 'HOME');
+    const an = clip(state.awayName ?? 'AWAY');
     this.hudText.text = `${hn} ${state.homeScore ?? 0}-${state.awayScore ?? 0} ${an}    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}${restartHud}`;
     this.hudText.visible = true;
     this.hudBg.clear();
@@ -772,7 +793,7 @@ export class MatchRenderer {
       const half = state.half ?? 1;
       const halfMs = half === 1 ? evClock : evClock - 45 * 60 * 1000;
       const minute = Math.max(0, Math.floor(halfMs / 60000)) + (half === 2 ? 45 : 0);
-      const who = state.players.find(p => p.id === ev.playerId)?.name ?? '';
+      const who = (ev.playerId != null ? this.playerById.get(ev.playerId) : undefined)?.name ?? '';
       this.tickerLines.unshift(`${String(minute).padStart(2)}' ${this.eventLabel(ev.type).padEnd(8)} ${who}`);
     }
     if (this.tickerLines.length > 5) this.tickerLines.length = 5;

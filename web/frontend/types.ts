@@ -74,6 +74,10 @@ export interface EngineState {
   version: string;
   seed?: number;
   setPieceState?: SetPieceState;
+  // Team display names — injected into each streamed frame by the web backend (the raw engine
+  // emits ids); the renderer's HUD reads them. Optional so a raw engine frame still type-checks.
+  homeName?: string;
+  awayName?: string;
 }
 
 export interface SetPieceState {
