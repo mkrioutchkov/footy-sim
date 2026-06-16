@@ -365,6 +365,7 @@ async function screenWatch(fixtureId: number) {
   const showReceipt = (r: any) => {
     receiptEl.replaceChildren();
     if (r?.error) { receiptEl.appendChild(h('div', { class: 'warn' }, '⚠ ' + r.error)); return; }
+    if (r?.formation) receiptEl.appendChild(h('div', { class: 'ok' }, `✓ Shape → ${r.formation}`));
     const note = (r?.note ?? '').trim();
     const changed = (r?.changed ?? '').trim();
     const motivation = Array.isArray(r?.motivation) ? r.motivation : [];

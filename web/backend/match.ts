@@ -6,7 +6,7 @@ import type { WebSocket } from 'ws';
 import { db } from './db.ts';
 import { getTeamWithPlayers, ROLE_SLOTS } from './game.ts';
 import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer } from './plan.ts';
-import { FORMATIONS, DEFAULT_FORMATION, PITCH_W } from './formations.ts';
+import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation } from './formations.ts';
 
 const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
 const SPEC_DIR = path.resolve(process.cwd(), 'web', 'backend', 'data', 'specs');
@@ -125,7 +125,7 @@ export class MatchStream {
   // P2: mid-match plan edits become a timeline of {atMs, directives}. Editing at
   // 46' re-sims the match with the new timeline and resumes streaming from 46'
   // (--stream-from) — seamless because frames 0..46' are byte-identical.
-  private timeline: { atMs: number; directives: unknown; morale?: { playerId: number; delta: number }[] }[] = [];
+  private timeline: { atMs: number; directives: unknown; morale?: { playerId: number; delta: number }[]; layout?: { playerId: number; role: string; homeX: number; homeY: number }[] }[] = [];
   // P5: the manager's running composite plan (stateful — each shout edits it) and a
   // per-player motivation-change tally for the cap.
   private plan: Plan = EMPTY_PLAN;
@@ -237,11 +237,18 @@ export class MatchStream {
     const t = this.latest?.clockMs ?? 0;
     const ctx = { minute: Math.floor(t / 60000), score: this.latest ? `${this.latest.homeScore ?? 0}-${this.latest.awayScore ?? 0}` : undefined };
     const r = await compilePlanEdit(this.plan, cmd.text, mine, opp, this.myTeam, ctx);
-    console.log(`[plan] "${cmd.text}" -> ${r.error ? `ERROR ${r.error}` : `${r.plan.directives.length} dir, ${r.motivation.length} mot | ${r.changed}`}`);
+    // Resolve the formation: trust the model's "formation", else scan the raw text
+    // for a clear shape token ("go 4-3-3", "4 4 2", "4-1-2-1-2") so the common case
+    // works even when the model misses it or is unreachable.
+    let fk = (r.formation && FORMATIONS[r.formation]) ? r.formation : null;
+    if (!fk) { const m = cmd.text.match(/\b\d\s*[-\s]\s*\d\s*[-\s]\s*\d(?:\s*[-\s]\s*\d)?(?:\s*[-\s]\s*\d)?\b/); if (m) fk = normalizeFormation(m[0]); }
+    console.log(`[plan] "${cmd.text}" -> ${r.error ? `ERROR ${r.error}` : `${r.plan.directives.length} dir, ${r.motivation.length} mot${fk ? ', shape '+fk : ''} | ${r.changed}`}`);
+    // A formation shout with an unreachable model still applies the shape (the text
+    // scan caught it); only bail if it errored AND no shape was detected.
     if (this.ws.readyState === 1) {
-      this.ws.send(JSON.stringify({ tacticsReceipt: { text: cmd.text, plan: r.plan, changed: r.changed, motivation: r.motivation, directives: r.plan.directives, error: r.error ?? null, note: r.note ?? null } }));
+      this.ws.send(JSON.stringify({ tacticsReceipt: { text: cmd.text, plan: r.plan, changed: r.changed, motivation: r.motivation, formation: fk, directives: r.plan.directives, error: (r.error && !fk) ? r.error : null, note: r.note ?? null } }));
     }
-    if (r.error || !this.alive) return;
+    if ((r.error && !fk) || !this.alive) return;
     this.plan = r.plan;
     // morale delta (points) -> moraleBoost delta (/50); tally the per-player cap.
     const morale = r.motivation.map(m => {
@@ -249,12 +256,23 @@ export class MatchStream {
       this.moraleEst.set(m.playerId, (this.moraleEst.get(m.playerId) ?? 0) + m.moraleDelta);
       return { playerId: m.playerId, delta: m.moraleDelta / 50 };
     });
-    this.commitEdit(r.plan.directives, morale);
+    // A formation shout re-shapes MY team for the rest of this match: each slot's new
+    // role + anchor (away side mirrored), GK left alone. The engine re-anchors/re-roles
+    // on the timeline. This match only — the squad screen owns the persistent formation.
+    let layout: { playerId: number; role: string; homeX: number; homeY: number }[] | undefined;
+    if (fk && FORMATIONS[fk]) {
+      const off = this.myTeam === 'home' ? 0 : 11;
+      layout = FORMATIONS[fk].map((slot, i) => ({
+        playerId: off + i, role: slot.role,
+        homeX: this.myTeam === 'away' ? PITCH_W - slot.x : slot.x, homeY: slot.y,
+      })).filter((_, i) => i > 0);
+    }
+    this.commitEdit(r.plan.directives, morale, layout);
   }
 
-  private commitEdit(directives: unknown, morale: { playerId: number; delta: number }[]): void {
+  private commitEdit(directives: unknown, morale: { playerId: number; delta: number }[], layout?: { playerId: number; role: string; homeX: number; homeY: number }[]): void {
     const t = this.latest?.clockMs ?? 0;
-    this.timeline.push({ atMs: t, directives, morale });
+    this.timeline.push({ atMs: t, directives, morale, layout });
     this.writeSessionSpec();
     this.fromMs = Math.max(this.fromMs, t);   // monotonic — never rewind already-streamed frames
     this.paused = false;

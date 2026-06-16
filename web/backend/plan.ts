@@ -7,6 +7,7 @@
 // personality, returning morale deltas the live flow folds into the engine's
 // moraleBoost hook. Same provider/env as tactics.ts; reuses its directive vocab.
 import { type Directive, type Side, VALID_KINDS, TEAM_KIND_SET } from './tactics.ts';
+import { FORMATIONS, normalizeFormation } from './formations.ts';
 
 const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
 const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
@@ -14,7 +15,7 @@ const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
 
 export interface Plan { summary: string; directives: Directive[]; }
 export interface Motivation { playerId: number; moraleDelta: number; reaction: string; durationMin: number; }
-export interface PlanResult { plan: Plan; changed: string; motivation: Motivation[]; note: string; raw?: string; error?: string; }
+export interface PlanResult { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation?: string | null; raw?: string; error?: string; }
 export interface SquadPlayer {
   id: number; name: string; role: string;
   personality?: { traits?: Record<string, number>; tagline?: string } | null;
@@ -53,14 +54,17 @@ function planText(plan: Plan): string {
 }
 
 const SYSTEM = (myTeam: Side, myIds: string, oppIds: string, myScope: number) => `You are the manager's voice, holding a STATEFUL composite plan and editing it per each shout, while ALSO judging the shout's motivational effect on the player addressed. You manage ${myTeam.toUpperCase()} (your ids ${myIds}; opponent ${oppIds}). Output ONLY this JSON object — no prose, no markdown:
-{"plan":{"summary":"<=2 sentences, plain English, the whole standing plan AFTER this shout","directives":[ ...the FULL directive set after the edit... ]},"changed":"<=1 line on what this shout changed (or 'No tactical change.')","motivation":[{"playerId":<your id>,"moraleDelta":-30..30,"reaction":"<short in-character line>","durationMin":<5-30>}],"note":""}
+{"plan":{"summary":"<=2 sentences, plain English, the whole standing plan AFTER this shout","directives":[ ...the FULL directive set after the edit... ]},"changed":"<=1 line on what this shout changed (or 'No tactical change.')","motivation":[{"playerId":<your id>,"moraleDelta":-30..30,"reaction":"<short in-character line>","durationMin":<5-30>}],"formation":"<a shape key below, ONLY if the shout asks to change formation; else null>","note":""}
 
-EDIT THE PLAN BY INTENT:
+STEP 1 — FORMATION CHECK (do this FIRST): does the shout name a team SHAPE? A number ("4-3-3","go 4 4 2","4-1-2-1-2","442") OR a name ("diamond","midfield diamond","christmas tree","three at the back","back three","two up top","five at the back"). If YES: set "formation" to the matching key from [${Object.keys(FORMATIONS).join(', ')}] and DO NOT convert the shape into directives — the engine re-shapes the team itself. Keep "directives" exactly as the prior plan. (You may STILL add a separate explicit order in the same shout: "go 3-5-2 and AB mark their man" => formation "3-5-2" + that one man_mark.) If the shout names NO shape, "formation":null and continue.
+EXAMPLES: "go 4-4-2" => formation "4-4-2", directives unchanged. "switch to a diamond" => formation "4-1-2-1-2". "three at the back" => formation "3-5-2". "AB mark their striker" => formation null.
+
+STEP 2 — EDIT THE PLAN BY INTENT (for the non-formation part of the shout):
 - amend one player / add an order  -> keep the rest of "directives", add or replace just that one.
-- overhaul ("change of shape", "new plan") -> rewrite directives broadly.
+- overhaul (a broad new set of TACTICAL orders — NOT a formation) -> rewrite directives broadly.
 - nuke ("forget all that", "scrap it", "back to normal") -> directives: [] and say so in "changed".
 - no tactical content (pure praise/abuse/rant) -> directives UNCHANGED (echo them back verbatim); "changed":"No tactical change."
-"directives" is ALWAYS the complete plan after the edit (not just this shout's delta) — the engine runs exactly what you return.
+"directives" is ALWAYS the complete plan after the edit (not just this shout's delta) — the engine runs exactly what you return. NEVER turn a formation/shape into stay_wide/sit_deep/get_forward directives — that is what "formation" is for.
 
 DIRECTIVES (same vocabulary as the tactics compiler):
 {"playerId":<id, per-player kinds>,"kind":"<kind>","targetId":<id, man_mark/target_player only>,"intensity":0.1-1,"teamScope":${myScope} <team-wide kinds, no playerId>,"when":{"fromMin","toMin","scoreState","scoreBy"}}
@@ -90,7 +94,7 @@ const SCORE_WORDS = /\b(winning|losing|drawing|level|tied|all square|ahead|behin
 // Validate the returned plan's directives (same rules as tactics.ts) + motivation
 // (id range, clamp, enforce the per-player cap from motUsed). Deterministic given
 // the model output, so cached replays stay identical.
-function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, mineIds: Set<number>, oppIds: Set<number>, motUsed: Map<number, number>): { plan: Plan; changed: string; motivation: Motivation[]; note: string } {
+function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, mineIds: Set<number>, oppIds: Set<number>, motUsed: Map<number, number>): { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation: string | null } {
   const myScope = myTeam === 'home' ? 0 : 1;
   const planRaw = (raw.plan ?? {}) as Record<string, unknown>;
   const timeOK = TIME_WORDS.test(shout), scoreOK = SCORE_WORDS.test(shout);
@@ -145,10 +149,15 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
   const summary = typeof planRaw.summary === 'string' && planRaw.summary.trim() ? planRaw.summary.trim().slice(0, 280) : (directives.length ? 'Standing plan in effect.' : EMPTY_PLAN.summary);
   const changed = typeof raw.changed === 'string' ? raw.changed.trim().slice(0, 160) : '';
   const note = typeof raw.note === 'string' ? raw.note.trim().slice(0, 200) : '';
-  return { plan: { summary, directives }, changed, motivation, note };
+  // Formation change: accept only a real registry shape (normalise digits/keys).
+  let formation: string | null = null;
+  if (typeof raw.formation === 'string' && raw.formation.trim()) {
+    formation = (FORMATIONS[raw.formation] ? raw.formation : null) ?? normalizeFormation(raw.formation);
+  }
+  return { plan: { summary, directives }, changed, motivation, note, formation };
 }
 
-const cache = new Map<string, { plan: Plan; changed: string; motivation: Motivation[]; note: string }>();
+const cache = new Map<string, { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation: string | null }>();
 
 // Apply one shout to the running plan. Returns the FULL new plan + the shout's
 // motivational effect. Cached by (plan + shout + squad-morale state) so a replay of
