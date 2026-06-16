@@ -47,7 +47,9 @@ void GameEngine::assignPrimaryPress(DefenseContext& ctx, Player& carrier) {
         }
     }
     // press_hard: the presser gets right on top of the carrier (tighter standoff).
-    double standoff = 16.0 - directiveBias[primary->id].pressTightness * 13.0;
+    // contain: the opposite — sit off and jockey rather than engage.
+    double standoff = 16.0 - directiveBias[primary->id].pressTightness * 13.0
+                           + directiveBias[primary->id].containBias * 22.0;
     setAssignment(*primary, DefensiveTask::PrimaryPress, carrier.x - ctx.fd * standoff, carrier.y, carrier.id);
     ctx.assigned[primary->id] = true;
 }

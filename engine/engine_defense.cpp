@@ -162,6 +162,8 @@ void GameEngine::applyDirectives() {
             case DirectiveKind::CrossEarly: directiveBias[p->id].crossEarly = true; break;
             case DirectiveKind::SwitchPlay: directiveBias[p->id].switchBias  = 0.20 * d.intensity; break;
             case DirectiveKind::PlaySimple: directiveBias[p->id].simplifyBias = 0.20 * d.intensity; break;
+            // "pull it back" — favour the cutback to an arriving runner over a cross.
+            case DirectiveKind::Cutback:    directiveBias[p->id].cutbackBias  = 0.30 * d.intensity; break;
             // Off-ball runs: bias the player toward run-in-behind candidates.
             case DirectiveKind::RunInBehind: directiveBias[p->id].runAheadBias = 0.30 * d.intensity; break;
             case DirectiveKind::MakeRuns:    directiveBias[p->id].runAheadBias = 0.16 * d.intensity; break;
@@ -170,6 +172,8 @@ void GameEngine::applyDirectives() {
             case DirectiveKind::PressHard:   directiveBias[p->id].pressTightness   = d.intensity; break;
             case DirectiveKind::TackleHard:  directiveBias[p->id].tackleAggression = d.intensity; break;
             case DirectiveKind::StayOnFeet:  directiveBias[p->id].stayOnFeet       = d.intensity; break;
+            // "contain him" — sit off in the press (jockey) instead of engaging tight.
+            case DirectiveKind::Contain:     directiveBias[p->id].containBias      = d.intensity; break;
             default: break;   // team-scoped kinds handled above
         }
     }

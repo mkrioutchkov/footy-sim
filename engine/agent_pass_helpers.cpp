@@ -156,6 +156,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         sc += cutbackTarget ? 0.54 : 0.18;
         if (cutbackTarget && (t.role == Role::CM || t.role == Role::WM)) sc += 0.12;
         if (cutbackTarget && receiverPressure == 0 && bl == 0) sc += 0.12;
+        if (cutbackTarget) sc += engine.directiveBias[p.id].cutbackBias;   // "pull it back" directive
     }
 
     bool boxCombination = carrierFinalThird
