@@ -307,15 +307,27 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     window banner + a "For sale — other clubs" table with a bid flow. Verified by
     `tools/_transfer_test.ts` (19 — window progression, reject/counter/accept with money conserved
     + squads legal, unlisted premium, seller-min refusal, window-shut blocking) + smoke (36).
+  - **Loans.** `market.ts`: `loanIn(borrower, targetPlayerId)` borrows another club's player for
+    the season — no fee, window-gated, the owner must keep a legal squad, the borrower needs room +
+    wage headroom and carries the loanee's wage. `players.parent_team_id` (owner) + `loan_until`
+    track it; `relocatePlayer` moves him IN PLACE (keeping his row id, so the link survives a clean
+    return — unlike a transfer, which deletes + re-inserts) and backfills the club he leaves.
+    `returnLoans(leagueIds)` sends every loanee in the rolling-over world home at season rollover
+    (review fix: world-scoped, not global). Guards: a loaned player is excluded from transfer
+    targets and can't be bid for, listed, or re-loaned; the squad view flags `onLoan`. `POST
+    /api/transfer/loan` + a Loan button on the targets table + a "loan" squad marker (List
+    disabled). Verified by `tools/_loans_test.ts` (18 — no-fee move with id preserved, owner-min
+    refusal, the guards, window gating, return-to-parent + idempotent).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
-  negotiation are all SHIPPED.
+  negotiation + loans are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
   shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.
-  Deferred transfer follow-ons: **loans** (a player borrowed for a window/season, wages split,
-  auto-return) — the immediate next step; **NL/LLM negotiation** (haggle in natural language) —
-  an LLM-stream item; the AI making its OWN bids for the user's unlisted stars; cross-window deadline-day feel.
+  Deferred transfer follow-ons (loans now SHIPPED): **loan-OUT** by the user + AI clubs initiating
+  loans/bids of their own (incl. for the user's unlisted stars); **wage-split / loan fees** (loans
+  are currently free, borrower pays full wage); **NL/LLM negotiation** (haggle in natural language)
+  — an LLM-stream item; cross-window deadline-day feel.
 - **AWAITING YOUR TASTE:** economy scale (50M budgets, `(ovr/100)^3 × 55M` value
   curve, 24-man cap), training/decline rates per age band, division sizes / promotion
   counts (2 of 8), the prize-money schedule.

@@ -13,6 +13,7 @@ import { resetMorale } from './morale.ts';
 import { createCup } from './cup.ts';
 import { purgeRecordings } from './match.ts';
 import { purgeReports } from './report.ts';
+import { returnLoans } from './market.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -91,6 +92,10 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
 
   return tx(() => {
     const out: RolloverResult = { season: (leagues[0].season ?? 1) + 1, divisions: [], promoted: [], relegated: [], prizeMoney: [], contracts: [], youth: [] };
+
+    // 0. loans are season-long: send every loaned-in player in THIS world back to his parent club
+    //    (before ageing / contract ticking, so he's home on the books for the new campaign).
+    returnLoans(leagues.map(l => l.id));
 
     // 1. prize money by final position
     for (const { league, table } of finals) {

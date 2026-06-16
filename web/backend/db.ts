@@ -150,6 +150,13 @@ ensureColumn('players', 'injured_matches', 'injured_matches INTEGER NOT NULL DEF
 // dev factor is exactly 1.0, so existing saves develop identically.
 ensureColumn('players', 'morale', 'morale INTEGER NOT NULL DEFAULT 65');
 
+// ── Loans (core stream) ─────────────────────────────────────────────────────
+// A loaned-in player physically sits in the BORROWER's squad (team_id = borrower) but is owned
+// by parent_team_id; loan_until is the season he returns (at rollover). Both NULL = owned
+// outright, so every existing player is unaffected.
+ensureColumn('players', 'parent_team_id', 'parent_team_id INTEGER');   // NULL = owned outright; else the lending club
+ensureColumn('players', 'loan_until', 'loan_until INTEGER');           // season the loan ends (returns at that rollover)
+
 // ── Cup competition (core stream) ───────────────────────────────────────────
 // A single-elimination knockout of all the world's clubs, run alongside the league each
 // season. round 1 = the first round, rising to the final; slot orders the bracket. Later-

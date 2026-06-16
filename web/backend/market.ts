@@ -139,9 +139,10 @@ export function buyFreeAgent(teamId: number, agentId: number): BuyResult {
 }
 
 export function listPlayer(teamId: number, slot: number, price?: number): { ok: boolean; error?: string; askPrice?: number; value?: number } {
-  const p = db.prepare('SELECT id, attrs, age, personality FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as
-    { id: number; attrs: string; age: number; personality: string | null } | undefined;
+  const p = db.prepare('SELECT id, attrs, age, personality, parent_team_id FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as
+    { id: number; attrs: string; age: number; personality: string | null; parent_team_id: number | null } | undefined;
   if (!p) return { ok: false, error: 'player not found' };
+  if (p.parent_team_id != null) return { ok: false, error: "he's only here on loan — you can't sell him" };
   const value = playerValue(JSON.parse(p.attrs), p.age, parseJSON(p.personality));
   const ask = Number.isFinite(price) && (price as number) > 0 ? Math.round(price as number) : value;
   db.prepare('UPDATE players SET listed = 1, ask_price = ? WHERE id = ?').run(ask, p.id);
@@ -163,7 +164,7 @@ export function transferTargets(teamId: number): TransferTarget[] {
   const rows = db.prepare(`SELECT p.id, p.name, p.role, p.attrs, p.age, p.potential, p.personality, p.ask_price, p.wage,
       t.id AS club_team_id, t.name AS club
     FROM players p JOIN teams t ON t.id = p.team_id
-    WHERE t.league_id IN (${ph}) AND p.team_id != ? AND p.listed = 1
+    WHERE t.league_id IN (${ph}) AND p.team_id != ? AND p.listed = 1 AND p.parent_team_id IS NULL
     ORDER BY p.ask_price ASC`).all(...leagueIds, teamId) as unknown as
     (PRow & { club_team_id: number; club: string })[];
   return rows.map(r => {
@@ -186,13 +187,14 @@ export function bidForPlayer(buyerTeamId: number, targetPlayerId: number, fee: n
   if (!buyer) return { ok: false, status: 'error', error: 'team not found' };
   if (!transferWindow(buyer.league_id).open) return { ok: false, status: 'error', error: 'the transfer window is shut' };
   if (!Number.isFinite(fee) || fee <= 0) return { ok: false, status: 'error', error: 'enter a valid bid' };
-  const t = db.prepare(`SELECT p.id, p.team_id, p.slot, p.name, p.role, p.attrs, p.age, p.potential, p.personality, p.listed, p.ask_price, p.wage, p.contract_years,
+  const t = db.prepare(`SELECT p.id, p.team_id, p.slot, p.name, p.role, p.attrs, p.age, p.potential, p.personality, p.listed, p.ask_price, p.wage, p.contract_years, p.parent_team_id,
       tm.name AS club, tm.league_id AS seller_league,
       (SELECT COUNT(*) FROM players px WHERE px.team_id = p.team_id) AS seller_count
     FROM players p JOIN teams tm ON tm.id = p.team_id WHERE p.id = ?`)
-    .get(targetPlayerId) as (PRow & { team_id: number; club: string; seller_league: number; seller_count: number }) | undefined;
+    .get(targetPlayerId) as (PRow & { team_id: number; parent_team_id: number | null; club: string; seller_league: number; seller_count: number }) | undefined;
   if (!t) return { ok: false, status: 'error', error: 'player not found' };
   if (t.team_id === buyerTeamId) return { ok: false, status: 'error', error: 'already your player' };
+  if (t.parent_team_id != null) return { ok: false, status: 'error', error: `${t.name} is out on loan — not available to buy` };
   if (!worldLeagueIds(buyer.league_id).includes(t.seller_league)) return { ok: false, status: 'error', error: 'player is outside your world' };
   if (t.seller_count <= SQUAD_MIN) return { ok: false, status: 'rejected', club: t.club, player: t.name, error: `${t.club} won't sell ${t.name} — their squad is already at the minimum` };
 
@@ -212,11 +214,70 @@ export function bidForPlayer(buyerTeamId: number, targetPlayerId: number, fee: n
   return { ok: true, status: 'accepted', player: t.name, club: t.club, fee: bid, placed };
 }
 
+// ── Loans: borrow a player for the season (no fee), returning to his parent club at rollover ──
+export interface LoanResult { ok: boolean; error?: string; player?: string; from?: string }
+
+// Move a player between squads IN PLACE — keeping his row id, so the loan ownership link (and a
+// clean return) survives, unlike a transfer (which deletes + re-inserts). Clears any listing, and
+// backfills + renumbers the club he leaves so its XI stays legal + on-role.
+function relocatePlayer(playerId: number, fromTeamId: number, toTeamId: number, parentTeamId: number | null, loanUntil: number | null): void {
+  const p = db.prepare('SELECT slot FROM players WHERE id = ?').get(playerId) as { slot: number } | undefined;
+  if (!p) return;
+  const toMax = (db.prepare('SELECT COALESCE(MAX(slot), -1) AS s FROM players WHERE team_id = ?').get(toTeamId) as { s: number }).s;
+  db.prepare('UPDATE players SET team_id = ?, slot = ?, parent_team_id = ?, loan_until = ?, listed = 0, ask_price = NULL WHERE id = ?')
+    .run(toTeamId, toMax + 1, parentTeamId, loanUntil, playerId);
+  if (p.slot < 11) backfillStarterSlot(fromTeamId, p.slot);
+  renumberSquad(fromTeamId);
+}
+
+// Borrow another club's player for the season. Window-gated; the owner must keep a legal squad,
+// the borrower must have room + wage headroom (he carries the loanee's wage while here). No fee.
+export function loanIn(borrowerTeamId: number, targetPlayerId: number): LoanResult {
+  return tx(() => {
+    const borrower = teamRow(borrowerTeamId);
+    if (!borrower) return { ok: false, error: 'team not found' };
+    if (!transferWindow(borrower.league_id).open) return { ok: false, error: 'the transfer window is shut' };
+    const t = db.prepare(`SELECT p.id, p.team_id, p.name, p.parent_team_id, p.wage, tm.name AS club, tm.league_id AS owner_league,
+        (SELECT COUNT(*) FROM players px WHERE px.team_id = p.team_id) AS owner_count
+      FROM players p JOIN teams tm ON tm.id = p.team_id WHERE p.id = ?`)
+      .get(targetPlayerId) as { id: number; team_id: number; name: string; parent_team_id: number | null; wage: number | null; club: string; owner_league: number; owner_count: number } | undefined;
+    if (!t) return { ok: false, error: 'player not found' };
+    if (t.team_id === borrowerTeamId) return { ok: false, error: 'already your player' };
+    if (t.parent_team_id != null) return { ok: false, error: `${t.name} is already out on loan` };
+    if (!worldLeagueIds(borrower.league_id).includes(t.owner_league)) return { ok: false, error: 'player is outside your world' };
+    if (t.owner_count <= SQUAD_MIN) return { ok: false, error: `${t.club} won't loan ${t.name} out — their squad is at the minimum` };
+    if (teamPlayers(borrowerTeamId).length >= SQUAD_MAX) return { ok: false, error: `squad full (max ${SQUAD_MAX})` };
+    if (wageBill(borrowerTeamId) + (t.wage ?? 0) > borrower.wage_budget) return { ok: false, error: 'not enough wage budget for his wages' };
+    const season = (db.prepare('SELECT season FROM leagues WHERE id = ?').get(borrower.league_id) as { season: number }).season;
+    relocatePlayer(t.id, t.team_id, borrowerTeamId, t.team_id, season);   // parent = his current club; returns at rollover
+    return { ok: true, player: t.name, from: t.club };
+  });
+}
+
+// Return every loaned-in player (sitting at a club in the given leagues) to his parent club.
+// Loans are season-long, so rollover ends them all. Scoped to the rolling-over WORLD's leagues so
+// a second world's still-active loans aren't yanked back mid-season. NO tx of its own — call
+// inside the rollover transaction. Idempotent (no loans -> no-op).
+export function returnLoans(leagueIds: number[]): { player: string; to: string }[] {
+  if (!leagueIds.length) return [];
+  const ph = leagueIds.map(() => '?').join(',');
+  const loans = db.prepare(`SELECT p.id, p.team_id, p.name, p.parent_team_id, t.name AS parent_name
+    FROM players p JOIN teams t ON t.id = p.parent_team_id
+    WHERE p.parent_team_id IS NOT NULL AND p.team_id IN (SELECT id FROM teams WHERE league_id IN (${ph}))`)
+    .all(...leagueIds) as { id: number; team_id: number; name: string; parent_team_id: number; parent_name: string }[];
+  const out: { player: string; to: string }[] = [];
+  for (const l of loans) {
+    relocatePlayer(l.id, l.team_id, l.parent_team_id, null, null);
+    out.push({ player: l.name, to: l.parent_name });
+  }
+  return out;
+}
+
 export interface MarketView {
   budget: number; wageBudget: number; wageBill: number; squadMax: number; squadMin: number;
   window: TransferWindow;
   freeAgents: { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number }[];
-  squad: { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; contractYears: number; listed: boolean; askPrice: number | null; starter: boolean }[];
+  squad: { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; contractYears: number; listed: boolean; askPrice: number | null; starter: boolean; onLoan: boolean }[];
   transferTargets: TransferTarget[];
 }
 
@@ -226,10 +287,10 @@ export function getMarket(teamId: number): MarketView | null {
   const freeAgents = (db.prepare('SELECT id, name, role, attrs, age, potential, value, wage FROM free_agents WHERE league_id = ? ORDER BY value DESC').all(team.league_id) as
     { id: number; name: string; role: string; attrs: string; age: number; potential: number | null; value: number; wage: number | null }[])
     .map(a => ({ id: a.id, name: a.name, role: a.role, age: a.age, overall: overall(JSON.parse(a.attrs)), potential: a.potential, value: a.value, wage: a.wage ?? 0 }));
-  const players = db.prepare('SELECT slot, name, role, attrs, age, potential, personality, listed, ask_price, wage, contract_years FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as unknown as (PRow & { contract_years: number })[];
+  const players = db.prepare('SELECT slot, name, role, attrs, age, potential, personality, listed, ask_price, wage, contract_years, parent_team_id FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as unknown as (PRow & { contract_years: number; parent_team_id: number | null })[];
   const squad = players.map((p, i) => {
     const attrs = JSON.parse(p.attrs);
-    return { slot: p.slot, name: p.name, role: p.role, age: p.age, overall: overall(attrs), potential: p.potential, value: playerValue(attrs, p.age, parseJSON(p.personality)), wage: p.wage ?? 0, contractYears: p.contract_years, listed: !!p.listed, askPrice: p.ask_price, starter: i < 11 };
+    return { slot: p.slot, name: p.name, role: p.role, age: p.age, overall: overall(attrs), potential: p.potential, value: playerValue(attrs, p.age, parseJSON(p.personality)), wage: p.wage ?? 0, contractYears: p.contract_years, listed: !!p.listed, askPrice: p.ask_price, starter: i < 11, onLoan: p.parent_team_id != null };
   });
   return { budget: team.budget, wageBudget: team.wage_budget, wageBill: wageBill(teamId), squadMax: SQUAD_MAX, squadMin: SQUAD_MIN, window: transferWindow(team.league_id), freeAgents, squad, transferTargets: transferTargets(teamId) };
 }

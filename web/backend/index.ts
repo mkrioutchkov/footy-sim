@@ -15,7 +15,7 @@ import { deriveTraits, defaultPersonality, type Personality } from './personalit
 import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording } from './match.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
-import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer } from './market.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn } from './market.ts';
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings } from './season.ts';
 import { aiManagerTick } from './ai.ts';
@@ -206,6 +206,18 @@ app.post('/api/transfer/bid', async (req: any, reply) => {
   if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
   const r = bidForPlayer(teamId, playerId, fee);
   if (r.status === 'error') return reply.code(400).send({ error: r.error });
+  return { ...r, market: getMarket(teamId) };
+});
+
+// Loan in another club's player for the season (no fee, window-gated).
+app.post('/api/transfer/loan', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const playerId = Number(req.body?.playerId);
+  if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
+  const r = loanIn(teamId, playerId);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, market: getMarket(teamId) };
 });
 

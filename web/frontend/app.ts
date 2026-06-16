@@ -566,8 +566,9 @@ async function screenMarket() {
       const btn = p.listed
         ? h('button', { class: 'ghost small' }, 'Unlist')
         : h('button', { class: 'ghost small' }, 'List');
-      if (!p.listed && !canSell) btn.setAttribute('disabled', 'true');
-      btn.addEventListener('click', async () => {
+      if (p.onLoan) { btn.setAttribute('disabled', 'true'); btn.setAttribute('title', "on loan — you can't sell him"); }
+      else if (!p.listed && !canSell) btn.setAttribute('disabled', 'true');
+      if (!p.onLoan) btn.addEventListener('click', async () => {
         btn.setAttribute('disabled', 'true'); btn.textContent = '…';
         try {
           const r = p.listed ? await api.unlistPlayer(p.slot) : await api.listPlayer(p.slot);
@@ -576,7 +577,7 @@ async function screenMarket() {
       });
       const sqPot = p.potential != null && p.potential > p.overall;
       sqBody.append(h('tr', {},
-        h('td', {}, p.name, p.starter ? '' : h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench'),
+        h('td', {}, p.name, p.onLoan ? h('span', { class: 'pill', style: 'margin-left:6px' }, 'loan') : (p.starter ? '' : h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench')),
           p.listed ? h('span', { class: 'pill', style: 'margin-left:6px' }, p.askPrice != null ? fmtMoney(p.askPrice) : 'listed') : ''),
         h('td', {}, h('span', { class: 'pill' }, p.role)),
         h('td', { class: 'num' }, String(p.age)),
@@ -616,12 +617,18 @@ async function screenMarket() {
       if (!fee || fee <= 0) { toast('Enter a valid bid'); return; }
       void sendBid(t.id, fee);
     };
+    const doLoan = async (t: typeof market.transferTargets[number]): Promise<void> => {
+      if (!confirm(`Take ${t.name} (${t.club}) on loan for the season? He returns to his club at the end of the campaign — no fee, but you carry his wages.`)) return;
+      try { const r = await api.loan(t.id); market = r.market; toast(`${r.player} joins on loan from ${r.from}`); render(); }
+      catch (e: any) { toast(e.message); render(); }
+    };
     const tgtBody = h('tbody');
     if (!market.transferTargets.length) tgtBody.append(h('tr', {}, h('td', { colspan: '7', class: 'muted' }, 'No players listed for sale at other clubs.')));
     for (const t of market.transferTargets) {
       const bid = h('button', { class: 'ghost small' }, 'Bid');
-      if (!win.open) { bid.setAttribute('disabled', 'true'); bid.setAttribute('title', 'Transfer window is shut'); }
-      else bid.addEventListener('click', () => doBid(t));
+      const loan = h('button', { class: 'ghost small', style: 'margin-left:4px' }, 'Loan');
+      if (!win.open) { for (const b of [bid, loan]) { b.setAttribute('disabled', 'true'); b.setAttribute('title', 'Transfer window is shut'); } }
+      else { bid.addEventListener('click', () => doBid(t)); loan.addEventListener('click', () => void doLoan(t)); }
       const tPot = t.potential != null && t.potential > t.overall;
       tgtBody.append(h('tr', {},
         h('td', {}, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + t.club)),
@@ -630,7 +637,7 @@ async function screenMarket() {
         h('td', { class: 'num' }, String(t.overall)),
         h('td', { class: 'num' }, tPot ? h('span', { class: 'a' }, String(t.potential)) : (t.potential != null ? String(t.potential) : '—')),
         moneyCell(t.askPrice ?? t.value, t.wage),
-        h('td', { class: 'num' }, bid)));
+        h('td', { class: 'num' }, h('span', { style: 'display:inline-flex' }, bid, loan))));
     }
 
     const wagePct = market.wageBudget > 0 ? Math.round((market.wageBill / market.wageBudget) * 100) : 0;
