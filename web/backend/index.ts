@@ -18,7 +18,7 @@ import { compileLineup } from './lineup.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn } from './market.ts';
 import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
-import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings } from './season.ts';
+import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { aiManagerTick } from './ai.ts';
 import { renewContract } from './contracts.ts';
 import { applyPressConference } from './press.ts';
@@ -341,6 +341,7 @@ app.get('/api/league', async (req: any, reply) => {
     // a user who watched all their matches still needs to play out the other games.
     seasonComplete: seasonComplete(leagueId),
     objective: getObjective(teamId),   // the board's expectation this season (null if unset)
+    promote: PROMOTE,                  // bottom N are relegated — lets the UI place the drop line
   };
 });
 

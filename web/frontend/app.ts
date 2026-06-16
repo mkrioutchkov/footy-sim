@@ -456,7 +456,12 @@ async function screenDashboard() {
     (() => {
       const obj = league.objective;
       if (!obj) return h('div', { style: 'display:none' });
-      const onTrack = myPos <= obj.target, close = !onTrack && myPos <= obj.target + 2;
+      // "just outside it" must never include a relegation place — the bottom `promote` spots are
+      // the drop zone, so cap the amber band at the drop line (otherwise survival, whose target IS
+      // the drop line, would render gold instead of red while actually in the relegation zone).
+      const dropLine = league.standings.length - (league.promote ?? 2);
+      const onTrack = myPos <= obj.target;
+      const close = !onTrack && myPos <= Math.min(obj.target + 2, dropLine);
       const c = onTrack ? 'var(--accent)' : close ? 'var(--gold)' : 'var(--danger)';
       return h('div', { class: 'card', style: 'padding:10px 14px;border-left:3px solid ' + c },
         h('span', { style: 'font-weight:600' }, '📋 Board objective: ' + obj.label),

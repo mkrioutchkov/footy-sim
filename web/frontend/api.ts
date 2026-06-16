@@ -58,7 +58,7 @@ export interface ObjectiveT { kind: string; target: number; season: number; labe
 export interface LeagueT {
   leagueId: number; myTeamId: number; standings: StandingT[]; fixtures: FixtureT[];
   season?: number; tier?: number; divisionName?: string; world?: DivisionT[]; seasonComplete?: boolean;
-  objective?: ObjectiveT | null;
+  objective?: ObjectiveT | null; promote?: number;
 }
 export interface RolloverT {
   season: number;
