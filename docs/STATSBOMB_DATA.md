@@ -207,6 +207,18 @@ definition (see the Definition Traps and Men/Women & Era sections).
 
 ## 3.0 — The central calibration identity (read first)
 
+> ⚠️ **Superseded by engine commit `6c7880b` (keeper nerf).** After this doc landed,
+> Boris nerfed the keeper toward realism (`GK_SAVE_MAX` 0.84→~0.72, shot-tracking
+> gain ~1.6×→~1.05×) and match scoring jumped to **~4.5–4.8 goals/match**. So the
+> "~83% save / ~2.1-goal ceiling / keeper is the root cause" framing below is now
+> **historical**. What still holds: the coupling identity, and the instruction to
+> **re-measure `savePct` over StatsBomb's on-target denominator** (the engine's
+> `native-batch` `savePct` uses an *all-shots-faced* denominator, so it isn't
+> directly comparable to the ~69% figure). Constants churn — trust
+> `engine/constants.h`, not the numbers quoted here. **NB:** ~4.8 now sits *above*
+> the ~2.75 real-world benchmark this doc targets — worth checking whether that
+> overshoot is intended.
+
 Four shooting levers are **coupled**; you cannot tune one in isolation:
 
 ```
@@ -222,8 +234,10 @@ vs a realistic ~2.75*. **Before touching `SHOT_SCOOP_CHANCE` or `GK_SAVE_MAX`,
 re-measure the engine's `savePct` over StatsBomb's exact denominator** — `savePct =
 saves / (saves + goals)` over **on-target** shots only (`shot.outcome ∈ {Saved,
 Goal, Saved to Post, Saved Off T}`, excluding `Blocked / Off T / Wayward / Post`).
-If the engine's 83% is measured over *all* shots faced, it isn't comparable.
-`GK_SAVE_MAX = 0.80` is fine as a per-shot **cap**; the **mean** must fall to ~0.69.
+If the engine's (pre-nerf) 83% was measured over *all* shots faced, it isn't
+comparable. `GK_SAVE_MAX` (~0.72 now, was 0.84 — verify `constants.h:175`) is a
+per-shot **cap**, not the mean; the realized **mean** save% must land ~0.69 for a
+*realistic* 2.75-goal target (the engine now runs hotter — see the 3.0 callout).
 
 ## 3.1 — Shooting, conversion & xG
 
@@ -297,7 +311,7 @@ If the engine's 83% is measured over *all* shots faced, it isn't comparable.
 | Yellow cards/match (both) | **~3.7** | 3.0–5.3 (recent ↑) | `cards` (yellow rate) | StatMuse | La Liga/Serie A ~4.5–5.5 |
 | Red cards/match (both) | ~0.18 | 0.12–0.25 | `cards` (red rate) | MyFootballFacts | ~1 red per 5–7 matches |
 | Offsides/team/match | **~1.85** (total ~3.7) | 1.3–2.3 | `offsidesPerMatch` ✔ | StatMuse | High-line teams 2.2+ |
-| **GK save % (on-target)** | **~69%** | 65–72 | `savePct` ⚠️ **engine ~83% too high** | FBref/Opta | The keeper re-anchor (see 3.0) |
+| **GK save % (on-target)** | **~69%** | 65–72 | `savePct` ⚠️ **see 3.0 — keeper since nerfed** | FBref/Opta | Re-measure over the on-target denominator |
 | PSxG − GA (shot-stopping) | ~0 (neutral) | −0.3..+0.5 /90 | (needs xG/PSxG model) | Opta | Avg keeper is PSxG-neutral |
 | Crosses/team/match | ~19 (incl. SP) or ~10–14 (open play) | 18–26 | `crossesPerMatch` | Soccerment | Confirm what the counter includes |
 | Penalties awarded/match | ~0.27 | 0.20–0.40 (post-VAR ↑) | `penaltiesAwardedPerMatch` | FBref | Contributes ~0.20 goals/match |
@@ -339,7 +353,7 @@ The highest-leverage bands that are **checkable from today's `--summary`** AND
 attack a known engine debt:
 
 1. `goalsPerMatch` → **2.5–3.0** (the headline target; currently capped ~2.1)
-2. `savePct` (on-target denominator!) → **65–72%** (engine ~83% — the root cause)
+2. `savePct` (on-target denominator!) → **65–72%** (engine since nerfed, commit `6c7880b` — re-measure; see 3.0)
 3. `goalsPerShotPct` → **9–12%**
 4. `shotsPer90` → **12–14** per team
 5. `shotsOnTargetPct` → **32–37%** (match the denominator)

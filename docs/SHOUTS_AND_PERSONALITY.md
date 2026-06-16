@@ -1,6 +1,6 @@
 Shouts, the Evolving Plan, and Player Personality — design sketch
 
-Status: sketch / not implemented (2026-06-15). Target shape for the manager↔squad interaction layer.
+Status: SHIPPED (2026-06-16). The 3-phase loop is built — plan.ts (composite plan), personality.ts (personalities), morale.ts + press.ts (morale + press conferences), match.ts (engine morale hook). This doc is now the as-built design; only personality *drift* and per-directive compliance gating remain (see TACTICS.md P5).
 
 
 
@@ -34,7 +34,7 @@ A shout isn't only tactical. "Get up the pitch" moves a player; "fuck you, homo"
 
 
 
-Each player has an LLM-generated personality (at squad creation, persisted): traits that drive reactions (temperament, criticismResponse, praiseResponse, bigGame, consistency, leadership, professionalism, ego) — short descriptors + 0–100 dials so both LLM and engine read them — plus backstory, nationality, bio, and a live morale (0–100, \~50 start). Modifiable later by training/events.
+Each player has an LLM-generated personality (at squad creation, persisted): traits that drive reactions (temperament, criticismResponse, praiseResponse, bigGame, consistency, leadership, professionalism, ego) — short descriptors + 0–100 dials so both LLM and engine read them — plus backstory, nationality, tagline, and a live morale (0–100, default 65). Modifiable later by training/events.
 
 Shouts move morale, gated by personality. Thick-skinned/confrontational → "fuck you" can fire them up (morale ↑, brief lift); sensitive → sulk (↓). Praise lifts most, but a big ego gets complacent. Pure-motivation shout → morale only. Cap \~2 motivation changes/player/game (tactical edits uncapped; motivational ones scarce + meaningful).
 
@@ -64,19 +64,16 @@ You are the manager's voice. Hold the CURRENT PLAN, edit it per the shout, AND j
 
 4\. Data model (when built)
 
-Player.personality (3a JSON) + morale + per-match motivationUsed; Team.compositePlan persisted pre-match, versioned on the watch timeline as shouts land (reuse the directive-timeline transport); engine morale field folded into effort/decision scoring (small, decaying, deterministic).
+Player.personality (3a JSON) + morale are persisted columns (`players.personality`, `players.morale`, default 65) + per-match motivationUsed. The composite plan is NOT a persisted Team column — it lives per-match in `MatchSession.plan` (match.ts) and is frozen on the directive timeline for deterministic replay (plan after shout N = what re-sims from clock N). Engine morale folds into effort/decision scoring (small, decaying, deterministic).
 
 
 
-5\. Phasing
+5\. Phasing — SHIPPED
 
-Composite plan / stateful shouts (LLM plan-editor) — biggest UX win, no engine change.
+- [x] Composite plan / stateful shouts (LLM plan-editor) — `plan.ts`.
+- [x] Personality generation + storage (squad creation + DB) — `personality.ts`, `players.personality`.
+- [x] Motivation loop (shout→morale via personality + cap + engine hook) — `morale.ts` + the runtime moraleBoost/moraleDelta in `match.ts`; press conferences (`press.ts`) also move morale via the same dials.
+- [ ] Later: training-driven personality drift, backstory events, media.
 
-Personality generation + storage (squad creation + DB).
-
-Motivation loop (shout→morale via personality + cap + engine hook).
-
-(Much later) training, personality drift, backstory events, media.
-
-Related: docs/TACTICS.md, \_form.md (formations plan), \_vocab.md (counter/offside-trap).
+Related: docs/TACTICS.md (the directive vocabulary).
 

@@ -55,7 +55,7 @@ Written by `web/backend/match.ts → buildSpec()`; consumed by the engine's
   // works purely in ids. Omit the block entirely for no directives.
   "directives": [
     { "playerId": 3, "kind": "man_mark", "targetId": 19, "intensity": 0.9,
-      "when": { "minuteMod": 2, "minuteEq": 1, "scoreState": "losing", "scoreBy": 1 } }
+      "when": { "fromMin": 70, "toMin": 90, "scoreState": "losing", "scoreBy": 1 } }
   ]
 }
 ```
@@ -63,11 +63,14 @@ Written by `web/backend/match.ts → buildSpec()`; consumed by the engine's
   `PlayerAttributes` (`speed, passing, creativity, shooting, tackling,
   positioning, stamina`, each 0–100) — see `web/frontend/types.ts`.
 - The fixed-22 invariant: home = engine ids 0–10, away = 11–21.
-- `directives[].kind` ∈ `man_mark | shoot_on_sight | get_forward | sit_deep |
-  target_player`. `targetId` for man_mark/target_player. `when` (all optional):
-  `minuteMod`/`minuteEq` (active when `minute % minuteMod == minuteEq`; default
-  always), `scoreState` ∈ `winning|drawing|losing` `scoreBy` N. Conditions are
-  evaluated each tick from clock+score (pure, deterministic). See docs/TACTICS.md.
+- `directives[].kind`: **17 per-player + 12 team-wide** kinds (man_mark,
+  shoot_on_sight, get_forward, sit_deep, target_player, …; team-wide kinds carry a
+  `teamScope` flag and adjust the 5 dials at runtime). The **authoritative list lives
+  in `engine/main.cpp` `parseDirectives` + `web/backend/tactics.ts`** and is
+  documented in [docs/TACTICS.md](TACTICS.md) — don't duplicate it here. `targetId`
+  for man_mark/target_player. `when` (all optional): `fromMin` (default 0) / `toMin`
+  (default 1000) minute window, `scoreState` ∈ `winning|drawing|losing` + `scoreBy`
+  N. Conditions are evaluated each tick from clock+score (pure, deterministic).
 
 ## OUTPUT — summary JSON (engine → web)
 
@@ -91,7 +94,7 @@ Adding an engine event means adding it to the `MatchEvent` union in
 header, woodwork, penalty, foul, offside, yellow, red, sub, …` (full list in
 types.ts).
 
-## Tactics (the 5 dials, + the planned plain-English layer)
+## Tactics (the 5 dials + the plain-English layer)
 
 `tactics` in the spec = the manager dials (`web/frontend/types.ts →
 ManagerConfig`), all 0–100, centred at 50 = neutral:
@@ -99,10 +102,11 @@ ManagerConfig`), all 0–100, centred at 50 = neutral:
 defensiveLineHeight`, plus a `formation`. The engine maps these in
 `engine/*` (`configFor(team)` etc.).
 
-**Planned (not built yet):** a plain-English tactical-ambition field that the
-web side parses into these dials (and, later, into injected decision hints). If
-the web session adds a new tactics field, it must be (a) added to the spec here
-and (b) wired in the engine — coordinate before merging.
+**Shipped:** the plain-English tactics layer. The web side compiles free text into
+the `directives` block (team-wide kinds also nudge the 5 dials at runtime) via an LLM
+(`web/backend/tactics.ts`, default Groq), with the output **cached and frozen on the
+timeline** — the engine only ever sees compiled directives, so replays stay
+byte-identical. See [docs/TACTICS.md](TACTICS.md).
 
 ## Repo layout & commands
 
@@ -111,7 +115,7 @@ engine/         C++ match engine            scripts/build-native.ps1  →  build
 web/backend/    Fastify + node:sqlite        npm run game     (:4000)
 web/frontend/   SPA + PixiJS renderer        npm run dev      (:5173, proxies /api,/ws → 4000)
 tools/          engine harness + py probes   npm run batch | scenarios | cpp-server
-docs/           PLAN, TODO, this CONTRACT
+docs/           ARCHITECTURE · CONTRACT · TACTICS · SHOUTS_AND_PERSONALITY · STATSBOMB_DATA · REAL_DATA_AND_IP · TEAM
 ```
 - DB: SQLite via `node:sqlite`, file at `web/backend/data/footy.sqlite` (gitignored).
 - After `engine/` or `scripts/` edits: `npm run native:build`. After
