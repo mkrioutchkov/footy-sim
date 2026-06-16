@@ -474,7 +474,9 @@ public:
     // Timed plan changes (P2): each entry REPLACES the active directive set once
     // the clock reaches atMs. The match is then a pure function of seed + this
     // timeline, so it replays identically. Applied at the top of applyDirectives.
-    struct TimelineEntry { double atMs = 0.0; std::vector<Directive> directives; };
+    // moraleDelta[id] is added to that player's moraleBoost when the entry fires (a
+    // motivational shout's effect); 0 for everyone by default.
+    struct TimelineEntry { double atMs = 0.0; std::vector<Directive> directives; std::array<double, 22> moraleDelta{}; };
     std::vector<TimelineEntry> directiveTimeline;
     size_t directiveTimelineIdx = 0;
     // get_forward/sit_deep relocate a player's formation ANCHOR (homeX) up or

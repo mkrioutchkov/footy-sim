@@ -161,6 +161,16 @@ int main(int argc, char* argv[]) {
                 te.atMs = e.contains("atMs") && e["atMs"].is_number() ? e["atMs"].get<double>() : 0.0;
                 if (e.contains("directives") && e["directives"].is_array())
                     parseDirectives(e["directives"], te.directives);
+                // Optional motivational effect: per-player moraleBoost deltas applied
+                // when this entry fires. Shape: "morale":[{playerId, delta}].
+                if (e.contains("morale") && e["morale"].is_array()) {
+                    for (const auto& m : e["morale"]) {
+                        if (m.contains("playerId") && m["playerId"].is_number() && m.contains("delta") && m["delta"].is_number()) {
+                            int id = m["playerId"].get<int>();
+                            if (id >= 0 && id < 22) te.moraleDelta[id] = m["delta"].get<double>();
+                        }
+                    }
+                }
                 engine.directiveTimeline.push_back(std::move(te));
             }
             std::sort(engine.directiveTimeline.begin(), engine.directiveTimeline.end(),
