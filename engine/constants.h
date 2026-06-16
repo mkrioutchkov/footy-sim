@@ -172,7 +172,7 @@ inline constexpr double GK_SAVE_MIN             = 0.05;
 // Save-ROLL ceiling. NOTE: measured a near-no-op on goal rate — the keeper saves
 // mostly by physically COLLECTING the ball (the tracker), not this roll, so this
 // is NOT the scoring throttle. Kept named (was a stray 0.84 literal in engine_gk).
-inline constexpr double GK_SAVE_MAX             = 0.84;
+inline constexpr double GK_SAVE_MAX             = 0.72;
 inline constexpr double GK_CATCH_HANDLING_BASE  = 0.22;
 // ── Realistic reach envelope (10px = 1m) ── replaces the flat isotropic circle.
 // A keeper has a short STANDING reach but can EXTEND into a dive; a dive covers
