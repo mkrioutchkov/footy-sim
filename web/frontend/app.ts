@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT } from './api';
+import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -449,6 +449,7 @@ async function screenDashboard() {
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/cup') }, 'Cup'),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/history') }, 'History'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
     ),
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table),
@@ -1088,6 +1089,66 @@ async function screenScout(fixtureId: number) {
   ));
 }
 
+// ── club history / honours archive ──
+function trophy(icon: string, n: number, label: string): HTMLElement {
+  return h('div', { style: 'text-align:center;min-width:74px' },
+    h('div', { style: 'font-size:26px' }, icon),
+    h('div', { style: 'font-size:22px;font-weight:800' }, String(n)),
+    h('div', { class: 'muted', style: 'font-size:11px' }, label));
+}
+async function screenHistory() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading history…')));
+  let hist: SeasonHistoryT[];
+  try { hist = (await api.history()).history; }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+  }
+
+  const titles = hist.filter(s => s.champion).length;
+  const cups = hist.filter(s => s.cupWon).length;
+  const promotions = hist.filter(s => s.promoted).length;
+  const cabinet = h('div', { class: 'row', style: 'gap:18px;flex-wrap:wrap' },
+    trophy('🏆', titles, titles === 1 ? 'League title' : 'League titles'),
+    trophy('🥇', cups, cups === 1 ? 'Cup' : 'Cups'),
+    trophy('⬆️', promotions, promotions === 1 ? 'Promotion' : 'Promotions'),
+    trophy('📅', hist.length, hist.length === 1 ? 'Season' : 'Seasons'));
+
+  const body = h('tbody');
+  if (!hist.length) body.append(h('tr', {}, h('td', { colspan: '7', class: 'muted' }, 'No completed seasons yet — play through a season and your history starts here.')));
+  for (const s of hist) {
+    const honours = h('span', { style: 'display:inline-flex;gap:5px;flex-wrap:wrap;align-items:center' });
+    if (s.champion) honours.append(h('span', { class: 'pill', title: 'Division champions', style: 'background:var(--gold);color:#1a1205' }, '🏆 Champions'));
+    if (s.promoted) honours.append(h('span', { class: 'pill', title: 'Promoted' }, '⬆️ Promoted'));
+    if (s.relegated) honours.append(h('span', { class: 'pill', title: 'Relegated', style: 'background:#3a1f24;color:#ff9a9a' }, '⬇️ Relegated'));
+    if (s.cupWon) honours.append(h('span', { class: 'pill', title: 'Cup winners', style: 'background:var(--gold);color:#1a1205' }, '🥇 Cup'));
+    if (s.pots) honours.append(h('span', { class: 'muted', style: 'font-size:11px' }, `POTS: ${s.pots}`));
+    body.append(h('tr', {},
+      h('td', { class: 'num' }, String(s.season)),
+      h('td', {}, `T${s.tier} · ${s.division}`),
+      h('td', { class: 'num', style: s.position === 1 ? 'font-weight:700;color:var(--gold)' : '' }, ordinal(s.position)),
+      h('td', { class: 'num' }, `${s.won}-${s.drawn}-${s.lost}`),
+      h('td', { class: 'num' }, `${s.gf}:${s.ga}`),
+      h('td', { class: 'num', style: 'font-weight:700' }, String(s.points)),
+      h('td', {}, honours)));
+  }
+
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
+      h('div', {}, h('h2', {}, 'Club history'),
+        h('div', { class: 'muted' }, 'Every completed season and the honours that came with it.')),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Trophy cabinet'), cabinet),
+    h('div', { class: 'card' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, 'Season by season'),
+      h('div', { style: 'max-height:560px;overflow:auto' }, h('table', {},
+        h('thead', {}, h('tr', {},
+          h('th', { class: 'num' }, 'Season'), h('th', {}, 'Division'), h('th', { class: 'num' }, 'Pos'),
+          h('th', { class: 'num' }, 'W-D-L'), h('th', { class: 'num' }, 'GF:GA'), h('th', { class: 'num' }, 'Pts'), h('th', {}, 'Honours'))),
+        body))),
+  ));
+}
+
 function route() {
   const hash = location.hash;
   if (!user) { screenAuth(); return; }
@@ -1097,6 +1158,7 @@ function route() {
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
   else if (hash === '#/cup') screenCup();
+  else if (hash === '#/history') screenHistory();
   else if (hash.startsWith('#/report/')) screenReport(Number(hash.split('/')[2]));
   else if (hash.startsWith('#/scout/')) screenScout(Number(hash.split('/')[2]));
   else if (hash.startsWith('#/player/')) screenPlayer(Number(hash.split('/')[2]));

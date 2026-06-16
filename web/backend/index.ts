@@ -24,6 +24,7 @@ import { renewContract } from './contracts.ts';
 import { applyPressConference } from './press.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
+import { getHistory } from './history.ts';
 import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
@@ -389,6 +390,14 @@ app.get('/api/news', async (req: any, reply) => {
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   return { news: recentNews(teamId) };
+});
+
+// The club's season-by-season history + honours (populated at each rollover).
+app.get('/api/history', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { history: getHistory(teamId) };
 });
 
 // Advance a matchday: play my next unplayed round across EVERY division of my world (so

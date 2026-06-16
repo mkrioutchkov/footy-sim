@@ -10,11 +10,12 @@ import { tickContracts, type ContractEvent } from './contracts.ts';
 import { youthAndRetirement, type YouthEvent } from './youth.ts';
 import { resetFitness } from './fitness.ts';
 import { resetMorale } from './morale.ts';
-import { createCup } from './cup.ts';
+import { createCup, cupView } from './cup.ts';
 import { purgeRecordings } from './match.ts';
 import { purgeReports } from './report.ts';
 import { returnLoans } from './market.ts';
 import { recordSeasonAwards } from './news.ts';
+import { recordSeasonHistory } from './history.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -130,6 +131,22 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
         db.prepare('UPDATE teams SET league_id = ?, wage_budget = ?, budget = budget + ? WHERE id = ?').run(upper.league.id, tierFinance(upper.league.tier).wageBudget, PROMOTION_BONUS, s.teamId);
         out.promoted.push({ teamId: s.teamId, team: s.name, fromTier: lower.league.tier, toTier: upper.league.tier });
       }
+    }
+
+    // 2b. archive each human club's finished season for the History screen — BEFORE the fixtures
+    //     are purged + the season counter advances (that data is otherwise unrecoverable). The
+    //     cup still reflects the just-finished campaign here (createCup runs later, in step 4).
+    const cupChampion = cupView(leagues[0].id).champion;
+    for (const t of humanTeams) {
+      const fin = finals.find(f => f.table.some(s => s.teamId === t.id));
+      if (!fin) continue;
+      const me = fin.table.find(s => s.teamId === t.id)!;
+      recordSeasonHistory({
+        teamId: t.id, season: endSeason, tier: fin.league.tier, division: fin.league.name, table: fin.table,
+        promoted: out.promoted.some(p => p.teamId === t.id),
+        relegated: out.relegated.some(r => r.teamId === t.id),
+        cupWon: cupChampion != null && cupChampion === me.name,
+      });
     }
 
     // 3. age every player in the world a year

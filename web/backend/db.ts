@@ -257,3 +257,32 @@ CREATE TABLE IF NOT EXISTS match_reports (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_report_ref ON match_reports(kind, ref_id);
 `);
+
+// ── Season history / honours archive ────────────────────────────────────────
+// One row per club per completed season, written at rollover (BEFORE the old fixtures are
+// deleted and the season counter advances — that data is otherwise unrecoverable). Powers
+// the History screen + trophy cabinet. New table, so existing saves are unaffected.
+db.exec(`
+CREATE TABLE IF NOT EXISTS season_history (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id     INTEGER NOT NULL,
+  season      INTEGER NOT NULL,           -- the campaign that just finished
+  tier        INTEGER NOT NULL,           -- the division it was played in
+  division    TEXT NOT NULL,              -- division name snapshot
+  position    INTEGER NOT NULL,           -- final league position (1 = top)
+  played      INTEGER NOT NULL,
+  won         INTEGER NOT NULL,
+  drawn       INTEGER NOT NULL,
+  lost        INTEGER NOT NULL,
+  gf          INTEGER NOT NULL,
+  ga          INTEGER NOT NULL,
+  points      INTEGER NOT NULL,
+  champion    INTEGER NOT NULL DEFAULT 0, -- won the division
+  promoted    INTEGER NOT NULL DEFAULT 0,
+  relegated   INTEGER NOT NULL DEFAULT 0,
+  cup_won     INTEGER NOT NULL DEFAULT 0, -- lifted the cup that season
+  pots        TEXT,                       -- Player of the Season name (or NULL)
+  created_at  INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_history_team_season ON season_history(team_id, season);
+`);

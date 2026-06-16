@@ -369,11 +369,20 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     how they play (derived from their dials, NOT their plan text — no human team-talk leak), and the top-5
     key players in the likely XI with one danger man flagged. A 🔍 Scout button sits on each upcoming
     fixture row. No engine run. Verified by `tools/_scout_test.ts` (20) + smoke (46, incl. the scout probe).
+  - **Season history / honours archive (`history.ts`, `season_history` table, `GET /api/history`,
+    `#/history`).** One row per club per finished season, written inside the rollover tx (step 2b,
+    BEFORE fixtures are purged + the season counter advances — `recordSeasonHistory`, idempotent via
+    `INSERT OR IGNORE` on a unique (team, season) index): final position/record, champion/promoted/
+    relegated flags, cup-won (from `cupView` before `createCup` regenerates it), and POTS (read from
+    that season's award `player_news`). A History nav button opens a trophy cabinet (titles/cups/
+    promotions/seasons) + a season-by-season table with honour badges. Verified by
+    `tools/_history_test.ts` (17 — champion/promotion/cup/POTS, most-recent-first, idempotency) +
+    smoke (47) + the 8-season multiseason regression (83, rollover unaffected).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
   negotiation + loans + dynamic player-news + ratings→morale & season awards are all SHIPPED.
 - **NOT YET (future / awaiting taste):** AI formation choice (it optimises the XI, not the
-  shape); richer scouting (hidden attributes until scouted); season-history/honours archive;
+  shape); deeper scouting (hidden attributes until scouted — the pre-match report now exists);
   morale/form feeding match results; probabilistic (not hard-cutoff) retirement + injuries.
   Deferred transfer follow-ons (loans now SHIPPED): **loan-OUT** by the user + AI clubs initiating
   loans/bids of their own (incl. for the user's unlisted stars); **wage-split / loan fees** (loans

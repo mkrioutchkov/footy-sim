@@ -91,6 +91,12 @@ export interface ScoutT {
   venue: 'home' | 'away'; round: number; approach: string[]; form: ScoutFormT[]; keyPlayers: ScoutPlayerT[];
 }
 
+export interface SeasonHistoryT {
+  season: number; tier: number; division: string; position: number;
+  played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
+  champion: boolean; promoted: boolean; relegated: boolean; cupWon: boolean; pots: string | null;
+}
+
 export const api = {
   me: () => req<{ user: UserT | null; teamId?: number | null }>('GET', '/me'),
   register: (username: string, password: string) => req<{ user: UserT }>('POST', '/register', { username, password }),
@@ -122,4 +128,5 @@ export const api = {
   report: (fixtureId: number) => req<ReportT>('GET', `/report?fixture=${fixtureId}`),
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: () => req<{ news: NewsItemT[] }>('GET', '/news'),
+  history: () => req<{ history: SeasonHistoryT[] }>('GET', '/history'),
 };
