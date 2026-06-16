@@ -330,6 +330,9 @@ public:
     void awardOffsideFreeKick(Team defTeam, const Player& offsidePlayer);
     [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const;
     [[nodiscard]] bool isOffsideTargetPerceived(const Player& passer, const Player& receiver) const;
+    // Per-player defensive marching order, rebuilt each tick by updateTeamAssignments
+    // / assignDefensiveRoles and consumed by the agents: which task (press, mark,
+    // lane-block, box-guard…), which opponent to mark, and where to stand.
     struct AgentTeamAssignment { DefensiveTask role = DefensiveTask::None; int opponentId=-1; double targetX=0, targetY=0; };
     std::array<AgentTeamAssignment, 22> assignmentByPlayer = {};
     [[nodiscard]] AgentTeamAssignment* assignmentFor(int playerId) {
