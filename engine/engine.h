@@ -369,7 +369,7 @@ public:
 
     bool knockBallAhead(Player&, double, double);
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
-    void emitEvent(const std::string&, double, double, int=-1, int=-1);
+    void emitEvent(const std::string&, double, double, int=-1, int=-1, bool traceOnly=false);
     void blockReboundFor(int playerId, double ms);
     void recordBallImpulse();
     void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false);

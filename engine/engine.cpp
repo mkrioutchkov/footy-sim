@@ -132,6 +132,11 @@ void GameEngine::kickoff(Team t){
     phase.lastKickoffMs=state.clockMs;
     setPiece.armed=false;
     setPiece.reason.clear();
+    // Record the restart so trace inspectors can tell a legitimate kickoff (ball
+    // to centre + 22-player reset + possession to the other team) from a bug.
+    // Without this, every kickoff (opening, post-goal, second-half) reads as a
+    // "phantom centre teleport" — it has been misdiagnosed as a bug three times.
+    emitEvent("kickoff", HALF_X, PITCH_H / 2.0, b.controllerId, -1, /*traceOnly=*/true);
 }
 
 void GameEngine::update(double dM) {
