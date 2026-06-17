@@ -16,7 +16,6 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
     double overlap = tac.overlapFrequency / 50.0;
     double cmAdvance = isCentralMidfielder() ? (0.70 + 0.30 * freedom) : 1.0;
     double pu = my ? fd * ba * 220.0 * cmAdvance : 0.0;
-    pu += engine.directiveBias[p.id].pushUp;   // get_forward (+) / sit_deep (-) directive
     bool iw = (isFullBack() || isWideMidfielder());
     double fbOverlap = isFullBack() ? (0.55 + 0.45 * overlap) : 1.0;
     if (my && isFullBack()) pu *= (0.80 + 0.20 * overlap);
