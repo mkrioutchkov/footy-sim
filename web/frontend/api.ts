@@ -104,6 +104,9 @@ export interface FinancesT {
   byKind: { kind: string; amount: number }[]; recent: FinanceEntryT[];
 }
 
+export interface HarmonyPlayerT { slot: number; name: string; tag: 'leader' | 'pro' | 'disruptive' | 'unsettled'; note: string; }
+export interface HarmonyT { harmony: number; status: 'united' | 'settled' | 'restless' | 'fractured'; avgMorale: number; players: HarmonyPlayerT[]; }
+
 export interface SeasonHistoryT {
   season: number; tier: number; division: string; position: number;
   played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
@@ -147,4 +150,5 @@ export const api = {
   hireStaff: (staffId: number) => req<StaffViewT & { name?: string }>('POST', '/staff/hire', { staffId }),
   fireStaff: (staffId: number) => req<StaffViewT>('POST', '/staff/fire', { staffId }),
   finances: () => req<FinancesT>('GET', '/finances'),
+  harmony: () => req<HarmonyT>('GET', '/harmony'),
 };

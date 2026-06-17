@@ -29,6 +29,7 @@ import { getObjective } from './objectives.ts';
 import { getConfidence } from './confidence.ts';
 import { getStaffView, hireStaff, fireStaff } from './staff.ts';
 import { getFinances } from './finances.ts';
+import { getSquadHarmony } from './harmony.ts';
 import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
@@ -435,6 +436,16 @@ app.get('/api/finances', async (req: any, reply) => {
   const fin = getFinances(teamId);
   if (!fin) return reply.code(404).send({ error: 'no team' });
   return fin;
+});
+
+// Dressing-room harmony: a read-only read of how settled the squad is (from dials + morale).
+app.get('/api/harmony', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const h = getSquadHarmony(teamId);
+  if (!h) return reply.code(404).send({ error: 'no squad' });
+  return h;
 });
 
 // The club's season-by-season history + honours (populated at each rollover).

@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT } from './api';
+import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -282,10 +282,10 @@ function formationPanel(team: TeamT): HTMLElement {
 // ── dashboard ──
 async function screenDashboard() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
-  let team: TeamT, league: LeagueT, news: NewsItemT[] = [];
+  let team: TeamT, league: LeagueT, news: NewsItemT[] = [], harmony: HarmonyT | null = null;
   try {
-    const [t, l, n] = await Promise.all([api.team(), api.league(), api.news().catch(() => ({ news: [] }))]);
-    team = t; league = l; news = n.news;
+    const [t, l, n, hm] = await Promise.all([api.team(), api.league(), api.news().catch(() => ({ news: [] })), api.harmony().catch(() => null)]);
+    team = t; league = l; news = n.news; harmony = hm;
   } catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
@@ -441,6 +441,22 @@ async function screenDashboard() {
           h('span', { class: 'muted', style: 'font-size:11px' }, `S${n.season}`))))
       : h('div', { class: 'muted', style: 'font-size:12px' }, 'No headlines yet — play on and your players will make news.'));
 
+  // ── dressing room: squad harmony at a glance ──
+  const HARMONY_ICON: Record<string, string> = { leader: '🧭', pro: '⭐', disruptive: '⚠️', unsettled: '😟' };
+  const harmonyCard = harmony ? (() => {
+    const c = harmony.status === 'united' ? 'var(--accent)' : harmony.status === 'settled' ? '#7fb2ff' : harmony.status === 'restless' ? 'var(--gold)' : 'var(--danger)';
+    return h('div', { class: 'card', style: 'margin-top:14px' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, 'Dressing room'),
+      h('div', { class: 'between', style: 'font-size:13px;margin-bottom:6px' },
+        h('span', { style: `color:${c};font-weight:600;text-transform:capitalize` }, harmony.status),
+        h('span', { class: 'muted' }, `avg morale ${harmony.avgMorale}`)),
+      ...(harmony.players.length
+        ? harmony.players.map(p => h('div', { class: 'between', style: 'font-size:12px;padding:2px 0;cursor:pointer', onclick: () => (location.hash = `#/player/${p.slot}`) },
+            h('span', {}, `${HARMONY_ICON[p.tag] ?? '•'} ${p.name}`),
+            h('span', { class: 'muted', style: 'font-size:11px' }, p.note)))
+        : [h('div', { class: 'muted', style: 'font-size:12px' }, 'A settled, unremarkable dressing room.')]));
+  })() : h('div', { style: 'display:none' });
+
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
@@ -490,6 +506,7 @@ async function screenDashboard() {
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
       h('div', {},
         formationPanel(team),
+        harmonyCard,
         newsCard,
         pressCard,
         h('div', { class: 'card', style: 'margin-top:14px' },

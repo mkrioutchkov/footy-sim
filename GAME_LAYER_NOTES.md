@@ -412,6 +412,13 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     money is introduced, the economy + the multiseason regression are unchanged. Verified by
     `tools/_finances_test.ts` (14 — record/aggregate, AI no-op, per-season filtering, the buyFreeAgent +
     rollover-prize hooks) + smoke (56).
+  - **Squad harmony / dressing room (`harmony.ts`, `/api/harmony`).** A READ-ONLY read of how settled
+    the squad is, derived from the existing personality dials + morale — it mutates nothing (no balance
+    effect): leaders + model pros lift it, big egos who are unhappy or stuck on the bench drag it, as does
+    a wide morale spread (a split dressing room). Returns a 0–100 harmony + status (united/settled/restless/
+    fractured) + the notable players (leader/pro/disruptive/unsettled), shown as a Dressing-room card on the
+    dashboard (click a name → profile). Verified by `tools/_harmony_test.ts` (12 — status bands, each flag,
+    the happy-vs-benched ego distinction, disruption drags harmony) + smoke (57).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
   negotiation + loans + dynamic player-news + ratings→morale & season awards are all SHIPPED.
