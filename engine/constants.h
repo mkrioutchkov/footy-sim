@@ -12,7 +12,6 @@ inline constexpr double PITCH_W   = 1050.0;
 inline constexpr double PITCH_H   = 680.0;
 inline constexpr double GOAL_W    = 73.0;
 inline constexpr double GOAL_H    = 24.0;
-inline constexpr double GOAL_DEPTH = 20.0;
 inline constexpr double HOME_GOAL_X = 0.0;
 inline constexpr double AWAY_GOAL_X = PITCH_W;
 inline constexpr double HALF_X    = PITCH_W / 2.0;
@@ -30,11 +29,8 @@ inline constexpr double MAX_PLAYER_SPEED = 50.0;
 inline constexpr double PASS_SPEED_BASE = 136.0;
 inline constexpr double PASS_SPEED_DIST = 0.105;
 inline constexpr double SHOT_SPEED_BASE = 285.0;
-inline constexpr double TACKLE_KICK_SPEED = 140.0;
 inline constexpr double BALL_FRICTION  = 0.70;
 inline constexpr double GRAVITY        = 500.0;
-inline constexpr double BOUNCE_FACTOR  = -0.2;
-inline constexpr double MIN_BALL_SPEED = 3.0;
 
 // ── Interaction distances ──
 inline constexpr double TACKLE_RANGE   = 24.0;
@@ -54,7 +50,6 @@ inline constexpr double GK_RUSH_DIST   = 200.0;
 inline constexpr double GK_LOOSE_COLLECT_DIST = 34.0;
 inline constexpr double GK_LOOSE_COLLECT_FAST_DIST = 24.0;
 inline constexpr double SEPARATION_DIST = 38.0;
-inline constexpr double SEPARATION_FORCE = 140.0;
 
 // ── Timing ──
 inline constexpr double FIXED_DT       = 16.667;
@@ -62,7 +57,6 @@ inline constexpr double MATCH_DURATION  = 90.0 * 60.0 * 1000.0;
 inline constexpr double HALF_DURATION   = 45.0 * 60.0 * 1000.0;
 inline constexpr double THIRD_1         = PITCH_W / 3.0;       // 350
 inline constexpr double THIRD_2         = 2.0 * PITCH_W / 3.0; // 700
-inline constexpr double ADDED_TIME_WHISTLE_MS = 5000.0;
 
 // ── Utility ──
 constexpr auto clamp(double v, double lo, double hi) -> double { return v < lo ? lo : v > hi ? hi : v; }
@@ -78,8 +72,6 @@ constexpr auto attrFactor(double attr) -> double { return attr / 100.0; }
 constexpr auto fdFor(Team team) -> double { return team == Team::Home ? 1.0 : -1.0; }
 inline double goalXFor(Team team) { return team == Team::Home ? AWAY_GOAL_X : HOME_GOAL_X; }
 inline double ownGoalXFor(Team team) { return team == Team::Home ? HOME_GOAL_X : AWAY_GOAL_X; }
-
-inline constexpr std::array<std::string_view, 6> ROLES = {"GK","CB","FB","CM","WM","CF"};
 
 // ── Stamina ──
 inline constexpr double STAMINA_DRAIN_SPRINT  = 0.014;
@@ -105,8 +97,6 @@ inline constexpr double STUCK_CARRIER_TIMEOUT_MS = 4200.0;
 // well before the box — 240 only triggered once the line was already beaten.
 inline constexpr double DANGER_ZONE_DIST        = 330.0;
 inline constexpr double PRESS_COMMIT_MAX_DIST   = 145.0;
-inline constexpr double CORNER_ZONE             = 80.0;
-inline constexpr double CORNER_TRAP_SIZE        = 80.0;
 
 // ── Pass scoring ──
 // (old pass-completion-probability / turnover / pass-scoring weight constants
@@ -115,11 +105,9 @@ inline constexpr double PASS_MIN_DISTANCE       = 42.0;
 inline constexpr double PASS_MAX_DISTANCE       = 550.0;
 inline constexpr double PASS_MAX_DISTANCE_KEEPER = 455.0;
 inline constexpr double PASS_DIST_NORMALIZATION = 850.0;
-inline constexpr double PASS_VISION_CONE        = PI / 3.0;
 inline constexpr double PASS_BLOCKER_PERP       = 36.0;
 inline constexpr double PASS_BLOCKER_PERP_OUTLET = 34.0;
 inline constexpr double PASS_RECEIVER_PRESS_MAX = 45.0;
-inline constexpr double PASS_RECEIVER_PRESS_CUT = 3;
 inline constexpr double PASS_TOUCHLINE_TRAPPED  = 90.0;
 inline constexpr double BLOCKER_PERP_FREEKICK   = 42.0;
 inline constexpr double BLOCKER_PERP_THROWIN     = 32.0;
@@ -133,10 +121,6 @@ inline constexpr double CARRIER_PRESSURE_COUNT_DIST = 48.0;
 inline constexpr double SHOT_ANGLE_ACUTE_THRESH  = 7.5;
 inline constexpr double SHOT_ACUTE_SOFT_THRESH   = 8.0;
 inline constexpr double SHOT_ACUTE_HARD_THRESH    = 7.0;
-inline constexpr double SHOT_MAX_DISTANCE_HARD  = 225.0;
-inline constexpr double SHOT_MAX_ANGLE_ACUTE    = 150.0;
-inline constexpr double SHOT_ANGLE_DISTANCE_2ND = 200.0;
-inline constexpr double SHOT_ANGLE_THRESH_2ND   = 9.0;
 
 // ── Chase ──
 inline constexpr double PRE_CONTACT_CHASE_REACH = 36.4;
@@ -245,10 +229,6 @@ inline constexpr double HEADER_REACH_Z          = 22.0;  // leap contact height 
 inline constexpr double MEET_REACH_HEAD         = 20.0;  // horizontal head-meet reach (~2.0m)
 inline constexpr double MEET_REACH_GROUND       = 18.0;  // horizontal low/ground control reach (~1.8m)
 inline constexpr double GROUND_MEET_MAX_Z       = 12.0;  // a ground control needs the ball at/below shin-knee
-inline constexpr double BOUNCE_DAMP_SAME_TEAM   = 0.18;
-inline constexpr double BOUNCE_DAMP_OPPONENT    = 0.25;
-inline constexpr double BOUNCE_SPIN_FACTOR      = 0.02;
-inline constexpr double REBOUND_BLOCK_MS        = 600.0;
 
 // ── Ball-player collision ──
 inline constexpr double COLLISION_DAMP_SAME_TEAM  = 0.18;
@@ -287,13 +267,6 @@ inline constexpr double PERCEPTION_CONE_DEFENDER = PI / 2.0;
 inline constexpr double PERCEPTION_NEAR_BALL    = 40.0;
 inline constexpr double PERCEPTION_PRESSURE_DIST = 60.0;
 
-// ── Movement ──
-inline constexpr double MOVEMENT_FACING_LERP    = 0.06;
-inline constexpr double BALL_TRACKING_LERP      = 0.05;
-inline constexpr double LOOSE_BALL_FACING_LERP  = 0.15;
-inline constexpr double BALL_MEMORY_FACING_LERP = 0.02;
-inline constexpr double BALL_MEMORY_TIMEOUT     = 30;
-
 // ── Agent decision thresholds ──
 inline constexpr double MIN_FALLBACK_SCORE      = 0.15;
 
@@ -318,7 +291,6 @@ inline constexpr double CLOSE_GOAL_DIST          = 120.0;
 inline constexpr double PERIMETER_GOAL_DIST      = 150.0;
 inline constexpr double WIDE_DANGER_DIST         = 250.0;
 inline constexpr double EMERGENCY_BOX_DIST       = 230.0;
-inline constexpr double DANGER_DEFENSIVE_OFFSET  = 170.0;
 
 // ── Touchline proximity ──
 inline constexpr double TOUCHLINE_PROXIMITY      = 85.0;
@@ -339,6 +311,4 @@ inline constexpr double POS_RECENT_PASS_DIST     = 250.0;
 inline constexpr double POS_OPPONENT_TRACK_DIST  = 200.0;
 
 // ── Timing / cooldowns ──
-inline constexpr double LOG_INTERVAL_MS         = 500.0;
-inline constexpr double ONE_TWO_WINDOW_MS       = 2000.0;
 inline constexpr double GK_SAVE_MIN_BALL_SPEED  = 100.0;
