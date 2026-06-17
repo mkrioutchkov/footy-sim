@@ -11,7 +11,7 @@ const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
 
 interface Dials { criticismResponse: number; praiseResponse: number; ego: number; temperament: number }
 interface SquadMember { slot: number; name: string; traits: Dials }
-export interface PressReaction { slot: number; name: string; delta: number }
+export interface PressReaction { slot: number; name: string; delta: number; quote?: string }
 
 const clampDelta = (v: number) => Math.max(-15, Math.min(15, Math.round(v)));
 
@@ -39,7 +39,7 @@ function extractArray(content: string): unknown[] {
   return [];
 }
 
-const SYSTEM = `You judge how a football manager's press-conference statement lands with each of his players, returning ONE morale change per player IN ORDER. Output ONLY a JSON array of objects [{"delta":-15..15}]. Use each player's dials (0-100): praiseResponse = how much praise lifts them; criticismResponse = HIGH thrives on a public rocket / LOW wilts under it; ego = self-importance (loves praise, bristles at criticism); temperament = HIGH is fiery (reacts badly to criticism). A warm/backing statement lifts most players (most the praise-hungry + big egos); a critical statement lifts the criticism-responsive but dents the sensitive and the hot-heads. Keep deltas modest (most within ±10). Return EXACTLY one object per player, in order.`;
+const SYSTEM = `You judge how a football manager's press-conference statement lands with each of his players, returning ONE reaction per player IN ORDER. Output ONLY a JSON array of objects [{"delta":-15..15,"quote":"..."}]. Use each player's dials (0-100): praiseResponse = how much praise lifts them; criticismResponse = HIGH thrives on a public rocket / LOW wilts under it; ego = self-importance (loves praise, bristles at criticism); temperament = HIGH is fiery (reacts badly to criticism). A warm/backing statement lifts most players (most the praise-hungry + big egos); a critical statement lifts the criticism-responsive but dents the sensitive and the hot-heads. Keep deltas modest (most within ±10). "quote" is a SHORT first-person in-character line (max ~12 words) showing how it landed for that player given his dials — terse and natural, no name prefix. Return EXACTLY one object per player, in order.`;
 
 // LLM-primary morale reactions; deterministic keyword judge as the always-available fallback.
 export async function judgePressConference(text: string, squad: SquadMember[]): Promise<PressReaction[]> {
@@ -51,7 +51,7 @@ export async function judgePressConference(text: string, squad: SquadMember[]): 
     const res = await fetch(`${BASE}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, temperature: 0.4, max_tokens: 800, messages: [
+      body: JSON.stringify({ model: MODEL, temperature: 0.4, max_tokens: 1600, messages: [
         { role: 'system', content: SYSTEM },
         { role: 'user', content: `Statement: "${text}"\n\nPlayers:\n${lines}` },
       ] }),
@@ -61,11 +61,13 @@ export async function judgePressConference(text: string, squad: SquadMember[]): 
       const j = await res.json() as { choices?: { message?: { content?: string } }[] };
       const arr = extractArray(j.choices?.[0]?.message?.content ?? '');
       if (arr.length) return squad.map((m, i) => {
-        const raw = (arr[i] as { delta?: unknown })?.delta;
+        const obj = arr[i] as { delta?: unknown; quote?: unknown } | undefined;
+        const raw = obj?.delta;
         // accept only a real number or a non-empty numeric string; null/""/[]/false etc. fall
         // back to the deterministic per-player delta (unary + coerces those to a finite 0).
         const n = typeof raw === 'number' ? raw : (typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN);
-        return { slot: m.slot, name: m.name, delta: Number.isFinite(n) ? clampDelta(n) : deterministicDelta(tone, m.traits) };
+        const quote = typeof obj?.quote === 'string' && obj.quote.trim() ? obj.quote.trim().slice(0, 140) : undefined;
+        return { slot: m.slot, name: m.name, delta: Number.isFinite(n) ? clampDelta(n) : deterministicDelta(tone, m.traits), quote };
       });
     }
   } catch { /* fall through */ }

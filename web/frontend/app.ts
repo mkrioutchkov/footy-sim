@@ -424,16 +424,30 @@ async function screenDashboard() {
   // press conference — your words move squad morale via each player's dials
   const pressInput = h('textarea', { class: 'tactics-input', rows: '2', placeholder: 'Address the media — back your players, demand more, or stay ice-cool…' }) as HTMLTextAreaElement;
   const pressBtn = h('button', { class: 'ghost small' }, 'Address the media');
+  // "How it landed" panel — surfaces the per-player reactions (+ in-character quotes) the backend
+  // already returns, instead of collapsing them to a toast. Patched in place: no dashboard rebuild
+  // (which would nuke scroll + refetch everything), so the squad cards' morale just goes mildly stale.
+  const pressReceipt = h('div', { class: 'tactics-receipt', style: 'max-height:300px;margin-top:10px' });
   pressBtn.addEventListener('click', async () => {
     const txt = pressInput.value.trim(); if (!txt) { toast('Say something to the media first'); return; }
     pressBtn.setAttribute('disabled', 'true'); pressBtn.textContent = '…';
-    try { const r = await api.press(txt); toast(`Media reaction: ${r.lifted} lifted${r.unsettled ? `, ${r.unsettled} unsettled` : ''}`); pressInput.value = ''; screenDashboard(); }
-    catch (e: any) { toast(e.message); pressBtn.removeAttribute('disabled'); pressBtn.textContent = 'Address the media'; }
+    pressReceipt.replaceChildren(h('div', { class: 'muted' }, 'Facing the press…'));
+    try {
+      const r = await api.press(txt);
+      toast(`Media reaction: ${r.lifted} lifted${r.unsettled ? `, ${r.unsettled} unsettled` : ''}`);
+      pressReceipt.replaceChildren(
+        h('div', { class: 'muted', style: 'margin-bottom:5px' }, `How it landed — ${r.lifted} lifted, ${r.unsettled} unsettled:`),
+        ...[...r.reactions].sort((a, b) => b.delta - a.delta).map(x => h('div', {
+          class: 'receipt-line ' + (x.delta > 0 ? 'up' : x.delta < 0 ? 'down' : ''), style: 'font-size:13px;padding:2px 0',
+        }, `${x.delta > 0 ? '▲' : x.delta < 0 ? '▼' : '·'} ${x.name} ${x.delta > 0 ? '+' : ''}${x.delta}${x.quote ? ` — “${x.quote}”` : ''}`)));
+      pressInput.value = '';
+    } catch (e: any) { pressReceipt.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message)); }
+    finally { pressBtn.removeAttribute('disabled'); pressBtn.textContent = 'Address the media'; }
   });
   const pressCard = h('div', { class: 'card', style: 'margin-top:14px' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Press conference'),
     h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px' }, 'What you say moves squad morale — each player reacts through his own personality.'),
-    pressInput, h('div', { style: 'margin-top:6px' }, pressBtn));
+    pressInput, h('div', { style: 'margin-top:6px' }, pressBtn), pressReceipt);
 
   // ── club news: events that evolved a player's story + dials ──
   const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟' };
@@ -643,7 +657,10 @@ async function screenWatch(fixtureId: number) {
       receiptEl.appendChild(h('div', { class: 'receipt-line ' + (m.moraleDelta > 0 ? 'up' : 'down') },
         `${m.moraleDelta > 0 ? '▲' : '▼'} ${pname(m.playerId)} ${m.moraleDelta > 0 ? '+' : ''}${m.moraleDelta} morale${m.reaction ? ` — “${m.reaction}”` : ''}`));
     }
-    // The full standing composite plan.
+    // Manager-voice readback: the whole standing plan in prose (FM never narrates your tactic back).
+    const summary = (r.plan?.summary ?? '').trim();
+    if (summary) receiptEl.appendChild(h('div', { style: 'font-style:italic;color:var(--accent);margin:6px 0 2px;line-height:1.4' }, '“' + summary + '”'));
+    // The full standing composite plan (the machine breakdown under the prose).
     if (dirs.length) {
       receiptEl.appendChild(h('div', { class: 'muted', style: 'margin-top:6px' }, 'Standing plan:'));
       for (const d of dirs) receiptEl.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
