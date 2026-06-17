@@ -98,6 +98,12 @@ export interface StaffMemberT { id: number; role: 'coach' | 'physio' | 'scout'; 
 export interface StaffEffectsT { training: number; injuryReduction: number; recoverBonus: number; scoutDepth: number; }
 export interface StaffViewT { staff: StaffMemberT[]; pool: StaffMemberT[]; budget: number; max: number; effects: StaffEffectsT; }
 
+export interface FinanceEntryT { season: number; kind: string; amount: number; note: string; }
+export interface FinancesT {
+  balance: number; season: number; income: number; expense: number;
+  byKind: { kind: string; amount: number }[]; recent: FinanceEntryT[];
+}
+
 export interface SeasonHistoryT {
   season: number; tier: number; division: string; position: number;
   played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
@@ -140,4 +146,5 @@ export const api = {
   staff: () => req<StaffViewT>('GET', '/staff'),
   hireStaff: (staffId: number) => req<StaffViewT & { name?: string }>('POST', '/staff/hire', { staffId }),
   fireStaff: (staffId: number) => req<StaffViewT>('POST', '/staff/fire', { staffId }),
+  finances: () => req<FinancesT>('GET', '/finances'),
 };

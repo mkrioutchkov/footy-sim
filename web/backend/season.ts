@@ -18,6 +18,7 @@ import { recordSeasonAwards } from './news.ts';
 import { recordSeasonHistory } from './history.ts';
 import { getObjective, setSeasonObjective, deriveObjective, objectiveMet } from './objectives.ts';
 import { settleConfidenceAtRollover } from './confidence.ts';
+import { recordFinance } from './finances.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -113,6 +114,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       table.forEach((s, i) => {
         const amount = prizeMoney(league.tier, i + 1, table.length);
         db.prepare('UPDATE teams SET budget = budget + ? WHERE id = ?').run(amount, s.teamId);
+        recordFinance(s.teamId, 'prize', amount, `Prize money — ${i + 1}${i === 0 ? 'st' : i === 1 ? 'nd' : i === 2 ? 'rd' : 'th'} in ${league.name}`);   // no-op for AI
         out.prizeMoney.push({ teamId: s.teamId, team: s.name, amount });
       });
       out.divisions.push({ tier: league.tier, name: league.name, champion: table[0]?.name ?? '' });

@@ -28,6 +28,7 @@ import { getHistory } from './history.ts';
 import { getObjective } from './objectives.ts';
 import { getConfidence } from './confidence.ts';
 import { getStaffView, hireStaff, fireStaff } from './staff.ts';
+import { getFinances } from './finances.ts';
 import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
@@ -424,6 +425,16 @@ app.post('/api/staff/fire', async (req: any, reply) => {
   const r = fireStaff(teamId, staffId);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, ...getStaffView(teamId) };
+});
+
+// The club's finances statement: balance, this-season income/expense by category, recent movements.
+app.get('/api/finances', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const fin = getFinances(teamId);
+  if (!fin) return reply.code(404).send({ error: 'no team' });
+  return fin;
 });
 
 // The club's season-by-season history + honours (populated at each rollover).

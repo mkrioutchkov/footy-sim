@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT } from './api';
+import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -449,6 +449,7 @@ async function screenDashboard() {
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/staff') }, 'Staff'),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/finances') }, 'Finances'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/cup') }, 'Cup'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/history') }, 'History'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
@@ -1067,6 +1068,58 @@ async function screenReport(fixtureId: number) {
   ));
 }
 
+// ── club finances ──
+const FIN_LABEL: Record<string, string> = {
+  prize: 'Prize money', transfer_in: 'Transfers in', transfer_out: 'Transfers out',
+  staff: 'Staff fees', sponsor: 'Sponsorship', other: 'Other',
+};
+async function screenFinances() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
+  let f: FinancesT;
+  try { f = await api.finances(); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+  }
+  const net = f.income + f.expense;   // expense is already negative
+  const col = (n: number) => n >= 0 ? 'color:var(--accent)' : 'color:var(--danger)';
+  const signed = (n: number) => (n >= 0 ? '+' : '−') + fmtMoney(Math.abs(n));
+  const cell = (label: string, val: string, style = '') => h('div', { style: 'min-width:120px' },
+    h('div', { class: 'muted', style: 'font-size:11px' }, label),
+    h('div', { style: 'font-size:20px;font-weight:800;' + style }, val));
+
+  const byKind = f.byKind.length
+    ? f.byKind.map(k => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0' },
+        h('span', {}, FIN_LABEL[k.kind] ?? k.kind),
+        h('span', { style: col(k.amount) }, signed(k.amount))))
+    : [h('div', { class: 'muted', style: 'font-size:13px' }, 'No money has moved yet this season.')];
+
+  const recent = f.recent.length
+    ? f.recent.map(e => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0' },
+        h('span', {}, e.note, h('span', { class: 'muted', style: 'font-size:11px' }, ` · S${e.season}`)),
+        h('span', { style: col(e.amount) }, signed(e.amount))))
+    : [h('div', { class: 'muted', style: 'font-size:13px' }, 'No transactions recorded yet — play on, sign players, win prize money.')];
+
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
+      h('div', {}, h('h2', {}, 'Finances'), h('div', { class: 'muted' }, `Season ${f.season}`)),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    h('div', { class: 'card' },
+      h('div', { class: 'row', style: 'gap:32px;flex-wrap:wrap' },
+        cell('Balance', fmtMoney(f.balance)),
+        cell('Income (season)', signed(f.income), col(f.income)),
+        cell('Expense (season)', signed(f.expense), col(f.expense)),
+        cell('Net (season)', signed(net), col(net)))),
+    h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+      h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'This season by category'),
+        ...byKind),
+      h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Recent movements'),
+        h('div', { style: 'max-height:360px;overflow:auto' }, ...recent))),
+  ));
+}
+
 // ── backroom staff ──
 const ROLE_ICON: Record<string, string> = { coach: '🎓', physio: '🩺', scout: '🔍' };
 const ROLE_LABEL: Record<string, string> = { coach: 'Coach', physio: 'Physio', scout: 'Scout' };
@@ -1277,6 +1330,7 @@ function route() {
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
   else if (hash === '#/staff') screenStaff();
+  else if (hash === '#/finances') screenFinances();
   else if (hash === '#/cup') screenCup();
   else if (hash === '#/history') screenHistory();
   else if (hash.startsWith('#/report/')) screenReport(Number(hash.split('/')[2]));

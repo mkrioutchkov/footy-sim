@@ -8,6 +8,7 @@
 // silently rearranged. Selling removes a player and renumbers the squad.
 import { db } from './db.ts';
 import { overall, playerValue, playerWage, ROLE_SLOTS, type Role } from './game.ts';
+import { recordFinance } from './finances.ts';
 
 export const SQUAD_MAX = 24;
 export const SQUAD_MIN = 11;
@@ -134,6 +135,7 @@ export function buyFreeAgent(teamId: number, agentId: number): BuyResult {
     const placed = placeRecruit(team, players, { name: agent.name, role: agent.role, attrsJson: agent.attrs, age: agent.age, potential: agent.potential, personalityJson: agent.personality, wage, contractYears: SIGN_CONTRACT_YEARS });
     db.prepare('UPDATE teams SET budget = budget - ? WHERE id = ?').run(agent.value, teamId);
     db.prepare('DELETE FROM free_agents WHERE id = ?').run(agentId);
+    recordFinance(teamId, 'transfer_in', -agent.value, `Signed free agent ${agent.name}`);   // no-op for AI
     return { ok: true, placed, value: agent.value, name: agent.name };
   });
 }
@@ -322,6 +324,8 @@ function transferListed(buyerId: number, sellerId: number, player: PRow, fee: nu
   const placed = placeRecruit(buyer, teamPlayers(buyerId), { name: player.name, role: player.role, attrsJson: player.attrs, age: player.age, potential: player.potential, personalityJson: player.personality, wage: player.wage ?? 0, contractYears: player.contract_years ?? SIGN_CONTRACT_YEARS });
   db.prepare('UPDATE teams SET budget = budget + ? WHERE id = ?').run(fee, sellerId);
   db.prepare('UPDATE teams SET budget = budget - ? WHERE id = ?').run(fee, buyerId);
+  recordFinance(sellerId, 'transfer_out', fee, `Sold ${player.name}`);   // no-op for AI clubs
+  recordFinance(buyerId, 'transfer_in', -fee, `Signed ${player.name}`);
   return placed;
 }
 

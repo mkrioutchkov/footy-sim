@@ -5,6 +5,7 @@
 // identity, so existing saves / the engine-free regressions are byte-for-byte unaffected.
 import { db } from './db.ts';
 import { randomPlayerName } from './names.ts';
+import { recordFinance } from './finances.ts';
 
 export type StaffRole = 'coach' | 'physio' | 'scout';
 export interface StaffRow { id: number; role: StaffRole; name: string; rating: number; cost: number; }
@@ -57,6 +58,7 @@ export function hireStaff(teamId: number, staffId: number): { ok: boolean; error
   try {
     db.prepare('UPDATE teams SET budget = budget - ? WHERE id = ?').run(s.cost, teamId);
     db.prepare('UPDATE staff SET team_id = ? WHERE id = ?').run(teamId, staffId);
+    recordFinance(teamId, 'staff', -s.cost, `Hired ${s.name}`);
     db.exec('COMMIT');
   } catch (err) { try { db.exec('ROLLBACK'); } catch { /* ignore */ } throw err; }
   return { ok: true, name: s.name };

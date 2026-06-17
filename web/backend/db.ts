@@ -320,3 +320,20 @@ CREATE TABLE IF NOT EXISTS staff (
 );
 CREATE INDEX IF NOT EXISTS idx_staff_world ON staff(world_id, team_id);
 `);
+
+// ── Club finances ledger ────────────────────────────────────────────────────
+// A record of the club's cash movements (prize money, transfer fees in/out, staff fees) for the
+// finances statement. Record-only — it mirrors money that already moved (the budget is the source
+// of truth); it never moves money itself. Human clubs only. New table, existing saves unaffected.
+db.exec(`
+CREATE TABLE IF NOT EXISTS finance_entries (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id    INTEGER NOT NULL,
+  season     INTEGER NOT NULL,
+  kind       TEXT NOT NULL,       -- prize | transfer_in | transfer_out | staff | sponsor | other
+  amount     INTEGER NOT NULL,    -- signed: + income, - expense
+  note       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_finance_team ON finance_entries(team_id, id);
+`);

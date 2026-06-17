@@ -402,6 +402,16 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     Staff screen with an effects panel + your-staff/hire-pool tables. Verified by `tools/_staff_test.ts`
     (23 — pool/hire/fire flow, the effect math + caps, budget/cap guards, the coach + scout integration) +
     smoke (54) + the season/multiseason regressions (identity, unchanged).
+  - **Club finances ledger (`finances.ts`, `finance_entries` table, `/api/finances`).** A RECORD-ONLY
+    statement of the club's real cash movements — it never moves money (the budget stays the source of
+    truth), it logs what already moved. `recordFinance` is a no-op for AI clubs, so the hooks call it
+    freely at the money-movement chokepoints: rollover prize (season.ts), club-to-club transfers (both
+    sides, in market.ts `transferListed`), free-agent signings (`buyFreeAgent`), staff fees (`hireStaff`).
+    `getFinances` returns the balance + this-season income/expense + by-category breakdown + last-25
+    movements. Finances screen shows the headline figures + category + recent tables. Because no new
+    money is introduced, the economy + the multiseason regression are unchanged. Verified by
+    `tools/_finances_test.ts` (14 — record/aggregate, AI no-op, per-season filtering, the buyFreeAgent +
+    rollover-prize hooks) + smoke (56).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
   negotiation + loans + dynamic player-news + ratings→morale & season awards are all SHIPPED.
