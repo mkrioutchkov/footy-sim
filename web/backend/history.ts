@@ -45,6 +45,32 @@ export function recordSeasonHistory(opts: {
   );
 }
 
+export interface ClubRecords {
+  seasons: number; titles: number; promotions: number; relegations: number; cups: number;
+  bestFinish: { position: number; tier: number; season: number } | null;
+  mostPoints: { points: number; season: number } | null;
+  mostGoals: { gf: number; season: number } | null;
+}
+
+// All-time club records — a pure reduction over the season archive (no new storage).
+export function getClubRecords(teamId: number): ClubRecords {
+  const h = getHistory(teamId);
+  const base: ClubRecords = { seasons: h.length, titles: 0, promotions: 0, relegations: 0, cups: 0, bestFinish: null, mostPoints: null, mostGoals: null };
+  if (!h.length) return base;
+  base.titles = h.filter(r => r.champion).length;
+  base.promotions = h.filter(r => r.promoted).length;
+  base.relegations = h.filter(r => r.relegated).length;
+  base.cups = h.filter(r => r.cupWon).length;
+  // best finish = highest tier first (lower number), then highest position (lower number)
+  const best = h.reduce((b, r) => (r.tier < b.tier || (r.tier === b.tier && r.position < b.position)) ? r : b, h[0]);
+  const pts = h.reduce((m, r) => r.points > m.points ? r : m, h[0]);
+  const gls = h.reduce((m, r) => r.gf > m.gf ? r : m, h[0]);
+  base.bestFinish = { position: best.position, tier: best.tier, season: best.season };
+  base.mostPoints = { points: pts.points, season: pts.season };
+  base.mostGoals = { gf: gls.gf, season: gls.season };
+  return base;
+}
+
 export function getHistory(teamId: number): SeasonHistoryRow[] {
   const rows = db.prepare('SELECT * FROM season_history WHERE team_id = ? ORDER BY season DESC').all(teamId) as {
     season: number; tier: number; division: string; position: number; played: number; won: number; drawn: number;

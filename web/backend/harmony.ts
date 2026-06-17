@@ -13,6 +13,16 @@ export interface SquadHarmony {
   players: HarmonyPlayer[];   // notable players, most significant first
 }
 
+// Training multiplier from squad harmony: EXACTLY 1.0 across the whole 'settled' band (so a fresh
+// squad — and the engine-free regressions — are byte-identical), a small bonus when united, a small
+// drag when restless/fractured. Capped tight; a settled dressing room is the neutral baseline.
+export function harmonyFactor(harmony: number): number {
+  if (harmony >= 55 && harmony < 75) return 1;                          // settled = neutral identity
+  if (harmony >= 75) return 1 + Math.min(0.06, (harmony - 75) / 400);   // united: up to +6%
+  if (harmony >= 35) return 1 - (55 - harmony) / 500;                   // restless: down to ~ −4%
+  return 0.92;                                                          // fractured: −8%
+}
+
 function traitsOf(personality: string | null): { ego?: number; leadership?: number; professionalism?: number } | null {
   try { return personality ? (JSON.parse(personality).traits ?? null) : null; } catch { return null; }
 }

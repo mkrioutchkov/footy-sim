@@ -1331,8 +1331,8 @@ function trophy(icon: string, n: number, label: string): HTMLElement {
 }
 async function screenHistory() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading history…')));
-  let hist: SeasonHistoryT[];
-  try { hist = (await api.history()).history; }
+  let hist: SeasonHistoryT[]; let records: import('./api').ClubRecordsT | null = null;
+  try { const r = await api.history(); hist = r.history; records = r.records; }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
@@ -1374,6 +1374,17 @@ async function screenHistory() {
         h('div', { class: 'muted' }, 'Every completed season and the honours that came with it.')),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Trophy cabinet'), cabinet),
+    records && records.seasons > 0 ? h('div', { class: 'card' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, 'All-time records'),
+      h('div', { class: 'row', style: 'gap:26px;flex-wrap:wrap;font-size:13px' },
+        ...[
+          records.bestFinish ? ['Best finish', `${ordinal(records.bestFinish.position)} · Tier ${records.bestFinish.tier} (S${records.bestFinish.season})`] : null,
+          records.mostPoints ? ['Most points', `${records.mostPoints.points} (S${records.mostPoints.season})`] : null,
+          records.mostGoals ? ['Most goals', `${records.mostGoals.gf} (S${records.mostGoals.season})`] : null,
+          ['Relegations', String(records.relegations)],
+        ].filter((x): x is [string, string] => x != null).map(([lab, val]) => h('div', {},
+          h('div', { class: 'muted', style: 'font-size:11px' }, lab),
+          h('div', { style: 'font-weight:700' }, val))))) : '',
     h('div', { class: 'card' },
       h('div', { class: 'section-title', style: 'margin-top:0' }, 'Season by season'),
       h('div', { style: 'max-height:560px;overflow:auto' }, h('table', {},

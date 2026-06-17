@@ -111,6 +111,12 @@ export interface FinancesT {
 export interface HarmonyPlayerT { slot: number; name: string; tag: 'leader' | 'pro' | 'disruptive' | 'unsettled'; note: string; }
 export interface HarmonyT { harmony: number; status: 'united' | 'settled' | 'restless' | 'fractured'; avgMorale: number; players: HarmonyPlayerT[]; }
 
+export interface ClubRecordsT {
+  seasons: number; titles: number; promotions: number; relegations: number; cups: number;
+  bestFinish: { position: number; tier: number; season: number } | null;
+  mostPoints: { points: number; season: number } | null;
+  mostGoals: { gf: number; season: number } | null;
+}
 export interface SeasonHistoryT {
   season: number; tier: number; division: string; position: number;
   played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
@@ -150,7 +156,7 @@ export const api = {
   report: (fixtureId: number) => req<ReportT>('GET', `/report?fixture=${fixtureId}`),
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: () => req<{ news: NewsItemT[] }>('GET', '/news'),
-  history: () => req<{ history: SeasonHistoryT[] }>('GET', '/history'),
+  history: () => req<{ history: SeasonHistoryT[]; records: ClubRecordsT }>('GET', '/history'),
   staff: () => req<StaffViewT>('GET', '/staff'),
   hireStaff: (staffId: number) => req<StaffViewT & { name?: string }>('POST', '/staff/hire', { staffId }),
   fireStaff: (staffId: number) => req<StaffViewT>('POST', '/staff/fire', { staffId }),

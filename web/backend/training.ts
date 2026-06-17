@@ -7,6 +7,7 @@ import { db } from './db.ts';
 import { overall } from './game.ts';
 import { moraleDevFactor } from './morale.ts';
 import { coachingFactor } from './staff.ts';
+import { getSquadHarmony, harmonyFactor } from './harmony.ts';
 
 export const TRAINABLE = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'] as const;
 export const VALID_FOCUS = new Set<string>(['balanced', ...TRAINABLE]);
@@ -30,13 +31,13 @@ function ageDrift(age: number): number {
 export function developAttrs(
   attrs: Record<string, number>, age: number, potential: number,
   traits: { professionalism?: number; consistency?: number } | null | undefined,
-  focus: string | null, morale = 65, coachFactor = 1,
+  focus: string | null, morale = 65, coachFactor = 1, harmonyF = 1,
 ): Record<string, number> {
   const prof = (traits?.professionalism ?? 50) / 100;
   const cons = (traits?.consistency ?? 50) / 100;
   const diligence = 0.6 + 0.8 * ((prof + cons) / 2);          // 0.6..1.4
   let drift = ageDrift(age) * diligence * moraleDevFactor(morale);   // age x diligence x morale
-  if (drift > 0) drift *= coachFactor;                        // good coaches accelerate growth, not decline
+  if (drift > 0) drift *= coachFactor * harmonyF;             // good coaches + a settled room accelerate growth, not decline
   const move = drift >= 0 ? Math.min(drift, Math.max(0, potential - overall(attrs))) : drift;
   const out: Record<string, number> = { ...attrs };
   for (const k of TRAINABLE) {
@@ -61,12 +62,14 @@ export function developmentTick(leagueId: number): { players: number } {
   const upd = db.prepare('UPDATE players SET attrs = ? WHERE id = ?');
   const coachCache = new Map<number, number>();   // team -> coaching factor (1 for AI/no-staff clubs)
   const coachOf = (tid: number): number => { let v = coachCache.get(tid); if (v === undefined) { v = coachingFactor(tid); coachCache.set(tid, v); } return v; };
+  const harmonyCache = new Map<number, number>(); // team -> harmony factor (1.0 for a settled squad)
+  const harmonyOf = (tid: number): number => { let v = harmonyCache.get(tid); if (v === undefined) { const h = getSquadHarmony(tid); v = h ? harmonyFactor(h.harmony) : 1; harmonyCache.set(tid, v); } return v; };
   let n = 0;
   for (const r of rows) {
     if (r.potential == null) continue;
     let traits: { professionalism?: number; consistency?: number } | null = null;
     try { traits = r.personality ? (JSON.parse(r.personality).traits ?? null) : null; } catch { /* neutral */ }
-    upd.run(JSON.stringify(developAttrs(JSON.parse(r.attrs), r.age, r.potential, traits, r.focus, r.morale, coachOf(r.team_id))), r.id);
+    upd.run(JSON.stringify(developAttrs(JSON.parse(r.attrs), r.age, r.potential, traits, r.focus, r.morale, coachOf(r.team_id), harmonyOf(r.team_id))), r.id);
     n++;
   }
   return { players: n };
