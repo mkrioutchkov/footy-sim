@@ -63,7 +63,7 @@ Written by `web/backend/match.ts → buildSpec()`; consumed by the engine's
   `PlayerAttributes` (`speed, passing, creativity, shooting, tackling,
   positioning, stamina`, each 0–100) — see `web/frontend/types.ts`.
 - The fixed-22 invariant: home = engine ids 0–10, away = 11–21.
-- `directives[].kind`: **17 per-player + 12 team-wide** kinds (man_mark,
+- `directives[].kind`: **20 per-player + 12 team-wide** kinds (man_mark,
   shoot_on_sight, get_forward, sit_deep, target_player, …; team-wide kinds carry a
   `teamScope` flag and adjust the 5 dials at runtime). The **authoritative list lives
   in `engine/main.cpp` `parseDirectives` + `web/backend/tactics.ts`** and is

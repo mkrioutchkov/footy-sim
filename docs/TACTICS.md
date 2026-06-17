@@ -62,16 +62,20 @@ The manager has **two textareas**, not one:
 - **Conditions**: time windows (`fromMin`/`toMin` — "first half", "last 15",
   "after the 60th") and score state (winning/losing/drawing by N). Sequenced
   orders ("press high for 20 then drop off") split into two timed directives.
-- **Directives** (**17 per-player + 12 team-wide**). Each maps onto an
+- **Directives** (**20 per-player + 12 team-wide**). Each maps onto an
   existing engine knob (assignment / a per-player score bias / a formation-anchor
   shift / a per-team dial delta), gated behind a non-empty directive so the
   no-directive match is byte-identical:
   - *Marking / passing target*: `man_mark(target)`, `target_player(X)`.
   - *Shooting / on-ball*: `shoot_on_sight`, `cross_early`, `switch_play`,
-    `play_simple`, `dribble_more`.
-  - *Movement (formation-anchor shift)*: `get_forward`/`sit_deep` (homeX),
-    `stay_wide`/`come_inside`/`stay_central` (homeY), `run_in_behind`/`make_runs`.
-  - *Defending*: `press_hard`, `tackle_hard`, `stay_on_feet`.
+    `play_simple`, `dribble_more`, `cutback` (favour the pull-back to an arriving
+    runner over an early cross).
+  - *Movement (formation-anchor shift / off-ball runs)*: `get_forward`/`sit_deep`
+    (homeX), `stay_wide`/`come_inside`/`stay_central` (homeY),
+    `run_in_behind`/`make_runs`, `stay_back` (hold shape — damps the dynamic
+    overlap/advance push, distinct from `sit_deep`'s static anchor shift).
+  - *Defending*: `press_hard`, `tackle_hard`, `stay_on_feet`, `contain` (sit off
+    and jockey instead of diving in — the opposite of `press_hard`).
   - *Team-wide (the 5 dials at runtime)*: `all_out_attack`, `park_the_bus`,
     `high_press`, `drop_off`, `play_it_long`, `keep_it_on_ground`, `get_it_wide`,
     `play_narrow`, `push_up`, `slow_it_down`, `counter_attack` (amplifies the
@@ -156,7 +160,7 @@ ever executes a **bounded palette** of effects, so it can't go off the rails.
 | **P2 ✅ done** | **Live deltas + timeline**: a match is `seed + timeline` of timed directive sets (engine applies them at the recorded clocks — replays identically). A mid-watch `tactics` edit appends to the timeline at the watched clock and re-sims with `--stream-from`, resuming seamlessly (the prefix is byte-identical). Verified live: edit at 2533ms resumed there and engaged the mark. | engine + backend |
 | **P3 ✅ done** | **Text -> DSL compiler**: provider-agnostic OpenAI-compatible call, strict-schema prompt + roster context, validate/coerce + cache. Wired into the watch socket ({type:'tactics', text} -> compile -> receipt -> timeline). **LLM-only on Groq** + 429 retry. (Live path is now `web/backend/plan.ts` `compilePlanEdit`, a stateful composite-plan editor; the original single-shot `tactics.ts` `compileTactics` is test-only.) | backend |
 | **P4 ✅ done** | **Web UX**: tactical-plan textbox in the watch view → sends text on the socket → shows an interpretation receipt of what was understood, match re-sims live. Verified in-browser. Panel scrolls (long receipts don't truncate). Follow-on: the consumed "Shouts" box for subs (needs the engine runtime sub-trigger). | frontend |
-| **P4.5 ✅ done** | **Vocabulary expansion + provider**: 17 per-player + 12 team-wide directives (movement, on-ball, defending, the 5 dials at runtime), opponent-by-role + whole-team ("we/us/all", manager-side plumbed end-to-end) + sequenced conditions. Swapped the flaky MiMo for Groq (LLM-primary). Golden regression guard locks the default match. Effects measured where a clean stat exists. | engine + backend + frontend |
+| **P4.5 ✅ done** | **Vocabulary expansion + provider**: 20 per-player + 12 team-wide directives (movement, on-ball, defending, the 5 dials at runtime; the per-player set has since grown to 20 with cutback/contain/stay_back), opponent-by-role + whole-team ("we/us/all", manager-side plumbed end-to-end) + sequenced conditions. Swapped the flaky MiMo for Groq (LLM-primary). Golden regression guard locks the default match. Effects measured where a clean stat exists. | engine + backend + frontend |
 | **P5 ◑ partial** | **Morale SHIPPED** (squad morale shades effort/decisions; shouts move morale via personality — see SHOUTS_AND_PERSONALITY.md). **Still to build**: per-directive compliance gating by temperament. | engine + UI |
 | **Ongoing** | More directive kinds (hold_up_play, waste_time, formation changes), a stronger ball-over-the-top mechanic so `play_it_long` bites, formation library, replays/sharing. | both |
 
