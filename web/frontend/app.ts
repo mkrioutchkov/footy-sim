@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -96,6 +96,12 @@ function fmtMoney(n: number): string {
 const SKILL_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
 function skillOvr(attrs: Record<string, number>): number {
   return Math.round(SKILL_KEYS.reduce((s, k) => s + (attrs[k] ?? 0), 0) / SKILL_KEYS.length);
+}
+// per-cell attribute heat: red (low) → green (high), used across the squad table + compare.
+const SQUAD_ATTRS: [string, string][] = [['speed', 'SPD'], ['passing', 'PAS'], ['creativity', 'CRE'], ['shooting', 'SHO'], ['tackling', 'TAC'], ['positioning', 'POS'], ['stamina', 'STA']];
+function attrHeat(v: number): string {
+  const hue = Math.max(0, Math.min(120, Math.round(((v - 35) / (95 - 35)) * 120)));
+  return `color:hsl(${hue},70%,64%);font-weight:600`;
 }
 
 // Compact tables for the world's OTHER divisions (the user's own is the main table above).
@@ -486,6 +492,7 @@ async function screenDashboard() {
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
         `Managed by ${team.manager} · ${league.divisionName ?? 'League'}${league.season ? ` · Season ${league.season}` : ''} · Position ${myPos}/${league.standings.length}`)),
       h('div', { class: 'row' }, watchBtn, advanceBtn,
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/squad') }, 'Squad'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/staff') }, 'Staff'),
@@ -1424,6 +1431,97 @@ async function screenHistory() {
   ));
 }
 
+// ── squad spine screen: sortable attribute table + heat + depth chart + compare ──
+async function screenSquad() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading squad…')));
+  let team: TeamT;
+  try { team = await api.team(); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message),
+      h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenSquad() }, '↻ Retry')));
+  }
+  const players = [...team.players];
+  const leadOf = (p: PlayerT) => (p.personality?.traits?.leadership ?? -1);
+  const captainSlot = players.length ? players.reduce((best, p) => leadOf(p) > leadOf(best) ? p : best, players[0]).slot : -1;
+
+  let sortKey = 'slot', sortDir: 1 | -1 = 1, cmpA = -1, cmpB = -1;
+  const COLS: { key: string; label: string; text?: boolean; get: (p: PlayerT) => number | string }[] = [
+    { key: 'slot', label: 'Name', text: true, get: p => p.name },
+    { key: 'role', label: 'Pos', text: true, get: p => p.role },
+    { key: 'age', label: 'Age', get: p => p.age ?? 0 },
+    { key: 'ovr', label: 'OVR', get: p => skillOvr(p.attrs) },
+    { key: 'pot', label: 'POT', get: p => p.potential ?? 0 },
+    ...SQUAD_ATTRS.map(([a, lab]): { key: string; label: string; get: (p: PlayerT) => number } => ({ key: a, label: lab, get: p => p.attrs[a] ?? 0 })),
+    { key: 'wage', label: 'Wage', get: p => p.wage ?? 0 },
+    { key: 'contract', label: 'Contr', get: p => p.contractYears ?? 0 },
+    { key: 'morale', label: 'Mor', get: p => p.morale ?? 0 },
+    { key: 'fitness', label: 'Fit', get: p => (p.injuredMatches ?? 0) > 0 ? -1 : (p.fitness ?? 100) },
+  ];
+
+  function render() {
+    const col = COLS.find(c => c.key === sortKey)!;
+    const sorted = [...players].sort((a, b) => {
+      const va = col.get(a), vb = col.get(b);
+      const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+      return c * sortDir;
+    });
+    const thead = h('thead', {}, h('tr', {}, ...COLS.map(c => {
+      const th = h('th', { class: c.text ? '' : 'num', style: 'cursor:pointer;user-select:none' },
+        c.label + (sortKey === c.key ? (sortDir === 1 ? ' ▲' : ' ▼') : ''));
+      th.addEventListener('click', () => { if (sortKey === c.key) sortDir = (sortDir === 1 ? -1 : 1); else { sortKey = c.key; sortDir = c.text ? 1 : -1; } render(); });
+      return th;
+    })));
+    const tbody = h('tbody');
+    for (const p of sorted) {
+      const ovr = skillOvr(p.attrs);
+      tbody.append(h('tr', { class: p.slot < 11 ? 'me' : '' },
+        h('td', {}, captainSlot === p.slot ? h('span', { title: 'Club captain (highest leadership)', style: 'margin-right:4px' }, '🧭') : '',
+          h('span', { style: 'cursor:pointer', onclick: () => (location.hash = `#/player/${p.slot}`) }, p.name),
+          p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:10px' }, ' · bench') : ''),
+        h('td', {}, h('span', { class: 'pill' }, p.role)),
+        h('td', { class: 'num' }, String(p.age ?? '—')),
+        h('td', { class: 'num', style: 'font-weight:700' }, String(ovr)),
+        h('td', { class: 'num' }, p.potential != null && p.potential > ovr ? h('span', { class: 'a', style: 'color:var(--accent)' }, String(p.potential)) : String(p.potential ?? '—')),
+        ...SQUAD_ATTRS.map(([a]) => h('td', { class: 'num', style: attrHeat(p.attrs[a] ?? 0) }, String(Math.round(p.attrs[a] ?? 0)))),
+        h('td', { class: 'num' }, p.wage != null ? fmtMoney(p.wage) : '—'),
+        h('td', { class: 'num' }, (p.contractYears ?? 0) + 'y'),
+        h('td', { class: 'num', style: p.morale != null ? (p.morale >= 75 ? 'color:var(--accent)' : p.morale <= 40 ? 'color:var(--danger)' : '') : '' }, String(p.morale ?? '—')),
+        h('td', { class: 'num' }, (p.injuredMatches ?? 0) > 0 ? `🤕${p.injuredMatches}` : `${p.fitness ?? 100}%`)));
+    }
+    // depth by position (● starter / ○ bench)
+    const ROLE_ORDER = ['GK', 'CB', 'FB', 'CM', 'WM', 'CF'];
+    const byRole = ROLE_ORDER.map(role => ({ role, ps: players.filter(p => p.role === role).sort((a, b) => a.slot - b.slot) })).filter(g => g.ps.length);
+    const depth = h('div', { class: 'row', style: 'gap:16px;flex-wrap:wrap;align-items:start' }, ...byRole.map(g => h('div', { style: 'min-width:120px' },
+      h('div', { class: 'muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px' }, `${g.role} · ${g.ps.length}`),
+      ...g.ps.map(p => h('div', { style: 'font-size:12px;padding:1px 0;' + (p.slot < 11 ? '' : 'opacity:.55'), }, `${p.slot < 11 ? '●' : '○'} ${p.name} ${skillOvr(p.attrs)}`)))));
+    // compare
+    const opt = (sel: number) => [h('option', { value: '-1' }, '— pick —'), ...players.map(p => { const o = h('option', { value: String(p.slot) }, `${p.name} (${p.role})`) as HTMLOptionElement; if (p.slot === sel) o.selected = true; return o; })];
+    const selA = h('select', {}, ...opt(cmpA)) as HTMLSelectElement;
+    const selB = h('select', {}, ...opt(cmpB)) as HTMLSelectElement;
+    selA.addEventListener('change', () => { cmpA = Number(selA.value); render(); });
+    selB.addEventListener('change', () => { cmpB = Number(selB.value); render(); });
+    const pa = players.find(p => p.slot === cmpA), pb = players.find(p => p.slot === cmpB);
+    const cmp = pa && pb
+      ? h('div', {}, ...SQUAD_ATTRS.map(([a, lab]) => h('div', { class: 'row', style: 'gap:10px;align-items:center;font-size:12px;margin:3px 0;justify-content:center' },
+          h('span', { class: 'num', style: 'width:34px;text-align:right;' + attrHeat(pa.attrs[a] ?? 0) }, String(Math.round(pa.attrs[a] ?? 0))),
+          h('span', { class: 'muted', style: 'width:44px;text-align:center' }, lab),
+          h('span', { class: 'num', style: 'width:34px;' + attrHeat(pb.attrs[a] ?? 0) }, String(Math.round(pb.attrs[a] ?? 0))))))
+      : h('div', { class: 'muted', style: 'font-size:12px' }, 'Pick two players to compare their attributes.');
+
+    mount(header(), h('div', { class: 'wrap grid' },
+      h('div', { class: 'between' },
+        h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain · click a header to sort`)),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+      h('div', { class: 'card scroll-x' }, h('table', {}, thead, tbody)),
+      h('div', { class: 'grid cols-2', style: 'align-items:start' },
+        h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Depth by position'), depth),
+        h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Compare two players'),
+          h('div', { class: 'row', style: 'gap:10px;margin-bottom:10px' }, selA, selB), cmp))));
+  }
+  render();
+}
+
 function route() {
   const hash = location.hash;
   if (!user) { screenAuth(); return; }
@@ -1432,6 +1530,7 @@ function route() {
   else if (hash === '#/tactics') screenTactics();
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
+  else if (hash === '#/squad') screenSquad();
   else if (hash === '#/staff') screenStaff();
   else if (hash === '#/finances') screenFinances();
   else if (hash === '#/cup') screenCup();
