@@ -353,6 +353,9 @@ public:
     [[nodiscard]] Player* findNearestOutfieldPlayer(Team team, double x, double y);
     [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
     bool canContestBall(Player& player);
+    // True if an active outfield opponent is within `radius` of the keeper —
+    // a crowded keeper is likelier to punch/parry than gather cleanly.
+    [[nodiscard]] bool gkUnderPressure(const Player& gk, double radius) const;
     [[nodiscard]] bool canKnockBallAhead(int playerId) const {
         return !activeKnockAhead.active && knockAheadCooldownUntil[playerId] <= state.clockMs;
     }

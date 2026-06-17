@@ -19,6 +19,13 @@ void GameEngine::updateGK(double sdt) {
     }
 }
 
+bool GameEngine::gkUnderPressure(const Player& gk, double radius) const {
+    for (auto& o : state.players)
+        if (o.team != gk.team && o.role != Role::GK && !o.sentOff && dist(o.x, o.y, gk.x, gk.y) < radius)
+            return true;
+    return false;
+}
+
 void GameEngine::updateOneGK(Player& gk, double secs) {
     // Mid-save: dive at the predicted intercept point, nothing else matters.
     if (pendingSave.active && pendingSave.gkId == gk.id) {
@@ -267,10 +274,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     // Natural handling decision: hold it only when comfortable — ball near
     // the body, pace manageable, nobody breathing down your neck. Under
     // pressure or against heat, get a fist on it instead of gambling.
-    bool gkPressured = false;
-    for (auto& o : state.players) {
-        if (o.team != gk.team && o.role != Role::GK && !o.sentOff && dist(o.x, o.y, gk.x, gk.y) < 52.0) { gkPressured = true; break; }
-    }
+    bool gkPressured = gkUnderPressure(gk, 52.0);
     double contactOffset = dist(b.x, b.y, gk.x, gk.y);
     bool comfortable = contactOffset < reach * 0.45 && speed < 265.0;
     // Handling now governs catch confidence (was positioning). Keep the SAME
@@ -368,10 +372,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
 
     // Crowd: an attacker contesting the keeper's airspace makes a clean claim
     // harder — he's more likely to punch/flap than gather.
-    bool gkPressured = false;
-    for (auto& o : state.players)
-        if (o.team != gk.team && o.role != Role::GK && !o.sentOff
-            && dist(o.x, o.y, gk.x, gk.y) < GK_CLAIM_CROWD_DIST) { gkPressured = true; break; }
+    bool gkPressured = gkUnderPressure(gk, GK_CLAIM_CROWD_DIST);
 
     double reachMargin = clamp((GK_CLAIM_RADIUS - claimD) / GK_CLAIM_RADIUS, 0.0, 1.0);
     double paceCost    = std::max(0.0, speed - 260.0) / GK_CLAIM_PACE_FALL;
