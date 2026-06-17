@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -28,6 +28,14 @@ function h(tag: string, attrs: Attrs = {}, ...kids: (Node | string)[]): HTMLElem
     else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v);
     else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, String(v));
   }
+  for (const kid of kids) e.append(kid instanceof Node ? kid : document.createTextNode(kid));
+  return e;
+}
+// SVG sibling of h() — createElementNS so <svg> children render; values go in as attributes and
+// text as text nodes (so player names can't inject markup), same XSS-safe posture as h().
+function svgEl(tag: string, attrs: Record<string, string | number | undefined> = {}, ...kids: (Node | string)[]): SVGElement {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) e.setAttribute(k, String(v));
   for (const kid of kids) e.append(kid instanceof Node ? kid : document.createTextNode(kid));
   return e;
 }
@@ -259,43 +267,84 @@ function planPanel(team: TeamT): HTMLElement {
 
 // Formation control: a plain-text shout ("play 4-4-2", "AB at left back") sets the
 // team's shape + XI for every match it plays. Shows the resolved XI + any note.
-function formationPanel(team: TeamT): HTMLElement {
+function shortName(n: string): string { return n.length > 13 ? n.slice(0, 12) + '…' : n; }
+// A top-down pitch with 11 positioned tokens (engine HOME frame: x = depth own-goal-left, y = width).
+function pitchSvg(tokens: { x: number; y: number; role: string; name: string }[], pitchW: number, pitchH: number): SVGElement {
+  const W = pitchW, H = pitchH, m = 8;
+  const stroke = (extra: Record<string, string | number> = {}) => ({ fill: 'none', stroke: '#ffffff', 'stroke-opacity': 0.22, 'stroke-width': 3, ...extra });
+  const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, width: '100%', style: 'max-height:520px;display:block;background:linear-gradient(180deg,#1c4a2c,#16331f);border-radius:10px' });
+  svg.append(
+    svgEl('rect', { x: m, y: m, width: W - 2 * m, height: H - 2 * m, ...stroke() }),
+    svgEl('line', { x1: W / 2, y1: m, x2: W / 2, y2: H - m, ...stroke() }),
+    svgEl('circle', { cx: W / 2, cy: H / 2, r: 80, ...stroke() }),
+    svgEl('rect', { x: m, y: H / 2 - 160, width: 150, height: 320, ...stroke({ 'stroke-opacity': 0.18 }) }),
+    svgEl('rect', { x: W - m - 150, y: H / 2 - 160, width: 150, height: 320, ...stroke({ 'stroke-opacity': 0.18 }) }),
+  );
+  for (const t of tokens) {
+    const color = t.role === 'GK' ? '#ffd24d' : '#43d39e';
+    const g = svgEl('g', { transform: `translate(${t.x},${t.y})` });
+    g.append(
+      svgEl('circle', { r: 30, fill: color, 'fill-opacity': 0.92, stroke: '#0b1018', 'stroke-width': 2 }),
+      svgEl('text', { 'text-anchor': 'middle', y: 6, 'font-size': 21, 'font-weight': 700, fill: '#0b1018' }, t.role),
+      svgEl('text', { 'text-anchor': 'middle', y: 56, 'font-size': 22, fill: '#eef3f8', 'paint-order': 'stroke', stroke: '#0b1018', 'stroke-width': 4 }, shortName(t.name)),
+    );
+    svg.append(g);
+  }
+  return svg;
+}
+function formationPanel(team: TeamT, reg: FormationsT | null): HTMLElement {
   const badge = h('span', { class: 'pill', style: 'margin-left:8px' }, team.formation ?? '4-3-3');
-  const input = h('input', { placeholder: 'e.g. play 4-4-2  ·  “AB at left back”' }) as HTMLInputElement;
   const out = h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px' });
-  const xiBox = h('div', { class: 'players', style: 'margin-top:10px' });
-  const renderXI = (slots: { role: string; playerName: string }[]) => {
-    xiBox.replaceChildren(...slots.map(s => h('div', { class: 'pcard' },
-      h('div', { class: 'role' }, s.role), h('div', { class: 'pn' }, s.playerName || '—'))));
+  const pitchBox = h('div', {});
+  let fmt = team.formation ?? '4-3-3';
+  let lineup: number[] | null = team.lineup ?? null;
+
+  const tokensFromReg = (): { x: number; y: number; role: string; name: string }[] => {
+    const slots = reg?.formations[fmt] ?? reg?.formations['4-3-3'] ?? [];
+    return slots.map((s, i) => ({ x: s.x, y: s.y, role: s.role, name: team.players[lineup?.[i] ?? i]?.name ?? '—' }));
   };
-  const setBtn = h('button', { class: 'primary small' }, 'Set');
-  const apply = async () => {
-    const text = input.value.trim(); if (!text) return;
-    setBtn.setAttribute('disabled', 'true'); setBtn.textContent = '…';
+  const drawPitch = (tokens: { x: number; y: number; role: string; name: string }[]) => {
+    pitchBox.replaceChildren(reg ? pitchSvg(tokens, reg.pitchW, reg.pitchH) : h('div', { class: 'muted', style: 'font-size:12px' }, '(pitch unavailable)'));
+  };
+  drawPitch(tokensFromReg());
+
+  const apply = async (text: string) => {
+    out.textContent = 'Setting…';
     try {
       const r = await api.setLineup(text);
-      badge.textContent = r.formation;
+      fmt = r.formation; lineup = r.lineup; badge.textContent = r.formation;
+      if (sel) sel.value = r.formation;
       out.textContent = r.note || `Lined up in a ${r.formation}.`;
-      if (r.slots?.length) renderXI(r.slots);
+      drawPitch(r.slots?.length ? r.slots.map(s => ({ x: s.homeX, y: s.homeY, role: s.role, name: s.playerName || '—' })) : tokensFromReg());
     } catch (e: any) { out.textContent = e.message; }
-    setBtn.removeAttribute('disabled'); setBtn.textContent = 'Set';
   };
-  setBtn.addEventListener('click', apply);
-  input.addEventListener('keydown', (ev: any) => { if (ev.key === 'Enter') apply(); });
+  const sel = reg ? h('select', { style: 'max-width:170px' }, ...Object.keys(reg.formations).map(name => {
+    const o = h('option', { value: name }, name) as HTMLOptionElement; if (name === fmt) o.selected = true; return o;
+  })) as HTMLSelectElement : null;
+  if (sel) sel.addEventListener('change', () => apply(`play ${sel.value}`));
+
+  const input = h('input', { placeholder: 'fine-tune in words — “AB at left back”, “push the full-backs on”' }) as HTMLInputElement;
+  const setBtn = h('button', { class: 'primary small' }, 'Set');
+  const applyInput = () => { const t = input.value.trim(); if (t) { apply(t); input.value = ''; } };
+  setBtn.addEventListener('click', applyInput);
+  input.addEventListener('keydown', (ev: any) => { if (ev.key === 'Enter') applyInput(); });
+
   return h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Formation', badge),
-    h('div', { class: 'tactics-row' }, input, setBtn),
-    out, xiBox,
+    sel ? h('div', { class: 'row', style: 'gap:10px;margin-bottom:10px' }, h('span', { class: 'muted', style: 'font-size:12px' }, 'Shape'), sel) : '',
+    pitchBox,
+    h('div', { class: 'tactics-row', style: 'margin-top:10px' }, input, setBtn),
+    out,
   );
 }
 
 // ── dashboard ──
 async function screenDashboard() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
-  let team: TeamT, league: LeagueT, news: NewsItemT[] = [], harmony: HarmonyT | null = null;
+  let team: TeamT, league: LeagueT, news: NewsItemT[] = [], harmony: HarmonyT | null = null, reg: FormationsT | null = null;
   try {
-    const [t, l, n, hm] = await Promise.all([api.team(), api.league(), api.news().catch(() => ({ news: [] })), api.harmony().catch(() => null)]);
-    team = t; league = l; news = n.news; harmony = hm;
+    const [t, l, n, hm, fr] = await Promise.all([api.team(), api.league(), api.news().catch(() => ({ news: [] })), api.harmony().catch(() => null), api.formations().catch(() => null)]);
+    team = t; league = l; news = n.news; harmony = hm; reg = fr;
   } catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
     // team()/league() are essential — one transient failure shouldn't strand the home screen on a
@@ -537,7 +586,7 @@ async function screenDashboard() {
     h('div', { class: 'grid cols-split', style: 'align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
       h('div', {},
-        formationPanel(team),
+        formationPanel(team, reg),
         harmonyCard,
         newsCard,
         pressCard,
@@ -556,12 +605,13 @@ async function screenDashboard() {
 async function screenTactics() {
   let team: TeamT;
   try { team = await api.team(); } catch { return route(); }
+  const reg = await api.formations().catch(() => null);   // registry for the visual pitch (graceful if it fails)
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('h2', {}, 'Tactics'),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     planPanel(team),
-    formationPanel(team),
+    formationPanel(team, reg),
   ));
 }
 

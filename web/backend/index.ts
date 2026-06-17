@@ -15,6 +15,7 @@ import { deriveTraits, defaultPersonality, type Personality } from './personalit
 import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording } from './match.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
+import { FORMATIONS, PITCH_W } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn } from './market.ts';
 import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
@@ -180,6 +181,12 @@ app.put('/api/lineup', async (req: any, reply) => {
   db.prepare('UPDATE teams SET formation = ?, lineup = ? WHERE id = ?')
     .run(r.formation, isDefault ? null : JSON.stringify(lineup), teamId);
   return { formation: r.formation, lineup: isDefault ? null : lineup, slots: r.slots, note: r.note };
+});
+
+// The formation registry (per-slot role + pitch coordinates) for the visual tactics pitch.
+app.get('/api/formations', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  return { pitchW: PITCH_W, pitchH: 680, formations: FORMATIONS };
 });
 
 // ── transfer market (pillar 1) ──

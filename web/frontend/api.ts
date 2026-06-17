@@ -42,6 +42,7 @@ export interface TeamT {
   planText?: string | null; plan?: PlanT | null;
 }
 export interface LineupSlotT { slot: number; role: string; homeX: number; homeY: number; playerName: string; fromSlot: number; }
+export interface FormationsT { pitchW: number; pitchH: number; formations: Record<string, { role: string; x: number; y: number }[]>; }
 export interface LineupResultT { formation: string; lineup: number[] | null; slots: LineupSlotT[]; note: string; }
 export interface StandingT {
   teamId: number; name: string; manager: string; isUser: boolean;
@@ -135,6 +136,7 @@ export const api = {
   setTactics: (tactics: Tactics) => req<{ tactics: Tactics }>('PUT', '/tactics', { tactics }),
   teamPlan: (text: string) => req<{ planText: string; plan: PlanT; note: string; error: string | null }>('POST', '/team/plan', { text }),
   setLineup: (text: string) => req<LineupResultT>('PUT', '/lineup', { text }),
+  formations: () => req<FormationsT>('GET', '/formations'),
   generatePersonalities: () => req<TeamT>('POST', '/personalities', {}),   // send a body so Fastify can't 415 on a bodyless POST
   league: () => req<LeagueT>('GET', '/league'),
   playFixture: (id: number) => req<{ result: { homeScore: number; awayScore: number; alreadyPlayed: boolean }; standings: StandingT[] }>('POST', `/fixtures/${id}/play`),
