@@ -33,6 +33,8 @@ public:
         int looseBallSpeedSamples = 0, passLaunchCount = 0, shotLaunchCount = 0;
     } metrics;
 
+    // Ball-carrier diagnostics: stuck detection, backward-carry, carry distance,
+    // stationary-hold — feeds quality-flag stats, does not steer play.
     struct CarrierTracker {
         int watchedCarrierId = -1;
         double watchedCarrierX = 0, watchedCarrierY = 0, watchedCarrierMs = 0;
@@ -51,6 +53,7 @@ public:
         bool stationaryHoldRecorded = false;
     } carrierTracker;
 
+    // Anti-stall watchdog: if a controlled ball sits still too long, nudge it.
     struct FreezeDetector {
         int simulationFreezes = 0;
         double freezeWatchMs = 0;
@@ -194,6 +197,7 @@ public:
     // keyed on handling. claimD is the slant distance (incl. z) at commit.
     void resolveCrossClaim(Player& gk, double claimD);
 
+    // Goal-kick distribution window: the active goal-kick + a release/timeout timer.
     struct GKMonitor {
         double distributeTimer = 0;
         bool active = false;
