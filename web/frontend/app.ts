@@ -365,6 +365,8 @@ async function screenDashboard() {
         const myYouth = (ro.youth ?? []).filter(y => y.teamId === team.id);
         const retired = myYouth.filter(y => y.type === 'retired'), intake = myYouth.filter(y => y.type === 'intake');
         if (retired.length || intake.length) toast(`Academy: ${intake.length} prospect(s) promoted${retired.length ? `, ${retired.length} veteran(s) retired` : ''}.`);
+        const board = (ro.board ?? []).find(b => b.teamId === team.id);
+        if (board) toast(`📋 Board: ${board.message}`);
       }
       screenDashboard();
     } catch (e: any) { toast(e.message); screenDashboard(); }

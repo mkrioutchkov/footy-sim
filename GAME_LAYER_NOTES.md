@@ -390,9 +390,12 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     0–100 board rating of the manager: drifts ±2 per result (in `processMatchAftermath`, exactly-once per
     fixture) and SWINGS at rollover (`settleConfidenceAtRollover`: relegation −30, promotion +22, objective
     met/missed ±14/16, top-/bottom-third finish ±6, clamped). Status bands secure/stable/under-pressure/at-
-    risk; dashboard shows a confidence bar beside the objective. No sacking yet — the stat + status set up
-    that consequence. Verified by `tools/_confidence_test.ts` (15 — bands, drift, settle math + clamp, the
-    champion-soars roll) + smoke (49) + multiseason (83).
+    risk; dashboard shows a confidence bar beside the objective. At each rollover the board delivers a
+    verdict (`boardVerdictAtRollover`: backed / satisfied / concerned / warned / final-warning), escalating
+    via a persisted `low_confidence_streak` when confidence stays at-risk season on season; it rides home in
+    `RolloverResult.board` and surfaces as a dashboard toast. No hard sacking yet (taste). Verified by
+    `tools/_confidence_test.ts` (23 — bands, drift, settle math + clamp, the champion-soars roll, the verdict
+    + escalation ladder) + smoke (49) + multiseason (83).
   - **Backroom staff (`staff.ts`, `staff` table, `/api/staff` + hire/fire).** A shared per-world hire pool
     the club signs coaches/physios/scouts from for a one-off fee (from the transfer budget; no wage gate).
     Effects, each aggregated from a role's combined quality and capped, IDENTITY with no staff (so the

@@ -45,3 +45,20 @@ export function settleConfidenceAtRollover(opts: {
   applyDelta(opts.teamId, delta);
   return (db.prepare('SELECT board_confidence FROM teams WHERE id = ?').get(opts.teamId) as { board_confidence: number }).board_confidence;
 }
+
+export type BoardTone = 'backed' | 'satisfied' | 'concerned' | 'warned' | 'final_warning';
+
+// The board's verdict on the manager at rollover, escalating if confidence stays at-risk across
+// seasons. Tracks the consecutive at-risk streak on the team. Call AFTER settleConfidenceAtRollover.
+export function boardVerdictAtRollover(teamId: number, confidence: number, objectiveMet: boolean | null): { tone: BoardTone; message: string } {
+  const status = confidenceStatus(confidence);
+  let streak = (db.prepare('SELECT low_confidence_streak AS s FROM teams WHERE id = ?').get(teamId) as { s: number }).s;
+  streak = status === 'at_risk' ? streak + 1 : 0;
+  db.prepare('UPDATE teams SET low_confidence_streak = ? WHERE id = ?').run(streak, teamId);
+  if (status === 'at_risk') return streak >= 2
+    ? { tone: 'final_warning', message: 'The board has run out of patience — another season like this and your time is up.' }
+    : { tone: 'warned', message: 'The board is deeply unhappy. You are under serious pressure to turn results around.' };
+  if (status === 'secure') return { tone: 'backed', message: objectiveMet === false ? 'The board keeps full faith in you despite the missed target.' : 'The board is delighted — your standing has never been higher.' };
+  if (status === 'stable') return { tone: 'satisfied', message: objectiveMet === true ? 'The board is satisfied — objective met. Keep it going.' : 'The board remains supportive.' };
+  return { tone: 'concerned', message: 'The board expects a clear improvement next season.' };
+}

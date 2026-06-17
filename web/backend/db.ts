@@ -303,6 +303,7 @@ ensureColumn('season_history', 'objective_met', 'objective_met INTEGER');   // 1
 // objective verdict + finish + promotion/relegation. Defaults to 55 (neutral) for every club, so
 // existing saves start from the same neutral footing.
 ensureColumn('teams', 'board_confidence', 'board_confidence INTEGER NOT NULL DEFAULT 55');
+ensureColumn('teams', 'low_confidence_streak', 'low_confidence_streak INTEGER NOT NULL DEFAULT 0');   // consecutive at-risk rollovers (escalating board warnings)
 
 // ── Backroom staff (coaches / physios / scouts) ─────────────────────────────
 // A shared per-world hire pool (team_id NULL) the user signs from for a one-off fee; coaches speed

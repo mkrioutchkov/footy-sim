@@ -69,6 +69,7 @@ export interface RolloverT {
   prizeMoney: { teamId: number; team: string; amount: number }[];
   contracts: { teamId: number; player: string; type: 'renewed' | 'released' }[];
   youth: { teamId: number; type: 'retired' | 'intake'; player: string; age: number }[];
+  board?: { teamId: number; tone: string; message: string }[];
 }
 export interface FreeAgentT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; }
 export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; contractYears: number; listed: boolean; askPrice: number | null; starter: boolean; onLoan: boolean; }

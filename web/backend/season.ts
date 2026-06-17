@@ -17,7 +17,7 @@ import { returnLoans } from './market.ts';
 import { recordSeasonAwards } from './news.ts';
 import { recordSeasonHistory } from './history.ts';
 import { getObjective, setSeasonObjective, deriveObjective, objectiveMet } from './objectives.ts';
-import { settleConfidenceAtRollover } from './confidence.ts';
+import { settleConfidenceAtRollover, boardVerdictAtRollover, type BoardTone } from './confidence.ts';
 import { recordFinance } from './finances.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
@@ -86,6 +86,7 @@ export interface RolloverResult {
   prizeMoney: { teamId: number; team: string; amount: number }[];
   contracts: ContractEvent[];
   youth: YouthEvent[];
+  board: { teamId: number; tone: BoardTone; message: string }[];   // the board's verdict per human club
 }
 
 // Roll the world's season over. Returns a summary, or null if the season isn't complete.
@@ -96,7 +97,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
   const finals = leagues.map(l => ({ league: l, table: standings(l.id) }));
 
   return tx(() => {
-    const out: RolloverResult = { season: (leagues[0].season ?? 1) + 1, divisions: [], promoted: [], relegated: [], prizeMoney: [], contracts: [], youth: [] };
+    const out: RolloverResult = { season: (leagues[0].season ?? 1) + 1, divisions: [], promoted: [], relegated: [], prizeMoney: [], contracts: [], youth: [], board: [] };
 
     // 0. loans are season-long: send every loaned-in player in THIS world back to his parent club
     //    (before ageing / contract ticking, so he's home on the books for the new campaign).
@@ -159,11 +160,13 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
         cupWon: cupChampionTeamId != null && cupChampionTeamId === t.id,
         objective: objForHistory,
       });
-      // board confidence settles on the season verdict (objective + finish + promotion/relegation)
-      settleConfidenceAtRollover({
+      // board confidence settles on the season verdict (objective + finish + promotion/relegation),
+      // then the board delivers its verdict (escalating if confidence stays at-risk season on season)
+      const newConfidence = settleConfidenceAtRollover({
         teamId: t.id, finalPosition: pos, size: fin.table.length,
         promoted: !!promo, relegated: !!releg, objectiveMet: objForHistory ? objForHistory.met : null,
       });
+      out.board.push({ teamId: t.id, ...boardVerdictAtRollover(t.id, newConfidence, objForHistory ? objForHistory.met : null) });
       // set the board's expectation for the coming season, from the club's NEW tier (promotion/
       // relegation already moved league_id at step 2) + how it just finished.
       const newTier = promo ? promo.toTier : releg ? releg.toTier : fin.league.tier;
