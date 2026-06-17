@@ -101,9 +101,11 @@ export interface StaffEffectsT { training: number; injuryReduction: number; reco
 export interface StaffViewT { staff: StaffMemberT[]; pool: StaffMemberT[]; budget: number; max: number; effects: StaffEffectsT; }
 
 export interface FinanceEntryT { season: number; kind: string; amount: number; note: string; }
+export interface FinanceSeasonT { season: number; income: number; expense: number; net: number; }
 export interface FinancesT {
   balance: number; season: number; income: number; expense: number;
-  byKind: { kind: string; amount: number }[]; recent: FinanceEntryT[];
+  wageBill: number; wageBudget: number;
+  byKind: { kind: string; amount: number }[]; recent: FinanceEntryT[]; history: FinanceSeasonT[];
 }
 
 export interface HarmonyPlayerT { slot: number; name: string; tag: 'leader' | 'pro' | 'disruptive' | 'unsettled'; note: string; }

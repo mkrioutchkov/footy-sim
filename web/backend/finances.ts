@@ -16,12 +16,15 @@ export function recordFinance(teamId: number, kind: FinanceKind, amount: number,
     .run(teamId, row.season, kind, Math.round(amount), note, Date.now());
 }
 
+export interface FinanceSeason { season: number; income: number; expense: number; net: number; }
+
 export function getFinances(teamId: number): {
   balance: number; season: number; income: number; expense: number;
-  byKind: { kind: string; amount: number }[]; recent: FinanceEntry[];
+  wageBill: number; wageBudget: number;
+  byKind: { kind: string; amount: number }[]; recent: FinanceEntry[]; history: FinanceSeason[];
 } | null {
-  const team = db.prepare('SELECT t.budget AS budget, l.season AS season FROM teams t JOIN leagues l ON l.id = t.league_id WHERE t.id = ?')
-    .get(teamId) as { budget: number; season: number } | undefined;
+  const team = db.prepare('SELECT t.budget AS budget, t.wage_budget AS wageBudget, l.season AS season FROM teams t JOIN leagues l ON l.id = t.league_id WHERE t.id = ?')
+    .get(teamId) as { budget: number; wageBudget: number; season: number } | undefined;
   if (!team) return null;
   const thisSeason = db.prepare('SELECT kind, amount FROM finance_entries WHERE team_id = ? AND season = ?')
     .all(teamId, team.season) as { kind: string; amount: number }[];
@@ -33,9 +36,17 @@ export function getFinances(teamId: number): {
   }
   const recent = db.prepare('SELECT season, kind, amount, note FROM finance_entries WHERE team_id = ? ORDER BY id DESC LIMIT 25')
     .all(teamId) as unknown as FinanceEntry[];
+  // the current annual wage commitment (read-only — wages aren't deducted; this surfaces the
+  // existing wage-budget system on the finances statement)
+  const wageBill = (db.prepare('SELECT COALESCE(SUM(wage), 0) AS w FROM players WHERE team_id = ?').get(teamId) as { w: number }).w;
+  // season-over-season income/expense/net (the season column is already on every entry)
+  const history = (db.prepare('SELECT season, SUM(CASE WHEN amount >= 0 THEN amount ELSE 0 END) AS income, SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END) AS expense FROM finance_entries WHERE team_id = ? GROUP BY season ORDER BY season DESC')
+    .all(teamId) as { season: number; income: number; expense: number }[])
+    .map(r => ({ season: r.season, income: r.income, expense: r.expense, net: r.income + r.expense }));
   return {
     balance: team.budget, season: team.season, income, expense,
+    wageBill, wageBudget: team.wageBudget,
     byKind: [...kindTotals.entries()].map(([kind, amount]) => ({ kind, amount })).sort((a, b) => b.amount - a.amount),
-    recent,
+    recent, history,
   };
 }

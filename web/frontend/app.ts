@@ -1128,7 +1128,19 @@ async function screenFinances() {
         cell('Balance', fmtMoney(f.balance)),
         cell('Income (season)', signed(f.income), col(f.income)),
         cell('Expense (season)', signed(f.expense), col(f.expense)),
-        cell('Net (season)', signed(net), col(net)))),
+        cell('Net (season)', signed(net), col(net)),
+        cell('Wage bill', `${fmtMoney(f.wageBill)}/yr`, f.wageBill > f.wageBudget ? 'color:var(--danger)' : ''))),
+    // wage bill vs budget bar
+    (() => {
+      const pct = f.wageBudget > 0 ? Math.min(100, Math.round((f.wageBill / f.wageBudget) * 100)) : 0;
+      const over = f.wageBill > f.wageBudget;
+      return h('div', { class: 'card', style: 'padding:10px 14px' },
+        h('div', { class: 'between', style: 'font-size:12px;margin-bottom:4px' },
+          h('span', { class: 'muted' }, 'Wage bill vs budget'),
+          h('span', { style: over ? 'color:var(--danger);font-weight:600' : '' }, `${fmtMoney(f.wageBill)} / ${fmtMoney(f.wageBudget)} (${pct}%)`)),
+        h('div', { style: 'height:7px;background:var(--panel2,#161f30);border-radius:4px;overflow:hidden' },
+          h('div', { style: `height:100%;width:${pct}%;background:${over ? 'var(--danger)' : 'var(--accent)'}` })));
+    })(),
     h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'This season by category'),
@@ -1136,6 +1148,16 @@ async function screenFinances() {
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Recent movements'),
         h('div', { style: 'max-height:360px;overflow:auto' }, ...recent))),
+    // season-over-season net (income/expense/net per season)
+    f.history.length ? h('div', { class: 'card' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, 'Season by season'),
+      h('table', {}, h('thead', {}, h('tr', {},
+        h('th', { class: 'num' }, 'Season'), h('th', { class: 'num' }, 'Income'), h('th', { class: 'num' }, 'Expense'), h('th', { class: 'num' }, 'Net'))),
+        h('tbody', {}, ...f.history.map(s => h('tr', {},
+          h('td', { class: 'num' }, `S${s.season}`),
+          h('td', { class: 'num', style: 'color:var(--accent)' }, signed(s.income)),
+          h('td', { class: 'num', style: 'color:var(--danger)' }, signed(s.expense)),
+          h('td', { class: 'num', style: 'font-weight:700;' + col(s.net) }, signed(s.net))))))) : '',
   ));
 }
 
