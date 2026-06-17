@@ -452,21 +452,35 @@ async function screenDashboard() {
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/history') }, 'History'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
     ),
-    // board objective + live progress (where you are vs the target the board set)
+    // the boardroom: confidence in the manager + the season objective with live progress
     (() => {
-      const obj = league.objective;
-      if (!obj) return h('div', { style: 'display:none' });
-      // "just outside it" must never include a relegation place — the bottom `promote` spots are
-      // the drop zone, so cap the amber band at the drop line (otherwise survival, whose target IS
-      // the drop line, would render gold instead of red while actually in the relegation zone).
-      const dropLine = league.standings.length - (league.promote ?? 2);
-      const onTrack = myPos <= obj.target;
-      const close = !onTrack && myPos <= Math.min(obj.target + 2, dropLine);
-      const c = onTrack ? 'var(--accent)' : close ? 'var(--gold)' : 'var(--danger)';
-      return h('div', { class: 'card', style: 'padding:10px 14px;border-left:3px solid ' + c },
-        h('span', { style: 'font-weight:600' }, '📋 Board objective: ' + obj.label),
-        h('span', { class: 'muted', style: 'margin-left:8px;font-size:13px' }, `currently ${ordinal(myPos)} — `),
-        h('span', { style: `color:${c};font-size:13px;font-weight:600` }, onTrack ? 'on track' : close ? 'just outside it' : 'work to do'));
+      const conf = league.confidence, obj = league.objective;
+      if (!conf && !obj) return h('div', { style: 'display:none' });
+      const rows: (HTMLElement | string)[] = [];
+      if (conf) {
+        const cc = conf.status === 'secure' ? 'var(--accent)' : conf.status === 'stable' ? '#7fb2ff' : conf.status === 'shaky' ? 'var(--gold)' : 'var(--danger)';
+        const label = CONF_LABEL[conf.status] ?? conf.status;
+        rows.push(h('div', {},
+          h('div', { class: 'between', style: 'font-size:13px;margin-bottom:4px' },
+            h('span', {}, '🪑 Board confidence'),
+            h('span', { style: `color:${cc};font-weight:600` }, label)),
+          h('div', { style: 'height:7px;background:var(--panel2,#161f30);border-radius:4px;overflow:hidden' },
+            h('div', { style: `height:100%;width:${Math.max(0, Math.min(100, conf.value))}%;background:${cc}` }))));
+      }
+      if (obj) {
+        // "just outside it" must never include a relegation place — the bottom `promote` spots are
+        // the drop zone, so cap the amber band at the drop line (otherwise survival, whose target IS
+        // the drop line, would render gold instead of red while actually in the relegation zone).
+        const dropLine = league.standings.length - (league.promote ?? 2);
+        const onTrack = myPos <= obj.target;
+        const close = !onTrack && myPos <= Math.min(obj.target + 2, dropLine);
+        const c = onTrack ? 'var(--accent)' : close ? 'var(--gold)' : 'var(--danger)';
+        rows.push(h('div', { style: conf ? 'margin-top:10px' : '' },
+          h('span', { style: 'font-weight:600' }, '📋 Board objective: ' + obj.label),
+          h('span', { class: 'muted', style: 'margin-left:8px;font-size:13px' }, `currently ${ordinal(myPos)} — `),
+          h('span', { style: `color:${c};font-size:13px;font-weight:600` }, onTrack ? 'on track' : close ? 'just outside it' : 'work to do')));
+      }
+      return h('div', { class: 'card', style: 'padding:12px 14px' }, ...rows);
     })(),
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table),
     otherDivisions(league),
@@ -1108,6 +1122,9 @@ async function screenScout(fixtureId: number) {
 // ── club history / honours archive ──
 const OBJ_LABEL: Record<string, string> = {
   title: 'Win the league', promotion: 'Win promotion', top_half: 'Finish in the top half', survival: 'Avoid relegation',
+};
+const CONF_LABEL: Record<string, string> = {
+  secure: 'Secure', stable: 'Stable', shaky: 'Under pressure', at_risk: 'At risk',
 };
 function trophy(icon: string, n: number, label: string): HTMLElement {
   return h('div', { style: 'text-align:center;min-width:74px' },

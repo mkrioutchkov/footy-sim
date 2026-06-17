@@ -26,6 +26,7 @@ import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory } from './history.ts';
 import { getObjective } from './objectives.ts';
+import { getConfidence } from './confidence.ts';
 import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
@@ -342,6 +343,7 @@ app.get('/api/league', async (req: any, reply) => {
     seasonComplete: seasonComplete(leagueId),
     objective: getObjective(teamId),   // the board's expectation this season (null if unset)
     promote: PROMOTE,                  // bottom N are relegated — lets the UI place the drop line
+    confidence: getConfidence(teamId), // board confidence / job security
   };
 });
 

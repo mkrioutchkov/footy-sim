@@ -17,6 +17,7 @@ import { returnLoans } from './market.ts';
 import { recordSeasonAwards } from './news.ts';
 import { recordSeasonHistory } from './history.ts';
 import { getObjective, setSeasonObjective, deriveObjective, objectiveMet } from './objectives.ts';
+import { settleConfidenceAtRollover } from './confidence.ts';
 
 export const PROMOTE = 2;          // bottom N of a division swap with the top N below it
 const FA_REFRESH = true;           // refresh each division's free-agent pool every season
@@ -155,6 +156,11 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
         // so a same-named club winning it must not phantom-award this club (review fix).
         cupWon: cupChampionTeamId != null && cupChampionTeamId === t.id,
         objective: objForHistory,
+      });
+      // board confidence settles on the season verdict (objective + finish + promotion/relegation)
+      settleConfidenceAtRollover({
+        teamId: t.id, finalPosition: pos, size: fin.table.length,
+        promoted: !!promo, relegated: !!releg, objectiveMet: objForHistory ? objForHistory.met : null,
       });
       // set the board's expectation for the coming season, from the club's NEW tier (promotion/
       // relegation already moved league_id at step 2) + how it just finished.

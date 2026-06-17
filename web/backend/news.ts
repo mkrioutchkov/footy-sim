@@ -9,6 +9,7 @@ import { db } from './db.ts';
 import { recordingFor, loadRecording, getFixture } from './match.ts';
 import { analyzeRecording } from './report.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
+import { nudgeConfidence } from './confidence.ts';
 
 const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
 const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
@@ -140,6 +141,14 @@ export async function processMatchAftermath(teamId: number, fixtureId: number, i
     if (i.teamId !== teamId || i.matches < LONG_INJURY) continue;
     const p = byName.get(i.player);
     if (p) events.push({ id: p.id, slot: p.slot, player: i.player, type: 'long_injury' });
+  }
+  // Board confidence drifts a little on the result (exactly once per fixture, same guard). The big
+  // swings happen at rollover; this just keeps the number alive through the season.
+  if (fx && fx.home_score != null && fx.away_score != null) {
+    const mySide: 'home' | 'away' = fx.home_team_id === teamId ? 'home' : 'away';
+    const mine = mySide === 'home' ? fx.home_score : fx.away_score;
+    const theirs = mySide === 'home' ? fx.away_score : fx.home_score;
+    nudgeConfidence(teamId, mine > theirs ? 'W' : mine < theirs ? 'L' : 'D');
   }
   // Claim the matchday now that morale + tally are applied — a re-fire can't double them; the
   // (slower, LLM) story evolution below is best-effort on top.

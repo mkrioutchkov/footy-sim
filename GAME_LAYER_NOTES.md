@@ -386,6 +386,13 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     outside / work-to-do indicator (from current position); the History screen shows a ✅/❌ Board badge
     per season. No morale/balance effect — purely the season narrative. Verified by `tools/_history_test.ts`
     (30 — derive cases, MET archival, promotion→survival→title progression) + smoke (48) + multiseason (83).
+  - **Board confidence / job security (`confidence.ts`, teams.board_confidence, `/api/league.confidence`).**
+    0–100 board rating of the manager: drifts ±2 per result (in `processMatchAftermath`, exactly-once per
+    fixture) and SWINGS at rollover (`settleConfidenceAtRollover`: relegation −30, promotion +22, objective
+    met/missed ±14/16, top-/bottom-third finish ±6, clamped). Status bands secure/stable/under-pressure/at-
+    risk; dashboard shows a confidence bar beside the objective. No sacking yet — the stat + status set up
+    that consequence. Verified by `tools/_confidence_test.ts` (15 — bands, drift, settle math + clamp, the
+    champion-soars roll) + smoke (49) + multiseason (83).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
   negotiation + loans + dynamic player-news + ratings→morale & season awards are all SHIPPED.

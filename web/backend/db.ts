@@ -297,3 +297,9 @@ ensureColumn('teams', 'objective_season', 'objective_season INTEGER'); // the se
 ensureColumn('season_history', 'objective_kind', 'objective_kind TEXT');
 ensureColumn('season_history', 'objective_target', 'objective_target INTEGER');
 ensureColumn('season_history', 'objective_met', 'objective_met INTEGER');   // 1 met / 0 missed / NULL none
+
+// ── Board confidence / job security ─────────────────────────────────────────
+// 0..100 how the board rates the manager. Drifts a little per result, swings at rollover on the
+// objective verdict + finish + promotion/relegation. Defaults to 55 (neutral) for every club, so
+// existing saves start from the same neutral footing.
+ensureColumn('teams', 'board_confidence', 'board_confidence INTEGER NOT NULL DEFAULT 55');
