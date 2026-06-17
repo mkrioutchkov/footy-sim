@@ -168,6 +168,9 @@ void GameEngine::applyDirectives() {
             case DirectiveKind::RunInBehind: directiveBias[p->id].runAheadBias = 0.30 * d.intensity; break;
             case DirectiveKind::MakeRuns:    directiveBias[p->id].runAheadBias = 0.16 * d.intensity; break;
             case DirectiveKind::DribbleMore: directiveBias[p->id].dribbleBonus = 0.22 * d.intensity; break;
+            // "stay back" — hold shape, don't bomb forward into the attack (damps the
+            // dynamic overlap/advance push, distinct from sit_deep's static anchor).
+            case DirectiveKind::StayBack:    directiveBias[p->id].stayBackBias = d.intensity; break;
             // Defensive intensity (read in the press assignment / tackle resolution).
             case DirectiveKind::PressHard:   directiveBias[p->id].pressTightness   = d.intensity; break;
             case DirectiveKind::TackleHard:  directiveBias[p->id].tackleAggression = d.intensity; break;

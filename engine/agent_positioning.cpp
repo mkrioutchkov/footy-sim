@@ -20,6 +20,15 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
     double fbOverlap = isFullBack() ? (0.55 + 0.45 * overlap) : 1.0;
     if (my && isFullBack()) pu *= (0.80 + 0.20 * overlap);
     double wp = (iw && my) ? fd * ba * 85.0 * fbOverlap : 0.0;
+    // stay_back: hold defensive shape. The advance is driven mostly by pu/wp
+    // (how far the player's attacking base shifts forward), so damp those —
+    // suppressing only run-candidate scores barely moves a full-back, whose
+    // overlap rides the base push, not a RunAhead purpose.
+    if (my && engine.directiveBias[p.id].stayBackBias > 0.0) {
+        double hold = clamp(1.0 - engine.directiveBias[p.id].stayBackBias * 0.60, 0.0, 1.0);
+        pu *= hold;
+        wp *= hold;
+    }
 
     PositioningContext pc{fd, my, ba, pu, wp, ip};
     SmallVector<PositionCandidate, 32> c;
