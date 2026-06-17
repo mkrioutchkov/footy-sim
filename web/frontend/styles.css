@@ -90,6 +90,8 @@ input[type=range] { accent-color: var(--accent); }
 .form-badge.d { background: var(--muted); }
 .form-badge.l { background: var(--danger); }
 .spin { color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 22px 0 10px; }
 
 /* ── live tactics panel (P4) ── */
@@ -115,4 +117,26 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* Respect reduced-motion: kill the button/banner transitions + any animation for sensitive users. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
+
+/* ── responsive layout ── class-driven grids that collapse to one column on narrow screens, so
+   the dashboard / market / finances / history / standings stop overflowing on phone + tablet.
+   (Replaces the hardcoded inline grid-template-columns the screens used to set.) */
+.grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.grid.cols-split { grid-template-columns: 1.2fr .8fr; }
+.grid.cols-auto { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.row { flex-wrap: wrap; }                 /* button rows + stat strips wrap instead of overflowing */
+.scroll-x { overflow-x: auto; }           /* wrap a wide table to scroll rather than squash */
+@media (max-width: 860px) {
+  .grid.cols-2, .grid.cols-split { grid-template-columns: 1fr; }
+  .wrap { padding: 18px 14px; }
+}
+@media (max-width: 560px) {
+  body { font-size: 14px; }
+  .card { padding: 16px; }
+  th, td { padding: 6px 7px; }
+  table { font-size: 13px; }
+  header.top .wrap { padding: 10px 14px; }
+  .players { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .tactics-panel { max-height: 46vh; }
 }

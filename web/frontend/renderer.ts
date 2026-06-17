@@ -696,10 +696,9 @@ export class MatchRenderer {
     const restartHud = state.setPieceState
       ? `    ${this.restartLabel(state.setPieceState.reason ?? state.setPieceState.type)} ${(state.setPieceState.team ?? '').toUpperCase()}`
       : '';
-    const addedTag = state.addedTime ? ` +${state.addedTimeAnnouncedMin ?? ''}` : '';
-    const clip = (s: string) => (s.length > 16 ? s.slice(0, 16) : s).toUpperCase();
-    const hn = clip(state.homeName ?? 'HOME');
-    const an = clip(state.awayName ?? 'AWAY');
+    const addedTag = state.addedTime && state.addedTimeAnnouncedMin ? ` +${state.addedTimeAnnouncedMin}` : '';
+    const hn = this.clipName(state.homeName, 'HOME');
+    const an = this.clipName(state.awayName, 'AWAY');
     this.hudText.text = `${hn} ${state.homeScore ?? 0}-${state.awayScore ?? 0} ${an}    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}${restartHud}`;
     this.hudText.visible = true;
     this.hudBg.clear();
@@ -711,10 +710,18 @@ export class MatchRenderer {
     this.updateMoments(state);
   }
 
+  // Clip a team name to the HUD width, falling back to a default — shared by the HUD + the
+  // goal banner + the HT/FT panel so big moments show the real club names, not 'HOME'/'AWAY'.
+  private clipName(s: string | undefined, fallback: string): string {
+    const n = s ?? fallback;
+    return (n.length > 16 ? n.slice(0, 16) : n).toUpperCase();
+  }
+
   private updateMoments(state: EngineState): void {
     if (!this.bannerEl || !this.panelEl) return;
     const now = performance.now();
     const hs = state.homeScore ?? 0, as = state.awayScore ?? 0;
+    const hn = this.clipName(state.homeName, 'HOME'), an = this.clipName(state.awayName, 'AWAY');
     if (state.clockMs < 1500 && hs === 0 && as === 0) {
       // fresh match/restart
       this.prevHomeScore = 0; this.prevAwayScore = 0; this.prevHalf = 1; this.shownFullTime = false;
@@ -725,7 +732,7 @@ export class MatchRenderer {
       const homeScored = hs > this.prevHomeScore;
       const scorerLine = this.tickerLines.find(l => l.includes('GOAL'));
       const who = scorerLine ? scorerLine.split(/GOAL\s+/)[1] ?? '' : '';
-      this.bannerEl.textContent = `GOAL!  ${who}\nHOME ${hs} — ${as} AWAY`;
+      this.bannerEl.textContent = `GOAL!  ${who}\n${hn} ${hs} — ${as} ${an}`;
       this.bannerEl.style.whiteSpace = 'pre';
       this.bannerEl.style.color = homeScored ? '#ff8a8a' : '#9ecbff';
       this.bannerEl.style.borderColor = homeScored ? '#ff8a8a' : '#9ecbff';
@@ -757,7 +764,7 @@ export class MatchRenderer {
       const scorerBlock = scorers.length ? `\n\nScorers\n${scorers.join('\n')}` : '';
       const assistBlock = assists.length ? `\nAssists\n${assists.join('\n')}` : '';
       this.panelEl!.textContent =
-        `${title}\n\nHOME ${hs} — ${as} AWAY\nShots  ${state.homeShots ?? 0} - ${state.awayShots ?? 0}\nPossession  ${pct}% - ${100 - Number(pct)}%${scorerBlock}${assistBlock}`;
+        `${title}\n\n${hn} ${hs} — ${as} ${an}\nShots  ${state.homeShots ?? 0} - ${state.awayShots ?? 0}\nPossession  ${pct}% - ${100 - Number(pct)}%${scorerBlock}${assistBlock}`;
       this.panelEl!.style.display = 'block';
       this.panelHideAt = sticky ? Infinity : now + 9000;
     };

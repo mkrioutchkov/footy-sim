@@ -33,8 +33,12 @@ function h(tag: string, attrs: Attrs = {}, ...kids: (Node | string)[]): HTMLElem
 }
 function mount(...nodes: Node[]) { root.replaceChildren(...nodes); }
 function toast(msg: string) {
-  const t = h('div', { class: 'toast' }, msg);
+  const t = h('div', { class: 'toast', role: 'status' }, msg);
   document.body.appendChild(t);
+  // mirror into a persistent polite live-region so screen readers announce transient toasts
+  let live = document.getElementById('live-region');
+  if (!live) { live = h('div', { id: 'live-region', class: 'sr-only', 'aria-live': 'polite', 'aria-atomic': 'true' }); document.body.appendChild(live); }
+  live.textContent = msg;
   setTimeout(() => t.remove(), 2600);
 }
 
@@ -115,7 +119,7 @@ function otherDivisions(league: LeagueT): HTMLElement {
   });
   return h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Other divisions'),
-    h('div', { class: 'grid', style: `grid-template-columns:repeat(${cards.length},1fr);align-items:start` }, ...cards));
+    h('div', { class: 'grid cols-auto', style: 'align-items:start' }, ...cards));
 }
 
 
@@ -288,7 +292,11 @@ async function screenDashboard() {
     team = t; league = l; news = n.news; harmony = hm;
   } catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
-    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+    // team()/league() are essential — one transient failure shouldn't strand the home screen on a
+    // bare error string with no way out. Offer a retry (news/harmony already fall back above).
+    return mount(header(), h('div', { class: 'wrap' },
+      h('div', { class: 'err' }, 'Couldn’t load your club — ' + (e.message || 'something went wrong') + '.'),
+      h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenDashboard() }, '↻ Retry')));
   }
 
   const myNext = league.fixtures.find(f => f.involvesMe && !f.played);
@@ -505,7 +513,7 @@ async function screenDashboard() {
     })(),
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table),
     otherDivisions(league),
-    h('div', { class: 'grid', style: 'grid-template-columns:1.2fr .8fr;align-items:start' },
+    h('div', { class: 'grid cols-split', style: 'align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
       h('div', {},
         formationPanel(team),
@@ -804,8 +812,10 @@ async function screenMarket() {
         String(ask), 'Submit bid');
       if (raw == null) return;
       // accept plain numbers AND the shorthand the screen shows (£1.5M, 500k) — strip symbols,
-      // then scale by a trailing m/k so "1.5m" reads as 1,500,000 rather than 2.
+      // then scale by a trailing m/k so "1.5m" reads as 1,500,000 rather than 2. Reject anything
+      // that isn't a clean number with an optional single m/k suffix (so "1.5g" can't parse to ~2).
       const s = raw.trim().toLowerCase().replace(/[£,\s]/g, '');
+      if (!/^\d*\.?\d+[mk]?$/.test(s)) { toast('Enter a valid bid — e.g. 1.5m, 500k, or 1500000'); return; }
       const mult = s.endsWith('m') ? 1e6 : s.endsWith('k') ? 1e3 : 1;
       const fee = Math.round(parseFloat(s) * mult);
       if (!fee || fee <= 0) { toast('Enter a valid bid'); return; }
@@ -854,9 +864,10 @@ async function screenMarket() {
         h('span', { class: 'muted', style: 'margin-left:8px;font-size:12px' }, 'Free agents can be signed any time; club-to-club deals need an open window.')),
       market.backing ? h('div', { class: 'card', style: 'padding:8px 12px' },
         h('span', { class: 'muted', style: 'font-size:12px' }, `🏛️ ${market.backing}`)) : '',
-      h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+      h('div', { class: 'grid cols-2', style: 'align-items:start' },
         h('div', { class: 'card' },
-          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Free agents'),
+          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Free agents',
+            h('span', { class: 'pill', style: 'margin-left:8px;text-transform:none;letter-spacing:0;background:rgba(67,211,158,.15);color:var(--accent)' }, 'signable any time')),
           h('div', { style: 'max-height:520px;overflow:auto', 'data-scroll': 'fa' }, h('table', {}, headRow('Player'), faBody))),
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your squad'),
@@ -864,7 +875,8 @@ async function screenMarket() {
           h('div', { style: 'max-height:520px;overflow:auto', 'data-scroll': 'squad' }, h('table', {}, headRow('Player'), sqBody))),
       ),
       h('div', { class: 'card' },
-        h('div', { class: 'section-title', style: 'margin-top:0' }, 'For sale — other clubs'),
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'For sale — other clubs',
+          win.open ? '' : h('span', { class: 'pill', style: 'margin-left:8px;text-transform:none;letter-spacing:0;background:#3a2a1f;color:#ffce9a' }, '🔒 window shut')),
         h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, win.open ? 'Bid for a listed player — the club may accept, counter, or reject.' : 'Bidding opens during a transfer window.'),
         h('div', { style: 'max-height:420px;overflow:auto', 'data-scroll': 'targets' }, h('table', {}, headRow('Player'), tgtBody))),
     ));
@@ -1000,7 +1012,7 @@ async function screenPlayer(slot: number) {
           : h('div', { class: 'muted', style: 'font-size:12px' }, `Match fitness ${p.fitness ?? 100}%${p.morale != null ? ` · Morale ${p.morale}` : ''}`)),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
-    h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+    h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Personality dials'), traitsEl),
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Backstory'),
@@ -1144,7 +1156,7 @@ async function screenFinances() {
         h('div', { style: 'height:7px;background:var(--panel2,#161f30);border-radius:4px;overflow:hidden' },
           h('div', { style: `height:100%;width:${pct}%;background:${over ? 'var(--danger)' : 'var(--accent)'}` })));
     })(),
-    h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+    h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'This season by category'),
         ...byKind),
@@ -1230,7 +1242,7 @@ async function screenStaff() {
           stat('🩺', `−${e.injuryReduction}%`, 'Injury risk'),
           stat('💪', `+${e.recoverBonus}`, 'Match recovery'),
           stat('🔍', `+${e.scoutDepth}`, 'Scouted players'))),
-      h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+      h('div', { class: 'grid cols-2', style: 'align-items:start' },
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your staff'),
           h('div', { style: 'max-height:430px;overflow:auto' }, h('table', {},
@@ -1291,7 +1303,7 @@ async function screenScout(fixtureId: number) {
         h('div', { class: 'muted' },
           `${o.manager} · ${o.formation} · ${o.position != null ? ordinal(o.position) + ' in the table' : 'unranked'} · you play ${s.venue === 'home' ? 'at home' : 'away'} (R${s.round})`)),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
-    h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+    h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Form & record'),
         h('div', { class: 'muted', style: 'margin-bottom:10px;font-size:13px' },
