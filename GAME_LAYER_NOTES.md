@@ -368,7 +368,10 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     upcoming fixture the user is in: the opponent's table position + last-5 form, a plain-English read of
     how they play (derived from their dials, NOT their plan text — no human team-talk leak), and the top-5
     key players in the likely XI with one danger man flagged. A 🔍 Scout button sits on each upcoming
-    fixture row. No engine run. Verified by `tools/_scout_test.ts` (20) + smoke (46, incl. the scout probe).
+    fixture row. No engine run. Verified by `tools/_scout_test.ts` (24) + smoke (incl. the scout probe).
+    **Deeper scouting (attribute fog):** the report's key players now carry `attrs` — each skill as a
+    `{lo,hi}` range that tightens with the club's scout depth (none = hidden, depth 1 = ±7, depth 2 = ±4,
+    depth 3 = exact). Read-only; ties the Staff scouts into a concrete payoff.
   - **Season history / honours archive (`history.ts`, `season_history` table, `GET /api/history`,
     `#/history`).** One row per club per finished season, written inside the rollover tx (step 2b,
     BEFORE fixtures are purged + the season counter advances — `recordSeasonHistory`, idempotent via

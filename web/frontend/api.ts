@@ -87,7 +87,8 @@ export interface ReportT { homeName: string; awayName: string; headline: string;
 
 export interface NewsItemT { player: string; type: 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury' | 'pots' | 'young_pots'; headline: string; season: number; slot: number; }
 
-export interface ScoutPlayerT { name: string; role: string; age: number; overall: number; potential: number | null; danger: boolean; }
+export interface ScoutAttrT { key: string; lo: number; hi: number; }
+export interface ScoutPlayerT { name: string; role: string; age: number; overall: number; potential: number | null; danger: boolean; attrs: ScoutAttrT[] | null; }
 export interface ScoutFormT { round: number; opponent: string; venue: 'H' | 'A'; gf: number; ga: number; result: 'W' | 'D' | 'L'; }
 export interface ScoutT {
   opponent: { teamId: number; name: string; manager: string; formation: string; position: number | null;

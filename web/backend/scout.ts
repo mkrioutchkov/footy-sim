@@ -7,7 +7,8 @@ import { getTeamWithPlayers, standings } from './game.ts';
 import type { Tactics } from './game.ts';
 import { scoutDepth } from './staff.ts';
 
-export interface ScoutPlayer { name: string; role: string; age: number; overall: number; potential: number | null; danger: boolean; }
+export interface ScoutAttr { key: string; lo: number; hi: number; }   // lo===hi when fully scouted
+export interface ScoutPlayer { name: string; role: string; age: number; overall: number; potential: number | null; danger: boolean; attrs: ScoutAttr[] | null; }
 export interface ScoutForm { round: number; opponent: string; venue: 'H' | 'A'; gf: number; ga: number; result: 'W' | 'D' | 'L'; }
 export interface ScoutReport {
   opponent: {
@@ -77,10 +78,19 @@ export function buildScoutReport(fixtureId: number, userTeamId: number): ScoutRe
   // attacker (or the top-rated player if none) is the danger man — chosen from the shown list so
   // exactly one of the displayed players is ever flagged.
   const xi = opp.lineup ? opp.lineup.map(i => opp.players[i]).filter(Boolean) : opp.players.slice(0, 11);
+  // attribute fog: scouts reveal each player's skills as ranges that tighten with scout depth —
+  // unscouted (depth 0) shows nothing, depth 3 shows exact values (lo === hi).
+  const depth = scoutDepth(userTeamId);
+  const width = depth >= 3 ? 0 : depth === 2 ? 4 : depth === 1 ? 7 : -1;   // -1 = not scouted at all
+  const fog = (attrs: Record<string, number>): ScoutAttr[] | null =>
+    width < 0 ? null : SKILL_KEYS.map(k => {
+      const v = attrs[k] ?? 0;
+      return { key: k, lo: Math.max(1, Math.round(v - width)), hi: Math.min(99, Math.round(v + width)) };
+    });
   const keyPlayers = xi
-    .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs), potential: p.potential, danger: false }))
+    .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs), potential: p.potential, danger: false, attrs: fog(p.attrs) }))
     .sort((a, b) => b.overall - a.overall)
-    .slice(0, 5 + scoutDepth(userTeamId));
+    .slice(0, 5 + depth);
   if (keyPlayers.length) {
     const attIdx = keyPlayers.findIndex(p => p.role === 'CF' || p.role === 'WM');
     keyPlayers[attIdx >= 0 ? attIdx : 0].danger = true;
