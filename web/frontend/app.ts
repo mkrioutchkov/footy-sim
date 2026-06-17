@@ -721,7 +721,7 @@ async function screenWatch(fixtureId: number) {
     if (dirs.length) {
       receiptEl.appendChild(h('div', { class: 'muted', style: 'margin-top:6px' }, 'Standing plan:'));
       for (const d of dirs) receiptEl.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
-    } else if (!motivation.length && !changed && !note) {
+    } else if (!motivation.length && !changed && !note && !r?.formation) {
       receiptEl.appendChild(h('div', { class: 'muted' }, "Couldn't read that as an order or a word to the players.")); return;
     }
     if (note) receiptEl.appendChild(h('div', { class: 'muted' }, '• ' + note));
@@ -1493,7 +1493,10 @@ async function screenSquad() {
   }
   const players = [...team.players];
   const leadOf = (p: PlayerT) => (p.personality?.traits?.leadership ?? -1);
-  const captainSlot = players.length ? players.reduce((best, p) => leadOf(p) > leadOf(best) ? p : best, players[0]).slot : -1;
+  // captain = highest leadership, but only when at least one player HAS personality data — don't
+  // fabricate a captain on players[0] for a squad with no dials yet (review fix).
+  const captain = players.length ? players.reduce((best, p) => leadOf(p) > leadOf(best) ? p : best, players[0]) : null;
+  const captainSlot = captain && leadOf(captain) >= 0 ? captain.slot : -1;
 
   let sortKey = 'slot', sortDir: 1 | -1 = 1, cmpA = -1, cmpB = -1;
   const COLS: { key: string; label: string; text?: boolean; get: (p: PlayerT) => number | string }[] = [
