@@ -418,6 +418,20 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     money is introduced, the economy + the multiseason regression are unchanged. Verified by
     `tools/_finances_test.ts` (14 — record/aggregate, AI no-op, per-season filtering, the buyFreeAgent +
     rollover-prize hooks) + smoke (56).
+  - **FM-frontend pass (2026-06-17, roadmap-driven):** Phase 0 — responsive layout (class-driven
+    `.grid.cols-*` collapsing ≤860px + a ≤560px phone pass; migrated the 7 inline grids), real club
+    names in the renderer goal banner / HT-FT panel (`clipName`), dashboard `Retry` on a team/league
+    fetch failure, scoped transfer-window messaging (per-section pills), tightened bid-parse, toast
+    `aria-live` region (`.sr-only`), `generatePersonalities` sends a body. Phase 1 (LLM legibility) —
+    the press conference renders the per-player `reactions[]` as a 'how it landed' panel patched in
+    place (no dashboard rebuild) + `press.ts` now returns an in-character quote per player; the live
+    watch reads the standing plan back in the manager's voice (`plan.summary` prose). Phase 2 — a
+    dedicated `#/squad` screen (sortable attr table + heat + depth chart + 2-player compare + captain
+    badge) and a visual SVG tactics **pitch** (`GET /api/formations` exposes the registry; `svgEl`
+    builds it XSS-safely; Shape dropdown re-positions via `setLineup`; plain-English box kept alongside).
+    STILL TODO (Phase 3-4): persistent `#/inbox` (archive the advance toasts), conversational team-talk
+    + half-time review, in-match subs + live-stats overlay on watch, the signing/contract NEGOTIATION
+    flow (offer→deliberation→agent→accept/counter — the LENS exemplar), NL squad/market search, analytics.
   - **Enrichment pass (2026-06-17, audit-driven):** (1) **finances** — wage-bill-vs-budget line + season-over-
     season income/expense/net (both pure reads, no money); (2) **board presence** — `boardMood` (mid-season
     line on the dashboard) + `recruitmentBacking` (boardroom line on the market), pure framing; (3) **verdict
