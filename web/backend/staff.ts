@@ -47,9 +47,12 @@ export function getStaffView(teamId: number): { staff: StaffRow[]; pool: StaffRo
 
 export function hireStaff(teamId: number, staffId: number): { ok: boolean; error?: string; name?: string } {
   const wid = worldOf(teamId);
+  // A legacy single-league club (world_id NULL) has no hire pool, so it can hire nothing — and the
+  // world-equality check is unconditional, so no club can ever hire another world's candidate (review fix).
+  if (wid == null) return { ok: false, error: 'no hire pool for this club' };
   const s = db.prepare('SELECT id, world_id, team_id, name, cost FROM staff WHERE id = ?')
     .get(staffId) as { id: number; world_id: number; team_id: number | null; name: string; cost: number } | undefined;
-  if (!s || s.team_id != null || (wid != null && s.world_id !== wid)) return { ok: false, error: 'that member is not available to you' };
+  if (!s || s.team_id != null || s.world_id !== wid) return { ok: false, error: 'that member is not available to you' };
   const count = (db.prepare('SELECT COUNT(*) AS n FROM staff WHERE team_id = ?').get(teamId) as { n: number }).n;
   if (count >= MAX_STAFF) return { ok: false, error: `you already employ the maximum of ${MAX_STAFF} staff` };
   const budget = (db.prepare('SELECT budget FROM teams WHERE id = ?').get(teamId) as { budget: number }).budget;
