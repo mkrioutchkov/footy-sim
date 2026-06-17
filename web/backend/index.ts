@@ -26,7 +26,7 @@ import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory } from './history.ts';
 import { getObjective } from './objectives.ts';
-import { getConfidence } from './confidence.ts';
+import { getConfidence, boardMood, recruitmentBacking } from './confidence.ts';
 import { getStaffView, hireStaff, fireStaff } from './staff.ts';
 import { getFinances } from './finances.ts';
 import { getSquadHarmony } from './harmony.ts';
@@ -187,7 +187,11 @@ app.get('/api/market', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
-  return getMarket(teamId);
+  const market = getMarket(teamId);
+  if (!market) return reply.code(404).send({ error: 'no team' });
+  // how the board frames recruitment (confidence + objective) — pure framing, never a budget change
+  const conf = getConfidence(teamId), obj = getObjective(teamId);
+  return { ...market, backing: conf ? recruitmentBacking(conf.status, obj?.kind ?? null) : null };
 });
 
 app.post('/api/market/buy', async (req: any, reply) => {
@@ -336,17 +340,26 @@ app.get('/api/league', async (req: any, reply) => {
     involvesMe: f.home_team_id === teamId || f.away_team_id === teamId,
   }));
   const lg = db.prepare('SELECT season, tier, name FROM leagues WHERE id = ?').get(leagueId) as { season: number; tier: number; name: string };
+  const table = standings(leagueId);
+  const objective = getObjective(teamId);
+  const confidence = getConfidence(teamId);
+  // mid-season board mood: a weekly pulse on the once-a-season verdict, from confidence + whether
+  // the club is currently meeting the board's target.
+  const myPos = table.findIndex(s => s.teamId === teamId) + 1;
+  const onTrack = objective ? (myPos > 0 && myPos <= objective.target) : true;
+  const mood = confidence ? boardMood(confidence.status, onTrack) : null;
   // world = every division's table (for the "other divisions" peek); the user's row is
   // flagged isUser within each division's standings.
   return {
-    leagueId, myTeamId: teamId, standings: standings(leagueId), fixtures,
+    leagueId, myTeamId: teamId, standings: table, fixtures,
     season: lg.season, tier: lg.tier, divisionName: lg.name, world: worldStandings(leagueId),
     // gates the "advance" button on the whole world, not just the user's own fixtures:
     // a user who watched all their matches still needs to play out the other games.
     seasonComplete: seasonComplete(leagueId),
-    objective: getObjective(teamId),   // the board's expectation this season (null if unset)
+    objective,                         // the board's expectation this season (null if unset)
     promote: PROMOTE,                  // bottom N are relegated — lets the UI place the drop line
-    confidence: getConfidence(teamId), // board confidence / job security
+    confidence,                        // board confidence / job security
+    boardMood: mood,                   // mid-season board mood line (null if no confidence)
   };
 });
 

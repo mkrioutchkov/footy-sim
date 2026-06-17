@@ -46,6 +46,26 @@ export function settleConfidenceAtRollover(opts: {
   return (db.prepare('SELECT board_confidence FROM teams WHERE id = ?').get(opts.teamId) as { board_confidence: number }).board_confidence;
 }
 
+// A mid-season read of the board's mood (the once-a-season verdict given a weekly pulse), from the
+// current confidence band + whether the club is meeting the objective. Pure presentation.
+export function boardMood(status: ConfidenceStatus, onTrack: boolean): string {
+  if (status === 'secure') return onTrack ? 'The board could not be happier with the job you’re doing.' : 'The board backs you fully — they just want the results to match the standing.';
+  if (status === 'stable') return onTrack ? 'The board is content with how the season is shaping up.' : 'The board expected to be higher up the table by now.';
+  if (status === 'shaky') return onTrack ? 'The board is watching closely — keep this up and the pressure eases.' : 'The board is unhappy with the league position.';
+  return onTrack ? 'The board needs this upturn to continue — your job depends on it.' : 'The board is on the brink of losing patience.';
+}
+
+// How the board frames recruitment, from confidence + the season objective. Framing only — it never
+// changes the budget (the economy is untouched), it tells the manager the mood in the boardroom.
+export function recruitmentBacking(status: ConfidenceStatus, objectiveKind: string | null): string {
+  if (status === 'at_risk') return 'The board expects results now — but won’t sanction reckless spending to get them.';
+  if (objectiveKind === 'title' || objectiveKind === 'promotion') {
+    return status === 'secure' ? 'The board backs an ambitious push — spend to compete at the top.' : 'The board wants a promotion charge — invest, but spend wisely.';
+  }
+  if (objectiveKind === 'survival') return 'The board wants prudence — strengthen only where it truly counts.';
+  return status === 'secure' ? 'The board trusts your judgement in the market.' : 'The board wants steady, sensible recruitment.';
+}
+
 export type BoardTone = 'backed' | 'satisfied' | 'concerned' | 'warned' | 'final_warning';
 
 // The board's verdict on the manager at rollover, escalating if confidence stays at-risk across

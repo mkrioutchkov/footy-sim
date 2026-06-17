@@ -485,7 +485,8 @@ async function screenDashboard() {
             h('span', {}, '🪑 Board confidence'),
             h('span', { style: `color:${cc};font-weight:600` }, label)),
           h('div', { style: 'height:7px;background:var(--panel2,#161f30);border-radius:4px;overflow:hidden' },
-            h('div', { style: `height:100%;width:${Math.max(0, Math.min(100, conf.value))}%;background:${cc}` }))));
+            h('div', { style: `height:100%;width:${Math.max(0, Math.min(100, conf.value))}%;background:${cc}` })),
+          league.boardMood ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:5px;font-style:italic' }, league.boardMood) : ''));
       }
       if (obj) {
         // "just outside it" must never include a relegation place — the bottom `promote` spots are
@@ -851,6 +852,8 @@ async function screenMarket() {
       h('div', { class: 'card', style: `padding:8px 12px;${win.open ? 'border-left:3px solid var(--accent,#4ea1ff)' : 'opacity:.8'}` },
         h('span', { style: win.open ? 'font-weight:600' : '' }, (win.open ? '🟢 ' : '🔒 ') + win.label),
         h('span', { class: 'muted', style: 'margin-left:8px;font-size:12px' }, 'Free agents can be signed any time; club-to-club deals need an open window.')),
+      market.backing ? h('div', { class: 'card', style: 'padding:8px 12px' },
+        h('span', { class: 'muted', style: 'font-size:12px' }, `🏛️ ${market.backing}`)) : '',
       h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Free agents'),
