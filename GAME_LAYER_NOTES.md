@@ -418,6 +418,15 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     money is introduced, the economy + the multiseason regression are unchanged. Verified by
     `tools/_finances_test.ts` (14 — record/aggregate, AI no-op, per-season filtering, the buyFreeAgent +
     rollover-prize hooks) + smoke (56).
+  - **Enrichment pass (2026-06-17, audit-driven):** (1) **finances** — wage-bill-vs-budget line + season-over-
+    season income/expense/net (both pure reads, no money); (2) **board presence** — `boardMood` (mid-season
+    line on the dashboard) + `recruitmentBacking` (boardroom line on the market), pure framing; (3) **verdict
+    in history** — the rollover board verdict (tone/message/confidence) persisted on `season_history` +
+    shown as a board pill; (4) **harmony → training** — `harmonyFactor` (EXACTLY 1.0 across the settled band
+    so regressions are byte-identical; +6%/−8% outside) threaded into `developAttrs`/`developmentTick`, giving
+    the read-only harmony card a real consequence; (5) **all-time club records** — pure `getClubRecords`
+    reduction over `season_history`. DEFERRED as taste/balance calls: market attribute-fog (changes core
+    market UX + the market test), the captain mechanic (needs a set-captain UI), commercial income.
   - **Squad harmony / dressing room (`harmony.ts`, `/api/harmony`).** A READ-ONLY read of how settled
     the squad is, derived from the existing personality dials + morale — it mutates nothing (no balance
     effect): leaders + model pros lift it, big egos who are unhappy or stuck on the bench drag it, as does
