@@ -116,6 +116,7 @@ export interface SeasonHistoryT {
   played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
   champion: boolean; promoted: boolean; relegated: boolean; cupWon: boolean; pots: string | null;
   objective: { kind: string; target: number; met: boolean } | null;
+  board: { tone: string; message: string; confidence: number } | null;
 }
 
 export const api = {

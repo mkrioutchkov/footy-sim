@@ -1314,6 +1314,15 @@ const OBJ_LABEL: Record<string, string> = {
 const CONF_LABEL: Record<string, string> = {
   secure: 'Secure', stable: 'Stable', shaky: 'Under pressure', at_risk: 'At risk',
 };
+const BOARD_TONE_LABEL: Record<string, string> = {
+  backed: 'Backed', satisfied: 'Satisfied', concerned: 'Concerned', warned: 'Warned', final_warning: 'Final warning',
+};
+const BOARD_TONE_ICON: Record<string, string> = {
+  backed: '🟢', satisfied: '🙂', concerned: '🟡', warned: '🟠', final_warning: '🔴',
+};
+const BOARD_TONE_STYLE: Record<string, string> = {
+  warned: 'background:#3a2a1f;color:#ffce9a', final_warning: 'background:#3a1f24;color:#ff9a9a',
+};
 function trophy(icon: string, n: number, label: string): HTMLElement {
   return h('div', { style: 'text-align:center;min-width:74px' },
     h('div', { style: 'font-size:26px' }, icon),
@@ -1346,7 +1355,8 @@ async function screenHistory() {
     if (s.promoted) honours.append(h('span', { class: 'pill', title: 'Promoted' }, '⬆️ Promoted'));
     if (s.relegated) honours.append(h('span', { class: 'pill', title: 'Relegated', style: 'background:#3a1f24;color:#ff9a9a' }, '⬇️ Relegated'));
     if (s.cupWon) honours.append(h('span', { class: 'pill', title: 'Cup winners', style: 'background:var(--gold);color:#1a1205' }, '🥇 Cup'));
-    if (s.objective) honours.append(h('span', { class: 'pill', title: `Board objective: ${OBJ_LABEL[s.objective.kind] ?? 'season target'}`, style: s.objective.met ? '' : 'background:#3a1f24;color:#ff9a9a' }, (s.objective.met ? '✅' : '❌') + ' Board'));
+    if (s.objective) honours.append(h('span', { class: 'pill', title: `Board objective: ${OBJ_LABEL[s.objective.kind] ?? 'season target'}`, style: s.objective.met ? '' : 'background:#3a1f24;color:#ff9a9a' }, (s.objective.met ? '✅' : '❌') + ' Target'));
+    if (s.board) honours.append(h('span', { class: 'pill', title: s.board.message, style: BOARD_TONE_STYLE[s.board.tone] ?? '' }, `${BOARD_TONE_ICON[s.board.tone] ?? '📋'} ${BOARD_TONE_LABEL[s.board.tone] ?? 'Board'}`));
     if (s.pots) honours.append(h('span', { class: 'muted', style: 'font-size:11px' }, `POTS: ${s.pots}`));
     body.append(h('tr', {},
       h('td', { class: 'num' }, String(s.season)),

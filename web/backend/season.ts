@@ -152,6 +152,14 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       const finishedObj = getObjective(t.id);
       const objForHistory = finishedObj && finishedObj.season === endSeason
         ? { kind: finishedObj.kind, target: finishedObj.target, met: objectiveMet(finishedObj.target, pos) } : null;
+      // board confidence settles on the season verdict (objective + finish + promotion/relegation),
+      // then the board delivers its verdict (escalating if confidence stays at-risk season on season)
+      const newConfidence = settleConfidenceAtRollover({
+        teamId: t.id, finalPosition: pos, size: fin.table.length,
+        promoted: !!promo, relegated: !!releg, objectiveMet: objForHistory ? objForHistory.met : null,
+      });
+      const verdict = boardVerdictAtRollover(t.id, newConfidence, objForHistory ? objForHistory.met : null);
+      out.board.push({ teamId: t.id, ...verdict });
       recordSeasonHistory({
         teamId: t.id, season: endSeason, tier: fin.league.tier, division: fin.league.name, table: fin.table,
         promoted: !!promo, relegated: !!releg,
@@ -159,14 +167,8 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
         // so a same-named club winning it must not phantom-award this club (review fix).
         cupWon: cupChampionTeamId != null && cupChampionTeamId === t.id,
         objective: objForHistory,
+        board: { tone: verdict.tone, message: verdict.message, confidence: newConfidence },
       });
-      // board confidence settles on the season verdict (objective + finish + promotion/relegation),
-      // then the board delivers its verdict (escalating if confidence stays at-risk season on season)
-      const newConfidence = settleConfidenceAtRollover({
-        teamId: t.id, finalPosition: pos, size: fin.table.length,
-        promoted: !!promo, relegated: !!releg, objectiveMet: objForHistory ? objForHistory.met : null,
-      });
-      out.board.push({ teamId: t.id, ...boardVerdictAtRollover(t.id, newConfidence, objForHistory ? objForHistory.met : null) });
       // set the board's expectation for the coming season, from the club's NEW tier (promotion/
       // relegation already moved league_id at step 2) + how it just finished.
       const newTier = promo ? promo.toTier : releg ? releg.toTier : fin.league.tier;
