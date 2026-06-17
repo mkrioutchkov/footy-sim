@@ -269,16 +269,20 @@ void GameEngine::checkBallPlayerCollision(double){
             bool reachable = dRcv <= MEET_REACH_GROUND + 10.0;
             bool keeperCloser = false;
             int frontPress = 0;
+            double gkDistToRcv = 1e9;
             for (auto& o : state.players) {
-                if (o.sentOff) continue;
-                if (o.role == Role::GK && o.team != rcv->team
-                    && dist(o.x, o.y, b.x, b.y) < dRcv - 2.0) keeperCloser = true;
-                else if (o.team != rcv->team && o.role != Role::GK
-                    && dist(o.x, o.y, rcv->x, rcv->y) < 26.0) frontPress++;
+                if (o.sentOff || o.team == rcv->team) continue;
+                if (o.role == Role::GK) {
+                    if (dist(o.x, o.y, b.x, b.y) < dRcv - 2.0) keeperCloser = true;
+                    gkDistToRcv = std::min(gkDistToRcv, dist(o.x, o.y, rcv->x, rcv->y));
+                } else if (dist(o.x, o.y, rcv->x, rcv->y) < 26.0) frontPress++;
             }
             if (inBox && reachable && !keeperCloser) {
+                // A keeper right on top of the chance smothers the tap-in — proximity
+                // to the RUNNER (not just the ball) cuts the finish toward zero.
+                double gkProx = clamp((55.0 - gkDistToRcv) / 55.0, 0.0, 1.0);
                 double finishChance = clamp(0.50 + attrFactor(rcv->attrs.shooting) * 0.30
-                    - frontPress * 0.16 - clamp((bs - 250.0) / 600.0, 0.0, 0.16), 0.28, 0.88);
+                    - frontPress * 0.16 - gkProx * 0.45 - clamp((bs - 250.0) / 600.0, 0.0, 0.16), 0.12, 0.88);
                 if (rng.random() < finishChance) {
                     rcv->firstTouchFinish = 1400.0; // flat, clean foot finish (not a header)
                     pendingPass.active = false;
