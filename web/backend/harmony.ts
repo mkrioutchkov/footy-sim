@@ -23,6 +23,14 @@ export function getSquadHarmony(teamId: number): SquadHarmony | null {
   const rows = db.prepare('SELECT slot, name, personality, morale FROM players WHERE team_id = ? ORDER BY slot')
     .all(teamId) as { slot: number; name: string; personality: string | null; morale: number }[];
   if (!rows.length) return null;
+  // bench = NOT in the starting XI, resolved from the team's lineup (mirrors the match engine), so a
+  // hand-picked XI is read correctly — a starter at squad-slot 12 isn't mistaken for a benchwarmer.
+  let starters: Set<number>;
+  try {
+    const l = (db.prepare('SELECT lineup FROM teams WHERE id = ?').get(teamId) as { lineup: string | null } | undefined)?.lineup;
+    const parsed = l ? JSON.parse(l) : null;
+    starters = Array.isArray(parsed) && parsed.length === 11 ? new Set(parsed.map(Number)) : new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  } catch { starters = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]); }
 
   let sumMorale = 0, min = 100, max = 0, leadBonus = 0, disrupt = 0;
   const players: HarmonyPlayer[] = [];
@@ -30,7 +38,7 @@ export function getSquadHarmony(teamId: number): SquadHarmony | null {
     sumMorale += p.morale; min = Math.min(min, p.morale); max = Math.max(max, p.morale);
     const t = traitsOf(p.personality);
     const ego = t?.ego ?? 50, lead = t?.leadership ?? 50, prof = t?.professionalism ?? 50;
-    const benched = p.slot >= 11;
+    const benched = !starters.has(p.slot);
     if (ego >= 70 && (p.morale < 50 || (benched && p.morale < 65))) {
       disrupt += 1 + (ego - 70) / 15;
       players.push({ slot: p.slot, name: p.name, tag: 'disruptive', note: benched ? 'A big ego unhappy on the bench' : 'A big ego, unsettled' });
