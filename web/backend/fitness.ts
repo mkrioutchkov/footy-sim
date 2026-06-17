@@ -6,6 +6,7 @@
 // /api/advance, BEFORE the market/AI ticks so "who played" reflects the XI as it lined up.
 import { db } from './db.ts';
 import { fitFirstSelection } from './game.ts';
+import { physioEffect } from './staff.ts';
 
 const DRAIN_MIN = 10, DRAIN_VAR = 8;        // condition a starter loses (10..17)
 const RECOVER = 20;                          // condition a rested player regains
@@ -24,17 +25,18 @@ export function fitnessTick(leagueId: number): InjuryEvent[] {
     // who played = exactly the XI specForTeam fields (same shared fit-first selection, so the
     // drained/recovered set can never diverge from who actually played)
     const starterIds = new Set(fitFirstSelection(players, p => p.injured_matches > 0).slice(0, 11).map(p => p.id));
-    // 1. drain the starters, recover everyone else
+    const physio = physioEffect(id);   // identity (injuryMult 1, recoverBonus 0) for a club with no physios
+    // 1. drain the starters, recover everyone else (a good physio recovers the rested faster)
     for (const p of players) {
-      const next = starterIds.has(p.id) ? p.fitness - (DRAIN_MIN + Math.floor(Math.random() * DRAIN_VAR)) : p.fitness + RECOVER;
+      const next = starterIds.has(p.id) ? p.fitness - (DRAIN_MIN + Math.floor(Math.random() * DRAIN_VAR)) : p.fitness + RECOVER + physio.recoverBonus;
       setFit.run(Math.max(0, Math.min(100, next)), p.id);
     }
     // 2. standing injuries heal a matchday
     for (const p of players) if (p.injured_matches > 0) setInj.run(p.injured_matches - 1, p.id);
-    // 3. fresh injuries for fit players who started — likelier the more tired they were
+    // 3. fresh injuries for fit players who started — likelier the more tired they were, cut by physios
     for (const p of players) {
       if (!starterIds.has(p.id) || p.injured_matches > 0) continue;
-      if (Math.random() < INJURY_BASE + (1 - p.fitness / 100) * INJURY_TIRED) {
+      if (Math.random() < (INJURY_BASE + (1 - p.fitness / 100) * INJURY_TIRED) * physio.injuryMult) {
         const matches = INJURY_MIN + Math.floor(Math.random() * INJURY_VAR);
         setInj.run(matches, p.id);
         events.push({ teamId: id, player: p.name, matches });

@@ -94,6 +94,10 @@ export interface ScoutT {
   venue: 'home' | 'away'; round: number; approach: string[]; form: ScoutFormT[]; keyPlayers: ScoutPlayerT[];
 }
 
+export interface StaffMemberT { id: number; role: 'coach' | 'physio' | 'scout'; name: string; rating: number; cost: number; }
+export interface StaffEffectsT { training: number; injuryReduction: number; recoverBonus: number; scoutDepth: number; }
+export interface StaffViewT { staff: StaffMemberT[]; pool: StaffMemberT[]; budget: number; max: number; effects: StaffEffectsT; }
+
 export interface SeasonHistoryT {
   season: number; tier: number; division: string; position: number;
   played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
@@ -133,4 +137,7 @@ export const api = {
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: () => req<{ news: NewsItemT[] }>('GET', '/news'),
   history: () => req<{ history: SeasonHistoryT[] }>('GET', '/history'),
+  staff: () => req<StaffViewT>('GET', '/staff'),
+  hireStaff: (staffId: number) => req<StaffViewT & { name?: string }>('POST', '/staff/hire', { staffId }),
+  fireStaff: (staffId: number) => req<StaffViewT>('POST', '/staff/fire', { staffId }),
 };

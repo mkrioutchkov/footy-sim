@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT } from './api';
+import { api, type TeamT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -448,6 +448,7 @@ async function screenDashboard() {
       h('div', { class: 'row' }, watchBtn, advanceBtn,
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/staff') }, 'Staff'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/cup') }, 'Cup'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/history') }, 'History'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
@@ -1066,6 +1067,87 @@ async function screenReport(fixtureId: number) {
   ));
 }
 
+// ── backroom staff ──
+const ROLE_ICON: Record<string, string> = { coach: '🎓', physio: '🩺', scout: '🔍' };
+const ROLE_LABEL: Record<string, string> = { coach: 'Coach', physio: 'Physio', scout: 'Scout' };
+async function screenStaff() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
+  let v: StaffViewT;
+  try { v = await api.staff(); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+  }
+  const guard = (btn: HTMLElement, fn: () => Promise<void>) => async () => {
+    if (btn.hasAttribute('disabled')) return;
+    btn.setAttribute('disabled', 'true');
+    try { await fn(); } finally { btn.removeAttribute('disabled'); }
+  };
+  function render() {
+    const e = v.effects;
+    const stat = (icon: string, val: string, label: string) => h('div', { style: 'text-align:center;min-width:88px' },
+      h('div', { style: 'font-size:22px' }, icon),
+      h('div', { style: 'font-size:18px;font-weight:800' }, val),
+      h('div', { class: 'muted', style: 'font-size:11px' }, label));
+
+    const mineBody = h('tbody');
+    if (!v.staff.length) mineBody.append(h('tr', {}, h('td', { colspan: '4', class: 'muted' }, 'No staff yet — hire from the pool.')));
+    for (const s of v.staff) {
+      const fire = h('button', { class: 'ghost small' }, 'Release');
+      fire.addEventListener('click', guard(fire, async () => {
+        try { v = await api.fireStaff(s.id); toast(`Released ${s.name}`); render(); } catch (er: any) { toast(er.message); }
+      }));
+      mineBody.append(h('tr', {},
+        h('td', {}, `${ROLE_ICON[s.role] ?? ''} ${s.name}`),
+        h('td', {}, h('span', { class: 'pill' }, ROLE_LABEL[s.role] ?? s.role)),
+        h('td', { class: 'num' }, String(s.rating)),
+        h('td', { class: 'num' }, fire)));
+    }
+
+    const poolBody = h('tbody');
+    if (!v.pool.length) poolBody.append(h('tr', {}, h('td', { colspan: '5', class: 'muted' }, 'No candidates available.')));
+    for (const s of v.pool) {
+      const afford = v.budget >= s.cost, room = v.staff.length < v.max;
+      const hire = h('button', { class: 'ghost small' }, 'Hire');
+      if (!afford || !room) { hire.setAttribute('disabled', 'true'); hire.setAttribute('title', !room ? `Max ${v.max} staff` : 'Not enough budget'); }
+      else hire.addEventListener('click', guard(hire, async () => {
+        try { const r = await api.hireStaff(s.id); v = r; toast(`Hired ${r.name ?? s.name}`); render(); } catch (er: any) { toast(er.message); }
+      }));
+      poolBody.append(h('tr', {},
+        h('td', {}, `${ROLE_ICON[s.role] ?? ''} ${s.name}`),
+        h('td', {}, h('span', { class: 'pill' }, ROLE_LABEL[s.role] ?? s.role)),
+        h('td', { class: 'num' }, String(s.rating)),
+        h('td', { class: 'num' }, fmtMoney(s.cost)),
+        h('td', { class: 'num' }, hire)));
+    }
+
+    mount(header(), h('div', { class: 'wrap grid' },
+      h('div', { class: 'between' },
+        h('div', {}, h('h2', {}, 'Backroom staff'),
+          h('div', { class: 'muted' }, `Budget ${fmtMoney(v.budget)} · ${v.staff.length}/${v.max} employed`)),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+      h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Backroom effect'),
+        h('div', { class: 'row', style: 'gap:22px;flex-wrap:wrap' },
+          stat('🎓', `+${e.training}%`, 'Faster training'),
+          stat('🩺', `−${e.injuryReduction}%`, 'Injury risk'),
+          stat('💪', `+${e.recoverBonus}`, 'Match recovery'),
+          stat('🔍', `+${e.scoutDepth}`, 'Scouted players'))),
+      h('div', { class: 'grid', style: 'grid-template-columns:1fr 1fr;align-items:start' },
+        h('div', { class: 'card' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your staff'),
+          h('div', { style: 'max-height:430px;overflow:auto' }, h('table', {},
+            h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Role'), h('th', { class: 'num' }, 'Rating'), h('th', { class: 'num' }, ''))), mineBody))),
+        h('div', { class: 'card' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Hire pool'),
+          h('div', { style: 'max-height:430px;overflow:auto' }, h('table', {},
+            h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Role'), h('th', { class: 'num' }, 'Rating'), h('th', { class: 'num' }, 'Fee'), h('th', { class: 'num' }, ''))), poolBody))),
+      ),
+    ));
+  }
+  render();
+}
+
 // ── pre-match opponent scouting report ──
 function ordinal(n: number): string {
   const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
@@ -1194,6 +1276,7 @@ function route() {
   else if (hash === '#/tactics') screenTactics();
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
+  else if (hash === '#/staff') screenStaff();
   else if (hash === '#/cup') screenCup();
   else if (hash === '#/history') screenHistory();
   else if (hash.startsWith('#/report/')) screenReport(Number(hash.split('/')[2]));

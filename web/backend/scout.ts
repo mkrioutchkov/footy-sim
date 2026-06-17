@@ -5,6 +5,7 @@
 import { db } from './db.ts';
 import { getTeamWithPlayers, standings } from './game.ts';
 import type { Tactics } from './game.ts';
+import { scoutDepth } from './staff.ts';
 
 export interface ScoutPlayer { name: string; role: string; age: number; overall: number; potential: number | null; danger: boolean; }
 export interface ScoutForm { round: number; opponent: string; venue: 'H' | 'A'; gf: number; ga: number; result: 'W' | 'D' | 'L'; }
@@ -71,14 +72,15 @@ export function buildScoutReport(fixtureId: number, userTeamId: number): ScoutRe
     return { round: f.round, opponent: nameOf(home ? f.away_team_id : f.home_team_id), venue: home ? 'H' : 'A', gf, ga, result: gf > ga ? 'W' : gf < ga ? 'L' : 'D' };
   });
 
-  // key players — their fielded XI (custom lineup or first 11), top 5 by OVR. Among those five,
-  // flag the highest-OVR attacker (or the top-rated player if none) as the danger man — chosen
-  // from within the shown list so exactly one of the displayed players is ever flagged.
+  // key players — their fielded XI (custom lineup or first 11), top N by OVR. The base is 5; the
+  // club's scouts reveal up to 3 more (scoutDepth). Among the shown players, the highest-OVR
+  // attacker (or the top-rated player if none) is the danger man — chosen from the shown list so
+  // exactly one of the displayed players is ever flagged.
   const xi = opp.lineup ? opp.lineup.map(i => opp.players[i]).filter(Boolean) : opp.players.slice(0, 11);
   const keyPlayers = xi
     .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs), potential: p.potential, danger: false }))
     .sort((a, b) => b.overall - a.overall)
-    .slice(0, 5);
+    .slice(0, 5 + scoutDepth(userTeamId));
   if (keyPlayers.length) {
     const attIdx = keyPlayers.findIndex(p => p.role === 'CF' || p.role === 'WM');
     keyPlayers[attIdx >= 0 ? attIdx : 0].danger = true;

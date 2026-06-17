@@ -303,3 +303,20 @@ ensureColumn('season_history', 'objective_met', 'objective_met INTEGER');   // 1
 // objective verdict + finish + promotion/relegation. Defaults to 55 (neutral) for every club, so
 // existing saves start from the same neutral footing.
 ensureColumn('teams', 'board_confidence', 'board_confidence INTEGER NOT NULL DEFAULT 55');
+
+// ── Backroom staff (coaches / physios / scouts) ─────────────────────────────
+// A shared per-world hire pool (team_id NULL) the user signs from for a one-off fee; coaches speed
+// training, physios cut injuries + speed recovery, scouts deepen the pre-match report. New table,
+// so existing saves are unaffected (they simply have no staff until they hire).
+db.exec(`
+CREATE TABLE IF NOT EXISTS staff (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  world_id  INTEGER NOT NULL,
+  team_id   INTEGER,             -- NULL = available in the world's hire pool
+  role      TEXT NOT NULL,       -- coach | physio | scout
+  name      TEXT NOT NULL,
+  rating    INTEGER NOT NULL,    -- 45..88
+  cost      INTEGER NOT NULL     -- one-off hiring fee (from the transfer budget)
+);
+CREATE INDEX IF NOT EXISTS idx_staff_world ON staff(world_id, team_id);
+`);

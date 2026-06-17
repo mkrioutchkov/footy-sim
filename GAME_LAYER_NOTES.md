@@ -393,6 +393,15 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
     risk; dashboard shows a confidence bar beside the objective. No sacking yet — the stat + status set up
     that consequence. Verified by `tools/_confidence_test.ts` (15 — bands, drift, settle math + clamp, the
     champion-soars roll) + smoke (49) + multiseason (83).
+  - **Backroom staff (`staff.ts`, `staff` table, `/api/staff` + hire/fire).** A shared per-world hire pool
+    the club signs coaches/physios/scouts from for a one-off fee (from the transfer budget; no wage gate).
+    Effects, each aggregated from a role's combined quality and capped, IDENTITY with no staff (so the
+    engine-free regressions are unchanged): coaches ×1.0–1.30 training growth (`developAttrs` coachFactor,
+    per-team in `developmentTick`); physios cut injury risk to ×0.55 + add up to +15 recovery (`fitnessTick`);
+    scouts reveal +1–3 extra key players (`buildScoutReport`). MAX_STAFF 8; hire guarded on budget + cap.
+    Staff screen with an effects panel + your-staff/hire-pool tables. Verified by `tools/_staff_test.ts`
+    (23 — pool/hire/fire flow, the effect math + caps, budget/cap guards, the coach + scout integration) +
+    smoke (54) + the season/multiseason regressions (identity, unchanged).
 - **DESIGNED:** the four original pillars + round 5 + injuries/fitness + newgen + cup + morale
   + press conferences + record/replay (Phase 1) + match reports/ratings + transfer windows &
   negotiation + loans + dynamic player-news + ratings→morale & season awards are all SHIPPED.

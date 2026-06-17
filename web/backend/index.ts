@@ -27,6 +27,7 @@ import { buildScoutReport } from './scout.ts';
 import { getHistory } from './history.ts';
 import { getObjective } from './objectives.ts';
 import { getConfidence } from './confidence.ts';
+import { getStaffView, hireStaff, fireStaff } from './staff.ts';
 import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
@@ -395,6 +396,34 @@ app.get('/api/news', async (req: any, reply) => {
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   return { news: recentNews(teamId) };
+});
+
+// Backroom staff: the club's coaches/physios/scouts + the world's hire pool + current effects.
+app.get('/api/staff', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return getStaffView(teamId);
+});
+app.post('/api/staff/hire', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const staffId = Number(req.body?.staffId);
+  if (!Number.isInteger(staffId)) return reply.code(400).send({ error: 'staffId required' });
+  const r = hireStaff(teamId, staffId);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, ...getStaffView(teamId) };
+});
+app.post('/api/staff/fire', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const staffId = Number(req.body?.staffId);
+  if (!Number.isInteger(staffId)) return reply.code(400).send({ error: 'staffId required' });
+  const r = fireStaff(teamId, staffId);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, ...getStaffView(teamId) };
 });
 
 // The club's season-by-season history + honours (populated at each rollover).
