@@ -114,6 +114,41 @@ export const FORMATIONS: Record<string, Slot[]> = {
     { role: 'CM', x: 400, y: 410 }, { role: 'WM', x: 420, y: 590 },
     { role: 'CF', x: 600, y: yC }, { role: 'CF', x: 765, y: yC },
   ],
+  // === 4-2-2-2 — Brazilian box midfield: a double pivot, two narrow 10s, a strike pair ===
+  '4-2-2-2': [
+    { role: 'GK', x: 31.5, y: yC },
+    { role: 'FB', x: 170, y: yR }, { role: 'CB', x: 185, y: 250 },
+    { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 170, y: yL },
+    { role: 'CM', x: 335, y: 280 }, { role: 'CM', x: 335, y: 400 },
+    { role: 'CM', x: 545, y: 245 }, { role: 'CM', x: 545, y: 435 },
+    { role: 'CF', x: 748, y: 285 }, { role: 'CF', x: 748, y: 395 },
+  ],
+  // === 3-4-2-1 — back three, wing-backs + double pivot, two free 10s behind a lone CF ===
+  '3-4-2-1': [
+    { role: 'GK', x: 31.5, y: yC },
+    { role: 'CB', x: 185, y: 205 }, { role: 'CB', x: 190, y: yC }, { role: 'CB', x: 185, y: 475 },
+    { role: 'FB', x: 440, y: 70 }, { role: 'CM', x: 400, y: 275 },
+    { role: 'CM', x: 400, y: 405 }, { role: 'FB', x: 440, y: 610 },
+    { role: 'CM', x: 600, y: 260 }, { role: 'CM', x: 600, y: 420 }, { role: 'CF', x: 770, y: yC },
+  ],
+  // === wide 4-2-3-1 — wider band of three + a deeper pivot than the narrow 4-2-3-1 ===
+  'wide 4-2-3-1': [
+    { role: 'GK', x: 31.5, y: yC },
+    { role: 'FB', x: 175, y: yR }, { role: 'CB', x: 185, y: 250 },
+    { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 175, y: yL },
+    { role: 'CM', x: 340, y: 280 }, { role: 'CM', x: 340, y: 400 },
+    { role: 'WM', x: 545, y: 60 }, { role: 'CM', x: 575, y: yC }, { role: 'WM', x: 545, y: 620 },
+    { role: 'CF', x: 760, y: yC },
+  ],
+  // === wide diamond — a wide counterpart to the narrow 4-1-2-1-2 (the sides are out-and-out wide) ===
+  'wide diamond': [
+    { role: 'GK', x: 31.5, y: yC },
+    { role: 'FB', x: 170, y: yR }, { role: 'CB', x: 185, y: 250 },
+    { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 170, y: yL },
+    { role: 'CM', x: 330, y: yC },
+    { role: 'WM', x: 450, y: 105 }, { role: 'WM', x: 450, y: 575 },
+    { role: 'CM', x: 575, y: yC }, { role: 'CF', x: 745, y: 285 }, { role: 'CF', x: 745, y: 395 },
+  ],
 };
 
 export const DEFAULT_FORMATION = '4-3-3';
