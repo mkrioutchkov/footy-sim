@@ -709,6 +709,7 @@ const PLAYER_VERB: Record<string, string> = {
   cross_early: 'crosses early', switch_play: 'switches the play', play_simple: 'keeps it simple',
   run_in_behind: 'runs in behind', make_runs: 'makes runs', dribble_more: 'takes them on',
   press_hard: 'presses hard', tackle_hard: 'gets stuck in', stay_on_feet: 'stays on his feet',
+  cutback: 'cuts it back from the byline', contain: 'sits off and contains', stay_back: 'holds his position',
 };
 function condText(w: any): string {
   let c = '';

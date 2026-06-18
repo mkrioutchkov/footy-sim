@@ -177,6 +177,10 @@ export function roleFit(attrs: Record<string, number>, role: Role): number {
 // isn't a recognised shape. The LLM does the heavy parsing; this is the code-side
 // safety net for plain "442" / "4-4-2" / "4 4 2".
 export function normalizeFormation(s: string): string | null {
+  // exact registry key FIRST — otherwise the digit path below strips e.g. "wide 4-2-3-1" to
+  // "4231" and returns the NARROW "4-2-3-1", making the named wide shapes unreachable.
+  const exact = s.trim();
+  if (FORMATIONS[exact]) return exact;
   const digits = s.replace(/[^0-9]/g, '');
   if (digits.length >= 3 && digits.length <= 5) {     // "433","442","4231","41212","4411"…
     const key = digits.split('').join('-');
