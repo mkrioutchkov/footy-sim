@@ -30,7 +30,9 @@ def side(pid):
     return 0 if 0 <= pid < 11 else (1 if pid >= 11 else -1)
 
 def sequences_from_trace(path):
-    """Return list of sequence lengths (completed-pass counts) for one match."""
+    """Return (sequence lengths, match minutes, extras dict) for one match.
+    extras: goals (final score sum), intercepts, tackles — so one probe run
+    measures build-up AND turnover volume AND goals together."""
     t = TraceReader(path)
     evs = sorted(t.events, key=lambda e: e.clock_ms)
     seqs = []
@@ -57,9 +59,17 @@ def sequences_from_trace(path):
             flush()
         # else: dribble/header/save/block/etc. — neither a pass nor a hard cut
     flush()
-    return seqs, (t.frames[-1].clock_ms / 60000.0 if t.frames else 0.0)
+    mins = (t.frames[-1].clock_ms / 60000.0 if t.frames else 0.0)
+    fr = t.frames[-1] if t.frames else None
+    extras = {
+        "goals": (getattr(fr, "home_score", 0) + getattr(fr, "away_score", 0)) if fr else 0,
+        "intercepts": sum(1 for e in evs if e.type == "intercept"),
+        "tackles": sum(1 for e in evs if e.type == "tackle"),
+    }
+    return seqs, mins, extras
 
 def run_match(seed, minutes, engine):
+    engine = os.path.normpath(engine)   # Windows CreateProcess rejects forward-slash relative paths
     fd, path = tempfile.mkstemp(suffix=f"_seq{seed}.bin"); os.close(fd)
     subprocess.run([engine, str(seed), str(minutes), "--no-debug", "--trace", path],
                    capture_output=True, timeout=600)
@@ -80,16 +90,19 @@ def main():
     all_seqs = []
     total_minutes = 0.0
     n_matches = 0
+    tot = {"goals": 0, "intercepts": 0, "tackles": 0}
+    def acc(ex):
+        for k in tot: tot[k] += ex.get(k, 0)
     if args.seeds:
         a, b = args.seeds.split("-"); lo, hi = int(a), int(b)
         for s in range(lo, hi + 1):
-            seqs, mins = run_match(s, args.minutes, args.engine)
-            all_seqs += seqs; total_minutes += mins; n_matches += 1
-            print(f"  seed {s}: {len(seqs)} sequences, max {max(seqs) if seqs else 0}", flush=True)
+            seqs, mins, ex = run_match(s, args.minutes, args.engine)
+            all_seqs += seqs; total_minutes += mins; n_matches += 1; acc(ex)
+            print(f"  seed {s}: {len(seqs)} seq, max {max(seqs) if seqs else 0}, goals {ex['goals']}, intc {ex['intercepts']}", flush=True)
     else:
         for p in args.traces:
-            seqs, mins = sequences_from_trace(p)
-            all_seqs += seqs; total_minutes += mins; n_matches += 1
+            seqs, mins, ex = sequences_from_trace(p)
+            all_seqs += seqs; total_minutes += mins; n_matches += 1; acc(ex)
 
     if not all_seqs:
         print("no sequences"); return
@@ -106,10 +119,16 @@ def main():
         raw[th] = c
         per90c = c * scale
         print(f"  {('>='+str(th)):>5} {per90c:>20.1f} {per90c/2:>10.1f}")
+    gpm = tot["goals"] / n_matches
+    g90 = tot["goals"] * scale
+    print(f"goals/match {gpm:.2f} (per90 {g90:.2f}) | intercepts/match {tot['intercepts']/n_matches:.0f} | tackle-events/match {tot['tackles']/n_matches:.0f}")
     # machine-parseable raw line (for aggregating across batches before scaling)
     import json as _json
     print("RAW " + _json.dumps({"matches": n_matches, "total_minutes": round(total_minutes, 1),
                                 "mean_len": round(mean_len, 3), "max_len": max(all_seqs),
+                                "goals_per_match": round(gpm, 3),
+                                "intercepts_per_match": round(tot["intercepts"]/n_matches, 1),
+                                "tackles_per_match": round(tot["tackles"]/n_matches, 1),
                                 "counts": raw}))
 
 if __name__ == "__main__":
