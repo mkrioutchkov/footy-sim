@@ -225,6 +225,63 @@ function screenCreateTeam() {
 
 // The standing tactical plan: a plain-English textarea + a read-only resolved-plan display
 // (the compiled directives), mirroring the live shout receipt. Replaces the old 5-dial sliders.
+// The directive vocabulary, grouped FM-style — every entry maps to a REAL engine-backed kind (no
+// born-dead duties). Clicking a chip drops a phrasing into the plan box so the language is
+// discoverable, not guessed. Includes the just-unblocked cutback / contain / stay_back (P0).
+const VOCAB_GROUPS: { title: string; items: { label: string; phrase: string }[] }[] = [
+  { title: 'Team shape', items: [
+    { label: 'High press', phrase: 'press high and win it back fast' },
+    { label: 'Drop off', phrase: 'sit back and stay compact' },
+    { label: 'All-out attack', phrase: 'throw everyone forward' },
+    { label: 'Park the bus', phrase: 'shut up shop and see it out' },
+    { label: 'Push up', phrase: 'push the line up' },
+    { label: 'Offside trap', phrase: 'hold a high line and play offside' },
+    { label: 'Counter-attack', phrase: 'hit them on the counter' },
+  ] },
+  { title: 'Build-up', items: [
+    { label: 'Play it long', phrase: 'go direct, hit it long' },
+    { label: 'Keep it down', phrase: 'pass it out from the back' },
+    { label: 'Get it wide', phrase: 'use the wings' },
+    { label: 'Play narrow', phrase: 'stay narrow, through the middle' },
+    { label: 'Slow it down', phrase: 'keep the ball, take the sting out' },
+  ] },
+  { title: 'Player movement', items: [
+    { label: 'Get forward', phrase: '[player] get forward' },
+    { label: 'Sit deep', phrase: '[player] sit deep' },
+    { label: "Stay back", phrase: "[player] don't bomb forward" },
+    { label: 'Stay wide', phrase: '[player] hug the touchline' },
+    { label: 'Come inside', phrase: '[player] cut inside' },
+    { label: 'Run in behind', phrase: '[player] run in behind' },
+  ] },
+  { title: 'On the ball', items: [
+    { label: 'Shoot on sight', phrase: '[player] shoot on sight' },
+    { label: 'Dribble more', phrase: '[player] take them on' },
+    { label: 'Cross early', phrase: '[player] whip crosses in early' },
+    { label: 'Cut it back', phrase: '[player] pull it back from the byline' },
+    { label: 'Switch play', phrase: '[player] switch the play' },
+    { label: 'Feed him', phrase: 'get the ball to [player]' },
+  ] },
+  { title: 'Defending', items: [
+    { label: 'Man-mark', phrase: '[player] man-mark their [opponent]' },
+    { label: 'Press hard', phrase: '[player] press him hard' },
+    { label: 'Contain', phrase: "[player] sit off and jockey, don't dive in" },
+    { label: 'Get stuck in', phrase: '[player] get stuck in' },
+    { label: 'Stay on feet', phrase: '[player] stay on your feet' },
+  ] },
+];
+function vocabPanel(input: HTMLTextAreaElement): HTMLElement {
+  const add = (phrase: string) => { input.value = input.value.trim() ? `${input.value.trim()}, ${phrase}` : phrase; input.focus(); };
+  return h('details', { style: 'margin-top:10px' },
+    h('summary', { style: 'cursor:pointer;font-size:13px;color:var(--muted)' }, 'Instructions you can give — click to add ▾'),
+    h('div', { class: 'muted', style: 'font-size:11px;margin:6px 0' }, 'Drop a phrasing into the plan, then edit the [names]. It’s compiled to your team’s instructions — anything it can’t read shows as a note below. (Instructions change decisions, not guaranteed goals.)'),
+    ...VOCAB_GROUPS.map(g => h('div', { style: 'margin:8px 0' },
+      h('div', { class: 'muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px' }, g.title),
+      h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, ...g.items.map(it => {
+        const b = h('button', { class: 'ghost small', type: 'button', title: it.phrase }, it.label);
+        b.addEventListener('click', () => add(it.phrase));
+        return b;
+      })))));
+}
 function planPanel(team: TeamT): HTMLElement {
   // resolve the plan's team-relative ids (0-10) to player names for describeDirective
   watchPlayers = team.players.slice(0, 11).map((p, i) => ({ id: i, name: p.name }));
@@ -243,7 +300,8 @@ function planPanel(team: TeamT): HTMLElement {
     } else if (!error && (team.planText || input.value.trim())) {
       out.appendChild(h('div', { class: 'muted' }, "Couldn't read that as tactical orders — try plainer instructions."));
     }
-    if (note) out.appendChild(h('div', { class: 'muted', style: 'margin-top:6px' }, '• ' + note));
+    // surface the compiler's note prominently — it flags an order that was dropped/misread/ambiguous
+    if (note) out.appendChild(h('div', { style: 'margin-top:8px;color:var(--gold);font-size:13px' }, '📝 ' + note));
   };
   const save = h('button', { class: 'primary small' }, 'Save plan');
   save.addEventListener('click', async () => {
@@ -261,6 +319,7 @@ function planPanel(team: TeamT): HTMLElement {
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Tactical plan'),
     h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'Type a standing plan in plain English — it’s compiled to your team’s instructions and seeds every match (and your live shouts). Mid-match, the shout box edits it.'),
     h('div', { class: 'tactics-row' }, input, save),
+    vocabPanel(input),
     out,
   );
 }
