@@ -16,8 +16,8 @@ const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
 const ROLE_SLOTS = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'WM', 'CF', 'WM'];
 // Per-player kinds need a playerId; team-wide kinds need a teamScope (0/1).
 const PLAYER_KINDS = ['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', 'target_player',
-  'stay_wide', 'come_inside', 'stay_central', 'cross_early', 'switch_play', 'play_simple',
-  'run_in_behind', 'make_runs', 'dribble_more', 'press_hard', 'tackle_hard', 'stay_on_feet'];
+  'stay_wide', 'come_inside', 'stay_central', 'cross_early', 'cutback', 'switch_play', 'play_simple',
+  'run_in_behind', 'make_runs', 'dribble_more', 'press_hard', 'contain', 'tackle_hard', 'stay_on_feet', 'stay_back'];
 const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 'play_it_long',
   'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down',
   'counter_attack', 'offside_trap'];
@@ -76,25 +76,28 @@ PER-PLAYER kinds (need playerId; omit teamScope):
 - target_player (targetId=team-mate): feed / supply / look for / give it to a team-mate.
 - shoot_on_sight: shoot more / from range / let fly / test the keeper / pull the trigger.
 - get_forward: push higher / join the attack / bomb on / get up the pitch / further forward / play striker / play up top / play as a striker / play up front / play further forward / lead the line / get him up there.
-- sit_deep: drop back / sit deep / don't get forward / stay home / hold a deep position / play deeper / play as a holding mid / sit in front of the back four / anchor the midfield.
+- sit_deep: drop back / sit deep / hold a deep position / play deeper / play as a holding mid / sit in front of the back four / anchor the midfield (take up a DEEP position).
+- stay_back: don't bomb forward / don't overlap / hold your position / stay home / don't join the attack — keep his normal spot but DAMP his forward runs (distinct from sit_deep, which actually drops him deep).
 - stay_wide: hug the touchline / stay wide / hold the width / stretch the play (winger/full-back).
 - come_inside: tuck in / drift inside / cut inside.
 - stay_central: stay central / hold the middle / don't drift wide.
 - cross_early: whip it in / get your crosses in early / get it in the box / don't overdribble out wide.
+- cutback: pull it back / cut it back / cut-backs / lay it across the box / square it from the byline — a LOW ball pulled back from near the goal line (distinct from cross_early's earlier, higher cross).
 - switch_play: switch the play / spread it / change the angle / hit the far side.
 - play_simple: keep it simple / one-twos / don't force it / safe passes / recycle it.
 - run_in_behind: run in behind / get in behind / stretch them / make runs off the last man / go beyond.
 - make_runs: make runs / keep moving / get on the move / offer the runs.
 - dribble_more: take them on / run at them / dribble more / beat your man / be direct 1v1.
 - press_hard: press him / get after him / close him down / hound the ball / don't let him settle.
+- contain: contain him / sit off him / jockey / show him inside / shepherd him — ease off a specific opponent rather than diving in (the per-player opposite of press_hard).
 - tackle_hard: get stuck in / put a foot in / be aggressive in the challenge / win the ball back.
-- stay_on_feet: stay on your feet / don't dive in / jockey / contain / no rash challenges.
+- stay_on_feet: stay on your feet / time the tackle / don't dive in / no rash challenges / don't get sent off — tackling DISCIPLINE (for "jockey/contain him", prefer the contain kind).
 
 TEAM-WIDE kinds (set "teamScope":${myScope}, NO playerId) — for the whole side's shape/tempo:
 - all_out_attack: throw everyone forward / gung-ho / chase the game / go for it.
 - park_the_bus: shut up shop / defend the lead / everyone behind the ball / see it out.
 - high_press: press high / hunt them down / win it back fast / get in their faces.
-- drop_off: sit back / drop deeper / give them nothing in behind / contain.
+- drop_off: sit back as a team / drop deeper / give them nothing in behind (WHOLE-TEAM sit-off; for ONE player easing off an opponent use the per-player contain).
 - play_it_long: go direct / hit it long / launch it / bypass the midfield / route one.
 - keep_it_on_ground: pass it out / play through the lines / keep it on the deck / no hoofball.
 - get_it_wide: use the wings / spread it / attack the flanks / get it out wide.
