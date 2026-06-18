@@ -9,7 +9,13 @@ const parseJSON = (s: string | null): unknown | null => { try { return s ? JSON.
 
 // Engine formation slots 0..10 -> role. Must match native createHome/AwayTeam.
 export const ROLE_SLOTS = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'WM', 'CF', 'WM'] as const;
-export type Role = (typeof ROLE_SLOTS)[number];
+// EngineRole = the 6 roles the native engine actually understands (roleFromStr in
+// engine/types.cpp). A player's STORED role is always one of these. DM/AM are
+// web-side POSITIONAL roles that only ever appear as a formation SLOT's role (a
+// holding / attacking central-mid spot); they collapse to CM at the spec boundary
+// via formations.engineRole(), so the engine never sees them. See that helper.
+export type EngineRole = (typeof ROLE_SLOTS)[number];
+export type Role = EngineRole | 'DM' | 'AM';
 
 export interface Tactics {
   aggression: number; passingDirectness: number; overlapFrequency: number;
@@ -27,7 +33,7 @@ const jitter = (n: number) => n + (Math.random() * 2 - 1) * 6;
 
 // Attribute bias per role, added to a team's base strength. Keeps a GK strong
 // in positioning, a striker in shooting, a CB in tackling, etc.
-const ROLE_BIAS: Record<Role, Partial<Record<string, number>>> = {
+const ROLE_BIAS: Record<EngineRole, Partial<Record<string, number>>> = {
   GK: { positioning: 30, handling: 35, passing: -2, shooting: -25, speed: -10, tackling: -10 },
   FB: { speed: 14, stamina: 14, tackling: 8, positioning: 4, shooting: -8 },
   CB: { tackling: 18, positioning: 16, speed: -6, shooting: -16, creativity: -8 },
@@ -39,9 +45,9 @@ const ATTR_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'po
 // Height is generated INDEPENDENT of skill (a poor player can be a giant), centred
 // ~54 with role tendency: centre-backs + keepers tall, playmakers/wide men shorter.
 // Feeds the engine's aerial-duel blend + 'target the tall man' targeting.
-const HEIGHT_BIAS: Partial<Record<Role, number>> = { GK: 16, CB: 24, CF: 12, FB: -2, CM: -8, WM: -6 };
+const HEIGHT_BIAS: Partial<Record<EngineRole, number>> = { GK: 16, CB: 24, CF: 12, FB: -2, CM: -8, WM: -6 };
 
-export function genAttrs(role: Role, base: number): Record<string, number> {
+export function genAttrs(role: EngineRole, base: number): Record<string, number> {
   const bias = ROLE_BIAS[role];
   const a: Record<string, number> = {};
   for (const k of ATTR_KEYS) a[k] = clamp(jitter(base + (bias[k] ?? 0)));
@@ -157,7 +163,7 @@ function insertRoster(teamId: number, base: number): void {
 // occasional gem) so signings stay affordable and the AI's weakest-role buys are
 // meaningful. Personalities are left NULL (generated lazily) to skip an LLM call.
 export const FREE_AGENT_COUNT = 28;
-const FA_ROLES: Role[] = ['GK', 'FB', 'CB', 'CM', 'WM', 'CF'];
+const FA_ROLES: EngineRole[] = ['GK', 'FB', 'CB', 'CM', 'WM', 'CF'];
 export function seedFreeAgents(leagueId: number, count = FREE_AGENT_COUNT): void {
   const ins = db.prepare(
     'INSERT INTO free_agents (league_id, name, role, attrs, personality, age, potential, value, wage) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)',

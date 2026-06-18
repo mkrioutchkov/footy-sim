@@ -8,9 +8,21 @@
 // '4-3-3' MUST reproduce the engine defaults (DEF_ROLES / DEF_HX_HOME / DEF_HY in
 // engine.cpp) verbatim, so a team on the default formation stays byte-identical
 // to today's behaviour. The other shapes are hand-placed in the same frame.
-import type { Role } from './game.ts';
+import type { Role, EngineRole } from './game.ts';
 
 export interface Slot { role: Role; x: number; y: number }
+
+// DM / AM are web-side POSITIONAL roles (a holding / attacking central-mid slot).
+// The native engine knows only the 6 EngineRoles, and roleFromStr() (engine/types.cpp)
+// maps ANY unrecognised string to CF — so emitting "DM"/"AM" verbatim would make a deep
+// midfielder behave as a STRIKER. Until the engine adds Role::DM/Role::AM (handoff in
+// .scratch/traces/GAYLORD_TACTICS_STATUS.md), both collapse to CM at the spec boundary:
+// the slot's deep/high x-anchor already encodes the position, and CM is the nearest
+// on-ball behaviour. So a DM = "a CM anchored deep", an AM = "a CM anchored high" —
+// honest (the position is real), never born-dead. Call this at every engine emit site.
+export function engineRole(r: Role): EngineRole {
+  return r === 'DM' || r === 'AM' ? 'CM' : r;
+}
 
 // Engine pitch length (goal-to-goal). The away side is the mirror: away_x = PITCH_W
 // - home_x (matches the engine's DEF_HX_AWAY = 1050 - DEF_HX_HOME). Width (y) is the
@@ -43,8 +55,8 @@ export const FORMATIONS: Record<string, Slot[]> = {
     { role: 'GK', x: 31.5, y: yC },
     { role: 'FB', x: 170, y: yR }, { role: 'CB', x: 185, y: 250 },
     { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 170, y: yL },
-    { role: 'CM', x: 365, y: 280 }, { role: 'CM', x: 365, y: 400 },
-    { role: 'WM', x: 560, y: 95 }, { role: 'CM', x: 575, y: yC }, { role: 'WM', x: 560, y: 585 },
+    { role: 'DM', x: 365, y: 280 }, { role: 'DM', x: 365, y: 400 },
+    { role: 'WM', x: 560, y: 95 }, { role: 'AM', x: 575, y: yC }, { role: 'WM', x: 560, y: 585 },
     { role: 'CF', x: 760, y: yC },
   ],
   // === 3-5-2 — back three, wing-backs high, strike pair ===
@@ -86,8 +98,8 @@ export const FORMATIONS: Record<string, Slot[]> = {
     { role: 'GK', x: 31.5, y: yC },
     { role: 'FB', x: 170, y: yR }, { role: 'CB', x: 185, y: 250 },
     { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 170, y: yL },
-    { role: 'CM', x: 330, y: yC }, { role: 'CM', x: 440, y: 215 }, { role: 'CM', x: 440, y: 465 },
-    { role: 'CM', x: 575, y: yC }, { role: 'CF', x: 745, y: 285 }, { role: 'CF', x: 745, y: 395 },
+    { role: 'DM', x: 330, y: yC }, { role: 'CM', x: 440, y: 215 }, { role: 'CM', x: 440, y: 465 },
+    { role: 'AM', x: 575, y: yC }, { role: 'CF', x: 745, y: 285 }, { role: 'CF', x: 745, y: 395 },
   ],
   // === 4-3-2-1 — the "christmas tree", two behind a lone striker ===
   '4-3-2-1': [
@@ -119,25 +131,25 @@ export const FORMATIONS: Record<string, Slot[]> = {
     { role: 'GK', x: 31.5, y: yC },
     { role: 'FB', x: 170, y: yR }, { role: 'CB', x: 185, y: 250 },
     { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 170, y: yL },
-    { role: 'CM', x: 335, y: 280 }, { role: 'CM', x: 335, y: 400 },
-    { role: 'CM', x: 545, y: 245 }, { role: 'CM', x: 545, y: 435 },
+    { role: 'DM', x: 335, y: 280 }, { role: 'DM', x: 335, y: 400 },
+    { role: 'AM', x: 545, y: 245 }, { role: 'AM', x: 545, y: 435 },
     { role: 'CF', x: 748, y: 285 }, { role: 'CF', x: 748, y: 395 },
   ],
   // === 3-4-2-1 — back three, wing-backs + double pivot, two free 10s behind a lone CF ===
   '3-4-2-1': [
     { role: 'GK', x: 31.5, y: yC },
     { role: 'CB', x: 185, y: 205 }, { role: 'CB', x: 190, y: yC }, { role: 'CB', x: 185, y: 475 },
-    { role: 'FB', x: 440, y: 70 }, { role: 'CM', x: 400, y: 275 },
-    { role: 'CM', x: 400, y: 405 }, { role: 'FB', x: 440, y: 610 },
-    { role: 'CM', x: 600, y: 260 }, { role: 'CM', x: 600, y: 420 }, { role: 'CF', x: 770, y: yC },
+    { role: 'FB', x: 440, y: 70 }, { role: 'DM', x: 400, y: 275 },
+    { role: 'DM', x: 400, y: 405 }, { role: 'FB', x: 440, y: 610 },
+    { role: 'AM', x: 600, y: 260 }, { role: 'AM', x: 600, y: 420 }, { role: 'CF', x: 770, y: yC },
   ],
   // === wide 4-2-3-1 — wider band of three + a deeper pivot than the narrow 4-2-3-1 ===
   'wide 4-2-3-1': [
     { role: 'GK', x: 31.5, y: yC },
     { role: 'FB', x: 175, y: yR }, { role: 'CB', x: 185, y: 250 },
     { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 175, y: yL },
-    { role: 'CM', x: 340, y: 280 }, { role: 'CM', x: 340, y: 400 },
-    { role: 'WM', x: 545, y: 60 }, { role: 'CM', x: 575, y: yC }, { role: 'WM', x: 545, y: 620 },
+    { role: 'DM', x: 340, y: 280 }, { role: 'DM', x: 340, y: 400 },
+    { role: 'WM', x: 545, y: 60 }, { role: 'AM', x: 575, y: yC }, { role: 'WM', x: 545, y: 620 },
     { role: 'CF', x: 760, y: yC },
   ],
   // === wide diamond — a wide counterpart to the narrow 4-1-2-1-2 (the sides are out-and-out wide) ===
@@ -145,9 +157,9 @@ export const FORMATIONS: Record<string, Slot[]> = {
     { role: 'GK', x: 31.5, y: yC },
     { role: 'FB', x: 170, y: yR }, { role: 'CB', x: 185, y: 250 },
     { role: 'CB', x: 185, y: 430 }, { role: 'FB', x: 170, y: yL },
-    { role: 'CM', x: 330, y: yC },
+    { role: 'DM', x: 330, y: yC },
     { role: 'WM', x: 450, y: 105 }, { role: 'WM', x: 450, y: 575 },
-    { role: 'CM', x: 575, y: yC }, { role: 'CF', x: 745, y: 285 }, { role: 'CF', x: 745, y: 395 },
+    { role: 'AM', x: 575, y: yC }, { role: 'CF', x: 745, y: 285 }, { role: 'CF', x: 745, y: 395 },
   ],
 };
 
@@ -161,11 +173,12 @@ const BAND_DEPTHS: Record<number, number[]> = {
   4: [185, 360, 575, 745],       // D – DM – AM – F
   5: [185, 330, 470, 605, 760],  // D – DM – CM – AM – F
 };
-function bandRoles(count: number, kind: BandKind): Role[] {
+function bandRoles(count: number, kind: BandKind, midRole: Role = 'CM'): Role[] {
   if (count <= 0) return [];
   if (kind === 'def') return count >= 4 ? ['FB', ...Array<Role>(count - 2).fill('CB'), 'FB'] : Array<Role>(count).fill('CB');
   if (kind === 'fwd') return count >= 3 ? ['WM', ...Array<Role>(count - 2).fill('CF'), 'WM'] : Array<Role>(count).fill('CF');
-  return count >= 4 ? ['WM', ...Array<Role>(count - 2).fill('CM'), 'WM'] : Array<Role>(count).fill('CM');   // midfield bands
+  // midfield bands: flanks stay WM (wide men); the central tier is DM/CM/AM per the band's depth
+  return count >= 4 ? ['WM', ...Array<Role>(count - 2).fill(midRole), 'WM'] : Array<Role>(count).fill(midRole);
 }
 function bandMargin(count: number, kind: BandKind): number {
   if (kind === 'def') return count >= 4 ? 82 : 205;          // full-backs hug the touchline; a back-2/3 stays central
@@ -183,9 +196,15 @@ function genFormation(bands: number[]): Slot[] {
   const depths = BAND_DEPTHS[bands.length];
   if (!depths || bands.some(b => b < 0 || b > 6) || bands.reduce((a, b) => a + b, 0) !== 10) return [];
   const out: Slot[] = [{ role: 'GK', x: 31.5, y: yC }];
+  const midIdx = bands.map((_, i) => i).filter(i => i !== 0 && i !== bands.length - 1);   // interior (midfield) bands
   bands.forEach((count, i) => {
     const kind: BandKind = i === 0 ? 'def' : i === bands.length - 1 ? 'fwd' : 'mid';
-    const roles = bandRoles(count, kind);
+    // With ≥2 midfield bands, the deepest is the holding (DM) line and the most advanced the
+    // attacking (AM) line; a single/middle midfield band stays generic CM. (Bridged to CM for
+    // the engine — this is purely the web-side label + role-fit, see engineRole().)
+    const midRole: Role = midIdx.length >= 2 && i === midIdx[0] ? 'DM'
+      : midIdx.length >= 2 && i === midIdx[midIdx.length - 1] ? 'AM' : 'CM';
+    const roles = bandRoles(count, kind, midRole);
     const ys = spreadY(count, bandMargin(count, kind));
     roles.forEach((role, j) => out.push({ role, x: depths[i], y: ys[j] }));
   });
@@ -219,6 +238,10 @@ const FIT: Record<Role, Partial<Record<string, number>>> = {
   CM: { passing: 0.3, positioning: 0.25, creativity: 0.25, stamina: 0.2 },
   WM: { speed: 0.35, creativity: 0.3, shooting: 0.2, stamina: 0.15 },
   CF: { shooting: 0.4, speed: 0.25, creativity: 0.15, height: 0.1, positioning: 0.1 },
+  // DM — a holding mid: defensive bite + reading + a passing base (the deep distributor).
+  DM: { tackling: 0.3, positioning: 0.3, passing: 0.2, stamina: 0.2 },
+  // AM — a number 10: creator first, with an end product (the quickest/sharpest playmaker).
+  AM: { creativity: 0.35, passing: 0.25, shooting: 0.25, speed: 0.15 },
 };
 
 export function roleFit(attrs: Record<string, number>, role: Role): number {

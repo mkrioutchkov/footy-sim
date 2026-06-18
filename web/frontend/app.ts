@@ -340,7 +340,8 @@ function pitchSvg(tokens: { x: number; y: number; role: string; name: string }[]
     svgEl('rect', { x: W - m - 150, y: H / 2 - 160, width: 150, height: 320, ...stroke({ 'stroke-opacity': 0.18 }) }),
   );
   for (const t of tokens) {
-    const color = t.role === 'GK' ? '#ffd24d' : '#43d39e';
+    // GK gold; a holding mid (DM) reads cooler/deeper, a #10 (AM) warmer/higher; outfield default green.
+    const color = t.role === 'GK' ? '#ffd24d' : t.role === 'DM' ? '#4db8ff' : t.role === 'AM' ? '#ff9d5c' : '#43d39e';
     const g = svgEl('g', { transform: `translate(${t.x},${t.y})` });
     g.append(
       svgEl('circle', { r: 30, fill: color, 'fill-opacity': 0.92, stroke: '#0b1018', 'stroke-width': 2 }),

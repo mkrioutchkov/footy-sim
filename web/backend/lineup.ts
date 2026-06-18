@@ -15,7 +15,11 @@ export interface Squad { players: { name: string; role?: string; attrs: Record<s
 export interface SlotAssignment { slot: number; role: Role; homeX: number; homeY: number; playerName: string; fromSlot: number }
 export interface LineupResult { formation: string; slots: SlotAssignment[]; note: string; raw?: string; cached?: boolean; error?: string }
 
-const ROLES = new Set<Role>(['GK', 'CB', 'FB', 'CM', 'WM', 'CF']);
+const ROLES = new Set<Role>(['GK', 'CB', 'FB', 'CM', 'WM', 'CF', 'DM', 'AM']);
+// DM/CM/AM are one positional family for slot-matching: a "put X at DM" override should
+// land in central midfield even in a shape with no dedicated DM slot, and vice-versa.
+const MID_FAMILY = new Set<Role>(['CM', 'DM', 'AM']);
+const sameFamily = (a: Role, b: Role): boolean => a === b || (MID_FAMILY.has(a) && MID_FAMILY.has(b));
 const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').toUpperCase();
 
 function squadContext(sq: Squad): string {
@@ -25,12 +29,12 @@ function squadContext(sq: Squad): string {
 }
 
 const SYSTEM = (ctx: string) => `You are a football lineup compiler. The manager wants to set the team's shape and/or move specific players. Output ONLY a JSON object — no prose, no markdown:
-{"formation":"<one of: ${Object.keys(FORMATIONS).join(', ')}, or null to keep the current shape>","overrides":[{"player":"<exact squad name>","role":"<GK|CB|FB|CM|WM|CF>","side":"<L|R|C>"}],"note":""}
+{"formation":"<one of: ${Object.keys(FORMATIONS).join(', ')}, or null to keep the current shape>","overrides":[{"player":"<exact squad name>","role":"<GK|CB|FB|DM|CM|AM|WM|CF>","side":"<L|R|C>"}],"note":""}
 
 - "formation": the shape the manager asked for, normalised to one of the listed keys. "four-four-two"/"442"/"4 4 2" => "4-4-2"; "a back three"/"three at the back" => "3-5-2"; "two banks of four" => "4-4-2"; "lone striker"/"one up top" => "4-2-3-1". If they only move players and don't name a shape, use null.
 - "overrides": ONE entry per player the manager explicitly places. Resolve the name from the squad (tolerate typos/initials: "AB"=>the player with those initials, "bale"=>Gareth Bale). Map the football position to an engine role + side:
     GK=>GK,C  ·  RB/RWB=>FB,R  ·  LB/LWB=>FB,L  ·  RCB=>CB,R  ·  LCB=>CB,L  ·  CB/centre-half=>CB,C
-    CDM/DM/anchor/holding=>CM,C  ·  CM/box-to-box=>CM,C  ·  CAM/AM/number 10=>CM,C  ·  RM/RW/right wing=>WM,R  ·  LM/LW/left wing=>WM,L
+    CDM/DM/anchor/holding/regista=>DM,C  ·  CM/box-to-box=>CM,C  ·  CAM/AM/number 10/playmaker=>AM,C  ·  RM/RW/right wing=>WM,R  ·  LM/LW/left wing=>WM,L
     ST/CF/striker/up top/target man=>CF,C  ·  RF=>CF,R  ·  LF=>CF,L
   Side: L=left, R=right, C=central. Only include players the manager NAMES — never invent placements; the rest are auto-picked by the engine.
 - ASCII / drawn formations: read the rows top(defence)->bottom(attack) or as drawn, infer the closest listed shape, set "formation". If players are written into the grid, add them as overrides.
@@ -57,8 +61,9 @@ function extract(content: string): { formation: unknown; overrides: unknown[]; n
 // y≈680, C = nearest centre (340). Returns the slot index or -1 if none free.
 function pickSlot(slots: Slot[], role: Role, side: string, taken: Set<number>): number {
   const idx = slots.map((s, i) => i).filter(i => !taken.has(i));
-  const byRole = idx.filter(i => slots[i].role === role);
-  const pool = byRole.length ? byRole : idx;            // relax role only if none match
+  const exact = idx.filter(i => slots[i].role === role);
+  const family = exact.length ? exact : idx.filter(i => sameFamily(slots[i].role, role));
+  const pool = family.length ? family : idx;            // exact role → same family (DM/CM/AM) → any free
   if (!pool.length) return -1;
   const key = (i: number) => side === 'R' ? slots[i].y : side === 'L' ? -slots[i].y : Math.abs(slots[i].y - 340);
   return pool.sort((a, b) => key(a) - key(b))[0];

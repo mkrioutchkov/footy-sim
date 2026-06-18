@@ -5,14 +5,14 @@
 // (so a flavourless default dial set) that the manager can flesh out via the story editor —
 // which re-derives their training/value weights (the text↔dial coupling).
 import { db } from './db.ts';
-import { overall, genAttrs, genPotential, playerWage, type Role } from './game.ts';
+import { overall, genAttrs, genPotential, playerWage, type EngineRole } from './game.ts';
 import { removePlayerFromSquad, SQUAD_MAX, SQUAD_MIN } from './market.ts';
 import { randomPlayerName } from './names.ts';
 import { defaultPersonality } from './personality.ts';
 
 const RETIRE_AGE = 37;          // a hard, deterministic cutoff (TASTE — FM is probabilistic)
 const YOUTH_INTAKE = 2;         // prospects each club brings through per season
-const YOUTH_ROLES: Role[] = ['GK', 'FB', 'CB', 'CM', 'WM', 'CF'];
+const YOUTH_ROLES: EngineRole[] = ['GK', 'FB', 'CB', 'CM', 'WM', 'CF'];
 
 const squadSize = (teamId: number) => (db.prepare('SELECT COUNT(*) AS n FROM players WHERE team_id = ?').get(teamId) as { n: number }).n;
 

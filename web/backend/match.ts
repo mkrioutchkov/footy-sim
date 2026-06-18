@@ -9,7 +9,7 @@ import { db } from './db.ts';
 import { getTeamWithPlayers, fitFirstSelection, ROLE_SLOTS, DEFAULT_TACTICS } from './game.ts';
 import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer } from './plan.ts';
 import type { Directive } from './tactics.ts';
-import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation } from './formations.ts';
+import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation, engineRole } from './formations.ts';
 
 const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
 // Recordings live next to the DB (so a temp-DB test writes them to its temp dir, never the
@@ -113,7 +113,7 @@ function specForTeam(teamId: number, side: 'home' | 'away'): { spec: Record<stri
       used.add(idx);
       slotToEngine.set(p.slot, i);
       return {
-        name: p.name, attrs: p.attrs, role: slot.role, personality: p.personality ?? null,
+        name: p.name, attrs: p.attrs, role: engineRole(slot.role), personality: p.personality ?? null,
         homeX: side === 'away' ? PITCH_W - slot.x : slot.x,
         homeY: slot.y,
       };
@@ -598,7 +598,7 @@ export class MatchStream extends FramePacer {
     if (fk && FORMATIONS[fk]) {
       const off = this.myTeam === 'home' ? 0 : 11;
       layout = FORMATIONS[fk].map((slot, i) => ({
-        playerId: off + i, role: slot.role,
+        playerId: off + i, role: engineRole(slot.role),
         homeX: this.myTeam === 'away' ? PITCH_W - slot.x : slot.x, homeY: slot.y,
       })).filter((_, i) => i > 0);
     }
