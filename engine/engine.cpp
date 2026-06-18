@@ -767,6 +767,20 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     updateGK(sdt);
     separateTeammates(sdt);
     finalizeVelocities(sec);   // authoritative velocity from this tick's true displacement
+    // Render-only facing smoothing (display copy; logic uses raw Player::facing).
+    // Exponential low-pass of facing: a high-frequency ~30deg left-right shimmer
+    // averages toward its centre (smooth), while a genuine sustained turn still
+    // tracks within a few ticks. alpha 0.18 ~ 90ms settle — imperceptible lag, but
+    // it kills the watched-match jitter. Logic is untouched -> gameplay identical.
+    if (!renderFacingInit) {
+        for (auto& p : state.players) renderFacing[p.id] = p.facing;
+        renderFacingInit = true;
+    } else {
+        for (auto& p : state.players) {
+            double dF = std::atan2(std::sin(p.facing - renderFacing[p.id]), std::cos(p.facing - renderFacing[p.id]));
+            renderFacing[p.id] = std::atan2(std::sin(renderFacing[p.id] + dF * 0.18), std::cos(renderFacing[p.id] + dF * 0.18));
+        }
+    }
     updateControlledBall(sec);
     updateGoalKickMonitor();
     tryGKSave();
@@ -891,7 +905,7 @@ std::string GameEngine::getJSON() const {
             {"x", std::round(p.x * 10) / 10}, {"y", std::round(p.y * 10) / 10},
             {"vx", std::round(p.vx * 10) / 10}, {"vy", std::round(p.vy * 10) / 10},
             {"targetX", std::round(p.targetX * 10) / 10}, {"targetY", std::round(p.targetY * 10) / 10},
-            {"stamina", std::round(p.stamina)}, {"facing", std::round(p.facing * 1000) / 1000},
+            {"stamina", std::round(p.stamina)}, {"facing", std::round(renderFacing[p.id] * 1000) / 1000},
             {"dribbleType", p.dribbleType},
             {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)},
             {"diveAnim", std::round(p.diveAnim)},

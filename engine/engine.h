@@ -206,6 +206,13 @@ public:
     } goalKickMonitor;
 
     std::array<double, 22> contestBlockedUntil = {};
+    // Render-only facing: a display copy of each player's facing that damps rapid
+    // direction reversals, so a jockeying defender doesn't shimmer ~30deg
+    // left-right in the watch view. NEVER read by logic (tackle geometry/dribble
+    // use the raw Player::facing) — purely the getJSON output, so gameplay is
+    // byte-identical. updated each tick after finalizeVelocities.
+    std::array<double, 22> renderFacing = {};
+    bool renderFacingInit = false;
     // First touch: after gaining a moving ball an outfielder must settle it
     // before he can play a deliberate pass — without this, ~1/3 of passes
     // were instant one-touch redirects of near-shot-speed balls into measured
