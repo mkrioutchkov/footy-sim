@@ -151,6 +151,61 @@ export const FORMATIONS: Record<string, Slot[]> = {
   ],
 };
 
+// ── auto-generated shapes ── Beyond the hand-tuned set above, fill in EVERY remaining band
+// partition of the 10 outfielders (back-2…back-6, 0…4 forwards, ≤6-man lines) — incl. the weird
+// ones (5-5-0, 4-6-0, 6-0-4, 2-4-4…). Anchor-only, like the rest. The hand-tuned keys are kept
+// (the merge never overwrites), so the default 4-3-3 stays byte-identical (golden-safe).
+type BandKind = 'def' | 'mid' | 'fwd';
+const BAND_DEPTHS: Record<number, number[]> = {
+  3: [185, 440, 745],            // D – M – F
+  4: [185, 360, 575, 745],       // D – DM – AM – F
+  5: [185, 330, 470, 605, 760],  // D – DM – CM – AM – F
+};
+function bandRoles(count: number, kind: BandKind): Role[] {
+  if (count <= 0) return [];
+  if (kind === 'def') return count >= 4 ? ['FB', ...Array<Role>(count - 2).fill('CB'), 'FB'] : Array<Role>(count).fill('CB');
+  if (kind === 'fwd') return count >= 3 ? ['WM', ...Array<Role>(count - 2).fill('CF'), 'WM'] : Array<Role>(count).fill('CF');
+  return count >= 4 ? ['WM', ...Array<Role>(count - 2).fill('CM'), 'WM'] : Array<Role>(count).fill('CM');   // midfield bands
+}
+function bandMargin(count: number, kind: BandKind): number {
+  if (kind === 'def') return count >= 4 ? 82 : 205;          // full-backs hug the touchline; a back-2/3 stays central
+  if (kind === 'fwd') return count >= 3 ? 105 : 285;          // a front 3+ goes wide; a strike pair stays narrow
+  return count >= 4 ? 90 : count === 3 ? 170 : 275;           // wingers wide; a 3 semi-wide; a pivot narrow
+}
+function spreadY(n: number, margin: number): number[] {
+  if (n <= 0) return [];
+  if (n === 1) return [340];
+  const span = 680 - 2 * margin;
+  return Array.from({ length: n }, (_, i) => Math.round(margin + span * (i / (n - 1))));
+}
+// Build the 11 slots for a band-count list (defence → forwards, sums to 10), or [] if invalid.
+function genFormation(bands: number[]): Slot[] {
+  const depths = BAND_DEPTHS[bands.length];
+  if (!depths || bands.some(b => b < 0 || b > 6) || bands.reduce((a, b) => a + b, 0) !== 10) return [];
+  const out: Slot[] = [{ role: 'GK', x: 31.5, y: yC }];
+  bands.forEach((count, i) => {
+    const kind: BandKind = i === 0 ? 'def' : i === bands.length - 1 ? 'fwd' : 'mid';
+    const roles = bandRoles(count, kind);
+    const ys = spreadY(count, bandMargin(count, kind));
+    roles.forEach((role, j) => out.push({ role, x: depths[i], y: ys[j] }));
+  });
+  return out;
+}
+{
+  const gen: number[][] = [];
+  for (let d = 2; d <= 6; d++) for (let f = 0; f <= 4; f++) {       // every back-2..6 × 0..4 forwards
+    const m = 10 - d - f;
+    if (m >= 0 && m <= 6) gen.push([d, m, f]);
+  }
+  for (const b of [[4, 1, 4, 1], [4, 3, 1, 2], [4, 1, 3, 2], [3, 4, 1, 2], [5, 2, 1, 2]]) gen.push(b);   // a few 4-band fillers
+  for (const bands of gen) {
+    const key = bands.join('-');
+    if (FORMATIONS[key]) continue;                                  // never overwrite a hand-tuned shape
+    const slots = genFormation(bands);
+    if (slots.length === 11) FORMATIONS[key] = slots;
+  }
+}
+
 export const DEFAULT_FORMATION = '4-3-3';
 
 // Role-fit: how well a player's attributes suit a slot's role (0..~100). The
