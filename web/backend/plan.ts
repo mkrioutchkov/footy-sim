@@ -8,10 +8,7 @@
 // moraleBoost hook. Same provider/env as tactics.ts; reuses its directive vocab.
 import { type Directive, type Side, VALID_KINDS, TEAM_KIND_SET } from './tactics.ts';
 import { FORMATIONS, normalizeFormation } from './formations.ts';
-
-const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
-const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
-const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
+import { chatComplete, llmReady, LlmError } from './llm.ts';
 
 export interface Plan { summary: string; directives: Directive[]; }
 export interface Motivation { playerId: number; moraleDelta: number; reaction: string; durationMin: number; }
@@ -184,33 +181,22 @@ export async function compilePlanEdit(
   const cacheKey = `${planText(plan)}|${shout.trim()}|${[...motUsed].join(',')}|${ctxStr}`;
   const hit = cache.get(cacheKey);
   if (hit) return { ...hit };
-  if (!KEY) return { plan, changed: '', motivation: [], note: '', error: 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
+  const ready = llmReady();
+  if (!ready.ok) return { plan, changed: '', motivation: [], note: '', error: ready.error };
   const myIds = myTeam === 'home' ? '0-10' : '11-21';
   const oppIdRange = myTeam === 'home' ? '11-21' : '0-10';
   const user = `CURRENT PLAN:\n${planText(plan)}\n\n${squadContext(mine, opp)}\n\nMATCH: ${ctx.minute != null ? `${ctx.minute}'` : 'pre-match'}${ctx.score ? `, score ${ctx.score}` : ''}\n\nSHOUT: ${shout}`;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(`${BASE}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, temperature: 0.4, max_tokens: 900, messages: [
-          { role: 'system', content: SYSTEM(myTeam, myIds, oppIdRange, myTeam === 'home' ? 0 : 1) }, { role: 'user', content: user },
-        ] }),
-        signal: AbortSignal.timeout(15000),
-      });
-      if ((res.status === 429 || res.status >= 500) && attempt === 0) {
-        const ra = Number(res.headers.get('retry-after'));
-        await new Promise(r => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra : 1.2, 4) * 1000));
-        continue;
-      }
-      const j = await res.json() as { choices?: { message?: { content?: string } }[] };
-      if (res.ok) {
-        const out = validate(extract(j.choices?.[0]?.message?.content ?? '{}'), myTeam, shout, mineIds, oppIds, motUsed);
-        cache.set(cacheKey, out);
-        return { ...out, raw: j.choices?.[0]?.message?.content ?? '' };
-      }
-      break;
-    } catch { break; }
+  let content: string;
+  try {
+    content = await chatComplete({
+      system: SYSTEM(myTeam, myIds, oppIdRange, myTeam === 'home' ? 0 : 1),
+      user, temperature: 0.4, maxTokens: 900, timeoutMs: 15000,
+    });
+  } catch (e) {
+    return { plan, changed: '', motivation: [], note: '',
+      error: e instanceof LlmError ? e.userMessage : 'the plan model was unreachable' };
   }
-  return { plan, changed: '', motivation: [], note: '', error: 'the plan model was unreachable' };
+  const out = validate(extract(content), myTeam, shout, mineIds, oppIds, motUsed);
+  cache.set(cacheKey, out);
+  return { ...out, raw: content };
 }

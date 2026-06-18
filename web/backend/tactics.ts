@@ -1,16 +1,10 @@
 // Plain-English tactics compiler (P3). Turns a manager's free text into the
-// engine's directive JSON, resolving player names to engine ids. Provider-
-// agnostic: any OpenAI-compatible /chat/completions endpoint. LLM-ONLY — the
+// engine's directive JSON, resolving player names to engine ids. LLM-ONLY — the
 // model is the sole compiler (the old offline rules fast-path was removed; its
-// fuzzy name-matcher mis-resolved orders). Configure via env — the key lives in
-// web/backend/.env, never in code:
-//   TACTICS_LLM_BASE_URL  (default https://api.xiaomimimo.com/v1)
-//   TACTICS_LLM_MODEL     (default mimo-v2-flash)
-//   TACTICS_LLM_API_KEY   (required to call the model)
-
-const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.xiaomimimo.com/v1').replace(/\/$/, '');
-const MODEL = process.env.TACTICS_LLM_MODEL ?? 'mimo-v2-flash';
-const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
+// fuzzy name-matcher mis-resolved orders). The provider/transport lives in
+// llm.ts (OpenAI-compatible HTTP, or the Claude Code CLI on your subscription);
+// configured via env in web/backend/.env, never in code.
+import { chatComplete, llmReady, LlmError } from './llm.ts';
 
 // Engine slot -> role (the 11 fixed formation slots; home ids 0..10, away 11..21).
 const ROLE_SLOTS = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'WM', 'CF', 'WM'];
@@ -222,38 +216,21 @@ export async function compileTactics(text: string, spec: MatchSpec, myTeam: Side
   const cacheKey = `${ctx} ${text.trim()}`;
   const hit = cache.get(cacheKey);
   if (hit) return { directives: hit.directives, note: hit.note, raw: '', cached: true };
-  if (!KEY) return { directives: [], raw: '', cached: false,
-    error: 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(`${BASE}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, temperature: 0, max_tokens: 512, messages: [
-          { role: 'system', content: SYSTEM(ctx, myTeam) }, { role: 'user', content: text },
-        ] }),
-        signal: AbortSignal.timeout(12000),
-      });
-      // Rate-limited (429) or transient 5xx: wait the suggested time and retry once.
-      if ((res.status === 429 || res.status >= 500) && attempt === 0) {
-        const ra = Number(res.headers.get('retry-after'));
-        await new Promise(r => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra : 1.2, 4) * 1000));
-        continue;
-      }
-      const j = await res.json() as { choices?: { message?: { content?: string } }[]; error?: unknown };
-      if (res.ok) {
-        const content = j.choices?.[0]?.message?.content ?? '{}';
-        const parsed = extractResult(content);
-        const directives = validate(parsed.directives, myTeam, text);
-        // Trust the model's note (it's told to leave it "" when all clean). Only
-        // synthesize a generic nudge if it went silent — no directives AND no note.
-        let note = parsed.note;
-        if (!directives.length && !note) note = "I couldn't read that as a tactical order — name a player and what they should do.";
-        cache.set(cacheKey, { directives, note });
-        return { directives, note, raw: content, cached: false };
-      }
-      break;   // non-retryable non-2xx
-    } catch { break; /* timeout / network error */ }
+  const ready = llmReady();
+  if (!ready.ok) return { directives: [], raw: '', cached: false, error: ready.error };
+  let content: string;
+  try {
+    content = await chatComplete({ system: SYSTEM(ctx, myTeam), user: text, temperature: 0, maxTokens: 512, timeoutMs: 12000 });
+  } catch (e) {
+    return { directives: [], raw: '', cached: false,
+      error: e instanceof LlmError ? e.userMessage : 'the tactics model was unreachable' };
   }
-  return { directives: [], raw: '', cached: false, error: 'the tactics model was unreachable' };
+  const parsed = extractResult(content);
+  const directives = validate(parsed.directives, myTeam, text);
+  // Trust the model's note (it's told to leave it "" when all clean). Only
+  // synthesize a generic nudge if it went silent — no directives AND no note.
+  let note = parsed.note;
+  if (!directives.length && !note) note = "I couldn't read that as a tactical order — name a player and what they should do.";
+  cache.set(cacheKey, { directives, note });
+  return { directives, note, raw: content, cached: false };
 }

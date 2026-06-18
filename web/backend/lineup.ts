@@ -6,10 +6,7 @@
 // tackler lands at CB, the quickest out wide, etc. Same provider/env as tactics.ts.
 import { FORMATIONS, DEFAULT_FORMATION, normalizeFormation, roleFit, type Slot } from './formations.ts';
 import type { Role } from './game.ts';
-
-const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
-const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
-const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
+import { chatComplete, llmReady, LlmError } from './llm.ts';
 
 export interface Squad { players: { name: string; role?: string; attrs: Record<string, number> }[] }
 export interface SlotAssignment { slot: number; role: Role; homeX: number; homeY: number; playerName: string; fromSlot: number }
@@ -132,36 +129,21 @@ export async function compileLineup(text: string, sq: Squad): Promise<LineupResu
   const cacheKey = `${ctx} ${text.trim()}`;
   const hit = cache.get(cacheKey);
   if (hit) return { ...hit, cached: true };
-  if (!KEY) return { formation: DEFAULT_FORMATION, slots: [], note: '', error: 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(`${BASE}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, temperature: 0, max_tokens: 512, messages: [
-          { role: 'system', content: SYSTEM(ctx) }, { role: 'user', content: text },
-        ] }),
-        signal: AbortSignal.timeout(12000),
-      });
-      if ((res.status === 429 || res.status >= 500) && attempt === 0) {
-        const ra = Number(res.headers.get('retry-after'));
-        await new Promise(r => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra : 1.2, 4) * 1000));
-        continue;
-      }
-      const j = await res.json() as { choices?: { message?: { content?: string } }[] };
-      if (res.ok) {
-        const content = j.choices?.[0]?.message?.content ?? '{}';
-        const p = extract(content);
-        const fk = typeof p.formation === 'string' ? normalizeFormation(p.formation) : null;
-        const ovs = (p.overrides as { player: string; role: string; side: string }[]).filter(o => o && typeof o === 'object');
-        const built = buildLineup(sq, fk, ovs);
-        const note = [p.note, built.note].filter(Boolean).join(' ');
-        const result = { formation: built.formation, slots: built.slots, note };
-        cache.set(cacheKey, result);
-        return { ...result, raw: content, cached: false };
-      }
-      break;
-    } catch { break; }
+  const ready = llmReady();
+  if (!ready.ok) return { formation: DEFAULT_FORMATION, slots: [], note: '', error: ready.error };
+  let content: string;
+  try {
+    content = await chatComplete({ system: SYSTEM(ctx), user: text, temperature: 0, maxTokens: 512, timeoutMs: 12000 });
+  } catch (e) {
+    return { formation: DEFAULT_FORMATION, slots: [], note: '',
+      error: e instanceof LlmError ? e.userMessage : 'the lineup model was unreachable' };
   }
-  return { formation: DEFAULT_FORMATION, slots: [], note: '', error: 'the lineup model was unreachable' };
+  const p = extract(content);
+  const fk = typeof p.formation === 'string' ? normalizeFormation(p.formation) : null;
+  const ovs = (p.overrides as { player: string; role: string; side: string }[]).filter(o => o && typeof o === 'object');
+  const built = buildLineup(sq, fk, ovs);
+  const note = [p.note, built.note].filter(Boolean).join(' ');
+  const result = { formation: built.formation, slots: built.slots, note };
+  cache.set(cacheKey, result);
+  return { ...result, raw: content, cached: false };
 }
