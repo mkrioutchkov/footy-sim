@@ -462,8 +462,9 @@ void GameEngine::releaseCornerKick(Player& holder){
         double ty=lerp(target.y,PITCH_H/2.0,0.55);
         double dx=tx-holder.x,dy=ty-holder.y,d=std::hypot(dx,dy);
         if(d>1.0){
-            // Driven corner delivery — same whip treatment as open-play crosses.
-            double speed=clamp(300.0+d*0.30,340.0,520.0);
+            // Driven corner delivery — same whip treatment as open-play crosses,
+            // capped at the hardest-shot ceiling (~38 m/s); was launching to 52.
+            double speed=clamp(300.0+d*0.30,340.0,380.0);
             auto& b=state.ball;
             b.controllerId=-1;
             placeBallForRelease(holder,dx,dy);

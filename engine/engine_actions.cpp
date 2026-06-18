@@ -350,15 +350,14 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         // speed and let applyWhipDelivery supply the dip and the bend.
         double aSpeed=clamp(CROSS_DRIVE_SPEED_BASE+aDist*CROSS_DRIVE_SPEED_PER_PX,
                             CROSS_DRIVE_SPEED_MIN,CROSS_DRIVE_SPEED_MAX)*(0.95+rng.random()*0.12);
-        // A "cross" aimed OUTSIDE the box (intoBox false) is really a wide
-        // diagonal / switch, not a box delivery, and was leaving the boot at
-        // 44-56 m/s (measured, seed 42) — faster than the hardest shot. Cap it to
-        // a realistic ~34 m/s. NB this is deliberately NOT goal-neutral: those
-        // over-hit switches were wasted, so slowing them lets teammates RETAIN
-        // wide possession (+~1.6 goals/match, paired 12-seed) — an intended
-        // attack-realism buff. Genuine box deliveries (intoBox) keep the
-        // calibrated, keeper-claim-beating speed (the goal-balance lever).
-        if(!intoBox) aSpeed=std::min(aSpeed,340.0);
+        // Nothing kicked should leave the boot faster than the hardest shot
+        // (~38 m/s). A "cross" aimed OUTSIDE the box (intoBox false) is really a
+        // wide diagonal / switch — cap it lower (~34 m/s); those over-hit
+        // switches were wasted, so slowing them lets teammates RETAIN wide
+        // possession (the +1.6-goal effect, paired). A genuine box delivery
+        // stays DRIVEN but is capped at the hardest-shot ceiling (~38 m/s) so it
+        // no longer launches at the measured 44-56 m/s.
+        aSpeed=std::min(aSpeed, intoBox ? 380.0 : 340.0);
         b.vx=adx/aDist*aSpeed; b.vy=ady/aDist*aSpeed;
         // Low driven cross vs whipped loft. A runner attacking the near post or
         // the 6-yard box gets the ball SKIDDED low and hard across the face —
