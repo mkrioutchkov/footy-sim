@@ -12,7 +12,8 @@ import {
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
-import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording } from './match.ts';
+import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording, hasHumanStake } from './match.ts';
+import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
@@ -594,6 +595,23 @@ server.on('upgrade', (request, socket, head) => {
       // Seed the live shout box from the manager's persisted standing plan (team-relative ids;
       // MatchStream resolves them to this watch's roster) so shouts edit the standing plan.
       const seedPlan = myTeamId ? (getTeamWithPlayers(myTeamId)?.plan ?? null) : null;
+      // `?live=1` (opt-in) routes to the SHARED resident coordinator (docs/LIVE_MATCH_ARCHITECTURE.md
+      // §2): one engine per fixture, both managers + spectators attach, shouts inject live (no
+      // kill-respawn). The default path (no live flag) is unchanged → byte-identical. NOTE: needs
+      // Boris's engine Phase 1 (FOOTY_LIVE) to actually run; until then this branch is build-ahead.
+      if (url.searchParams.get('live') === '1') {
+        const seat: Seat = myTeamId === fx.home_team_id ? 'home' : myTeamId === fx.away_team_id ? 'away' : 'spectator';
+        const seedPlans = {
+          home: getTeamWithPlayers(fx.home_team_id)?.plan ?? null,
+          away: getTeamWithPlayers(fx.away_team_id)?.plan ?? null,
+        };
+        joinLiveMatch(liveKey('fixture', fixtureId), ws as any, seat, {
+          specPath: writeSpec(fx), seed: fx.seed, homeName, awayName,
+          homeTeamId: fx.home_team_id, awayTeamId: fx.away_team_id,
+          kind: 'fixture', refId: fixtureId, record: hasHumanStake(fx.home_team_id, fx.away_team_id), seedPlans,
+        });
+        return;
+      }
       new MatchStream(ws as any, writeSpec(fx), fx.seed, homeName, awayName, myTeam, seedPlan);
     } catch (e) { ws.close(); }
   });

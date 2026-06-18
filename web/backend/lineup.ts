@@ -57,7 +57,7 @@ function extract(content: string): { formation: unknown; overrides: unknown[]; n
 // slot whose width (y) sits on the requested side. R = nearer y≈0, L = nearer
 // y≈680, C = nearest centre (340). Returns the slot index or -1 if none free.
 function pickSlot(slots: Slot[], role: Role, side: string, taken: Set<number>): number {
-  const idx = slots.map((s, i) => i).filter(i => !taken.has(i));
+  const idx = slots.map((_, i) => i).filter(i => !taken.has(i));
   const exact = idx.filter(i => slots[i].role === role);
   const family = exact.length ? exact : idx.filter(i => sameFamily(slots[i].role, role));
   const pool = family.length ? family : idx;            // exact role → same family (DM/CM/AM) → any free

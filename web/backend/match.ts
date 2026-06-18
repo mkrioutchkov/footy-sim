@@ -182,24 +182,91 @@ export type RecKind = 'fixture' | 'cup';
 export interface Recording { kind: RecKind; refId: number; path: string; homeScore: number; awayScore: number; frames: number; bytes: number }
 
 const recRel = (kind: RecKind, refId: number): string => `recordings/${kind}-${refId}.ndjson.gz`;
+const eventsRel = (kind: RecKind, refId: number): string => `recordings/${kind}-${refId}.events.json`;
+
+// ── Event-sourced command log (docs/LIVE_MATCH_ARCHITECTURE.md §4) ──
+// The canonical INPUTS of a live match: its base spec (seed + rosters + standing directives) plus
+// the timestamped command log (every inject/sub stamped with the tick it applied). Replaying these
+// via the engine's existing flat-out directive-timeline mode (engine_defense.cpp:37-57) is
+// byte-identical AND exercises the golden-locked path — see replayViaTimeline.
+export interface Command {
+  atMs: number; team: 0 | 1; directives: unknown;
+  morale?: { playerId: number; delta: number }[];
+  layout?: { playerId: number; role: string; homeX: number; homeY: number }[];
+}
+// `spec` is stored so a replay is SELF-CONTAINED (rosters drift with transfers, so rebuilding the
+// spec from current DB state would not be byte-identical). This extends the doc's literal
+// {seed,duration,scores,commands} — flagged to Boris.
+export interface EventsLog { seed: number; duration: number; scores: { home: number; away: number }; spec: Record<string, unknown>; commands: Command[] }
+
+export function writeEventsLog(kind: RecKind, refId: number, log: EventsLog): void {
+  const abs = path.join(DATA_DIR, eventsRel(kind, refId));
+  const tmp = abs + '.tmp';
+  writeFileSync(tmp, JSON.stringify(log));
+  renameSync(tmp, abs);   // atomic publish — a crash mid-write never leaves a partial events log
+}
+export function loadEventsLog(kind: RecKind, refId: number): EventsLog | null {
+  const abs = path.join(DATA_DIR, eventsRel(kind, refId));
+  if (!existsSync(abs)) return null;
+  try { return JSON.parse(readFileSync(abs, 'utf8')) as EventsLog; } catch { return null; }
+}
+
+// Convert the command log into a spec `timeline` (the existing directive-timeline shape). Each
+// entry keeps its `team` so a per-team-aware timeline mode replays two-sided live injects
+// byte-identically (an engine-contract item for Boris). Pure (no engine) — unit-tested.
+export function commandsToTimeline(commands: Command[]): Array<Record<string, unknown>> {
+  return commands.map(c => {
+    const e: Record<string, unknown> = { atMs: c.atMs, team: c.team, directives: c.directives };
+    if (c.morale) e.morale = c.morale;
+    if (c.layout) e.layout = c.layout;
+    return e;
+  });
+}
+// The self-contained re-sim spec for a format-2 recording (base spec + reconstructed timeline). Pure.
+export function buildReplaySpec(log: EventsLog): Record<string, unknown> {
+  return { ...log.spec, timeline: commandsToTimeline(log.commands) };
+}
+// Re-simulate a format-2 match from its command log via the engine's flat-out timeline mode (NOT
+// live stdin), returning the frame lines — byte-identical to the live frames once the engine's
+// timeline parser is per-team aware (Boris). Drives the determinism regression.
+export function replayViaTimeline(kind: RecKind, refId: number): Promise<string[]> {
+  const log = loadEventsLog(kind, refId);
+  if (!log) return Promise.reject(new Error('no format-2 events log'));
+  const spec = buildReplaySpec(log) as { home?: { players?: unknown[] }; away?: { players?: unknown[] } };
+  if ((spec.home?.players?.length ?? 0) < 11 || (spec.away?.players?.length ?? 0) < 11) {
+    return Promise.reject(new Error('format-2 events log has an incomplete roster spec'));   // distinguishes bad-data from an engine crash
+  }
+  const file = path.join(SPEC_DIR, `replay-${kind}-${refId}.json`);
+  writeFileSync(file, JSON.stringify(spec));
+  const cleanup = (): void => { try { if (existsSync(file)) rmSync(file, { force: true }); } catch { /* best effort */ } };
+  return new Promise((resolve, reject) => {
+    const child = spawn(ENGINE, ['--match', file, '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let buf = '', err = ''; const frames: string[] = [];
+    child.stdout.on('data', (d: Buffer) => { buf += d.toString(); const ls = buf.split(/\r?\n/); buf = ls.pop() ?? ''; for (const l of ls) if (l.length) frames.push(l); });
+    child.stderr.on('data', (d: Buffer) => { err += d.toString(); });
+    const to = setTimeout(() => { try { child.kill(); } catch { /* gone */ } cleanup(); reject(new Error('replay timeout')); }, 120000);
+    child.on('error', e => { clearTimeout(to); cleanup(); reject(e); });
+    child.on('close', () => { clearTimeout(to); cleanup(); if (buf.length) frames.push(buf); if (frames.length) resolve(frames); else reject(new Error(`replay produced no frames: ${err}`)); });
+  });
+}
 
 // A match is recorded iff it has a human stakeholder — a human manager on either side (even if
 // they aren't watching) or, later, a spectator. Pure AI-vs-AI stays the lightweight --summary
 // path, so an idle matchday (and the engine benchmark, which never touches this layer) never
 // pays the full-frame capture cost.
-function hasHumanStake(homeTeamId: number, awayTeamId: number): boolean {
+export function hasHumanStake(homeTeamId: number, awayTeamId: number): boolean {
   const row = db.prepare('SELECT COUNT(*) AS n FROM teams WHERE id IN (?, ?) AND user_id IS NOT NULL').get(homeTeamId, awayTeamId) as { n: number };
   return row.n > 0;
 }
 
 // Upsert the metadata row (idempotent — re-recording REPLACES via the unique kind+ref_id index).
-function upsertRecordingRow(kind: RecKind, refId: number, homeScore: number, awayScore: number, rel: string, frames: number, bytes: number): void {
+function upsertRecordingRow(kind: RecKind, refId: number, homeScore: number, awayScore: number, rel: string, frames: number, bytes: number, format = 1): void {
   db.prepare(`INSERT INTO match_recordings (kind, ref_id, format, home_score, away_score, path, frames, bytes, created_at)
-    VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(kind, ref_id) DO UPDATE SET
-      format = 1, home_score = excluded.home_score, away_score = excluded.away_score,
+      format = excluded.format, home_score = excluded.home_score, away_score = excluded.away_score,
       path = excluded.path, frames = excluded.frames, bytes = excluded.bytes, created_at = excluded.created_at`)
-    .run(kind, refId, homeScore, awayScore, rel, frames, bytes, Date.now());
+    .run(kind, refId, format, homeScore, awayScore, rel, frames, bytes, Date.now());
 }
 
 // Persist a bounded, in-memory frame array (the exact NDJSON lines a watch consumes): gzip to
@@ -243,6 +310,9 @@ export function pruneRecordings(opts: { keep?: number; maxAgeDays?: number; now?
   for (const r of doomed) {
     const abs = path.join(DATA_DIR, r.path);
     if (existsSync(abs)) { rmSync(abs, { force: true }); files++; }
+    // delete the paired format-2 events log too (sibling of the .ndjson.gz)
+    const ev = path.join(DATA_DIR, r.path.replace(/\.ndjson\.gz$/, '.events.json'));
+    try { if (existsSync(ev)) rmSync(ev, { force: true }); } catch { /* best effort */ }
     del.run(r.id);
   }
   return { pruned: doomed.length, files, kept: all.length - doomed.length };
@@ -258,6 +328,7 @@ export function purgeRecordings(kind: RecKind, refIds: number[]): void {
   for (const id of refIds) {
     const row = sel.get(kind, id) as { path: string } | undefined;
     if (row) { try { const abs = path.join(DATA_DIR, row.path); if (existsSync(abs)) rmSync(abs, { force: true }); } catch { /* best effort */ } }
+    try { const ev = path.join(DATA_DIR, eventsRel(kind, id)); if (existsSync(ev)) rmSync(ev, { force: true }); } catch { /* best effort */ }
     del.run(kind, id);
   }
 }
@@ -271,7 +342,7 @@ export function purgeRecordings(kind: RecKind, refIds: number[]): void {
 // whistle) leaves only a discarded .tmp, never a partial recording or a scoreline that disagrees
 // with an unplayed fixture. Exported (not just internal) so a synthetic-stream test exercises it
 // without spawning the engine. Returns the derived score + frame count.
-export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.ReadableStream): Promise<{ homeScore: number; awayScore: number; frames: number }> {
+export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.ReadableStream, format = 1): Promise<{ homeScore: number; awayScore: number; frames: number }> {
   return new Promise((resolve, reject) => {
     const rel = recRel(kind, refId);
     const abs = path.join(DATA_DIR, rel);
@@ -309,7 +380,7 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
         if (settled) return; settled = true;
         try {
           renameSync(tmp, abs);   // atomic publish: the recording appears only once fully written
-          upsertRecordingRow(kind, refId, homeScore, awayScore, rel, frames, statSync(abs).size);
+          upsertRecordingRow(kind, refId, homeScore, awayScore, rel, frames, statSync(abs).size, format);
           resolve({ homeScore, awayScore, frames });
         } catch (e) {
           try { if (existsSync(tmp)) rmSync(tmp, { force: true }); } catch { /* best effort */ }
