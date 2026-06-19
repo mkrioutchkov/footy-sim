@@ -10,6 +10,15 @@ if (-not (Test-Path -LiteralPath $vsDevCmd)) {
     throw "Visual Studio environment script not found: $vsDevCmd"
 }
 
+# VsDevCmd.bat shells out to vswhere.exe by bare name; in a fresh shell whose
+# profile doesn't already export it, the VS Installer dir (which holds vswhere)
+# is missing from PATH and the build fails with "'vswhere.exe' is not recognized".
+# Prepend it so the script is self-sufficient regardless of the launching shell.
+$vsInstaller = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+if ((Test-Path -LiteralPath (Join-Path $vsInstaller 'vswhere.exe')) -and ($env:PATH -notlike "*$vsInstaller*")) {
+    $env:PATH = "$vsInstaller;$env:PATH"
+}
+
 if (-not (Test-Path -LiteralPath $outDir)) {
     New-Item -ItemType Directory -Path $outDir | Out-Null
 }
