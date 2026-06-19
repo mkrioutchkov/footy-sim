@@ -113,6 +113,32 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         && bdg < 115.0 && std::abs(state.ball.y - gk.homeY) < 145.0;
     bool deferToTeammate = teammateOutfieldRecovery && !keeperEmergency;
 
+    // Sweeper-keeper: an opponent has broken clean through — carrying the ball
+    // AT GOAL WITH REAL PACE, central, with no covering defender goal-side in his
+    // lane. Come off the line and smother the angle instead of waiting on the
+    // 6-yard box for a tap-in. Confident keepers (positioning + pace) commit;
+    // nervous ones hold. Coming out can be chipped or rounded — that's the trade,
+    // and that's goalkeeping. (rushFactor = positioning*0.6 + speed*0.4, 0..1.)
+    // Gates are deliberately tight: only a genuine forward break (not a shielding
+    // /stationary/lateral carrier — real carries run -39..-65 px/s at goal) inside
+    // ~25m triggers it, and the reach is capped at the box edge so the keeper
+    // never strands himself where he cannot legally gather a loose ball.
+    bool smother1v1 = false;
+    if (opponentCarrier && carrier) {
+        double cbdg = std::abs(carrier->x - goalX);            // carrier → our goal
+        bool headingIn = carrier->vx * fd < -20.0;             // genuinely driving at our goal
+        bool central = std::abs(carrier->y - PITCH_H / 2.0) < 185.0;
+        if (headingIn && central && cbdg > 70.0 && cbdg < 250.0 && rushFactor > 0.50) {
+            int coverGoalSide = 0;
+            for (auto& o : state.players) {
+                if (o.team != gk.team || o.role == Role::GK || o.sentOff) continue;
+                if (std::abs(o.x - goalX) < cbdg - 6.0 && std::abs(o.y - carrier->y) < 100.0)
+                    coverGoalSide++;
+            }
+            smother1v1 = coverGoalSide == 0;
+        }
+    }
+
     if (deferToTeammate) {
         double supportDepth = clamp(bdg * 0.24, 24.0, 76.0);
         gk.targetX = goalX + fd * supportDepth;
@@ -141,12 +167,22 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
                            gk.homeY - GOAL_W * 0.55, gk.homeY + GOAL_W * 0.55);
     }
 
-    // Rush-out: charge at loose ball or through ball behind defense
+    // Rush-out: charge a loose ball / through ball behind the defense, or
+    // smother an opponent who's broken clean through (smother1v1, above).
     double rushDist = std::abs(gk.x - state.ball.x);
-    bool rushing = ballLoose && !deferToTeammate && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall);
+    bool rushing = !deferToTeammate
+        && (smother1v1 || (ballLoose && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall)));
     if (rushing) {
-        double rushTargetX = clamp(state.ball.x - fd * (throughBall ? 18.0 : 28.0),
-            goalX + fd * 45.0, goalX + fd * 175.0);
+        // clampRange (not clamp) so the off-line bounds stay valid for the Away
+        // keeper too — goalX+fd*45 > goalX+fd*175 when fd=-1, which the bare
+        // clamp() collapsed into a binary near/far snap.
+        // Smother is capped at the box edge (150 < PENALTY_AREA_W 165): on a
+        // CARRIED ball the keeper can't win it out there and would only strand
+        // himself unable to gather a loose touch. The loose/through-ball rush
+        // keeps the full 175 reach — there he's chasing a ball he can collect.
+        double rushReach = smother1v1 ? 150.0 : 175.0;
+        double rushTargetX = clampRange(state.ball.x - fd * ((throughBall || smother1v1) ? 18.0 : 28.0),
+            goalX + fd * 45.0, goalX + fd * rushReach);
         double rushTargetY = clamp(lerp(gk.y, state.ball.y, 0.7), PITCH_H * 0.12, PITCH_H * 0.88);
         gk.targetX = rushTargetX;
         gk.targetY = rushTargetY;
