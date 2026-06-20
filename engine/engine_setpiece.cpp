@@ -201,8 +201,10 @@ void GameEngine::releaseGoalKick(Player& holder){
     // Modern short goal kick: if a defender is open with a clean lane, roll it to
     // him (secure — fast, accurate) instead of hoofing it 50/50. The 2019 rule
     // lets the ball be received inside the area. Falls through to the long kick
-    // below when no safe short option exists.
-    {
+    // below when no safe short option exists. A play-it-long team skips this and
+    // launches it (distribution tactic).
+    double gkLongBias=longBallBias[holder.team==Team::Home?0:1];
+    if(!(gkLongBias>0.0&&rng.random()<gkLongBias)){
         Player* sp=nullptr; double bestSafe=-1e9;
         for(auto& p:state.players){
             if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
@@ -330,6 +332,12 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         }
         goalKickMonitor.distributeTimer=0;
     };
+
+    // Distribution tactic: a team told to play it long sends its keeper long too
+    // (probabilistic by the bias). Possession sides (bias 0 — the default) skip
+    // this entirely and play out short-safe below.
+    double gkLongBias=longBallBias[holder.team==Team::Home?0:1];
+    if(gkLongBias>0.0&&rng.random()<gkLongBias){puntLong();return;}
 
     // ── Safety-first distribution: a keeper should keep the ball, not gift it.
     // Find the safest open outlet (clear passing lane, sensible range) and roll

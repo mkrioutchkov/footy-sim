@@ -16,7 +16,14 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     // ── Gate checks ──
     if (t.sentOff) return std::nullopt;   // never pass to an ejected team-mate (parked off-pitch)
-    bool keeperOutlet = t.role == Role::GK && urgentKeeperNeed && !hasClearOutfieldOutlet;
+    // The keeper is a valid pass target when urgently needed, OR as a deliberate
+    // SAFE recycle for a pressed defender / deep midfielder in his own third — he
+    // then distributes safely (play out from the back). The score below keeps it
+    // from being spammed: it only wins when the forward options are genuinely poor.
+    bool nearOwnThirdForGk = ownProgress < PITCH_W * 0.42;
+    bool keeperRecycle = nearOwnThirdForGk && per.pressureCount >= 1 && !hasClearOutfieldOutlet
+        && (p.role == Role::CB || p.role == Role::FB || p.role == Role::CM);
+    bool keeperOutlet = t.role == Role::GK && ((urgentKeeperNeed && !hasClearOutfieldOutlet) || keeperRecycle);
     if (t.role == Role::GK && !keeperOutlet) return std::nullopt;
     double d = dist(p.x, p.y, t.x, t.y);
     if (d < PASS_MIN_DISTANCE || d > (keeperOutlet ? PASS_MAX_DISTANCE_KEEPER : PASS_MAX_DISTANCE)) return std::nullopt;
