@@ -164,6 +164,62 @@ export async function compileInitialPlan(text: string, squad: SquadPlayer[]): Pr
   return compilePlanEdit(EMPTY_PLAN, text, squad, [], 'home', {});
 }
 
+// BATCHED initial-plan compiler (manager_ai's pre-matchday pass): ONE LLM call compiles N clubs'
+// standing plans instead of N sequential compileInitialPlan calls — the matchday win on the
+// per-call cold-start transports (claude-code). Returns one PlanResult per job IN ORDER. Each
+// element runs through the SAME validate() as the single path (team-relative ids 0-10, teamScope
+// 0, no opponent → man_mark dropped), so the directive shape is byte-for-byte identical. Graceful:
+// no key / unreachable / a club the model omits → that club's result is EMPTY_PLAN + error, so the
+// caller's per-club deterministic fallback (manager/plan.ts fallbackPlan) still applies. Never throws.
+const INITIAL_BATCH_SYSTEM = `You compile several football managers' STANDING pre-match plans into structured directives. Each club gives a one-line tactical brief + its starting XI (ids 0-10). For EACH club, turn the brief into a small directive set. Output ONLY a JSON array, one object per club IN ORDER — no prose, no markdown:
+[{"summary":"<=2 sentences restating the plan","directives":[{"playerId":<0-10 for per-player kinds>,"kind":"<kind>","intensity":0.1-1,"teamScope":0 <for team-wide kinds, omit playerId>}]}]
+per-player kinds: shoot_on_sight get_forward sit_deep stay_wide come_inside stay_central cross_early cutback switch_play play_simple run_in_behind make_runs dribble_more press_hard contain tackle_hard stay_on_feet stay_back.
+team-wide kinds (teamScope 0, no playerId): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap.
+A standing plan is mostly TEAM-WIDE shape/tempo — 0-3 directives is plenty; add a per-player order only if the brief clearly implies one. There is NO opponent pre-match, so do NOT emit man_mark or target_player. Resolve names/initials from each club's own squad; never invent a player. Return EXACTLY one entry per club, in the given order.`;
+
+function extractArray(content: string): unknown[] {
+  const body = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try { const v = JSON.parse(body); if (Array.isArray(v)) return v; if (v && Array.isArray((v as { plans?: unknown }).plans)) return (v as { plans: unknown[] }).plans; } catch { /* salvage */ }
+  const s = content.indexOf('['), e = content.lastIndexOf(']');
+  if (s >= 0 && e > s) { try { const v = JSON.parse(content.slice(s, e + 1)); if (Array.isArray(v)) return v; } catch { /* noop */ } }
+  return [];
+}
+
+function buildInitialBatchPrompt(jobs: { text: string; squad: SquadPlayer[] }[]): string {
+  const blocks = jobs.map((job, i) => {
+    const xi = job.squad.slice(0, 11).map(p => `id${p.id} ${p.name} [${initialsOf(p.name)}](${p.role})`).join(', ');
+    return `CLUB ${i + 1}\nBrief: ${job.text}\nXI: ${xi}`;
+  }).join('\n\n');
+  return `Compile these ${jobs.length} clubs' standing plans:\n\n${blocks}`;
+}
+
+export async function compileInitialPlans(jobs: { text: string; squad: SquadPlayer[] }[]): Promise<PlanResult[]> {
+  if (!jobs.length) return [];
+  const ready = llmReady();
+  if (!ready.ok) return jobs.map(() => ({ plan: EMPTY_PLAN, changed: '', motivation: [], note: '', error: ready.error }));
+  let content: string;
+  try {
+    content = await chatComplete({
+      system: INITIAL_BATCH_SYSTEM, user: buildInitialBatchPrompt(jobs),
+      temperature: 0.5, maxTokens: Math.min(3000, 320 * jobs.length + 200), timeoutMs: 30000,
+    });
+  } catch {
+    return jobs.map(() => ({ plan: EMPTY_PLAN, changed: '', motivation: [], note: '', error: 'the plan model was unreachable' }));
+  }
+  const arr = extractArray(content);
+  return jobs.map((job, i) => {
+    const el = arr[i];
+    if (!el || typeof el !== 'object') return { plan: EMPTY_PLAN, changed: '', motivation: [], note: '', error: 'no plan returned for this club' };
+    // Reuse the single-path validator: wrap the element as a {plan} response, team-relative ids
+    // from the club's own XI, empty opponent (man_mark/target_player to an opponent => dropped),
+    // empty motivation budget (pre-match standing plan, no shout). The brief is the "shout" text
+    // for validate's time/score-word gating (a standing brief has none → no-bound when-fields).
+    const mineIds = new Set(job.squad.slice(0, 11).map(p => p.id));
+    const v = validate({ plan: el }, 'home', job.text, mineIds, new Set<number>(), new Map<number, number>());
+    return { plan: v.plan, changed: v.changed, motivation: [], note: v.note };
+  });
+}
+
 const cache = new Map<string, { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation: string | null }>();
 
 // Apply one shout to the running plan. Returns the FULL new plan + the shout's
