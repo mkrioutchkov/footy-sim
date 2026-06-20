@@ -211,6 +211,40 @@ class TraceReader:
             x=x, y=y, player_id=player_id, team_id=team_id
         )
 
+    @staticmethod
+    def read_events(path: str) -> List[Event]:
+        """Read ONLY the events (small) without loading any frames — O(events) memory."""
+        with open(path, 'rb') as f:
+            file_size = f.seek(0, 2)
+            f.seek(file_size - FOOTER_SIZE)
+            frame_count, event_count = struct.unpack(FOOTER_FMT, f.read(FOOTER_SIZE))
+            f.seek(HEADER_SIZE + frame_count * FRAME_SIZE)
+            evs = []
+            for _ in range(event_count):
+                d = f.read(EVENT_SIZE)
+                if len(d) == EVENT_SIZE:
+                    clock_ms, tb, x, y, pid, tid = struct.unpack(EVENT_FMT, d)
+                    evs.append(Event(clock_ms=clock_ms, type=tb.rstrip(b'\x00').decode('utf-8', 'replace'),
+                                     x=x, y=y, player_id=pid, team_id=tid))
+            return evs
+
+    @staticmethod
+    def stream_frames(path: str) -> Iterator[Frame]:
+        """Yield frames ONE AT A TIME without holding them all in memory — O(1) frames.
+        Use this (not TraceReader(path).frames) for long traces; a 90-min trace has
+        ~325k frames and the full list balloons to multiple GB of Python objects."""
+        dummy = TraceReader.__new__(TraceReader)   # for _parse_frame (uses only module consts)
+        with open(path, 'rb') as f:
+            file_size = f.seek(0, 2)
+            f.seek(file_size - FOOTER_SIZE)
+            frame_count, _ = struct.unpack(FOOTER_FMT, f.read(FOOTER_SIZE))
+            f.seek(HEADER_SIZE)
+            for _ in range(frame_count):
+                d = f.read(FRAME_SIZE)
+                if len(d) < FRAME_SIZE:
+                    break
+                yield dummy._parse_frame(d)
+
     def frames_ms(self, start_ms: float = 0, end_ms: float = float('inf')) -> Iterator[Frame]:
         """Iterate frames in a time range (milliseconds)."""
         for frame in self.frames:
