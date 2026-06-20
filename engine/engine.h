@@ -428,7 +428,7 @@ public:
     void placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset=CONTROL_DIST+BALL_R+4.0);
     void passBallTo(Player& f, Player& t);
     void applyWhipDelivery(double dist, double speed, double goalX, double curlMin, double curlRange);
-    bool passBallTo(Player& f, Player& t, bool throughBall, bool lob, const PassSelectionAudit* selectionAudit);
+    bool passBallTo(Player& f, Player& t, bool throughBall, bool lob, const PassSelectionAudit* selectionAudit, bool secure = false);
     void forcePassTo(Player& f, Player& t, const PassSelectionAudit*);
     bool attemptTackle(Player& tackler, Player& carrier);
     void shootBall(Player& s, const ShotSelectionAudit* selectionAudit);

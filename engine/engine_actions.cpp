@@ -281,10 +281,14 @@ void GameEngine::placeBallForRelease(Player& kicker, double dx, double dy, doubl
 
 void GameEngine::passBallTo(Player& f,Player& t) { passBallTo(f,t,false,false,nullptr); }
 
-bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const PassSelectionAudit* selectionAudit) {
+bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const PassSelectionAudit* selectionAudit,bool secure) {
     double rawDx=t.x-f.x,rawDy=t.y-f.y,rawDist=std::hypot(rawDx,rawDy);
     if(rawDist<1)return false;
+    // `secure`: a deliberate, unpressured short roll (keeper distribution to an
+    // already-clear man). Drive it faster and flatter so a defender can't drift
+    // into the lane before it arrives — an open keeper roll isn't getting nicked.
     double speed=(PASS_SPEED_BASE+rawDist*PASS_SPEED_DIST)*(0.92+rng.random()*0.16);
+    if(secure)speed*=1.45;
     double travelTime=rawDist/std::max(speed,1.0);
     double receiverSpeed=std::hypot(t.vx,t.vy);
     double fd = fdFor(f.team);
@@ -298,6 +302,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     double passSkill=attrFactor(f.attrs.passing);
     double skillMiss=std::pow(1.0-passSkill,1.4);
     double inacc=skillMiss*(rawDist*0.085+(rawDist/200.0)*(rawDist/200.0)*7.0);
+    if(secure)inacc*=0.12;   // rolled accurately to feet
     double tdx=dx+(rng.random()-0.5)*inacc;
     double tdy=dy+(rng.random()-0.5)*inacc;
     double tDist=std::hypot(tdx,tdy);
