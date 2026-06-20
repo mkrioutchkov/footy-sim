@@ -298,6 +298,10 @@ public:
     // coupling the long-ball gamble to it would change default play. This stays
     // 0 unless the directive sets it, keeping the no-directive match identical.
     std::array<double, 2> longBallBias{};
+    // slow_it_down: per-team safe-pass bias (NOT a dial — the dial deltas got
+    // swamped by the score-state tactics + clamp, so the kind was WEAK). Read in
+    // scorePassToTarget to prefer safe/recycle balls and shun risk. 0 by default.
+    std::array<double, 2> slowTempo{};
     // counter_attack: per-team amplifier on the quick-transition through-ball +
     // off-ball-run bonuses (0 => no-directive match identical). offside_trap:
     // per-team flag that holds the line high in the danger zone. Both reset every

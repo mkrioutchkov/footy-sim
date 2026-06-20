@@ -94,6 +94,14 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (recyclePass) sc += (per.pressureCount <= 1 ? 0.12 : 0.20) * recycleMul * recycleSuppress;
     if ((recyclePass || safeConnector) && engine.directiveBias[p.id].simplifyBias > 0.0)
         sc += engine.directiveBias[p.id].simplifyBias;          // "keep it simple / pass it around"
+    // slow_it_down (team-wide): keep the ball, take no risks — reward the safe
+    // option and shun low-completion balls so the side knocks it around. Dedicated
+    // hook because the dial deltas were swamped by the clamp. 0 => no effect.
+    double slowT = engine.slowTempo[p.team == Team::Home ? 0 : 1];
+    if (slowT > 0.0) {
+        if (safeConnector || recyclePass) sc += slowT * 0.16;
+        sc -= slowT * (1.0 - completion) * 0.40;
+    }
     if (keeperOutlet) {
         sc += 0.04 + per.pressureCount * 0.04 + (movingTowardOwnGoal ? 0.06 : 0.0);
         if (bl == 0) sc += 0.02;

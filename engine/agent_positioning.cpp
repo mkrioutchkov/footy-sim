@@ -123,6 +123,13 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
             if (engine.state.clockMs < engine.transitionUntilMs)
                 ob += 0.20 * (1.0 + engine.counterAttackBonus[p.team == Team::Home ? 0 : 1])
                            * clamp((engine.transitionUntilMs - engine.state.clockMs) / 400.0, 0.0, 1.0);
+            // play_it_long: the forwards gamble on the over-the-top run so the long
+            // ball has a TARGET — the dial hit it long but had no runner, so it was
+            // committing to nothing. Gated on longBallBias (0 => no-directive match
+            // unchanged); CF/WM, RunAhead purpose only.
+            double longB = engine.longBallBias[p.team == Team::Home ? 0 : 1];
+            if (longB > 0.0 && cn.pur == ActionPurpose::RunAhead && (isCenterForward() || isWideMidfielder()))
+                ob += longB * 0.30;
         }
 
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;

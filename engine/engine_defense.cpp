@@ -21,6 +21,7 @@ void GameEngine::applyDirectives() {
     directiveBias.fill({});
     dialOverride = {};      // reset team-wide dial deltas each tick (clock-driven)
     longBallBias = {};      // reset play_it_long pass-scorer hook each tick
+    slowTempo = {};         // reset slow_it_down safe-pass hook each tick
     counterAttackBonus = {};   // reset counter_attack transition amplifier each tick
     offsideTrapActive = {};    // reset offside_trap line-hold flag each tick
     allOutActive = {};         // reset all_out_attack runner-commit flag each tick
@@ -115,7 +116,7 @@ void GameEngine::applyDirectives() {
                     break;
                 case DirectiveKind::PushUp:         dv.defensiveLineHeight+=30*k; dv.aggression+=10*k; break;
                 case DirectiveKind::OffsideTrap:    dv.defensiveLineHeight+=45*k; dv.aggression+=15*k; offsideTrapActive[d.teamScope]=true; break;
-                case DirectiveKind::SlowItDown:     dv.passingDirectness-=34*k; dv.aggression-=22*k; dv.overlapFrequency-=12*k; break;
+                case DirectiveKind::SlowItDown:     dv.passingDirectness-=34*k; dv.aggression-=22*k; dv.overlapFrequency-=12*k; slowTempo[d.teamScope]+=k; break;
                 default: break;
             }
             continue;
