@@ -3,9 +3,12 @@
 // morale hook can read them) + nationality, backstory, tagline. Generated ONCE and
 // persisted (players.personality). Same provider/env as tactics.ts / lineup.ts.
 // The motivation loop (shout -> morale via these traits) is a later, separate step.
+import { chatComplete, llmReady } from './llm.ts';
+
 const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
 const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
 const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
+const cap = (s: string, n = 380): string => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
 
 export interface Traits {
   temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number;
@@ -154,4 +157,55 @@ export async function generateSquadPersonalities(players: { name: string; role: 
     } catch { break; }
   }
   return fallback();
+}
+
+// ── Batched story evolution (news.ts aftermath) ──────────────────────────────
+// One LLM call evolves a whole matchday's standout/injured players AND re-derives their dials in
+// the SAME response — collapsing the old per-event rewrite→derive chain (2 calls × N events,
+// sequential) into ONE call. The dominant matchday latency on the per-call cold-start transports
+// (claude-code spawns a fresh process per chatComplete). Routes through llm.ts so it uses the
+// configured provider; deterministic per-event fallback (dev prepended so its cue phrases survive
+// the cap, then the keyword projection) keeps it non-blocking with no key. Always returns exactly
+// inputs.length entries IN ORDER.
+export interface EvolveInput { name: string; role: string; backstory: string; tagline: string; dev: string }
+export interface StoryEvolution { backstory: string; tagline: string; traits: Traits }
+
+const EVOLVE_SYSTEM = `You evolve football players' backstories after a development in each one's career, and convert each evolved story into 8 trait dials. Keep each player's established character but weave the new development in. Output ONLY a JSON array, one object per input player IN ORDER:
+[{"backstory":"2-3 sentences","tagline":"<=6 words, in character","traits":{"temperament":0-100,"criticismResponse":0-100,"praiseResponse":0-100,"bigGame":0-100,"consistency":0-100,"leadership":0-100,"professionalism":0-100,"ego":0-100}}]
+Trait meanings (0=low,100=high): temperament=fiery vs ice-cool; criticismResponse=HIGH thrives on a rocket / LOW wilts; praiseResponse=how much praise lifts them; bigGame=steps up on the big occasion; consistency=match-to-match reliability; leadership=drives team-mates; professionalism=training/lifestyle; ego=self-importance. Make the dials match the EVOLVED backstory. Return EXACTLY one entry per input, in the given order.`;
+
+function buildEvolvePrompt(inputs: EvolveInput[]): string {
+  const lines = inputs.map((it, i) => `${i + 1}. ${it.name} — ${it.role}.\n   Current backstory: ${it.backstory || '(none yet)'}\n   Development: ${it.dev}`).join('\n');
+  return `Evolve these ${inputs.length} players' stories around each development:\n${lines}`;
+}
+
+export async function evolveSquadStories(inputs: EvolveInput[]): Promise<StoryEvolution[]> {
+  // Deterministic per-event evolution: prepend the cue-rich development (so its phrases survive the
+  // length cap and the keyword re-derive even on a season-grown backstory), keep the tagline.
+  const fallback = (): StoryEvolution[] => inputs.map(it => {
+    const backstory = cap(it.backstory ? `${it.dev} ${it.backstory}` : it.dev);
+    return { backstory, tagline: it.tagline, traits: deriveTraitsFromText(backstory, it.tagline, it.role) };
+  });
+  const ready = llmReady();
+  if (!ready.ok || !inputs.length) return fallback();
+  let content: string;
+  try {
+    content = await chatComplete({
+      system: EVOLVE_SYSTEM, user: buildEvolvePrompt(inputs),
+      temperature: 0.7, maxTokens: Math.min(2400, 220 * inputs.length + 200), timeoutMs: 25000,
+    });
+  } catch { return fallback(); }
+  const arr = extractArray(content);
+  const fb = fallback();
+  return inputs.map((it, i) => {
+    const o = arr[i] as Record<string, unknown> | undefined;
+    if (!o || typeof o !== 'object') return fb[i];                            // model omitted/mangled this one
+    const backstory = typeof o.backstory === 'string' && o.backstory.trim() ? cap(o.backstory.trim()) : fb[i].backstory;
+    const tagline = typeof o.tagline === 'string' && o.tagline.trim() ? o.tagline.trim().slice(0, 80) : it.tagline;
+    const t = (o.traits ?? o) as Record<string, unknown> | null;
+    const traits = {} as Traits;
+    if (t && typeof t === 'object') for (const k of TRAIT_KEYS) traits[k] = clamp(t[k]);
+    else return { backstory, tagline, traits: deriveTraitsFromText(backstory, tagline, it.role) };
+    return { backstory, tagline, traits };
+  });
 }

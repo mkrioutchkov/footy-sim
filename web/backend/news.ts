@@ -8,12 +8,8 @@
 import { db } from './db.ts';
 import { recordingFor, loadRecording, getFixture } from './match.ts';
 import { analyzeRecording } from './report.ts';
-import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
+import { evolveSquadStories, defaultPersonality, type Personality } from './personality.ts';
 import { nudgeConfidence } from './confidence.ts';
-
-const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
-const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
-const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
 
 export type EvolveType = 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury';   // events that evolve the story
 export type NewsType = EvolveType | 'pots' | 'young_pots';                              // + season awards (no story change)
@@ -30,8 +26,6 @@ const EVENTS: Record<EvolveType, { headline: (player: string) => string; dev: st
   long_injury: { headline: p => `${p} ruled out with a lay-off`, dev: 'A long lay-off has left him fragile, and he needs encouragement to rebuild.' },
 };
 
-const cap = (s: string, n = 380) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
-
 function parsePersonality(json: string | null, name: string, role: string): Personality {
   const d = defaultPersonality(name, role);
   try {
@@ -41,59 +35,7 @@ function parsePersonality(json: string | null, name: string, role: string): Pers
   return d;
 }
 
-const REWRITE_SYSTEM = 'You evolve a football player\'s backstory after a development in his career. Keep his established character but weave the new development in. Output ONLY JSON: {"backstory":"2-3 sentences","tagline":"<=6 words, in character"}.';
-
-// Rewrite the backstory to absorb a development (LLM-primary); the deterministic fallback appends
-// the cue-rich development sentence so the re-derive still shifts the dials sensibly.
-async function rewriteStory(name: string, role: string, p: Personality, dev: string): Promise<{ backstory: string; tagline: string }> {
-  // Prepend the development so its cue phrases survive the length cap (and re-derive) even when the
-  // backstory has already grown over a season — the cap then sheds the OLDEST text, not the newest.
-  const fallback = () => ({ backstory: cap(p.backstory ? `${dev} ${p.backstory}` : dev), tagline: p.tagline });
-  if (!KEY) return fallback();
-  try {
-    const res = await fetch(`${BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, temperature: 0.7, max_tokens: 300, messages: [
-        { role: 'system', content: REWRITE_SYSTEM },
-        { role: 'user', content: `${name} — ${role}.\nCurrent backstory: ${p.backstory || '(none yet)'}\nDevelopment: ${dev}` },
-      ] }),
-      signal: AbortSignal.timeout(20000),
-    });
-    if (res.ok) {
-      const j = await res.json() as { choices?: { message?: { content?: string } }[] };
-      const raw = (j.choices?.[0]?.message?.content ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-      const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-      if (s >= 0 && e > s) {
-        const o = JSON.parse(raw.slice(s, e + 1)) as { backstory?: unknown; tagline?: unknown };
-        const backstory = typeof o.backstory === 'string' && o.backstory.trim() ? cap(o.backstory.trim()) : fallback().backstory;
-        const tagline = typeof o.tagline === 'string' && o.tagline.trim() ? o.tagline.trim().slice(0, 80) : p.tagline;
-        return { backstory, tagline };
-      }
-    }
-  } catch { /* fall through */ }
-  return fallback();
-}
-
 interface Event { id: number; slot: number; player: string; type: EvolveType }
-
-// One player's evolution + news row, in a fresh tx-free write (caller batches). Keyed by the
-// player's stable DB id (captured synchronously at detection) — so a deferred write never lands on
-// the wrong player if slots renumber (a season-ending advance) between detection and here.
-// Re-derives the dials from the new story so training rate + transfer value (which read them) follow.
-async function applyEvent(teamId: number, fixtureId: number, season: number, ev: Event): Promise<void> {
-  const row = db.prepare('SELECT name, role, personality FROM players WHERE id = ?').get(ev.id) as
-    { name: string; role: string; personality: string | null } | undefined;
-  if (!row) return;   // player left the club between detection and this (deferred) write — skip
-  const dev = EVENTS[ev.type].dev;
-  const cur = parsePersonality(row.personality, row.name, row.role);
-  const { backstory, tagline } = await rewriteStory(row.name, row.role, cur, dev);
-  const traits = await deriveTraits(row.name, row.role, backstory, tagline);
-  const next: Personality = { traits, nationality: cur.nationality, backstory, tagline };
-  db.prepare('UPDATE players SET personality = ? WHERE id = ?').run(JSON.stringify(next), ev.id);
-  db.prepare('INSERT INTO player_news (team_id, player_slot, player_name, type, headline, ref_id, season, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(teamId, ev.slot, ev.player, ev.type, EVENTS[ev.type].headline(ev.player), fixtureId, season, Date.now());
-}
 
 const LONG_INJURY = 3;   // matchdays sidelined that counts as "a lay-off"
 
@@ -154,8 +96,35 @@ export async function processMatchAftermath(teamId: number, fixtureId: number, i
   // (slower, LLM) story evolution below is best-effort on top.
   db.prepare('UPDATE fixtures SET aftermath_done = 1 WHERE id = ?').run(fixtureId);
 
+  // Evolve every standout/injured player's story in ONE batched LLM call (was 2 calls × N events,
+  // fully sequential — the dominant matchday latency, esp. on the per-call cold-start transports).
+  // Each player's dials are RE-DERIVED in the same response (the text↔dial coupling) so training
+  // rate + transfer value follow. Best-effort + deterministic per-event fallback (no throw): if a
+  // player left the club between detection and here we skip him entirely (the stable DB id won't
+  // resolve), matching the old applyEvent. Keyed by the stable id so a slot renumber can't mis-land.
+  const present = events
+    .map(ev => {
+      const row = db.prepare('SELECT name, role, personality FROM players WHERE id = ?').get(ev.id) as
+        { name: string; role: string; personality: string | null } | undefined;
+      return row ? { ev, row, cur: parsePersonality(row.personality, row.name, row.role) } : null;
+    })
+    .filter((x): x is { ev: Event; row: { name: string; role: string; personality: string | null }; cur: Personality } => x !== null);
+
   const headlines: string[] = [];
-  for (const ev of events) { await applyEvent(teamId, fixtureId, season, ev); headlines.push(EVENTS[ev.type].headline(ev.player)); }
+  if (present.length) {
+    const evolved = await evolveSquadStories(present.map(x => ({
+      name: x.row.name, role: x.row.role, backstory: x.cur.backstory, tagline: x.cur.tagline, dev: EVENTS[x.ev.type].dev,
+    })));
+    const upd = db.prepare('UPDATE players SET personality = ? WHERE id = ?');
+    const ins = db.prepare('INSERT INTO player_news (team_id, player_slot, player_name, type, headline, ref_id, season, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    present.forEach((x, i) => {
+      const e = evolved[i];
+      const next: Personality = { traits: e.traits, nationality: x.cur.nationality, backstory: e.backstory, tagline: e.tagline };
+      upd.run(JSON.stringify(next), x.ev.id);
+      ins.run(teamId, x.ev.slot, x.ev.player, x.ev.type, EVENTS[x.ev.type].headline(x.ev.player), fixtureId, season, Date.now());
+      headlines.push(EVENTS[x.ev.type].headline(x.ev.player));
+    });
+  }
   return headlines;
 }
 
