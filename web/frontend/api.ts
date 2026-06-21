@@ -77,6 +77,7 @@ export interface MarketPlayerT { slot: number; name: string; role: string; age: 
 export interface TransferWindowT { open: boolean; window: 'summer' | 'winter' | null; current: number; total: number; label: string; }
 export interface TransferTargetT { id: number; name: string; club: string; clubTeamId: number; role: string; age: number; overall: number; potential: number | null; value: number; askPrice: number | null; wage: number; }
 export interface MarketT { budget: number; wageBudget: number; wageBill: number; squadMax: number; squadMin: number; window: TransferWindowT; freeAgents: FreeAgentT[]; squad: MarketPlayerT[]; transferTargets: TransferTargetT[]; backing?: string | null; }
+export interface OfferT { id: number; playerId: number; playerName: string; club: string; fee: number; status: string; counterFee: number | null; }
 export interface TransferT { teamId: number; teamName: string; type: 'sign' | 'buy_listed'; player: string; role: string; fee: number; from?: string; }
 export interface CupTieT { id: number; round: number; slot: number; home: string | null; away: string | null; homeTeamId: number | null; awayTeamId: number | null; played: boolean; homeScore: number | null; awayScore: number | null; winnerTeamId: number | null; }
 export interface CupT { rounds: { round: number; name: string; ties: CupTieT[] }[]; totalRounds: number; champion: string | null; myTeamId: number; }
@@ -147,8 +148,11 @@ export const api = {
   buyAgent: (agentId: number) => req<{ ok: boolean; placed: 'xi' | 'bench'; value: number; name: string; market: MarketT }>('POST', '/market/buy', { agentId }),
   listPlayer: (slot: number, price?: number) => req<{ ok: boolean; askPrice: number; value: number; market: MarketT }>('POST', '/market/list', { slot, price }),
   unlistPlayer: (slot: number) => req<{ ok: boolean; market: MarketT }>('POST', '/market/unlist', { slot }),
-  bid: (playerId: number, fee: number) => req<{ ok: boolean; status: 'accepted' | 'countered' | 'rejected'; counterFee?: number; player?: string; club?: string; fee?: number; placed?: 'xi' | 'bench'; error?: string; market: MarketT }>('POST', '/transfer/bid', { playerId, fee }),
+  bid: (playerId: number, fee: number) => req<{ ok: boolean; status: 'pending' | 'accepted' | 'countered' | 'rejected'; counterFee?: number; player?: string; club?: string; fee?: number; placed?: 'xi' | 'bench'; error?: string; market: MarketT }>('POST', '/transfer/bid', { playerId, fee }),
   loan: (playerId: number) => req<{ ok: boolean; player?: string; from?: string; market: MarketT }>('POST', '/transfer/loan', { playerId }),
+  offers: () => req<{ offers: OfferT[] }>('GET', '/offers'),
+  withdrawOffer: (id: number) => req<{ ok: boolean; offers: OfferT[] }>('POST', `/offer/${id}/withdraw`),
+  matchOffer: (id: number) => req<{ ok: boolean; status: string; player?: string; fee?: number; market: MarketT; offers: OfferT[] }>('POST', `/offer/${id}/match`),
   setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
   setPlayerStory: (slot: number, backstory: string, tagline: string) =>
     req<{ slot: number; personality: PersonalityT; value: number }>('PUT', `/player/${slot}/story`, { backstory, tagline }),

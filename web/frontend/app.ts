@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -896,6 +896,9 @@ async function screenMarket() {
     if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
+  let offers: OfferT[] = [];
+  try { offers = (await api.offers()).offers; } catch { /* the bids panel just stays empty */ }
+  const refreshOffers = async (): Promise<void> => { try { offers = (await api.offers()).offers; } catch { /* keep current */ } };
 
   function render() {
     // Preserve scroll across the full re-render each action triggers (signing/listing/bidding
@@ -970,12 +973,11 @@ async function screenMarket() {
     const sendBid = async (playerId: number, fee: number): Promise<void> => {
       try {
         const r = await api.bid(playerId, fee);
-        if (r.status === 'accepted') { market = r.market; toast(`Signed ${r.player} for ${fmtMoney(r.fee!)} (${r.placed === 'xi' ? 'straight into the XI' : 'to the bench'})`); render(); }
-        else if (r.status === 'countered') {
-          market = r.market;
-          if (await confirmModal('Counter-offer', `${r.club} want ${fmtMoney(r.counterFee!)} for ${r.player}. Match their valuation?`, 'Match it')) await sendBid(playerId, r.counterFee!);
-          else render();
-        } else { toast(r.error || `${r.club} rejected the bid`); render(); }
+        // A bid is now a PENDING offer the club resolves next matchday (accept/counter/reject) —
+        // see the "Your bids" panel. (accepted can still come back from matching a counter.)
+        if (r.status === 'pending') { toast(`Bid lodged with ${r.club} for ${fmtMoney(r.fee!)} — they respond at the next matchday.`); await refreshOffers(); render(); }
+        else if (r.status === 'accepted') { market = r.market; toast(`Signed ${r.player} for ${fmtMoney(r.fee!)}`); await refreshOffers(); render(); }
+        else { toast(r.error || `${r.club} rejected the bid`); render(); }
       } catch (e: any) { toast(e.message); render(); }
     };
     const doBid = async (t: typeof market.transferTargets[number]): Promise<void> => {
@@ -1027,6 +1029,36 @@ async function screenMarket() {
     }
 
     const wagePct = market.wageBudget > 0 ? Math.round((market.wageBill / market.wageBudget) * 100) : 0;
+
+    // §2.1: your outstanding bids — pending (awaiting the club's reply at the next matchday),
+    // countered (match their price or withdraw), or recently resolved.
+    const offerLabel: Record<string, string> = { pending: '⏳ awaiting reply', countered: '↩ countered', accepted: '✅ signed', rejected: '✖ rejected' };
+    const offerGuard = (btn: HTMLElement, fn: () => Promise<void>) => async () => { if (btn.hasAttribute('disabled')) return; btn.setAttribute('disabled', 'true'); try { await fn(); } finally { btn.removeAttribute('disabled'); } };
+    const offerRow = (o: OfferT) => {
+      const acts: (HTMLElement | string)[] = [];
+      if (o.status === 'countered') {
+        const m = h('button', { class: 'primary small' }, `Match ${fmtMoney(o.counterFee ?? o.fee)}`);
+        m.addEventListener('click', offerGuard(m, async () => {
+          try { const r = await api.matchOffer(o.id); if (r.status === 'accepted') { market = r.market; toast(`Signed ${r.player} for ${fmtMoney(r.fee!)}`); } offers = r.offers; render(); }
+          catch (e: any) { toast(e.message); await refreshOffers(); render(); }
+        }));
+        acts.push(m);
+      }
+      if (o.status === 'pending' || o.status === 'countered') {
+        const w = h('button', { class: 'ghost small', style: 'margin-left:4px' }, 'Withdraw');
+        w.addEventListener('click', offerGuard(w, async () => { try { const r = await api.withdrawOffer(o.id); offers = r.offers; render(); } catch (e: any) { toast(e.message); } }));
+        acts.push(w);
+      }
+      return h('tr', {},
+        h('td', {}, o.playerName, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + o.club)),
+        h('td', { class: 'num' }, fmtMoney(o.fee)),
+        h('td', {}, offerLabel[o.status] ?? o.status, o.status === 'countered' && o.counterFee != null ? h('span', { class: 'muted', style: 'font-size:11px' }, ` · they want ${fmtMoney(o.counterFee)}`) : ''),
+        h('td', { class: 'num' }, ...acts));
+    };
+    const offersCard = offers.length
+      ? h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your bids'), h('table', {}, ...offers.map(offerRow)))
+      : '';
+
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Transfer market'),
@@ -1048,6 +1080,7 @@ async function screenMarket() {
           h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, 'List a player to sell him — an AI club may buy once you have squad depth (12+).'),
           h('div', { style: 'max-height:520px;overflow:auto', 'data-scroll': 'squad' }, h('table', {}, headRow('Player'), sqBody))),
       ),
+      offersCard,
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'For sale — other clubs',
           win.open ? '' : h('span', { class: 'pill', style: 'margin-left:8px;text-transform:none;letter-spacing:0;background:#3a2a1f;color:#ffce9a' }, '🔒 window shut')),
