@@ -38,7 +38,7 @@ export interface PlayerT { slot: number; name: string; role: string; attrs: Reco
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
-  formation: string; lineup: number[] | null; budget?: number; trainingFocus?: string;
+  formation: string; lineup: number[] | null; budget?: number; wageBudget?: number; wageBill?: number; trainingFocus?: string;
   planText?: string | null; plan?: PlanT | null;
 }
 export interface LineupSlotT { slot: number; role: string; homeX: number; homeY: number; playerName: string; fromSlot: number; misfit?: boolean; }

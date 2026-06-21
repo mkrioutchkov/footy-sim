@@ -1145,6 +1145,8 @@ async function screenPlayer(slot: number) {
         h('div', { class: 'muted' }, `${p.role} · OVR ${ovr}${p.potential && p.potential > ovr ? ` → ${p.potential}` : ''}${p.age != null ? ` · ${p.age}y` : ''}${p.personality?.nationality ? ` · ${p.personality.nationality}` : ''}`),
         p.wage != null ? h('div', { class: 'row', style: 'align-items:center;gap:10px;font-size:12px' },
           h('span', { class: 'muted' }, `Wage ${fmtMoney(p.wage)}/yr · ${p.contractYears ?? 0}y left`),
+          (team.wageBudget != null && team.wageBill != null)   // §1.15: club wage headroom, so a renewal isn't a blind 400
+            ? h('span', { class: 'muted', style: team.wageBudget - team.wageBill < 0 ? 'color:var(--danger)' : '' }, `· club headroom ${fmtMoney(team.wageBudget - team.wageBill)}/yr`) : '',
           (() => {
             const renew = h('button', { class: 'ghost small' }, 'Renew (3y)');
             renew.addEventListener('click', async () => {

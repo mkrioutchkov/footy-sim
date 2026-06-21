@@ -333,7 +333,7 @@ export interface PlayerRow { slot: number; name: string; role: string; attrs: Re
 
 export function getTeamWithPlayers(teamId: number): {
   id: number; name: string; manager: string; leagueId: number; userId: number | null;
-  budget: number; wageBudget: number; trainingFocus: string; tactics: Tactics; formation: string; lineup: number[] | null;
+  budget: number; wageBudget: number; wageBill: number; trainingFocus: string; tactics: Tactics; formation: string; lineup: number[] | null;
   planText: string | null; plan: Plan | null; players: PlayerRow[];
 } | null {
   const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, wage_budget, training_focus, tactics, formation, lineup, plan_text, plan_directives FROM teams WHERE id = ?')
@@ -359,7 +359,7 @@ export function getTeamWithPlayers(teamId: number): {
   const plan = parseJSON(t.plan_directives) as Plan | null;
   return {
     id: t.id, name: t.name, manager: t.manager, leagueId: t.league_id, userId: t.user_id,
-    budget: t.budget, wageBudget: t.wage_budget, trainingFocus: t.training_focus ?? 'balanced', tactics: JSON.parse(t.tactics),
+    budget: t.budget, wageBudget: t.wage_budget, wageBill: players.reduce((s, p) => s + (p.wage ?? 0), 0), trainingFocus: t.training_focus ?? 'balanced', tactics: JSON.parse(t.tactics),
     formation: t.formation ?? '4-3-3', lineup,
     planText: t.plan_text, plan: plan && Array.isArray(plan.directives) ? plan : null, players,
   };
