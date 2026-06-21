@@ -653,6 +653,19 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         carrier.vx=carrier.vy=0;
         return true;
     }
+    // Carry security — the carrier BEATS the man and keeps it. This outcome was
+    // MISSING: every committed challenge used to dispossess (won OR spilled loose),
+    // so possession churned ~2.4x too often (~390 strips/match, no 20+ build-up).
+    // A good carrier (control/dribble/shield, harder still from behind) rides the
+    // tackle and plays on; the beaten defender is briefly off-balance.
+    double retainChance=clamp(carrierControl*0.6+(carrier.dribbleType==3?0.12:0.0)
+        +(carrierShielded?0.18:0.0)+(fromBehind?0.10:0.0)-tackleSkill*0.15,0.0,0.60);
+    if(rng.random()<retainChance){
+        emitEvent("skill",carrier.x,carrier.y,carrier.id,tackler.id);
+        blockReboundFor(tackler.id,520);
+        agentFor(tackler)->stunLock(12);
+        return false;
+    }
     stats.recordTackleWin(false);
     emitEvent("tackle_loose", (tackler.x+carrier.x)/2.0, (tackler.y+carrier.y)/2.0, tackler.id, carrier.id);
     b.controllerId=-1;
