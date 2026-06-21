@@ -139,7 +139,18 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         }
     }
 
-    if (deferToTeammate) {
+    // A teammate has deliberately played the ball BACK to me. Treat collecting it
+    // as top priority: come off the line and MEET it on its line — don't sit back
+    // doing angle play, which lets the ball stop short and roll loose for the
+    // passer to re-collect (the "pass to self" that looked broken). Capped at the
+    // box edge so I never strand myself chasing a wild backpass toward halfway.
+    bool backpassToMe = ballLoose && intendedReceiver && intendedReceiver->id == gk.id
+        && ballInOurHalf;
+    if (backpassToMe) {
+        double meetX = state.ball.x - fd * 12.0;            // a touch goal-side of the ball
+        gk.targetX = clampRange(meetX, goalX + fd * 6.0, goalX + fd * 175.0);
+        gk.targetY = clamp(lerp(gk.y, state.ball.y, 0.6), PITCH_H * 0.10, PITCH_H * 0.90);
+    } else if (deferToTeammate) {
         double supportDepth = clamp(bdg * 0.24, 24.0, 76.0);
         gk.targetX = goalX + fd * supportDepth;
         gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.16), gk.homeY - 120.0, gk.homeY + 120.0);
@@ -170,7 +181,7 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     // Rush-out: charge a loose ball / through ball behind the defense, or
     // smother an opponent who's broken clean through (smother1v1, above).
     double rushDist = std::abs(gk.x - state.ball.x);
-    bool rushing = !deferToTeammate
+    bool rushing = !deferToTeammate && !backpassToMe
         && (smother1v1 || (ballLoose && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall)));
     if (rushing) {
         // clampRange (not clamp) so the off-line bounds stay valid for the Away
@@ -198,7 +209,7 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     }
 
     double moveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.86;
-    if (rushing) moveSpeed += agentFor(gk)->rushOutSpeed();
+    if (rushing || backpassToMe) moveSpeed += agentFor(gk)->rushOutSpeed();
 
     double dx = gk.targetX - gk.x, dy = gk.targetY - gk.y, d = std::hypot(dx, dy);
     if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; }
