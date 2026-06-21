@@ -408,6 +408,15 @@ function formationPanel(team: TeamT, reg: FormationsT | null): HTMLElement {
   );
 }
 
+// §2.3: a player "seeking a move" — running down his deal (≤1y) AND unsettled (low morale, or a big
+// ego stuck on the bench). Derived (no persisted flag), so it's always current. contractYears/morale/
+// ego/slot all ride on PlayerT.
+const seekingMove = (p: PlayerT): boolean =>
+  (p.contractYears ?? 9) <= 1 && ((p.morale ?? 100) < 40 || ((p.personality?.traits?.ego ?? 0) >= 70 && p.slot >= 11));
+// Contract-years cell style: red at ≤1y (walks next summer), amber at ≤2y.
+const contractStyle = (yrs: number | undefined): string =>
+  (yrs ?? 9) <= 1 ? 'color:var(--danger);font-weight:600' : (yrs ?? 9) <= 2 ? 'color:#ffb84d' : '';
+
 // ── dashboard ──
 async function screenDashboard() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
@@ -627,6 +636,17 @@ async function screenDashboard() {
       ? h('div', { class: 'card', style: 'border-color:var(--danger);color:var(--danger);font-size:13px' },
         `⚠ Wage bill ${fmtMoney(team.wageBill)} exceeds your budget ${fmtMoney(team.wageBudget)} — sell or release to get back under (no new signings until you are).`)
       : '',
+    // §2.3: contract-expiry card — players running down their deal walk for free at season end.
+    (() => {
+      const expiring = team.players.filter(p => (p.contractYears ?? 9) <= 1).sort((a, b) => (a.contractYears ?? 9) - (b.contractYears ?? 9));
+      if (!expiring.length) return '';
+      return h('div', { class: 'card', style: 'border-color:#ffb84d' },
+        h('div', { class: 'section-title', style: 'margin-top:0;color:#ffb84d' }, `⏳ Out of contract soon (${expiring.length})`),
+        h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'Renew them or they leave on a free at season end. A “seeking move” player is likely to agitate.'),
+        h('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px' }, ...expiring.map(p =>
+          h('span', { class: 'pill', title: 'View profile / renew', style: 'cursor:pointer' + (seekingMove(p) ? ';background:var(--danger);color:#fff' : ''), onclick: () => (location.hash = `#/player/${p.slot}`) },
+            `${p.name} · ${p.contractYears ?? 0}y${seekingMove(p) ? ' · seeking move' : ''}`))));
+    })(),
     // the boardroom: confidence in the manager + the season objective with live progress
     (() => {
       const conf = league.confidence, obj = league.objective;
@@ -1620,14 +1640,15 @@ async function screenSquad() {
       tbody.append(h('tr', { class: p.slot < 11 ? 'me' : '' },
         h('td', {}, captainSlot === p.slot ? h('span', { title: 'Club captain (highest leadership)', style: 'margin-right:4px' }, '🧭') : '',
           h('span', { style: 'cursor:pointer', onclick: () => (location.hash = `#/player/${p.slot}`) }, p.name),
-          p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:10px' }, ' · bench') : ''),
+          p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:10px' }, ' · bench') : '',
+          seekingMove(p) ? h('span', { class: 'pill', title: 'Running down his contract and unsettled — likely to push for a move', style: 'margin-left:5px;background:var(--danger);color:#fff;font-size:9px' }, 'seeking move') : ''),
         h('td', {}, h('span', { class: 'pill' }, p.role)),
         h('td', { class: 'num' }, String(p.age ?? '—')),
         h('td', { class: 'num', style: 'font-weight:700' }, String(ovr)),
         h('td', { class: 'num' }, p.potential != null && p.potential > ovr ? h('span', { class: 'a', style: 'color:var(--accent)' }, String(p.potential)) : String(p.potential ?? '—')),
         ...SQUAD_ATTRS.map(([a]) => h('td', { class: 'num', style: attrHeat(p.attrs[a] ?? 0) }, String(Math.round(p.attrs[a] ?? 0)))),
         h('td', { class: 'num' }, p.wage != null ? fmtMoney(p.wage) : '—'),
-        h('td', { class: 'num' }, (p.contractYears ?? 0) + 'y'),
+        h('td', { class: 'num', style: contractStyle(p.contractYears) }, (p.contractYears ?? 0) + 'y'),
         h('td', { class: 'num', style: p.morale != null ? (p.morale >= 75 ? 'color:var(--accent)' : p.morale <= 40 ? 'color:var(--danger)' : '') : '' }, String(p.morale ?? '—')),
         h('td', { class: 'num' }, (p.injuredMatches ?? 0) > 0 ? `🤕${p.injuredMatches}` : `${p.fitness ?? 100}%`)));
     }
