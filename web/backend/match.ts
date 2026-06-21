@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
 import { db } from './db.ts';
-import { getTeamWithPlayers, fitFirstSelection, ROLE_SLOTS, DEFAULT_TACTICS } from './game.ts';
+import { getTeamWithPlayers, fieldedXIIndices, ROLE_SLOTS, DEFAULT_TACTICS } from './game.ts';
 import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer } from './plan.ts';
 import type { Directive } from './tactics.ts';
 import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation, engineRole } from './formations.ts';
@@ -68,15 +68,14 @@ function specForTeam(teamId: number, side: 'home' | 'away'): { spec: Record<stri
   if (!t) throw new Error(`team ${teamId} not found`);
   const tactics = t.userId != null ? DEFAULT_TACTICS : t.tactics;
   const bySlot = t.players.slice().sort((a, b) => a.slot - b.slot);
-  // Draw the XI from fit men first (shared with fitnessTick via fitFirstSelection so "who
-  // played" can never diverge from "who got drained"). A fully fit squad is unchanged
-  // (byte-identical); a bench player covering a sidelined starter may play out of position
-  // (emergency cover) — a known, realistic limitation.
-  const available = fitFirstSelection(bySlot, p => !!p.injuredMatches);
   const formation = t.formation ?? DEFAULT_FORMATION;
   const layout = FORMATIONS[formation];
-  // squad slot -> position in the emitted spec.players (the engine id) — fit-first selection / a
-  // custom XI / a formation reorder make this differ from slot order, so the plan resolves through it.
+  // The fielded XI as squad-slot INDICES, in formation order — via fieldedXIIndices, the ONE selection
+  // shared with fitnessTick so "who played" can never diverge from "who got drained" (a fully fit squad
+  // on the default shape is byte-identical; a custom XI / non-default shape / injury-cover swap reorders).
+  const xiIdx = fieldedXIIndices(bySlot, p => !!p.injuredMatches, formation, t.lineup);
+  // squad slot -> position in the emitted spec.players (the engine id) — differs from slot order under a
+  // custom XI / a non-default formation / an injury-cover swap, so the plan resolves through it.
   const slotToEngine = new Map<number, number>();
   let players: Record<string, unknown>[];
   // Byte-identical guard: a team on the default shape with the identity XI emits the
@@ -85,32 +84,18 @@ function specForTeam(teamId: number, side: 'home' | 'away'): { spec: Record<stri
   // XI) gets an explicit per-slot layout.
   if ((formation === DEFAULT_FORMATION && isIdentityXI(t.lineup)) || !layout) {
     // personality rides along (engine ignores it) so the watch flow can read each
-    // player's personality by engine id without re-deriving the lineup order.
-    // slice(0,11) starts the first 11 by slot — a no-op for an 11-player squad (so
-    // existing teams emit a byte-identical spec) but it keeps bench depth (slots 11+,
-    // added by the transfer market) out of the match.
-    const xi = available.slice(0, 11);
+    // player's personality by engine id without re-deriving the lineup order. The bench
+    // depth (slots 11+, added by the transfer market) stays out of the match.
+    const xi = xiIdx.map(i => bySlot[i]);
     players = xi.map(p => ({ name: p.name, attrs: p.attrs, personality: p.personality ?? null }));
     xi.forEach((p, i) => slotToEngine.set(p.slot, i));
   } else {
     // Emit per-slot role + home anchor. The away side mirrors x (PITCH_W - x) to match
     // the engine's away frame; width (y) is shared. Slot 0 stays the keeper (the engine
-    // pins it regardless). lineup[i] = which squad slot fills formation slot i; an injured
-    // pick is swapped for the best fit, unused player so the XI is always fit + complete.
-    const lineup = t.lineup ?? bySlot.map((_, i) => i);
-    // indices already destined for the XI — a substitute must come from OUTSIDE this set (a
-    // genuine fit bench player), else two slots could end up sharing a player.
-    const inXI = new Set(lineup.slice(0, layout.length).filter(n => Number.isInteger(n) && n >= 0 && n < bySlot.length));
-    const used = new Set<number>();
+    // pins it regardless). xiIdx[i] = which squad slot fills formation slot i (an injured
+    // pick already swapped for the best fit, unused player by fieldedXIIndices).
     players = layout.map((slot, i) => {
-      const want = lineup[i];
-      let idx = (Number.isInteger(want) && want >= 0 && want < bySlot.length) ? want : i;
-      if (bySlot[idx]?.injuredMatches) {
-        const subIdx = bySlot.findIndex((q, qi) => !q.injuredMatches && !used.has(qi) && !inXI.has(qi));
-        if (subIdx >= 0) idx = subIdx;
-      }
-      const p = bySlot[idx] ?? bySlot[i];
-      used.add(idx);
+      const p = bySlot[xiIdx[i]] ?? bySlot[i];
       slotToEngine.set(p.slot, i);
       return {
         name: p.name, attrs: p.attrs, role: engineRole(slot.role), personality: p.personality ?? null,

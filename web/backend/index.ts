@@ -20,6 +20,7 @@ import { FORMATIONS, PITCH_W } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, offersForTeam, withdrawOffer, matchCounter } from './market.ts';
 import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
+import { getRotationView, applyRotation } from './rotation.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { aiManagerTick } from './ai.ts';
 import { renewContract, previewRenewal } from './contracts.ts';
@@ -534,6 +535,27 @@ app.get('/api/harmony', async (req: any, reply) => {
   const h = getSquadHarmony(teamId);
   if (!h) return reply.code(404).send({ error: 'no squad' });
   return h;
+});
+
+// Fitness & rotation guidance (§2.10): per-player fitness band + injury-risk %, and "rest X, start Y"
+// suggestions. Read-only.
+app.get('/api/rotation', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const v = getRotationView(teamId);
+  if (!v) return reply.code(404).send({ error: 'no squad' });
+  return v;
+});
+
+// Apply one rotation swap (bench a starter, start a bench player) by editing the stored XI directly.
+app.post('/api/rotation/apply', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const r = applyRotation(teamId, Number(req.body?.outSlot), Number(req.body?.inSlot));
+  if (!r.ok) return reply.code(400).send({ error: r.error ?? 'could not apply' });
+  return { ...r, rotation: getRotationView(teamId) };
 });
 
 // The club's season-by-season history + honours (populated at each rollover).

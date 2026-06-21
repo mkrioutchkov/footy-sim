@@ -3,6 +3,7 @@ import { randomPlayerName, randomTeamName } from './names.ts';
 import { generateSquadPersonalities } from './personality.ts';
 import { createCup } from './cup.ts';
 import { deriveObjective, setSeasonObjective } from './objectives.ts';
+import { FORMATIONS, DEFAULT_FORMATION } from './formations.ts';
 import type { Plan } from './plan.ts';
 
 const parseJSON = (s: string | null): unknown | null => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
@@ -124,6 +125,38 @@ export function fitFirstSelection<T>(bySlot: T[], isInjured: (x: T) => boolean):
   return (fitCount >= 11 && fitCount < bySlot.length)
     ? [...bySlot.filter(p => !isInjured(p)), ...bySlot.filter(isInjured)]
     : bySlot;
+}
+
+// The squad SLOT-INDICES actually fielded, in formation order — the ONE source of truth shared by
+// specForTeam (who plays) and fitnessTick (who is drained / injury-rolled), so the two can never
+// diverge. (§2.10 rotation writes custom XIs; the old fitnessTick honoured only fitFirstSelection, so
+// it drained the identity XI even when the match fielded a rotated one — inverting "rest him".) bySlot
+// MUST be in slot order. Default 4-3-3 + identity XI (or an unknown shape) → the fit-first first-eleven
+// (byte-identical to the old path); a custom XI → lineup[i], with an injured pick auto-subbed for the
+// first fit, unused, non-XI man (mirrors specForTeam's explicit branch exactly).
+export function fieldedXIIndices<T>(bySlot: T[], isInjured: (x: T) => boolean, formation: string, lineup: number[] | null): number[] {
+  const layout = FORMATIONS[formation];
+  const identity = !lineup || lineup.every((v, i) => v === i);
+  if ((formation === DEFAULT_FORMATION && identity) || !layout) {
+    return fitFirstSelection(bySlot.map((_, i) => i), i => isInjured(bySlot[i])).slice(0, 11);
+  }
+  const lu = lineup ?? bySlot.map((_, i) => i);
+  const inXI = new Set(lu.slice(0, layout.length).filter(n => Number.isInteger(n) && n >= 0 && n < bySlot.length));
+  const used = new Set<number>();
+  const out: number[] = [];
+  for (let i = 0; i < layout.length; i++) {
+    const want = lu[i];
+    let idx = (Number.isInteger(want) && want >= 0 && want < bySlot.length) ? want : i;
+    // bySlot[idx] can be undefined only on a sub-11 squad (squad floor is 11, so unreachable in normal
+    // play); the null guard mirrors the old `bySlot[idx]?.injuredMatches` so it degrades, never throws.
+    if (bySlot[idx] != null && isInjured(bySlot[idx])) {
+      const subIdx = bySlot.findIndex((q, qi) => !isInjured(q) && !used.has(qi) && !inXI.has(qi));
+      if (subIdx >= 0) idx = subIdx;
+    }
+    used.add(idx);
+    out.push(idx);
+  }
+  return out;
 }
 
 // New-player age: a realistic spread centred on the mid-20s (18..34), skewed to prime.

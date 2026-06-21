@@ -5,7 +5,8 @@
 // the XI from fit men first), so depth + rotation matter. Fired once per matchday from
 // /api/advance, BEFORE the market/AI ticks so "who played" reflects the XI as it lined up.
 import { db } from './db.ts';
-import { fitFirstSelection } from './game.ts';
+import { fieldedXIIndices } from './game.ts';
+import { DEFAULT_FORMATION } from './formations.ts';
 import { physioEffect } from './staff.ts';
 
 const DRAIN_MIN = 10, DRAIN_VAR = 8;        // condition a starter loses (10..17)
@@ -15,16 +16,37 @@ const INJURY_MIN = 1, INJURY_VAR = 5;        // matchdays sidelined (1..5)
 
 export interface InjuryEvent { teamId: number; player: string; matches: number }
 
+// The chance a fit starter picks up a fresh injury this matchday — rises as match fitness falls
+// (3% fresh → 13% exhausted) then cut by the club's physios (injuryMult ≤ 1). THE single source of
+// truth: fitnessTick rolls against exactly this, and the rotation guidance (rotation.ts) shows
+// exactly this, so the warning can never diverge from the dice. Clamped to [0,1].
+export function startInjuryRisk(fitness: number, injuryMult = 1): number {
+  const f = Math.max(0, Math.min(100, fitness));
+  return Math.max(0, Math.min(1, (INJURY_BASE + (1 - f / 100) * INJURY_TIRED) * injuryMult));
+}
+
 export function fitnessTick(leagueId: number): InjuryEvent[] {
   const events: InjuryEvent[] = [];
   const setFit = db.prepare('UPDATE players SET fitness = ? WHERE id = ?');
   const setInj = db.prepare('UPDATE players SET injured_matches = ? WHERE id = ?');
-  for (const { id } of db.prepare('SELECT id FROM teams WHERE league_id = ?').all(leagueId) as { id: number }[]) {
+  for (const t of db.prepare('SELECT id, formation, lineup FROM teams WHERE league_id = ?').all(leagueId) as { id: number; formation: string | null; lineup: string | null }[]) {
+    const id = t.id;
     const players = db.prepare('SELECT id, name, fitness, injured_matches FROM players WHERE team_id = ? ORDER BY slot').all(id) as
       { id: number; name: string; fitness: number; injured_matches: number }[];
-    // who played = exactly the XI specForTeam fields (same shared fit-first selection, so the
-    // drained/recovered set can never diverge from who actually played)
-    const starterIds = new Set(fitFirstSelection(players, p => p.injured_matches > 0).slice(0, 11).map(p => p.id));
+    // who played = exactly the XI specForTeam fields — same shared selection (fieldedXIIndices), now
+    // lineup-aware, so a rotated/custom XI drains the men who actually played, not the identity eleven.
+    // Validate the stored lineup like getTeamWithPlayers (a clean 11-perm of valid squad indices, else
+    // the identity XI), so the selection matches the match byte-for-byte.
+    let lineup: number[] | null = null;
+    try {
+      const l = t.lineup ? JSON.parse(t.lineup) : null;
+      if (Array.isArray(l) && l.length === 11) {
+        const nums = l.map(Number);
+        if (nums.every(n => Number.isInteger(n) && n >= 0 && n < players.length) && new Set(nums).size === 11) lineup = nums;
+      }
+    } catch { /* ignore — identity XI */ }
+    const xiIdx = fieldedXIIndices(players, p => p.injured_matches > 0, t.formation ?? DEFAULT_FORMATION, lineup);
+    const starterIds = new Set(xiIdx.map(i => players[i].id));
     const physio = physioEffect(id);   // identity (injuryMult 1, recoverBonus 0) for a club with no physios
     // 1. drain the starters, recover everyone else (a good physio recovers the rested faster)
     for (const p of players) {
@@ -34,9 +56,10 @@ export function fitnessTick(leagueId: number): InjuryEvent[] {
     // 2. standing injuries heal a matchday
     for (const p of players) if (p.injured_matches > 0) setInj.run(p.injured_matches - 1, p.id);
     // 3. fresh injuries for fit players who started — likelier the more tired they were, cut by physios
+    //    (rolls against startInjuryRisk on their pre-match fitness — the same number the UI warns with)
     for (const p of players) {
       if (!starterIds.has(p.id) || p.injured_matches > 0) continue;
-      if (Math.random() < (INJURY_BASE + (1 - p.fitness / 100) * INJURY_TIRED) * physio.injuryMult) {
+      if (Math.random() < startInjuryRisk(p.fitness, physio.injuryMult)) {
         const matches = INJURY_MIN + Math.floor(Math.random() * INJURY_VAR);
         setInj.run(matches, p.id);
         events.push({ teamId: id, player: p.name, matches });
