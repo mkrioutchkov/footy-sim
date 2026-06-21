@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -1109,7 +1109,17 @@ async function screenMarket() {
 }
 
 // ── training / development ──
-const TRAINING_FOCI = ['balanced', 'speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
+// 'position' = role-matched drills (§2.7); the rest push one attribute club-wide or per-player.
+const TRAINING_FOCI = ['balanced', 'position', 'speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
+const FOCUS_LABEL: Record<string, string> = {
+  balanced: 'Balanced', position: 'Position-specific',
+  speed: 'Speed', passing: 'Passing', creativity: 'Creativity', shooting: 'Shooting',
+  tackling: 'Tackling', positioning: 'Positioning', stamina: 'Stamina',
+};
+const ATTR_SHORT: Record<string, string> = Object.fromEntries(SQUAD_ATTRS.map(([k, s]) => [k, s]));
+const focusLabel = (f: string) => FOCUS_LABEL[f] ?? (f ? f[0].toUpperCase() + f.slice(1) : f);
+const fmtDelta = (d: number) => `${d > 0 ? '+' : ''}${d}`;
+
 async function screenTraining() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let team: TeamT;
@@ -1118,46 +1128,104 @@ async function screenTraining() {
     if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
+  // The report is best-effort — show the screen even if it hasn't been generated yet (or 404s).
+  let report: TrainingReportT | null = null;
+  try { report = (await api.trainingReport()).report; } catch { /* no report yet */ }
   const ovrOf = (p: typeof team.players[number]) => skillOvr(p.attrs);
 
+  // club-wide focus selector
   const sel = h('select', { class: 'focus-select' }) as HTMLSelectElement;
   for (const f of TRAINING_FOCI) {
-    const o = h('option', { value: f }, f[0].toUpperCase() + f.slice(1)) as HTMLOptionElement;
+    const o = h('option', { value: f }, focusLabel(f)) as HTMLOptionElement;
     if (f === (team.trainingFocus ?? 'balanced')) o.selected = true;
     sel.append(o);
   }
   sel.addEventListener('change', async () => {
-    try { const r = await api.setTraining(sel.value); toast(`Training focus: ${r.focus}`); }
+    try { const r = await api.setTraining(sel.value); toast(`Club training focus: ${focusLabel(r.focus)}`); }
     catch (e: any) { toast(e.message); }
   });
 
+  // ── last session's training report — "why did X improve" ──
+  const reportCard = (() => {
+    if (!report || !report.lines.length) return h('div', { class: 'card' },
+      h('div', { class: 'muted', style: 'font-size:13px' }, '📈 No training session yet — play a matchday and your squad’s development shows up here.'));
+    const lines = [...report.lines].sort((a, b) => b.ovrDelta - a.ovrDelta || b.ovrAfter - a.ovrAfter);
+    const improved = lines.filter(l => l.ovrDelta > 0).length;
+    const declined = lines.filter(l => l.ovrDelta < 0).length;
+    const steady = lines.length - improved - declined;
+    const chips: (HTMLElement | string)[] = [h('span', { class: 'pill' }, `Focus: ${focusLabel(report.teamFocus)}`)];
+    if (report.coachBoost > 0) chips.push(h('span', { class: 'pill', style: 'background:rgba(67,211,158,.15);color:var(--accent)' }, `Coaching +${report.coachBoost}%`));
+    if (report.harmonyFactor > 1) chips.push(h('span', { class: 'pill', style: 'background:rgba(67,211,158,.15);color:var(--accent)' }, 'Settled squad ↑'));
+    else if (report.harmonyFactor < 1) chips.push(h('span', { class: 'pill', style: 'background:#3a2a1f;color:#ffce9a' }, 'Unsettled squad ↓'));
+
+    const lineEls = lines.map(l => {
+      const up = l.ovrDelta > 0, down = l.ovrDelta < 0;
+      const deltaBadge = h('span', { style: `font-weight:700;${up ? 'color:var(--accent)' : down ? 'color:var(--danger)' : 'opacity:.55'}` },
+        up ? `▲ ${l.ovrDelta}` : down ? `▼ ${Math.abs(l.ovrDelta)}` : '– 0');
+      const attrChips = l.attrs.slice(0, 5).map(a => h('span', {
+        class: 'pill', style: `text-transform:none;letter-spacing:0;font-size:11px;${a.delta > 0 ? 'color:var(--accent)' : 'color:var(--danger)'}`,
+      }, `${ATTR_SHORT[a.key] ?? a.key} ${fmtDelta(a.delta)}`));
+      return h('div', { class: 'card', style: 'padding:8px 10px;margin:0' },
+        h('div', { class: 'between', style: 'align-items:baseline;gap:8px' },
+          h('div', {}, h('span', { style: 'font-weight:600' }, l.name),
+            h('span', { class: 'pill', style: 'margin-left:6px' }, l.role),
+            l.individual ? h('span', { class: 'pill', style: 'margin-left:4px;background:rgba(78,161,255,.18)' }, `★ ${focusLabel(l.focus)}`) : ''),
+          h('div', { style: 'display:flex;gap:8px;align-items:baseline;white-space:nowrap' },
+            h('span', { class: 'muted', style: 'font-size:12px' }, `OVR ${l.ovrBefore}→${l.ovrAfter}`), deltaBadge)),
+        l.attrs.length ? h('div', { class: 'row', style: 'gap:4px;flex-wrap:wrap;margin-top:5px' }, ...attrChips) : '',
+        l.factors.length ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:4px' }, l.factors.join(' · ')) : '');
+    });
+
+    return h('div', { class: 'card' },
+      h('div', { class: 'between' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Last training session'),
+        h('div', { class: 'muted', style: 'font-size:12px' }, `Season ${report.season} · after Matchday ${report.round}`)),
+      h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin:-2px 0 8px;align-items:center' }, ...chips,
+        h('span', { class: 'muted', style: 'font-size:12px;margin-left:2px' }, `${improved} improved · ${declined} declined${steady ? ` · ${steady} steady` : ''}`)),
+      h('div', { class: 'grid', style: 'gap:6px;max-height:440px;overflow:auto' }, ...lineEls));
+  })();
+
+  // ── squad table — OVR/potential + a per-player focus override ──
   const body = h('tbody');
   for (const p of [...team.players].sort((a, b) => a.slot - b.slot)) {
     const ovr = ovrOf(p), pot = p.potential ?? ovr;
     const room = pot - ovr;
+    const pfSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px' }) as HTMLSelectElement;
+    pfSel.append(h('option', { value: '' }, 'Follow club'));
+    for (const f of TRAINING_FOCI) {
+      const o = h('option', { value: f }, focusLabel(f)) as HTMLOptionElement;
+      if (f === (p.trainFocus ?? '')) o.selected = true;
+      pfSel.append(o);
+    }
+    pfSel.addEventListener('change', async () => {
+      try { const r = await api.setPlayerTraining(p.slot, pfSel.value); toast(r.focus ? `${p.name}: ${focusLabel(r.focus)}` : `${p.name} follows the club focus`); }
+      catch (e: any) { toast(e.message); }
+    });
     body.append(h('tr', {},
       h('td', {}, p.name, p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench') : ''),
       h('td', {}, h('span', { class: 'pill' }, p.role)),
       h('td', { class: 'num' }, p.age != null ? String(p.age) : '—'),
       h('td', { class: 'num' }, String(ovr)),
       h('td', { class: 'num' }, room > 0 ? h('span', { class: 'a' }, `${pot} (+${room})`) : String(pot)),
+      h('td', {}, pfSel),
     ));
   }
 
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, 'Training'),
-        h('div', { class: 'muted' }, 'Players drift toward their potential each matchday — faster while young and for the diligent. Pick a focus to push one attribute harder.')),
+        h('div', { class: 'muted' }, 'Players drift toward their potential each matchday — faster while young and for the diligent. Set a club focus, or override one player to push a single attribute (or “Position-specific” to train for his role).')),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
+    reportCard,
     h('div', { class: 'card' },
       h('div', { class: 'row', style: 'align-items:center;gap:10px;margin-bottom:6px' },
-        h('span', { class: 'section-title', style: 'margin:0' }, 'Training focus'), sel),
+        h('span', { class: 'section-title', style: 'margin:0' }, 'Club training focus'), sel),
       h('div', { style: 'max-height:540px;overflow:auto;margin-top:8px' },
         h('table', {},
           h('thead', {}, h('tr', {},
             h('th', {}, 'Player'), h('th', {}, 'Pos'),
-            h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'))),
+            h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'), h('th', {}, 'Focus'))),
           body)),
     ),
   ));
