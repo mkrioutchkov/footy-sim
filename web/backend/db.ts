@@ -328,6 +328,7 @@ ensureColumn('season_history', 'board_confidence', 'board_confidence INTEGER'); 
 // existing saves start from the same neutral footing.
 ensureColumn('teams', 'board_confidence', 'board_confidence INTEGER NOT NULL DEFAULT 55');
 ensureColumn('teams', 'low_confidence_streak', 'low_confidence_streak INTEGER NOT NULL DEFAULT 0');   // consecutive at-risk rollovers (escalating board warnings)
+ensureColumn('teams', 'sacked', 'sacked INTEGER NOT NULL DEFAULT 0');   // §2.5: the board dismissed the manager (one at-risk season past the final warning)
 
 // ── Backroom staff (coaches / physios / scouts) ─────────────────────────────
 // A shared per-world hire pool (team_id NULL) the user signs from for a one-off fee; coaches speed

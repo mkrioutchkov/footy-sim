@@ -433,6 +433,16 @@ async function screenDashboard() {
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenDashboard() }, '↻ Retry')));
   }
 
+  // §2.5: a sacked manager's save is over — the board let you go. No dashboard; offer a fresh start
+  // (a new team supersedes the old, so the career restarts cleanly).
+  if (team.sacked) {
+    return mount(header(), h('div', { class: 'wrap' },
+      h('div', { class: 'card', style: 'text-align:center;border:1px solid var(--danger);max-width:560px;margin:40px auto' },
+        h('h2', { style: 'color:var(--danger);margin-top:0' }, '🪦 You’ve been sacked'),
+        h('div', { class: 'muted', style: 'margin:10px 0 18px;line-height:1.5' }, `${team.name} have parted ways with you — the board ran out of patience after three straight seasons in crisis. Your time at the club is over.`),
+        h('button', { class: 'primary', onclick: () => screenCreateTeam() }, 'Start a new career'))));
+  }
+
   const myNext = league.fixtures.find(f => f.involvesMe && !f.played);
   const myPos = league.standings.findIndex(s => s.teamId === league.myTeamId) + 1;
 

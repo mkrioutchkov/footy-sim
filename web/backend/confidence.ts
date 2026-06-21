@@ -66,18 +66,26 @@ export function recruitmentBacking(status: ConfidenceStatus, objectiveKind: stri
   return status === 'secure' ? 'The board trusts your judgement in the market.' : 'The board wants steady, sensible recruitment.';
 }
 
-export type BoardTone = 'backed' | 'satisfied' | 'concerned' | 'warned' | 'final_warning';
+export type BoardTone = 'backed' | 'satisfied' | 'concerned' | 'warned' | 'final_warning' | 'sacked';
 
 // The board's verdict on the manager at rollover, escalating if confidence stays at-risk across
-// seasons. Tracks the consecutive at-risk streak on the team. Call AFTER settleConfidenceAtRollover.
+// seasons: warned -> final_warning -> SACKED (§2.5). Tracks the consecutive at-risk streak on the
+// team and, on a sacking, sets teams.sacked. Call AFTER settleConfidenceAtRollover. An AI club is
+// never sacked (the streak only matters for the human, but this is safe to call for any team).
 export function boardVerdictAtRollover(teamId: number, confidence: number, objectiveMet: boolean | null): { tone: BoardTone; message: string } {
   const status = confidenceStatus(confidence);
   let streak = (db.prepare('SELECT low_confidence_streak AS s FROM teams WHERE id = ?').get(teamId) as { s: number }).s;
   streak = status === 'at_risk' ? streak + 1 : 0;
   db.prepare('UPDATE teams SET low_confidence_streak = ? WHERE id = ?').run(streak, teamId);
-  if (status === 'at_risk') return streak >= 2
-    ? { tone: 'final_warning', message: 'The board has run out of patience — another season like this and your time is up.' }
-    : { tone: 'warned', message: 'The board is deeply unhappy. You are under serious pressure to turn results around.' };
+  if (status === 'at_risk') {
+    if (streak >= 3) {   // one at-risk season beyond the final warning — the board acts
+      db.prepare('UPDATE teams SET sacked = 1 WHERE id = ?').run(teamId);
+      return { tone: 'sacked', message: 'The board has dismissed you. A third straight season in crisis was one too many.' };
+    }
+    return streak >= 2
+      ? { tone: 'final_warning', message: 'The board has run out of patience — another season like this and your time is up.' }
+      : { tone: 'warned', message: 'The board is deeply unhappy. You are under serious pressure to turn results around.' };
+  }
   if (status === 'secure') return { tone: 'backed', message: objectiveMet === false ? 'The board keeps full faith in you despite the missed target.' : 'The board is delighted — your standing has never been higher.' };
   if (status === 'stable') return { tone: 'satisfied', message: objectiveMet === true ? 'The board is satisfied — objective met. Keep it going.' : 'The board remains supportive.' };
   return { tone: 'concerned', message: 'The board expects a clear improvement next season.' };

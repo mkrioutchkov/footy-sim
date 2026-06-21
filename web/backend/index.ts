@@ -107,7 +107,12 @@ app.get('/api/me', async (req: any) => {
 // ── team / league ──
 app.post('/api/team', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
-  if (teamForUser(user.id)) return reply.code(409).send({ error: 'you already have a team' });
+  // §2.5: a sacked manager may start a new career (a fresh team supersedes the old, since
+  // teamForUser returns the newest); otherwise you can't create a second team.
+  const existing = teamForUser(user.id);
+  if (existing && !(db.prepare('SELECT sacked FROM teams WHERE id = ?').get(existing) as { sacked: number } | undefined)?.sacked) {
+    return reply.code(409).send({ error: 'you already have a team' });
+  }
   const name = String(req.body?.name ?? '').trim().slice(0, 40) || `${user.username} FC`;
   const tactics = req.body?.tactics ? validTactics(req.body.tactics) : DEFAULT_TACTICS;
   const { teamId, leagueId } = newSeasonForUser(user.id, user.username, name, tactics);
