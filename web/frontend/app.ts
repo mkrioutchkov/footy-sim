@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -107,6 +107,8 @@ function skillOvr(attrs: Record<string, number>): number {
 }
 // per-cell attribute heat: red (low) → green (high), used across the squad table + compare.
 const SQUAD_ATTRS: [string, string][] = [['speed', 'SPD'], ['passing', 'PAS'], ['creativity', 'CRE'], ['shooting', 'SHO'], ['tackling', 'TAC'], ['positioning', 'POS'], ['stamina', 'STA']];
+// §2.10 fitness-band colours: red exhausted/injured, amber tired, green fresh, neutral ok.
+const BAND_COLOR: Record<string, string> = { injured: 'var(--danger)', exhausted: 'var(--danger)', tired: '#ffb84d', ok: '', fresh: 'var(--accent)' };
 function attrHeat(v: number): string {
   const hue = Math.max(0, Math.min(120, Math.round(((v - 35) / (95 - 35)) * 120)));
   return `color:hsl(${hue},70%,64%);font-weight:600`;
@@ -1711,6 +1713,22 @@ async function screenSquad() {
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenSquad() }, '↻ Retry')));
   }
+  // §2.10 fitness/rotation: best-effort — the table + rotation card degrade gracefully if it 404s.
+  let rot: RotationT | null = null;
+  try { rot = await api.rotation(); } catch { /* no rotation guidance */ }
+  const rotMap = new Map((rot?.players ?? []).map(p => [p.slot, p] as const));
+  // Fitness cell: 🤕 for the injured, else the condition % coloured by band, with a ⚠risk badge on
+  // an at-risk starter (so the cost of fielding a tired man is visible right in the squad table).
+  const fitCell = (p: PlayerT) => {
+    if ((p.injuredMatches ?? 0) > 0) return h('td', { class: 'num', style: 'color:var(--danger)' }, `🤕${p.injuredMatches}`);
+    const r = rotMap.get(p.slot);
+    const col = r ? BAND_COLOR[r.band] : '';
+    // Show the risk badge for any objectively tired/exhausted starter — keyed off the fitness band, not
+    // an absolute risk, so a strong physio lowering the % can't hide the warning for a tired man.
+    const warn = r && r.starter && (r.band === 'tired' || r.band === 'exhausted')
+      ? h('span', { class: 'muted', style: 'font-size:10px;color:#ffb84d' }, ` ⚠${Math.round(r.risk * 100)}%`) : '';
+    return h('td', { class: 'num', style: col ? `color:${col}` : '', title: r ? `${Math.round(r.risk * 100)}% injury risk if he starts` : '' }, `${p.fitness ?? 100}%`, warn);
+  };
   const players = [...team.players];
   const leadOf = (p: PlayerT) => (p.personality?.traits?.leadership ?? -1);
   // captain = highest leadership, but only when at least one player HAS personality data — don't
@@ -1761,7 +1779,7 @@ async function screenSquad() {
         h('td', { class: 'num' }, p.wage != null ? fmtMoney(p.wage) : '—'),
         h('td', { class: 'num', style: contractStyle(p.contractYears) }, (p.contractYears ?? 0) + 'y'),
         h('td', { class: 'num', style: p.morale != null ? (p.morale >= 75 ? 'color:var(--accent)' : p.morale <= 40 ? 'color:var(--danger)' : '') : '' }, String(p.morale ?? '—')),
-        h('td', { class: 'num' }, (p.injuredMatches ?? 0) > 0 ? `🤕${p.injuredMatches}` : `${p.fitness ?? 100}%`)));
+        fitCell(p)));
     }
     // depth by position (● starter / ○ bench)
     const ROLE_ORDER = ['GK', 'CB', 'FB', 'CM', 'WM', 'CF'];
@@ -1783,11 +1801,39 @@ async function screenSquad() {
           h('span', { class: 'num', style: 'width:34px;' + attrHeat(pb.attrs[a] ?? 0) }, String(Math.round(pb.attrs[a] ?? 0))))))
       : h('div', { class: 'muted', style: 'font-size:12px' }, 'Pick two players to compare their attributes.');
 
+    // §2.10 rotation guidance: a "rest X for Y" panel with one-click apply, driven by fitness/injury.
+    const rotationCard = (() => {
+      const r = rot;
+      if (!r) return '';
+      const head = h('div', { class: 'between' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, '🩺 Fitness & rotation'),
+        h('div', { class: 'muted', style: 'font-size:12px' },
+          `${r.atRisk} at risk · ~${r.expectedInjuries} expected injur${r.expectedInjuries === 1 ? 'y' : 'ies'} this matchday${r.physioMitigation ? ` · physios −${r.physioMitigation}% risk` : ''}`));
+      if (!r.suggestions.length) return h('div', { class: 'card' }, head,
+        h('div', { class: 'muted', style: 'font-size:13px;margin-top:6px' },
+          r.atRisk ? 'Some starters are tired but you have no fitter cover in their position — sign depth or risk it.' : '✅ Your XI is fresh — no rotation needed.'));
+      const rows = r.suggestions.map(s => {
+        const btn = h('button', { class: 'ghost small' }, s.urgent ? 'Replace' : 'Rest him');
+        btn.addEventListener('click', async () => {
+          btn.setAttribute('disabled', 'true'); btn.textContent = '…';
+          try { await api.applyRotation(s.outSlot, s.inSlot); toast(`${s.inName} starts for ${s.outName}`); screenSquad(); }
+          catch (e: any) { toast(e.message); btn.removeAttribute('disabled'); btn.textContent = s.urgent ? 'Replace' : 'Rest him'; }
+        });
+        return h('div', { class: 'card', style: 'padding:8px 10px;margin:0;display:flex;justify-content:space-between;align-items:center;gap:10px' },
+          h('div', { style: 'font-size:13px' },
+            s.urgent ? h('span', { class: 'pill', style: 'background:var(--danger);color:#fff;font-size:9px;margin-right:6px' }, 'injured') : '',
+            s.reason),
+          btn);
+      });
+      return h('div', { class: 'card' }, head, h('div', { class: 'grid', style: 'gap:6px;margin-top:8px' }, ...rows));
+    })();
+
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain · click a header to sort`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
       h('div', { class: 'card scroll-x' }, h('table', {}, thead, tbody)),
+      rotationCard,
       h('div', { class: 'grid cols-2', style: 'align-items:start' },
         h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Depth by position'), depth),
         h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Compare two players'),

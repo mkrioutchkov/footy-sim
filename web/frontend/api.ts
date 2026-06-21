@@ -118,6 +118,10 @@ export interface TrainLineT {
 }
 export interface TrainingReportT { season: number; round: number; teamFocus: string; coachBoost: number; harmonyFactor: number; lines: TrainLineT[]; }
 
+export interface RotationPlayerT { slot: number; name: string; role: string; fitness: number; injured: boolean; injuredMatches: number; risk: number; band: 'injured' | 'fresh' | 'ok' | 'tired' | 'exhausted'; starter: boolean; }
+export interface RotationSuggestionT { outSlot: number; outName: string; outFitness: number; inSlot: number; inName: string; inFitness: number; role: string; reason: string; urgent: boolean; }
+export interface RotationT { players: RotationPlayerT[]; suggestions: RotationSuggestionT[]; atRisk: number; expectedInjuries: number; physioMitigation: number; }
+
 export interface HarmonyPlayerT { slot: number; name: string; tag: 'leader' | 'pro' | 'disruptive' | 'unsettled'; note: string; }
 export interface HarmonyT { harmony: number; status: 'united' | 'settled' | 'restless' | 'fractured'; avgMorale: number; players: HarmonyPlayerT[]; }
 
@@ -180,4 +184,6 @@ export const api = {
   fireStaff: (staffId: number) => req<StaffViewT>('POST', '/staff/fire', { staffId }),
   finances: () => req<FinancesT>('GET', '/finances'),
   harmony: () => req<HarmonyT>('GET', '/harmony'),
+  rotation: () => req<RotationT>('GET', '/rotation'),
+  applyRotation: (outSlot: number, inSlot: number) => req<{ ok: boolean; lineup: number[] | null; rotation: RotationT }>('POST', '/rotation/apply', { outSlot, inSlot }),
 };
