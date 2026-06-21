@@ -464,6 +464,7 @@ async function screenDashboard() {
   const advanceBtn = h('button', {}, myNext ? `Play matchday ${myNext.round}` : (canAdvance ? 'Advance matchday' : 'Season complete'));
   if (!canAdvance) advanceBtn.setAttribute('disabled', 'true');
   advanceBtn.addEventListener('click', async () => {
+    if (!await confirmModal('Advance matchday', 'All fixtures simulate and commit now — there is no undo. Set your lineup, tactics and transfers first.', myNext ? 'Play it' : 'Advance')) return;
     advanceBtn.setAttribute('disabled', 'true'); advanceBtn.textContent = 'Simulating…';
     try {
       const r = await api.advance();
@@ -887,6 +888,7 @@ async function screenMarket() {
       if (!afford || !room || !wageOk) sign.setAttribute('disabled', 'true');
       if (afford && room && !wageOk) sign.setAttribute('title', 'Not enough wage budget');
       sign.addEventListener('click', async () => {
+        if (!await confirmModal('Sign free agent', `Sign ${a.name} on a 3-year deal? There's no release clause — the only way to move him on is to sell him.`, 'Sign him')) return;
         sign.setAttribute('disabled', 'true'); sign.textContent = '…';
         try { const r = await api.buyAgent(a.id); market = r.market; toast(`Signed ${r.name} — ${fmtMoney(r.value)} (${r.placed === 'xi' ? 'straight into the XI' : 'to the bench'})`); render(); }
         catch (e: any) { toast(e.message); render(); }
@@ -1347,6 +1349,7 @@ async function screenStaff() {
     for (const s of v.staff) {
       const fire = h('button', { class: 'ghost small' }, 'Release');
       fire.addEventListener('click', guard(fire, async () => {
+        if (!await confirmModal('Release staff', `Release ${s.name}? This is permanent — re-hiring later costs the full fee.`, 'Release')) return;
         try { v = await api.fireStaff(s.id); toast(`Released ${s.name}`); render(); } catch (er: any) { toast(er.message); }
       }));
       mineBody.append(h('tr', {},
