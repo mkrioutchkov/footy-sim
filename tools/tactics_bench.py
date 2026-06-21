@@ -81,7 +81,14 @@ STAT = [
     # added 2026-06-15 — coverage for the previously-unbenchmarked kinds
     ("man_mark",       [{"playerId":2,"kind":"man_mark","targetId":20},{"playerId":3,"kind":"man_mark","targetId":20}],
                                                          lambda d: num(d.get("awayShots")), "down", "2 CBs on their CF #20"),
-    ("press_hard",     P([1,2,3,4], "press_hard"),       lambda d: num(d.get("tackles")), "up",     "home def"),
+    # press_hard belongs on the PRESSING unit (mids+forwards), not the back line —
+    # CBs hold the line, they're never the primary presser, so [1,2,3,4] measured a
+    # no-op. On the front six it raises tackles a real but MODEST ~6-9% (often WEAK
+    # on the strict paired sign test): the press standoff is already near-maximal
+    # (full press_hard sits the presser ~3px off the carrier), so there's little
+    # headroom. The impactful pressing lever is press HEIGHT (where the press starts
+    # — a team-wide pressLineX), not standoff. See BORIS_TACTICS pressing-height.
+    ("press_hard",     P([5,6,7,8,9,10], "press_hard"),  lambda d: num(d.get("tackles")), "up", "home press unit"),
     ("play_simple",    P([5,6,7], "play_simple"),        lambda d: num(d.get("passCompletionPct")), "up", "home CM"),
     ("play_it_long",   T("play_it_long"),                lambda d: num(d.get("passCompletionPct")), "down", "home"),
     ("slow_it_down",   T("slow_it_down"),                lambda d: num(d.get("passCompletionPct")), "up", "home"),
