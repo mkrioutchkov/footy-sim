@@ -579,7 +579,13 @@ server.on('upgrade', (request, socket, head) => {
   const sid = request.headers.cookie?.match(/(?:^|;\s*)sid=([^;]+)/)?.[1];
   const user = sid ? getUserBySession(sid) : null;
   const myTeamId = user ? teamForUser(user.id) : null;
-  const myTeam: 'home' | 'away' = myTeamId === fx.away_team_id ? 'away' : 'home';
+  // This socket's seat. A manager of one of the TWO teams in this fixture gets that side (and may
+  // shout); anyone else — a spectator, a manager of a different club, or an unauthenticated socket
+  // — is a spectator: watch only, NO tactics. (§1.2: the watch socket had no ownership check and
+  // defaulted everyone to 'home', so a crafted message could tweak the home team's tactics live.)
+  const seat: Seat = myTeamId === fx.home_team_id ? 'home' : myTeamId === fx.away_team_id ? 'away' : 'spectator';
+  const myTeam: 'home' | 'away' = seat === 'away' ? 'away' : 'home';
+  const canShout = seat !== 'spectator';
   wss.handleUpgrade(request, socket, head, (ws) => {
     try {
       const nm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(fx.home_team_id, fx.away_team_id) as { id: number; name: string }[];
@@ -594,13 +600,12 @@ server.on('upgrade', (request, socket, head) => {
       if (frames.length) { new ReplayStream(ws as any, frames, fx.seed, homeName, awayName); return; }
       // Seed the live shout box from the manager's persisted standing plan (team-relative ids;
       // MatchStream resolves them to this watch's roster) so shouts edit the standing plan.
-      const seedPlan = myTeamId ? (getTeamWithPlayers(myTeamId)?.plan ?? null) : null;
+      const seedPlan = canShout ? (getTeamWithPlayers(myTeamId!)?.plan ?? null) : null;
       // `?live=1` (opt-in) routes to the SHARED resident coordinator (docs/LIVE_MATCH_ARCHITECTURE.md
       // §2): one engine per fixture, both managers + spectators attach, shouts inject live (no
       // kill-respawn). The default path (no live flag) is unchanged → byte-identical. NOTE: needs
       // Boris's engine Phase 1 (FOOTY_LIVE) to actually run; until then this branch is build-ahead.
       if (url.searchParams.get('live') === '1') {
-        const seat: Seat = myTeamId === fx.home_team_id ? 'home' : myTeamId === fx.away_team_id ? 'away' : 'spectator';
         const seedPlans = {
           home: getTeamWithPlayers(fx.home_team_id)?.plan ?? null,
           away: getTeamWithPlayers(fx.away_team_id)?.plan ?? null,
@@ -612,7 +617,7 @@ server.on('upgrade', (request, socket, head) => {
         });
         return;
       }
-      new MatchStream(ws as any, writeSpec(fx), fx.seed, homeName, awayName, myTeam, seedPlan);
+      new MatchStream(ws as any, writeSpec(fx), fx.seed, homeName, awayName, myTeam, seedPlan, canShout);
     } catch (e) { ws.close(); }
   });
 });

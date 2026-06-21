@@ -551,15 +551,18 @@ export class MatchStream extends FramePacer {
   private baseSpec: any;
   private sessionSpecPath: string;
   private myTeam: 'home' | 'away';
+  private canShout: boolean;   // only a manager of this fixture may inject tactics (§1.2)
 
   constructor(
     ws: WebSocket, specPath: string, seed: number,
     homeName = 'HOME', awayName = 'AWAY',
     myTeam: 'home' | 'away' = 'home',
     seedPlan?: Plan | null,
+    canShout = true,
   ) {
     super(ws, seed, homeName, awayName);
     this.myTeam = myTeam;
+    this.canShout = canShout;
     this.baseSpec = JSON.parse(readFileSync(specPath, 'utf8'));
     // Seed the running plan from the STANDING plan the engine is ALREADY running — this side's
     // slice of the spec's resolved directives — so the first live shout edits the standing plan
@@ -611,10 +614,11 @@ export class MatchStream extends FramePacer {
       if (cmd.type === 'restart') { this.paused = false; this.start(); }
       else if (cmd.type === 'pause') this.togglePause();
       else if (cmd.type === 'speed' && typeof cmd.value === 'number') this.setSpeed(cmd.value);
-      else if (cmd.type === 'tactics') {
+      else if (cmd.type === 'tactics' && this.canShout) {
         // Edit the plan mid-match (text -> plan + motivation; the compile calls the LLM).
         // Serialised: each shout waits for the prior edit to finish so the cap, plan and fromMs
-        // advance in arrival order, never racing or rewinding.
+        // advance in arrival order, never racing or rewinding. Gated to the team's manager (§1.2) —
+        // a spectator/unauth socket can watch but not inject tactics (nor burn LLM quota).
         this.editLock = this.editLock.then(() => this.applyTacticsEdit(cmd)).catch(() => { /* ignore */ });
       }
     } catch { /* ignore */ }

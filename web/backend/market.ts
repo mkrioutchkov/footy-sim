@@ -73,6 +73,24 @@ function renumberSquad(teamId: number): void {
   const upd = db.prepare('UPDATE players SET slot = ? WHERE id = ?');
   rows.forEach((r, i) => upd.run(i, r.id));
   db.prepare('UPDATE teams SET lineup = NULL WHERE id = ?').run(teamId);
+  pruneStalePlayerDirectives(teamId);
+}
+
+// A standing plan's PER-PLAYER directives are keyed by positional slot ids (0-10), which a
+// renumber just invalidated — exactly like `lineup`. Left intact, "id5 shoot_on_sight" would land
+// on whoever now occupies slot 5 (possibly the GK), bypassing compile-time validation. So drop the
+// per-player orders here, but KEEP team-wide tactics (high_press etc. carry no player id, so they
+// stay correct). The manager re-issues any individual orders after a transfer. (§1.1)
+function pruneStalePlayerDirectives(teamId: number): void {
+  const row = db.prepare('SELECT plan_directives FROM teams WHERE id = ?').get(teamId) as { plan_directives: string | null } | undefined;
+  if (!row?.plan_directives) return;
+  let plan: { summary?: string; directives?: { teamScope?: number }[] };
+  try { plan = JSON.parse(row.plan_directives); } catch { return; }
+  if (!Array.isArray(plan.directives)) return;
+  const teamWide = plan.directives.filter(d => d.teamScope === 0 || d.teamScope === 1);
+  if (teamWide.length !== plan.directives.length) {
+    db.prepare('UPDATE teams SET plan_directives = ? WHERE id = ?').run(JSON.stringify({ ...plan, directives: teamWide }), teamId);
+  }
 }
 
 // When a STARTER (slot < 11) leaves, the default match path assigns formation roles by
