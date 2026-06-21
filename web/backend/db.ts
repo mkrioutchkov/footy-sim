@@ -143,6 +143,27 @@ ensureColumn('teams', 'wage_budget', 'wage_budget INTEGER NOT NULL DEFAULT 40000
 // (pillar 5.2b). Existing rows default to a comfortable 3.
 ensureColumn('players', 'contract_years', 'contract_years INTEGER NOT NULL DEFAULT 3');
 
+// ── Transfer offers (pillar 5.2c / audit §2.1: signing drama) ───────────────
+// Club-to-club bids are no longer instant: a bid creates a PENDING offer the selling club resolves
+// at the next matchday tick (accept / counter / reject), with a short round-based expiry. Multiple
+// pending bids on one player = an auction (highest qualifying fee wins). Idempotent (IF NOT EXISTS).
+db.exec(`
+CREATE TABLE IF NOT EXISTS transfer_offers (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  buyer_team_id INTEGER NOT NULL,
+  seller_team_id INTEGER NOT NULL,
+  player_id     INTEGER NOT NULL,
+  fee           INTEGER NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending',   -- pending | countered | accepted | rejected | withdrawn | expired
+  counter_fee   INTEGER,
+  created_round INTEGER NOT NULL,
+  expires_round INTEGER NOT NULL,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_offer_buyer ON transfer_offers(buyer_team_id, status);
+CREATE INDEX IF NOT EXISTS idx_offer_player ON transfer_offers(player_id, status);
+`);
+
 // ── Injuries & match fitness (core stream) ──────────────────────────────────
 // Condition (0..100): playing drains it, resting restores it; low fitness raises injury
 // risk. injured_matches = matchdays still sidelined (0 = available). Defaults are the

@@ -17,7 +17,7 @@ import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
-import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn } from './market.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, offersForTeam, withdrawOffer, matchCounter } from './market.ts';
 import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
@@ -258,6 +258,31 @@ app.post('/api/transfer/loan', async (req: any, reply) => {
   const r = loanIn(teamId, playerId);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, market: getMarket(teamId) };
+});
+
+// §2.1 signing drama: a buyer's outgoing offers (live + recently resolved), withdraw a live one,
+// or match a counter (completes the deal at the seller's named price).
+app.get('/api/offers', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { offers: offersForTeam(teamId) };
+});
+app.post('/api/offer/:id/withdraw', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const r = withdrawOffer(teamId, Number(req.params.id));
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, offers: offersForTeam(teamId) };
+});
+app.post('/api/offer/:id/match', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const r = matchCounter(teamId, Number(req.params.id));
+  if (r.status === 'error') return reply.code(400).send({ error: r.error });
+  return { ...r, market: getMarket(teamId), offers: offersForTeam(teamId) };
 });
 
 // Rewrite a player's backstory/tagline and RE-DERIVE their trait dials from the new text
