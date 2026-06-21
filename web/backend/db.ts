@@ -123,8 +123,11 @@ CREATE INDEX IF NOT EXISTS idx_free_agents_league ON free_agents(league_id);
 // rows; backfillPotentials() sets it from current OVR + an age-based headroom.
 ensureColumn('players', 'potential', 'potential INTEGER');
 ensureColumn('free_agents', 'potential', 'potential INTEGER');   // for pillar-1 pools that predate this
-// Which attribute a club trains hardest ('balanced' or an attr key); nudges the drift.
+// Which attribute a club trains hardest ('balanced', 'position', or an attr key); nudges the drift.
 ensureColumn('teams', 'training_focus', "training_focus TEXT NOT NULL DEFAULT 'balanced'");
+// Per-player training focus (audit §2.7): overrides the club focus for one player. NULL = follow
+// the club focus, so every existing player develops exactly as before until the manager sets one.
+ensureColumn('players', 'train_focus', 'train_focus TEXT');
 
 // ── Seasons / divisions (pillar 3) ──────────────────────────────────────────
 // A league is one division; divisions of a world are linked by world_id and ranked by
@@ -362,4 +365,25 @@ CREATE TABLE IF NOT EXISTS finance_entries (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_finance_team ON finance_entries(team_id, id);
+`);
+
+// ── Training reports (audit §2.7) ───────────────────────────────────────────
+// A per-matchday snapshot of how a human club's squad developed (attribute drift per player +
+// the factors that drove it + the staff/harmony contribution), so training is no longer invisible.
+// Written by developmentTick for human-managed clubs only; the latest row per team is kept (older
+// ones are pruned on insert), since the screen surfaces the most recent session. The full snapshot
+// is a JSON blob so the shape can evolve without a migration. New table — existing saves unaffected.
+db.exec(`
+CREATE TABLE IF NOT EXISTS training_reports (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id        INTEGER NOT NULL,
+  season         INTEGER NOT NULL,
+  round          INTEGER NOT NULL,          -- the matchday this session followed
+  team_focus     TEXT NOT NULL,             -- the club focus at the time
+  coach_factor   REAL NOT NULL,             -- coaching multiplier snapshot (1 = no coaches)
+  harmony_factor REAL NOT NULL,             -- dressing-room multiplier snapshot (1 = settled)
+  lines          TEXT NOT NULL,             -- json: TrainLine[] (per-player drift + factors)
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_training_reports_team ON training_reports(team_id, id);
 `);

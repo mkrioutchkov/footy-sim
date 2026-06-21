@@ -3,6 +3,13 @@
 // with the club's training focus nudging one attribute. Pure + deterministic: given
 // (attrs, age, potential, traits, focus) the next-tick attrs are fixed, so a test can
 // assert exact values. The tick fires once per matchday from /api/advance.
+//
+// Audit §2.7: the tick now also records a per-matchday training REPORT for human-managed
+// clubs (attribute drift per player + the factors that drove it), each player can carry an
+// individual focus that overrides the club focus, and a 'position' focus biases growth toward
+// the attributes that matter for a player's role. The numeric drift for the pre-§2.7 inputs
+// ('balanced' / a single-attribute focus, no role) is BYTE-IDENTICAL, so existing saves and the
+// engine-free regressions are unaffected.
 import { db } from './db.ts';
 import { overall } from './game.ts';
 import { moraleDevFactor } from './morale.ts';
@@ -10,8 +17,41 @@ import { coachingFactor } from './staff.ts';
 import { getSquadHarmony, harmonyFactor } from './harmony.ts';
 
 export const TRAINABLE = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'] as const;
-export const VALID_FOCUS = new Set<string>(['balanced', ...TRAINABLE]);
+// 'position' = role-matched drills (audit §2.7); the rest are the club-wide foci.
+export const VALID_FOCUS = new Set<string>(['balanced', 'position', ...TRAINABLE]);
 const PHYSICAL = new Set<string>(['speed', 'stamina']);   // first to fade with age
+
+// The trainable attributes that matter most for each role — a 'position' focus concentrates
+// growth here (and de-emphasises the rest), so a striker sharpens his shooting and a centre-back
+// his defending rather than spreading thin. Keys outside TRAINABLE (e.g. a keeper's handling) are
+// not trainable here, so a role leans on the trainable attributes closest to its job.
+const ROLE_KEY: Record<string, readonly string[]> = {
+  GK: ['positioning', 'speed'],
+  FB: ['speed', 'stamina', 'tackling', 'positioning'],
+  CB: ['tackling', 'positioning', 'stamina'],
+  CM: ['passing', 'creativity', 'stamina', 'positioning'],
+  WM: ['speed', 'creativity', 'passing', 'stamina'],
+  CF: ['shooting', 'speed', 'creativity'],
+};
+
+// Per-attribute multipliers for a 'position' focus. A focused player develops faster than a balanced
+// one (specialisation) — exactly as a single-attribute focus already does: a single focus pours a
+// +0.8×move bonus into ONE attribute (the legacy 1.8× = 1.0 baseline + 0.8) on top of every
+// attribute's full 1.0×. 'position' delivers the SAME total bonus but SPREADS it across the role's
+// key attributes, lifting the whole role profile instead of one skill; the non-key attributes keep
+// their full 1.0× (never clawed back). So balanced / single-attr / position are genuine trade-offs —
+// the two focused options grow the same total OVR, distributed differently — rather than one strictly
+// dominating another. Returns null for an unknown role → no weighting (identity), so the caller is safe.
+const FOCUS_BONUS = 0.8;                          // a single-attr focus is 1.8× = 1.0 baseline + this bonus
+function positionWeights(role: string | undefined): Record<string, number> | null {
+  const keys = role ? ROLE_KEY[role] : undefined;
+  if (!keys || !keys.length) return null;
+  const key = new Set<string>(keys);
+  const keyW = 1 + FOCUS_BONUS / key.size;        // the shared focus bonus, split evenly across the role's keys
+  const out: Record<string, number> = {};
+  for (const k of TRAINABLE) out[k] = key.has(k) ? keyW : 1;
+  return out;
+}
 
 // OVR points of drift per matchday before trait/focus scaling: growth while young,
 // a prime plateau, then decline. TASTE: see GAME_LAYER_NOTES.md.
@@ -32,6 +72,7 @@ export function developAttrs(
   attrs: Record<string, number>, age: number, potential: number,
   traits: { professionalism?: number; consistency?: number } | null | undefined,
   focus: string | null, morale = 65, coachFactor = 1, harmonyF = 1,
+  role?: string,
 ): Record<string, number> {
   const prof = (traits?.professionalism ?? 50) / 100;
   const cons = (traits?.consistency ?? 50) / 100;
@@ -39,44 +80,169 @@ export function developAttrs(
   let drift = ageDrift(age) * diligence * moraleDevFactor(morale);   // age x diligence x morale
   if (drift > 0) drift *= coachFactor * harmonyF;             // good coaches + a settled room accelerate growth, not decline
   const move = drift >= 0 ? Math.min(drift, Math.max(0, potential - overall(attrs))) : drift;
+  // A 'position' focus weights growth by role (spreads a single focus's bonus across the role's key
+  // attributes); any other focus keeps the original single-attribute path → byte-identical drift for
+  // pre-§2.7 inputs.
+  const posW = move > 0 && focus === 'position' ? positionWeights(role) : null;
   const out: Record<string, number> = { ...attrs };
   for (const k of TRAINABLE) {
     if (typeof out[k] !== 'number') continue;
     let d = move;
     if (move < 0 && PHYSICAL.has(k)) d *= 1.6;                                       // legs go first
-    if (move > 0 && focus && focus !== 'balanced' && k === focus) d = move * 1.8;    // train this skill hard
+    if (move > 0) {
+      if (posW) d = move * posW[k];                                                  // role-matched drills
+      else if (focus && focus !== 'balanced' && k === focus) d = move * 1.8;         // train this skill hard
+    }
     out[k] = Math.max(30, Math.min(95, Math.round((out[k] + d) * 10) / 10));
   }
   return out;
 }
 
+// ── Training report (audit §2.7) ────────────────────────────────────────────
+export interface TrainAttrDelta { key: string; before: number; after: number; delta: number; }
+export interface TrainLine {
+  slot: number; name: string; role: string;
+  age: number; focus: string;            // the EFFECTIVE focus (player override or club focus)
+  individual: boolean;                   // true if the player carries his own focus
+  ovrBefore: number; ovrAfter: number; ovrDelta: number;
+  attrs: TrainAttrDelta[];               // attributes that actually moved (largest first)
+  factors: string[];                     // the plain-English "why" behind the drift
+}
+
+// The plain-English drivers behind a player's drift this matchday — the "why did X improve" the
+// audit asked for. Pure: derived from the same inputs developAttrs saw, so the explanation can't
+// drift from the numbers. Order roughly mirrors impact (age phase first, then the modifiers).
+function trainingFactors(
+  age: number, traits: { professionalism?: number; consistency?: number } | null | undefined,
+  focus: string, morale: number, coachFactor: number, harmonyF: number, growing: boolean,
+): string[] {
+  const f: string[] = [];
+  f.push(age <= 20 ? 'Young — rapid growth' : age <= 23 ? 'Developing' : age <= 27 ? 'Approaching prime'
+    : age <= 30 ? 'In his peak years' : age <= 33 ? 'Past 30 — starting to decline' : 'Veteran in decline');
+  const dil = ((traits?.professionalism ?? 50) + (traits?.consistency ?? 50)) / 2;
+  if (dil >= 75) f.push('Model professional — learns fast');
+  else if (dil <= 35) f.push('Poor application holds him back');
+  if (morale >= 80) f.push('Buoyant mood lifts his work');
+  else if (morale < 50) f.push('Low morale is stalling progress');
+  if (growing && coachFactor > 1) f.push(`Coaching staff +${Math.round((coachFactor - 1) * 100)}%`);
+  if (growing && harmonyF > 1) f.push('Settled dressing room');
+  else if (growing && harmonyF < 1) f.push('Unsettled dressing room drags');
+  if (growing && focus === 'position') f.push('Position-specific drills');
+  else if (growing && focus && focus !== 'balanced') f.push(`Focused on ${focus}`);
+  return f;
+}
+
+// Build one player's report line by diffing the attrs developAttrs produced against the originals.
+export function explainTraining(
+  before: Record<string, number>, after: Record<string, number>,
+  p: { slot: number; name: string; role: string }, age: number,
+  traits: { professionalism?: number; consistency?: number } | null | undefined,
+  focus: string, individual: boolean, morale: number, coachFactor: number, harmonyF: number,
+): TrainLine {
+  const ovrBefore = overall(before), ovrAfter = overall(after);
+  const attrs: TrainAttrDelta[] = [];
+  for (const k of TRAINABLE) {
+    if (typeof before[k] !== 'number' || typeof after[k] !== 'number') continue;
+    const delta = Math.round((after[k] - before[k]) * 10) / 10;
+    if (delta !== 0) attrs.push({ key: k, before: before[k], after: after[k], delta });
+  }
+  attrs.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  return {
+    slot: p.slot, name: p.name, role: p.role, age, focus, individual,
+    ovrBefore, ovrAfter, ovrDelta: ovrAfter - ovrBefore,
+    attrs,
+    factors: trainingFactors(age, traits, focus, morale, coachFactor, harmonyF, ovrAfter >= ovrBefore),
+  };
+}
+
 // Develop every player in a league one matchday. Not idempotent by design — it's a
 // progression, fired once per /api/advance round. Skips any player whose potential is
-// still NULL (backfillPotentials runs at startup to prevent that).
+// still NULL (backfillPotentials runs at startup to prevent that). For human-managed clubs
+// it also records a training report (the latest per club is kept) so the manager can see why
+// each player moved.
 export function developmentTick(leagueId: number): { players: number } {
   const rows = db.prepare(`
-    SELECT p.id, p.team_id AS team_id, p.attrs, p.age, p.potential, p.personality, p.morale, t.training_focus AS focus
+    SELECT p.id, p.team_id AS team_id, p.slot, p.name, p.role, p.attrs, p.age, p.potential,
+           p.personality, p.morale, p.train_focus AS player_focus,
+           t.user_id AS user_id, t.training_focus AS focus
     FROM players p JOIN teams t ON t.id = p.team_id
-    WHERE t.league_id = ?`).all(leagueId) as
-    { id: number; team_id: number; attrs: string; age: number; potential: number | null; personality: string | null; morale: number; focus: string | null }[];
+    WHERE t.league_id = ?
+    ORDER BY p.team_id, p.slot`).all(leagueId) as
+    { id: number; team_id: number; slot: number; name: string; role: string; attrs: string; age: number;
+      potential: number | null; personality: string | null; morale: number; player_focus: string | null;
+      user_id: number | null; focus: string | null }[];
   const upd = db.prepare('UPDATE players SET attrs = ? WHERE id = ?');
   const coachCache = new Map<number, number>();   // team -> coaching factor (1 for AI/no-staff clubs)
   const coachOf = (tid: number): number => { let v = coachCache.get(tid); if (v === undefined) { v = coachingFactor(tid); coachCache.set(tid, v); } return v; };
   const harmonyCache = new Map<number, number>(); // team -> harmony factor (1.0 for a settled squad)
   const harmonyOf = (tid: number): number => { let v = harmonyCache.get(tid); if (v === undefined) { const h = getSquadHarmony(tid); v = h ? harmonyFactor(h.harmony) : 1; harmonyCache.set(tid, v); } return v; };
+  // Collect report lines per human-managed team as we develop their players.
+  const reports = new Map<number, { focus: string; lines: TrainLine[] }>();
   let n = 0;
   for (const r of rows) {
     if (r.potential == null) continue;
     let traits: { professionalism?: number; consistency?: number } | null = null;
     try { traits = r.personality ? (JSON.parse(r.personality).traits ?? null) : null; } catch { /* neutral */ }
-    upd.run(JSON.stringify(developAttrs(JSON.parse(r.attrs), r.age, r.potential, traits, r.focus, r.morale, coachOf(r.team_id), harmonyOf(r.team_id))), r.id);
+    const before = JSON.parse(r.attrs) as Record<string, number>;
+    const clubFocus = r.focus ?? 'balanced';
+    const focus = r.player_focus ?? clubFocus;       // a per-player focus overrides the club focus
+    const coachF = coachOf(r.team_id), harmonyF = harmonyOf(r.team_id);
+    const after = developAttrs(before, r.age, r.potential, traits, focus, r.morale, coachF, harmonyF, r.role);
+    upd.run(JSON.stringify(after), r.id);
     n++;
+    if (r.user_id != null) {
+      let rep = reports.get(r.team_id);
+      if (!rep) { rep = { focus: clubFocus, lines: [] }; reports.set(r.team_id, rep); }
+      rep.lines.push(explainTraining(before, after, r, r.age, traits, focus, r.player_focus != null, r.morale, coachF, harmonyF));
+    }
+  }
+  if (reports.size) {
+    const round = (db.prepare('SELECT MAX(round) AS r FROM fixtures WHERE league_id = ? AND played = 1').get(leagueId) as { r: number | null }).r ?? 0;
+    const season = (db.prepare('SELECT season FROM leagues WHERE id = ?').get(leagueId) as { season: number } | undefined)?.season ?? 1;
+    for (const [teamId, rep] of reports) recordTrainingReport(teamId, season, round, rep.focus, rep.lines, coachOf(teamId), harmonyOf(teamId));
   }
   return { players: n };
+}
+
+// Persist (and prune to) the latest training report for a club. Latest-only keeps the table tiny
+// and matches the screen (which shows the most recent session).
+function recordTrainingReport(teamId: number, season: number, round: number, teamFocus: string, lines: TrainLine[], coachFactor: number, harmonyF: number): void {
+  db.prepare('DELETE FROM training_reports WHERE team_id = ?').run(teamId);
+  db.prepare(`INSERT INTO training_reports (team_id, season, round, team_focus, coach_factor, harmony_factor, lines, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(teamId, season, round, teamFocus, coachFactor, harmonyF, JSON.stringify(lines), Date.now());
+}
+
+export interface TrainingReport {
+  season: number; round: number; teamFocus: string; coachBoost: number; harmonyFactor: number; lines: TrainLine[];
+}
+
+// The latest training report for a club (null until the first matchday develops the squad).
+export function getTrainingReport(teamId: number): TrainingReport | null {
+  const row = db.prepare('SELECT season, round, team_focus, coach_factor, harmony_factor, lines FROM training_reports WHERE team_id = ? ORDER BY id DESC LIMIT 1')
+    .get(teamId) as { season: number; round: number; team_focus: string; coach_factor: number; harmony_factor: number; lines: string } | undefined;
+  if (!row) return null;
+  let lines: TrainLine[] = [];
+  try { lines = JSON.parse(row.lines) as TrainLine[]; } catch { lines = []; }
+  return {
+    season: row.season, round: row.round, teamFocus: row.team_focus,
+    coachBoost: Math.round((row.coach_factor - 1) * 100), harmonyFactor: row.harmony_factor, lines,
+  };
 }
 
 export function setTrainingFocus(teamId: number, focus: string): { ok: boolean; focus: string } {
   const f = VALID_FOCUS.has(focus) ? focus : 'balanced';
   db.prepare('UPDATE teams SET training_focus = ? WHERE id = ?').run(f, teamId);
+  return { ok: true, focus: f };
+}
+
+// Per-player focus (audit §2.7). '' / 'club' / an invalid value clears the override (the player
+// follows the club focus again); any valid focus is stored. Returns the stored value (null = follows
+// the club). Scoped to the caller's squad by the slot lookup, so a bad slot is a silent no-op.
+export function setPlayerTrainingFocus(teamId: number, slot: number, focus: string): { ok: boolean; focus: string | null } {
+  const clear = focus === '' || focus === 'club' || !VALID_FOCUS.has(focus);
+  const f = clear ? null : focus;
+  const res = db.prepare('UPDATE players SET train_focus = ? WHERE team_id = ? AND slot = ?').run(f, teamId, slot);
+  if (!res.changes) return { ok: false, focus: null };
   return { ok: true, focus: f };
 }

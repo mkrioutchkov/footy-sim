@@ -19,7 +19,7 @@ import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, offersForTeam, withdrawOffer, matchCounter } from './market.ts';
 import { compileInitialPlan } from './plan.ts';
-import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
+import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { aiManagerTick } from './ai.ts';
 import { renewContract, previewRenewal } from './contracts.ts';
@@ -360,8 +360,33 @@ app.put('/api/training', async (req: any, reply) => {
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   const focus = String(req.body?.focus ?? '');
-  if (!VALID_FOCUS.has(focus)) return reply.code(400).send({ error: `focus must be one of: balanced, ${TRAINABLE.join(', ')}` });
+  if (!VALID_FOCUS.has(focus)) return reply.code(400).send({ error: `focus must be one of: balanced, position, ${TRAINABLE.join(', ')}` });
   return setTrainingFocus(teamId, focus);
+});
+
+// Set ONE player's training focus, overriding the club focus (audit §2.7). An empty value (or
+// 'club') clears the override so he follows the club focus again.
+app.put('/api/training/player', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.body?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot must be an integer' });
+  const focus = String(req.body?.focus ?? '');
+  // a non-empty focus must be valid; '' / 'club' are the allowed "clear" sentinels
+  if (focus && focus !== 'club' && !VALID_FOCUS.has(focus)) return reply.code(400).send({ error: `focus must be one of: balanced, position, ${TRAINABLE.join(', ')}` });
+  const r = setPlayerTrainingFocus(teamId, slot, focus);
+  if (!r.ok) return reply.code(404).send({ error: 'no such player in your squad' });
+  return r;
+});
+
+// The latest per-matchday training report for the club (null until the first matchday develops
+// the squad): attribute drift per player + the factors behind it + the staff/harmony contribution.
+app.get('/api/training-report', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { report: getTrainingReport(teamId) };
 });
 
 // The cup bracket for the user's world this season.
