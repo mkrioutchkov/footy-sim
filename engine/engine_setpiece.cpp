@@ -78,15 +78,37 @@ bool GameEngine::isOffsideTargetPerceived(const Player& passer, const Player& re
 void GameEngine::kickoffTap(){
     Player* holder=playerById(state.ball.controllerId);
     if(!holder)return;
-    SmallVector<Player*, 5> mids;
-    for(auto&p:state.players)if(p.team==holder->team&&p.id!=holder->id&&p.role==Role::CM)mids.push_back(&p);
-    if(mids.empty())return;
-    size_t pick=static_cast<size_t>(rng.random()*mids.size());
-    if(pick>=mids.size())pick=mids.size()-1;
-    Player& target=*mids[pick];
+    double fd=fdFor(holder->team);
+    // Pick the SAFEST outlet, not a random CM fired into the congested centre
+    // circle: a clear lane (no opponent to cut it out) + an open receiver,
+    // preferring a short ball backward/sideways into space. A kickoff should
+    // retain possession — the old random-CM ball was intercepted ~90% of the
+    // time and looked awful. (Deterministic: the rng draw it replaced is gone.)
+    Player* best=nullptr; double bestScore=-1e9;
+    for(auto&t:state.players){
+        if(t.team!=holder->team||t.id==holder->id||t.role==Role::GK||t.sentOff)continue;
+        double dx=t.x-holder->x,dy=t.y-holder->y,d=std::hypot(dx,dy);
+        if(d<28.0||d>320.0)continue;
+        double ls=dx*dx+dy*dy; if(ls<1.0)continue;
+        double nearOpp=1e9; bool laneBlocked=false;
+        for(auto&o:state.players){
+            if(o.team==holder->team||o.role==Role::GK||o.sentOff)continue;
+            nearOpp=std::min(nearOpp,dist(o.x,o.y,t.x,t.y));
+            double tt=clamp(((o.x-holder->x)*dx+(o.y-holder->y)*dy)/ls,0.0,1.0);
+            double perp=std::hypot(o.x-holder->x-tt*dx,o.y-holder->y-tt*dy);
+            if(perp<34.0&&tt>0.05)laneBlocked=true;
+        }
+        if(laneBlocked||nearOpp<40.0)continue;          // never thread it past a marker / to a marked man
+        double backward=(holder->x-t.x)*fd;             // + = toward own goal (the safe ball)
+        double score=nearOpp+std::max(0.0,backward)*0.5-d*0.25;
+        if(score>bestScore){bestScore=score;best=&t;}
+    }
+    if(!best)for(auto&p:state.players)if(p.team==holder->team&&p.id!=holder->id&&p.role==Role::CM){best=&p;break;}
+    if(!best)return;
+    Player& target=*best;
     double dx=target.x-holder->x,dy=target.y-holder->y,rawDist=std::hypot(dx,dy);
     if(rawDist<1)return;
-    double speed=180+rawDist*0.2;
+    double speed=clamp(140.0+rawDist*0.35,150.0,235.0);  // firm, flat, controllable
     auto&b=state.ball;
     b.controllerId=-1;
     placeBallForRelease(*holder,dx,dy);
