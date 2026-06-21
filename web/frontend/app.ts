@@ -621,6 +621,12 @@ async function screenDashboard() {
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/history') }, 'History'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
     ),
+    // §1.17: a wage bill over budget (e.g. forced renewals after relegation shrank it) is otherwise
+    // only visible if you open Finances — surface it up front (new signings are blocked until under).
+    (team.wageBudget != null && team.wageBill != null && team.wageBill > team.wageBudget)
+      ? h('div', { class: 'card', style: 'border-color:var(--danger);color:var(--danger);font-size:13px' },
+        `⚠ Wage bill ${fmtMoney(team.wageBill)} exceeds your budget ${fmtMoney(team.wageBudget)} — sell or release to get back under (no new signings until you are).`)
+      : '',
     // the boardroom: confidence in the manager + the season objective with live progress
     (() => {
       const conf = league.confidence, obj = league.objective;
