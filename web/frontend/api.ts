@@ -155,6 +155,8 @@ export const api = {
   press: (text: string) => req<{ reactions: { slot: number; name: string; delta: number; quote?: string }[]; lifted: number; unsettled: number; team: TeamT }>('POST', '/press', { text }),
   renewPlayer: (slot: number, years?: number) =>
     req<{ ok: boolean; wage: number; years: number }>('PUT', `/player/${slot}/renew`, { years }),
+  renewPreview: (slot: number) =>
+    req<{ currentWage: number; newWage: number; delta: number; years: number; affordable: boolean }>('GET', `/player/${slot}/renew-preview`),
   report: (fixtureId: number) => req<ReportT>('GET', `/report?fixture=${fixtureId}`),
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: () => req<{ news: NewsItemT[] }>('GET', '/news'),

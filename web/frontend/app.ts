@@ -953,6 +953,7 @@ async function screenMarket() {
       } catch (e: any) { toast(e.message); render(); }
     };
     const doBid = async (t: typeof market.transferTargets[number]): Promise<void> => {
+      try { market = await api.market(); } catch { /* keep the cached snapshot */ }   // §1.13: compose the bid against a fresh budget
       const ask = t.askPrice ?? t.value;
       const raw = await promptModal(`Bid for ${t.name}`,
         `${t.club} are asking ${fmtMoney(ask)}. Your budget: ${fmtMoney(market.budget)}.\nEnter a number, or shorthand like 1.5m / 500k.`,
@@ -1151,8 +1152,14 @@ async function screenPlayer(slot: number) {
             const renew = h('button', { class: 'ghost small' }, 'Renew (3y)');
             renew.addEventListener('click', async () => {
               renew.setAttribute('disabled', 'true');
-              try { const r = await api.renewPlayer(slot, 3); toast(`Renewed — ${fmtMoney(r.wage)}/yr for ${r.years}y`); screenPlayer(slot); }
-              catch (e: any) { toast(e.message); renew.removeAttribute('disabled'); }
+              try {
+                // §1.14: show the recomputed wage + delta before committing (renewal can DROP or jump).
+                const pv = await api.renewPreview(slot);
+                const move = pv.delta > 0 ? `up ${fmtMoney(pv.delta)}` : pv.delta < 0 ? `down ${fmtMoney(-pv.delta)}` : 'unchanged';
+                const ok = await confirmModal('Renew contract', `New deal: ${fmtMoney(pv.newWage)}/yr for ${pv.years}y — ${move} from ${fmtMoney(pv.currentWage)}.${pv.affordable ? '' : ' ⚠ This exceeds your wage budget.'}`, 'Renew');
+                if (!ok) { renew.removeAttribute('disabled'); return; }
+                const r = await api.renewPlayer(slot, 3); toast(`Renewed — ${fmtMoney(r.wage)}/yr for ${r.years}y`); screenPlayer(slot);
+              } catch (e: any) { toast(e.message); renew.removeAttribute('disabled'); }
             });
             return renew;
           })()) : '',

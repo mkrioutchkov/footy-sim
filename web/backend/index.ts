@@ -22,7 +22,7 @@ import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { aiManagerTick } from './ai.ts';
-import { renewContract } from './contracts.ts';
+import { renewContract, previewRenewal } from './contracts.ts';
 import { applyPressConference } from './press.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
@@ -295,6 +295,18 @@ app.put('/api/player/:slot/renew', async (req: any, reply) => {
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
   const years = req.body?.years != null ? Number(req.body.years) : undefined;
   const r = renewContract(teamId, slot, years);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return r;
+});
+
+// Preview a renewal (§1.14): the recomputed wage + delta + affordability, WITHOUT committing.
+app.get('/api/player/:slot/renew-preview', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.params.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+  const r = previewRenewal(teamId, slot, 3);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return r;
 });

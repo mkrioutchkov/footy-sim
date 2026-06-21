@@ -31,6 +31,22 @@ export function renewContract(teamId: number, slot: number, years = RENEWAL_YEAR
   return { ok: true, wage: newWage, years: yr };
 }
 
+export interface RenewPreview { ok: boolean; error?: string; currentWage?: number; newWage?: number; delta?: number; years?: number; affordable?: boolean; }
+
+// What a renewal WOULD cost, without committing: the wage recomputed from current ability/age, the
+// delta vs the present wage, and whether it fits the budget. (§1.14: the renewed wage can DROP for an
+// ageing player or jump for a developed one — the manager should see it before clicking Renew.)
+export function previewRenewal(teamId: number, slot: number, years = RENEWAL_YEARS): RenewPreview {
+  const team = db.prepare('SELECT wage_budget FROM teams WHERE id = ?').get(teamId) as { wage_budget: number } | undefined;
+  const p = db.prepare('SELECT attrs, age, personality, wage FROM players WHERE team_id = ? AND slot = ?')
+    .get(teamId, slot) as { attrs: string; age: number; personality: string | null; wage: number | null } | undefined;
+  if (!team || !p) return { ok: false, error: 'player not found' };
+  const newWage = playerWage(JSON.parse(p.attrs), p.age, parseJSON(p.personality));
+  const bill = (db.prepare('SELECT COALESCE(SUM(wage), 0) AS w FROM players WHERE team_id = ?').get(teamId) as { w: number }).w;
+  const yr = Math.max(1, Math.min(5, Math.round(Number.isFinite(years) ? years : RENEWAL_YEARS)));
+  return { ok: true, currentWage: p.wage ?? 0, newWage, delta: newWage - (p.wage ?? 0), years: yr, affordable: bill - (p.wage ?? 0) + newWage <= team.wage_budget };
+}
+
 export interface ContractEvent { teamId: number; player: string; type: 'renewed' | 'released'; }
 
 // Season-end contract resolution for a division. Decrements every deal, then resolves the
