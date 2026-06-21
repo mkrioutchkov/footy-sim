@@ -41,7 +41,7 @@ export interface TeamT {
   formation: string; lineup: number[] | null; budget?: number; trainingFocus?: string;
   planText?: string | null; plan?: PlanT | null;
 }
-export interface LineupSlotT { slot: number; role: string; homeX: number; homeY: number; playerName: string; fromSlot: number; }
+export interface LineupSlotT { slot: number; role: string; homeX: number; homeY: number; playerName: string; fromSlot: number; misfit?: boolean; }
 export interface FormationsT { pitchW: number; pitchH: number; formations: Record<string, { role: string; x: number; y: number }[]>; }
 export interface LineupResultT { formation: string; lineup: number[] | null; slots: LineupSlotT[]; note: string; }
 export interface StandingT {
