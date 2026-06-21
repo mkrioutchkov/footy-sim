@@ -24,7 +24,7 @@ import { optimizeLineup } from '../ai.ts';
 import { DEFAULT_FORMATION } from '../formations.ts';
 import { pickFormation, buildXI, isIdentityLineup, managerPlayers } from './lineup.ts';
 import { manageTransfers } from './transfers.ts';
-import { buildPlan, fallbackPlan, type PlanInput } from './plan.ts';
+import { buildPlan, buildPlans, fallbackPlan, type PlanInput, type PlanResult } from './plan.ts';
 import type { Traits } from '../personality.ts';
 
 export type Autonomy = 'assistant' | 'full';
@@ -138,14 +138,18 @@ export function prepareMatchdayHeuristic(teamId: number, autonomy: Autonomy): vo
 // override before kickoff). A human who DID set a plan is left entirely alone.
 //
 // Runs in the PRE-MATCHDAY ASYNC PASS (it persists + may call the LLM), so the synchronous
-// "play all worlds" fire path only READS the columns — honouring the fire-path rule. Prepared
-// SEQUENTIALLY (not Promise.all) so hundreds of clubs don't fire concurrent LLM calls and trip
-// Groq's rate limit; each prepareMatchday already degrades gracefully on a 429. Never throws.
+// "play all worlds" fire path only READS the columns — honouring the fire-path rule. The heuristic
+// (transfers + shape/XI) runs per club synchronously; the full-AI clubs' plans are then compiled in
+// ONE batched LLM call (compileInitialPlans) — so a matchday of N AI clubs costs ONE chatComplete,
+// not N (load-bearing on the ~10s/call claude-code/Haiku transport). Never throws.
 export async function prepareWorldMatchday(fixtureIds: number[]): Promise<void> {
   if (!fixtureIds.length) return;
   const seen = new Set<number>();
   const sel = db.prepare('SELECT home_team_id AS h, away_team_id AS a FROM fixtures WHERE id = ?');
   const teamRow = db.prepare('SELECT user_id, plan_text FROM teams WHERE id = ?');
+  // PASS 1 (synchronous, no LLM): each club's heuristic (transfers + shape/XI); persist the
+  // assistant clubs' neutral plan now; COLLECT the full-AI clubs' plan inputs for the batch.
+  const fullJobs: { teamId: number; input: PlanInput }[] = [];
   for (const fid of fixtureIds) {
     const fx = sel.get(fid) as { h: number; a: number } | undefined;
     if (!fx) continue;
@@ -154,11 +158,28 @@ export async function prepareWorldMatchday(fixtureIds: number[]): Promise<void> 
       seen.add(tid);
       const t = teamRow.get(tid) as { user_id: number | null; plan_text: string | null } | undefined;
       if (!t) continue;
-      if (t.user_id == null) { try { await prepareMatchday(tid, 'full'); } catch { /* never block a matchday */ } }
-      else if (t.plan_text == null) { try { await prepareMatchday(tid, 'assistant'); } catch { /* never block */ } }
-      // a human who set a plan keeps it — left untouched.
+      try {
+        if (t.user_id == null) {
+          // full AI club: transfers + shape/XI now; DEFER the plan to the one batched LLM call.
+          try { manageTransfers(tid); } catch { /* a failed market move never blocks setup */ }
+          const built = persistShapeAndXI(tid);
+          if (built) fullJobs.push({ teamId: tid, input: { teamName: getTeamWithPlayers(tid)?.name ?? 'The team', squad: built.xi, formation: built.formation } });
+        } else if (t.plan_text == null) {
+          // assistant (idle human): best XI + a neutral plan — NO LLM, NO transfers.
+          if (persistShapeAndXI(tid)) persistPlan(tid, NEUTRAL_PLAN_TEXT, NEUTRAL_PLAN);
+        }
+        // a human who set a plan keeps it — left untouched.
+      } catch { /* never block a matchday */ }
     }
   }
+  // PASS 2 (ONE LLM call for ALL full-AI clubs' plans). buildPlans is per-club graceful + never throws.
+  if (!fullJobs.length) return;
+  let results: PlanResult[] = [];
+  try { results = await buildPlans(fullJobs.map(j => j.input)); } catch { results = []; }
+  fullJobs.forEach((j, i) => {
+    const r = results[i] ?? { planText: fallbackPlan(j.input).summary, plan: fallbackPlan(j.input), usedLLM: false };
+    try { persistPlan(j.teamId, r.planText, r.plan); } catch { /* leave columns as the heuristic set them */ }
+  });
 }
 
 export { pickFormation, buildXI } from './lineup.ts';

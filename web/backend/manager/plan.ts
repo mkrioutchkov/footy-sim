@@ -9,7 +9,7 @@
 // Graceful degradation is mandatory: with no API key (or the model unreachable) compileInitialPlan
 // returns an EMPTY plan + an error — we then fall back to a DETERMINISTIC default plan so a full-AI
 // club always has a sensible standing plan and prepareMatchday NEVER throws.
-import { compileInitialPlan, type Plan, type SquadPlayer } from '../plan.ts';
+import { compileInitialPlan, compileInitialPlans, type Plan, type SquadPlayer } from '../plan.ts';
 import { TEAM_KIND_SET, VALID_KINDS, type Directive } from '../tactics.ts';
 import type { Traits } from '../personality.ts';
 
@@ -102,5 +102,33 @@ export async function buildPlan(input: PlanInput): Promise<PlanResult> {
     return { planText: r.plan.summary || brief, plan: r.plan, usedLLM: true };
   } catch {
     return { planText: brief, plan: fallback, usedLLM: false };
+  }
+}
+
+// BATCHED: one LLM call for MANY clubs' plans (consumes plan.ts compileInitialPlans). This is what
+// the matchday pre-pass uses so N full-AI clubs cost ONE chatComplete, not N — load-bearing on the
+// claude-code/Haiku transport (~10s PER call). Per-club graceful: a club the model omits / errors /
+// returns empty falls back to its deterministic plan; a whole-call failure falls back for all.
+// Results are IN ORDER (entry i = inputs[i]). Never throws.
+export async function buildPlans(inputs: PlanInput[]): Promise<PlanResult[]> {
+  if (!inputs.length) return [];
+  const jobs = inputs.map(input => ({
+    text: briefText(input),
+    squad: input.squad.slice(0, 11).map((p, i) => ({
+      id: i, name: p.name, role: p.role,
+      personality: p.traits ? { traits: p.traits as unknown as Record<string, number> } : null,
+    })) as SquadPlayer[],
+  }));
+  try {
+    const compiled = await compileInitialPlans(jobs);
+    return inputs.map((input, i) => {
+      const r = compiled[i];
+      if (!r || r.error || !r.plan || r.plan.directives.length === 0) {
+        return { planText: briefText(input), plan: fallbackPlan(input), usedLLM: false };
+      }
+      return { planText: r.plan.summary || briefText(input), plan: r.plan, usedLLM: true };
+    });
+  } catch {
+    return inputs.map(input => ({ planText: briefText(input), plan: fallbackPlan(input), usedLLM: false }));
   }
 }
