@@ -9,7 +9,7 @@ import type { Role } from './game.ts';
 import { chatComplete, llmReady, LlmError } from './llm.ts';
 
 export interface Squad { players: { name: string; role?: string; attrs: Record<string, number> }[] }
-export interface SlotAssignment { slot: number; role: Role; homeX: number; homeY: number; playerName: string; fromSlot: number }
+export interface SlotAssignment { slot: number; role: Role; homeX: number; homeY: number; playerName: string; fromSlot: number; misfit?: boolean }
 export interface LineupResult { formation: string; slots: SlotAssignment[]; note: string; raw?: string; cached?: boolean; error?: string }
 
 const ROLES = new Set<Role>(['GK', 'CB', 'FB', 'CM', 'WM', 'CF', 'DM', 'AM']);
@@ -97,7 +97,9 @@ export function buildLineup(sq: Squad, formationKey: string | null, overrides: {
   // Pin slot 0 (always GK) to the natural keeper FIRST. Doing it before overrides
   // means an override can neither claim the GK slot nor drag the keeper outfield (he
   // is already locked), so the XI always has exactly one keeper and he is in goal.
-  const gk = Math.max(0, sq.players.slice(0, 11).findIndex(p => (p.role ?? '').toUpperCase() === 'GK'));
+  const gkIdx = sq.players.slice(0, 11).findIndex(p => (p.role ?? '').toUpperCase() === 'GK');
+  if (gkIdx < 0) notes.push('No recognised goalkeeper in the squad — slot 0 is covered by an outfielder.');   // §1.9
+  const gk = Math.max(0, gkIdx);
   locked.set(0, gk); taken.add(0);
   for (const ov of overrides) {
     const want = String(ov.player ?? '').toLowerCase().trim();
@@ -115,10 +117,18 @@ export function buildLineup(sq: Squad, formationKey: string | null, overrides: {
     taken.add(si); locked.set(si, pi);
   }
   const a = assign(sq, slots, locked);
-  const out: SlotAssignment[] = slots.map((s, i) => ({
-    slot: i, role: s.role, homeX: s.x, homeY: s.y,
-    playerName: a[i] >= 0 ? sq.players[a[i]].name : '', fromSlot: a[i],
-  }));
+  const out: SlotAssignment[] = slots.map((s, i) => {
+    const p = a[i] >= 0 ? sq.players[a[i]] : null;
+    // §1.11: flag a player anchored materially out of position (a CM at CB in a back-heavy shape with
+    // no real CBs) so the UI can warn — DM/CM/AM cover each other, GK is pinned, anything else is a misfit.
+    const pRole = (p?.role ?? '').toUpperCase() as Role;
+    const misfit = !!p && i > 0 && pRole !== s.role && !sameFamily(pRole, s.role);
+    return { slot: i, role: s.role, homeX: s.x, homeY: s.y, playerName: p?.name ?? '', fromSlot: a[i], misfit };
+  });
+  const empty = out.filter(s => s.fromSlot < 0).length;
+  if (empty) notes.push(`${empty} slot${empty > 1 ? 's' : ''} unfilled — fewer than 11 available players.`);   // §1.10
+  const mis = out.filter(s => s.misfit).length;
+  if (mis) notes.push(`${mis} player${mis > 1 ? 's' : ''} out of position for this shape.`);                  // §1.11
   return { formation: key, slots: out, note: notes.join(' ') };
 }
 
@@ -142,7 +152,9 @@ export async function compileLineup(text: string, sq: Squad): Promise<LineupResu
   const fk = typeof p.formation === 'string' ? normalizeFormation(p.formation) : null;
   const ovs = (p.overrides as { player: string; role: string; side: string }[]).filter(o => o && typeof o === 'object');
   const built = buildLineup(sq, fk, ovs);
-  const note = [p.note, built.note].filter(Boolean).join(' ');
+  // §1.12: the model named a shape we couldn't resolve — say so instead of silently defaulting.
+  const unknown = typeof p.formation === 'string' && p.formation.trim() && !fk ? `Didn't recognise "${p.formation}" as a formation — using ${built.formation}.` : '';
+  const note = [unknown, p.note, built.note].filter(Boolean).join(' ');
   const result = { formation: built.formation, slots: built.slots, note };
   cache.set(cacheKey, result);
   return { ...result, raw: content, cached: false };

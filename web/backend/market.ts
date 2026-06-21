@@ -257,12 +257,13 @@ export function loanIn(borrowerTeamId: number, targetPlayerId: number): LoanResu
     const borrower = teamRow(borrowerTeamId);
     if (!borrower) return { ok: false, error: 'team not found' };
     if (!transferWindow(borrower.league_id).open) return { ok: false, error: 'the transfer window is shut' };
-    const t = db.prepare(`SELECT p.id, p.team_id, p.name, p.parent_team_id, p.wage, tm.name AS club, tm.league_id AS owner_league,
+    const t = db.prepare(`SELECT p.id, p.team_id, p.name, p.parent_team_id, p.wage, p.listed, tm.name AS club, tm.league_id AS owner_league,
         (SELECT COUNT(*) FROM players px WHERE px.team_id = p.team_id) AS owner_count
       FROM players p JOIN teams tm ON tm.id = p.team_id WHERE p.id = ?`)
-      .get(targetPlayerId) as { id: number; team_id: number; name: string; parent_team_id: number | null; wage: number | null; club: string; owner_league: number; owner_count: number } | undefined;
+      .get(targetPlayerId) as { id: number; team_id: number; name: string; parent_team_id: number | null; wage: number | null; listed: number; club: string; owner_league: number; owner_count: number } | undefined;
     if (!t) return { ok: false, error: 'player not found' };
     if (t.team_id === borrowerTeamId) return { ok: false, error: 'already your player' };
+    if (!t.listed) return { ok: false, error: `${t.name} isn't available to loan` };   // §1.16: gate to transfer-listed (the UI already only offers listed players)
     if (t.parent_team_id != null) return { ok: false, error: `${t.name} is already out on loan` };
     if (!worldLeagueIds(borrower.league_id).includes(t.owner_league)) return { ok: false, error: 'player is outside your world' };
     if (t.owner_count <= SQUAD_MIN) return { ok: false, error: `${t.club} won't loan ${t.name} out — their squad is at the minimum` };
