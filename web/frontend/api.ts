@@ -74,7 +74,7 @@ export interface RolloverT {
   awards?: { teamId: number; player: string; slot: number; type: 'pots' | 'young_pots'; headline: string; avg: number }[];
 }
 export interface FreeAgentT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; }
-export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; contractYears: number; listed: boolean; askPrice: number | null; starter: boolean; onLoan: boolean; }
+export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; contractYears: number; listed: boolean; askPrice: number | null; starter: boolean; onLoan: boolean; loanFrom: string | null; loanUntil: number | null; }
 export interface TransferWindowT { open: boolean; window: 'summer' | 'winter' | null; current: number; total: number; label: string; deadline: number | null; closesIn: number; deadlineDay: boolean; }
 export interface TransferTargetT { id: number; name: string; club: string; clubTeamId: number; role: string; age: number; overall: number; potential: number | null; value: number; askPrice: number | null; wage: number; }
 export interface MarketT { budget: number; wageBudget: number; wageBill: number; squadMax: number; squadMin: number; window: TransferWindowT; freeAgents: FreeAgentT[]; squad: MarketPlayerT[]; transferTargets: TransferTargetT[]; backing?: string | null; }
@@ -168,6 +168,7 @@ export const api = {
   unlistPlayer: (slot: number) => req<{ ok: boolean; market: MarketT }>('POST', '/market/unlist', { slot }),
   bid: (playerId: number, fee: number) => req<{ ok: boolean; status: 'pending' | 'accepted' | 'countered' | 'rejected'; counterFee?: number; player?: string; club?: string; fee?: number; placed?: 'xi' | 'bench'; error?: string; market: MarketT }>('POST', '/transfer/bid', { playerId, fee }),
   loan: (playerId: number) => req<{ ok: boolean; player?: string; from?: string; market: MarketT }>('POST', '/transfer/loan', { playerId }),
+  endLoan: (slot: number) => req<{ ok: boolean; player?: string; from?: string; market: MarketT }>('POST', '/transfer/loan/end', { slot }),
   offers: () => req<{ offers: OfferT[] }>('GET', '/offers'),
   withdrawOffer: (id: number) => req<{ ok: boolean; offers: OfferT[] }>('POST', `/offer/${id}/withdraw`),
   matchOffer: (id: number) => req<{ ok: boolean; status: string; player?: string; fee?: number; market: MarketT; offers: OfferT[] }>('POST', `/offer/${id}/match`),

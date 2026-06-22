@@ -1007,21 +1007,31 @@ async function screenMarket() {
     const sqBody = h('tbody');
     for (const p of market.squad) {
       const canSell = market.squad.length > market.squadMin;
-      const btn = p.listed
-        ? h('button', { class: 'ghost small' }, 'Unlist')
-        : h('button', { class: 'ghost small' }, 'List');
-      if (p.onLoan) { btn.setAttribute('disabled', 'true'); btn.setAttribute('title', "on loan — you can't sell him"); }
-      else if (!p.listed && !canSell) btn.setAttribute('disabled', 'true');
-      if (!p.onLoan) btn.addEventListener('click', async () => {
-        btn.setAttribute('disabled', 'true'); btn.textContent = '…';
-        try {
-          const r = p.listed ? await api.unlistPlayer(p.slot) : await api.listPlayer(p.slot);
-          market = r.market; toast(p.listed ? `${p.name} taken off the market` : `${p.name} listed for ${fmtMoney((r as any).askPrice)}`); render();
-        } catch (e: any) { toast(e.message); render(); }
-      });
+      let btn: HTMLElement;
+      if (p.onLoan) {
+        // §2.12: a loaned-in player can be sent back to his parent early (frees the slot + wage)
+        btn = h('button', { class: 'ghost small' }, 'End loan');
+        if (market.squad.length <= market.squadMin) { btn.setAttribute('disabled', 'true'); btn.setAttribute('title', `can't drop below ${market.squadMin} players`); }
+        else btn.addEventListener('click', async () => {
+          if (!await confirmModal('End loan', `Send ${p.name} back to ${p.loanFrom ?? 'his parent club'} now? You'll free his squad slot and wages, ahead of the season-end return.`, 'Send back')) return;
+          btn.setAttribute('disabled', 'true'); btn.textContent = '…';
+          try { const r = await api.endLoan(p.slot); market = r.market; toast(`${r.player} sent back to ${r.from}`); render(); }
+          catch (e: any) { toast(e.message); render(); }
+        });
+      } else {
+        btn = p.listed ? h('button', { class: 'ghost small' }, 'Unlist') : h('button', { class: 'ghost small' }, 'List');
+        if (!p.listed && !canSell) btn.setAttribute('disabled', 'true');
+        btn.addEventListener('click', async () => {
+          btn.setAttribute('disabled', 'true'); btn.textContent = '…';
+          try {
+            const r = p.listed ? await api.unlistPlayer(p.slot) : await api.listPlayer(p.slot);
+            market = r.market; toast(p.listed ? `${p.name} taken off the market` : `${p.name} listed for ${fmtMoney((r as any).askPrice)}`); render();
+          } catch (e: any) { toast(e.message); render(); }
+        });
+      }
       const sqPot = p.potential != null && p.potential > p.overall;
       sqBody.append(h('tr', {},
-        h('td', {}, p.name, p.onLoan ? h('span', { class: 'pill', style: 'margin-left:6px' }, 'loan') : (p.starter ? '' : h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench')),
+        h('td', {}, p.name, p.onLoan ? h('span', { class: 'pill', style: 'margin-left:6px', title: `on loan from ${p.loanFrom ?? 'another club'}${p.loanUntil != null ? ` until end of S${p.loanUntil}` : ''}` }, `loan: ${p.loanFrom ?? '?'}`) : (p.starter ? '' : h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench')),
           p.listed ? h('span', { class: 'pill', style: 'margin-left:6px' }, p.askPrice != null ? fmtMoney(p.askPrice) : 'listed') : ''),
         h('td', {}, h('span', { class: 'pill' }, p.role)),
         h('td', { class: 'num' }, String(p.age)),
