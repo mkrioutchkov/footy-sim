@@ -1,8 +1,13 @@
 # Defensive-Shape Redesign — scoping the churn fix
 
-_Status: SCOPE / not started. Author: engine (2026-06-22). This is the "next major
-engine project" identified after the churn was proven architecturally homeostatic
-(~12 lever experiments absorbed — see memory `gameplay-tuning-method`)._
+_Status: **SHIPPED 2026-06-22 (7e88dd0)** — mid-block + forwards-drop + patient
+build-up. CRACKED the 20+ barrier: 20+ pass moves now appear, max sequences 18-30
+(was ~15), possessions down (one seed 260→176). The §8 build-up-completion insight
+was the key — **emptying the build-up zone via the forwards-drop is what worked**
+(the mid-block + patient attack alone didn't). May be slightly over-corrected on
+some seeds (15+/20+ above real); dial the mid-block threshold (PITCH_W*0.52, engine_
+defense.cpp) UP if it reads too passive. Goals mostly realistic (~3/90) with the odd
+spike (accepted). Scope + the prototype journey that got here are preserved below._
 
 ## 1. What "churn" is
 
