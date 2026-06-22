@@ -501,6 +501,8 @@ async function screenDashboard() {
       }
       const myInj = (r.injuries ?? []).filter(i => i.teamId === team.id);
       if (myInj.length) toast(`🤕 ${myInj.map(i => `${i.player} out ${i.matches} match${i.matches > 1 ? 'es' : ''}`).join(' · ')}`);
+      // §2.4: listings that lapsed unsold at the window deadline
+      for (const l of r.listingsExpired ?? []) toast(`⌛ ${l.player}'s listing expired unsold — the window closed`);
       // §2.2: how the matchday's contract talks resolved
       for (const c of r.contractOffers ?? []) {
         if (c.result === 'accepted') toast(`✍️ ${c.player} signed a new ${c.years}-year deal (${fmtMoney(c.wage)}/yr)`);
@@ -1083,8 +1085,11 @@ async function screenMarket() {
           h('div', { class: 'muted' }, `Budget ${fmtMoney(market.budget)} · wages ${fmtMoney(market.wageBill)}/${fmtMoney(market.wageBudget)} (${wagePct}%) · squad ${market.squad.length}/${market.squadMax}`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
       ),
-      h('div', { class: 'card', style: `padding:8px 12px;${win.open ? 'border-left:3px solid var(--accent,#4ea1ff)' : 'opacity:.8'}` },
-        h('span', { style: win.open ? 'font-weight:600' : '' }, (win.open ? '🟢 ' : '🔒 ') + win.label),
+      h('div', { class: 'card', style: `padding:8px 12px;${win.open ? (win.deadlineDay ? 'border-left:3px solid var(--danger)' : 'border-left:3px solid var(--accent,#4ea1ff)') : 'opacity:.8'}` },
+        h('span', { style: win.open ? 'font-weight:600' : '' }, (win.deadlineDay ? '🚨 ' : win.open ? '🟢 ' : '🔒 ') + win.label),
+        // §2.4: deadline-day urgency — count down the matchdays left in the window
+        win.open ? h('span', { style: `margin-left:8px;font-size:12px;font-weight:600;color:${win.deadlineDay ? 'var(--danger)' : 'var(--accent)'}` },
+          win.deadlineDay ? '· 🚨 Deadline day — shuts after this matchday' : `· closes in ${win.closesIn} matchday${win.closesIn === 1 ? '' : 's'}`) : '',
         h('span', { class: 'muted', style: 'margin-left:8px;font-size:12px' }, 'Free agents can be signed any time; club-to-club deals need an open window.')),
       market.backing ? h('div', { class: 'card', style: 'padding:8px 12px' },
         h('span', { class: 'muted', style: 'font-size:12px' }, `🏛️ ${market.backing}`)) : '',
@@ -1095,7 +1100,7 @@ async function screenMarket() {
           h('div', { style: 'max-height:520px;overflow:auto', 'data-scroll': 'fa' }, h('table', {}, headRow('Player'), faBody))),
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your squad'),
-          h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, 'List a player to sell him — an AI club may buy once you have squad depth (12+).'),
+          h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, `List a player to sell him — an AI club may buy once you have squad depth (12+).${win.open ? ' Listings lapse at the deadline if unsold.' : ''}`),
           h('div', { style: 'max-height:520px;overflow:auto', 'data-scroll': 'squad' }, h('table', {}, headRow('Player'), sqBody))),
       ),
       offersCard,
