@@ -552,7 +552,7 @@ void GameEngine::checkBallPlayerCollision(double){
         // (engine sat at ~2 vs ~10 because every cut was a clean collect).
         if(contact->team!=pendingPass.team){
             double ownLineX=ownGoalXFor(contact->team);
-            if(std::abs(b.x-ownLineX)<140.0 && rng.random()<0.16){
+            if(std::abs(b.x-ownLineX)<140.0 && rng.random()<0.28){
                 awardCorner(pendingPass.team, contact->team==Team::Home, b.y);
                 return;
             }
@@ -610,7 +610,7 @@ void GameEngine::checkBallPlayerCollision(double){
             double ownLine=ownGoalXFor(contact->team);
             bool nearLine=std::abs(b.x-ownLine)<150.0;
             bool deflectingBehind=(ownLine==0.0)?b.vx<0:b.vx>0;
-            if(nearLine&&deflectingBehind&&rng.random()<0.55){
+            if(nearLine&&deflectingBehind&&rng.random()<0.65){
                 awardCorner(shot.team, contact->team==Team::Home, b.y);
             }
         }

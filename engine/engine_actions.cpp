@@ -104,7 +104,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             // A defender heading clear under the cross near his own line often
             // can only put it behind — a common corner source.
             double ownLineX = ownGoalXFor(receiver.team);
-            if (std::abs(receiver.x - ownLineX) < 130.0 && rng.random() < 0.30) {
+            if (std::abs(receiver.x - ownLineX) < 130.0 && rng.random() < 0.45) {
                 pendingPass.active = false;
                 Team att = receiver.team == Team::Home ? Team::Away : Team::Home;
                 awardCorner(att, receiver.team == Team::Home, receiver.y);
