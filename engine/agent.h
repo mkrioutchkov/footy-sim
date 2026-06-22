@@ -124,6 +124,9 @@ public:
     virtual double  tackleSkillCoeff() const { return 0.20; }
     virtual double  shotScoreBonus() const { return 0.0; }
     virtual double  shotDistancePenalty(double shotDistance) const { (void)shotDistance; return 0.0; }
+    // Per-role placement-error offset added to the open-play shot spread — was a
+    // role ternary in the shot path (CF tucks it tighter, CM sprays from range).
+    virtual double  shotRoleError(bool freshCross, double shotDistance) const { (void)freshCross; (void)shotDistance; return 0.0; }
     virtual double  freshCrossShotBonus() const { return 0.42; }
     virtual double  finalThirdShotMaxDistance() const { return 165.0; }
     virtual double  finalThirdShotMinAngle() const { return 8.0; }

@@ -738,9 +738,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     double distancePenalty=clamp((shotDistance-70)/270,0.0,1.0);
     double longRangePenalty=clamp((shotDistance-120)/130,0.0,1.0);
     double closePressure = shotDistance < 130.0 ? pressureCount * (freshCross?SHOT_ERROR_CLOSE_PRESSURE_CROSS:SHOT_ERROR_CLOSE_PRESSURE_NORMAL) : 0.0;
-    double roleError = s.role==Role::CF ? -42.0
-        : (s.role==Role::WM ? (freshCross ? -8.0 : 0.0)
-        : (s.role==Role::CM ? (freshCross?58.0:(shotDistance>130.0?30.0:0.0)) : 0.0));
+    double roleError = agentFor(s)->shotRoleError(freshCross, shotDistance);
     double executionError=SHOT_ERROR_BASE+(1-accuracy)*SHOT_ERROR_SKILL+pressureCount*(freshCross?SHOT_ERROR_PRESSURE_CROSS:SHOT_ERROR_PRESSURE_NORMAL)+closePressure+laneBlockers*(freshCross?SHOT_ERROR_LANE_CROSS:SHOT_ERROR_LANE_NORMAL)
         +anglePenalty*SHOT_ERROR_ANGLE+distancePenalty*SHOT_ERROR_DISTANCE+longRangePenalty*SHOT_ERROR_LONG_RANGE;
     executionError=std::max(SHOT_ERROR_FLOOR,executionError+roleError);
