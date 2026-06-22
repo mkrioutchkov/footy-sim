@@ -4,7 +4,7 @@
 // it unconditionally. See finance_entries in db.ts.
 import { db } from './db.ts';
 
-export type FinanceKind = 'prize' | 'transfer_in' | 'transfer_out' | 'staff' | 'sponsor' | 'other';
+export type FinanceKind = 'prize' | 'transfer_in' | 'transfer_out' | 'staff' | 'sponsor' | 'gate' | 'other';
 export interface FinanceEntry { season: number; kind: FinanceKind; amount: number; note: string; }
 
 // amount is signed: positive = income, negative = expense.
@@ -14,6 +14,26 @@ export function recordFinance(teamId: number, kind: FinanceKind, amount: number,
   if (!row || row.uid == null) return;   // AI club (or missing) — nothing to log
   db.prepare('INSERT INTO finance_entries (team_id, season, kind, amount, note, created_at) VALUES (?,?,?,?,?,?)')
     .run(teamId, row.season, kind, Math.round(amount), note, Date.now());
+}
+
+// §P2 (playthrough): per-matchday gate & TV income, scaled by division. Credited to HUMAN clubs each
+// matchday from the advance tick — without it the in-season ledger only ever drained (transfers out),
+// so finances showed "Income +£0" all season. This is the ONLY place a real (budget-moving) recurring
+// income enters; it's deliberately kept out of the season suites' path (they roll over directly, never
+// through /api/advance), so the budget-conservation guards are unaffected. AI clubs are untouched (their
+// market budgets are already provisioned + they keep no ledger). Returns what each human earned.
+export const MATCHDAY_INCOME: Record<number, number> = { 1: 2_500_000, 2: 900_000 };   // gate + TV per matchday, by tier
+export function payMatchdayIncome(leagueId: number): { teamId: number; amount: number }[] {
+  const tier = (db.prepare('SELECT tier FROM leagues WHERE id = ?').get(leagueId) as { tier: number } | undefined)?.tier ?? 2;
+  const income = MATCHDAY_INCOME[tier] ?? MATCHDAY_INCOME[2];
+  const humans = db.prepare('SELECT id FROM teams WHERE league_id = ? AND user_id IS NOT NULL').all(leagueId) as { id: number }[];
+  const out: { teamId: number; amount: number }[] = [];
+  for (const { id } of humans) {
+    db.prepare('UPDATE teams SET budget = budget + ? WHERE id = ?').run(income, id);
+    recordFinance(id, 'gate', income, 'Matchday gate & TV');
+    out.push({ teamId: id, amount: income });
+  }
+  return out;
 }
 
 export interface FinanceSeason { season: number; income: number; expense: number; net: number; }

@@ -31,7 +31,7 @@ import { getHistory, getClubRecords } from './history.ts';
 import { getObjective } from './objectives.ts';
 import { getConfidence, boardMood, recruitmentBacking } from './confidence.ts';
 import { getStaffView, hireStaff, fireStaff } from './staff.ts';
-import { getFinances } from './finances.ts';
+import { getFinances, payMatchdayIncome } from './finances.ts';
 import { getSquadHarmony } from './harmony.ts';
 import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
@@ -632,8 +632,10 @@ app.post('/api/advance', async (req: any, reply) => {
   const listingsExpired: any[] = [];   // §2.4: the user's listings that lapsed unsold at the window deadline
   const injuries: any[] = [];
   const contractEvents: any[] = [];
+  let income = 0;                       // §P2: the user's matchday gate & TV income this tick
   let developed = 0;
   for (const l of leagues) {
+    income += payMatchdayIncome(l.id).filter(e => e.teamId === teamId).reduce((s, e) => s + e.amount, 0);
     injuries.push(...fitnessTick(l.id)); moraleTick(l.id);
     const mkt = marketTick(l.id);
     transfers.push(...mkt.filter(e => e.type !== 'listing_expired'));
@@ -666,6 +668,7 @@ app.post('/api/advance', async (req: any, reply) => {
     transfers, development: { players: developed }, injuries, cup, rollover,
     contractOffers: contractEvents.filter(e => e.teamId === teamId),   // §2.2: my renewal verdicts this matchday
     listingsExpired,   // §2.4: my listings that lapsed unsold
+    income,            // §P2: matchday gate & TV income credited this tick
     standings: standings(nowLeagueId),
   };
   } finally { advancing.delete(user.id); }

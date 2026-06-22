@@ -501,6 +501,8 @@ async function screenDashboard() {
       }
       const myInj = (r.injuries ?? []).filter(i => i.teamId === team.id);
       if (myInj.length) toast(`🤕 ${myInj.map(i => `${i.player} out ${i.matches} match${i.matches > 1 ? 'es' : ''}`).join(' · ')}`);
+      // §P2: matchday gate & TV income credited to the club
+      if (r.income) toast(`💷 Gate & TV income: ${fmtMoney(r.income)}`);
       // §2.4: listings that lapsed unsold at the window deadline
       for (const l of r.listingsExpired ?? []) toast(`⌛ ${l.player}'s listing expired unsold — the window closed`);
       // §2.2: how the matchday's contract talks resolved
@@ -1435,7 +1437,7 @@ async function screenReport(fixtureId: number) {
 // ── club finances ──
 const FIN_LABEL: Record<string, string> = {
   prize: 'Prize money', transfer_in: 'Transfers in', transfer_out: 'Transfers out',
-  staff: 'Staff fees', sponsor: 'Sponsorship', other: 'Other',
+  staff: 'Staff fees', sponsor: 'Sponsorship', gate: 'Gate & TV', other: 'Other',
 };
 async function screenFinances() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
