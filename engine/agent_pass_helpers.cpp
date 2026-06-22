@@ -22,7 +22,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // from being spammed: it only wins when the forward options are genuinely poor.
     bool nearOwnThirdForGk = ownProgress < PITCH_W * 0.42;
     bool keeperRecycle = nearOwnThirdForGk && per.pressureCount >= 1 && !hasClearOutfieldOutlet
-        && (p.role == Role::CB || p.role == Role::FB || p.role == Role::CM);
+        && isDefenderLike();
     bool keeperOutlet = t.role == Role::GK && ((urgentKeeperNeed && !hasClearOutfieldOutlet) || keeperRecycle);
     if (t.role == Role::GK && !keeperOutlet) return std::nullopt;
     double d = dist(p.x, p.y, t.x, t.y);
@@ -215,7 +215,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (p.role == Role::WM && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.32;
     if (p.role == Role::FB && fp > 0.0 && std::abs(p.y - PITCH_H / 2.0) > 75.0 && dgW < 430.0) sc += 0.30;
     bool targetWide = (t.role == Role::WM || t.role == Role::FB) && std::abs(t.y - PITCH_H / 2.0) > 125.0;
-    bool passerCanFindWide = p.role == Role::CM || p.role == Role::CB || p.role == Role::FB;
+    bool passerCanFindWide = isDefenderLike();
     if (passerCanFindWide && targetWide && fp > 20.0 && d < 460.0 && bl <= 1 && receiverPressure <= 1) {
         double centralPasserBonus = std::abs(p.y - PITCH_H / 2.0) < 170.0 ? 0.10 : 0.0;
         double advancedBonus = carrierFinalThird ? 0.08 : 0.0;
@@ -296,9 +296,9 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     auto rii = std::find(pref.begin(), pref.end(), t.role);
     if (rii == pref.begin())           sc += 0.12;
     else if (rii == pref.begin() + 1)  sc += 0.06;
-    if (t.role == p.role) sc -= (p.role == Role::CB || p.role == Role::FB) ? 0.30 : 0.20;
+    if (t.role == p.role) sc -= isDefenderRole() ? 0.30 : 0.20;
 
-    if ((p.role == Role::CB || p.role == Role::FB) && (t.role == Role::CM || t.role == Role::WM) && fp > 0.0) sc += 0.08;
+    if (isDefenderRole() && (t.role == Role::CM || t.role == Role::WM) && fp > 0.0) sc += 0.08;
 
     // ── Final third target bonuses ──
     bool passerFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
