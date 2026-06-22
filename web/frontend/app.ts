@@ -492,10 +492,24 @@ async function screenDashboard() {
   // advance is gated on the WHOLE world having games left (the user may have watched all
   // their own matches yet other fixtures still need playing before the season can roll).
   const canAdvance = league.seasonComplete != null ? !league.seasonComplete : !!myNext;
-  const advanceBtn = h('button', {}, myNext ? `Play matchday ${myNext.round}` : (canAdvance ? 'Advance matchday' : 'Season complete'));
+  // P4: advance plays the world's NEXT round (the min unplayed round) — which may be EARLIER than the
+  // user's next match if they've watched ahead. Label + warn off THAT round (not myNext.round), and flag
+  // when advancing will auto-simulate the user's own unplayed match, so the state is never a silent desync.
+  const pendingUnplayed = league.fixtures.filter(f => !f.played);
+  const pendingRound = pendingUnplayed.length ? Math.min(...pendingUnplayed.map(f => f.round)) : null;
+  const myInPending = pendingRound != null ? league.fixtures.find(f => f.involvesMe && f.round === pendingRound) : undefined;
+  const simmingMyMatch = !!(myInPending && !myInPending.played);
+  const advanceBtn = h('button', {},
+    !canAdvance ? 'Season complete'
+      : simmingMyMatch ? `Play matchday ${pendingRound}`
+        : `Advance matchday${pendingRound != null ? ` ${pendingRound}` : ''}`);
   if (!canAdvance) advanceBtn.setAttribute('disabled', 'true');
   advanceBtn.addEventListener('click', async () => {
-    if (!await confirmModal('Advance matchday', 'All fixtures simulate and commit now — there is no undo. Set your lineup, tactics and transfers first.', myNext ? 'Play it' : 'Advance')) return;
+    const opp = myInPending ? (myInPending.homeTeamId === team.id ? myInPending.away : myInPending.home) : '';
+    const msg = simmingMyMatch
+      ? `Your match this matchday — R${pendingRound}${opp ? ` vs ${opp}` : ''} — will be SIMULATED now, along with the rest of the world. To play it yourself, Cancel and use “Watch my next match”. There is no undo.`
+      : `${myNext ? 'Your match this round is already played — a' : 'A'}dvancing simulates the rest of the world’s matchday now. No undo — set your lineup, tactics and transfers first.`;
+    if (!await confirmModal(simmingMyMatch ? 'Simulate your match & advance?' : 'Advance matchday', msg, simmingMyMatch ? 'Simulate & advance' : 'Advance')) return;
     advanceBtn.setAttribute('disabled', 'true'); advanceBtn.textContent = 'Simulating…';
     try {
       const r = await api.advance();
