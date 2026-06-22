@@ -328,7 +328,8 @@ void GameEngine::checkBallPlayerCollision(double){
                 double goalX = ownGoalXFor(keeperContact->team);
                 double along = std::max(std::abs(b.vx), 1.0);
                 double projY = b.y + b.vy * (std::abs(b.x - goalX) / along);
-                bool goalBound = std::abs(projY - PITCH_H / 2.0) < GOAL_W / 2.0 + 6.0;
+                bool goalBound = std::abs(projY - PITCH_H / 2.0) < GOAL_W / 2.0 + 6.0
+                                 && b.z + BALL_R <= GOAL_H;   // #1b: under the bar too
                 if (goalBound) {
                     stats.recordShotOnTarget();
                     stats.recordSave();

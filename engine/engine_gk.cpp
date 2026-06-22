@@ -266,8 +266,7 @@ void GameEngine::tryGKSave() {
     if (shot.penalty) saveChance = std::min(saveChance, PENALTY_SAVE_BASE + positioning * PENALTY_SAVE_SKILL);
     if (passDebug) fprintf(stderr, "SAVEROLL type=%d sc=%.3f off=%d z=%d spd=%d t=%d\n",
                            shot.type, saveChance, (int)trajectoryOffset, (int)b.z, (int)speed, (int)timeToLineMs);
-    stats.recordShotOnTarget();
-    shot.active = false;
+    shot.active = false;   // #1b: KEEP this (removing it re-rolls the save 20-30×/shot)
     if (rng.random() >= saveChance) {
         shot.preventable = saveChance >= 0.90 && trajectoryOffset < PLAYER_R + BALL_R && timeToLineMs > 420 && speed < 240;
         stats.recordGkAssessment(false, shot.preventable);
@@ -307,7 +306,13 @@ void GameEngine::resolvePendingSave() {
     pendingSave.active = false;
     // Beaten dive: he committed but the ball's past him — no save, let it run.
     if (!pendingSave.willSave) return;
-    stats.recordSave();
+    // #1b: count on-target + save only for a ball actually going IN — under the
+    // bar at contact. The 2D save model is z-blind, so a laterally-on-frame but
+    // OVER-bar shot reaches here; it is neither on target nor a real save.
+    if (b.z + BALL_R <= GOAL_H) {
+        stats.recordShotOnTarget();
+        stats.recordSave();
+    }
     emitEvent("save", gk->x, gk->y, gk->id);
     applySaveOutcome(*gk, pendingSave.shooterId, pendingSave.reach);
 }
