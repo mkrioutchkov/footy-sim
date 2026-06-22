@@ -528,5 +528,24 @@ export function marketTick(leagueId: number): MarketEvent[] {
       events.push({ teamId: id, teamName: team.name, type: 'buy_listed', player: pick.name, role: pick.role, fee: pick.ask_price!, from: pick.seller_name });
     }
   }
+  aiListSurplus(leagueId);   // §P2: keep the for-sale market stocked so the human always has someone to bid for
   return events;
+}
+
+// §P2 (playthrough): AI clubs put a surplus squad player on the market so the §2.1 pending-offer auction
+// has inventory — without it the human only ever sees the instant free-agent path and "For sale — other
+// clubs" is empty. Each AI club keeps at most ONE player listed; it lists its weakest BENCH man (a genuine
+// squad-filler, never a starter), at his value, only when it has depth beyond the floor to spare. No money
+// moves here (a listing is just a flag), so the economy stays conserved.
+export function aiListSurplus(leagueId: number): void {
+  const aiTeams = db.prepare('SELECT id FROM teams WHERE league_id = ? AND user_id IS NULL').all(leagueId) as { id: number }[];
+  for (const { id } of aiTeams) {
+    if (db.prepare('SELECT 1 FROM players WHERE team_id = ? AND listed = 1 LIMIT 1').get(id)) continue;   // one listing at a time
+    const players = teamPlayers(id);
+    if (players.length <= SQUAD_MIN) continue;                       // never sell below a legal XI
+    const bench = players.filter(p => p.slot >= 11);                 // only sell from the bench (keep the XI intact)
+    if (!bench.length) continue;
+    const cand = bench.map(p => ({ p, ovr: overall(JSON.parse(p.attrs)) })).sort((a, b) => a.ovr - b.ovr)[0];   // weakest bench man
+    listPlayer(id, cand.p.slot);                                     // at his value (the default ask); listPlayer no-ops on a loanee
+  }
 }

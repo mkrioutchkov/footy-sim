@@ -17,7 +17,7 @@ import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
-import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, offersForTeam, withdrawOffer, matchCounter } from './market.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, offersForTeam, withdrawOffer, matchCounter, aiListSurplus } from './market.ts';
 import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
@@ -116,7 +116,10 @@ app.post('/api/team', async (req: any, reply) => {
   }
   const name = String(req.body?.name ?? '').trim().slice(0, 40) || `${user.username} FC`;
   const tactics = req.body?.tactics ? validTactics(req.body.tactics) : DEFAULT_TACTICS;
-  const { teamId, leagueId } = newSeasonForUser(user.id, user.username, name, tactics);
+  const { teamId, leagueId, worldId } = newSeasonForUser(user.id, user.username, name, tactics);
+  // §P2: stock the for-sale market for the opening summer window (both divisions) so a brand-new
+  // manager sees AI clubs offering players to bid on, not an empty board.
+  for (const lid of new Set([leagueId, worldId])) aiListSurplus(lid);
   // Generate the squad's personalities in the background (best-effort, ~3s) so team
   // creation returns immediately; the dashboard backfills via /api/personalities.
   void assignPersonalities(teamId).catch(() => { /* defaults already stored on failure */ });
