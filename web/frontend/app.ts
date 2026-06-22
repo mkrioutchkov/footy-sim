@@ -123,7 +123,7 @@ function otherDivisions(league: LeagueT): HTMLElement {
     const tb = h('tbody');
     d.standings.forEach((s, i) => tb.append(h('tr', { class: s.isUser ? 'me' : '' },
       h('td', { class: 'num' }, String(i + 1)),
-      h('td', {}, s.name, s.isUser ? h('span', { class: 'pill', style: 'margin-left:8px' }, 'you') : ''),
+      h('td', {}, s.name, s.isUser ? h('span', { class: 'pill', style: 'margin-left:8px' }, ' you') : ''),
       h('td', { class: 'num' }, String(s.played)),
       h('td', { class: 'num' }, (s.gd > 0 ? '+' : '') + s.gd),
       h('td', { class: 'num', style: 'font-weight:700' }, String(s.points)))));
@@ -397,9 +397,22 @@ function formationPanel(team: TeamT, reg: FormationsT | null): HTMLElement {
       drawPitch(r.slots?.length ? r.slots.map(s => ({ x: s.homeX, y: s.homeY, role: s.role, name: s.playerName || '—', injured: !!team.players.find(p => p.name === s.playerName)?.injuredMatches, misfit: s.misfit })) : tokensFromReg());
     } catch (e: any) { out.textContent = e.message; }
   };
-  const sel = reg ? h('select', { style: 'max-width:170px' }, ...Object.keys(reg.formations).map(name => {
-    const o = h('option', { value: name }, name) as HTMLOptionElement; if (name === fmt) o.selected = true; return o;
-  })) as HTMLSelectElement : null;
+  // Minor (playthrough): group the ~35 shapes into Standard vs Experimental so the conventional
+  // formations aren't buried among the novelty ones (2-6-2, 6-0-4, 4-6-0…). A shape is "experimental"
+  // if it fields ≤2 or ≥6 defenders, 0 or ≥4 forwards, or ≥6 in midfield; named/variant keys stay standard.
+  const isNovelty = (name: string): boolean => {
+    const nums = name.split(/[- ]/).map(Number).filter(n => Number.isFinite(n));
+    if (nums.length < 2) return false;
+    const def = nums[0], fwd = nums[nums.length - 1], mid = nums.slice(1, -1).reduce((s, n) => s + n, 0);
+    return def <= 2 || def >= 6 || fwd === 0 || fwd >= 4 || mid >= 6;
+  };
+  const mkOpt = (name: string) => { const o = h('option', { value: name }, name) as HTMLOptionElement; if (name === fmt) o.selected = true; return o; };
+  const fkeys = reg ? Object.keys(reg.formations) : [];
+  const fStd = fkeys.filter(k => !isNovelty(k)), fExp = fkeys.filter(isNovelty);
+  const sel = reg ? h('select', { style: 'max-width:170px' },
+    ...(fStd.length ? [h('optgroup', { label: 'Standard' }, ...fStd.map(mkOpt))] : []),
+    ...(fExp.length ? [h('optgroup', { label: 'Experimental' }, ...fExp.map(mkOpt))] : []),
+  ) as HTMLSelectElement : null;
   if (sel) sel.addEventListener('change', () => apply(`play ${sel.value}`));
 
   const input = h('input', { placeholder: 'fine-tune in words — “AB at left back”, “push the full-backs on”' }) as HTMLInputElement;
@@ -570,7 +583,7 @@ async function screenDashboard() {
   league.standings.forEach((s, i) => {
     tbody.append(h('tr', { class: s.isUser ? 'me' : '' },
       h('td', { class: 'num' }, String(i + 1)),
-      h('td', {}, s.name, s.isUser ? h('span', { class: 'pill', style: 'margin-left:8px' }, 'you') : ''),
+      h('td', {}, s.name, s.isUser ? h('span', { class: 'pill', style: 'margin-left:8px' }, ' you') : ''),
       h('td', { class: 'num' }, String(s.played)),
       h('td', { class: 'num' }, String(s.won)), h('td', { class: 'num' }, String(s.drawn)), h('td', { class: 'num' }, String(s.lost)),
       h('td', { class: 'num' }, `${s.gf}:${s.ga}`),
@@ -863,7 +876,7 @@ async function screenWatch(fixtureId: number) {
     if (dirs.length) {
       receiptEl.appendChild(h('div', { class: 'muted', style: 'margin-top:6px' }, 'Standing plan:'));
       for (const d of dirs) receiptEl.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
-    } else if (!motivation.length && !changed && !note) {
+    } else if (!motivation.length && !changed && !note && !r?.formation) {
       receiptEl.appendChild(h('div', { class: 'muted' }, "Couldn't read that as an order or a word to the players.")); return;
     }
     if (note) receiptEl.appendChild(h('div', { class: 'muted' }, '• ' + note));
