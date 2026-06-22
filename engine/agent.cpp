@@ -276,7 +276,7 @@ Action PlayerAI::resolveChoice(SmallVector<Action, 24>& a) {
 
     if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22)) {
         if (Action* r = tryLowScoreFallback(a, best)) return *r;
-        if (player.role != Role::GK) {
+        if (!isGoalkeeper()) {
             // Pinned with no good option: SHIELD and work a passing angle (Hold ->
             // shield-and-shift) rather than dribbling forward INTO the presser and
             // losing it. Only when genuinely pressured; unpressured, drive into space.

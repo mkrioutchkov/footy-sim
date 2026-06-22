@@ -315,7 +315,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (assignment->role == DefensiveTask::RunAhead)        sc += 0.12;
         if ((assignment->role == DefensiveTask::CrossLane || assignment->role == DefensiveTask::HoldWidth)
             && (t.role == Role::WM || t.role == Role::FB) && std::abs(t.y - PITCH_H / 2.0) > 120.0) sc += 0.08;
-        if (assignment->role == DefensiveTask::Overlap && p.role != Role::CB) sc += 0.11;
+        if (assignment->role == DefensiveTask::Overlap && !isCenterBack()) sc += 0.11;
         if (assignment->role == DefensiveTask::AdvanceMidfield) sc += 0.09;
         if (assignment->role == DefensiveTask::HoldWidth && std::abs(t.y - p.y) > 120.0) sc += 0.08;
     }

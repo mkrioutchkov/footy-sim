@@ -158,7 +158,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 // cm() — can-mark
 // ══════════════════════════════════════════════════════════════════════════════
 Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
-    if (player.role != Role::CB && player.role != Role::FB) return Action{ActionType::Mark, 0.0};
+    if (!isDefenderRole()) return Action{ActionType::Mark, 0.0};
     if (per.ballControllerTeam == player.team && !per.ballIsLoose) return Action{ActionType::Mark, 0.0};
 
     if (per.ballIsLoose && per.intendedId >= 0) {
