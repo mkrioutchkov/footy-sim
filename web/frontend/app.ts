@@ -1811,10 +1811,11 @@ async function screenSquad() {
   };
   const players = [...team.players];
   const leadOf = (p: PlayerT) => (p.personality?.traits?.leadership ?? -1);
-  // captain = highest leadership, but only when at least one player HAS personality data — don't
-  // fabricate a captain on players[0] for a squad with no dials yet (review fix).
-  const captain = players.length ? players.reduce((best, p) => leadOf(p) > leadOf(best) ? p : best, players[0]) : null;
-  const captainSlot = captain && leadOf(captain) >= 0 ? captain.slot : -1;
+  // §2.11: the MANAGER's chosen captain wins; otherwise the highest-leadership player (and only when at
+  // least one player HAS personality data — don't fabricate a captain on players[0] for a dial-less squad).
+  const autoCap = players.length ? players.reduce((best, p) => leadOf(p) > leadOf(best) ? p : best, players[0]) : null;
+  const autoSlot = autoCap && leadOf(autoCap) >= 0 ? autoCap.slot : -1;
+  const captainSlot = team.captainSlot != null && players.some(p => p.slot === team.captainSlot) ? team.captainSlot : autoSlot;
 
   let sortKey = 'slot', sortDir: 1 | -1 = 1, cmpA = -1, cmpB = -1;
   const COLS: { key: string; label: string; text?: boolean; get: (p: PlayerT) => number | string }[] = [
@@ -1846,8 +1847,19 @@ async function screenSquad() {
     const tbody = h('tbody');
     for (const p of sorted) {
       const ovr = skillOvr(p.attrs);
+      const isCap = captainSlot === p.slot;
+      // §2.11: a clickable armband — the captain shows 🧭, others a faint one; clicking names/clears the captain.
+      const capArm = h('span', {
+        title: isCap ? 'Club captain — click to reset to auto (highest leader)' : `Make ${p.name} captain`,
+        style: `cursor:pointer;margin-right:4px;${isCap ? '' : 'opacity:.25'}`,
+      }, '🧭');
+      capArm.addEventListener('click', async (e: any) => {
+        e.stopPropagation();
+        try { const r = await api.setCaptain(isCap ? -1 : p.slot); toast(r.captainSlot == null ? 'Captain reset to auto (top leader)' : `${p.name} takes the armband`); screenSquad(); }
+        catch (err: any) { toast(err.message); }
+      });
       tbody.append(h('tr', { class: p.slot < 11 ? 'me' : '' },
-        h('td', {}, captainSlot === p.slot ? h('span', { title: 'Club captain (highest leadership)', style: 'margin-right:4px' }, '🧭') : '',
+        h('td', {}, capArm,
           h('span', { style: 'cursor:pointer', onclick: () => (location.hash = `#/player/${p.slot}`) }, p.name),
           p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:10px' }, ' · bench') : '',
           seekingMove(p) ? h('span', { class: 'pill', title: 'Running down his contract and unsettled — likely to push for a move', style: 'margin-left:5px;background:var(--danger);color:#fff;font-size:9px' }, 'seeking move') : ''),
@@ -1910,7 +1922,7 @@ async function screenSquad() {
 
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
-        h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain · click a header to sort`)),
+        h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain (click the armband to set — a strong leader steadies squad morale) · click a header to sort`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
       h('div', { class: 'card scroll-x' }, h('table', {}, thead, tbody)),
       rotationCard,

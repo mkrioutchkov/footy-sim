@@ -38,7 +38,7 @@ export interface PlayerT { slot: number; name: string; role: string; attrs: Reco
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
-  formation: string; lineup: number[] | null; budget?: number; wageBudget?: number; wageBill?: number; trainingFocus?: string; sacked?: boolean;
+  formation: string; lineup: number[] | null; budget?: number; wageBudget?: number; wageBill?: number; trainingFocus?: string; sacked?: boolean; captainSlot?: number | null;
   planText?: string | null; plan?: PlanT | null;
 }
 export interface LineupSlotT { slot: number; role: string; homeX: number; homeY: number; playerName: string; fromSlot: number; misfit?: boolean; }
@@ -169,6 +169,7 @@ export const api = {
   withdrawOffer: (id: number) => req<{ ok: boolean; offers: OfferT[] }>('POST', `/offer/${id}/withdraw`),
   matchOffer: (id: number) => req<{ ok: boolean; status: string; player?: string; fee?: number; market: MarketT; offers: OfferT[] }>('POST', `/offer/${id}/match`),
   setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
+  setCaptain: (slot: number) => req<{ ok: boolean; captainSlot: number | null }>('PUT', '/captain', { slot }),
   setPlayerTraining: (slot: number, focus: string) => req<{ ok: boolean; focus: string | null }>('PUT', '/training/player', { slot, focus }),
   trainingReport: () => req<{ report: TrainingReportT | null }>('GET', '/training-report'),
   setPlayerStory: (slot: number, backstory: string, tagline: string) =>
