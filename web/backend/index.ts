@@ -17,7 +17,7 @@ import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
-import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, offersForTeam, withdrawOffer, matchCounter, aiListSurplus } from './market.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer } from './market.ts';
 import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
@@ -307,6 +307,30 @@ app.post('/api/offer/:id/match', async (req: any, reply) => {
   const r = matchCounter(teamId, Number(req.params.id));
   if (r.status === 'error') return reply.code(400).send({ error: r.error });
   return { ...r, market: getMarket(teamId), offers: offersForTeam(teamId) };
+});
+
+// §2.1: INCOMING bids — other clubs bidding for YOUR listed players. List them, accept (sell), or reject.
+app.get('/api/incoming-offers', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { incoming: incomingOffersForTeam(teamId) };
+});
+app.post('/api/offer/:id/accept', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const r = acceptIncomingOffer(teamId, Number(req.params.id));
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, market: getMarket(teamId), incoming: incomingOffersForTeam(teamId) };
+});
+app.post('/api/offer/:id/reject', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const r = rejectIncomingOffer(teamId, Number(req.params.id));
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, incoming: incomingOffersForTeam(teamId) };
 });
 
 // Rewrite a player's backstory/tagline and RE-DERIVE their trait dials from the new text
@@ -645,6 +669,7 @@ app.post('/api/advance', async (req: any, reply) => {
   // every player trains.
   const transfers: any[] = [];
   const listingsExpired: any[] = [];   // §2.4: the user's listings that lapsed unsold at the window deadline
+  const incomingBids: any[] = [];      // §2.1: other clubs bidding for the user's listed players this matchday
   const injuries: any[] = [];
   const contractEvents: any[] = [];
   let income = 0;                       // §P2: the user's matchday gate & TV income this tick
@@ -653,8 +678,9 @@ app.post('/api/advance', async (req: any, reply) => {
     income += payMatchdayIncome(l.id).filter(e => e.teamId === teamId).reduce((s, e) => s + e.amount, 0);
     injuries.push(...fitnessTick(l.id)); moraleTick(l.id);
     const mkt = marketTick(l.id);
-    transfers.push(...mkt.filter(e => e.type !== 'listing_expired'));
+    transfers.push(...mkt.filter(e => e.type === 'sign' || e.type === 'buy_listed'));
     listingsExpired.push(...mkt.filter(e => e.type === 'listing_expired' && e.teamId === teamId));
+    incomingBids.push(...mkt.filter(e => e.type === 'incoming_bid' && e.teamId === teamId));
     contractEvents.push(...processContractOffers(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players;
   }
   // The cup is spread across the season — round R plays once the league reaches matchday R*3,
@@ -683,6 +709,7 @@ app.post('/api/advance', async (req: any, reply) => {
     transfers, development: { players: developed }, injuries, cup, rollover,
     contractOffers: contractEvents.filter(e => e.teamId === teamId),   // §2.2: my renewal verdicts this matchday
     listingsExpired,   // §2.4: my listings that lapsed unsold
+    incomingBids,      // §2.1: other clubs bidding for my listed players
     income,            // §P2: matchday gate & TV income credited this tick
     standings: standings(nowLeagueId),
   };

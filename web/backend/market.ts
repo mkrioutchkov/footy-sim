@@ -263,6 +263,9 @@ function completeOffer(o: OfferRow): { ok: boolean; placed?: 'xi' | 'bench'; pla
   const p = db.prepare(`SELECT p.*, (SELECT name FROM teams WHERE id = ?) AS club FROM players p WHERE p.id = ?`)
     .get(o.seller_team_id, o.player_id) as (PRow & { team_id: number; parent_team_id: number | null; club: string }) | undefined;
   if (!buyer || !p || p.team_id !== o.seller_team_id || p.parent_team_id != null) return { ok: false };
+  // the SELLER must keep a legal XI — re-checked at COMPLETION, not just at offer creation, so accepting
+  // a second incoming bid (or any stale offer) can't drop the squad below SQUAD_MIN (review fix).
+  if (teamPlayers(o.seller_team_id).length <= SQUAD_MIN) return { ok: false };
   if (buyer.budget < o.fee || teamPlayers(o.buyer_team_id).length >= SQUAD_MAX || wageBill(o.buyer_team_id) + (p.wage ?? 0) > buyer.wage_budget) return { ok: false };
   const placed = tx(() => transferListed(o.buyer_team_id, o.seller_team_id, p as PRow, o.fee));
   return { ok: true, placed, player: p.name, club: p.club };
@@ -275,9 +278,11 @@ export function processOffers(leagueId: number): OfferEvent[] {
   const events: OfferEvent[] = [];
   const cur = transferWindow(leagueId).current;
   const setStatus = db.prepare('UPDATE transfer_offers SET status = ? WHERE id = ?');
+  // Only AUTO-resolve offers whose SELLER is AI (the seller's verdict is automated). An offer on a HUMAN's
+  // listed player is an INCOMING bid the manager resolves himself (acceptIncomingOffer) — skip it here.
   const pending = db.prepare(`SELECT o.*, COALESCE(pl.name, '') AS player_name FROM transfer_offers o
-      JOIN teams b ON b.id = o.buyer_team_id LEFT JOIN players pl ON pl.id = o.player_id
-      WHERE o.status = 'pending' AND b.league_id = ? ORDER BY o.player_id, o.fee DESC, o.id ASC`)
+      JOIN teams b ON b.id = o.buyer_team_id JOIN teams st ON st.id = o.seller_team_id LEFT JOIN players pl ON pl.id = o.player_id
+      WHERE o.status = 'pending' AND b.league_id = ? AND st.user_id IS NULL ORDER BY o.player_id, o.fee DESC, o.id ASC`)
     .all(leagueId) as unknown as (OfferRow & { player_name: string })[];
   const sold = new Set<number>();
   for (const o of pending) {
@@ -295,7 +300,55 @@ export function processOffers(leagueId: number): OfferEvent[] {
   }
   // a countered offer the buyer never matched also lapses
   db.prepare("UPDATE transfer_offers SET status='expired' WHERE status='countered' AND expires_round < ? AND buyer_team_id IN (SELECT id FROM teams WHERE league_id = ?)").run(cur, leagueId);
+  // §2.1: an INCOMING bid (seller = human) the manager left unanswered past its window also lapses
+  db.prepare("UPDATE transfer_offers SET status='expired' WHERE status = 'pending' AND expires_round < ? AND seller_team_id IN (SELECT id FROM teams WHERE league_id = ? AND user_id IS NOT NULL)").run(cur, leagueId);
   return events;
+}
+
+// §2.1 incoming offers (AI → HUMAN). An AI club tables a pending bid for the human's listed player
+// (createIncomingOffer, from marketTick); the manager resolves it. One live bid per buyer/player so the
+// board doesn't spam, but several clubs may bid on the same man (an auction the human picks from).
+function createIncomingOffer(buyerId: number, sellerId: number, playerId: number, fee: number, leagueId: number): boolean {
+  if (db.prepare("SELECT 1 FROM transfer_offers WHERE buyer_team_id = ? AND player_id = ? AND status IN ('pending','countered')").get(buyerId, playerId)) return false;
+  const cur = transferWindow(leagueId).current;
+  db.prepare(`INSERT INTO transfer_offers (buyer_team_id, seller_team_id, player_id, fee, status, created_round, expires_round, created_at)
+    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`).run(buyerId, sellerId, playerId, fee, cur, cur + OFFER_TTL, Date.now());
+  return true;
+}
+
+export interface IncomingOfferView { id: number; club: string; playerSlot: number | null; playerName: string; fee: number; status: string; }
+// The club's incoming bids (other clubs bidding for YOUR listed players): live + recently-resolved.
+export function incomingOffersForTeam(teamId: number): IncomingOfferView[] {
+  return (db.prepare(`SELECT o.id, b.name AS club, o.fee, o.status, COALESCE(pl.name, '(sold / departed)') AS player_name, pl.slot AS player_slot
+      FROM transfer_offers o JOIN teams b ON b.id = o.buyer_team_id LEFT JOIN players pl ON pl.id = o.player_id
+      WHERE o.seller_team_id = ? AND o.status IN ('pending','accepted','rejected') ORDER BY o.id DESC LIMIT 20`)
+    .all(teamId) as unknown as { id: number; club: string; fee: number; status: string; player_name: string; player_slot: number | null }[])
+    .map(r => ({ id: r.id, club: r.club, playerSlot: r.player_slot, playerName: r.player_name, fee: r.fee, status: r.status }));
+}
+
+// Accept an incoming bid — sell the player to the bidding club at his fee (the buyer's books are
+// re-checked, since they may have moved). Rejects any rival pending bids on the now-sold player.
+export function acceptIncomingOffer(teamId: number, offerId: number): { ok: boolean; error?: string; club?: string; player?: string; fee?: number } {
+  const o = db.prepare("SELECT * FROM transfer_offers WHERE id = ? AND seller_team_id = ? AND status = 'pending'").get(offerId, teamId) as unknown as OfferRow | undefined;
+  if (!o) return { ok: false, error: 'no such live offer' };
+  // a club-to-club sale needs an open window — a late-landing bid can outlive the window by OFFER_TTL,
+  // so gate ACCEPTANCE too (every other transfer path is window-gated; review fix).
+  const seller = teamRow(teamId);
+  if (seller && !transferWindow(seller.league_id).open) return { ok: false, error: 'the transfer window is shut' };
+  const player = (db.prepare('SELECT name FROM players WHERE id = ?').get(o.player_id) as { name: string } | undefined)?.name;
+  const buyerName = (db.prepare('SELECT name FROM teams WHERE id = ?').get(o.buyer_team_id) as { name: string } | undefined)?.name;
+  const done = completeOffer(o);
+  if (!done.ok) return { ok: false, error: 'the deal fell through — the bidding club’s books moved' };
+  db.prepare("UPDATE transfer_offers SET status = 'accepted' WHERE id = ?").run(offerId);
+  db.prepare("UPDATE transfer_offers SET status = 'rejected' WHERE player_id = ? AND status = 'pending' AND id != ?").run(o.player_id, offerId);
+  return { ok: true, club: buyerName, player, fee: o.fee };
+}
+
+export function rejectIncomingOffer(teamId: number, offerId: number): { ok: boolean; error?: string } {
+  const o = db.prepare("SELECT id FROM transfer_offers WHERE id = ? AND seller_team_id = ? AND status = 'pending'").get(offerId, teamId) as { id: number } | undefined;
+  if (!o) return { ok: false, error: 'no such live offer' };
+  db.prepare("UPDATE transfer_offers SET status = 'rejected' WHERE id = ?").run(offerId);
+  return { ok: true };
 }
 
 // A buyer's recent offers (outgoing) for the UI: live + recently-resolved, newest first.
@@ -468,7 +521,7 @@ export function releasePlayerToFreeAgents(teamId: number, slot: number): boolean
   return removePlayerFromSquad(teamId, slot);
 }
 
-export interface MarketEvent { teamId: number; teamName: string; type: 'sign' | 'buy_listed' | 'listing_expired'; player: string; role: string; fee: number; from?: string; }
+export interface MarketEvent { teamId: number; teamName: string; type: 'sign' | 'buy_listed' | 'listing_expired' | 'incoming_bid'; player: string; role: string; fee: number; from?: string; }
 
 // §2.4: maintain transfer listings against the deadline. While a window is open, stamp any live listing
 // with that window's deadline; once the deadline passes, an unsold listing lapses (auto-unlisted) — a
@@ -517,14 +570,19 @@ export function marketTick(leagueId: number): MarketEvent[] {
     if (!transferWindow(leagueId).open) continue;
     const listings = db.prepare(`
       SELECT p.id, p.slot, p.name, p.role, p.attrs, p.age, p.potential, p.personality, p.listed, p.ask_price, p.wage, p.contract_years,
-             p.team_id AS seller_id, t.name AS seller_name,
+             p.team_id AS seller_id, t.name AS seller_name, t.user_id AS seller_user_id,
              (SELECT COUNT(*) FROM players px WHERE px.team_id = p.team_id) AS seller_count
       FROM players p JOIN teams t ON t.id = p.team_id
       WHERE t.league_id = ? AND p.listed = 1 AND p.team_id != ? AND p.role = ? AND p.ask_price <= ?
-      ORDER BY p.ask_price ASC`).all(leagueId, id, weak.role, team.budget) as unknown as (PRow & { seller_id: number; seller_name: string; seller_count: number })[];
+      ORDER BY p.ask_price ASC`).all(leagueId, id, weak.role, team.budget) as unknown as (PRow & { seller_id: number; seller_name: string; seller_user_id: number | null; seller_count: number })[];
     const pick = listings.find(l => l.seller_count > SQUAD_MIN && overall(JSON.parse(l.attrs)) > weak.target && (l.wage ?? 0) <= headroom);
-    if (pick) {
-      tx(() => transferListed(id, pick.seller_id, pick, pick.ask_price!));
+    if (pick && pick.seller_user_id != null) {
+      // §2.1: an AI can't just take a HUMAN's listed player — it tables a PENDING INCOMING offer the
+      // manager accepts / rejects (the other half of the signing drama). Multiple AIs = an auction.
+      if (createIncomingOffer(id, pick.seller_id, pick.id, pick.ask_price!, leagueId))
+        events.push({ teamId: pick.seller_id, teamName: pick.seller_name, type: 'incoming_bid', player: pick.name, role: pick.role, fee: pick.ask_price!, from: team.name });
+    } else if (pick) {
+      tx(() => transferListed(id, pick.seller_id, pick, pick.ask_price!));   // AI-to-AI: still instant
       events.push({ teamId: id, teamName: team.name, type: 'buy_listed', player: pick.name, role: pick.role, fee: pick.ask_price!, from: pick.seller_name });
     }
   }
