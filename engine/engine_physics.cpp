@@ -111,13 +111,13 @@ bool GameEngine::checkGoal(){
                 else lastGoal.source=GoalSource::DirectDelivery;
             }else if(pendingPass.active){
                 lastGoal.source=GoalSource::TackleDeflection;
-            }else if(lastLooseOrigin=="tackle_deflection"){
+            }else if(lastLooseOrigin == LooseOrigin::TackleDeflection){
                 lastGoal.source=GoalSource::TackleDeflection;
-            }else if(lastLooseOrigin=="goalkeeper_parry"){
+            }else if(lastLooseOrigin == LooseOrigin::GoalkeeperParry){
                 lastGoal.source=GoalSource::GoalkeeperParry;
-            }else if(lastLooseOrigin=="shot"){
+            }else if(lastLooseOrigin == LooseOrigin::Shot){
                 lastGoal.source=GoalSource::ShotStateLost;
-            }else if(lastLooseOrigin=="knock_ahead"){
+            }else if(lastLooseOrigin == LooseOrigin::KnockAhead){
                 resolveKnockAhead(nullptr,"goal");
                 lastGoal.source=GoalSource::KnockAhead;
             }else if(b.lastTouchTeam==scoringTeam&&b.lastToucherId>=0){
@@ -178,7 +178,7 @@ bool GameEngine::checkWoodwork() {
         b.vz = -std::abs(b.vz) * 0.45 - 30.0;
         b.vy *= 0.70;
         b.curl = 0.0;
-        lastLooseOrigin = "woodwork";
+        lastLooseOrigin = LooseOrigin::Woodwork;
         emitEvent("woodwork", goalX, b.y, b.lastToucherId);
         return true;
     }
@@ -191,7 +191,7 @@ bool GameEngine::checkWoodwork() {
         b.vy = postSide * std::abs(b.vy) * 0.55;   // shove back off the upright
         b.vz *= 0.6;
         b.curl = 0.0;
-        lastLooseOrigin = "woodwork";
+        lastLooseOrigin = LooseOrigin::Woodwork;
         emitEvent("woodwork", goalX, center + postSide * half, b.lastToucherId);
         return true;
     }
@@ -205,7 +205,7 @@ bool GameEngine::checkOutOfPlay() {
         resolveKnockAhead(nullptr, "out_of_play");
         pendingPass.active = false;
         shot.clearFlags();
-        lastLooseOrigin.clear();
+        lastLooseOrigin = LooseOrigin::None;
     };
     if (b.y < 0 || b.y > PITCH_H) {
         clearState();
@@ -302,13 +302,13 @@ void GameEngine::checkBallPlayerCollision(double){
             // but a DYING ball (<140px/s) is anyone's: a keeper watching a
             // trickler roll past him into the net is absurd. (Re-anchored from
             // 220 with the ~0.62x shot-speed reduction.)
-            if (lastLooseOrigin == "shot" && bs > 140.0 && p.team != shot.team && !shot.scoopAllowed) continue;
+            if (lastLooseOrigin == LooseOrigin::Shot && bs > 140.0 && p.team != shot.team && !shot.scoopAllowed) continue;
             double goalX = ownGoalXFor(p.team);
             bool ballInOwnArea = std::abs(b.x - goalX) < PENALTY_AREA_W
                 && std::abs(b.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
             if (!ballInOwnArea) continue;
             double d = dist(p.x, p.y, b.x, b.y);
-            bool dyingShot = lastLooseOrigin == "shot" && bs < 140.0;
+            bool dyingShot = lastLooseOrigin == LooseOrigin::Shot && bs < 140.0;
             double reach = dyingShot ? GK_LOOSE_COLLECT_DIST + 6.0
                 : (bs > 120.0 ? GK_LOOSE_COLLECT_FAST_DIST : GK_LOOSE_COLLECT_DIST);
             if (d > reach) continue;
@@ -324,7 +324,7 @@ void GameEngine::checkBallPlayerCollision(double){
             // only if the ball was actually goal-bound (else saves > shots-on-
             // target, which is impossible). Record the on-target shot too so
             // the ledger stays consistent (saves <= shotsOnTarget).
-            if (lastLooseOrigin == "shot" && keeperContact->team != shot.team) {
+            if (lastLooseOrigin == LooseOrigin::Shot && keeperContact->team != shot.team) {
                 double goalX = ownGoalXFor(keeperContact->team);
                 double along = std::max(std::abs(b.vx), 1.0);
                 double projY = b.y + b.vy * (std::abs(b.x - goalX) / along);
@@ -494,7 +494,7 @@ void GameEngine::checkBallPlayerCollision(double){
         // Exception: defenders ASSIGNED to the shot lane are the designated
         // wall — deliberate positioning earns physical contact; bystanders
         // still can't eat shots.
-        bool shotInFlight=lastLooseOrigin=="shot"&&bs>95.0;
+        bool shotInFlight=lastLooseOrigin == LooseOrigin::Shot&&bs>95.0;
         bool designatedWall=false;
         if(shotInFlight&&p.id!=shot.blockerId&&p.team!=shot.team&&p.role!=Role::GK){
             const auto* task=assignmentFor(p.id);
@@ -587,15 +587,15 @@ void GameEngine::checkBallPlayerCollision(double){
         if(contact->team==lastCollectionTeam)lastSameTeamCollectionMs=state.clockMs-500;
         blockReboundFor(contact->id,600);
         bool wallBlock=false;
-        if(lastLooseOrigin=="shot"&&contact->id!=shot.blockerId&&contact->team!=shot.team){
+        if(lastLooseOrigin == LooseOrigin::Shot&&contact->id!=shot.blockerId&&contact->team!=shot.team){
             const auto* task=assignmentFor(contact->id);
             wallBlock=task&&task->role==DefensiveTask::ShotLane;
         }
-        if(lastLooseOrigin=="shot"&&(contact->id==shot.blockerId||wallBlock)){
+        if(lastLooseOrigin == LooseOrigin::Shot&&(contact->id==shot.blockerId||wallBlock)){
             stats.recordShotBlocked();
             emitEvent("block", contact->x, contact->y, contact->id, shot.shooterId);
             shot.active=false; shot.tracked=false;
-            lastLooseOrigin="shot_block";
+            lastLooseOrigin = LooseOrigin::ShotBlock;
             // A block close to the defender's own line that deflects goalward
             // often loops behind for a corner — another corner source the
             // engine never produced.
@@ -654,7 +654,7 @@ void GameEngine::collectBall(Player& c) {
         firstTouchUntilMs[c.id] = state.clockMs + settle;
     }
     shot.clearFlags();
-    lastLooseOrigin.clear();
+    lastLooseOrigin = LooseOrigin::None;
     b.controllerId = c.id;
     b.intendedReceiverId = -1;
     b.curl = 0.0;

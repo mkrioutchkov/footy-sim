@@ -103,7 +103,7 @@ void GameEngine::kickoff(Team t){
     shot.dribble20m=false;
     pendingSave.active=false;   // no stale dive carried across a restart
     advantage.active=false;     // a goal/half-time supersedes any pending advantage
-    lastLooseOrigin.clear();
+    lastLooseOrigin = LooseOrigin::None;
     for(auto&p:state.players){
         if(p.sentOff){p.x=clamp(p.homeX,30.0,PITCH_W-30.0);p.y=-40.0;p.targetX=p.x;p.targetY=p.y;p.vx=p.vy=0;continue;}
         double margin=(p.team==t)?30.0:45.0;
@@ -164,7 +164,7 @@ void GameEngine::fixedUpdate(double sdt) {
     // single guarantee that backstops every per-system exclusion.
     for (auto& p : state.players) {
         if (!p.sentOff) continue;
-        if (state.ball.controllerId == p.id) { state.ball.controllerId = -1; state.ball.intendedReceiverId = -1; lastLooseOrigin.clear(); }
+        if (state.ball.controllerId == p.id) { state.ball.controllerId = -1; state.ball.intendedReceiverId = -1; lastLooseOrigin = LooseOrigin::None; }
         p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0); p.y = -40.0;
         p.targetX = p.x; p.targetY = p.y; p.vx = p.vy = 0;
     }
@@ -181,7 +181,7 @@ void GameEngine::fixedUpdate(double sdt) {
             b.x = clamp(advantage.foulX, 20.0, PITCH_W - 20.0);
             b.y = clamp(advantage.foulY, 20.0, PITCH_H - 20.0);
             b.lastTouchTeam = advantage.team; b.lastToucherId = -1; b.intendedReceiverId = -1;
-            lastLooseOrigin.clear();
+            lastLooseOrigin = LooseOrigin::None;
             awardSetPiece(SetPiece::FreeKick, advantage.team);  // zeroes vel+control, sets spot+armed
             advantage.active = false;
         }
@@ -1050,7 +1050,7 @@ void GameEngine::sendOff(Player& p) {
     stats.recordRedCard();
     // Park him off the pitch by his own touchline — the slot stays in the
     // array (lookups depend on it) but he's out of play and out of the way.
-    if (state.ball.controllerId == p.id) { state.ball.controllerId = -1; state.ball.intendedReceiverId = -1; lastLooseOrigin.clear(); }
+    if (state.ball.controllerId == p.id) { state.ball.controllerId = -1; state.ball.intendedReceiverId = -1; lastLooseOrigin = LooseOrigin::None; }
     p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
     p.y = -40.0;
     p.targetX = p.x; p.targetY = p.y;

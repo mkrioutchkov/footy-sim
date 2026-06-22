@@ -40,7 +40,7 @@ void GameEngine::emitEvent(const std::string& type,double x,double y,int playerI
 void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isThrough) {
     stats.recordPassAttempt();
     if(isThrough) stats.recordThroughBallAttempt();
-    lastLooseOrigin.clear();
+    lastLooseOrigin = LooseOrigin::None;
     double speed=std::hypot(state.ball.vx,state.ball.vy);
     metrics.passLaunchSpeedTotal+=speed; metrics.passLaunchCount++;
     stats.recordPassLaunch(speed);
@@ -121,7 +121,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             b.vz = 95.0;
             b.lastTouchTeam = receiver.team;
             b.lastToucherId = receiver.id;
-            lastLooseOrigin = "header_clearance";
+            lastLooseOrigin = LooseOrigin::HeaderClearance;
             pendingPass.active = false;
             recordBallImpulse();
             return true;
@@ -182,7 +182,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             b.vz = 45.0;
             b.lastTouchTeam = receiver.team;
             b.lastToucherId = receiver.id;
-            lastLooseOrigin = "header_layoff";
+            lastLooseOrigin = LooseOrigin::HeaderLayoff;
             pendingPass.active = false;
             recordBallImpulse();
             return true;
@@ -607,7 +607,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             b.controllerId=-1;
             b.intendedReceiverId=-1;
             b.lastTouchTeam=carrier.team; b.lastToucherId=carrier.id;
-            lastLooseOrigin.clear();
+            lastLooseOrigin = LooseOrigin::None;
             blockReboundFor(tackler.id,650);
             double defendingGoalX = ownGoalXFor(tackler.team);
             double defendingFd = fdFor(tackler.team);
@@ -651,7 +651,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         b.intendedReceiverId=-1;
         receiverShieldUntil=state.clockMs+260;
         receiverShieldedPlayerId=tackler.id;
-        lastLooseOrigin.clear();
+        lastLooseOrigin = LooseOrigin::None;
         blockReboundFor(carrier.id,450);
         carrier.vx=carrier.vy=0;
         return true;
@@ -681,7 +681,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     if(b.x<10||b.x>PITCH_W-10||b.y<10||b.y>PITCH_H-10){stats.recordSlideTackleOob();}
     b.lastTouchTeam=tackler.team; b.lastToucherId=tackler.id;
     b.intendedReceiverId=-1; b.z=b.vz=0;
-    lastLooseOrigin="tackle_deflection";
+    lastLooseOrigin = LooseOrigin::TackleDeflection;
     recordBallImpulse();
     blockReboundFor(tackler.id,250);
     blockReboundFor(carrier.id,450);
@@ -871,7 +871,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     stats.recordShotLaunch(speed);
     recordBallImpulse();
     pendingPass.active=false;
-    lastLooseOrigin="shot";
+    lastLooseOrigin = LooseOrigin::Shot;
     pendingSave.active=false;   // a fresh shot supersedes any in-flight save
     receiverShieldTargetId=-1;
     shot.active=true; shot.tracked=true; shot.preventable=false; shot.header=freshCross; shot.dribble20m=dribble20mShot; shot.team=s.team; shot.shooterId=s.id; shot.originX=s.x; shot.originY=s.y;
@@ -932,7 +932,7 @@ bool GameEngine::knockBallAhead(Player& carrier, double targetX, double targetY)
     b.z = b.vz = 0;
     b.lastTouchTeam = carrier.team;
     b.lastToucherId = carrier.id;
-    lastLooseOrigin = "knock_ahead";
+    lastLooseOrigin = LooseOrigin::KnockAhead;
     recordBallImpulse();
     stats.recordKnockAhead(launchSpeed);
     if (risky) { stats.recordRiskyKnockAhead(); }

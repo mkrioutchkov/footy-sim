@@ -264,7 +264,7 @@ public:
         bool risky = false;
     } activeKnockAhead;
     std::array<double, 22> knockAheadCooldownUntil = {};
-    std::string lastLooseOrigin;
+    LooseOrigin lastLooseOrigin = LooseOrigin::None;
     struct VisualEvent {
         std::string type;
         double x = 0, y = 0, clockMs = 0;

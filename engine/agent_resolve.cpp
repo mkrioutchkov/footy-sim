@@ -153,7 +153,7 @@ Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
         bool priorityChaser = engine.state.ball.intendedReceiverId == player.id
                            || engine.isActiveKnockAheadRunner(player.id)
                            || looseBallDist < 30.0
-                           || (engine.lastLooseOrigin == "goalkeeper_parry" && looseBallDist < 230.0);
+                           || (engine.lastLooseOrigin == LooseOrigin::GoalkeeperParry && looseBallDist < 230.0);
         auto ps = checkPressSlots(bb, player.id);
         if (!priorityChaser && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
             for (auto& x : a)

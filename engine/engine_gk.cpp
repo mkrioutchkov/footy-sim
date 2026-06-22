@@ -52,7 +52,7 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     // and even send him forward, so stoppable shots rolled past a flat keeper).
     {
         double bspd = std::hypot(state.ball.vx, state.ball.vy);
-        bool shotToGoal = lastLooseOrigin == "shot" && bspd > 150.0
+        bool shotToGoal = lastLooseOrigin == LooseOrigin::Shot && bspd > 150.0
             && (gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0)
             && bdg < 320.0;
         if (shotToGoal) {
@@ -290,7 +290,7 @@ void GameEngine::resolvePendingSave() {
     Player* gk = playerById(pendingSave.gkId);
     double bs = std::hypot(b.vx, b.vy);
     // Invalidate: someone touched it, it stopped being a live shot, or died.
-    if (!gk || b.controllerId >= 0 || lastLooseOrigin != "shot" || bs < 40.0) {
+    if (!gk || b.controllerId >= 0 || lastLooseOrigin != LooseOrigin::Shot || bs < 40.0) {
         pendingSave.active = false;
         return;
     }
@@ -342,7 +342,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
         blockReboundFor(shooterId, 250);
         b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
         goalKickMonitor.distributeTimer = GK_DISTRIBUTE_MS;
-        lastLooseOrigin = "goalkeeper_catch";
+        lastLooseOrigin = LooseOrigin::GoalkeeperCatch;
         recordBallImpulse();
         return;
     }
@@ -399,7 +399,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     b.intendedReceiverId = -1;
     blockReboundFor(shooterId, punch ? 900 : 1400);
     b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
-    lastLooseOrigin = punch ? "goalkeeper_punch" : "goalkeeper_parry";
+    lastLooseOrigin = punch ? LooseOrigin::GoalkeeperPunch : LooseOrigin::GoalkeeperParry;
     recordBallImpulse();
 }
 
@@ -438,7 +438,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
         b.intendedReceiverId = -1;
         b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
         goalKickMonitor.distributeTimer = GK_DISTRIBUTE_MS;
-        lastLooseOrigin = "goalkeeper_claim";
+        lastLooseOrigin = LooseOrigin::GoalkeeperClaim;
         stats.recordClaimCatch();
         emitEvent("claim", gk.x, gk.y, gk.id);
         blockReboundFor(pendingPass.fromId, 250);
@@ -469,7 +469,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
         b.curl = 0;
         b.intendedReceiverId = -1;
         b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
-        lastLooseOrigin = "goalkeeper_punch";
+        lastLooseOrigin = LooseOrigin::GoalkeeperPunch;
         blockReboundFor(gk.id, 900);
         blockReboundFor(pendingPass.fromId, 900);
         recordBallImpulse();

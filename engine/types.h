@@ -34,6 +34,15 @@ enum class GoalSource : uint8_t {
     OwnPass, UnknownLoose, LooseUnclassified
 };
 
+// How the ball came loose — replaces the stringly-typed lastLooseOrigin. Drives the
+// shot/save/block/header collection logic (e.g. a live shot vs a settled ball).
+// Internal only (never emitted as a string).
+enum class LooseOrigin : uint8_t {
+    None = 0, Shot, ShotBlock, TackleDeflection, KnockAhead,
+    HeaderClearance, HeaderLayoff, Woodwork,
+    GoalkeeperCatch, GoalkeeperClaim, GoalkeeperParry, GoalkeeperPunch
+};
+
 enum class QualityFlag : uint8_t {
     Unknown = 0,
     WhyNoShoot,
