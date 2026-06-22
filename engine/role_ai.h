@@ -38,6 +38,7 @@ public:
     double roleBonusForPassTarget() const override { return 0.36; }
     double shotMaxDistance() const override { return 215.0; }
     double shotRoleError(bool freshCross, double) const override { return freshCross ? -8.0 : 0.0; }
+    double spaceCarryRoleBonus() const override { return 0.18; }
     double freshCrossMaxDistance() const override { return 270.0; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return -0.04; }
@@ -66,6 +67,7 @@ public:
     double roleBonusForPassTarget() const override { return 0.00; }
     double shotMaxDistance() const override { return 220.0; }
     double shotRoleError(bool freshCross, double shotDistance) const override { return freshCross ? 58.0 : (shotDistance > 130.0 ? 30.0 : 0.0); }
+    double spaceCarryRoleBonus() const override { return 0.18; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return 0.06; }
     double shotDistancePenalty(double shotDistance) const override { return shotDistance > 110.0 ? -0.12 : -0.07; }
@@ -119,6 +121,7 @@ public:
     FBPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
     void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
     double shotMaxDistance() const override { return 205.0; }
+    double spaceCarryRoleBonus() const override { return 0.12; }
     double tackleBaseScore() const override { return 0.50; }
     double tackleRoleAdjust() const override { return 0.0; }
     double tackleDistCoeff() const override { return 0.35; }

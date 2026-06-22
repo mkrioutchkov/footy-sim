@@ -196,8 +196,7 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             if (x.type == ActionType::Dribble && pc == 1) x.score += 0.10;
             if (x.type == ActionType::Dribble && pc >= 3) x.score -= 0.10;
             if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space && carryLaunchZone && hasGrassToCarry) {
-                double roleBoost = (player.role == Role::WM || player.role == Role::CM) ? 0.18 : (player.role == Role::FB ? 0.12 : 0.08);
-                x.score += roleBoost;
+                x.score += spaceCarryRoleBonus();
             }
             bool earlyAttackingOutlet = x.type == ActionType::Pass
                 && x.target

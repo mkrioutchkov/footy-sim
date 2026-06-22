@@ -133,6 +133,9 @@ public:
     virtual double  dribbleOwnHalfExtraPenalty() const { return -0.02; }
     virtual double  openSpaceDribbleBonus(double nearestOppDist) const { (void)nearestOppDist; return 0.0; }
     virtual double  nearGoalDribbleBonus(bool nearGoal, double distToGoal) const { (void)nearGoal; (void)distToGoal; return 0.0; }
+    // Bonus for a dribble-into-space carry from the launch zone — was a role ternary
+    // in scoreActions (WM/CM most, FB next, rest least). Role-arch migration.
+    virtual double  spaceCarryRoleBonus() const { return 0.08; }
     virtual bool    isAttackerRole() const { return false; }
     virtual bool    isCenterBack() const { return false; }
     virtual bool    isFullBack() const { return false; }
