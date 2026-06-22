@@ -52,12 +52,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         }
     }
 
-    double sc = tackleBaseScore() - (d / 60.0) * 0.40 + attrFactor(player.attrs.tackling) * 0.20;
-    if (player.role == Role::FB) {
-        sc = tackleBaseScore() - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.18;
-    } else if (player.role == Role::CB) {
-        sc = tackleBaseScore() - (d / 60.0) * 0.35 + attrFactor(player.attrs.tackling) * 0.22;
-    }
+    double sc = tackleBaseScore() - (d / 60.0) * tackleDistCoeff() + attrFactor(player.attrs.tackling) * tackleSkillCoeff();
 
     sc += tackleRoleAdjust();
     if (d < TACKLE_CLOSE_BOOST_RANGE) sc += 0.15;

@@ -117,6 +117,11 @@ public:
     virtual double  freshCrossMaxDistance() const { return 250.0; }
     virtual double  tackleBaseScore() const { return 0.60; }
     virtual double  tackleRoleAdjust() const { return 0.0; }
+    // Distance/skill weights in the tackle score (scoreTackle). Defenders commit on
+    // a flatter distance curve and full-backs/centre-backs weight tackling skill
+    // differently — was a role if/else that recomputed the whole score.
+    virtual double  tackleDistCoeff() const { return 0.40; }
+    virtual double  tackleSkillCoeff() const { return 0.20; }
     virtual double  shotScoreBonus() const { return 0.0; }
     virtual double  shotDistancePenalty(double shotDistance) const { (void)shotDistance; return 0.0; }
     virtual double  freshCrossShotBonus() const { return 0.42; }

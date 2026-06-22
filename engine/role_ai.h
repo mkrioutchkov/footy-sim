@@ -97,6 +97,8 @@ public:
     double shotMaxDistance() const override { return 180.0; }
     double tackleBaseScore() const override { return 0.68; }
     double tackleRoleAdjust() const override { return 0.0; }
+    double tackleDistCoeff() const override { return 0.35; }
+    double tackleSkillCoeff() const override { return 0.22; }
     bool   isDefenderRole() const override { return true; }
     bool   isDefenderLike() const override { return true; }
     bool   isCenterBack() const override { return true; }
@@ -116,6 +118,8 @@ public:
     double shotMaxDistance() const override { return 205.0; }
     double tackleBaseScore() const override { return 0.50; }
     double tackleRoleAdjust() const override { return 0.0; }
+    double tackleDistCoeff() const override { return 0.35; }
+    double tackleSkillCoeff() const override { return 0.18; }
     bool   canUseFlankTargets() const override { return true; }
     bool   canUseOpenLane() const override { return true; }
     double openLaneDribbleBonus() const override { return 0.12; }
