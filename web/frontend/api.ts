@@ -95,7 +95,7 @@ export interface ScoutFormT { round: number; opponent: string; venue: 'H' | 'A';
 export interface ScoutT {
   opponent: { teamId: number; name: string; manager: string; formation: string; position: number | null;
     played: number; won: number; drawn: number; lost: number; gf: number; ga: number; gd: number; points: number; };
-  venue: 'home' | 'away'; round: number; approach: string[]; form: ScoutFormT[]; keyPlayers: ScoutPlayerT[];
+  venue: 'home' | 'away'; round: number; roundsAway: number; approach: string[]; form: ScoutFormT[]; keyPlayers: ScoutPlayerT[]; bench: ScoutPlayerT[];
 }
 
 export interface StaffMemberT { id: number; role: 'coach' | 'physio' | 'scout'; name: string; rating: number; cost: number; }

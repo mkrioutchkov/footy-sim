@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -1650,26 +1650,32 @@ async function screenScout(fixtureId: number) {
   }, f.result));
 
   const ATTR_ABBR: Record<string, string> = { speed: 'SPD', passing: 'PAS', creativity: 'CRE', shooting: 'SHO', tackling: 'TAC', positioning: 'POS', stamina: 'STA' };
-  const players = s.keyPlayers.length
-    ? s.keyPlayers.map(p => h('div', { style: 'padding:4px 0;border-bottom:1px solid var(--line)' },
-        h('div', { class: 'between', style: 'font-size:13px' },
-          h('span', {}, p.danger ? h('span', { title: 'danger man', style: 'margin-right:5px' }, '⚠️') : '',
-            p.name, h('span', { class: 'muted', style: 'font-size:11px' }, ` ${p.role} · ${p.age}y`)),
-          h('span', { style: p.danger ? 'font-weight:700;color:var(--gold)' : '' },
-            `OVR ${p.overall}${p.potential && p.potential > p.overall ? ` → ${p.potential}` : ''}`)),
-        // scouted attribute fog — ranges that tighten with scout quality (exact at full depth)
-        p.attrs ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' },
-          p.attrs.map(a => `${ATTR_ABBR[a.key] ?? a.key} ${a.lo === a.hi ? a.lo : `${a.lo}–${a.hi}`}`).join(' · ')) : ''))
-    : [h('div', { class: 'muted', style: 'font-size:13px' }, 'Squad not available.')];
+  const playerRow = (p: ScoutPlayerT) => h('div', { style: 'padding:4px 0;border-bottom:1px solid var(--line)' },
+    h('div', { class: 'between', style: 'font-size:13px' },
+      h('span', {}, p.danger ? h('span', { title: 'danger man', style: 'margin-right:5px' }, '⚠️') : '',
+        p.name, h('span', { class: 'muted', style: 'font-size:11px' }, ` ${p.role} · ${p.age}y`)),
+      h('span', { style: p.danger ? 'font-weight:700;color:var(--gold)' : '' },
+        `OVR ${p.overall}${p.potential && p.potential > p.overall ? ` → ${p.potential}` : ''}`)),
+    // scouted attribute fog — ranges that tighten with scout quality (exact at full depth)
+    p.attrs ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' },
+      p.attrs.map(a => `${ATTR_ABBR[a.key] ?? a.key} ${a.lo === a.hi ? a.lo : `${a.lo}–${a.hi}`}`).join(' · ')) : '');
+  const players = s.keyPlayers.length ? s.keyPlayers.map(playerRow) : [h('div', { class: 'muted', style: 'font-size:13px' }, 'Squad not available.')];
   const scoutHint = s.keyPlayers.length && !s.keyPlayers[0].attrs
     ? h('div', { class: 'muted', style: 'margin:-4px 0 8px;font-size:11px' }, 'Hire scouts (Staff) to reveal their players’ attributes + scout deeper into the squad.')
+    : '';
+  // §2.8 bench tier — the squad behind the XI, a fuzzier read; only present once you have some intel.
+  const benchCard = s.bench.length
+    ? h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Rest of the squad'),
+        h('div', { class: 'muted', style: 'margin:-4px 0 8px;font-size:12px' }, 'Bench & squad players — a fuzzier read than the likely XI; it sharpens with better scouts and as the fixture nears.'),
+        ...s.bench.map(playerRow))
     : '';
 
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, `Scouting — ${o.name}`),
         h('div', { class: 'muted' },
-          `${o.manager} · ${o.formation} · ${o.position != null ? ordinal(o.position) + ' in the table' : 'unranked'} · you play ${s.venue === 'home' ? 'at home' : 'away'} (R${s.round})`)),
+          `${o.manager} · ${o.formation} · ${o.position != null ? ordinal(o.position) + ' in the table' : 'unranked'} · you play ${s.venue === 'home' ? 'at home' : 'away'} (R${s.round}) · ${s.roundsAway === 0 ? 'your next match' : `${s.roundsAway} matchday${s.roundsAway > 1 ? 's' : ''} away`}`)),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' },
@@ -1679,11 +1685,13 @@ async function screenScout(fixtureId: number) {
         formRow,
         h('div', { class: 'section-title' }, 'How they play'),
         h('ul', { style: 'margin:0;padding-left:18px;line-height:1.7' }, ...s.approach.map(a => h('li', {}, a)))),
-      h('div', { class: 'card' },
-        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Danger men'),
-        h('div', { class: 'muted', style: 'margin:-4px 0 8px;font-size:12px' }, 'Their highest-rated players in the likely XI.'),
-        scoutHint,
-        ...players)),
+      h('div', { class: 'grid', style: 'gap:14px;align-items:start' },
+        h('div', { class: 'card' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Danger men'),
+          h('div', { class: 'muted', style: 'margin:-4px 0 8px;font-size:12px' }, 'Their highest-rated players in the likely XI.'),
+          scoutHint,
+          ...players),
+        benchCard)),
   ));
 }
 
