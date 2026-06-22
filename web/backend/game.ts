@@ -181,6 +181,12 @@ export function randomTactics(): Tactics {
   };
 }
 
+// Bench depth: one backup per line (a reserve keeper + one for each outfield role) so a fresh squad
+// can rotate, cover an injury/suspension and actually make subs (§2.10 has someone to rotate TO). Kept
+// weaker + younger than the XI (squad players / prospects, not co-stars), and seeded AFTER the starting
+// eleven so slots 0-10 — and therefore the matched XI + every existing match result — are unchanged.
+const BENCH_ROLES: EngineRole[] = ['GK', 'CB', 'FB', 'CM', 'WM', 'CF'];
+
 function insertRoster(teamId: number, base: number): void {
   const ins = db.prepare(
     'INSERT INTO players (team_id, slot, name, role, attrs, age, potential, wage, contract_years) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -189,6 +195,12 @@ function insertRoster(teamId: number, base: number): void {
     const attrs = genAttrs(role, base);
     const age = genAge();
     ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), playerWage(attrs, age, null), 2 + Math.floor(Math.random() * 3));
+  });
+  const benchBase = Math.max(40, base - 10);                 // a clear notch below the XI
+  BENCH_ROLES.forEach((role, i) => {
+    const attrs = genAttrs(role, benchBase);
+    const age = 18 + Math.floor(Math.random() * 8);          // 18..25 — younger squad players / prospects
+    ins.run(teamId, ROLE_SLOTS.length + i, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), playerWage(attrs, age, null), 2 + Math.floor(Math.random() * 3));
   });
 }
 
