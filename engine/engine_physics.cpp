@@ -133,34 +133,26 @@ bool GameEngine::checkGoal(){
             lastGoal.source=shot.penalty ? "penalty" : "shot";
         }
     };
-    if(b.x+BALL_R<HOME_GOAL_X){
-        recordGoalSource(Team::Away);
+    // A goal: identical bookkeeping for either end — only the scoring team, the goal
+    // line, the score counter, and who restarts differ. (Conceding side kicks off.)
+    auto finishGoal=[&](Team scoringTeam, double goalLineX){
+        recordGoalSource(scoringTeam);
         double goalDist=0;
-        if(shot.tracked)goalDist=dist(shot.originX,shot.originY,HOME_GOAL_X,PITCH_H/2);
+        if(shot.tracked)goalDist=dist(shot.originX,shot.originY,goalLineX,PITCH_H/2);
         Player* scorer=playerById(lastGoal.toucherId);
         std::optional<Role> scorerRole=scorer?std::optional<Role>(scorer->role):std::nullopt;
         if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
         if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
-        stats.recordGoal(Team::Away,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        stats.recordGoal(scoringTeam,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
         if(passDebug&&shot.tracked)fprintf(stderr,"GOALSCORED type=%d src=%s\n",shot.type,lastGoal.source.c_str());
         creditGoal(lastGoal.toucherId);
-        emitEvent("goal", HOME_GOAL_X, b.y, lastGoal.toucherId);
-        state.awayScore++; shot.active=false; shot.clearFlags(); kickoff(Team::Home); return true;
-    }
-    if(b.x-BALL_R>AWAY_GOAL_X){
-        recordGoalSource(Team::Home);
-        double goalDist=0;
-        if(shot.tracked)goalDist=dist(shot.originX,shot.originY,AWAY_GOAL_X,PITCH_H/2);
-        Player* scorer=playerById(lastGoal.toucherId);
-        std::optional<Role> scorerRole=scorer?std::optional<Role>(scorer->role):std::nullopt;
-        if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
-        if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
-        stats.recordGoal(Team::Home,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
-        if(passDebug&&shot.tracked)fprintf(stderr,"GOALSCORED type=%d src=%s\n",shot.type,lastGoal.source.c_str());
-        creditGoal(lastGoal.toucherId);
-        emitEvent("goal", AWAY_GOAL_X, b.y, lastGoal.toucherId);
-        state.homeScore++; shot.active=false; shot.clearFlags(); kickoff(Team::Away); return true;
-    }
+        emitEvent("goal", goalLineX, b.y, lastGoal.toucherId);
+        if(scoringTeam==Team::Home)state.homeScore++; else state.awayScore++;
+        shot.active=false; shot.clearFlags();
+        kickoff(scoringTeam==Team::Home?Team::Away:Team::Home);
+    };
+    if(b.x+BALL_R<HOME_GOAL_X){ finishGoal(Team::Away, HOME_GOAL_X); return true; }
+    if(b.x-BALL_R>AWAY_GOAL_X){ finishGoal(Team::Home, AWAY_GOAL_X); return true; }
     return false;
 }
 
