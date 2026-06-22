@@ -63,7 +63,7 @@ public:
     } freezeDetector;
 
     struct GoalInfo {
-        std::string source = "none";
+        GoalSource source = GoalSource::None;
         Team scoringTeam = Team::Home;
         Team touchTeam = Team::Home;
         int toucherId = -1;

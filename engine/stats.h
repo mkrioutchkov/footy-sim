@@ -80,7 +80,7 @@ public:
     void recordClaimCatch() { keeperClaimCatch++; }
     void recordClaimPunch() { keeperClaimPunch++; }
     void recordClaimTip()   { keeperClaimTip++; }
-    void recordGoal(Team team, const std::string& source, double distance, double speed, std::optional<Role> scorerRole, bool headedGoal);
+    void recordGoal(Team team, GoalSource source, double distance, double speed, std::optional<Role> scorerRole, bool headedGoal);
     void recordGkAssessment(bool unlikely, bool preventable) { gkAssessed++; if(unlikely) unlikelySaves++; if(preventable) preventableGoals++; }
     void recordShotSelection(double angle, double pressure, int credibleWindows, int deferred, int deferredPass, int deferredDribble, int closeWindows, int closeDeferred, bool betterPass, bool tightAngle) {
         shotAudits++; shotAngleTotal+=angle; shotPressureTotal+=pressure;

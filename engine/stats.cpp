@@ -14,23 +14,27 @@ void countRole(Role role, int& gk, int& cb, int& fb, int& cm, int& wm, int& cf) 
 }
 }
 
-void StatsCollector::recordGoal(Team team, const std::string& source, double distance, double speed, std::optional<Role> scorerRole, bool headedGoal) {
+void StatsCollector::recordGoal(Team team, GoalSource source, double distance, double speed, std::optional<Role> scorerRole, bool headedGoal) {
     if(team==Team::Home) goalsHome++; else goalsAway++;
     if(headedGoal) headedGoals++;
     if(scorerRole.has_value()) countRole(*scorerRole, goalsGK, goalsCB, goalsFB, goalsCM, goalsWM, goalsCF);
     else goalsUnknownRole++;
-    if(source=="direct_cross") directCrossGoals++;
-    else if(source=="direct_delivery") directDeliveryGoals++;
-    else if(source=="shot") /* tracked shot goal */;
-    else if(source=="penalty") /* counted via recordPenaltyGoal */;
-    else if(source=="tackle_deflection") tackleDeflectionGoals++;
-    else if(source=="goalkeeper_parry") goalkeeperParryGoals++;
-    else if(source=="shot_deflection") shotDeflectionGoals++;
-    else if(source=="own_pass") ownPassGoals++;
-    else if(source=="lost_shot"||source=="shot_state_lost") lostShotGoals++;
-    else if(source=="unknown_loose"||source=="loose_unclassified") unknownLooseGoals++;
-    else if(source=="knock_ahead") knockAheadGoals++;
-    else untrackedGoals++;
+    switch(source){
+        case GoalSource::DirectCross:       directCrossGoals++; break;
+        case GoalSource::DirectDelivery:    directDeliveryGoals++; break;
+        case GoalSource::Shot:              /* tracked shot goal */ break;
+        case GoalSource::Penalty:           /* counted via recordPenaltyGoal */ break;
+        case GoalSource::TackleDeflection:  tackleDeflectionGoals++; break;
+        case GoalSource::GoalkeeperParry:   goalkeeperParryGoals++; break;
+        case GoalSource::ShotDeflection:    shotDeflectionGoals++; break;
+        case GoalSource::OwnPass:           ownPassGoals++; break;
+        case GoalSource::LostShot:
+        case GoalSource::ShotStateLost:     lostShotGoals++; break;
+        case GoalSource::UnknownLoose:
+        case GoalSource::LooseUnclassified: unknownLooseGoals++; break;
+        case GoalSource::KnockAhead:        knockAheadGoals++; break;
+        default:                            untrackedGoals++; break;  // None / unmapped
+    }
     if(distance<100) goalDistClose++; else if(distance<200) goalDistMedium++; else goalDistLong++;
 }
 

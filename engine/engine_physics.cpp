@@ -107,30 +107,30 @@ bool GameEngine::checkGoal(){
         lastGoal.ballSpeed=std::hypot(b.vx,b.vy);
         if(!shot.tracked){
             if(pendingPass.active&&pendingPass.team==scoringTeam){
-                if(pendingPass.isCross){lastGoal.source="direct_cross";}
-                else lastGoal.source="direct_delivery";
+                if(pendingPass.isCross){lastGoal.source=GoalSource::DirectCross;}
+                else lastGoal.source=GoalSource::DirectDelivery;
             }else if(pendingPass.active){
-                lastGoal.source="tackle_deflection";
+                lastGoal.source=GoalSource::TackleDeflection;
             }else if(lastLooseOrigin=="tackle_deflection"){
-                lastGoal.source="tackle_deflection";
+                lastGoal.source=GoalSource::TackleDeflection;
             }else if(lastLooseOrigin=="goalkeeper_parry"){
-                lastGoal.source="goalkeeper_parry";
+                lastGoal.source=GoalSource::GoalkeeperParry;
             }else if(lastLooseOrigin=="shot"){
-                lastGoal.source="shot_state_lost";
+                lastGoal.source=GoalSource::ShotStateLost;
             }else if(lastLooseOrigin=="knock_ahead"){
                 resolveKnockAhead(nullptr,"goal");
-                lastGoal.source="knock_ahead";
+                lastGoal.source=GoalSource::KnockAhead;
             }else if(b.lastTouchTeam==scoringTeam&&b.lastToucherId>=0){
-                lastGoal.source="shot_state_lost";
+                lastGoal.source=GoalSource::ShotStateLost;
             }else{
-                lastGoal.source="loose_unclassified";
+                lastGoal.source=GoalSource::LooseUnclassified;
             }
             return;
         }
         if(b.lastTouchTeam!=shot.team){
-            lastGoal.source="shot_deflection";
+            lastGoal.source=GoalSource::ShotDeflection;
         }else{
-            lastGoal.source=shot.penalty ? "penalty" : "shot";
+            lastGoal.source=shot.penalty ? GoalSource::Penalty : GoalSource::Shot;
         }
     };
     // A goal: identical bookkeeping for either end — only the scoring team, the goal
@@ -141,10 +141,10 @@ bool GameEngine::checkGoal(){
         if(shot.tracked)goalDist=dist(shot.originX,shot.originY,goalLineX,PITCH_H/2);
         Player* scorer=playerById(lastGoal.toucherId);
         std::optional<Role> scorerRole=scorer?std::optional<Role>(scorer->role):std::nullopt;
-        if(lastGoal.source=="penalty")stats.recordPenaltyGoal();
-        if(shot.dribble20m&&lastGoal.source=="shot")stats.recordDribble20mGoal();
+        if(lastGoal.source==GoalSource::Penalty)stats.recordPenaltyGoal();
+        if(shot.dribble20m&&lastGoal.source==GoalSource::Shot)stats.recordDribble20mGoal();
         stats.recordGoal(scoringTeam,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
-        if(passDebug&&shot.tracked)fprintf(stderr,"GOALSCORED type=%d src=%s\n",shot.type,lastGoal.source.c_str());
+        if(passDebug&&shot.tracked)fprintf(stderr,"GOALSCORED type=%d src=%d\n",shot.type,(int)lastGoal.source);
         creditGoal(lastGoal.toucherId);
         emitEvent("goal", goalLineX, b.y, lastGoal.toucherId);
         if(scoringTeam==Team::Home)state.homeScore++; else state.awayScore++;

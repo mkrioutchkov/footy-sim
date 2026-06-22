@@ -25,6 +25,15 @@ enum class DefensiveTask : uint8_t {
 // ── Set piece type (was string) ──
 enum class SetPiece : uint8_t { None = 0, Corner, Penalty, FreeKick, ThrowIn, GoalKick };
 
+// How a goal was scored — replaces the old stringly-typed lastGoal.source. Maps to
+// the per-source goal counters in StatsCollector::recordGoal (internal only; never
+// emitted as a string, so the switch there is the single source of truth).
+enum class GoalSource : uint8_t {
+    None = 0, Shot, Penalty, ShotDeflection, DirectCross, DirectDelivery,
+    TackleDeflection, GoalkeeperParry, KnockAhead, ShotStateLost, LostShot,
+    OwnPass, UnknownLoose, LooseUnclassified
+};
+
 enum class QualityFlag : uint8_t {
     Unknown = 0,
     WhyNoShoot,
