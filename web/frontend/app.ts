@@ -736,10 +736,22 @@ async function screenDashboard() {
         const onTrack = myPos <= obj.target;
         const close = !onTrack && myPos <= Math.min(obj.target + 2, dropLine);
         const c = onTrack ? 'var(--accent)' : close ? 'var(--gold)' : 'var(--danger)';
+        const gamesLeft = league.fixtures.filter(f => f.involvesMe && !f.played).length;
+        // §2.6: spell out the margin + what missing it costs (objective → board confidence → your job).
+        const margin = onTrack
+          ? (obj.target - myPos > 0 ? `${obj.target - myPos} place${obj.target - myPos === 1 ? '' : 's'} clear of the target (${ordinal(obj.target)})` : `right on the target (${ordinal(obj.target)})`)
+          : `${myPos - obj.target} place${myPos - obj.target === 1 ? '' : 's'} short of ${ordinal(obj.target)}, ${gamesLeft} game${gamesLeft === 1 ? '' : 's'} to go`;
+        const consequence = onTrack
+          ? 'Hold this to season’s end and the board stays satisfied.'
+          : close
+            ? 'Within reach — close the gap before the campaign ends.'
+            : 'Finish short and the board’s confidence will slide — and your job with it.';
         rows.push(h('div', { style: conf ? 'margin-top:10px' : '' },
-          h('span', { style: 'font-weight:600' }, '📋 Board objective: ' + obj.label),
-          h('span', { class: 'muted', style: 'margin-left:8px;font-size:13px' }, `currently ${ordinal(myPos)} — `),
-          h('span', { style: `color:${c};font-size:13px;font-weight:600` }, onTrack ? 'on track' : close ? 'just outside it' : 'work to do')));
+          h('div', { class: 'between', style: 'font-size:13px' },
+            h('span', { style: 'font-weight:600' }, '📋 Board objective: ' + obj.label),
+            h('span', { style: `color:${c};font-weight:600` }, onTrack ? 'on track' : close ? 'just outside it' : 'work to do')),
+          h('div', { class: 'muted', style: 'font-size:12px;margin-top:3px' }, `Currently ${ordinal(myPos)} — ${margin}.`),
+          h('div', { style: `color:${c};font-size:11px;margin-top:3px;font-style:italic` }, consequence)));
       }
       return h('div', { class: 'card', style: 'padding:12px 14px' }, ...rows);
     })(),
