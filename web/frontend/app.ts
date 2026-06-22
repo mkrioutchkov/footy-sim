@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -538,6 +538,8 @@ async function screenDashboard() {
       if (myInj.length) toast(`🤕 ${myInj.map(i => `${i.player} out ${i.matches} match${i.matches > 1 ? 'es' : ''}`).join(' · ')}`);
       // §P2: matchday gate & TV income credited to the club
       if (r.income) toast(`💷 Gate & TV income: ${fmtMoney(r.income)}`);
+      // §2.1: other clubs bidding for your listed players — resolve them in the Market
+      for (const b of r.incomingBids ?? []) toast(`📥 ${b.from} bid ${fmtMoney(b.fee)} for ${b.player} — accept or reject in the Market`);
       // §2.4: listings that lapsed unsold at the window deadline
       for (const l of r.listingsExpired ?? []) toast(`⌛ ${l.player}'s listing expired unsold — the window closed`);
       // §2.2: how the matchday's contract talks resolved
@@ -956,6 +958,9 @@ async function screenMarket() {
   let offers: OfferT[] = [];
   try { offers = (await api.offers()).offers; } catch { /* the bids panel just stays empty */ }
   const refreshOffers = async (): Promise<void> => { try { offers = (await api.offers()).offers; } catch { /* keep current */ } };
+  // §2.1: incoming bids — other clubs bidding for YOUR listed players.
+  let incoming: IncomingOfferT[] = [];
+  try { incoming = (await api.incomingOffers()).incoming; } catch { /* none / pre-feature */ }
 
   function render() {
     // Preserve scroll across the full re-render each action triggers (signing/listing/bidding
@@ -1116,6 +1121,34 @@ async function screenMarket() {
       ? h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your bids'), h('table', {}, ...offers.map(offerRow)))
       : '';
 
+    // §2.1 incoming bids — other clubs want YOUR listed players; accept (sell) or reject.
+    const incLabel: Record<string, string> = { pending: '⏳ awaiting your reply', accepted: '✅ sold', rejected: '✖ rejected' };
+    const incRow = (o: IncomingOfferT) => {
+      const acts: (HTMLElement | string)[] = [];
+      if (o.status === 'pending') {
+        const acc = h('button', { class: 'primary small' }, `Accept ${fmtMoney(o.fee)}`);
+        acc.addEventListener('click', offerGuard(acc, async () => {
+          try { const r = await api.acceptOffer(o.id); market = r.market; incoming = r.incoming; toast(`Sold ${o.playerName} to ${r.club} for ${fmtMoney(r.fee!)}`); render(); }
+          catch (e: any) { toast(e.message); try { incoming = (await api.incomingOffers()).incoming; } catch { /* keep */ } render(); }
+        }));
+        const rej = h('button', { class: 'ghost small', style: 'margin-left:4px' }, 'Reject');
+        rej.addEventListener('click', offerGuard(rej, async () => { try { const r = await api.rejectOffer(o.id); incoming = r.incoming; render(); } catch (e: any) { toast(e.message); try { incoming = (await api.incomingOffers()).incoming; } catch { /* keep */ } render(); } }));
+        acts.push(acc, rej);
+      }
+      return h('tr', {},
+        h('td', {}, o.playerName, o.playerSlot != null ? h('span', { class: 'muted', style: 'font-size:11px' }, ` · slot ${o.playerSlot}`) : ''),
+        h('td', {}, h('span', { class: 'muted', style: 'font-size:12px' }, o.club)),
+        h('td', { class: 'num' }, fmtMoney(o.fee)),
+        h('td', {}, incLabel[o.status] ?? o.status),
+        h('td', { class: 'num' }, ...acts));
+    };
+    const incomingCard = incoming.length
+      ? h('div', { class: 'card', style: 'border-left:3px solid var(--accent,#4ea1ff)' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, '📥 Bids for your players'),
+          h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, 'Other clubs are bidding for players you listed — accept to sell, or reject.'),
+          h('table', {}, ...incoming.map(incRow)))
+      : '';
+
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Transfer market'),
@@ -1140,6 +1173,7 @@ async function screenMarket() {
           h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, `List a player to sell him — an AI club may buy once you have squad depth (12+).${win.open ? ' Listings lapse at the deadline if unsold.' : ''}`),
           h('div', { style: 'max-height:520px;overflow:auto', 'data-scroll': 'squad' }, h('table', {}, headRow('Player'), sqBody))),
       ),
+      incomingCard,
       offersCard,
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'For sale — other clubs',
