@@ -514,7 +514,11 @@ void GameEngine::checkBallPlayerCollision(double){
         // (24px) parked two players 10-12px from it, just outside the 8px
         // radius, in a 2.8s Mexican standoff ~43 times a match.
         if(bs<30.0)r=std::max(r,COLLECT_DIST+6.0);
-        if(shotInFlight&&(p.id==shot.blockerId||designatedWall))r=fastContactRadius;
+        // The chosen blocker / wall gets the FULL block reach (leg+body across the
+        // lane), matching the block-roll radius — otherwise a defender selected to
+        // block at perp 14-27px never connects (fastContactRadius is only 13.5px),
+        // which is why shotsBlocked sat at 0.
+        if(shotInFlight&&(p.id==shot.blockerId||designatedWall))r=PLAYER_R+BALL_R+11.0;
         if(d>r)continue;
         double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
         if(b.z>zLimit)continue;
@@ -541,6 +545,17 @@ void GameEngine::checkBallPlayerCollision(double){
         if(contact->team!=pendingPass.team && bs>300.0){
             double cutChance=clamp(CROSS_CUTOUT_BASE+attrFactor(contact->attrs.positioning)*CROSS_CUTOUT_SKILL-(bs-300.0)/700.0,0.08,0.58);
             if(rng.random()>=cutChance){blockReboundFor(contact->id,420);return;}
+        }
+        // A defender cutting out a cross near his own line often puts it BEHIND for a
+        // corner rather than controlling it cleanly — the dominant real corner source.
+        // With 250+ crosses/match this is the main lever toward a realistic count
+        // (engine sat at ~2 vs ~10 because every cut was a clean collect).
+        if(contact->team!=pendingPass.team){
+            double ownLineX=ownGoalXFor(contact->team);
+            if(std::abs(b.x-ownLineX)<140.0 && rng.random()<0.16){
+                awardCorner(pendingPass.team, contact->team==Team::Home, b.y);
+                return;
+            }
         }
         collectBall(*contact);
         return;
@@ -595,7 +610,7 @@ void GameEngine::checkBallPlayerCollision(double){
             double ownLine=ownGoalXFor(contact->team);
             bool nearLine=std::abs(b.x-ownLine)<150.0;
             bool deflectingBehind=(ownLine==0.0)?b.vx<0:b.vx>0;
-            if(nearLine&&deflectingBehind&&rng.random()<0.35){
+            if(nearLine&&deflectingBehind&&rng.random()<0.55){
                 awardCorner(shot.team, contact->team==Team::Home, b.y);
             }
         }
