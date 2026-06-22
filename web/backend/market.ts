@@ -39,7 +39,7 @@ const wageBill = (teamId: number): number =>
 // "summer" window (before the opening matchday) and a mid-season "winter" window. Free agents
 // (unattached) can be signed any time. Derived from the league's fixture rounds, so it needs no
 // new state and lines up with the matchday the user is about to play.
-export interface TransferWindow { open: boolean; window: 'summer' | 'winter' | null; current: number; total: number; label: string }
+export interface TransferWindow { open: boolean; window: 'summer' | 'winter' | null; current: number; total: number; label: string; deadline: number | null; closesIn: number; deadlineDay: boolean }
 export function transferWindow(leagueId: number): TransferWindow {
   const total = (db.prepare('SELECT COALESCE(MAX(round), 0) AS r FROM fixtures WHERE league_id = ?').get(leagueId) as { r: number }).r;
   const unplayed = (db.prepare('SELECT MIN(round) AS r FROM fixtures WHERE league_id = ? AND played = 0').get(leagueId) as { r: number | null }).r;
@@ -49,11 +49,16 @@ export function transferWindow(leagueId: number): TransferWindow {
   if (current <= 1) window = 'summer';
   else if (current <= total && (current === mid || current === mid + 1)) window = 'winter';   // not after the season ends
   const open = window != null;
+  // The last matchday the window stays open (summer = matchday 1; winter = mid+1). closesIn counts the
+  // matchdays left including this one; deadlineDay = it's the final chance before the window shuts.
+  const deadline = window === 'summer' ? 1 : window === 'winter' ? Math.min(total, mid + 1) : null;   // clamp: a degenerate 2-round season has mid+1 > total
+  const closesIn = open && deadline != null ? Math.max(1, deadline - current + 1) : 0;
+  const deadlineDay = open && deadline != null && current >= deadline;
   const label = open
     ? `${window === 'summer' ? 'Summer' : 'Winter'} window open`
     : current < mid ? `Window shut — reopens matchday ${mid} (winter)`
       : 'Window shut — reopens pre-season';
-  return { open, window, current, total, label };
+  return { open, window, current, total, label, deadline, closesIn, deadlineDay };
 }
 
 // Leagues that share the buyer's world (so the user can buy across divisions). Legacy single
@@ -165,12 +170,16 @@ export function listPlayer(teamId: number, slot: number, price?: number): { ok: 
   if (p.parent_team_id != null) return { ok: false, error: "he's only here on loan — you can't sell him" };
   const value = playerValue(JSON.parse(p.attrs), p.age, parseJSON(p.personality));
   const ask = Number.isFinite(price) && (price as number) > 0 ? Math.round(price as number) : value;
-  db.prepare('UPDATE players SET listed = 1, ask_price = ? WHERE id = ?').run(ask, p.id);
+  // §2.4: stamp the listing with the open window's deadline so it lapses if unsold (marketTick). Listed
+  // while shut → NULL for now; the next open window's marketTick stamps it (cross-season-safe).
+  const win = transferWindow((db.prepare('SELECT league_id AS l FROM teams WHERE id = ?').get(teamId) as { l: number }).l);
+  const until = win.open && win.deadline != null ? win.deadline : null;
+  db.prepare('UPDATE players SET listed = 1, ask_price = ?, listed_until = ? WHERE id = ?').run(ask, until, p.id);
   return { ok: true, askPrice: ask, value };
 }
 
 export function unlistPlayer(teamId: number, slot: number): { ok: boolean } {
-  db.prepare('UPDATE players SET listed = 0, ask_price = NULL WHERE team_id = ? AND slot = ?').run(teamId, slot);
+  db.prepare('UPDATE players SET listed = 0, ask_price = NULL, listed_until = NULL WHERE team_id = ? AND slot = ?').run(teamId, slot);
   return { ok: true };
 }
 
@@ -459,7 +468,22 @@ export function releasePlayerToFreeAgents(teamId: number, slot: number): boolean
   return removePlayerFromSquad(teamId, slot);
 }
 
-export interface MarketEvent { teamId: number; teamName: string; type: 'sign' | 'buy_listed'; player: string; role: string; fee: number; from?: string; }
+export interface MarketEvent { teamId: number; teamName: string; type: 'sign' | 'buy_listed' | 'listing_expired'; player: string; role: string; fee: number; from?: string; }
+
+// §2.4: maintain transfer listings against the deadline. While a window is open, stamp any live listing
+// with that window's deadline; once the deadline passes, an unsold listing lapses (auto-unlisted) — a
+// 'listing_expired' event for human clubs (AI never lists). Cross-season-safe: a listing made while shut
+// has listed_until NULL until the next open window stamps it here.
+function expireListings(leagueId: number, win: TransferWindow): MarketEvent[] {
+  if (win.open && win.deadline != null) {
+    db.prepare('UPDATE players SET listed_until = ? WHERE listed = 1 AND listed_until IS NULL AND team_id IN (SELECT id FROM teams WHERE league_id = ?)').run(win.deadline, leagueId);
+  }
+  const lapsed = db.prepare(`SELECT p.name, p.role, t.id AS team_id, t.name AS team_name FROM players p JOIN teams t ON t.id = p.team_id
+      WHERE p.listed = 1 AND p.listed_until IS NOT NULL AND p.listed_until < ? AND t.league_id = ? AND t.user_id IS NOT NULL`)
+    .all(win.current, leagueId) as { name: string; role: string; team_id: number; team_name: string }[];
+  db.prepare('UPDATE players SET listed = 0, ask_price = NULL, listed_until = NULL WHERE listed = 1 AND listed_until IS NOT NULL AND listed_until < ? AND team_id IN (SELECT id FROM teams WHERE league_id = ?)').run(win.current, leagueId);
+  return lapsed.map(l => ({ teamId: l.team_id, teamName: l.team_name, type: 'listing_expired' as const, player: l.name, role: l.role, fee: 0 }));
+}
 
 // One matchday's AI market activity: each AI team makes at most one move — sign the
 // best affordable free agent that upgrades its weakest role, else buy a (cheaper,
@@ -468,7 +492,8 @@ export interface MarketEvent { teamId: number; teamName: string; type: 'sign' | 
 // buys are seen by later ones.
 export function marketTick(leagueId: number): MarketEvent[] {
   const events: MarketEvent[] = [];
-  processOffers(leagueId);   // §2.1: resolve the human's pending club-to-club bids first, so a sold listing isn't double-bought below
+  processOffers(leagueId);   // §2.1: resolve the human's pending club-to-club bids FIRST (against the live ask price), so a
+  events.push(...expireListings(leagueId, transferWindow(leagueId)));   // §2.4: deadline-day bid still completes before its listing lapses below
   const aiTeams = db.prepare('SELECT id FROM teams WHERE league_id = ? AND user_id IS NULL ORDER BY id').all(leagueId) as { id: number }[];
   for (const { id } of aiTeams) {
     const team = teamRow(id); if (!team) continue;

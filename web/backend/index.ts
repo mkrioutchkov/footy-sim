@@ -626,10 +626,17 @@ app.post('/api/advance', async (req: any, reply) => {
   // squad changes, so "who played" is the XI as it lined up), AI clubs trade + manage, then
   // every player trains.
   const transfers: any[] = [];
+  const listingsExpired: any[] = [];   // §2.4: the user's listings that lapsed unsold at the window deadline
   const injuries: any[] = [];
   const contractEvents: any[] = [];
   let developed = 0;
-  for (const l of leagues) { injuries.push(...fitnessTick(l.id)); moraleTick(l.id); transfers.push(...marketTick(l.id)); contractEvents.push(...processContractOffers(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players; }
+  for (const l of leagues) {
+    injuries.push(...fitnessTick(l.id)); moraleTick(l.id);
+    const mkt = marketTick(l.id);
+    transfers.push(...mkt.filter(e => e.type !== 'listing_expired'));
+    listingsExpired.push(...mkt.filter(e => e.type === 'listing_expired' && e.teamId === teamId));
+    contractEvents.push(...processContractOffers(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players;
+  }
   // The cup is spread across the season — round R plays once the league reaches matchday R*3,
   // so it concludes (the final at matchday 12) before the season rolls over.
   let cup: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null = null;
@@ -655,6 +662,7 @@ app.post('/api/advance', async (req: any, reply) => {
     round: userRound, myFixtureId: myFx?.id ?? null, myResult, results,
     transfers, development: { players: developed }, injuries, cup, rollover,
     contractOffers: contractEvents.filter(e => e.teamId === teamId),   // §2.2: my renewal verdicts this matchday
+    listingsExpired,   // §2.4: my listings that lapsed unsold
     standings: standings(nowLeagueId),
   };
   } finally { advancing.delete(user.id); }

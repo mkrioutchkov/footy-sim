@@ -99,6 +99,10 @@ ensureColumn('players', 'age', 'age INTEGER NOT NULL DEFAULT 24');
 // Transfer-listing: a player can be offered for sale at an asking price.
 ensureColumn('players', 'listed', 'listed INTEGER NOT NULL DEFAULT 0');
 ensureColumn('players', 'ask_price', 'ask_price INTEGER');
+// §2.4 deadline-day: the matchday a listing lapses (the active window's deadline). An unsold listing
+// is auto-unlisted once this passes. NULL = no deadline yet (set when listed during / by the next open
+// window), so existing listings are unaffected until a window stamps them.
+ensureColumn('players', 'listed_until', 'listed_until INTEGER');
 
 // Free-agent pool — unattached players a team can sign. Kept in its own table (NOT
 // as players rows with a null team) so every existing player query and the fixed-22
