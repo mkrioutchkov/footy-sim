@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -540,6 +540,12 @@ async function screenDashboard() {
       if (r.income) toast(`💷 Gate & TV income: ${fmtMoney(r.income)}`);
       // §2.1: other clubs bidding for your listed players — resolve them in the Market
       for (const b of r.incomingBids ?? []) toast(`📥 ${b.from} bid ${fmtMoney(b.fee)} for ${b.player} — accept or reject in the Market`);
+      // §2.1: how the matchday's free-agent offers were answered
+      for (const f of r.faOffers ?? []) {
+        if (f.type === 'fa_signed') toast(`✍️ ${f.player} accepted your offer — signed (${fmtMoney(f.wage)}/yr × ${f.years}y)`);
+        else if (f.type === 'fa_rejected') toast(`✖ ${f.player} turned down your offer`);
+        else if (f.type === 'fa_gone') toast(`🏃 ${f.player} signed for another club before answering your offer`);
+      }
       // §2.4: listings that lapsed unsold at the window deadline
       for (const l of r.listingsExpired ?? []) toast(`⌛ ${l.player}'s listing expired unsold — the window closed`);
       // §2.2: how the matchday's contract talks resolved
@@ -979,6 +985,9 @@ async function screenMarket() {
   // §2.1: incoming bids — other clubs bidding for YOUR listed players.
   let incoming: IncomingOfferT[] = [];
   try { incoming = (await api.incomingOffers()).incoming; } catch { /* none / pre-feature */ }
+  // §2.1 (free-agent half): the manager's free-agent offers still being considered.
+  let faOffers: FreeAgentOfferT[] = [];
+  try { faOffers = (await api.freeAgentOffers()).offers; } catch { /* none / pre-feature */ }
 
   function render() {
     // Preserve scroll across the full re-render each action triggers (signing/listing/bidding
@@ -993,17 +1002,28 @@ async function screenMarket() {
     const wageHeadroom = market.wageBudget - market.wageBill;
     const moneyCell = (value: number, wage: number) => h('td', { class: 'num' }, fmtMoney(value),
       h('div', { class: 'muted', style: 'font-size:10px' }, `${fmtMoney(wage)}/yr`));
+    const faPending = new Map(faOffers.map(o => [o.agentId, o]));
     for (const a of market.freeAgents) {
       const afford = market.budget >= a.value, room = market.squad.length < market.squadMax, wageOk = a.wage <= wageHeadroom;
-      const sign = h('button', { class: 'ghost small' }, 'Sign');
-      if (!afford || !room || !wageOk) sign.setAttribute('disabled', 'true');
-      if (afford && room && !wageOk) sign.setAttribute('title', 'Not enough wage budget');
-      sign.addEventListener('click', async () => {
-        if (!await confirmModal('Sign free agent', `Sign ${a.name} on a 3-year deal? There's no release clause — the only way to move him on is to sell him.`, 'Sign him')) return;
-        sign.setAttribute('disabled', 'true'); sign.textContent = '…';
-        try { const r = await api.buyAgent(a.id); market = r.market; toast(`Signed ${r.name} — ${fmtMoney(r.value)} (${r.placed === 'xi' ? 'straight into the XI' : 'to the bench'})`); render(); }
-        catch (e: any) { toast(e.message); render(); }
-      });
+      const live = faPending.get(a.id);
+      // §2.1: a free agent now CONSIDERS a wage offer rather than signing on the spot — he answers next matchday.
+      const sign = live
+        ? h('span', { class: 'pill', title: `Awaiting his reply at the next matchday`, style: 'background:#262d3a;font-size:11px' }, `⏳ ${fmtMoney(live.wage)}/yr × ${live.years}y`)
+        : h('button', { class: 'ghost small' }, 'Make offer');
+      if (!live) {
+        if (!afford || !room) sign.setAttribute('disabled', 'true');
+        else if (!wageOk) sign.setAttribute('title', 'His wage is over your budget — you can still try a lower offer');
+        sign.addEventListener('click', async () => {
+          const raw = await promptModal(`Offer ${a.name} terms`,
+            `Offer ${a.name} (${a.role}, ${a.age}) an annual wage on a 3-year deal. He wants about ${fmtMoney(a.wage)} — match or beat it and he'll sign; lowball him and he'll walk. There's a ${fmtMoney(a.value)} signing-on fee. He decides at the next matchday.`,
+            String(a.wage), 'Make offer');
+          if (raw == null) return;
+          const wage = Math.round(Number(String(raw).replace(/[^0-9.]/g, '')));
+          if (!Number.isFinite(wage) || wage <= 0) { toast('Enter a positive wage'); return; }
+          try { const r = await api.offerFreeAgent(a.id, wage, 3); market = r.market; faOffers = r.faOffers; toast(`Offer made to ${r.player} — he decides at the next matchday.`); render(); }
+          catch (e: any) { toast(e.message); render(); }
+        });
+      }
       const faPot = a.potential != null && a.potential > a.overall;
       faBody.append(h('tr', {},
         h('td', {}, a.name),

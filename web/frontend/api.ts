@@ -80,6 +80,7 @@ export interface TransferTargetT { id: number; name: string; club: string; clubT
 export interface MarketT { budget: number; wageBudget: number; wageBill: number; squadMax: number; squadMin: number; window: TransferWindowT; freeAgents: FreeAgentT[]; squad: MarketPlayerT[]; transferTargets: TransferTargetT[]; backing?: string | null; }
 export interface OfferT { id: number; playerId: number; playerName: string; club: string; fee: number; status: string; counterFee: number | null; }
 export interface IncomingOfferT { id: number; club: string; playerSlot: number | null; playerName: string; fee: number; status: string; }
+export interface FreeAgentOfferT { id: number; agentId: number; name: string; role: string; wage: number; years: number; demand: number; status: string; }
 export interface TransferT { teamId: number; teamName: string; type: 'sign' | 'buy_listed'; player: string; role: string; fee: number; from?: string; }
 export interface CupTieT { id: number; round: number; slot: number; home: string | null; away: string | null; homeTeamId: number | null; awayTeamId: number | null; played: boolean; homeScore: number | null; awayScore: number | null; winnerTeamId: number | null; }
 export interface CupT { rounds: { round: number; name: string; ties: CupTieT[] }[]; totalRounds: number; champion: string | null; myTeamId: number; }
@@ -160,10 +161,12 @@ export const api = {
   league: () => req<LeagueT>('GET', '/league'),
   playFixture: (id: number) => req<{ result: { homeScore: number; awayScore: number; alreadyPlayed: boolean }; standings: StandingT[] }>('POST', `/fixtures/${id}/play`),
   playNext: () => req<{ fixtureId: number; result: { homeScore: number; awayScore: number }; standings: StandingT[] }>('POST', '/play-next'),
-  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; injuries?: { teamId: number; player: string; matches: number }[]; cup?: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null; rollover?: RolloverT | null; contractOffers?: ContractOfferEventT[]; listingsExpired?: { teamId: number; teamName: string; player: string; role: string }[]; incomingBids?: { player: string; fee: number; from: string }[]; income?: number; standings: StandingT[] }>('POST', '/advance'),
+  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; injuries?: { teamId: number; player: string; matches: number }[]; cup?: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null; rollover?: RolloverT | null; contractOffers?: ContractOfferEventT[]; listingsExpired?: { teamId: number; teamName: string; player: string; role: string }[]; incomingBids?: { player: string; fee: number; from: string }[]; faOffers?: { player: string; role: string; wage: number; years: number; type: 'fa_signed' | 'fa_rejected' | 'fa_expired' | 'fa_gone' }[]; income?: number; standings: StandingT[] }>('POST', '/advance'),
   cup: () => req<CupT>('GET', '/cup'),
   market: () => req<MarketT>('GET', '/market'),
   buyAgent: (agentId: number) => req<{ ok: boolean; placed: 'xi' | 'bench'; value: number; name: string; market: MarketT }>('POST', '/market/buy', { agentId }),
+  offerFreeAgent: (agentId: number, wage: number, years: number) => req<{ ok: boolean; player?: string; market: MarketT; faOffers: FreeAgentOfferT[] }>('POST', '/freeagent/offer', { agentId, wage, years }),
+  freeAgentOffers: () => req<{ offers: FreeAgentOfferT[] }>('GET', '/freeagent/offers'),
   listPlayer: (slot: number, price?: number) => req<{ ok: boolean; askPrice: number; value: number; market: MarketT }>('POST', '/market/list', { slot, price }),
   unlistPlayer: (slot: number) => req<{ ok: boolean; market: MarketT }>('POST', '/market/unlist', { slot }),
   bid: (playerId: number, fee: number) => req<{ ok: boolean; status: 'pending' | 'accepted' | 'countered' | 'rejected'; counterFee?: number; player?: string; club?: string; fee?: number; placed?: 'xi' | 'bench'; error?: string; market: MarketT }>('POST', '/transfer/bid', { playerId, fee }),
