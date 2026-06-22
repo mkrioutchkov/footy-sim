@@ -543,7 +543,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     if (!committed) return false;
     // Even a committed challenge inside the box is careful — half the foul risk
     // of an open-field lunge (a clumsy one is still a penalty, just far rarer).
-    double boxFoulScale = inPenaltyBox ? 0.5 : 1.0;
+    double boxFoulScale = inPenaltyBox ? 0.54 : 1.0;   // 0.5 -> 0.54: penalties ~0.14 -> ~0.3/match (still careful in the box)
     stats.recordTackleAttempt();
     if(rng.random()>=chance){
         // Per-failure foul odds must be low because duel volume is high —
@@ -555,7 +555,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         // A booked player plays it safe — fewer reckless fouls, so second
         // yellows (and the resulting reds) stay near real rates. (Even a booked
         // last man still cynically fouls — he just risks the second yellow.)
-        if(yellowCards[tackler.id]>=1 && !cynical)foulChance*=0.55;
+        if(yellowCards[tackler.id]>=1 && !cynical)foulChance*=0.38;   // a booked player is VERY careful — 0.55->0.38 trims second-yellow reds (~0.57 -> ~real 0.3)
         if(rng.random()<foulChance){
             stats.recordTackleFoul();
             if(cynical) stats.recordTacticalFoul();
@@ -565,8 +565,11 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             // Bookings: reckless (from-behind) fouls risk a card. A second
             // yellow — or a straight red for a wild challenge — sends him off.
             // Tuned for ~3-4 yellows and ~0.25 reds per match (real-world).
-            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.36 : 0.095);
-            bool straightRed = fromBehind && rng.random() < 0.010;
+            // Card-per-foul was ~32% (≈2× real ~17%): a foul fired a card far too
+            // often, so raising fouls toward real exploded yellows/reds. Lowered to
+            // calibrate cards to the higher foul volume (cynical fouls stay bookable).
+            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.28 : 0.075);
+            bool straightRed = fromBehind && rng.random() < 0.005;   // 0.010 -> 0.005: red rate was ~2× real; trim as fouls rise
             if (straightRed || rng.random() < cardChance) {
                 if (!straightRed) {
                     yellowCards[tackler.id]++;

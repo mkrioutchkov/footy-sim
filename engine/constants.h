@@ -202,7 +202,7 @@ inline constexpr double GK_CLAIM_PACE_PUNCH  = 320.0;  // above this, force a pu
 // CARRIER_CONTROL/CONTROL_BASE/CONTROL_MAX — was removed as dead after the rework;
 // only the live foul-probability constants remain.)
 inline constexpr double TACKLE_FOUL_FROM_BEHIND = 0.06;   // calibrated 2026-06-11 (0.34 gave ~190 fouls/match)
-inline constexpr double TACKLE_FOUL_NORMAL      = 0.015;
+inline constexpr double TACKLE_FOUL_NORMAL      = 0.023;   // raised 2026-06-22: fouls ~13.6 -> ~18-20 real (clean fouls carry a low 0.095 card, so cards stay calibrated)
 // Deliberate (cynical) foul: the last man, beaten on a transition break OUTSIDE
 // the box, hauls the carrier down to stop the counter — a yellow, never a
 // penalty (the band starts beyond the box, so the award path is always a free
