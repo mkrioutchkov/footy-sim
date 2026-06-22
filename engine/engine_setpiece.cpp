@@ -345,6 +345,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         b.lastTouchTeam=holder.team; b.lastToucherId=holder.id;
         b.vx=dx/d*330.0; b.vy=dy/d*330.0; b.vz=300.0; b.z=28.0;
         b.intendedReceiverId=-1;
+        emitEvent("pass", holder.x, holder.y, holder.id, outlet?outlet->id:-1);   // tag the GK long distribution (audit #6)
         blockReboundFor(holder.id,750);
         if(wasGoalKick){
             goalKickMonitor.active=true;
@@ -395,7 +396,12 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         outs.push_back({&p,score,safe});
     }
     std::sort(outs.begin(),outs.end(),[](const GkOutlet& a,const GkOutlet& b){return a.score>b.score;});
-    auto onRelease=[&](){
+    auto onRelease=[&](int toId){
+        // Tag GK open-play distribution as a pass EVENT (audit #6: both keepers logged
+        // 0 pass events because distribution calls passBallTo directly, bypassing the
+        // agent path's emit at agent.cpp). Trace/probe only — the pass STAT is already
+        // recorded inside passBallTo, so this changes no summary metric.
+        emitEvent("pass", holder.x, holder.y, holder.id, toId);
         if(wasGoalKick){goalKickMonitor.active=true;goalKickMonitor.team=holder.team;goalKickMonitor.startedMs=state.clockMs;stats.recordGoalKickAttempt();}
         goalKickMonitor.distributeTimer=0;
     };
@@ -403,13 +409,13 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
     //    almost always.
     for(auto& o:outs){
         if(!o.safe)continue;
-        if(passBallTo(holder,*o.p,false,false,nullptr,/*secure=*/true)){onRelease();return;}
+        if(passBallTo(holder,*o.p,false,false,nullptr,/*secure=*/true)){onRelease(o.p->id);return;}
     }
     // 2) No clean lane, and he's genuinely swarmed (a real high press, 3+ bodies
     //    on him) — holding achieves nothing, so clear it long. Prefer the best
     //    short outlet over a blind hoof; punt only if there's no one at all.
     if(closeKeeperPressure>=3){
-        for(auto& o:outs){if(passBallTo(holder,*o.p,false,false,nullptr)){onRelease();return;}}
+        for(auto& o:outs){if(passBallTo(holder,*o.p,false,false,nullptr)){onRelease(o.p->id);return;}}
         puntLong();return;
     }
     // 3) Otherwise HOLD and wait for a lane to open rather than passing into
