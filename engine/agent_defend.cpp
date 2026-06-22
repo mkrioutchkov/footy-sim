@@ -381,30 +381,30 @@ Action PlayerAI::scoreChase(const Perception& per) {
 
     bool isDef = isDefenderRole();
     if (isDef) {
-        if (player.role == Role::FB) {
+        if (isFullBack()) {
             bool onMyFlank = (player.homeY < PITCH_H / 2.0)
                 ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
             if (per.ballDist > 100.0 && !onMyFlank) return Action{ActionType::Chase, 0.0};
         }
-        if (player.role == Role::CB) {
+        if (isCenterBack()) {
             bool ballInOwnHalf = (player.team == Team::Home)
                 ? b.x < PITCH_W * 0.6 : b.x > PITCH_W * 0.4;
             if (per.ballDist > 120.0 && !ballInOwnHalf) return Action{ActionType::Chase, 0.0};
         }
     }
 
-    if (player.role == Role::CM && per.ballDist > 100.0) {
+    if (isCentralMidfielder() && per.ballDist > 100.0) {
         bool ballInMiddle = b.x > PITCH_W * 0.25 && b.x < PITCH_W * 0.75;
         if (!ballInMiddle) return Action{ActionType::Chase, 0.0};
     }
 
-    if (player.role == Role::WM && per.ballDist > 80.0) {
+    if (isWideMidfielder() && per.ballDist > 80.0) {
         bool onMyFlank = (player.homeY < PITCH_H / 2.0)
             ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
         if (!onMyFlank) return Action{ActionType::Chase, 0.0};
     }
 
-    if (player.role == Role::CF && per.ballDist > 80.0) {
+    if (isCenterForward() && per.ballDist > 80.0) {
         double oppGx = goalXFor(player.team);
         bool ballNearOppGoal = std::abs(b.x - oppGx) < 200.0;
         if (!ballNearOppGoal) return Action{ActionType::Chase, 0.0};
