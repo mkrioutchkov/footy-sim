@@ -201,8 +201,8 @@ inline constexpr double GK_CLAIM_PACE_PUNCH  = 320.0;  // above this, force a pu
 // ── Tackle ── (the old tackle-outcome model — TACKLE_BASE/SKILL_WEIGHT/
 // CARRIER_CONTROL/CONTROL_BASE/CONTROL_MAX — was removed as dead after the rework;
 // only the live foul-probability constants remain.)
-inline constexpr double TACKLE_FOUL_FROM_BEHIND = 0.06;   // calibrated 2026-06-11 (0.34 gave ~190 fouls/match)
-inline constexpr double TACKLE_FOUL_NORMAL      = 0.023;   // raised 2026-06-22: fouls ~13.6 -> ~18-20 real (clean fouls carry a low 0.095 card, so cards stay calibrated)
+inline constexpr double TACKLE_FOUL_FROM_BEHIND = 0.11;   // audit #3: fouls measured ~10/match (½ real 20-24) -> raise 0.06->0.11; reckless, carries the 0.28 card
+inline constexpr double TACKLE_FOUL_NORMAL      = 0.048;   // audit #3: raise 0.023->0.048 toward real 20-24 fouls; clean foul, low 0.075 card so cards rise gently toward 3-4
 // Deliberate (cynical) foul: the last man, beaten on a transition break OUTSIDE
 // the box, hauls the carrier down to stop the counter — a yellow, never a
 // penalty (the band starts beyond the box, so the award path is always a free
