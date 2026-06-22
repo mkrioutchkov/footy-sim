@@ -876,7 +876,7 @@ async function screenWatch(fixtureId: number) {
     if (dirs.length) {
       receiptEl.appendChild(h('div', { class: 'muted', style: 'margin-top:6px' }, 'Standing plan:'));
       for (const d of dirs) receiptEl.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
-    } else if (!motivation.length && !changed && !note && !r?.formation) {
+    } else if (!motivation.length && !changed && !note) {
       receiptEl.appendChild(h('div', { class: 'muted' }, "Couldn't read that as an order or a word to the players.")); return;
     }
     if (note) receiptEl.appendChild(h('div', { class: 'muted' }, '• ' + note));
