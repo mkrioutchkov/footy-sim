@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -690,7 +690,9 @@ async function screenDashboard() {
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
         `Managed by ${team.manager} · ${league.divisionName ?? 'League'}${league.season ? ` · Season ${league.season}` : ''} · Position ${myPos}/${league.standings.length}`)),
-      h('div', { class: 'row' }, watchBtn, advanceBtn,
+      h('div', { class: 'row' }, watchBtn,
+        myNext ? h('button', { class: 'ghost', title: 'Address the squad before your next match', onclick: () => (location.hash = `#/teamtalk/${myNext.id}`) }, 'Team talk') : '',
+        advanceBtn,
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/squad') }, 'Squad'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
@@ -1361,6 +1363,58 @@ async function screenTraining() {
           body)),
     ),
   ));
+}
+
+// ── pre-match team talk (§2.13): pick a tone, see how it lands, deliver it ──
+async function screenTeamTalk(fixtureId: number) {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Gathering the squad…')));
+  let data: { tones: TalkToneT[]; pending: { tone: string } | null; tone: string; reactions: TalkReactionT[] };
+  try { data = await api.teamTalk(fixtureId); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message),
+      h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => (location.hash = '#/') }, '← Back')));
+  }
+  let tone = data.tone;
+
+  function render() {
+    const reactColor = (d: number) => d >= 0.08 ? 'var(--accent)' : d <= -0.08 ? 'var(--danger)' : 'var(--muted, #8a93a3)';
+    const lifts = data.reactions.filter(r => r.delta >= 0.08).length;
+    const rattles = data.reactions.filter(r => r.delta <= -0.08).length;
+    const toneBtns = data.tones.map(t => {
+      const b = h('button', { class: t.key === tone ? 'primary small' : 'ghost small', title: t.blurb }, t.label);
+      if (t.key !== tone) b.addEventListener('click', async () => { try { data = await api.teamTalk(fixtureId, t.key); tone = data.tone; render(); } catch (e: any) { toast(e.message); } });
+      return b;
+    });
+    const blurb = data.tones.find(t => t.key === tone)?.blurb ?? '';
+    const rows = data.reactions.slice().sort((a, b) => b.delta - a.delta).map(r => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0' },
+      h('span', {}, r.name, h('span', { class: 'muted', style: 'font-size:11px;margin-left:6px' }, r.role)),
+      h('span', { style: `color:${reactColor(r.delta)};font-weight:600;text-transform:capitalize` }, `${r.reaction}${r.delta ? ` (${r.delta > 0 ? '+' : ''}${r.delta.toFixed(2)})` : ''}`)));
+
+    const deliver = h('button', { class: 'primary' }, data.pending ? 'Update the talk' : 'Deliver this talk');
+    deliver.addEventListener('click', async () => {
+      deliver.setAttribute('disabled', 'true'); deliver.textContent = '…';
+      try { await api.setTeamTalk(fixtureId, tone); toast('Team talk locked in — it shades your next match.'); location.hash = '#/'; }
+      catch (e: any) { toast(e.message); deliver.removeAttribute('disabled'); deliver.textContent = 'Deliver this talk'; }
+    });
+
+    mount(header(), h('div', { class: 'wrap grid' },
+      h('div', { class: 'between' },
+        h('div', {}, h('h2', {}, 'Team talk'), h('div', { class: 'muted' }, 'How you address the squad before kick-off shades their morale for the match — and each player reacts to his own temperament.')),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+      h('div', { class: 'card' },
+        h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px' }, ...toneBtns),
+        h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px' }, blurb),
+        data.pending ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:4px;font-style:italic' }, `Currently set: ${data.tones.find(t => t.key === data.pending!.tone)?.label ?? data.pending.tone}`) : ''),
+      h('div', { class: 'card' },
+        h('div', { class: 'between', style: 'margin-bottom:6px' },
+          h('div', { class: 'section-title', style: 'margin:0' }, 'How it lands'),
+          h('span', { class: 'muted', style: 'font-size:11px' }, `${lifts} lifted · ${rattles} rattled`)),
+        h('div', { style: 'max-height:420px;overflow:auto' }, ...rows)),
+      h('div', { class: 'row' }, deliver),
+    ));
+  }
+  render();
 }
 
 // ── youth academy (§2.9): the club's developing prospects + promote-to-squad ──
@@ -2089,6 +2143,7 @@ function route() {
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
   else if (hash === '#/academy') screenAcademy();
+  else if (hash.startsWith('#/teamtalk/')) screenTeamTalk(Number(hash.split('/')[2]));
   else if (hash === '#/news') screenNews();
   else if (hash === '#/squad') screenSquad();
   else if (hash === '#/staff') screenStaff();

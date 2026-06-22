@@ -123,6 +123,8 @@ export interface TrainingReportT { season: number; round: number; teamFocus: str
 
 export interface ContractOfferT { id: number; playerSlot: number | null; playerName: string; wage: number; years: number; status: string; counterWage: number | null; counterYears: number | null; }
 export interface AcademyProspectT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; attrs: Record<string, number>; }
+export interface TalkToneT { key: string; label: string; blurb: string; }
+export interface TalkReactionT { slot: number; name: string; role: string; delta: number; reaction: string; }
 export interface ContractOfferEventT { player: string; result: 'accepted' | 'countered' | 'rejected' | 'expired'; wage: number; years: number; counterWage?: number; counterYears?: number; }
 
 export interface RotationPlayerT { slot: number; name: string; role: string; fitness: number; injured: boolean; injuredMatches: number; risk: number; band: 'injured' | 'fresh' | 'ok' | 'tired' | 'exhausted'; starter: boolean; }
@@ -180,6 +182,8 @@ export const api = {
   rejectOffer: (id: number) => req<{ ok: boolean; incoming: IncomingOfferT[] }>('POST', `/offer/${id}/reject`),
   setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
   setCaptain: (slot: number) => req<{ ok: boolean; captainSlot: number | null }>('PUT', '/captain', { slot }),
+  teamTalk: (fixtureId: number, tone?: string) => req<{ tones: TalkToneT[]; pending: { tone: string; reactions: TalkReactionT[] } | null; tone: string; reactions: TalkReactionT[] }>('GET', `/teamtalk?fixture=${fixtureId}${tone ? `&tone=${tone}` : ''}`),
+  setTeamTalk: (fixtureId: number, tone: string) => req<{ ok: boolean; tone: string; reactions: TalkReactionT[] }>('POST', '/teamtalk', { fixtureId, tone }),
   academy: () => req<{ prospects: AcademyProspectT[] }>('GET', '/academy'),
   promoteProspect: (id: number) => req<{ ok: boolean; player?: string; prospects: AcademyProspectT[] }>('POST', `/academy/${id}/promote`),
   setPlayerTraining: (slot: number, focus: string) => req<{ ok: boolean; focus: string | null }>('PUT', '/training/player', { slot, focus }),
