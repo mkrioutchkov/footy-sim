@@ -3,7 +3,7 @@
 
 void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
     auto& p = player;
-    if (p.role == Role::GK) return;
+    if (isGoalkeeper()) return;
     bool attacking = (p.team == spTeam);
     double fd = (p.team == Team::Home) ? 1.0 : -1.0;
     double ownGoalX = (p.team == Team::Home) ? 0.0 : PITCH_W;
@@ -90,7 +90,7 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                 p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.25);
             }
         } else if (spType == SetPiece::Penalty) {
-            if (p.role == Role::GK) {
+            if (isGoalkeeper()) {
                 p.targetX = ownGoalX;
                 p.targetY = PITCH_H / 2.0;
             } else if (isDefenderRole()) {

@@ -5,6 +5,7 @@ class GKPlayerAI : public PlayerAI {
 public:
     GKPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
     void tick(double sdt) override;
+    bool isGoalkeeper() const override { return true; }
 
     // ── GK-specific virtual hooks ──
     virtual double rushAggression() const;

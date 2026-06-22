@@ -27,7 +27,7 @@ PitchArea PlayerAI::currentPitchArea() const {
 }
 
 void PlayerAI::tick(double sdt) {
-    if (player.role == Role::GK) return;
+    if (isGoalkeeper()) return;
     facing = player.facing;
 
     stunLockTicks = std::max(0, stunLockTicks - 1);
