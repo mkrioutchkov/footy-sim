@@ -135,3 +135,38 @@ biggest step from "arcade-ish churn" toward "looks like real football," which ma
 for an FM-style match engine. **Skip it if** the current playable, well-tuned state is
 good enough — the churn is cosmetic-feel, not a correctness bug, and everything else
 in the engine is in good shape.
+
+## 8. Phase 1 + 3 prototype — empirical findings (2026-06-22)
+
+Built a throwaway prototype of Phase 1 (mid-block: hold shape when the carrier is
+in his own half, `carrierGoalDist > PITCH_W*0.52`, gating the second presser / cover
+/ midfield screen / close-down) and Phase 3 (patient build-up: when `pressureCount==0`
+in our own half, reward the safe keep + shun the risky/forward ball). Measured curve
+(watch_buildup) + goals, then REVERTED. Results:
+
+| build | goals | 5+ /90 | 20+ /90 | max seq |
+|---|---|---|---|---|
+| baseline | ~5 | 197 | 0 | 15 |
+| Phase 1 alone | **~11** | 249-294 | 0 | 15-17 |
+| Phase 1 + 3 | **~5** | 230-279 | **0** | 14-17 |
+
+Takeaways (these REFINE the plan above):
+- **Phase 3 works as the goal-balancer.** The patient attack pulled goals back from
+  the mid-block's explosion (~11) to baseline (~5) by trading direct attacks for
+  circulation. So "loosen defense + circulate" IS a viable goals-neutral pairing.
+- **But the curve still won't crack — and the real bottleneck is BUILD-UP COMPLETION,
+  not the press.** 20+ pass moves need ~90% completion during safe circulation; the
+  engine sits at **~81% even when unpressed**, because a pass can still be cut by an
+  opponent near the *receiver* or in the *lane* (not just a presser on the carrier).
+  At 81%, expected run length ≈ 1/0.19 ≈ 5 passes, so 20+ is astronomically rare;
+  real teams hit it because their unpressed build-up completes ~90%+.
+- **Implication for Phase 2.** Removing the midfield screen/cover (the mid-block) is
+  NOT enough to free the build-up zone — the back line, threat-markers, and the
+  opponent's own high forwards still occupy lanes and hold completion at ~81%. The
+  success metric for Phase 2 must be **unpressed-build-up completion → ~90%**, which
+  requires the build-up third to be genuinely opponent-sparse (a deeper, riskier
+  density cut than the mid-block, with the goal-balancing leaning even harder on
+  Phase 3). This is the crux and it's why single-phase attempts can't win.
+- Net: the redesign is **deeper than first scoped** — it's a build-up-completion
+  problem gated by total lane density, not a press-aggression problem. Genuine
+  multi-session research with real but uncertain payoff.
