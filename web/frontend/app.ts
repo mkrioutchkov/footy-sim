@@ -566,7 +566,10 @@ async function screenDashboard() {
         if (released.length) toast(`${released.length} player(s) left on a free transfer — re-sign from the market, or renew deals earlier next season.`);
         const myYouth = (ro.youth ?? []).filter(y => y.teamId === team.id);
         const retired = myYouth.filter(y => y.type === 'retired'), intake = myYouth.filter(y => y.type === 'intake');
-        if (retired.length || intake.length) toast(`Academy: ${intake.length} prospect(s) promoted${retired.length ? `, ${retired.length} veteran(s) retired` : ''}.`);
+        if (retired.length || intake.length) toast(`Academy: ${intake.length} new prospect(s) in the youth setup${retired.length ? `, ${retired.length} veteran(s) retired` : ''}.`);
+        for (const a of (ro.awards ?? []).filter(a => a.teamId === team.id)) {
+          toast(`${a.type === 'pots' ? '🏆' : '🌟'} ${a.player} — your ${a.type === 'pots' ? 'Player' : 'Young Player'} of the Season!`);
+        }
         const board = (ro.board ?? []).find(b => b.teamId === team.id);
         if (board) toast(`📋 Board: ${board.message}`);
       }
@@ -652,7 +655,9 @@ async function screenDashboard() {
   for (const p of team.players) nameCount.set(p.name, (nameCount.get(p.name) ?? 0) + 1);
   const slotByName = new Map(team.players.filter(p => nameCount.get(p.name) === 1).map(p => [p.name, p.slot]));
   const newsCard = h('div', { class: 'card', style: 'margin-top:14px' },
-    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Club news'),
+    h('div', { class: 'between', style: 'margin-bottom:6px' },
+      h('div', { class: 'section-title', style: 'margin:0' }, 'Club news'),
+      news.length > 8 ? h('a', { class: 'a', style: 'font-size:12px;cursor:pointer', onclick: () => (location.hash = '#/news') }, 'View all →') : ''),
     news.length
       ? h('div', {}, ...news.slice(0, 8).map(n => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0;' + (slotByName.has(n.player) ? 'cursor:pointer' : ''), onclick: () => { const s = slotByName.get(n.player); if (s != null) location.hash = `#/player/${s}`; } },
           h('span', {}, `${NEWS_ICON[n.type] ?? '•'} ${n.headline}`),
@@ -1355,6 +1360,31 @@ async function screenAcademy() {
   ));
 }
 
+// ── news archive (§2.14): the full club-news feed, grouped by season ──
+async function screenNews() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading the archive…')));
+  let news: NewsItemT[];
+  try { news = (await api.news(200)).news; }
+  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟' };
+
+  const groups: { season: number; items: NewsItemT[] }[] = [];
+  for (const n of news) { const g = groups[groups.length - 1]; if (g && g.season === n.season) g.items.push(n); else groups.push({ season: n.season, items: [n] }); }
+
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
+      h('div', {}, h('h2', {}, 'News archive'), h('div', { class: 'muted' }, `${news.length} headline(s) across your tenure`)),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
+    ),
+    news.length
+      ? h('div', { class: 'grid' }, ...groups.map(g => h('div', { class: 'card' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, `Season ${g.season}`),
+          ...g.items.map(n => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0' },
+            h('span', {}, `${NEWS_ICON[n.type] ?? '•'} ${n.headline}`))))))
+      : h('div', { class: 'card muted', style: 'font-size:13px' }, 'No headlines yet — play on and your players will make news.'),
+  ));
+}
+
 // ── player profile (personality + the story↔traits coupling) ──
 const TRAIT_LABELS: { key: string; label: string }[] = [
   { key: 'professionalism', label: 'Professionalism' }, { key: 'consistency', label: 'Consistency' },
@@ -2017,6 +2047,7 @@ function route() {
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
   else if (hash === '#/academy') screenAcademy();
+  else if (hash === '#/news') screenNews();
   else if (hash === '#/squad') screenSquad();
   else if (hash === '#/staff') screenStaff();
   else if (hash === '#/finances') screenFinances();

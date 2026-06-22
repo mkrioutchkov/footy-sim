@@ -71,6 +71,7 @@ export interface RolloverT {
   contracts: { teamId: number; player: string; type: 'renewed' | 'released' }[];
   youth: { teamId: number; type: 'retired' | 'intake'; player: string; age: number }[];
   board?: { teamId: number; tone: string; message: string }[];
+  awards?: { teamId: number; player: string; slot: number; type: 'pots' | 'young_pots'; headline: string; avg: number }[];
 }
 export interface FreeAgentT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; }
 export interface MarketPlayerT { slot: number; name: string; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; contractYears: number; listed: boolean; askPrice: number | null; starter: boolean; onLoan: boolean; }
@@ -192,7 +193,7 @@ export const api = {
   withdrawContractOffer: (id: number) => req<{ ok: boolean; offers: ContractOfferT[] }>('POST', `/contract-offer/${id}/withdraw`),
   report: (fixtureId: number) => req<ReportT>('GET', `/report?fixture=${fixtureId}`),
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
-  news: () => req<{ news: NewsItemT[] }>('GET', '/news'),
+  news: (limit?: number) => req<{ news: NewsItemT[] }>('GET', limit ? `/news?limit=${limit}` : '/news'),
   history: () => req<{ history: SeasonHistoryT[]; records: ClubRecordsT }>('GET', '/history'),
   staff: () => req<StaffViewT>('GET', '/staff'),
   hireStaff: (staffId: number) => req<StaffViewT & { name?: string }>('POST', '/staff/hire', { staffId }),
