@@ -211,9 +211,9 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         sc += carrierFinalThird ? 0.30 : 0.20;
     }
     if ((isCross || isCutback) && receiverPressure <= 1 && bl <= 1) sc += 0.08;
-    if (p.role == Role::WM && dgW < 450.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 230.0) sc += 0.24;
-    if (p.role == Role::WM && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.32;
-    if (p.role == Role::FB && fp > 0.0 && std::abs(p.y - PITCH_H / 2.0) > 75.0 && dgW < 430.0) sc += 0.30;
+    if (isWideMidfielder() && dgW < 450.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 230.0) sc += 0.24;
+    if (isWideMidfielder() && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.32;
+    if (isFullBack() && fp > 0.0 && std::abs(p.y - PITCH_H / 2.0) > 75.0 && dgW < 430.0) sc += 0.30;
     bool targetWide = (t.role == Role::WM || t.role == Role::FB) && std::abs(t.y - PITCH_H / 2.0) > 125.0;
     bool passerCanFindWide = isDefenderLike();
     if (passerCanFindWide && targetWide && fp > 20.0 && d < 460.0 && bl <= 1 && receiverPressure <= 1) {
@@ -345,7 +345,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                                        || assignment->role == DefensiveTask::InsideRun
                                        || (assignment->role == DefensiveTask::CrossLane && t.role == Role::WM)))
                           || (assignment && assignment->role == DefensiveTask::Overlap && !wideOutletTarget)
-                          || (p.role == Role::CM && targetAttacker && !wideOutletTarget);
+                          || (isCentralMidfielder() && targetAttacker && !wideOutletTarget);
     if (!isWideDelivery && releasedRunner && goodThroughWindow) {
         pur = ActionPurpose::Through;
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
@@ -359,7 +359,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (onsideGap > 8.0 && onsideGap < 70.0) sc += 0.08;
         if (targetGoalDist < 250.0) sc += 0.14;
         if (receiverPressure > 0) sc -= 0.05;
-    } else if (!isWideDelivery && releasedRunner && !runnerIntent && p.role == Role::CM) {
+    } else if (!isWideDelivery && releasedRunner && !runnerIntent && isCentralMidfielder()) {
         sc -= 0.08;
     }
     if (wideOutletTarget && !isWideDelivery && onsideGap > 10.0 && bl <= 1 && receiverPressure <= 1) {
@@ -374,7 +374,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (per.pressureCount >= 2 && bl == 0) sc += 0.10;
     if (per.pressureCount >= 2 && bl >= 2) sc -= 0.15;
 
-    if (p.role == Role::CM && t.role == Role::CF && receiverPressure >= 1 && bl <= 1)
+    if (isCentralMidfielder() && t.role == Role::CF && receiverPressure >= 1 && bl <= 1)
         sc += attrFactor(p.attrs.creativity) * 0.10;
 
     auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
