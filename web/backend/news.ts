@@ -132,17 +132,28 @@ const MIN_AWARD_APPS = 3;   // games played to be eligible for a season award
 
 // Crown the club's Player + Young Player of the Season from the accumulated rating tally, as news
 // (no story change). Called at rollover BEFORE the tally resets; no eligible player -> no award.
-export function recordSeasonAwards(teamId: number, season: number): void {
+export interface SeasonAward { teamId: number; player: string; slot: number; type: 'pots' | 'young_pots'; headline: string; avg: number }
+// Crown the club's season awards from the rating tally + record them in the news. Returns the awards so
+// the rollover can surface them as a celebration moment (§2.14).
+export function recordSeasonAwards(teamId: number, season: number): SeasonAward[] {
   const rated = (db.prepare('SELECT slot, name, age, season_rating_sum AS sum, season_apps AS apps FROM players WHERE team_id = ? AND season_apps >= ?').all(teamId, MIN_AWARD_APPS) as
     { slot: number; name: string; age: number; sum: number; apps: number }[])
     .map(p => ({ ...p, avg: p.sum / p.apps }));
-  if (!rated.length) return;
+  if (!rated.length) return [];
   const ins = db.prepare('INSERT INTO player_news (team_id, player_slot, player_name, type, headline, ref_id, season, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)');
   const now = Date.now();
+  const awards: SeasonAward[] = [];
   const pots = [...rated].sort((a, b) => b.avg - a.avg)[0];
-  ins.run(teamId, pots.slot, pots.name, 'pots', `${pots.name} — your Player of the Season (avg ${pots.avg.toFixed(1)} over ${pots.apps} games)`, season, now);
+  const potsHead = `${pots.name} — your Player of the Season (avg ${pots.avg.toFixed(1)} over ${pots.apps} games)`;
+  ins.run(teamId, pots.slot, pots.name, 'pots', potsHead, season, now);
+  awards.push({ teamId, player: pots.name, slot: pots.slot, type: 'pots', headline: potsHead, avg: pots.avg });
   const young = [...rated].filter(p => p.age <= 21).sort((a, b) => b.avg - a.avg)[0];
-  if (young && young.name !== pots.name) ins.run(teamId, young.slot, young.name, 'young_pots', `${young.name} — your Young Player of the Season (avg ${young.avg.toFixed(1)})`, season, now);
+  if (young && young.name !== pots.name) {
+    const youngHead = `${young.name} — your Young Player of the Season (avg ${young.avg.toFixed(1)})`;
+    ins.run(teamId, young.slot, young.name, 'young_pots', youngHead, season, now);
+    awards.push({ teamId, player: young.name, slot: young.slot, type: 'young_pots', headline: youngHead, avg: young.avg });
+  }
+  return awards;
 }
 
 export interface NewsRow { player: string; type: NewsType; headline: string; season: number; slot: number }

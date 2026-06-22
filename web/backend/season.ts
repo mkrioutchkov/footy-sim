@@ -14,7 +14,7 @@ import { createCup, cupView } from './cup.ts';
 import { purgeRecordings } from './match.ts';
 import { purgeReports } from './report.ts';
 import { returnLoans } from './market.ts';
-import { recordSeasonAwards } from './news.ts';
+import { recordSeasonAwards, type SeasonAward } from './news.ts';
 import { recordSeasonHistory } from './history.ts';
 import { getObjective, setSeasonObjective, deriveObjective, objectiveMet } from './objectives.ts';
 import { settleConfidenceAtRollover, boardVerdictAtRollover, type BoardTone } from './confidence.ts';
@@ -87,6 +87,7 @@ export interface RolloverResult {
   contracts: ContractEvent[];
   youth: YouthEvent[];
   board: { teamId: number; tone: BoardTone; message: string }[];   // the board's verdict per human club
+  awards: SeasonAward[];                                            // §2.14: each human club's Player(s) of the Season
 }
 
 // Roll the world's season over. Returns a summary, or null if the season isn't complete.
@@ -97,7 +98,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
   const finals = leagues.map(l => ({ league: l, table: standings(l.id) }));
 
   return tx(() => {
-    const out: RolloverResult = { season: (leagues[0].season ?? 1) + 1, divisions: [], promoted: [], relegated: [], prizeMoney: [], contracts: [], youth: [], board: [] };
+    const out: RolloverResult = { season: (leagues[0].season ?? 1) + 1, divisions: [], promoted: [], relegated: [], prizeMoney: [], contracts: [], youth: [], board: [], awards: [] };
 
     // 0. loans are season-long: send every loaned-in player in THIS world back to his parent club
     //    (before ageing / contract ticking, so he's home on the books for the new campaign).
@@ -108,7 +109,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
     const endSeason = leagues[0].season ?? 1;
     const lph = leagues.map(() => '?').join(',');
     const humanTeams = db.prepare(`SELECT id FROM teams WHERE league_id IN (${lph}) AND user_id IS NOT NULL`).all(...leagues.map(l => l.id)) as { id: number }[];
-    for (const t of humanTeams) recordSeasonAwards(t.id, endSeason);
+    for (const t of humanTeams) out.awards.push(...recordSeasonAwards(t.id, endSeason));
 
     // 1. prize money by final position
     for (const { league, table } of finals) {

@@ -577,7 +577,8 @@ app.get('/api/news', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
-  return { news: recentNews(teamId) };
+  const limit = Math.min(200, Math.max(1, Number((req.query as any)?.limit) || 20));   // §2.14: the archive asks for more
+  return { news: recentNews(teamId, limit) };
 });
 
 // Backroom staff: the club's coaches/physios/scouts + the world's hire pool + current effects.
