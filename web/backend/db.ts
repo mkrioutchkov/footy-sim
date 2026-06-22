@@ -395,6 +395,26 @@ CREATE TABLE IF NOT EXISTS training_reports (
 CREATE INDEX IF NOT EXISTS idx_training_reports_team ON training_reports(team_id, id);
 `);
 
+// ── Youth academy (audit §2.9) ──────────────────────────────────────────────
+// A human club's youth prospects — raw teenagers with upside that develop in the academy each season
+// and are promoted to the senior squad by the manager (instead of 2 regens silently appearing in the
+// squad at rollover). AI clubs keep the auto-intake-to-squad path (so the world still renews). New
+// table — existing saves are unaffected (the academy is seeded on the next team creation / rollover).
+db.exec(`
+CREATE TABLE IF NOT EXISTS youth_prospects (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id     INTEGER NOT NULL,
+  name        TEXT NOT NULL,
+  role        TEXT NOT NULL,        -- GK|FB|CB|CM|WM|CF
+  attrs       TEXT NOT NULL,        -- json (same shape as players.attrs)
+  age         INTEGER NOT NULL,
+  potential   INTEGER,
+  personality TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_youth_team ON youth_prospects(team_id);
+`);
+
 // ── Contract renewal negotiation (audit §2.2) ───────────────────────────────
 // A voluntary renewal is no longer instant: the manager proposes a wage + length, and the player
 // (via his agent) resolves it at the NEXT matchday — accept, counter (names his price), or reject

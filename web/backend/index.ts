@@ -21,6 +21,7 @@ import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPl
 import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
+import { seedAcademy, getAcademy, promoteProspect } from './youth.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
@@ -120,6 +121,7 @@ app.post('/api/team', async (req: any, reply) => {
   // §P2: stock the for-sale market for the opening summer window (both divisions) so a brand-new
   // manager sees AI clubs offering players to bid on, not an empty board.
   for (const lid of new Set([leagueId, worldId])) aiListSurplus(lid);
+  seedAcademy(teamId);   // §2.9: a starting crop of youth prospects in the academy
   // Generate the squad's personalities in the background (best-effort, ~3s) so team
   // creation returns immediately; the dashboard backfills via /api/personalities.
   void assignPersonalities(teamId).catch(() => { /* defaults already stored on failure */ });
@@ -156,6 +158,22 @@ app.put('/api/captain', async (req: any, reply) => {
   if (!db.prepare('SELECT 1 FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot)) return reply.code(404).send({ error: 'no such player in your squad' });
   db.prepare('UPDATE teams SET captain_slot = ? WHERE id = ?').run(slot, teamId);
   return { ok: true, captainSlot: slot };
+});
+
+// §2.9: the youth academy — the club's developing prospects + promote one to the senior squad.
+app.get('/api/academy', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { prospects: getAcademy(teamId) };
+});
+app.post('/api/academy/:id/promote', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const r = promoteProspect(teamId, Number(req.params.id));
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, prospects: getAcademy(teamId) };
 });
 
 // Set the club's plain-English STANDING tactical plan: compile it to directives (team-relative
