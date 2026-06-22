@@ -143,6 +143,7 @@ public:
     virtual bool    isAttackerRole() const { return false; }
     virtual bool    isCenterBack() const { return false; }
     virtual bool    isFullBack() const { return false; }
+    virtual bool    isWidePlayer() const { return false; }   // winger or full-back (wide-channel)
     virtual bool    isCentralMidfielder() const { return false; }
     virtual bool    isWideMidfielder() const { return false; }
     virtual bool    isCenterForward() const { return false; }

@@ -49,6 +49,7 @@ public:
     double dribbleOwnHalfExtraPenalty() const override { return 0.0; }
     bool   isAttackerRole() const override { return true; }
     bool   isWideMidfielder() const override { return true; }
+    bool   isWidePlayer() const override { return true; }
     bool   canUseWideDribble() const override { return true; }
     double observingCruiseMul() const override { return 0.55; }
     double defensivePressCost(bool danger) const override { (void)danger; return 6.0; }
@@ -136,6 +137,7 @@ public:
     bool   isDefenderRole() const override { return true; }
     bool   isDefenderLike() const override { return true; }
     bool   isFullBack() const override { return true; }
+    bool   isWidePlayer() const override { return true; }
     double observingCruiseMul() const override { return 0.65; }
     double defensivePressCost(bool danger) const override { return danger ? 14.0 : 58.0; }
     double shotLaneCost() const override { return 12.0; }

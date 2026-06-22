@@ -59,7 +59,7 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
 
     // ── Crossing carrier override ──
     double goalX = goalXFor(p.team);
-    bool crossingCarrier = (p.role == Role::WM || p.role == Role::FB)
+    bool crossingCarrier = isWidePlayer()
         && std::abs(p.y - PITCH_H / 2.0) > 75.0
         && std::abs(p.x - goalX) < 520.0;
     if (crossingCarrier) {

@@ -130,7 +130,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     // ── Wide delivery classification ──
     double dgW = dg2;
-    bool isWideDelivery = (p.role == Role::WM || p.role == Role::FB)
+    bool isWideDelivery = isWidePlayer()
         && dgW < 430.0
         && std::abs(p.y - PITCH_H / 2.0) > 75.0
         && std::abs(t.x - (goalXFor(p.team))) < 310.0
