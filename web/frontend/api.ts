@@ -118,6 +118,9 @@ export interface TrainLineT {
 }
 export interface TrainingReportT { season: number; round: number; teamFocus: string; coachBoost: number; harmonyFactor: number; lines: TrainLineT[]; }
 
+export interface ContractOfferT { id: number; playerSlot: number | null; playerName: string; wage: number; years: number; status: string; counterWage: number | null; counterYears: number | null; }
+export interface ContractOfferEventT { player: string; result: 'accepted' | 'countered' | 'rejected' | 'expired'; wage: number; years: number; counterWage?: number; counterYears?: number; }
+
 export interface RotationPlayerT { slot: number; name: string; role: string; fitness: number; injured: boolean; injuredMatches: number; risk: number; band: 'injured' | 'fresh' | 'ok' | 'tired' | 'exhausted'; starter: boolean; }
 export interface RotationSuggestionT { outSlot: number; outName: string; outFitness: number; inSlot: number; inName: string; inFitness: number; role: string; reason: string; urgent: boolean; }
 export interface RotationT { players: RotationPlayerT[]; suggestions: RotationSuggestionT[]; atRisk: number; expectedInjuries: number; physioMitigation: number; }
@@ -154,7 +157,7 @@ export const api = {
   league: () => req<LeagueT>('GET', '/league'),
   playFixture: (id: number) => req<{ result: { homeScore: number; awayScore: number; alreadyPlayed: boolean }; standings: StandingT[] }>('POST', `/fixtures/${id}/play`),
   playNext: () => req<{ fixtureId: number; result: { homeScore: number; awayScore: number }; standings: StandingT[] }>('POST', '/play-next'),
-  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; injuries?: { teamId: number; player: string; matches: number }[]; cup?: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null; rollover?: RolloverT | null; standings: StandingT[] }>('POST', '/advance'),
+  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; injuries?: { teamId: number; player: string; matches: number }[]; cup?: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null; rollover?: RolloverT | null; contractOffers?: ContractOfferEventT[]; standings: StandingT[] }>('POST', '/advance'),
   cup: () => req<CupT>('GET', '/cup'),
   market: () => req<MarketT>('GET', '/market'),
   buyAgent: (agentId: number) => req<{ ok: boolean; placed: 'xi' | 'bench'; value: number; name: string; market: MarketT }>('POST', '/market/buy', { agentId }),
@@ -171,10 +174,14 @@ export const api = {
   setPlayerStory: (slot: number, backstory: string, tagline: string) =>
     req<{ slot: number; personality: PersonalityT; value: number }>('PUT', `/player/${slot}/story`, { backstory, tagline }),
   press: (text: string) => req<{ reactions: { slot: number; name: string; delta: number; quote?: string }[]; lifted: number; unsettled: number; team: TeamT }>('POST', '/press', { text }),
-  renewPlayer: (slot: number, years?: number) =>
-    req<{ ok: boolean; wage: number; years: number }>('PUT', `/player/${slot}/renew`, { years }),
   renewPreview: (slot: number) =>
     req<{ currentWage: number; newWage: number; delta: number; years: number; affordable: boolean }>('GET', `/player/${slot}/renew-preview`),
+  // §2.2 contract negotiation: propose a renewal (resolved at the next matchday), then match/withdraw.
+  renewOffer: (slot: number, wage: number, years: number) =>
+    req<{ ok: boolean; offers: ContractOfferT[] }>('POST', `/player/${slot}/renew-offer`, { wage, years }),
+  contractOffers: () => req<{ offers: ContractOfferT[] }>('GET', '/contract-offers'),
+  matchContractOffer: (id: number) => req<{ ok: boolean; player?: string; wage?: number; years?: number; offers: ContractOfferT[] }>('POST', `/contract-offer/${id}/match`),
+  withdrawContractOffer: (id: number) => req<{ ok: boolean; offers: ContractOfferT[] }>('POST', `/contract-offer/${id}/withdraw`),
   report: (fixtureId: number) => req<ReportT>('GET', `/report?fixture=${fixtureId}`),
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: () => req<{ news: NewsItemT[] }>('GET', '/news'),

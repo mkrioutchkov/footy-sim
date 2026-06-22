@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -501,6 +501,12 @@ async function screenDashboard() {
       }
       const myInj = (r.injuries ?? []).filter(i => i.teamId === team.id);
       if (myInj.length) toast(`🤕 ${myInj.map(i => `${i.player} out ${i.matches} match${i.matches > 1 ? 'es' : ''}`).join(' · ')}`);
+      // §2.2: how the matchday's contract talks resolved
+      for (const c of r.contractOffers ?? []) {
+        if (c.result === 'accepted') toast(`✍️ ${c.player} signed a new ${c.years}-year deal (${fmtMoney(c.wage)}/yr)`);
+        else if (c.result === 'countered') toast(`↩ ${c.player}'s agent wants ${fmtMoney(c.counterWage ?? c.wage)}/yr — open his profile to respond`);
+        else if (c.result === 'rejected') toast(`✖ ${c.player} turned down the contract offer`);
+      }
       const wonCup = r.cup?.champion != null && r.cup.champion === team.id;
       if (r.cup?.myTie && !wonCup) {
         const c = r.cup.myTie;
@@ -1255,6 +1261,44 @@ async function screenPlayer(slot: number) {
   if (!p) { location.hash = '#/'; return; }
   const ovr = skillOvr(p.attrs);
 
+  // §2.2 contract negotiation: this player's live renewal talks (pending / countered), best-effort.
+  let myOffer: ContractOfferT | null = null;
+  try { myOffer = (await api.contractOffers()).offers.find(o => o.playerSlot === slot && (o.status === 'pending' || o.status === 'countered')) ?? null; }
+  catch { /* no offers / pre-feature save */ }
+  const openTalks = async () => {
+    let suggested = p.wage ?? 0;
+    try { const pv = await api.renewPreview(slot); suggested = pv.newWage; } catch { /* fall back to current wage */ }
+    const raw = await promptModal('Open contract talks',
+      `Offer ${p.name} a new annual wage (3-year deal). His fair wage is about ${fmtMoney(suggested)} — go higher to land him, lower and he'll likely counter. He replies at the next matchday.`,
+      String(suggested), 'Send offer');
+    if (raw == null) return;
+    const wage = Math.round(Number(String(raw).replace(/[^0-9.]/g, '')));   // tolerate "£50,000" etc.
+    if (!Number.isFinite(wage) || wage <= 0) { toast('Enter a positive wage'); return; }
+    try { await api.renewOffer(slot, wage, 3); toast('Offer sent — he responds at the next matchday.'); screenPlayer(slot); }
+    catch (e: any) { toast(e.message); }
+  };
+  const contractControl = (() => {
+    if (myOffer && myOffer.status === 'pending') {
+      const wd = h('button', { class: 'ghost small' }, 'Withdraw');
+      wd.addEventListener('click', async () => { wd.setAttribute('disabled', 'true'); try { await api.withdrawContractOffer(myOffer!.id); toast('Offer withdrawn'); screenPlayer(slot); } catch (e: any) { toast(e.message); wd.removeAttribute('disabled'); } });
+      return h('span', { class: 'row', style: 'gap:6px;align-items:center' },
+        h('span', { class: 'pill', title: 'Awaiting his reply at the next matchday', style: 'background:#262d3a' }, `⏳ offered ${fmtMoney(myOffer.wage)}/yr × ${myOffer.years}y`), wd);
+    }
+    if (myOffer && myOffer.status === 'countered') {
+      const cw = myOffer.counterWage ?? myOffer.wage, cy = myOffer.counterYears ?? myOffer.years;
+      const m = h('button', { class: 'primary small' }, `Accept ${fmtMoney(cw)}/yr`);
+      m.addEventListener('click', async () => { m.setAttribute('disabled', 'true'); try { const r = await api.matchContractOffer(myOffer!.id); toast(`${r.player ?? p.name} re-signed — ${fmtMoney(r.wage!)}/yr × ${r.years}y`); screenPlayer(slot); } catch (e: any) { toast(e.message); m.removeAttribute('disabled'); } });
+      const wd = h('button', { class: 'ghost small', style: 'margin-left:4px' }, 'Walk away');
+      wd.addEventListener('click', async () => { wd.setAttribute('disabled', 'true'); try { await api.withdrawContractOffer(myOffer!.id); toast('Talks ended'); screenPlayer(slot); } catch (e: any) { toast(e.message); wd.removeAttribute('disabled'); } });
+      return h('span', { class: 'row', style: 'gap:6px;align-items:center' },
+        h('span', { class: 'pill', title: 'His agent countered', style: 'background:#3a2a1f;color:#ffce9a' }, `↩ wants ${fmtMoney(cw)}/yr × ${cy}y`), m, wd);
+    }
+    const open = h('button', { class: 'ghost small' }, 'Open contract talks');
+    // guard the async preview→prompt flow so a double-click can't stack wage-entry modals
+    open.addEventListener('click', async () => { if (open.hasAttribute('disabled')) return; open.setAttribute('disabled', 'true'); try { await openTalks(); } finally { open.removeAttribute('disabled'); } });
+    return open;
+  })();
+
   const traitsEl = h('div', {});
   const renderTraits = (tr: Record<string, number>) => traitsEl.replaceChildren(...TRAIT_LABELS.map(t => traitBar(t.label, tr?.[t.key] ?? 50)));
   // Don't fabricate eight 50-bars for a player with no personality — that reads as real data.
@@ -1287,21 +1331,7 @@ async function screenPlayer(slot: number) {
           h('span', { class: 'muted' }, `Wage ${fmtMoney(p.wage)}/yr · ${p.contractYears ?? 0}y left`),
           (team.wageBudget != null && team.wageBill != null)   // §1.15: club wage headroom, so a renewal isn't a blind 400
             ? h('span', { class: 'muted', style: team.wageBudget - team.wageBill < 0 ? 'color:var(--danger)' : '' }, `· club headroom ${fmtMoney(team.wageBudget - team.wageBill)}/yr`) : '',
-          (() => {
-            const renew = h('button', { class: 'ghost small' }, 'Renew (3y)');
-            renew.addEventListener('click', async () => {
-              renew.setAttribute('disabled', 'true');
-              try {
-                // §1.14: show the recomputed wage + delta before committing (renewal can DROP or jump).
-                const pv = await api.renewPreview(slot);
-                const move = pv.delta > 0 ? `up ${fmtMoney(pv.delta)}` : pv.delta < 0 ? `down ${fmtMoney(-pv.delta)}` : 'unchanged';
-                const ok = await confirmModal('Renew contract', `New deal: ${fmtMoney(pv.newWage)}/yr for ${pv.years}y — ${move} from ${fmtMoney(pv.currentWage)}.${pv.affordable ? '' : ' ⚠ This exceeds your wage budget.'}`, 'Renew');
-                if (!ok) { renew.removeAttribute('disabled'); return; }
-                const r = await api.renewPlayer(slot, 3); toast(`Renewed — ${fmtMoney(r.wage)}/yr for ${r.years}y`); screenPlayer(slot);
-              } catch (e: any) { toast(e.message); renew.removeAttribute('disabled'); }
-            });
-            return renew;
-          })()) : '',
+          contractControl) : '',
         (p.injuredMatches ?? 0) > 0
           ? h('div', { style: 'font-size:12px;color:#e8896b' }, `🤕 Injured — out ${p.injuredMatches} match${(p.injuredMatches ?? 0) > 1 ? 'es' : ''}${p.morale != null ? ` · Morale ${p.morale}` : ''}`)
           : h('div', { class: 'muted', style: 'font-size:12px' }, `Match fitness ${p.fitness ?? 100}%${p.morale != null ? ` · Morale ${p.morale}` : ''}`)),
