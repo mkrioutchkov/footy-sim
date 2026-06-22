@@ -395,6 +395,21 @@ CREATE TABLE IF NOT EXISTS training_reports (
 CREATE INDEX IF NOT EXISTS idx_training_reports_team ON training_reports(team_id, id);
 `);
 
+// ── Pre-match team talk (audit §2.13) ────────────────────────────────────────
+// A manager's pre-match address to the squad: a chosen tone produces per-player morale deltas
+// (gated by personality) that ride into the match spec as players[].moraleBoost (the engine already
+// reads it at kickoff and shades effort). One talk per (team, fixture); consumed when the match plays.
+db.exec(`
+CREATE TABLE IF NOT EXISTS team_talks (
+  team_id     INTEGER NOT NULL,
+  fixture_id  INTEGER NOT NULL,
+  tone        TEXT NOT NULL,
+  deltas      TEXT NOT NULL,        -- json [{slot, delta}] (delta is a moraleBoost in [-0.5, 0.5])
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (team_id, fixture_id)
+);
+`);
+
 // ── Free-agent contract offers (audit §2.1, the free-agent half) ─────────────
 // A manager's offer (wage + length) to a free agent. Instead of an instant signing, the agent takes it
 // away to "consider" and answers at the next matchday tick — he accepts if the wage meets his demand,

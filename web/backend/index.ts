@@ -22,6 +22,7 @@ import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
 import { seedAcademy, getAcademy, promoteProspect } from './youth.ts';
+import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from './teamtalk.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
@@ -158,6 +159,37 @@ app.put('/api/captain', async (req: any, reply) => {
   if (!db.prepare('SELECT 1 FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot)) return reply.code(404).send({ error: 'no such player in your squad' });
   db.prepare('UPDATE teams SET captain_slot = ? WHERE id = ?').run(slot, teamId);
   return { ok: true, captainSlot: slot };
+});
+
+// §2.13: the pre-match team talk — preview how a tone lands across the squad + lock one in for an
+// upcoming fixture (its per-player morale deltas ride into the match spec as moraleBoost).
+function ownUnplayedFixture(teamId: number, fixtureId: number): { ok: true } | { ok: false; code: number; error: string } {
+  if (!Number.isInteger(fixtureId)) return { ok: false, code: 400, error: 'fixture required' };
+  const fx = db.prepare('SELECT home_team_id, away_team_id, played FROM fixtures WHERE id = ?').get(fixtureId) as { home_team_id: number; away_team_id: number; played: number } | undefined;
+  if (!fx || (fx.home_team_id !== teamId && fx.away_team_id !== teamId)) return { ok: false, code: 404, error: 'not your fixture' };
+  if (fx.played) return { ok: false, code: 400, error: 'that match has already been played' };
+  return { ok: true };
+}
+app.get('/api/teamtalk', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const fixtureId = Number(req.query?.fixture);
+  const chk = ownUnplayedFixture(teamId, fixtureId);
+  if (!chk.ok) return reply.code(chk.code).send({ error: chk.error });
+  const pending = pendingTalk(teamId, fixtureId);
+  const tone = isTalkTone(req.query?.tone) ? req.query.tone : (pending?.tone ?? 'believe');
+  return { tones: TALK_TONES, pending, tone, reactions: previewTalk(teamId, tone) };
+});
+app.post('/api/teamtalk', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const fixtureId = Number(req.body?.fixtureId);
+  const chk = ownUnplayedFixture(teamId, fixtureId);
+  if (!chk.ok) return reply.code(chk.code).send({ error: chk.error });
+  if (!isTalkTone(req.body?.tone)) return reply.code(400).send({ error: 'unknown tone' });
+  return setTeamTalk(teamId, fixtureId, req.body.tone);
 });
 
 // §2.9: the youth academy — the club's developing prospects + promote one to the senior squad.

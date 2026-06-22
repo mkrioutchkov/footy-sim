@@ -8,6 +8,7 @@ import type { WebSocket } from 'ws';
 import { db } from './db.ts';
 import { getTeamWithPlayers, fieldedXIIndices, ROLE_SLOTS, DEFAULT_TACTICS } from './game.ts';
 import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer } from './plan.ts';
+import { getTeamTalkDeltas, consumeTeamTalk } from './teamtalk.ts';
 import type { Directive } from './tactics.ts';
 import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation, engineRole } from './formations.ts';
 
@@ -63,7 +64,7 @@ function resolvePlanDirectives(dirs: Directive[] | undefined, slotToEngine: Map<
 // Returns the per-team spec object + this side's engine-id-resolved standing directives (combined
 // into the top-level spec.directives by buildTieSpec). A HUMAN team's dials are forced neutral —
 // the plain-English plan (directives) is the manager's only tactical input now; AI keeps its dials.
-function specForTeam(teamId: number, side: 'home' | 'away'): { spec: Record<string, unknown>; directives: Directive[] } {
+function specForTeam(teamId: number, side: 'home' | 'away', talk?: Map<number, number>): { spec: Record<string, unknown>; directives: Directive[] } {
   const t = getTeamWithPlayers(teamId);
   if (!t) throw new Error(`team ${teamId} not found`);
   const tactics = t.userId != null ? DEFAULT_TACTICS : t.tactics;
@@ -87,7 +88,9 @@ function specForTeam(teamId: number, side: 'home' | 'away'): { spec: Record<stri
     // player's personality by engine id without re-deriving the lineup order. The bench
     // depth (slots 11+, added by the transfer market) stays out of the match.
     const xi = xiIdx.map(i => bySlot[i]);
-    players = xi.map(p => ({ name: p.name, attrs: p.attrs, personality: p.personality ?? null }));
+    // §2.13: a pre-match team talk rides in as players[].moraleBoost (engine reads it at kickoff). Only
+    // added when a talk gave this player a non-zero delta — no talk ⇒ no field ⇒ byte-identical spec.
+    players = xi.map(p => { const mb = talk?.get(p.slot); return { name: p.name, attrs: p.attrs, personality: p.personality ?? null, ...(mb ? { moraleBoost: mb } : {}) }; });
     xi.forEach((p, i) => slotToEngine.set(p.slot, i));
   } else {
     // Emit per-slot role + home anchor. The away side mirrors x (PITCH_W - x) to match
@@ -97,10 +100,12 @@ function specForTeam(teamId: number, side: 'home' | 'away'): { spec: Record<stri
     players = layout.map((slot, i) => {
       const p = bySlot[xiIdx[i]] ?? bySlot[i];
       slotToEngine.set(p.slot, i);
+      const mb = talk?.get(p.slot);
       return {
         name: p.name, attrs: p.attrs, role: engineRole(slot.role), personality: p.personality ?? null,
         homeX: side === 'away' ? PITCH_W - slot.x : slot.x,
         homeY: slot.y,
+        ...(mb ? { moraleBoost: mb } : {}),
       };
     });
   }
@@ -112,16 +117,20 @@ function specForTeam(teamId: number, side: 'home' | 'away'): { spec: Record<stri
 // standing plan is resolved to engine ids and merged into the top-level `directives` the engine
 // reads (home 0-10, away +11) — omitted entirely when neither team has a plan, so AI-vs-AI specs
 // are unchanged. Tactics dials are neutral for human teams (their plan is the tactical input).
-export function buildTieSpec(homeTeamId: number, awayTeamId: number, seed: number) {
-  const home = specForTeam(homeTeamId, 'home');
-  const away = specForTeam(awayTeamId, 'away');
+export function buildTieSpec(homeTeamId: number, awayTeamId: number, seed: number, fixtureId?: number) {
+  // §2.13: fold each side's pre-match team talk (if any) into its players' moraleBoost. No talk ⇒ empty
+  // map ⇒ no moraleBoost field ⇒ the spec is byte-identical (AI-vs-AI + untouched fixtures unchanged).
+  const homeTalk = fixtureId != null ? getTeamTalkDeltas(homeTeamId, fixtureId) : undefined;
+  const awayTalk = fixtureId != null ? getTeamTalkDeltas(awayTeamId, fixtureId) : undefined;
+  const home = specForTeam(homeTeamId, 'home', homeTalk && homeTalk.size ? homeTalk : undefined);
+  const away = specForTeam(awayTeamId, 'away', awayTalk && awayTalk.size ? awayTalk : undefined);
   const directives = [...home.directives, ...away.directives];
   const spec: Record<string, unknown> = { seed, minutes: MINUTES, home: home.spec, away: away.spec };
   if (directives.length) spec.directives = directives;
   return spec;
 }
 export function buildSpec(fixture: Fixture) {
-  return buildTieSpec(fixture.home_team_id, fixture.away_team_id, fixture.seed);
+  return buildTieSpec(fixture.home_team_id, fixture.away_team_id, fixture.seed, fixture.id);
 }
 
 export function writeSpec(fixture: Fixture): string {
@@ -407,6 +416,7 @@ export function playFixture(fixtureId: number): Promise<PlayResult> {
     : runEngineSummary(specPath);
   return play.then(({ homeScore, awayScore }) => {
     db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, fixtureId);
+    consumeTeamTalk(fixtureId);   // §2.13: a pre-match talk is a one-off — spent once the match is played
     return { fixtureId, homeScore, awayScore, alreadyPlayed: false };
   });
 }

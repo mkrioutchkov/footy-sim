@@ -200,6 +200,8 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       const oldFixtures = (db.prepare('SELECT id FROM fixtures WHERE league_id = ?').all(l.id) as { id: number }[]).map(r => r.id);
       purgeRecordings('fixture', oldFixtures);
       purgeReports('fixture', oldFixtures);
+      // any unplayed pre-match team talks (§2.13) belong to fixtures about to vanish — drop them too
+      if (oldFixtures.length) db.prepare(`DELETE FROM team_talks WHERE fixture_id IN (${oldFixtures.map(() => '?').join(',')})`).run(...oldFixtures);
       db.prepare('DELETE FROM fixtures WHERE league_id = ?').run(l.id);
       generateFixtures(l.id);
     }
