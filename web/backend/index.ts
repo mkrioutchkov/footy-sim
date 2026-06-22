@@ -17,7 +17,7 @@ import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
-import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer } from './market.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer } from './market.ts';
 import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
@@ -298,6 +298,18 @@ app.post('/api/transfer/loan', async (req: any, reply) => {
   const playerId = Number(req.body?.playerId);
   if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
   const r = loanIn(teamId, playerId);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, market: getMarket(teamId) };
+});
+
+// §2.12: send a loaned-in player back to his parent club early (frees the slot + wage).
+app.post('/api/transfer/loan/end', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.body?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
+  const r = endLoan(teamId, slot);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, market: getMarket(teamId) };
 });
