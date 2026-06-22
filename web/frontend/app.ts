@@ -205,18 +205,26 @@ function screenCreateTeam() {
   const err = h('div', { class: 'err' });
   const create = h('button', {}, 'Create team & start season');
   create.addEventListener('click', async () => {
-    create.setAttribute('disabled', 'true');
+    create.setAttribute('disabled', 'true'); create.textContent = 'Creating your club…';
     try {
       await api.createTeam(name.value.trim());
       const plan = planInput.value.trim();
-      if (plan) await api.teamPlan(plan).catch(() => { /* graceful — they can set it on the Tactics screen */ });
+      // P3: don't block entry on the LLM plan compile (~40s on a cold model — it used to freeze the
+      // create screen with no feedback, and a timeout left you on a broken screen). Drop into the
+      // dashboard immediately and compile the standing plan in the BACKGROUND; a toast reports how it landed.
+      if (plan) {
+        toast('Compiling your tactical plan in the background…');
+        void api.teamPlan(plan)
+          .then(r => toast(r.error ? 'Couldn’t read your plan — set it from the Tactics screen.' : '✓ Tactical plan set.'))
+          .catch(() => toast('Couldn’t read your plan — set it from the Tactics screen.'));
+      }
       route();
-    } catch (e: any) { err.textContent = e.message; create.removeAttribute('disabled'); }
+    } catch (e: any) { err.textContent = e.message; create.removeAttribute('disabled'); create.textContent = 'Create team & start season'; }
   });
   mount(header(), h('div', { class: 'wrap' },
     h('div', { class: 'card' },
       h('h2', {}, 'Create your club'),
-      h('div', { class: 'muted', style: 'margin-bottom:16px' }, 'We’ll generate your 11 players and drop you into an 8-team league against AI managers.'),
+      h('div', { class: 'muted', style: 'margin-bottom:16px' }, 'We’ll generate your squad — a starting XI plus bench — and drop you into an 8-team league against AI managers.'),
       h('div', { class: 'field' }, h('label', {}, 'Club name'), name),
       h('div', { class: 'section-title' }, 'Tactical plan'),
       planInput,
