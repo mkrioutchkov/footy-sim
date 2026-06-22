@@ -23,7 +23,7 @@ import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingR
 import { getRotationView, applyRotation } from './rotation.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { aiManagerTick } from './ai.ts';
-import { renewContract, previewRenewal } from './contracts.ts';
+import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressConference } from './press.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
@@ -316,16 +316,47 @@ app.put('/api/player/:slot/story', async (req: any, reply) => {
   return { slot, personality, value: playerValue(JSON.parse(row.attrs), row.age, personality) };
 });
 
-// Renew a player's contract: recompute their wage from current ability + commit a fresh
-// deal (gated by the wage budget). Keeps a player who'd otherwise leave at season's end.
-app.put('/api/player/:slot/renew', async (req: any, reply) => {
+// Propose a renewal (§2.2): the manager offers a wage + length; the player resolves it at the next
+// matchday (accept / counter / reject). Replaces the old instant one-click renewal with a negotiation.
+app.post('/api/player/:slot/renew-offer', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   const slot = Number(req.params.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
-  const years = req.body?.years != null ? Number(req.body.years) : undefined;
-  const r = renewContract(teamId, slot, years);
+  const wage = Number(req.body?.wage);
+  const years = req.body?.years != null ? Number(req.body.years) : 3;
+  const r = proposeRenewal(teamId, slot, wage, years);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return r;
+});
+
+// The club's contract negotiations (outgoing renewal offers + their status).
+app.get('/api/contract-offers', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { offers: contractOffersForTeam(teamId) };
+});
+
+// Match the player's counter — strike the renewal at his terms (budget permitting).
+app.post('/api/contract-offer/:id/match', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const id = Number(req.params.id);
+  const r = matchContractCounter(teamId, id);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return r;
+});
+
+// Withdraw a live renewal offer.
+app.post('/api/contract-offer/:id/withdraw', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const id = Number(req.params.id);
+  const r = withdrawContractOffer(teamId, id);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return r;
 });
@@ -596,8 +627,9 @@ app.post('/api/advance', async (req: any, reply) => {
   // every player trains.
   const transfers: any[] = [];
   const injuries: any[] = [];
+  const contractEvents: any[] = [];
   let developed = 0;
-  for (const l of leagues) { injuries.push(...fitnessTick(l.id)); moraleTick(l.id); transfers.push(...marketTick(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players; }
+  for (const l of leagues) { injuries.push(...fitnessTick(l.id)); moraleTick(l.id); transfers.push(...marketTick(l.id)); contractEvents.push(...processContractOffers(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players; }
   // The cup is spread across the season — round R plays once the league reaches matchday R*3,
   // so it concludes (the final at matchday 12) before the season rolls over.
   let cup: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null = null;
@@ -622,6 +654,7 @@ app.post('/api/advance', async (req: any, reply) => {
   return {
     round: userRound, myFixtureId: myFx?.id ?? null, myResult, results,
     transfers, development: { players: developed }, injuries, cup, rollover,
+    contractOffers: contractEvents.filter(e => e.teamId === teamId),   // §2.2: my renewal verdicts this matchday
     standings: standings(nowLeagueId),
   };
   } finally { advancing.delete(user.id); }

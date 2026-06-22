@@ -387,3 +387,26 @@ CREATE TABLE IF NOT EXISTS training_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_training_reports_team ON training_reports(team_id, id);
 `);
+
+// ── Contract renewal negotiation (audit §2.2) ───────────────────────────────
+// A voluntary renewal is no longer instant: the manager proposes a wage + length, and the player
+// (via his agent) resolves it at the NEXT matchday — accept, counter (names his price), or reject
+// (an unsettled man would rather run his deal down). Mirrors transfer_offers (§2.1). Human clubs only
+// (AI force-renews at rollover via tickContracts). New table — existing saves unaffected.
+db.exec(`
+CREATE TABLE IF NOT EXISTS contract_offers (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id       INTEGER NOT NULL,
+  player_id     INTEGER NOT NULL,
+  wage          INTEGER NOT NULL,                  -- offered annual wage
+  years         INTEGER NOT NULL,                  -- offered contract length
+  status        TEXT NOT NULL DEFAULT 'pending',   -- pending | countered | accepted | rejected | withdrawn | expired
+  counter_wage  INTEGER,                           -- the player's counter (wage)
+  counter_years INTEGER,                           -- the player's counter (length)
+  created_round INTEGER NOT NULL,
+  expires_round INTEGER NOT NULL,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contract_offers_team ON contract_offers(team_id, status);
+CREATE INDEX IF NOT EXISTS idx_contract_offers_player ON contract_offers(player_id, status);
+`);
