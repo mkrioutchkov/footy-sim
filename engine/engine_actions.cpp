@@ -786,10 +786,19 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     // the deterministic stream count is unchanged — only the value moves).
     double openSide=(gkY>=goalCenterY?-1.0:1.0);
     double postAimScale=credibleFinish?0.92:1.0;
-    double postFrac=penaltyKick?0.36+accuracy*0.07:(0.33+accuracy*0.18)*postAimScale;
-    if(shotType==1) postFrac=0.34+accuracy*0.09;       // finesse: placed off-centre, room to the post
-    else if(shotType==2) postFrac=0.30+accuracy*0.10;  // power: firm, slightly placed
-    else if(shotType==3) postFrac=0.24+accuracy*0.06;  // curl: aim INSIDE the post — the bend carries it out to the corner, on-frame
+    // Aim composed open-play shots NEARER the post (over-conversion fix, audit #1:
+    // onTarget ~4x real). The cause wasn't the keeper — the aim sat ~29px inside a
+    // 36.5px frame, so the symmetric error spread could only stray wide on the post
+    // side while the inner half always found the frame (~97% on-frame for a clean
+    // finesse). Aiming to the post EDGE puts the post-ward half of the spread
+    // genuinely wide — the only lateral lever that moves on-frame toward the real
+    // ~34% (raising the spread alone saturates, since the aim is inside the frame).
+    // LATERAL ONLY: loft is untouched, so the old beat-keeper-then-sail-over bug
+    // can't revive. Penalty operand kept byte-identical — pens must stay clinical.
+    double postFrac=penaltyKick?0.36+accuracy*0.07:(0.42+accuracy*0.18)*postAimScale;
+    if(shotType==1) postFrac=0.47+accuracy*0.07;       // finesse: aim to the post edge so the spread starts straying wide
+    else if(shotType==2) postFrac=0.42+accuracy*0.09;  // power: nearer the post (its larger *0.88 residual spread makes the shift bite)
+    else if(shotType==3) postFrac=0.30+accuracy*0.06;  // curl: small nudge — the bend already carries it out toward the corner
     else if(shotType==4) postFrac=0.18+accuracy*0.06;  // chip: net is open with the keeper out — aim safely inside
     double postRoll=(rng.random()<0.5?-1.0:1.0);
     double postSide=shotType?openSide:postRoll;        // every deliberate type aims off the keeper
