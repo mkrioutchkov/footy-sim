@@ -38,14 +38,14 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
             (exposedDot > 0.10 && (ctrl->dribbleType == 2 || ctrl->dribbleType == 3))
          || ballShownDot > 0.45);
 
-    bool isDef = (player.role == Role::CB || player.role == Role::FB);
+    bool isDef = isDefenderRole();
     if (isDef) {
-        if (player.role == Role::CB) {
+        if (isCenterBack()) {
             double fd = (player.team == Team::Home) ? 1.0 : -1.0;
             bool inOwnHalf = (fd == 1.0) ? ctrl->x < PITCH_W * 0.5 : ctrl->x > PITCH_W * 0.5;
             if (!inOwnHalf) return Action{ActionType::Tackle, 0.0};
         }
-        if (player.role == Role::FB) {
+        if (isFullBack()) {
             bool onMyFlank = std::abs(ctrl->y - player.homeY) < 250.0;
             bool isAttacker = ctrl->role == Role::WM || ctrl->role == Role::CF || ctrl->role == Role::CM;
             if (!onMyFlank || !isAttacker) return Action{ActionType::Tackle, 0.0};
@@ -65,7 +65,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     bool emergencyBoxChallenge = std::abs(ctrl->x - ownGoalX) < EMERGENCY_BOX_DIST
         && std::abs(ctrl->y - PITCH_H / 2.0) < 210.0
         && d < TACKLE_RANGE + 18.0
-        && (player.role == Role::CB || player.role == Role::FB || player.role == Role::CM);
+        && isDefenderLike();
 
     auto* defensiveTask = engine.assignmentFor(player.id);
     // Defensive doctrine: dueling is the presser's job. Shape players and
@@ -379,7 +379,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
                       ActionPurpose::RecoverLoose};
     }
 
-    bool isDef = (player.role == Role::CB || player.role == Role::FB);
+    bool isDef = isDefenderRole();
     if (isDef) {
         if (player.role == Role::FB) {
             bool onMyFlank = (player.homeY < PITCH_H / 2.0)
