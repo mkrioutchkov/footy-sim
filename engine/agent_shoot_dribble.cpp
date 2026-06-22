@@ -35,9 +35,9 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shootOnSight) hardMax = std::max(hardMax, 330.0);
     if (shotDistance > hardMax)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    if (!shootOnSight && p.role == Role::CM && shotDistance > 225.0 && (angleDeg < 9.0 || per.pressureCount > 1))
+    if (!shootOnSight && isCentralMidfielder() && shotDistance > 225.0 && (angleDeg < 9.0 || per.pressureCount > 1))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    if (!shootOnSight && p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) > 180.0 && shotDistance > 155.0)
+    if (!shootOnSight && isWideMidfielder() && std::abs(p.y - PITCH_H / 2.0) > 180.0 && shotDistance > 155.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double mr = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);

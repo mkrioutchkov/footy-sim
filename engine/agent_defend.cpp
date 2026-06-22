@@ -172,7 +172,7 @@ Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
     Player* best = nullptr;
     double bd = 1e9;
     double ownGx = ownGoalXFor(player.team);
-    bool isFb = (player.role == Role::FB);
+    bool isFb = isFullBack();
 
     for (auto& o : engine.state.players) {
         if (o.team == player.team || o.role == Role::GK) continue;
@@ -254,7 +254,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
         }
     }
     bool cfLoosePassSupport = false;
-    if (player.role == Role::CF && canContest && !isIntendedReceiver
+    if (isCenterForward() && canContest && !isIntendedReceiver
         && b.controllerId < 0 && b.intendedReceiverId >= 0
         && b.lastTouchTeam == player.team
         && b.z <= AERIAL_HEIGHT
