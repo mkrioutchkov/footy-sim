@@ -17,9 +17,11 @@ export interface ScoutReport {
   };
   venue: 'home' | 'away';   // where the USER plays this fixture
   round: number;
+  roundsAway: number;       // matchdays until this fixture (0 = your next match) — intel sharpens as it nears
   approach: string[];       // plain-English read of how the opponent plays
   form: ScoutForm[];        // their last up-to-5 league results, most recent first
   keyPlayers: ScoutPlayer[];
+  bench: ScoutPlayer[];     // §2.8: the rest of the squad — a deeper tier, revealed with scouts / as the match nears
 }
 
 const SKILL_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
@@ -77,24 +79,45 @@ export function buildScoutReport(fixtureId: number, userTeamId: number): ScoutRe
   // club's scouts reveal up to 3 more (scoutDepth). Among the shown players, the highest-OVR
   // attacker (or the top-rated player if none) is the danger man — chosen from the shown list so
   // exactly one of the displayed players is ever flagged.
-  const xi = opp.lineup ? opp.lineup.map(i => opp.players[i]).filter(Boolean) : opp.players.slice(0, 11);
+  // the fielded XI (custom lineup or first 11) as indices into opp.players, so the rest = the bench tier
+  const xiIdx = opp.lineup ? opp.lineup.filter(i => opp.players[i]) : opp.players.map((_, i) => i).slice(0, 11);
+  const xiSet = new Set(xiIdx);
+  const xi = xiIdx.map(i => opp.players[i]);
+  const benchSquad = opp.players.filter((_, i) => !xiSet.has(i));
   // attribute fog: scouts reveal each player's skills as ranges that tighten with scout depth —
   // unscouted (depth 0) shows nothing, depth 3 shows exact values (lo === hi).
   const depth = scoutDepth(userTeamId);
-  const width = depth >= 3 ? 0 : depth === 2 ? 4 : depth === 1 ? 7 : -1;   // -1 = not scouted at all
-  const fog = (attrs: Record<string, number>): ScoutAttr[] | null =>
+  // §2.8: progressive intel — how soon you face them sharpens the picture (you focus prep on the imminent
+  // opponent). roundsAway 0 = your next match. It lifts the player COUNT shown, not the per-attr precision.
+  const currentRound = (db.prepare('SELECT MIN(round) AS r FROM fixtures WHERE league_id = ? AND played = 0').get(fx.league_id) as { r: number | null }).r ?? fx.round;
+  const roundsAway = Math.max(0, fx.round - currentRound);
+  const imminent = roundsAway === 0;
+  const fogAt = (width: number) => (attrs: Record<string, number>): ScoutAttr[] | null =>
     width < 0 ? null : SKILL_KEYS.map(k => {
       const v = attrs[k] ?? 0;
       return { key: k, lo: Math.max(1, Math.round(v - width)), hi: Math.min(99, Math.round(v + width)) };
     });
+  const width = depth >= 3 ? 0 : depth === 2 ? 4 : depth === 1 ? 7 : -1;   // -1 = not scouted at all
+  const fog = fogAt(width);
   const keyPlayers = xi
     .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs), potential: p.potential, danger: false, attrs: fog(p.attrs) }))
     .sort((a, b) => b.overall - a.overall)
-    .slice(0, 5 + depth);
+    .slice(0, 5 + depth + (imminent ? 1 : 0));   // the imminent opponent gets one extra man identified
   if (keyPlayers.length) {
     const attIdx = keyPlayers.findIndex(p => p.role === 'CF' || p.role === 'WM');
     keyPlayers[attIdx >= 0 ? attIdx : 0].danger = true;
   }
+
+  // §2.8 bench tier: a harder, deeper read — the squad players outside the XI. Only surfaced once you have
+  // SOME picture (a scout employed, or the match is imminent), and always one fog-step fuzzier than the XI.
+  const showBench = depth >= 1 || imminent;
+  const benchWidth = depth >= 3 ? 3 : depth === 2 ? 6 : depth === 1 ? 10 : -1;   // a notch fuzzier than the XI; -1 = names/OVR only
+  const benchFog = fogAt(benchWidth);
+  const bench: ScoutPlayer[] = showBench
+    ? benchSquad
+        .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs), potential: p.potential, danger: false, attrs: benchFog(p.attrs) }))
+        .sort((a, b) => b.overall - a.overall)
+    : [];
 
   return {
     opponent: {
@@ -105,8 +128,10 @@ export function buildScoutReport(fixtureId: number, userTeamId: number): ScoutRe
     },
     venue: fx.home_team_id === userTeamId ? 'home' : 'away',
     round: fx.round,
+    roundsAway,
     approach: describeApproach(opp.tactics),
     form,
     keyPlayers,
+    bench,
   };
 }
