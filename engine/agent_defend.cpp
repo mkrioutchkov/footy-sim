@@ -98,7 +98,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         if (emergencyBoxChallenge) sc += 0.26;
     }
 
-    if (engine.isCarrierShielded(ctrl->id)) sc -= 0.20;
+    if (engine.isCarrierShielded(ctrl->id) || engine.isActiveShield(ctrl->id)) sc -= 0.20;
 
     // Box discipline: a lunge from the wrong side in our own area is a
     // penalty waiting to happen — never tackle from behind in the box,

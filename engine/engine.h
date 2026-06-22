@@ -235,6 +235,7 @@ public:
     }
     int receiverShieldTargetId = -1, receiverShieldedPlayerId = -1;
     double receiverShieldUntil = 0;
+    double activeShieldUntil[22] = {0};   // carrier actively shielding + working a pass angle: tackle RESISTANCE (not the receive-grace immunity)
     struct PendingPass {
         bool active = false;
         int fromId = -1, toId = -1;
@@ -367,6 +368,8 @@ public:
     [[nodiscard]] SmallVector<Player*, 11> nearPlayers(Player& p, double range);
     [[nodiscard]] Player* findNearestOutfieldPlayer(Team team, double x, double y);
     [[nodiscard]] bool isCarrierShielded(int playerId) const { return receiverShieldedPlayerId==playerId&&state.clockMs<receiverShieldUntil; }
+    [[nodiscard]] bool isActiveShield(int playerId) const { return playerId>=0&&playerId<22&&state.clockMs<activeShieldUntil[playerId]; }
+    void markActiveShield(int playerId){ if(playerId>=0&&playerId<22) activeShieldUntil[playerId]=state.clockMs+220.0; }
     bool canContestBall(Player& player);
     // True if an active outfield opponent is within `radius` of the keeper —
     // a crowded keeper is likelier to punch/parry than gather cleanly.

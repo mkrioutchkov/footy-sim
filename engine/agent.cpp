@@ -278,6 +278,14 @@ Action PlayerAI::resolveChoice(SmallVector<Action, 24>& a) {
     if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22)) {
         if (Action* r = tryLowScoreFallback(a, best)) return *r;
         if (player.role != Role::GK) {
+            // Pinned with no good option: SHIELD and work a passing angle (Hold ->
+            // shield-and-shift) rather than dribbling forward INTO the presser and
+            // losing it. Only when genuinely pressured; unpressured, drive into space.
+            double nearOpp = 1e9;
+            for (auto& o : engine.state.players)
+                if (o.team != player.team && o.role != Role::GK && !o.sentOff)
+                    nearOpp = std::min(nearOpp, dist(player.x, player.y, o.x, o.y));
+            if (nearOpp < 46.0) return Action{ActionType::Hold, 1.0};
             double fd = fdFor(player.team);
             double side = player.y < PITCH_H / 2.0 ? 1.0 : -1.0;
             return Action{ActionType::Dribble, 0.20, nullptr,
@@ -402,7 +410,8 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
     }
     else if (a.type == ActionType::Hold) {
         if (b.controllerId == p.id) {
-            p.dribbleType = 1;
+            p.dribbleType = 1;   // close control — shield the ball
+            double fd = fdFor(p.team);
             auto near = engine.nearPlayers(p, 60.0);
             Player* closestOpp = nullptr;
             double closestD = 1e9;
@@ -412,19 +421,43 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
                     if (d < closestD) { closestD = d; closestOpp = o; }
                 }
             }
-            if (closestOpp) {
+            // SHIELD-AND-SHIFT: pinned with no good pass — rather than blindly backing
+            // away, pick the team-mate most worth opening a lane to and slide to the
+            // side that clears the blocking defender out of that lane (the presser's
+            // blind side). Keeps possession and MAKES an angle instead of forcing it.
+            Player* angleTarget = nullptr;
+            double bestT = -1e9;
+            for (auto& tm : engine.state.players) {
+                if (tm.team != p.team || tm.id == p.id || tm.role == Role::GK || tm.sentOff) continue;
+                double dd = dist(p.x, p.y, tm.x, tm.y);
+                if (dd < 70.0 || dd > 360.0) continue;
+                double fwd = (tm.x - p.x) * fd;                     // forward progress on offer
+                double recOpp = 1e9;
+                for (auto& o2 : engine.state.players)
+                    if (o2.team != p.team && o2.role != Role::GK && !o2.sentOff)
+                        recOpp = std::min(recOpp, dist(o2.x, o2.y, tm.x, tm.y));
+                double tsc = fwd * 0.012 + std::min(recOpp, 130.0) * 0.02 - dd * 0.004;
+                if (tsc > bestT) { bestT = tsc; angleTarget = &tm; }
+            }
+            if (angleTarget && closestOpp) {
+                double lx = angleTarget->x - p.x, ly = angleTarget->y - p.y;
+                double ll = std::max(1.0, std::hypot(lx, ly));
+                double nx = -ly / ll, ny = lx / ll;                 // perpendicular to the pass lane
+                if ((closestOpp->x - p.x) * nx + (closestOpp->y - p.y) * ny > 0.0) { nx = -nx; ny = -ny; }
+                p.targetX = clamp(p.x + nx * 46.0 - fd * 6.0, 35.0, PITCH_W - 35.0);
+                p.targetY = clamp(p.y + ny * 46.0, 35.0, PITCH_H - 35.0);
+                engine.markActiveShield(p.id);                      // back to the man while I work the angle
+            } else if (closestOpp) {
                 double ax = p.x - closestOpp->x;
                 double ay = p.y - closestOpp->y;
                 double ad = std::hypot(ax, ay);
                 if (ad < 3.0) {
-                    double fd = fdFor(p.team);
                     double side = p.y < PITCH_H / 2.0 ? 1.0 : -1.0;
-                    ax = fd * 22.0;
-                    ay = side * 52.0;
-                    ad = std::hypot(ax, ay);
+                    ax = fd * 22.0; ay = side * 52.0; ad = std::hypot(ax, ay);
                 }
                 p.targetX = clamp(p.x + ax / std::max(1.0, ad) * 58.0, 35.0, PITCH_W - 35.0);
                 p.targetY = clamp(p.y + ay / std::max(1.0, ad) * 58.0, 35.0, PITCH_H - 35.0);
+                engine.markActiveShield(p.id);
             } else {
                 p.targetX = clamp(goalXFor(p.team), 40.0, PITCH_W - 40.0);
                 p.targetY = clamp(p.y + (engine.rng.random() - 0.5) * 20.0, 40.0, PITCH_H - 40.0);

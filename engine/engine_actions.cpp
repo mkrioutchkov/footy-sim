@@ -449,7 +449,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         ? ((tackler.x-carrier.x)*forwardX+(tackler.y-carrier.y)*forwardY)/contactDist
         : 0;
     bool fromBehind=approachDot<-0.30;
-    bool carrierShielded=isCarrierShielded(carrier.id);
+    bool carrierShielded=isCarrierShielded(carrier.id)||isActiveShield(carrier.id);
     double dribbleBonus=carrier.dribbleType==3?0.10:carrier.dribbleType==1?-0.10:0;
 
     // Carrier facing vs tackler position: shielding detection
