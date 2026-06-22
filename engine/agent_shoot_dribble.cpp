@@ -82,8 +82,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     sc += shotScoreBonus();
     if (shootOnSight) sc += 0.55;   // directive: bias toward pulling the trigger
     sc += shotDistancePenalty(shotDistance);
-    if (p.role == Role::WM && std::abs(p.y - PITCH_H / 2.0) < 140.0) sc += 0.08;
-    if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= p.role == Role::WM ? 0.04 : 0.08;
+    if (std::abs(p.y - PITCH_H / 2.0) < 140.0) sc += centralShootBonus();
+    if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= wideShootPenalty();
     sc -= std::min(0.42, per.pressureCount * 0.16);
     sc -= clamp(cp.score - 0.55, 0.0, 0.75) * 0.18;
     if (cp.exposed > 0.45 && shotDistance > 85.0) sc -= 0.12;
@@ -106,7 +106,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         if (shotDistance < 170.0 && angleDeg > 8.0) sc += 0.16;
     }
     if (shotDistance < 160.0 && angleDeg > 6.5) sc += per.pressureCount <= 1 ? 0.24 : 0.10;
-    if (p.role == Role::CF && shotDistance < 165.0 && angleDeg > 6.0) sc += 0.18;
+    if (shotDistance < 165.0 && angleDeg > 6.0) sc += closeRangeShootBonus();
     if (per.pressureCount == 0 && angleDeg > 9.0 && shotDistance < 200.0) sc += 0.10;
     // Pot-shot tax: the audit flagged ~70 questionable long strikes per match —
     // keepers eat them, so working a better position should win the comparison.

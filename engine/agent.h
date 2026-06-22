@@ -136,6 +136,10 @@ public:
     // Bonus for a dribble-into-space carry from the launch zone — was a role ternary
     // in scoreActions (WM/CM most, FB next, rest least). Role-arch migration.
     virtual double  spaceCarryRoleBonus() const { return 0.08; }
+    // Shoot-scorer per-role scalars (were role branches in scoreShoot). Role-arch.
+    virtual double  centralShootBonus() const { return 0.0; }    // bonus for shooting from a central position
+    virtual double  wideShootPenalty() const { return 0.08; }    // penalty for shooting from wide (less for wide players)
+    virtual double  closeRangeShootBonus() const { return 0.0; }  // bonus for a close-range central-ish chance
     virtual bool    isAttackerRole() const { return false; }
     virtual bool    isCenterBack() const { return false; }
     virtual bool    isFullBack() const { return false; }

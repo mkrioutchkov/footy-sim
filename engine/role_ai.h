@@ -8,6 +8,7 @@ public:
     double roleBonusForPassTarget() const override { return 0.72; }
     double shotMaxDistance() const override { return 225.0; }
     double shotRoleError(bool, double) const override { return -42.0; }
+    double closeRangeShootBonus() const override { return 0.18; }
     double freshCrossMaxDistance() const override { return 285.0; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return -0.15; }
@@ -39,6 +40,8 @@ public:
     double shotMaxDistance() const override { return 215.0; }
     double shotRoleError(bool freshCross, double) const override { return freshCross ? -8.0 : 0.0; }
     double spaceCarryRoleBonus() const override { return 0.18; }
+    double centralShootBonus() const override { return 0.08; }
+    double wideShootPenalty() const override { return 0.04; }
     double freshCrossMaxDistance() const override { return 270.0; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return -0.04; }
