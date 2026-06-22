@@ -13,6 +13,19 @@ export function moraleDevFactor(morale: number): number {
 const RESULT = { win: 8, draw: 2, loss: -7 };
 const DRIFT = 0.85;   // each matchday morale pulls 15% back toward neutral (50)
 
+// §2.11: the resolved captain's leadership — the manager's chosen captain (teams.captain_slot), else the
+// highest-leadership player (matching the squad screen's auto-derive). Returns 50 (neutral → no morale
+// effect) when the squad has no personality dials yet or the captain has none, so existing saves are
+// unaffected until personalities are generated.
+export function captainLeadership(teamId: number): number {
+  const cap = (db.prepare('SELECT captain_slot FROM teams WHERE id = ?').get(teamId) as { captain_slot: number | null } | undefined)?.captain_slot ?? null;
+  const rows = db.prepare('SELECT slot, personality FROM players WHERE team_id = ?').all(teamId) as { slot: number; personality: string | null }[];
+  const lead = (p: { personality: string | null }): number => { try { return p.personality ? (JSON.parse(p.personality).traits?.leadership ?? -1) : -1; } catch { return -1; } };
+  if (cap != null) { const c = rows.find(r => r.slot === cap); if (c && lead(c) >= 0) return lead(c); }   // a deliberate (even poor) pick stands
+  let best = -1; for (const r of rows) { const l = lead(r); if (l > best) best = l; }
+  return best >= 0 ? best : 50;
+}
+
 // Once per matchday: every club's squad morale drifts toward neutral and shifts with the
 // latest league result (a win lifts the room, a defeat sours it). Per-player so a press
 // conference's individual nudges persist relative to the team move. (Cup results don't move
@@ -28,9 +41,12 @@ export function moraleTick(leagueId: number): void {
       const my = home ? fx.home_score : fx.away_score, opp = home ? fx.away_score : fx.home_score;
       delta = my > opp ? RESULT.win : my < opp ? RESULT.loss : RESULT.draw;
     }
+    // §2.11: a strong captain steadies the room (a poor one drags it) — a small, capped per-matchday
+    // nudge driven by his leadership; exactly 0 at neutral (or no captain), so the default is unchanged.
+    const leaderBonus = Math.max(-2, Math.min(2, Math.round((captainLeadership(id) - 50) / 25)));
     const players = db.prepare('SELECT id, morale FROM players WHERE team_id = ?').all(id) as { id: number; morale: number }[];
     const upd = db.prepare('UPDATE players SET morale = ? WHERE id = ?');
-    for (const p of players) upd.run(Math.max(0, Math.min(100, Math.round(p.morale * DRIFT + 50 * (1 - DRIFT) + delta))), p.id);
+    for (const p of players) upd.run(Math.max(0, Math.min(100, Math.round(p.morale * DRIFT + 50 * (1 - DRIFT) + delta + leaderBonus))), p.id);
   }
 }
 

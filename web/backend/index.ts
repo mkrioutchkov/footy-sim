@@ -143,6 +143,21 @@ app.get('/api/team', async (req: any, reply) => {
   return getTeamWithPlayers(teamId);
 });
 
+// §2.11: name the club captain (a squad slot) — a strong leader steadies squad morale each matchday.
+// slot null/-1 clears it (back to auto: the highest-leadership player wears the armband).
+app.put('/api/captain', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const raw = req.body?.slot;
+  if (raw == null || Number(raw) === -1) { db.prepare('UPDATE teams SET captain_slot = NULL WHERE id = ?').run(teamId); return { ok: true, captainSlot: null }; }
+  const slot = Number(raw);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+  if (!db.prepare('SELECT 1 FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot)) return reply.code(404).send({ error: 'no such player in your squad' });
+  db.prepare('UPDATE teams SET captain_slot = ? WHERE id = ?').run(slot, teamId);
+  return { ok: true, captainSlot: slot };
+});
+
 // Set the club's plain-English STANDING tactical plan: compile it to directives (team-relative
 // ids) and persist both the text + the compiled plan. Empty text clears the plan. Graceful — if
 // the compiler is unreachable, the text is saved with no directives + a note (plays the neutral base).
