@@ -395,6 +395,27 @@ CREATE TABLE IF NOT EXISTS training_reports (
 CREATE INDEX IF NOT EXISTS idx_training_reports_team ON training_reports(team_id, id);
 `);
 
+// ── Free-agent contract offers (audit §2.1, the free-agent half) ─────────────
+// A manager's offer (wage + length) to a free agent. Instead of an instant signing, the agent takes it
+// away to "consider" and answers at the next matchday tick — he accepts if the wage meets his demand,
+// else turns it down. References free_agents.id (the agent leaves the pool on acceptance). New table.
+db.exec(`
+CREATE TABLE IF NOT EXISTS free_agent_offers (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  buyer_team_id INTEGER NOT NULL,
+  free_agent_id INTEGER NOT NULL,
+  player_name   TEXT NOT NULL DEFAULT '',          -- snapshot: the agent row is deleted on a signing (his own or a rival's)
+  role          TEXT NOT NULL DEFAULT '',
+  wage          INTEGER NOT NULL,
+  years         INTEGER NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'pending',   -- pending|accepted|rejected|expired|withdrawn
+  created_round INTEGER NOT NULL,
+  expires_round INTEGER NOT NULL,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fa_offer_buyer ON free_agent_offers(buyer_team_id);
+`);
+
 // ── Youth academy (audit §2.9) ──────────────────────────────────────────────
 // A human club's youth prospects — raw teenagers with upside that develop in the academy each season
 // and are promoted to the senior squad by the manager (instead of 2 regens silently appearing in the

@@ -17,7 +17,7 @@ import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
-import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer } from './market.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers } from './market.ts';
 import { compileInitialPlan } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
@@ -300,6 +300,25 @@ app.post('/api/transfer/loan', async (req: any, reply) => {
   const r = loanIn(teamId, playerId);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, market: getMarket(teamId) };
+});
+
+// §2.1 (free-agent half): offer a free agent terms (wage + length) — he considers it and answers at the
+// next matchday — and the manager's free-agent negotiations in progress.
+app.post('/api/freeagent/offer', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const agentId = Number(req.body?.agentId), wage = Number(req.body?.wage), years = Number(req.body?.years);
+  if (!Number.isInteger(agentId)) return reply.code(400).send({ error: 'agentId required' });
+  const r = offerToFreeAgent(teamId, agentId, wage, years);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, market: getMarket(teamId), faOffers: freeAgentOffersForTeam(teamId) };
+});
+app.get('/api/freeagent/offers', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { offers: freeAgentOffersForTeam(teamId) };
 });
 
 // §2.12: send a loaned-in player back to his parent club early (frees the slot + wage).
@@ -701,6 +720,7 @@ app.post('/api/advance', async (req: any, reply) => {
   const transfers: any[] = [];
   const listingsExpired: any[] = [];   // §2.4: the user's listings that lapsed unsold at the window deadline
   const incomingBids: any[] = [];      // §2.1: other clubs bidding for the user's listed players this matchday
+  const faOffers: any[] = [];          // §2.1 (free-agent half): the user's free-agent offers the agents answered this matchday
   const injuries: any[] = [];
   const contractEvents: any[] = [];
   let income = 0;                       // §P2: the user's matchday gate & TV income this tick
@@ -712,6 +732,7 @@ app.post('/api/advance', async (req: any, reply) => {
     transfers.push(...mkt.filter(e => e.type === 'sign' || e.type === 'buy_listed'));
     listingsExpired.push(...mkt.filter(e => e.type === 'listing_expired' && e.teamId === teamId));
     incomingBids.push(...mkt.filter(e => e.type === 'incoming_bid' && e.teamId === teamId));
+    faOffers.push(...resolveFreeAgentOffers(l.id).filter(e => e.teamId === teamId));   // §2.1: free agents answer
     contractEvents.push(...processContractOffers(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players;
   }
   // The cup is spread across the season — round R plays once the league reaches matchday R*3,
@@ -741,6 +762,7 @@ app.post('/api/advance', async (req: any, reply) => {
     contractOffers: contractEvents.filter(e => e.teamId === teamId),   // §2.2: my renewal verdicts this matchday
     listingsExpired,   // §2.4: my listings that lapsed unsold
     incomingBids,      // §2.1: other clubs bidding for my listed players
+    faOffers,          // §2.1: free agents answering my contract offers
     income,            // §P2: matchday gate & TV income credited this tick
     standings: standings(nowLeagueId),
   };
