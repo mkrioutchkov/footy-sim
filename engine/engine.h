@@ -314,6 +314,11 @@ public:
     // One-tick lagged (updateTeamAssignments precedes applyDirectives) — fine for a
     // match-long order; deterministic. 0/false by default => no-directive identical.
     std::array<bool, 2> allOutActive{};
+    // Defensive-shape redesign: this team is holding a MID-BLOCK this tick (the
+    // carrier is building up in his own half). Set in assignDefensiveRoles; read by
+    // agent_positioning to DROP this team's forwards out of the opponent's build-up
+    // zone (so the opponent can circulate — the §8 build-up-completion lever).
+    std::array<bool, 2> defenseHoldingShape{};
     [[nodiscard]] Config configFor(Team team) const {
         Config c = team==Team::Home ? homeConfig : awayConfig;
         const ConfigDelta& dv = dialOverride[team==Team::Home ? 0 : 1];

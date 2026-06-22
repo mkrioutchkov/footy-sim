@@ -7,6 +7,18 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
     double fd = fdFor(p.team);
     Team ip = engine.teamInPossession();
     bool my = (per.ballControllerTeam == p.team);
+    // DEFENSIVE-SHAPE REDESIGN §8: when my team holds a mid-block, my forwards DROP
+    // to the halfway line — OUT of the opponent's build-up zone — instead of pressing
+    // high. This is what lets the opponent play out cleanly and string a long
+    // possession (more build-up, less constant scrappy pressing). Goals will spike.
+    {
+        int myIdx = p.team == Team::Home ? 0 : 1;
+        if (!my && engine.defenseHoldingShape[myIdx] && (isCenterForward() || isWideMidfielder())) {
+            double dropX = clamp(HALF_X + fd * 40.0, 60.0, PITCH_W - 60.0);
+            double dropY = clamp(p.homeY, 40.0, PITCH_H - 40.0);
+            return { Action{ActionType::Position, 0.95, nullptr, dropX, dropY, ActionPurpose::Observe} };
+        }
+    }
     double ba = (fd == 1.0) ? b.x / PITCH_W : 1.0 - b.x / PITCH_W;
     // Tactics (centred at the dial's 50 = unchanged behaviour):
     //  midfieldFreedom -> how far central midfielders advance/roam in attack.

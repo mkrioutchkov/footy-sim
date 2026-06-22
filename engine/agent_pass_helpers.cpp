@@ -102,6 +102,15 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (safeConnector || recyclePass) sc += slowT * 0.16;
         sc -= slowT * (1.0 - completion) * 0.40;
     }
+    // PATIENT BUILD-UP (defensive-shape redesign §3): completely unpressed in our
+    // own half — CIRCULATE rather than force it. Reward the safe keep and shun the
+    // risky/forward ball, so the side strings a long possession instead of gifting it
+    // with a hopeful direct pass. Pairs with the mid-block + forwards-drop: the
+    // opponent holds off, so pressureCount==0 happens often here and 20+ moves form.
+    if (per.pressureCount == 0 && ownProgress < PITCH_W * 0.5) {
+        if (safeConnector || recyclePass) sc += 0.30;
+        sc -= (1.0 - completion) * 0.45;
+    }
     if (keeperOutlet) {
         sc += 0.04 + per.pressureCount * 0.04 + (movingTowardOwnGoal ? 0.06 : 0.0);
         if (bl == 0) sc += 0.02;

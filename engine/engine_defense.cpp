@@ -303,6 +303,19 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     danger = danger || carrierGoalDist < DANGER_ZONE_DIST;
     bool shootingRange = carrierGoalDist < 310.0 && std::abs(carrier.y - PITCH_H / 2.0) < 235.0;
     bool wideDanger = carrierGoalDist < 360.0 && std::abs(carrier.y - PITCH_H / 2.0) > 135.0;
+    // DEFENSIVE-SHAPE REDESIGN (docs/DEFENSIVE_SHAPE_REDESIGN.md): a MID-BLOCK. While
+    // the carrier builds up in his OWN half (far from our goal) we HOLD SHAPE — only
+    // the primary container engages; the second presser / lanes / cover / screen /
+    // close-down hold zonal positions — AND this team's forwards drop (agent_
+    // positioning reads defenseHoldingShape) to EMPTY the opponent's build-up zone so
+    // he can string passes. Goals will spike; the target is build-up, not goals.
+    bool highPress = tactics.defensiveLineHeight > 62.0 || tactics.aggression > 66.0;
+    bool holdShape = carrierGoalDist > PITCH_W * 0.52 && !danger && !highPress;
+    {
+        int tIdx = team == Team::Home ? 0 : 1;
+        defenseHoldingShape[tIdx] = holdShape;
+        defenseHoldingShape[1 - tIdx] = false;   // the side in possession isn't holding shape
+    }
     // defensiveLineHeight: high line steps right up (compresses space, presses
     // higher, leaves room behind); deep line sits in. Strengthened from 0.9 so
     // the dial is actually felt — a high vs deep block is now ~190px apart.
@@ -343,18 +356,23 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
 
     // Phase 2-3: Press
     assignPrimaryPress(ctx, carrier);
-    assignSecondaryPress(ctx, carrier);
+    // Mid-block: holding shape, only the primary container engages — the rest hold
+    // their zonal positions (no assignment => default positioning) so the opponent's
+    // build-up lanes aren't pre-occupied.
+    if (!holdShape) {
+        assignSecondaryPress(ctx, carrier);
 
-    // Phase 4-5: Lane blockers
-    assignShotLane(ctx, carrier);
-    assignCrossLane(ctx, carrier);
+        // Phase 4-5: Lane blockers
+        assignShotLane(ctx, carrier);
+        assignCrossLane(ctx, carrier);
 
-    // Phase 6-7: Cover & screen
-    assignCoverRoles(ctx, carrier);
-    assignMidfieldScreen(ctx, carrier);
+        // Phase 6-7: Cover & screen
+        assignCoverRoles(ctx, carrier);
+        assignMidfieldScreen(ctx, carrier);
 
-    // Phase 8: Close-down
-    assignCloseDown(ctx, carrier);
+        // Phase 8: Close-down
+        assignCloseDown(ctx, carrier);
+    }
 
     // Phase 9-10: Threat identification & marking
     ctx.threats = identifyThreats(ctx, carrier);
