@@ -120,6 +120,7 @@ export interface TrainLineT {
 export interface TrainingReportT { season: number; round: number; teamFocus: string; coachBoost: number; harmonyFactor: number; lines: TrainLineT[]; }
 
 export interface ContractOfferT { id: number; playerSlot: number | null; playerName: string; wage: number; years: number; status: string; counterWage: number | null; counterYears: number | null; }
+export interface AcademyProspectT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; attrs: Record<string, number>; }
 export interface ContractOfferEventT { player: string; result: 'accepted' | 'countered' | 'rejected' | 'expired'; wage: number; years: number; counterWage?: number; counterYears?: number; }
 
 export interface RotationPlayerT { slot: number; name: string; role: string; fitness: number; injured: boolean; injuredMatches: number; risk: number; band: 'injured' | 'fresh' | 'ok' | 'tired' | 'exhausted'; starter: boolean; }
@@ -174,6 +175,8 @@ export const api = {
   rejectOffer: (id: number) => req<{ ok: boolean; incoming: IncomingOfferT[] }>('POST', `/offer/${id}/reject`),
   setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
   setCaptain: (slot: number) => req<{ ok: boolean; captainSlot: number | null }>('PUT', '/captain', { slot }),
+  academy: () => req<{ prospects: AcademyProspectT[] }>('GET', '/academy'),
+  promoteProspect: (id: number) => req<{ ok: boolean; player?: string; prospects: AcademyProspectT[] }>('POST', `/academy/${id}/promote`),
   setPlayerTraining: (slot: number, focus: string) => req<{ ok: boolean; focus: string | null }>('PUT', '/training/player', { slot, focus }),
   trainingReport: () => req<{ report: TrainingReportT | null }>('GET', '/training-report'),
   setPlayerStory: (slot: number, backstory: string, tagline: string) =>

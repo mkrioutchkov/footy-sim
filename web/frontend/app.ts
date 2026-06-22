@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -683,6 +683,7 @@ async function screenDashboard() {
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/squad') }, 'Squad'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/academy') }, 'Academy'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/staff') }, 'Staff'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/finances') }, 'Finances'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/cup') }, 'Cup'),
@@ -1312,6 +1313,45 @@ async function screenTraining() {
             h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'), h('th', {}, 'Focus'))),
           body)),
     ),
+  ));
+}
+
+// ── youth academy (§2.9): the club's developing prospects + promote-to-squad ──
+async function screenAcademy() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading the academy…')));
+  let prospects: AcademyProspectT[];
+  try { prospects = (await api.academy()).prospects; }
+  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+
+  const body = h('tbody');
+  for (const p of prospects) {
+    const room = (p.potential ?? p.overall) - p.overall;
+    const promote = h('button', { class: 'primary small' }, 'Promote');
+    promote.addEventListener('click', async () => {
+      promote.setAttribute('disabled', 'true');
+      try { const r = await api.promoteProspect(p.id); toast(`${r.player} promoted to the senior squad`); screenAcademy(); }
+      catch (e: any) { toast(e.message); promote.removeAttribute('disabled'); }
+    });
+    body.append(h('tr', {},
+      h('td', {}, p.name),
+      h('td', {}, h('span', { class: 'pill' }, p.role)),
+      h('td', { class: 'num' }, String(p.age)),
+      h('td', { class: 'num' }, String(p.overall)),
+      h('td', { class: 'num' }, room > 0 ? h('span', { class: 'a', style: 'color:var(--accent)' }, `${p.potential} (+${room})`) : String(p.potential ?? '—')),
+      h('td', {}, promote)));
+  }
+
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
+      h('div', {}, h('h2', {}, 'Youth academy'),
+        h('div', { class: 'muted' }, 'Raw prospects who develop here each season — promote the ones you rate into the senior squad. Unpromoted prospects move on once they turn 21.')),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
+    ),
+    prospects.length
+      ? h('div', { class: 'card' }, h('div', { style: 'max-height:540px;overflow:auto' }, h('table', {},
+          h('thead', {}, h('tr', {}, h('th', {}, 'Prospect'), h('th', {}, 'Pos'), h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'), h('th', {}, ''))),
+          body)))
+      : h('div', { class: 'card muted', style: 'font-size:13px' }, 'No prospects right now — your next youth intake arrives at the end of the season.'),
   ));
 }
 
@@ -1976,6 +2016,7 @@ function route() {
   else if (hash === '#/tactics') screenTactics();
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
+  else if (hash === '#/academy') screenAcademy();
   else if (hash === '#/squad') screenSquad();
   else if (hash === '#/staff') screenStaff();
   else if (hash === '#/finances') screenFinances();
