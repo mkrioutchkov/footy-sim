@@ -71,8 +71,11 @@ STEP 2 — EDIT THE PLAN BY INTENT (for the non-formation part of the shout):
 DIRECTIVES (same vocabulary as the tactics compiler):
 {"playerId":<id, per-player kinds>,"kind":"<kind>","targetId":<id, man_mark/target_player only>,"intensity":0.1-1,"teamScope":${myScope} <team-wide kinds, no playerId>,"when":{"fromMin","toMin","scoreState","scoreBy"}}
 per-player: man_mark target_player shoot_on_sight get_forward sit_deep stay_wide come_inside stay_central cross_early cutback switch_play play_simple run_in_behind make_runs dribble_more press_hard contain tackle_hard stay_on_feet stay_back.
-team-wide (teamScope ${myScope}): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap press_intensity.
-PRESS INTENSITY (gradated): press_intensity is the team's pressing on a DIAL — set "intensity" to place it: ~0.15 = sit off / contain / no chase, ~0.5 = a measured mid-block press, ~0.85-1 = aggressive high press / hunt it high. Prefer this over the binary high_press when the shout implies a DEGREE ("press a bit higher", "ease off the press", "really get after them"). Plain "press high" can still use high_press.
+team-wide (teamScope ${myScope}): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap press_intensity mentality line_height.
+GRADATED DIALS (the FM team-instruction trio — each takes an "intensity" 0-1 that IS the slider, 0.5 = neutral; prefer these over the binary kinds when the shout implies a DEGREE):
+- press_intensity: ~0.15 sit off/contain/no chase, ~0.5 measured mid-block, ~0.85-1 aggressive high press. (vs binary high_press)
+- mentality: how much the team commits forward — ~0.15 ultra-defensive/see it out, ~0.5 balanced, ~0.85-1 all-out attack/chase the game. (vs binary all_out_attack/park_the_bus)
+- line_height: the defensive line — ~0.15 deep/drop off, ~0.5 mid, ~0.85-1 push right up / squeeze with an offside trap. (vs binary push_up/drop_off)
 SYNONYMS: cutback = pull it back / square it across the box from the byline (vs cross_early's higher cross). contain = sit off / jockey / show him inside — ease off ONE opponent (per-player opposite of press_hard; vs stay_on_feet = tackle discipline). stay_back = don't bomb forward / don't overlap / hold position — damp his forward runs (vs sit_deep = take up a deep position).
 Resolve names/initials from the squad (tolerate typos); man_mark targets are OPPONENT ids, target_player targets are TEAM-MATE ids. Never invent a player not in a squad — omit + note. OMIT "when" unless the shout states a time/score.
 
@@ -182,19 +185,19 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
 
 // §2 quick-tactics: one-tap team mentality presets. A DETERMINISTIC shortcut (no LLM) that sets a coherent
 // (plain-English summary + team-wide directives) pair in one go — so the text and the directives can't drift.
-// Every kind here is engine-supported today (the prompt reaches the same ones); this is just the fast,
-// discoverable control. The user can then refine via the prompt. Team-relative scope (0), resolved at
-// spec-build like any plan directive. 'balanced' = the neutral base (no directives).
+// Each preset places the gradated FM trio (mentality / press_intensity / line_height — engine dials, 0-1)
+// plus the odd binary flavour kind, so the presets ARE the canonical trio examples. The user can then refine
+// via the prompt. Team-relative scope (0), resolved at spec-build. 'balanced' = the neutral base (no dials).
 export const QUICK_TACTICS = {
-  defensive: { label: '🛡️ Defensive', text: 'Sit deep and stay compact — protect the box and hit them on the counter.', kinds: ['park_the_bus', 'counter_attack'] },
-  balanced: { label: '⚖️ Balanced', text: 'A balanced approach — no special team instructions; play the game in front of you.', kinds: [] },
-  attacking: { label: '⚔️ Attacking', text: 'On the front foot — push the defensive line up and press them high.', kinds: ['push_up', 'high_press'] },
-  allout: { label: '🔥 All-out attack', text: 'Throw everyone forward — all-out attack, press high and push the line up.', kinds: ['all_out_attack', 'high_press', 'push_up'] },
+  defensive: { label: '🛡️ Defensive', text: 'Sit deep and stay compact — drop off, protect the box and hit them on the counter.', dirs: [['mentality', 0.2], ['press_intensity', 0.2], ['line_height', 0.25], ['counter_attack', 1]] },
+  balanced: { label: '⚖️ Balanced', text: 'A balanced approach — no special team instructions; play the game in front of you.', dirs: [] },
+  attacking: { label: '⚔️ Attacking', text: 'On the front foot — commit forward, press them and push the line up.', dirs: [['mentality', 0.75], ['press_intensity', 0.7], ['line_height', 0.7]] },
+  allout: { label: '🔥 All-out attack', text: 'Throw everyone forward — all-out attack, hunt the ball high and squeeze the line up.', dirs: [['mentality', 1], ['press_intensity', 0.95], ['line_height', 0.85]] },
 } as const;
 export type QuickTactic = keyof typeof QUICK_TACTICS;
 export function buildQuickPlan(preset: QuickTactic, myScope: number): Plan {
   const p = QUICK_TACTICS[preset];
-  return { summary: p.text, directives: p.kinds.map((kind): Directive => ({ playerId: -1, teamScope: myScope, kind, intensity: 1 })) };
+  return { summary: p.text, directives: p.dirs.map(([kind, intensity]): Directive => ({ playerId: -1, teamScope: myScope, kind, intensity })) };
 }
 
 // Pre-match: compile a manager's plain-English STANDING plan into the composite plan, against an
@@ -216,7 +219,7 @@ export async function compileInitialPlan(text: string, squad: SquadPlayer[]): Pr
 const INITIAL_BATCH_SYSTEM = `You compile several football managers' STANDING pre-match plans into structured directives. Each club gives a one-line tactical brief + its starting XI (ids 0-10). For EACH club, turn the brief into a small directive set. Output ONLY a JSON array, one object per club IN ORDER — no prose, no markdown:
 [{"summary":"<=2 sentences restating the plan","directives":[{"playerId":<0-10 for per-player kinds>,"kind":"<kind>","intensity":0.1-1,"teamScope":0 <for team-wide kinds, omit playerId>}]}]
 per-player kinds: shoot_on_sight get_forward sit_deep stay_wide come_inside stay_central cross_early cutback switch_play play_simple run_in_behind make_runs dribble_more press_hard contain tackle_hard stay_on_feet stay_back.
-team-wide kinds (teamScope 0, no playerId): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap press_intensity (a 0-1 dial: ~0.15 contain, ~0.5 mid-block, ~1 high press — set "intensity").
+team-wide kinds (teamScope 0, no playerId): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap, plus three GRADATED dials that take an "intensity" 0-1 (0.5 neutral): press_intensity (contain↔high press), mentality (defensive↔all-out), line_height (deep↔high line).
 A standing plan is mostly TEAM-WIDE shape/tempo — 0-3 directives is plenty; add a per-player order only if the brief clearly implies one. There is NO opponent pre-match, so do NOT emit man_mark or target_player. Resolve names/initials from each club's own squad; never invent a player. Return EXACTLY one entry per club, in the given order.`;
 
 function extractArray(content: string): unknown[] {

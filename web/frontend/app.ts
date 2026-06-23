@@ -888,6 +888,12 @@ const TEAM_LABEL: Record<string, string> = {
   get_it_wide: 'Get it wide', play_narrow: 'Play narrow', push_up: 'Push the line up', slow_it_down: 'Slow it down',
   counter_attack: 'Counter-attack', offside_trap: 'Offside trap',
 };
+// the gradated FM dials — [low, mid, high] readback bands keyed off the directive's intensity
+const GRADATED: Record<string, [string, string, string]> = {
+  press_intensity: ['pressing: sit off & contain', 'pressing: measured mid-block', 'pressing: aggressive high press'],
+  mentality: ['mentality: defensive — see it out', 'mentality: balanced', 'mentality: all-out attack'],
+  line_height: ['defensive line: deep block', 'defensive line: mid', 'defensive line: high & squeeze'],
+};
 const PLAYER_VERB: Record<string, string> = {
   shoot_on_sight: 'shoots on sight', get_forward: 'gets forward', sit_deep: 'sits deep',
   stay_wide: 'stays wide', come_inside: 'comes inside', stay_central: 'stays central',
@@ -906,10 +912,10 @@ function condText(w: any): string {
 }
 function describeDirective(d: any): string {
   const cond = condText(d.when);
-  if (d.kind === 'press_intensity') {   // gradated dial — describe by where the intensity sits
+  if (GRADATED[d.kind]) {   // the FM dials — describe by where the intensity sits (0-1)
     const i = typeof d.intensity === 'number' ? d.intensity : 1;
-    const lvl = i <= 0.3 ? 'sit off & contain' : i <= 0.6 ? 'measured mid-block press' : 'aggressive high press';
-    return `Whole team — pressing: ${lvl}${cond}`;
+    const band = i <= 0.3 ? 0 : i <= 0.6 ? 1 : 2;
+    return `Whole team — ${GRADATED[d.kind][band]}${cond}`;
   }
   if (d.teamScope != null && TEAM_LABEL[d.kind]) return `Whole team — ${TEAM_LABEL[d.kind]}${cond}`;
   const who = pname(d.playerId);
