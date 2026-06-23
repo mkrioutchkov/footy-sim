@@ -336,7 +336,7 @@ void GameEngine::checkBallPlayerCollision(double){
                     // CLAIM, not a "save" — counting every one of them is why saves run
                     // ~8/match (= onTarget) instead of the real ~3-4 (< onTarget 8-9).
                     // Count only genuine-pace stops as saves; the weak ones stay on-target.
-                    if (std::hypot(b.vx, b.vy) > 340.0) stats.recordSave();
+                    if (std::hypot(b.vx, b.vy) > 295.0) stats.recordSave();   // #35: re-tuned 340->295 for the compressed-attr regime (slower shots; only 14% cleared 340 -> saves 1.5; real 3-4)
                     emitEvent("save", keeperContact->x, keeperContact->y, keeperContact->id);
                     keeperContact->diveAnim = std::max(keeperContact->diveAnim, 440.0);  // render-only stretch
                 }
