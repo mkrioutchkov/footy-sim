@@ -26,9 +26,14 @@ const minuteOf = (clockMs: unknown): number => Math.max(1, Math.floor(num(clockM
 // Deterministic player rating from the final-frame stats + team context. Base 6.5, lifted by
 // attacking returns (goals/assists/shots) + tackles, a clean-sheet bonus for the back line / GK,
 // and dented by a heavy concession (GK), cards, or a sending-off. Clamped to a 1.0–10.0 scale.
-function ratePlayer(p: { role: string; goals: number; assists: number; shots: number; tackles: number; yellow: number; sentOff: boolean }, won: boolean, lost: boolean, conceded: number): number {
+function ratePlayer(p: { role: string; goals: number; assists: number; shots: number; tackles: number; passes?: number; passesCompleted?: number; yellow: number; sentOff: boolean }, won: boolean, lost: boolean, conceded: number): number {
   let r = 6.5;
   r += p.goals * 1.2 + p.assists * 0.8 + p.shots * 0.08 + p.tackles * 0.06;
+  // Distribution: for a player involved enough in build-up (≥15 passes), reward completion above a
+  // league-ish 80% baseline and dent sloppy passing — a deep playmaker's main contribution. Volume-gated
+  // so a striker's 4 passes don't swing his rating. Bounded so it never rivals goals/tackles.
+  const passes = p.passes ?? 0;
+  if (passes >= 15) r += Math.max(-0.5, Math.min(0.7, ((p.passesCompleted ?? 0) / passes - 0.8) * 3));
   const defensive = p.role === 'GK' || p.role === 'CB' || p.role === 'FB';
   if (defensive && conceded === 0) r += 0.8;
   if (p.role === 'GK') r -= conceded * 0.25;
@@ -49,7 +54,7 @@ export function ratePlayers(players: SummaryPlayer[], homeScore: number, awaySco
     const conceded = p.team === 'home' ? awayScore : homeScore;
     return {
       id: p.id, name: p.name, team: p.team, role: p.role, goals: p.goals, sentOff: p.sentOff,
-      rating: ratePlayer({ role: p.role, goals: p.goals, assists: p.assists, shots: p.shots, tackles: p.tackles, yellow: p.yellow, sentOff: p.sentOff }, won, lost, conceded),
+      rating: ratePlayer({ role: p.role, goals: p.goals, assists: p.assists, shots: p.shots, tackles: p.tackles, passes: p.passes, passesCompleted: p.passesCompleted, yellow: p.yellow, sentOff: p.sentOff }, won, lost, conceded),
     };
   });
 }

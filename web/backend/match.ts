@@ -171,7 +171,7 @@ const recordingInFlight = new Set<number>();
 // whole matchday. A round's fixtures can now sim concurrently (Promise.all).
 // The per-player line from a --summary run — the cheap STATS the aftermath rates off (the same fields
 // analyzeRecording reads from the final frame), so ratings/news/morale never need the frame recording.
-export interface SummaryPlayer { id: number; name: string; role: string; team: 'home' | 'away'; goals: number; assists: number; shots: number; tackles: number; yellow: number; sentOff: boolean }
+export interface SummaryPlayer { id: number; name: string; role: string; team: 'home' | 'away'; goals: number; assists: number; shots: number; tackles: number; passes: number; passesCompleted: number; yellow: number; sentOff: boolean }
 export interface SummaryResult { homeScore: number; awayScore: number; players: SummaryPlayer[] }
 const numF = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
@@ -195,6 +195,7 @@ function runEngineSummary(specPath: string): Promise<SummaryResult> {
           id: numF(p.id), name: String(p.name ?? ''), role: String(p.role ?? ''),
           team: p.team === 'away' ? 'away' : 'home',
           goals: numF(p.goals), assists: numF(p.assists), shots: numF(p.shots), tackles: numF(p.tackles),
+          passes: numF(p.passes), passesCompleted: numF(p.passesCompleted),
           yellow: numF(p.yellow), sentOff: !!p.sentOff,
         }));
         resolve({ homeScore: summary.homeScore ?? 0, awayScore: summary.awayScore ?? 0, players });
