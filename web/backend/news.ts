@@ -3,11 +3,11 @@
 // development is woven into his backstory and his trait dials are RE-DERIVED from the new text
 // (the text↔dial coupling, see personality.ts). LLM-primary for the rewrite, with a deterministic
 // cue-rich append as the always-available fallback, so it never blocks and is fully testable
-// without a key. Match events are read from the recording (no engine run); injuries come from the
-// fitness tick. Processed once per matchday (ref_id = fixture), in the background from /api/advance.
+// without a key. Match events are derived from the cheap --summary per-player STATS (not the opt-in frame
+// recording); injuries come from the fitness tick. Processed once per matchday (ref_id = fixture), background.
 import { db } from './db.ts';
-import { recordingFor, loadRecording, getFixture } from './match.ts';
-import { analyzeRecording } from './report.ts';
+import { getFixture, type SummaryPlayer } from './match.ts';
+import { ratePlayers } from './report.ts';
 import { evolveSquadStories, defaultPersonality, type Personality } from './personality.ts';
 import { nudgeConfidence } from './confidence.ts';
 
@@ -50,7 +50,7 @@ const RATING_MORALE = 2.5;   // morale points per rating-point either side of 6.
 // so it can't double-apply (e.g. the user watches the match, then advances). Story work is
 // best-effort; the morale + tally are claimed up front. Names resolve to a player only when UNIQUE
 // in the squad (a duplicate name drops rather than mis-attributes), capturing the stable DB id.
-export async function processMatchAftermath(teamId: number, fixtureId: number, injuries: { teamId: number; player: string; matches: number }[]): Promise<string[]> {
+export async function processMatchAftermath(teamId: number, fixtureId: number, injuries: { teamId: number; player: string; matches: number }[], players: SummaryPlayer[] = []): Promise<string[]> {
   const done = db.prepare('SELECT aftermath_done FROM fixtures WHERE id = ?').get(fixtureId) as { aftermath_done: number } | undefined;
   if (!done || done.aftermath_done) return [];
   const squad = db.prepare('SELECT id, slot, name FROM players WHERE team_id = ?').all(teamId) as { id: number; slot: number; name: string }[];
@@ -60,23 +60,19 @@ export async function processMatchAftermath(teamId: number, fixtureId: number, i
   const season = (db.prepare('SELECT l.season AS s FROM leagues l JOIN teams t ON t.league_id = l.id WHERE t.id = ?').get(teamId) as { s: number } | undefined)?.s ?? 1;
 
   const events: Event[] = [];
-  const rec = recordingFor('fixture', fixtureId);
   const fx = getFixture(fixtureId);
-  if (rec && fx) {
-    const frames = loadRecording(rec);
-    if (frames.length) {
-      const facts = analyzeRecording(frames);
-      const side: 'home' | 'away' = fx.home_team_id === teamId ? 'home' : 'away';
-      const sentOff = new Set(facts.timeline.filter(e => e.type === 'red' && e.team === side).map(e => e.name));   // user's side only
-      const upd = db.prepare('UPDATE players SET morale = MAX(0, MIN(100, morale + ?)), season_rating_sum = season_rating_sum + ?, season_apps = season_apps + 1 WHERE id = ?');
-      for (const r of facts.ratings.filter(x => x.team === side)) {
-        const p = byName.get(r.name);
-        if (!p) continue;
-        const delta = Math.max(-8, Math.min(8, Math.round((r.rating - 6.5) * RATING_MORALE)));
-        upd.run(delta, r.rating, p.id);   // rating -> morale nudge + season tally (in one write)
-        const type: EvolveType | null = r.goals >= 3 ? 'hat_trick' : sentOff.has(r.name) ? 'red_card' : r.goals === 2 ? 'brace' : r.rating >= 8.5 ? 'star' : null;
-        if (type) events.push({ id: p.id, slot: p.slot, player: r.name, type });
-      }
+  // Ratings/news/morale derive from the cheap --summary per-player stats (passed in) — NOT the frame
+  // recording — so they always run, even when the (opt-in, slow) recording timed out or was skipped.
+  if (players.length && fx) {
+    const side: 'home' | 'away' = fx.home_team_id === teamId ? 'home' : 'away';
+    const upd = db.prepare('UPDATE players SET morale = MAX(0, MIN(100, morale + ?)), season_rating_sum = season_rating_sum + ?, season_apps = season_apps + 1 WHERE id = ?');
+    for (const r of ratePlayers(players, fx.home_score ?? 0, fx.away_score ?? 0).filter(x => x.team === side)) {
+      const p = byName.get(r.name);
+      if (!p) continue;
+      const delta = Math.max(-8, Math.min(8, Math.round((r.rating - 6.5) * RATING_MORALE)));
+      upd.run(delta, r.rating, p.id);   // rating -> morale nudge + season tally (in one write)
+      const type: EvolveType | null = r.goals >= 3 ? 'hat_trick' : r.sentOff ? 'red_card' : r.goals === 2 ? 'brace' : r.rating >= 8.5 ? 'star' : null;
+      if (type) events.push({ id: p.id, slot: p.slot, player: r.name, type });
     }
   }
   for (const i of injuries) {

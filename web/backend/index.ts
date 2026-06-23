@@ -12,7 +12,7 @@ import {
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
-import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording, hasHumanStake } from './match.ts';
+import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay } from './match.ts';
 import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
@@ -799,7 +799,10 @@ app.post('/api/advance', async (req: any, reply) => {
   // events (hat-trick, red card, long injury…) become news + evolve the backstory/dials.
   // Background + best-effort, like the personality backfill; fired before rollover so the squad
   // map + the season tally reflect the match just played (rollover then crowns the awards).
-  if (myFx) void processMatchAftermath(teamId, myFx.id, injuries).catch(() => { /* aftermath is ambient */ });
+  if (myFx) void processMatchAftermath(teamId, myFx.id, injuries, myResult?.players ?? []).catch(() => { /* aftermath is ambient */ });
+  // Opt-in replay: fire the full-frame recording for the user's match NOW (after the matchday's summaries
+  // have resolved), so the slow capture never competes with the result-bearing summaries. Best-effort.
+  if (myFx && !myResult?.alreadyPlayed) recordReplay(myFx.id);
   // End of season? Roll it over and report the new standings of whichever division the
   // user now sits in (they may have just been promoted or relegated).
   const rollover = seasonComplete(team.leagueId) ? rolloverSeason(team.leagueId) : null;

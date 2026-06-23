@@ -5,7 +5,7 @@
 // it never blocks). The result is cached in match_reports (generated once, on first view). No
 // engine run — this works purely off a recording, so it's fully testable with synthetic frames.
 import { db } from './db.ts';
-import { recordingFor, loadRecording, type RecKind } from './match.ts';
+import { recordingFor, loadRecording, type RecKind, type SummaryPlayer } from './match.ts';
 import { chatComplete, llmReady } from './llm.ts';
 
 export interface PlayerRating { id: number; name: string; team: 'home' | 'away'; role: string; rating: number; goals: number; assists: number; shots: number; tackles: number }
@@ -36,6 +36,22 @@ function ratePlayer(p: { role: string; goals: number; assists: number; shots: nu
   r -= p.yellow > 0 ? 0.3 : 0;
   r -= p.sentOff ? 2.0 : 0;
   return Math.max(1, Math.min(10, Math.round(r * 10) / 10));
+}
+
+export interface RatedPlayer { id: number; name: string; team: 'home' | 'away'; role: string; rating: number; goals: number; sentOff: boolean }
+// Ratings straight off a --summary run's per-player stats — the cheap path the aftermath uses instead of
+// scanning the frame recording (same ratePlayer model + the same inputs the final frame would carry), so
+// ratings/news/morale never depend on a (slow, opt-in) recording.
+export function ratePlayers(players: SummaryPlayer[], homeScore: number, awayScore: number): RatedPlayer[] {
+  return players.map(p => {
+    const won = p.team === 'home' ? homeScore > awayScore : awayScore > homeScore;
+    const lost = p.team === 'home' ? homeScore < awayScore : awayScore < homeScore;
+    const conceded = p.team === 'home' ? awayScore : homeScore;
+    return {
+      id: p.id, name: p.name, team: p.team, role: p.role, goals: p.goals, sentOff: p.sentOff,
+      rating: ratePlayer({ role: p.role, goals: p.goals, assists: p.assists, shots: p.shots, tackles: p.tackles, yellow: p.yellow, sentOff: p.sentOff }, won, lost, conceded),
+    };
+  });
 }
 
 // Scan a recording's frames into structured match facts: a goal/card timeline + final team /

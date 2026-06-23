@@ -156,17 +156,28 @@ export function writeSpec(fixture: Fixture): string {
   return file;
 }
 
-export interface PlayResult { fixtureId: number; homeScore: number; awayScore: number; alreadyPlayed: boolean; }
+export interface PlayResult { fixtureId: number; homeScore: number; awayScore: number; alreadyPlayed: boolean; players?: SummaryPlayer[]; }
+
+// Cap concurrent best-effort recordings so they can't pile up on a slow host (where each runs to the
+// timeout and fails) — at most one in flight; others just skip (no replay for that match, which is fine
+// now the result + aftermath come from --summary). A fast host finishes well before the next matchday.
+const recordingInFlight = new Set<number>();
 
 // Run a fixture through the engine (deterministic via the stored seed) and
 // persist the score. Idempotent: a played fixture returns its stored result.
 // ASYNC (spawn, not spawnSync) so a ~1-2s (slower under load) match sim never
 // blocks the Node event loop — that froze the watch socket and serialised a
 // whole matchday. A round's fixtures can now sim concurrently (Promise.all).
-// Run a written spec through the engine (--summary, deterministic via its seed) and return
-// the parsed score. Async (spawn) so a ~1-2s sim never blocks the event loop. Shared by
-// league fixtures + cup ties so they sim identically.
-function runEngineSummary(specPath: string): Promise<{ homeScore: number; awayScore: number }> {
+// The per-player line from a --summary run — the cheap STATS the aftermath rates off (the same fields
+// analyzeRecording reads from the final frame), so ratings/news/morale never need the frame recording.
+export interface SummaryPlayer { id: number; name: string; role: string; team: 'home' | 'away'; goals: number; assists: number; shots: number; tackles: number; yellow: number; sentOff: boolean }
+export interface SummaryResult { homeScore: number; awayScore: number; players: SummaryPlayer[] }
+const numF = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+// Run a written spec through the engine (--summary, deterministic via its seed) and return the score +
+// the per-player stats. Async (spawn) so a ~1-2s sim never blocks the event loop. Shared by league
+// fixtures + cup ties so they sim identically.
+function runEngineSummary(specPath: string): Promise<SummaryResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(ENGINE, ['--match', specPath, '--summary', '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '', err = '';
@@ -178,8 +189,14 @@ function runEngineSummary(specPath: string): Promise<{ homeScore: number; awaySc
       clearTimeout(to);
       try {
         const lines = out.split(/\r?\n/).filter(l => l.trim().startsWith('{'));
-        const summary = JSON.parse(lines[lines.length - 1]);
-        resolve({ homeScore: summary.homeScore ?? 0, awayScore: summary.awayScore ?? 0 });
+        const summary = JSON.parse(lines[lines.length - 1]) as { homeScore?: number; awayScore?: number; players?: Record<string, unknown>[] };
+        const players: SummaryPlayer[] = (summary.players ?? []).map(p => ({
+          id: numF(p.id), name: String(p.name ?? ''), role: String(p.role ?? ''),
+          team: p.team === 'away' ? 'away' : 'home',
+          goals: numF(p.goals), assists: numF(p.assists), shots: numF(p.shots), tackles: numF(p.tackles),
+          yellow: numF(p.yellow), sentOff: !!p.sentOff,
+        }));
+        resolve({ homeScore: summary.homeScore ?? 0, awayScore: summary.awayScore ?? 0, players });
       } catch (e) { reject(new Error(`engine parse failed: ${err || String(e)}`)); }
     });
   });
@@ -427,23 +444,29 @@ export function playFixture(fixtureId: number): Promise<PlayResult> {
     return Promise.resolve({ fixtureId, homeScore: fx.home_score ?? 0, awayScore: fx.away_score ?? 0, alreadyPlayed: true });
   }
   const specPath = writeSpec(fx);
-  // Human-stake matches are recorded (full-frame) so watching replays the recording; AI-only
-  // matches take the lightweight --summary path (no frames kept). RESILIENCE: if the full-frame
-  // capture fails (engine timeout on a slow host, a crash, an incomplete capture), fall back to
-  // --summary — the SAME seed yields the SAME score, so the match still resolves (just no replay)
-  // instead of a single recording failure rejecting the whole /api/advance Promise.all and wedging
-  // the season. The matchday must never be blocked by a recording glitch.
-  const play = hasHumanStake(fx.home_team_id, fx.away_team_id)
-    ? recordMatch('fixture', fixtureId, specPath).catch((e: Error) => {
-        console.error(`[match] recording fixture ${fixtureId} failed (${e.message}); falling back to --summary (no replay).`);
-        return runEngineSummary(specPath);
-      })
-    : runEngineSummary(specPath);
-  return play.then(({ homeScore, awayScore }) => {
+  // --summary is the AUTHORITATIVE, fast result + the per-player stats the aftermath rates off (same seed
+  // ⇒ same score as a full-frame run). The frame recording is now PURELY OPT-IN for replay (recordReplay,
+  // fired AFTER the matchday's summaries so it never competes with them) — if it times out or crashes the
+  // season is untouched. The event/stats-vs-frames split: ratings/news/morale derive from the cheap stats.
+  return runEngineSummary(specPath).then(({ homeScore, awayScore, players }) => {
     db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, fixtureId);
     consumeTeamTalk(fixtureId);   // §2.13: a pre-match talk is a one-off — spent once the match is played
-    return { fixtureId, homeScore, awayScore, alreadyPlayed: false };
+    return { fixtureId, homeScore, awayScore, alreadyPlayed: false, players };
   });
+}
+
+// Best-effort full-frame REPLAY recording for a just-played fixture — fired by the advance handler AFTER
+// the matchday's summaries resolve, so the slow full-frame run never competes with the (fast, result-
+// bearing) summaries that gate the advance. Capped at one in flight + skips an existing recording, so it
+// can't pile up on a slow host. Failure is silent: the result + aftermath already came from --summary.
+export function recordReplay(fixtureId: number): void {
+  const fx = getFixture(fixtureId);
+  if (!fx || !hasHumanStake(fx.home_team_id, fx.away_team_id)) return;
+  if (recordingInFlight.size > 0 || recordingFor('fixture', fixtureId)) return;
+  recordingInFlight.add(fixtureId);
+  void recordMatch('fixture', fixtureId, writeSpec(fx))
+    .catch((e: Error) => console.error(`[match] replay recording fixture ${fixtureId} failed (${e.message}); result + aftermath unaffected.`))
+    .finally(() => recordingInFlight.delete(fixtureId));
 }
 
 export interface CupTieResult { tieId: number; homeScore: number; awayScore: number; alreadyPlayed: boolean }
