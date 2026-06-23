@@ -134,6 +134,11 @@ void GameEngine::applyDirectives() {
                 break;
             }
             case DirectiveKind::ShootOnSight: directiveBias[p->id].shootOnSight = true; break;
+            // Set-piece taker designations are read at the RESTART (designatedTakerFor); no per-tick action.
+            case DirectiveKind::FkTaker:
+            case DirectiveKind::CornerTaker:
+            case DirectiveKind::PenTaker:
+            case DirectiveKind::LongThrowTaker: break;
             // Forward/back anchor (210px = a full role-band, visibly higher).
             case DirectiveKind::GetForward:
                 p->homeX = clamp(baseHomeX[p->id] + fd * 210.0 * d.intensity, 30.0, PITCH_W - 30.0);

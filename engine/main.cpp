@@ -101,6 +101,10 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
         else if (k == "slow_it_down")      { dir.kind = DK::SlowItDown;     team = true; }
         else if (k == "counter_attack")    { dir.kind = DK::CounterAttack;  team = true; }
         else if (k == "offside_trap")      { dir.kind = DK::OffsideTrap;    team = true; }
+        else if (k == "fk_taker")          dir.kind = DK::FkTaker;          // Gaylord set-piece-taker seam
+        else if (k == "corner_taker")      dir.kind = DK::CornerTaker;
+        else if (k == "pen_taker")         dir.kind = DK::PenTaker;
+        else if (k == "long_throw_taker")  dir.kind = DK::LongThrowTaker;
         else continue;                  // unknown directive — ignore
         dir.teamScope = team ? static_cast<int>(num(d, "teamScope", 0)) : -1;
         dir.targetId = static_cast<int>(num(d, "targetId", -1));

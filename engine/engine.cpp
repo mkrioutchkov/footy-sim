@@ -441,6 +441,25 @@ static double actionTimerFor(SetPiece sp) {
     return 1500.0;
 }
 
+// Gaylord seam (16:48): the engine id of the team's designated taker for this set-piece type
+// (fk/corner/pen/long_throw_taker directive), or -1 if none set => default position-based pick.
+int GameEngine::designatedTakerFor(SetPiece type, Team team) {
+    DirectiveKind want;
+    switch (type) {
+        case SetPiece::FreeKick: want = DirectiveKind::FkTaker;        break;
+        case SetPiece::Corner:   want = DirectiveKind::CornerTaker;    break;
+        case SetPiece::Penalty:  want = DirectiveKind::PenTaker;       break;
+        case SetPiece::ThrowIn:  want = DirectiveKind::LongThrowTaker; break;
+        default: return -1;
+    }
+    for (const auto& d : directives) {
+        if (d.kind != want) continue;
+        Player* p = playerById(d.playerId);
+        if (p && p->team == team && !p->sentOff) return d.playerId;
+    }
+    return -1;
+}
+
 void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     phase.actionTimer -= sdt;
     Team spTeam = setPiece.team;
@@ -606,6 +625,17 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         releaseSetPiece();
         cacheBallState();
         return;
+    }
+
+    // Gaylord seam: a designated taker (fk/corner/pen/long_throw_taker directive) takes the
+    // restart instead of the default position-based pick. No designation => -1 => no override
+    // => golden byte-identical. Switch before the taker has arrived; restart his walk.
+    if (setPiece.armed && !setPiece.takerArrived) {
+        int designated = designatedTakerFor(setPiece.type, setPiece.team);
+        if (designated >= 0 && setPiece.takerId != designated) {
+            setPiece.takerId = designated;
+            setPiece.walkMs = 0;
+        }
     }
 
     if (setPiece.takerId >= 0 && !setPiece.takerArrived) {

@@ -200,6 +200,9 @@ public:
     // releases, keyed on score + clock + pressure (rush chasing/late, hold leading/seeing-out/
     // unpressured) instead of the old uniform GK_DISTRIBUTE_MS.
     double gkDistributeMs(const Player& gk) const;
+    // Gaylord seam (16:48): engine id of the designated taker for this set-piece type on this
+    // team (fk/corner/pen/long_throw_taker directive), or -1 => default position-based pick.
+    int designatedTakerFor(SetPiece type, Team team);
 
     // Goal-kick distribution window: the active goal-kick + a release/timeout timer.
     struct GKMonitor {
@@ -494,6 +497,8 @@ public:
         CrossEarly, SwitchPlay, PlaySimple, Cutback,
         RunInBehind, MakeRuns, DribbleMore, StayBack,
         PressHard, TackleHard, StayOnFeet, Contain,
+        // ── set-piece taker designations (per-player; playerId = the designated taker) ──
+        FkTaker, CornerTaker, PenTaker, LongThrowTaker,
         // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
         AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
         KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
