@@ -14,7 +14,8 @@ const PLAYER_KINDS = ['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', '
   'run_in_behind', 'make_runs', 'dribble_more', 'press_hard', 'contain', 'tackle_hard', 'stay_on_feet', 'stay_back'];
 const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 'play_it_long',
   'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down',
-  'counter_attack', 'offside_trap'];
+  'counter_attack', 'offside_trap',
+  'press_intensity'];   // tactical-depth dial (engine: 0=contain/no-chase … 0.5=neutral … 1=high press)
 export const VALID_KINDS = new Set([...PLAYER_KINDS, ...TEAM_KINDS]);
 export const TEAM_KIND_SET = new Set(TEAM_KINDS);
 const VALID_SCORE = new Set(['winning', 'drawing', 'losing', 'any']);

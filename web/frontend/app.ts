@@ -906,6 +906,11 @@ function condText(w: any): string {
 }
 function describeDirective(d: any): string {
   const cond = condText(d.when);
+  if (d.kind === 'press_intensity') {   // gradated dial — describe by where the intensity sits
+    const i = typeof d.intensity === 'number' ? d.intensity : 1;
+    const lvl = i <= 0.3 ? 'sit off & contain' : i <= 0.6 ? 'measured mid-block press' : 'aggressive high press';
+    return `Whole team — pressing: ${lvl}${cond}`;
+  }
   if (d.teamScope != null && TEAM_LABEL[d.kind]) return `Whole team — ${TEAM_LABEL[d.kind]}${cond}`;
   const who = pname(d.playerId);
   if (d.kind === 'man_mark') return `${who} man-marks ${pname(d.targetId)}${cond}`;

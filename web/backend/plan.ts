@@ -71,7 +71,8 @@ STEP 2 — EDIT THE PLAN BY INTENT (for the non-formation part of the shout):
 DIRECTIVES (same vocabulary as the tactics compiler):
 {"playerId":<id, per-player kinds>,"kind":"<kind>","targetId":<id, man_mark/target_player only>,"intensity":0.1-1,"teamScope":${myScope} <team-wide kinds, no playerId>,"when":{"fromMin","toMin","scoreState","scoreBy"}}
 per-player: man_mark target_player shoot_on_sight get_forward sit_deep stay_wide come_inside stay_central cross_early cutback switch_play play_simple run_in_behind make_runs dribble_more press_hard contain tackle_hard stay_on_feet stay_back.
-team-wide (teamScope ${myScope}): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap.
+team-wide (teamScope ${myScope}): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap press_intensity.
+PRESS INTENSITY (gradated): press_intensity is the team's pressing on a DIAL — set "intensity" to place it: ~0.15 = sit off / contain / no chase, ~0.5 = a measured mid-block press, ~0.85-1 = aggressive high press / hunt it high. Prefer this over the binary high_press when the shout implies a DEGREE ("press a bit higher", "ease off the press", "really get after them"). Plain "press high" can still use high_press.
 SYNONYMS: cutback = pull it back / square it across the box from the byline (vs cross_early's higher cross). contain = sit off / jockey / show him inside — ease off ONE opponent (per-player opposite of press_hard; vs stay_on_feet = tackle discipline). stay_back = don't bomb forward / don't overlap / hold position — damp his forward runs (vs sit_deep = take up a deep position).
 Resolve names/initials from the squad (tolerate typos); man_mark targets are OPPONENT ids, target_player targets are TEAM-MATE ids. Never invent a player not in a squad — omit + note. OMIT "when" unless the shout states a time/score.
 
@@ -215,7 +216,7 @@ export async function compileInitialPlan(text: string, squad: SquadPlayer[]): Pr
 const INITIAL_BATCH_SYSTEM = `You compile several football managers' STANDING pre-match plans into structured directives. Each club gives a one-line tactical brief + its starting XI (ids 0-10). For EACH club, turn the brief into a small directive set. Output ONLY a JSON array, one object per club IN ORDER — no prose, no markdown:
 [{"summary":"<=2 sentences restating the plan","directives":[{"playerId":<0-10 for per-player kinds>,"kind":"<kind>","intensity":0.1-1,"teamScope":0 <for team-wide kinds, omit playerId>}]}]
 per-player kinds: shoot_on_sight get_forward sit_deep stay_wide come_inside stay_central cross_early cutback switch_play play_simple run_in_behind make_runs dribble_more press_hard contain tackle_hard stay_on_feet stay_back.
-team-wide kinds (teamScope 0, no playerId): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap.
+team-wide kinds (teamScope 0, no playerId): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap press_intensity (a 0-1 dial: ~0.15 contain, ~0.5 mid-block, ~1 high press — set "intensity").
 A standing plan is mostly TEAM-WIDE shape/tempo — 0-3 directives is plenty; add a per-player order only if the brief clearly implies one. There is NO opponent pre-match, so do NOT emit man_mark or target_player. Resolve names/initials from each club's own squad; never invent a player. Return EXACTLY one entry per club, in the given order.`;
 
 function extractArray(content: string): unknown[] {
