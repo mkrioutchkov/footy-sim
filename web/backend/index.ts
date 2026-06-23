@@ -12,7 +12,7 @@ import {
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
-import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay, mapPool } from './match.ts';
+import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay, mapPool, loadEventsLog, tacticsReview } from './match.ts';
 import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
@@ -681,6 +681,22 @@ app.get('/api/report', async (req: any, reply) => {
   return { homeName, awayName, ...report };
 });
 
+// The shout/tactics review for a watched match — the persisted command log digested to
+// {minute, text, what-it-changed}. Empty `shouts` if the match was watched without shouting
+// (or never live-watched). Reads the durable events log MatchStream writes on socket close.
+app.get('/api/tactics', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const fx = getFixture(Number(req.query?.fixture));
+  if (!fx) return reply.code(404).send({ error: 'fixture not found' });
+  const team = getTeamWithPlayers(teamId)!;
+  if (fx.league_id !== team.leagueId) return reply.code(403).send({ error: 'not your league' });
+  const log = loadEventsLog('fixture', fx.id);
+  if (!log) return { shouts: [] };
+  return tacticsReview(log);
+});
+
 // Pre-match opponent scouting report for an upcoming fixture the user is in (form, table
 // position, danger men, a read of how they play). 404 if the fixture isn't the user's.
 app.get('/api/scout', async (req: any, reply) => {
@@ -940,7 +956,7 @@ server.on('upgrade', (request, socket, head) => {
         });
         return;
       }
-      new MatchStream(ws as any, writeSpec(fx), fx.seed, homeName, awayName, myTeam, seedPlan, canShout);
+      new MatchStream(ws as any, writeSpec(fx), fx.seed, homeName, awayName, myTeam, seedPlan, canShout, 'fixture', fixtureId);
     } catch (e) { ws.close(); }
   });
 });

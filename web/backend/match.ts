@@ -222,6 +222,7 @@ export interface Command {
   atMs: number; team: 0 | 1; directives: unknown;
   morale?: { playerId: number; delta: number }[];
   layout?: { playerId: number; role: string; homeX: number; homeY: number }[];
+  text?: string;   // the human shout that produced this edit — kept for REVIEW; the engine ignores it
 }
 // `spec` is stored so a replay is SELF-CONTAINED (rosters drift with transfers, so rebuilding the
 // spec from current DB state would not be byte-identical). This extends the doc's literal
@@ -254,6 +255,22 @@ export function commandsToTimeline(commands: Command[]): Array<Record<string, un
 // The self-contained re-sim spec for a format-2 recording (base spec + reconstructed timeline). Pure.
 export function buildReplaySpec(log: EventsLog): Record<string, unknown> {
   return { ...log.spec, timeline: commandsToTimeline(log.commands) };
+}
+
+// A human-readable digest of a shout-driven match's command log for the report screen — minute,
+// the shout text, and what it changed (directive count, a formation swap, morale hits). Pure.
+export interface ShoutReviewEntry { minute: number; text: string; directives: number; formationChange: boolean; morale: number }
+export function tacticsReview(log: EventsLog): { side: 'home' | 'away'; scores: { home: number; away: number }; shouts: ShoutReviewEntry[] } {
+  // MatchStream persists single-team commands (one shouting manager), so the side is that team.
+  const side: 'home' | 'away' = log.commands[0]?.team === 1 ? 'away' : 'home';
+  const shouts: ShoutReviewEntry[] = log.commands.map(c => ({
+    minute: Math.floor(c.atMs / 60000),
+    text: c.text ?? '',
+    directives: Array.isArray(c.directives) ? c.directives.length : 0,
+    formationChange: Array.isArray(c.layout) && c.layout.length > 0,
+    morale: Array.isArray(c.morale) ? c.morale.length : 0,
+  }));
+  return { side, scores: log.scores, shouts };
 }
 // Re-simulate a format-2 match from its command log via the engine's flat-out timeline mode (NOT
 // live stdin), returning the frame lines — byte-identical to the live frames once the engine's
@@ -611,6 +628,10 @@ export class MatchStream extends FramePacer {
   // 46' re-sims the match with the new timeline and resumes streaming from 46'
   // (--stream-from) — seamless because frames 0..46' are byte-identical.
   private timeline: { atMs: number; directives: unknown; morale?: { playerId: number; delta: number }[]; layout?: { playerId: number; role: string; homeX: number; homeY: number }[] }[] = [];
+  // The same edits as `timeline`, in the durable event-sourcing shape (+ team + the raw shout text).
+  // Persisted to the events log on socket close so a shout-driven match can be reviewed/re-simmed
+  // (seed + commands → byte-identical) — see SCALE_ARCH.md. Empty for a no-shout watch.
+  private commands: Command[] = [];
   // P5: the manager's running composite plan (stateful — each shout edits it) and a
   // per-player motivation-change tally for the cap.
   private plan: Plan = EMPTY_PLAN;
@@ -622,6 +643,8 @@ export class MatchStream extends FramePacer {
   private sessionSpecPath: string;
   private myTeam: 'home' | 'away';
   private canShout: boolean;   // only a manager of this fixture may inject tactics (§1.2)
+  private kind: RecKind;
+  private refId: number;       // fixture/cup id — the events-log key (0 ⇒ don't persist)
 
   constructor(
     ws: WebSocket, specPath: string, seed: number,
@@ -629,10 +652,14 @@ export class MatchStream extends FramePacer {
     myTeam: 'home' | 'away' = 'home',
     seedPlan?: Plan | null,
     canShout = true,
+    kind: RecKind = 'fixture',
+    refId = 0,
   ) {
     super(ws, seed, homeName, awayName);
     this.myTeam = myTeam;
     this.canShout = canShout;
+    this.kind = kind;
+    this.refId = refId;
     this.baseSpec = JSON.parse(readFileSync(specPath, 'utf8'));
     // Seed the running plan from the STANDING plan the engine is ALREADY running — this side's
     // slice of the spec's resolved directives — so the first live shout edits the standing plan
@@ -747,12 +774,13 @@ export class MatchStream extends FramePacer {
         homeX: this.myTeam === 'away' ? PITCH_W - slot.x : slot.x, homeY: slot.y,
       })).filter((_, i) => i > 0);
     }
-    this.commitEdit(r.plan.directives, morale, layout);
+    this.commitEdit(r.plan.directives, morale, layout, cmd.text);
   }
 
-  private commitEdit(directives: unknown, morale: { playerId: number; delta: number }[], layout?: { playerId: number; role: string; homeX: number; homeY: number }[]): void {
+  private commitEdit(directives: unknown, morale: { playerId: number; delta: number }[], layout?: { playerId: number; role: string; homeX: number; homeY: number }[], text?: string): void {
     const t = this.latest?.clockMs ?? 0;
     this.timeline.push({ atMs: t, directives, morale, layout });
+    this.commands.push({ atMs: t, team: this.myTeam === 'home' ? 0 : 1, directives, morale, layout, text: text || undefined });
     this.writeSessionSpec();
     this.fromMs = Math.max(this.fromMs, t);   // monotonic — never rewind already-streamed frames
     this.paused = false;
@@ -767,6 +795,24 @@ export class MatchStream extends FramePacer {
   override dispose(): void {
     super.dispose();
     this.stopProc();
+    this.persistTactics();
+  }
+
+  // On socket close, persist the shout command log as the durable event-sourcing artifact
+  // (seed + commands + final score + self-contained spec) so the shout-driven match can be
+  // reviewed and re-simmed. Best-effort + only when shouts actually happened — a plain watch
+  // (no shouts) leaves no log, so it never clobbers a prior shout-driven session's record.
+  private persistTactics(): void {
+    if (!this.commands.length || !this.refId) return;
+    try {
+      writeEventsLog(this.kind, this.refId, {
+        seed: this.seed,
+        duration: this.latest?.clockMs ?? 0,
+        scores: { home: this.latest?.homeScore ?? 0, away: this.latest?.awayScore ?? 0 },
+        spec: this.baseSpec,
+        commands: this.commands,
+      });
+    } catch { /* best-effort — a watch must never fail because persistence did */ }
   }
 }
 
