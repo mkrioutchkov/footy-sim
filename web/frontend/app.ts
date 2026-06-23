@@ -1449,6 +1449,11 @@ async function screenTeamTalk(fixtureId: number) {
         h('div', { class: 'between', style: 'margin-bottom:6px' },
           h('div', { class: 'section-title', style: 'margin:0' }, 'How it lands'),
           h('span', { class: 'muted', style: 'font-size:11px' }, `${lifts} lifted · ${rattles} rattled`)),
+        // Honest hint when nobody reacts: a talk moves players via their PERSONALITY, so a squad with no
+        // strong characters yet (freshly created, or personalities still being generated) barely stirs.
+        lifts === 0 && rattles === 0 && data.reactions.length
+          ? h('div', { class: 'muted', style: 'font-size:12px;font-style:italic;margin-bottom:6px' }, 'No one’s stirred — this squad has no strong personalities for a talk to move yet (they settle as your players’ characters develop).')
+          : '',
         h('div', { style: 'max-height:420px;overflow:auto' }, ...rows)),
       h('div', { class: 'row' }, deliver),
     ));
