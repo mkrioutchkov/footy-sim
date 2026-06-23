@@ -121,6 +121,13 @@ void GameEngine::applyDirectives() {
                 // 1=high press) — exposes the aggression/chase knob as a slider + compresses the block
                 // up when pressing high. Generalizes high_press. (mentality / line_height to follow.)
                 case DirectiveKind::PressIntensity: { double s=(k-0.5)*2.0; dv.aggression+=s*38.0; dv.defensiveLineHeight+=s*16.0; } break;
+                // mentality 0-1 (0=ultra-defensive, 0.5=balanced, 1=all-out): how many bodies commit
+                // forward + the rest shape. Generalizes all_out_attack/park_the_bus.
+                case DirectiveKind::Mentality: { double s=(k-0.5)*2.0; dv.aggression+=s*26.0; dv.defensiveLineHeight+=s*22.0; dv.overlapFrequency+=s*24.0; dv.midfieldFreedom+=s*18.0; } break;
+                // line_height 0-1 (0=deep block, 0.5=neutral, 1=high line): the back line's rest-x +
+                // compactness. Generalizes push_up/drop_off (pairs with offside_trap); LINE-focused (the
+                // press is press_intensity's axis), just a small aggression nudge to hold/concede the line.
+                case DirectiveKind::LineHeight: { double s=(k-0.5)*2.0; dv.defensiveLineHeight+=s*35.0; dv.aggression+=s*8.0; } break;
                 default: break;
             }
             continue;
