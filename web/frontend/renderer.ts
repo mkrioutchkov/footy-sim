@@ -940,7 +940,7 @@ export class MatchRenderer {
       this.resetMatchStats(state.clockMs);
     }
     this.lastClockMs = state.clockMs;
-    const notable = new Set(['goal', 'shot', 'save', 'claim', 'tip', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork']);
+    const notable = new Set(['goal', 'shot', 'save', 'claim', 'tip', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork', 'handball']);
     for (const ev of (state.events ?? [])) {
       if (!notable.has(ev.type)) continue;
       const evClock = state.clockMs - (ev.age ?? 0);
@@ -1028,6 +1028,7 @@ export class MatchRenderer {
       case 'red':        return `🟥 RED CARD! ${w} is off!`;
       case 'penalty':    return `❗ PENALTY!`;
       case 'offside':    return `🚩 Offside against ${w}`;
+      case 'handball':   return `✋ Handball! ${w}`;
       case 'woodwork':   return `😬 Off the woodwork! ${w}`;
       case 'sub':        return `🔁 Sub — ${w} comes on`;
       case 'injury':     return `🤕 ${w} is down injured`;
@@ -1120,6 +1121,7 @@ export class MatchRenderer {
       case 'yellow':   add(-s, 7); break;                                  // toward the carded player's opponent
       case 'red':      add(-s, 22); break;
       case 'foul':     add(-s, 4); break;                                  // playerId = fouler → favour the fouled side
+      case 'handball': add(-s, 4); break;                                  // offender penalised → favours the other side
       case 'offside':  add(-s, 5); break;                                  // against the offside attacker
       default:         break;                                              // header/assist/sub/injury/advantage → neutral
     }
