@@ -599,7 +599,8 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             // A hard (from-behind) foul can leave the fouled player hurt — a
             // knock that scales down his pace until it fades, and makes him a
             // substitution candidate.
-            double injChance = fromBehind ? 0.07 : 0.02;
+            // Injuries ran ~1.8/match (real ~0.3-0.6); trimmed to land mid-band ~0.4.
+            double injChance = fromBehind ? 0.030 : 0.009;
             if (rng.random() < injChance) {
                 carrier.injurySeverity = std::max(carrier.injurySeverity, 0.30 + rng.random() * 0.45);
                 stats.recordInjury();
