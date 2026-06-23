@@ -628,11 +628,26 @@ async function screenDashboard() {
       ? h('span', { style: 'display:inline-flex;gap:3px;justify-content:center' }, ...res.map(FORM_DOT))
       : h('span', { class: 'muted' }, '—'));
   };
+  // promotion / relegation zones — only where they ACTUALLY apply (a division must exist above/below in
+  // this world), so the top tier shows no promotion + the bottom shows no relegation. A small dot on the
+  // position + a legend; deliberately content-level so it never fights the .me row highlight.
+  const worldTiers = (league.world ?? []).map(d => d.tier);
+  const promoteN = league.promote ?? 0;
+  const hasPromotion = promoteN > 0 && worldTiers.some(t => t < (league.tier ?? 99));
+  const hasRelegation = promoteN > 0 && worldTiers.some(t => t > (league.tier ?? -1));
+  const zoneOf = (i: number): 'promo' | 'releg' | null =>
+    hasPromotion && i < promoteN ? 'promo'
+      : hasRelegation && i >= league.standings.length - promoteN ? 'releg' : null;
+  const ZONE_DOT = (z: 'promo' | 'releg'): HTMLElement => h('span', {
+    title: z === 'promo' ? 'Promotion place' : 'Relegation place',
+    style: `display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;background:${z === 'promo' ? 'var(--accent)' : 'var(--danger)'}`,
+  });
   // standings table
   const tbody = h('tbody');
   league.standings.forEach((s, i) => {
+    const z = zoneOf(i);
     tbody.append(h('tr', { class: s.isUser ? 'me' : '' },
-      h('td', { class: 'num' }, String(i + 1)),
+      h('td', { class: 'num' }, z ? ZONE_DOT(z) : '', String(i + 1)),
       h('td', {}, s.name, s.isUser ? h('span', { class: 'pill', style: 'margin-left:8px' }, ' you') : ''),
       h('td', { class: 'num' }, String(s.played)),
       h('td', { class: 'num' }, String(s.won)), h('td', { class: 'num' }, String(s.drawn)), h('td', { class: 'num' }, String(s.lost)),
@@ -811,7 +826,10 @@ async function screenDashboard() {
       }
       return h('div', { class: 'card', style: 'padding:12px 14px' }, ...rows);
     })(),
-    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table),
+    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table,
+      (hasPromotion || hasRelegation) ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:8px;display:flex;gap:16px' },
+        hasPromotion ? h('span', {}, ZONE_DOT('promo'), 'Promotion') : '',
+        hasRelegation ? h('span', {}, ZONE_DOT('releg'), 'Relegation') : '') : ''),
     otherDivisions(league),
     h('div', { class: 'grid cols-split', style: 'align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
