@@ -408,6 +408,18 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
 void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
     double dx=t.x-f.x,dy=t.y-f.y,rawDist=std::hypot(dx,dy);
     if(rawDist<1)return;
+    // Kicked-clearance behind: forcePassTo IS the desperate-clearance path (only Clear-purpose
+    // passes reach it, agent.cpp:341). A clearance hacked away near the own goal line sometimes
+    // slices/hooks OUT for a corner — the engine had no kicked-clearance corner source, so corners
+    // capped ~5 vs real 9-11. Gated low + in-box only (genuinely last-ditch).
+    {
+        double clrLine=ownGoalXFor(f.team);
+        if(std::abs(f.x-clrLine)<PENALTY_AREA_W && rng.random()<0.18){
+            emitEvent("clearance", f.x, f.y, f.id);
+            awardCorner(f.team==Team::Home?Team::Away:Team::Home, f.team==Team::Home, f.y);
+            return;
+        }
+    }
     double tdx=dx+(rng.random()-0.5)*rawDist*0.2;
     double tdy=dy+(rng.random()-0.5)*rawDist*0.2;
     double tDist=std::hypot(tdx,tdy);
