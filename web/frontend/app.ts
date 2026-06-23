@@ -1603,12 +1603,18 @@ const TRAIT_LABELS: { key: string; label: string }[] = [
   { key: 'temperament', label: 'Temperament (fiery)' }, { key: 'ego', label: 'Ego' },
   { key: 'criticismResponse', label: 'Responds to criticism' }, { key: 'praiseResponse', label: 'Responds to praise' },
 ];
-function traitBar(label: string, v: number): HTMLElement {
+function traitBar(label: string, v: number, color = 'var(--accent,#4ea1ff)'): HTMLElement {
   return h('div', { style: 'margin-bottom:7px' },
     h('div', { class: 'between', style: 'font-size:12px;margin-bottom:2px' }, h('span', { class: 'muted' }, label), h('span', {}, String(v))),
     h('div', { style: 'height:6px;background:var(--panel2,#161f30);border-radius:3px;overflow:hidden' },
-      h('div', { style: `height:100%;width:${Math.max(0, Math.min(100, v))}%;background:var(--accent,#4ea1ff)` })));
+      h('div', { style: `height:100%;width:${Math.max(0, Math.min(100, v))}%;background:${color}` })));
 }
+// Attribute bars are colour-tiered (strong / solid / weak) so a profile reads at a glance, like the squad table.
+const ATTR_LABELS: { key: keyof PlayerT['attrs']; label: string }[] = [
+  { key: 'speed', label: 'Speed' }, { key: 'passing', label: 'Passing' }, { key: 'shooting', label: 'Shooting' },
+  { key: 'creativity', label: 'Creativity' }, { key: 'tackling', label: 'Tackling' }, { key: 'positioning', label: 'Positioning' }, { key: 'stamina', label: 'Stamina' },
+];
+const attrTierColor = (v: number): string => v >= 75 ? 'var(--accent,#43d39e)' : v >= 50 ? 'var(--gold,#ffe97a)' : 'var(--danger,#ff6b6b)';
 async function screenPlayer(slot: number) {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let team: TeamT;
@@ -1693,6 +1699,11 @@ async function screenPlayer(slot: number) {
           ? h('div', { style: 'font-size:12px;color:#e8896b' }, `🤕 Injured — out ${p.injuredMatches} match${(p.injuredMatches ?? 0) > 1 ? 'es' : ''}${p.morale != null ? ` · Morale ${p.morale}` : ''}`)
           : h('div', { class: 'muted', style: 'font-size:12px' }, `Match fitness ${p.fitness ?? 100}%${p.morale != null ? ` · Morale ${p.morale}` : ''}`)),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
+    ),
+    h('div', { class: 'card' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, 'Attributes'),
+      h('div', { class: 'grid cols-2', style: 'gap:0 22px' },
+        ...ATTR_LABELS.map(a => traitBar(a.label, p.attrs[a.key] ?? 0, attrTierColor(p.attrs[a.key] ?? 0)))),
     ),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Personality dials'), traitsEl),
