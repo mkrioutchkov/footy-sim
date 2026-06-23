@@ -179,6 +179,23 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
   return { plan: { summary, directives }, changed, motivation, note, formation, setPieceTakers: takersFromRaw(raw.setPieceTakers, mineIds) };
 }
 
+// §2 quick-tactics: one-tap team mentality presets. A DETERMINISTIC shortcut (no LLM) that sets a coherent
+// (plain-English summary + team-wide directives) pair in one go — so the text and the directives can't drift.
+// Every kind here is engine-supported today (the prompt reaches the same ones); this is just the fast,
+// discoverable control. The user can then refine via the prompt. Team-relative scope (0), resolved at
+// spec-build like any plan directive. 'balanced' = the neutral base (no directives).
+export const QUICK_TACTICS = {
+  defensive: { label: '🛡️ Defensive', text: 'Sit deep and stay compact — protect the box and hit them on the counter.', kinds: ['park_the_bus', 'counter_attack'] },
+  balanced: { label: '⚖️ Balanced', text: 'A balanced approach — no special team instructions; play the game in front of you.', kinds: [] },
+  attacking: { label: '⚔️ Attacking', text: 'On the front foot — push the defensive line up and press them high.', kinds: ['push_up', 'high_press'] },
+  allout: { label: '🔥 All-out attack', text: 'Throw everyone forward — all-out attack, press high and push the line up.', kinds: ['all_out_attack', 'high_press', 'push_up'] },
+} as const;
+export type QuickTactic = keyof typeof QUICK_TACTICS;
+export function buildQuickPlan(preset: QuickTactic, myScope: number): Plan {
+  const p = QUICK_TACTICS[preset];
+  return { summary: p.text, directives: p.kinds.map((kind): Directive => ({ playerId: -1, teamScope: myScope, kind, intensity: 1 })) };
+}
+
 // Pre-match: compile a manager's plain-English STANDING plan into the composite plan, against an
 // EMPTY base (the text IS the whole plan, not an edit). Squad ids are TEAM-RELATIVE (0-10, the XI);
 // there is no opponent pre-match, so any man_mark of a specific opponent is dropped by validate()

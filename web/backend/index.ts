@@ -18,7 +18,7 @@ import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers } from './market.ts';
-import { compileInitialPlan } from './plan.ts';
+import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
 import { seedAcademy, getAcademy, promoteProspect } from './youth.ts';
@@ -249,6 +249,21 @@ app.post('/api/team/plan', async (req: any, reply) => {
     setPieceTakers = allDefault ? null : merged;
   }
   return { planText: text, plan, setPieceTakers, note: r.note || '', error: r.error || null };
+});
+
+// §2 quick-tactics: one-tap team mentality (deterministic, no LLM) — sets a coherent plan_text + team-wide
+// directives in one write. Replaces the standing plan with the chosen stance (the user refines via the prompt).
+app.post('/api/team/quick-tactics', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const preset = String(req.body?.preset ?? '');
+  if (!(preset in QUICK_TACTICS)) return reply.code(400).send({ error: 'unknown preset' });
+  const plan = buildQuickPlan(preset as QuickTactic, 0);   // team-relative scope; resolved to engine ids at spec-build
+  const text = QUICK_TACTICS[preset as QuickTactic].text;
+  db.prepare('UPDATE teams SET plan_text = ?, plan_directives = ? WHERE id = ?')
+    .run(text, plan.directives.length ? JSON.stringify(plan) : null, teamId);
+  return { planText: text, plan };
 });
 
 app.put('/api/tactics', async (req: any, reply) => {

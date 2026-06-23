@@ -327,10 +327,30 @@ function planPanel(team: TeamT): HTMLElement {
     } catch (e: any) { out.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message)); }
     save.removeAttribute('disabled'); save.textContent = 'Save plan';
   });
+  // §2 quick-tactics: one-tap team mentality (deterministic, instant — no LLM wait). Sets the plan text +
+  // directives together; the user can then refine in the box below.
+  const QUICK: [string, string][] = [['defensive', '🛡️ Defensive'], ['balanced', '⚖️ Balanced'], ['attacking', '⚔️ Attacking'], ['allout', '🔥 All-out']];
+  const quickRow = h('div', { class: 'row', style: 'gap:6px;margin-bottom:10px;flex-wrap:wrap' },
+    ...QUICK.map(([key, label]) => {
+      const b = h('button', { class: 'ghost small', title: 'Set your team’s overall approach in one tap (replaces the standing plan)' }, label) as HTMLButtonElement;
+      b.addEventListener('click', async () => {
+        b.setAttribute('disabled', 'true');
+        try {
+          const r = await api.quickTactics(key);
+          team.planText = r.planText; team.plan = r.plan;
+          input.value = r.planText; renderPlan(r.plan);
+          toast(`Tactics set: ${label.replace(/^\S+\s/, '')}`);
+        } catch (e: any) { toast(e.message); }
+        b.removeAttribute('disabled');
+      });
+      return b;
+    }));
   renderPlan(team.plan);
   return h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Tactical plan'),
     h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'Type a standing plan in plain English — it’s compiled to your team’s instructions and seeds every match (and your live shouts). Name your dead-ball takers here too ("Lars on long throws"). Mid-match, the shout box edits it.'),
+    h('div', { class: 'muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px' }, 'Quick tactics'),
+    quickRow,
     h('div', { class: 'tactics-row' }, input, save),
     vocabPanel(input),
     out,

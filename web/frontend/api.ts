@@ -158,6 +158,7 @@ export const api = {
   team: () => req<TeamT>('GET', '/team'),
   setTactics: (tactics: Tactics) => req<{ tactics: Tactics }>('PUT', '/tactics', { tactics }),
   teamPlan: (text: string) => req<{ planText: string; plan: PlanT; setPieceTakers: TeamT['setPieceTakers']; note: string; error: string | null }>('POST', '/team/plan', { text }),
+  quickTactics: (preset: string) => req<{ planText: string; plan: PlanT }>('POST', '/team/quick-tactics', { preset }),
   setLineup: (text: string) => req<LineupResultT>('PUT', '/lineup', { text }),
   formations: () => req<FormationsT>('GET', '/formations'),
   generatePersonalities: () => req<TeamT>('POST', '/personalities', {}),   // send a body so Fastify can't 415 on a bodyless POST
