@@ -20,8 +20,16 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                 p.targetX = oppGoalX - fd * (80.0 + slotA * 20.0);
                 p.targetY = PITCH_H / 2.0 + (nearPost ? -40.0 : 40.0) + slotB * 15.0;
             } else if (isWidePlayer()) {
-                p.targetX = oppGoalX - fd * (50.0 + slotA * 15.0);
-                p.targetY = nearPost ? PITCH_H * 0.25 : PITCH_H * 0.75;
+                bool myCornerSide = (p.homeY < PITCH_H / 2.0) == (by < PITCH_H / 2.0);
+                if (myCornerSide) {
+                    // short-corner option: stay near the flag (a short pass infield) so the worked
+                    // short corner has a target; releaseCornerKick picks the nearest within ~125px.
+                    p.targetX = bx - fd * (50.0 + slotA * 12.0);
+                    p.targetY = by + (by < PITCH_H / 2.0 ? 42.0 : -42.0);
+                } else {
+                    p.targetX = oppGoalX - fd * (50.0 + slotA * 15.0);
+                    p.targetY = nearPost ? PITCH_H * 0.25 : PITCH_H * 0.75;
+                }
             } else if (isCentralMidfielder()) {
                 p.targetX = oppGoalX - fd * (120.0 + slotA * 20.0);
                 p.targetY = PITCH_H / 2.0 + slotB * 40.0;

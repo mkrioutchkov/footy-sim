@@ -498,6 +498,32 @@ void GameEngine::releaseThrowIn(Player& holder){
 
 void GameEngine::releaseCornerKick(Player& holder){
     double goalX=holder.x<HALF_X?HOME_GOAL_X:AWAY_GOAL_X;
+    // Short corner: ~18% are worked SHORT to a nearby teammate (the short option who stayed near
+    // the flag) instead of the whipped cross — set-piece variety. The receiver then plays on in
+    // open play (cross/cutback/dribble). Falls through to the cross if no near option is present.
+    if(rng.random()<0.18){
+        Player* shortOpt=nullptr; double bestD=125.0;
+        for(auto& p:state.players){
+            if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
+            double d=dist(holder.x,holder.y,p.x,p.y);
+            if(d>35.0&&d<bestD){bestD=d;shortOpt=&p;}
+        }
+        if(shortOpt){
+            double dx=shortOpt->x-holder.x,dy=shortOpt->y-holder.y,d=std::max(1.0,std::hypot(dx,dy));
+            auto& b=state.ball;
+            b.controllerId=-1;
+            placeBallForRelease(holder,dx,dy);
+            blockReboundFor(holder.id,600);
+            b.lastTouchTeam=holder.team; b.lastToucherId=holder.id;
+            double speed=clamp(150.0+d*0.35,150.0,250.0);
+            b.vx=dx/d*speed; b.vy=dy/d*speed; b.z=0; b.vz=0;
+            b.intendedReceiverId=shortOpt->id;
+            receiverShieldTargetId=shortOpt->id;
+            emitEvent("corner_short",holder.x,holder.y,holder.id);
+            beginTrackedPass(holder,*shortOpt,false);
+            return;
+        }
+    }
     SmallVector<RatedTarget, 11> targets;
     for(auto& p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
