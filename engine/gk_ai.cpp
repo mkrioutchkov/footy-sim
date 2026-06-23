@@ -25,8 +25,18 @@ double GKPlayerAI::sweepDepth() const {
 
 bool GKPlayerAI::canUseHands() const {
     double goalX = ownGoalXFor(player.team);
-    return std::abs(player.x - goalX) < PENALTY_AREA_W
-        && std::abs(player.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+    if (std::abs(player.x - goalX) >= PENALTY_AREA_W
+        || std::abs(player.y - PITCH_H / 2.0) >= PENALTY_AREA_H / 2.0)
+        return false;
+    // Law 12: a keeper may NOT handle a ball deliberately KICKED back to him by a teammate — he
+    // must play it with his FEET (which makes the back-pass PRESSABLE: the modern high-press loop).
+    // A deliberate pass sets intendedReceiverId to me + my team made the last touch; a HEADED/chested
+    // back-pass never targets a receiver, so it stays legal to catch. An opponent touch flips
+    // lastTouchTeam, clearing the restriction. (controllerId<0 = still in flight, not yet collected.)
+    const auto& b = engine.state.ball;
+    if (b.controllerId < 0 && b.intendedReceiverId == player.id && b.lastTouchTeam == player.team)
+        return false;
+    return true;
 }
 
 double GKPlayerAI::punchPower() const {
