@@ -20,8 +20,10 @@ const sameFamily = (a: Role, b: Role): boolean => a === b || (MID_FAMILY.has(a) 
 const initialsOf = (name: string) => name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').toUpperCase();
 
 function squadContext(sq: Squad): string {
-  return sq.players.slice(0, 11)
-    .map((p, i) => `slot${i} ${p.name} [${initialsOf(p.name)}]${p.role ? `(${p.role})` : ''}`)
+  // The WHOLE squad — slots 0-10 are the XI, 11+ the bench. The manager can name a bench player to bring
+  // him in ("put Smith up front"); the LLM needs to see + resolve him, so don't hide the bench.
+  return sq.players
+    .map((p, i) => `slot${i} ${p.name} [${initialsOf(p.name)}]${p.role ? `(${p.role})` : ''}${i >= 11 ? ' [bench]' : ''}`)
     .join(', ');
 }
 
@@ -37,7 +39,7 @@ const SYSTEM = (ctx: string) => `You are a football lineup compiler. The manager
 - ASCII / drawn formations: read the rows top(defence)->bottom(attack) or as drawn, infer the closest listed shape, set "formation". If players are written into the grid, add them as overrides.
 - "note": SHORT, only to flag a problem — an unknown shape you couldn't map, a named player not in the squad (never substitute a different player — drop that override and note it), or nonsense/abuse ("note":"That's not a lineup instruction I can apply.", formation null, overrides []). Leave "" when everything mapped.
 
-Squad (slot = current position; 11 players, no bench):
+Squad (slot 0-10 = the current XI, slot 11+ = bench you can name to bring on):
 ${ctx}`;
 
 function extract(content: string): { formation: unknown; overrides: unknown[]; note: string } {
@@ -73,7 +75,10 @@ function assign(sq: Squad, slots: Slot[], locked: Map<number, number>): number[]
   const usedP = new Set<number>();
   for (const [si, pi] of locked) { out[si] = pi; usedP.add(pi); }
   const freeS = slots.map((_, i) => i).filter(i => out[i] < 0);
-  const freeP = sq.players.map((_, i) => i).filter(i => !usedP.has(i)).slice(0, 11);
+  // Auto-fill the unnamed slots from the designated XI only (slots 0-10): a pure shape change rearranges
+  // your XI, it never auto-benches a starter for a squad player. Named bench players (already locked
+  // above) come in over the top — so the bench is reached deliberately, not by surprise.
+  const freeP = sq.players.map((_, i) => i).filter(i => i < 11 && !usedP.has(i));
   const pairs: { si: number; pi: number; fit: number }[] = [];
   for (const si of freeS) for (const pi of freeP)
     pairs.push({ si, pi, fit: roleFit(sq.players[pi].attrs, slots[si].role) });
@@ -89,15 +94,16 @@ const cache = new Map<string, { formation: string; slots: SlotAssignment[]; note
 export function buildLineup(sq: Squad, formationKey: string | null, overrides: { player: string; role: string; side: string }[]): { formation: string; slots: SlotAssignment[]; note: string } {
   const key = (formationKey && FORMATIONS[formationKey]) ? formationKey : DEFAULT_FORMATION;
   const slots = FORMATIONS[key];
-  const names = sq.players.slice(0, 11).map(p => p.name.toLowerCase());
-  const inits = sq.players.slice(0, 11).map(p => p.name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').toLowerCase());
+  // Resolve names against the WHOLE squad so an override can name a bench player (slot 11+) to bring on.
+  const names = sq.players.map(p => p.name.toLowerCase());
+  const inits = sq.players.map(p => p.name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').toLowerCase());
   const taken = new Set<number>();
   const locked = new Map<number, number>();
   const notes: string[] = [];
   // Pin slot 0 (always GK) to the natural keeper FIRST. Doing it before overrides
   // means an override can neither claim the GK slot nor drag the keeper outfield (he
   // is already locked), so the XI always has exactly one keeper and he is in goal.
-  const gkIdx = sq.players.slice(0, 11).findIndex(p => (p.role ?? '').toUpperCase() === 'GK');
+  const gkIdx = sq.players.findIndex(p => (p.role ?? '').toUpperCase() === 'GK');
   if (gkIdx < 0) notes.push('No recognised goalkeeper in the squad — slot 0 is covered by an outfielder.');   // §1.9
   const gk = Math.max(0, gkIdx);
   locked.set(0, gk); taken.add(0);
