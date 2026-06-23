@@ -332,7 +332,11 @@ void GameEngine::checkBallPlayerCollision(double){
                                  && b.z + BALL_R <= GOAL_H;   // #1b: under the bar too
                 if (goalBound) {
                     stats.recordShotOnTarget();
-                    stats.recordSave();
+                    // #1c: a weak goalbound roller the keeper routinely scoops up is a
+                    // CLAIM, not a "save" — counting every one of them is why saves run
+                    // ~8/match (= onTarget) instead of the real ~3-4 (< onTarget 8-9).
+                    // Count only genuine-pace stops as saves; the weak ones stay on-target.
+                    if (std::hypot(b.vx, b.vy) > 340.0) stats.recordSave();
                     emitEvent("save", keeperContact->x, keeperContact->y, keeperContact->id);
                     keeperContact->diveAnim = std::max(keeperContact->diveAnim, 440.0);  // render-only stretch
                 }
