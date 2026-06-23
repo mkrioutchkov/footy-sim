@@ -121,9 +121,15 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     if (bl == 0 && fp > 80.0) sc += completion > 0.70 ? 0.06 : 0.02;
     bool carrierFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
-    if (!keeperOutlet && fp < -30.0) sc -= carrierFinalThird ? 0.28 : 0.16;
-    if (!keeperOutlet && fp < -90.0) sc -= carrierFinalThird ? 0.30 : 0.18;
+    // USERWATCH A1 (~3:23: carrier stripped with a safe backpass on): under HEAVY pressure a
+    // SECURE outlet (unmarked teammate + clear lane) beats getting dispossessed — waive the
+    // backward-pass penalty + add a retention bonus so the carrier plays safe instead of forcing it.
+    bool securePressuredOutlet = per.pressureCount >= 2 && per.nearestOpponentDist < 40.0
+                              && receiverPressure == 0 && bl == 0;
+    if (!keeperOutlet && !securePressuredOutlet && fp < -30.0) sc -= carrierFinalThird ? 0.28 : 0.16;
+    if (!keeperOutlet && !securePressuredOutlet && fp < -90.0) sc -= carrierFinalThird ? 0.30 : 0.18;
     if (!keeperOutlet && carrierFinalThird && per.pressureCount == 0 && fp < 0.0) sc -= 0.12;
+    if (securePressuredOutlet) sc += 0.18;
 
     double dg2 = std::abs(p.x - (goalXFor(p.team)));
     if (dg2 < 200.0 && fp > 0.0 && d < 150.0) sc += 0.10;
