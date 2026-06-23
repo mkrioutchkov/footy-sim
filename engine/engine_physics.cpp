@@ -597,18 +597,32 @@ void GameEngine::checkBallPlayerCollision(double){
             wallBlock=task&&task->role==DefensiveTask::ShotLane;
         }
         if(lastLooseOrigin == LooseOrigin::Shot&&(contact->id==shot.blockerId||wallBlock)){
-            stats.recordShotBlocked();
-            emitEvent("block", contact->x, contact->y, contact->id, shot.shooterId);
-            shot.active=false; shot.tracked=false;
-            lastLooseOrigin = LooseOrigin::ShotBlock;
-            // A block close to the defender's own line that deflects goalward
-            // often loops behind for a corner — another corner source the
-            // engine never produced.
-            double ownLine=ownGoalXFor(contact->team);
-            bool nearLine=std::abs(b.x-ownLine)<150.0;
-            bool deflectingBehind=(ownLine==0.0)?b.vx<0:b.vx>0;
-            if(nearLine&&deflectingBehind&&rng.random()<0.80){   // corner boost (was 0.65)
-                awardCorner(shot.team, contact->team==Team::Home, b.y);
+            // Handball (Law 12): a defender blocking INSIDE HIS OWN BOX sometimes stops it with an
+            // arm -> penalty. Gated low (~1 per several matches), in-box only, a simple probabilistic
+            // model (not full arm-geometry). Adds penalty VARIETY alongside the tackle-fouls.
+            double hbLine=ownGoalXFor(contact->team);
+            bool hbInBox=std::abs(b.x-hbLine)<PENALTY_AREA_W
+                         &&std::abs(b.y-PITCH_H/2.0)<PENALTY_AREA_H/2.0;
+            if(hbInBox&&rng.random()<0.040){
+                shot.active=false; shot.tracked=false;
+                lastLooseOrigin = LooseOrigin::ShotBlock;
+                stats.recordPenaltyAwarded();
+                emitEvent("handball", contact->x, contact->y, contact->id, shot.shooterId);
+                awardSetPiece(SetPiece::Penalty, shot.team);
+            } else {
+                stats.recordShotBlocked();
+                emitEvent("block", contact->x, contact->y, contact->id, shot.shooterId);
+                shot.active=false; shot.tracked=false;
+                lastLooseOrigin = LooseOrigin::ShotBlock;
+                // A block close to the defender's own line that deflects goalward
+                // often loops behind for a corner — another corner source the
+                // engine never produced.
+                double ownLine=ownGoalXFor(contact->team);
+                bool nearLine=std::abs(b.x-ownLine)<150.0;
+                bool deflectingBehind=(ownLine==0.0)?b.vx<0:b.vx>0;
+                if(nearLine&&deflectingBehind&&rng.random()<0.80){   // corner boost (was 0.65)
+                    awardCorner(shot.team, contact->team==Team::Home, b.y);
+                }
             }
         }
     }
