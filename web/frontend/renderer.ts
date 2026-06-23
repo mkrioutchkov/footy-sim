@@ -249,7 +249,7 @@ export class MatchRenderer {
     this.offsetY = reserveTop + (sh - PITCH_H * this.scale) / 2 + 10;
     this.pitchContainer.scale.set(this.scale);
     this.pitchContainer.position.set(this.offsetX, this.offsetY);
-    this.hudText.position.set(sw / 2, 6);
+    this.hudText.position.set(sw / 2, 52);   // below the top-left controls (Back/speed/Pause) so the scoreboard isn't occluded
     this.hudText.anchor.set(0.5, 0);
     this.drawPitch();
   }
@@ -736,11 +736,14 @@ export class MatchRenderer {
     const addedTag = state.addedTime && state.addedTimeAnnouncedMin ? ` +${state.addedTimeAnnouncedMin}` : '';
     const hn = this.clipName(state.homeName, 'HOME');
     const an = this.clipName(state.awayName, 'AWAY');
-    this.hudText.text = `${hn} ${state.homeScore ?? 0}-${state.awayScore ?? 0} ${an}    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%    ${state.matchState ?? ''}${restartHud}`;
+    // matchState is suppressed while simply "running" (redundant + widened the line off-screen); the
+    // meaningful transitions (kick-off / half-time / full-time …) still show.
+    const stateTag = state.matchState && state.matchState !== 'running' ? `    ${state.matchState}` : '';
+    this.hudText.text = `${hn} ${state.homeScore ?? 0}-${state.awayScore ?? 0} ${an}    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%${stateTag}${restartHud}`;
     this.hudText.visible = true;
     this.hudBg.clear();
     const hudW = this.hudText.width;
-    this.hudBg.roundRect(this.hudText.position.x - hudW / 2 - 14, 2, hudW + 28, this.hudText.height + 10, 8);
+    this.hudBg.roundRect(this.hudText.position.x - hudW / 2 - 14, this.hudText.position.y - 4, hudW + 28, this.hudText.height + 10, 8);
     this.hudBg.fill({ color: 0x0a0f17, alpha: 0.78 });
 
     this.updateTicker(state);
