@@ -46,6 +46,25 @@ export class MatchRenderer {
   private tickerLines: string[] = [];
   private seenEventKeys: Set<string> = new Set();
   private lastGoalScorer = '';   // most recent goal-event scorer name — fed to the goal banner
+  // ── live stats + momentum ("PRESSURE" panel) ── per-team tallies accumulated off the SAME
+  // de-duped event loop as the feed (so a goal counts once), plus a signed momentum scalar.
+  private statPanelEl: HTMLDivElement | null = null;
+  private statCells: Record<'ot' | 'xg' | 'big' | 'cor', HTMLSpanElement | null> = { ot: null, xg: null, big: null, cor: null };
+  private statBarHome: HTMLDivElement | null = null;   // grows right from centre (home leading)
+  private statBarAway: HTMLDivElement | null = null;   // grows left from centre (away leading)
+  private statBarWrap: HTMLDivElement | null = null;    // pulsed on a goal
+  private prevStatStr: Record<string, string> = {};     // dirty-check so textContent isn't rewritten 60fps
+  private otH = 0; private otA = 0;       // shots on target
+  private xgH = 0; private xgA = 0;       // expected-goals proxy
+  private bigH = 0; private bigA = 0;     // big chances (xg >= .30)
+  private corH = 0; private corA = 0;     // corners (from set-piece transitions)
+  private momentum = 0;                   // signed pressure, [-100 home .. +0 .. neutral], +home
+  private displayMomentum = 0;            // eased toward `momentum` for a gliding bar
+  private ballXEma = PITCH_W / 2;         // smoothed ball x for the territory term
+  private momPrevClock = 0;               // own dt source (the ticker overwrites lastClockMs first)
+  private homeAttacksX: number | null = null;   // 0 or PITCH_W — derived from the home keeper's side
+  private goalFlashUntil = 0;             // performance.now() deadline for the bar pulse
+  private lastSetPieceType: string | null = null;   // corner edge-detection
   private bannerEl: HTMLDivElement | null = null;
   private bannerHideAt = 0;
   private panelEl: HTMLDivElement | null = null;
@@ -174,6 +193,9 @@ export class MatchRenderer {
     } as Partial<CSSStyleDeclaration>);
     this.tickerEl.textContent = '— match feed —';
     document.body.appendChild(this.tickerEl);
+    // ── PRESSURE panel ── top-left gutter (the one free quadrant: HUD owns top-centre, tactics
+    // owns bottom-centre, the feed owns bottom-left). A 2×2 stat micro-grid over a momentum bar.
+    this.buildStatPanel();
     // goal banner (center) and half/full-time stats panel
     this.bannerEl = document.createElement('div');
     Object.assign(this.bannerEl.style, {
@@ -225,6 +247,7 @@ export class MatchRenderer {
     try { window.removeEventListener('resize', this.onResize); } catch { /* */ }
     try { delete (window as unknown as { __app?: Application }).__app; } catch { /* */ }
     try { this.tickerEl?.remove(); } catch { /* */ }
+    try { this.statPanelEl?.remove(); } catch { /* */ }
     try { this.bannerEl?.remove(); } catch { /* */ }
     try { this.panelEl?.remove(); } catch { /* */ }
     try { this.app.destroy(true, { children: true, texture: true }); } catch { /* */ }
@@ -831,6 +854,8 @@ export class MatchRenderer {
     this.hudBg.rect(homeW, 0, sw - homeW, 5); this.hudBg.fill({ color: AWAY_COLOR, alpha: 0.92 });
 
     this.updateTicker(state);
+    this.updateMomentum(state);   // PRESSURE: integrate after the ticker folds in event impulses
+    this.renderStatPanel();
     this.updateMoments(state);
   }
 
@@ -912,6 +937,7 @@ export class MatchRenderer {
       this.tickerLines = [];
       this.seenEventKeys.clear();
       this.lastGoalScorer = '';
+      this.resetMatchStats(state.clockMs);
     }
     this.lastClockMs = state.clockMs;
     const notable = new Set(['goal', 'shot', 'save', 'claim', 'tip', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork']);
@@ -921,6 +947,7 @@ export class MatchRenderer {
       const key = `${ev.type}:${ev.playerId}:${Math.round(evClock / 400)}`;
       if (this.seenEventKeys.has(key)) continue;
       this.seenEventKeys.add(key);
+      this.accStatEvent(ev);   // PRESSURE panel: same de-dup → counts match the feed exactly
       const half = state.half ?? 1;
       const halfMs = half === 1 ? evClock : evClock - 45 * 60 * 1000;
       const minute = Math.max(0, Math.floor(halfMs / 60000)) + (half === 2 ? 45 : 0);
@@ -1008,6 +1035,154 @@ export class MatchRenderer {
       case 'advantage':  return `Referee waves play on — advantage`;
       default:           return `${this.eventLabel(type)} ${w}`.trim();
     }
+  }
+
+  // ── PRESSURE panel: build, accumulate, animate ──────────────────────────────
+  private buildStatPanel(): void {
+    const HOME_CSS = '#e63946', AWAY_CSS = '#457b9d';   // = HOME_COLOR / AWAY_COLOR
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+      position: 'fixed', top: '72px', left: '14px', zIndex: '20', width: '230px',
+      padding: '8px 10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '12px',
+      lineHeight: '1.5', color: '#e8edf2', background: 'rgba(8,12,20,0.72)', borderRadius: '6px',
+      pointerEvents: 'none',
+    } as Partial<CSSStyleDeclaration>);
+    const grid = document.createElement('div');
+    Object.assign(grid.style, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 10px', marginBottom: '6px' } as Partial<CSSStyleDeclaration>);
+    const cell = (label: string, key: 'ot' | 'xg' | 'big' | 'cor'): HTMLDivElement => {
+      const c = document.createElement('div');
+      const l = document.createElement('span');
+      l.textContent = label;
+      Object.assign(l.style, { color: '#8b97a6', fontSize: '9px', letterSpacing: '.5px' } as Partial<CSSStyleDeclaration>);
+      const v = document.createElement('span');
+      v.textContent = '0-0';
+      Object.assign(v.style, { fontSize: '13px', marginLeft: '5px' } as Partial<CSSStyleDeclaration>);
+      c.appendChild(l); c.appendChild(v);
+      this.statCells[key] = v;
+      return c;
+    };
+    grid.appendChild(cell('ON-TGT', 'ot')); grid.appendChild(cell('xG', 'xg'));
+    grid.appendChild(cell('BIG-CH', 'big')); grid.appendChild(cell('CORNERS', 'cor'));
+    panel.appendChild(grid);
+    const cap = document.createElement('div');
+    cap.textContent = 'PRESSURE';
+    Object.assign(cap.style, { color: '#8b97a6', fontSize: '9px', letterSpacing: '1px', textAlign: 'center', marginBottom: '2px' } as Partial<CSSStyleDeclaration>);
+    panel.appendChild(cap);
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, { position: 'relative', height: '12px', borderRadius: '3px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden', transition: 'height .12s' } as Partial<CSSStyleDeclaration>);
+    const away = document.createElement('div');   // left half — away leading (blue)
+    Object.assign(away.style, { position: 'absolute', right: '50%', top: '0', height: '100%', width: '0px', background: AWAY_CSS } as Partial<CSSStyleDeclaration>);
+    const home = document.createElement('div');   // right half — home leading (red)
+    Object.assign(home.style, { position: 'absolute', left: '50%', top: '0', height: '100%', width: '0px', background: HOME_CSS } as Partial<CSSStyleDeclaration>);
+    const tick = document.createElement('div');   // centre hairline
+    Object.assign(tick.style, { position: 'absolute', left: '50%', top: '-1px', width: '1px', height: '14px', background: 'rgba(232,237,242,0.4)' } as Partial<CSSStyleDeclaration>);
+    wrap.appendChild(away); wrap.appendChild(home); wrap.appendChild(tick);
+    panel.appendChild(wrap);
+    this.statBarHome = home; this.statBarAway = away; this.statBarWrap = wrap;
+    this.statPanelEl = panel;
+    document.body.appendChild(panel);
+  }
+
+  // Tally one NEW (de-duped) notable event into the stat counters + momentum. Called from
+  // updateTicker inside the seenEventKeys guard, so each event lands exactly once.
+  private accStatEvent(ev: EngineState['events'][number]): void {
+    const sideOf = (id: number | null | undefined): number => {
+      const t = id != null ? this.playerById.get(id)?.team : undefined;
+      return t === 'home' ? 1 : t === 'away' ? -1 : 0;
+    };
+    const type = ev.type;
+    // xG proxy (direction-agnostic: distance to the NEAREST goal, since shots go toward a goal)
+    if (type === 'shot' || type === 'goal') {
+      const dy = ev.y - PITCH_H / 2;
+      const d = Math.min(Math.hypot(ev.x - 0, dy), Math.hypot(ev.x - PITCH_W, dy));
+      const ang = 1 - Math.min(1, Math.abs(dy) / (GOAL_W * 1.6));
+      const xg = Math.max(0.01, Math.min(0.95, 1.05 * Math.exp(-d / 95) * (0.32 + 0.68 * ang)));
+      const s = sideOf(ev.playerId);   // shot/goal playerId = the shooter
+      if (s > 0) { this.xgH += xg; if (xg >= 0.30) this.bigH++; }
+      else if (s < 0) { this.xgA += xg; if (xg >= 0.30) this.bigA++; }
+    }
+    // on-target: goal → scorer side; save/tip/punch/claim → keeper side, so credit the OTHER team
+    if (type === 'goal') { const s = sideOf(ev.playerId); if (s > 0) this.otH++; else if (s < 0) this.otA++; }
+    else if (type === 'save' || type === 'tip' || type === 'punch' || type === 'claim') {
+      const k = sideOf(ev.playerId); if (k > 0) this.otA++; else if (k < 0) this.otH++;
+    }
+    // momentum impulse — favours the team named in the comment; skip if the side can't be resolved
+    const s = sideOf(ev.playerId);
+    const add = (sign: number, w: number): void => { if (sign !== 0) this.momentum += sign * w; };
+    switch (type) {
+      case 'goal':     add(s, 55); this.goalFlashUntil = performance.now() + 600; break;
+      case 'shot':     add(s, 10); break;                                  // shooter
+      case 'woodwork': add(s, 20); break;                                  // shooter (unlucky but dominant)
+      case 'save': case 'tip': case 'punch': case 'claim': add(s, 6); break; // s = keeper/defending side
+      case 'block':    add(s, 6); break;                                   // blocker (defending)
+      case 'penalty':  add(s, 20); break;                                  // taker/attacker
+      case 'nutmeg': case 'skill': case 'dragback': add(s, 4); break;      // attacker flair
+      case 'yellow':   add(-s, 7); break;                                  // toward the carded player's opponent
+      case 'red':      add(-s, 22); break;
+      case 'foul':     add(-s, 4); break;                                  // playerId = fouler → favour the fouled side
+      case 'offside':  add(-s, 5); break;                                  // against the offside attacker
+      default:         break;                                              // header/assist/sub/injury/advantage → neutral
+    }
+  }
+
+  // Per-frame momentum integration (decay + possession/territory pull + corner detection + ease).
+  // Impulses were already folded into `momentum` by accStatEvent during updateTicker.
+  private updateMomentum(state: EngineState): void {
+    if (this.homeAttacksX === null) {                 // derive attacking direction from the home keeper
+      const gk = state.players.find(p => p.team === 'home' && p.role === 'GK');
+      if (gk) this.homeAttacksX = gk.x < PITCH_W / 2 ? PITCH_W : 0;
+    }
+    const sp = state.setPieceState;                   // corners via set-piece transitions (clean)
+    const spType = sp ? (sp.reason ?? sp.type) : null;
+    if (spType === 'corner' && this.lastSetPieceType !== 'corner' && sp) {
+      if (sp.team === 'home') { this.corH++; this.momentum += 9; }
+      else if (sp.team === 'away') { this.corA++; this.momentum -= 9; }
+    }
+    this.lastSetPieceType = spType;
+    const dt = Math.max(0, Math.min(100, state.clockMs - this.momPrevClock));   // own dt source
+    this.momPrevClock = state.clockMs;
+    this.momentum *= Math.pow(0.5, dt / 9000);        // decay toward 0 (~9s half-life)
+    const poss = ((state.possessionPct ?? 50) - 50) / 50;                       // [-1,1], +home
+    this.ballXEma += 0.02 * (state.ball.x - this.ballXEma);
+    let terr = 0;
+    if (this.homeAttacksX !== null) {
+      const raw = Math.max(-1, Math.min(1, (this.ballXEma - PITCH_W / 2) / (PITCH_W / 2)));
+      terr = raw * (this.homeAttacksX === PITCH_W ? 1 : -1);                    // + = home's attacking half
+    }
+    const target = 100 * (0.6 * poss + 0.4 * terr);
+    this.momentum += 0.0008 * dt * (target - this.momentum);
+    this.momentum = Math.max(-100, Math.min(100, this.momentum));
+    this.displayMomentum += 0.15 * (this.momentum - this.displayMomentum);      // glide, not jitter
+  }
+
+  // Paint the stat grid (dirty-checked) + the momentum bar (width/flash only — no reflow).
+  private renderStatPanel(): void {
+    if (!this.statPanelEl) return;
+    const set = (key: string, el: HTMLSpanElement | null, txt: string): void => {
+      if (el && this.prevStatStr[key] !== txt) { el.textContent = txt; this.prevStatStr[key] = txt; }
+    };
+    set('ot', this.statCells.ot, `${this.otH}-${this.otA}`);
+    set('xg', this.statCells.xg, `${this.xgH.toFixed(1)}-${this.xgA.toFixed(1)}`);
+    set('big', this.statCells.big, `${this.bigH}-${this.bigA}`);
+    set('cor', this.statCells.cor, `${this.corH}-${this.corA}`);
+    const HALF = 105;                                  // panel inner width 210 → half 105
+    const m = Math.max(-100, Math.min(100, this.displayMomentum));
+    const w = Math.abs(m) / 100 * HALF;
+    if (this.statBarHome) this.statBarHome.style.width = `${m > 0 ? w : 0}px`;
+    if (this.statBarAway) this.statBarAway.style.width = `${m < 0 ? w : 0}px`;
+    if (this.statBarWrap) {
+      const flash = performance.now() < this.goalFlashUntil;
+      this.statBarWrap.style.height = flash ? '16px' : '12px';
+      this.statBarWrap.style.filter = flash ? 'brightness(1.7)' : 'none';
+    }
+  }
+
+  // Zero everything on a match restart / replay so a fresh match starts clean.
+  private resetMatchStats(clockMs: number): void {
+    this.otH = this.otA = this.xgH = this.xgA = this.bigH = this.bigA = this.corH = this.corA = 0;
+    this.momentum = 0; this.displayMomentum = 0; this.ballXEma = PITCH_W / 2;
+    this.momPrevClock = clockMs; this.homeAttacksX = null; this.goalFlashUntil = 0;
+    this.lastSetPieceType = null; this.prevStatStr = {};
   }
 
   private eventColor(type: string): number {
