@@ -45,6 +45,7 @@ export class MatchRenderer {
   private tickerEl: HTMLDivElement | null = null;
   private tickerLines: string[] = [];
   private seenEventKeys: Set<string> = new Set();
+  private lastGoalScorer = '';   // most recent goal-event scorer name — fed to the goal banner
   private bannerEl: HTMLDivElement | null = null;
   private bannerHideAt = 0;
   private panelEl: HTMLDivElement | null = null;
@@ -168,8 +169,8 @@ export class MatchRenderer {
       position: 'fixed', left: '14px', bottom: '14px', zIndex: '20',
       fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.55',
       color: '#e8edf2', background: 'rgba(8,12,20,0.72)', padding: '8px 12px',
-      borderRadius: '6px', pointerEvents: 'none', whiteSpace: 'pre',
-      minWidth: '210px', maxWidth: '340px',
+      borderRadius: '6px', pointerEvents: 'none', whiteSpace: 'pre-wrap',
+      minWidth: '210px', maxWidth: '360px',
     } as Partial<CSSStyleDeclaration>);
     this.tickerEl.textContent = '— match feed —';
     document.body.appendChild(this.tickerEl);
@@ -850,8 +851,7 @@ export class MatchRenderer {
     // goal banner on score change
     if (hs !== this.prevHomeScore || as !== this.prevAwayScore) {
       const homeScored = hs > this.prevHomeScore;
-      const scorerLine = this.tickerLines.find(l => l.includes('GOAL'));
-      const who = scorerLine ? scorerLine.split(/GOAL\s+/)[1] ?? '' : '';
+      const who = this.lastGoalScorer;   // set by updateTicker when it logs the goal event
       this.bannerEl.textContent = `GOAL!  ${who}\n${hn} ${hs} — ${as} ${an}`;
       this.bannerEl.style.whiteSpace = 'pre';
       this.bannerEl.style.color = homeScored ? '#ff8a8a' : '#9ecbff';
@@ -908,6 +908,7 @@ export class MatchRenderer {
       // match restarted
       this.tickerLines = [];
       this.seenEventKeys.clear();
+      this.lastGoalScorer = '';
     }
     this.lastClockMs = state.clockMs;
     const notable = new Set(['goal', 'shot', 'save', 'claim', 'tip', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork']);
@@ -921,7 +922,9 @@ export class MatchRenderer {
       const halfMs = half === 1 ? evClock : evClock - 45 * 60 * 1000;
       const minute = Math.max(0, Math.floor(halfMs / 60000)) + (half === 2 ? 45 : 0);
       const who = (ev.playerId != null ? this.playerById.get(ev.playerId) : undefined)?.name ?? '';
-      this.tickerLines.unshift(`${String(minute).padStart(2)}' ${this.eventLabel(ev.type).padEnd(8)} ${who}`);
+      const target = (ev.targetId != null ? this.playerById.get(ev.targetId) : undefined)?.name ?? '';
+      if (ev.type === 'goal') this.lastGoalScorer = who;   // banner reads this (no fragile line-parsing)
+      this.tickerLines.unshift(`${String(minute).padStart(2)}' ${this.commentary(ev.type, who, target)}`);
     }
     if (this.tickerLines.length > 5) this.tickerLines.length = 5;
     if (this.seenEventKeys.size > 400) this.seenEventKeys.clear();
@@ -966,6 +969,41 @@ export class MatchRenderer {
       case 'nutmeg': return 'NUTMEG!';
       case 'tip': return 'TIP OVER';
       default: return type.replace(/_/g, ' ').toUpperCase();
+    }
+  }
+
+  // Turn a raw event into a line of broadcast-style commentary for the feed.
+  // `who` is the actor; `target` the player acted upon (nutmeg victim, fouled man).
+  // A few high-frequency events rotate through phrasings (keyed on the match minute,
+  // so it's deterministic) so a run of saves/shots doesn't read identically.
+  private commentary(type: string, who: string, target: string): string {
+    const w = who || 'someone';
+    const pick = (arr: string[]): string => arr[Math.max(0, Math.floor(this.lastClockMs / 60000)) % arr.length];
+    switch (type) {
+      case 'goal':       return pick([`⚽ GOAL! ${w} buries it!`, `⚽ GOAL! ${w} finds the net!`, `⚽ GOAL!! ${w} scores!`]);
+      case 'shot':       return pick([`${w} has a crack`, `${w} lets fly`, `${w} tries his luck`]);
+      case 'save':       return pick([`🧤 SAVE! ${w} denies it`, `🧤 Big stop from ${w}`, `🧤 ${w} keeps it out!`]);
+      case 'tip':        return `🧤 ${w} tips it over the bar!`;
+      case 'claim':      return `🧤 ${w} claims it confidently`;
+      case 'punch':      return `🧤 ${w} punches clear`;
+      case 'header':     return `${w} gets his head on it`;
+      case 'nutmeg':     return target ? `😱 Nutmeg! ${w} slips it through ${target}` : `😱 Nutmeg by ${w}!`;
+      case 'dragback':   return `${w} with a slick drag-back`;
+      case 'skill':      return `${w} shows a bit of skill`;
+      case 'block':      return `🧱 Blocked! ${w} throws a body in the way`;
+      case 'tackle_won': return `${w} wins the tackle`;
+      case 'intercept':  return `${w} reads it — intercepted`;
+      case 'foul':       return target ? `Foul by ${w} on ${target}` : `Foul by ${w}`;
+      case 'yellow':     return `🟨 Booked — ${w}`;
+      case 'red':        return `🟥 RED CARD! ${w} is off!`;
+      case 'penalty':    return `❗ PENALTY!`;
+      case 'offside':    return `🚩 Offside against ${w}`;
+      case 'woodwork':   return `😬 Off the woodwork! ${w}`;
+      case 'sub':        return `🔁 Sub — ${w} comes on`;
+      case 'injury':     return `🤕 ${w} is down injured`;
+      case 'assist':     return `🅰 Assist — ${w}`;
+      case 'advantage':  return `Referee waves play on — advantage`;
+      default:           return `${this.eventLabel(type)} ${w}`.trim();
     }
   }
 
