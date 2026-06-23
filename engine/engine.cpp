@@ -941,6 +941,7 @@ std::string GameEngine::getJSON() const {
             {"diveAnim", std::round(p.diveAnim)},
             {"goals", pGoals[p.id]}, {"assists", pAssists[p.id]}, {"shots", pShots[p.id]},
             {"tackles", pTackles[p.id]}, {"yellow", yellowCards[p.id]},
+            {"passes", pPasses[p.id]}, {"passesCompleted", pPassesCompleted[p.id]},
             {"injured", p.injurySeverity > 0.05}, {"sentOff", p.sentOff}
         });
     }

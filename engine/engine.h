@@ -121,6 +121,8 @@ public:
     std::array<int, 22> pAssists = {};
     std::array<int, 22> pShots = {};
     std::array<int, 22> pTackles = {};
+    std::array<int, 22> pPasses = {};            // per-player pass attempts (match-rating input via --summary)
+    std::array<int, 22> pPassesCompleted = {};   // ...and completions (credited to pendingPass.fromId)
     // Assist chain: who last fed this slot a completed pass, and when.
     std::array<int, 22> lastReceiveFrom = {};
     std::array<double, 22> lastReceiveMs = {};

@@ -39,6 +39,7 @@ void GameEngine::emitEvent(const std::string& type,double x,double y,int playerI
 
 void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isThrough) {
     stats.recordPassAttempt();
+    if (from.id >= 0 && from.id < 22) pPasses[from.id]++;   // per-player rating input
     if(isThrough) stats.recordThroughBallAttempt();
     lastLooseOrigin = LooseOrigin::None;
     double speed=std::hypot(state.ball.vx,state.ball.vy);
@@ -128,6 +129,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         }
         if (receiver.team == pendingPass.team) {
             stats.recordPassComplete();
+            if (pendingPass.fromId >= 0 && pendingPass.fromId < 22) pPassesCompleted[pendingPass.fromId]++;
             if(receiver.id == pendingPass.toId) stats.recordPassIntendedReceived();
             else stats.recordPassWrongTeammate();
             stats.recordCrossComplete();
@@ -194,6 +196,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             lastReceiveMs[receiver.id]=state.clockMs;
         }
         stats.recordPassComplete();
+        if (pendingPass.fromId >= 0 && pendingPass.fromId < 22) pPassesCompleted[pendingPass.fromId]++;
         if(pendingPass.isThrough) stats.recordThroughBallComplete();
         if(receiver.id == pendingPass.toId) stats.recordPassIntendedReceived();
         else stats.recordPassWrongTeammate();
