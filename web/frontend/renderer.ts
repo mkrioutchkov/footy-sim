@@ -374,7 +374,8 @@ export class MatchRenderer {
         const arrow = new Graphics();
         const label = new Text({
           text: p.name.split('(')[1]?.replace(')', '') ?? p.name,
-          style: new TextStyle({ fill: 0xffffff, fontSize: 8, fontFamily: 'monospace' }),
+          // a thin dark outline so the name stays legible against the grass / mowing stripes
+          style: new TextStyle({ fill: 0xffffff, fontSize: 9, fontFamily: 'monospace', stroke: { color: 0x081019, width: 2.5 } }),
         });
         label.anchor.set(0.5, 0);
         this.playerLayer.addChild(body);
