@@ -247,7 +247,9 @@ export class MatchRenderer {
     const reserveTop = 8;
     const reserveBottom = this.reservedBottom;
     const sh = this.app.screen.height - reserveTop - reserveBottom;
-    this.scale = Math.min(sw / (PITCH_W + GOAL_DEPTH * 2), sh / (PITCH_H + 40)) * 0.92;
+    // clamp to a small positive min: on a very short viewport (tall panel) sh can go <=0, which would
+    // flip/vanish the pitch — keep it drawable.
+    this.scale = Math.max(0.05, Math.min(sw / (PITCH_W + GOAL_DEPTH * 2), sh / (PITCH_H + 40)) * 0.92);
     this.offsetX = (sw - PITCH_W * this.scale) / 2;
     this.offsetY = reserveTop + (sh - PITCH_H * this.scale) / 2 + 10;
     this.pitchContainer.scale.set(this.scale);

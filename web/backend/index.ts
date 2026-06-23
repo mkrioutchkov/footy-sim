@@ -656,6 +656,9 @@ app.post('/api/fixtures/:id/play', async (req: any, reply) => {
   if (!fx) return reply.code(404).send({ error: 'fixture not found' });
   const team = getTeamWithPlayers(teamId)!;
   if (fx.league_id !== team.leagueId) return reply.code(403).send({ error: 'not your league' });
+  // Ownership: only YOUR own fixtures can be played here (watching your next match records its result early).
+  // Spectating another club's game must NOT pre-play it out of order vs pendingMatchday — that's the advance's job.
+  if (fx.home_team_id !== teamId && fx.away_team_id !== teamId) return reply.code(403).send({ error: 'not your fixture' });
   const result = await playFixture(fx.id);
   return { result, standings: standings(team.leagueId) };
 });
