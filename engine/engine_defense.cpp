@@ -117,6 +117,10 @@ void GameEngine::applyDirectives() {
                 case DirectiveKind::PushUp:         dv.defensiveLineHeight+=30*k; dv.aggression+=10*k; break;
                 case DirectiveKind::OffsideTrap:    dv.defensiveLineHeight+=45*k; dv.aggression+=15*k; offsideTrapActive[d.teamScope]=true; break;
                 case DirectiveKind::SlowItDown:     dv.passingDirectness-=34*k; dv.aggression-=22*k; dv.overlapFrequency-=12*k; slowTempo[d.teamScope]+=k; break;
+                // tactical-depth (Gaylord seam): press_intensity 0-1 (0=contain/no-chase, 0.5=neutral,
+                // 1=high press) — exposes the aggression/chase knob as a slider + compresses the block
+                // up when pressing high. Generalizes high_press. (mentality / line_height to follow.)
+                case DirectiveKind::PressIntensity: { double s=(k-0.5)*2.0; dv.aggression+=s*38.0; dv.defensiveLineHeight+=s*16.0; } break;
                 default: break;
             }
             continue;

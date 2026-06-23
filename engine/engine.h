@@ -505,6 +505,8 @@ public:
         AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
         KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
         CounterAttack, OffsideTrap,
+        // ── tactical-depth continuous dials (team-wide; intensity is the slider 0-1, 0.5=neutral) ──
+        PressIntensity,
     };
     enum class CondScore : uint8_t { Any, Winning, Drawing, Losing };
     struct Directive {
