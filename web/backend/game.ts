@@ -422,7 +422,7 @@ export function needsPersonalities(teamId: number): boolean {
 }
 
 // Generate + persist a personality per player (one batched LLM call; neutral
-// defaults on failure so it never blocks). Idempotent-ish: regenerates all 11.
+// defaults on failure so it never blocks). Idempotent-ish: regenerates the whole squad.
 export async function assignPersonalities(teamId: number): Promise<void> {
   const rows = db.prepare('SELECT slot, name, role, attrs FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
     { slot: number; name: string; role: string; attrs: string }[];

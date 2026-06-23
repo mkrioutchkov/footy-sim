@@ -106,8 +106,10 @@ Trait meanings (0=low,100=high): temperament=fiery vs ice-cool; criticismRespons
 
 function buildPrompt(players: { name: string; role: string; attrs: Record<string, number> }[]): string {
   const ovr = (a: Record<string, number>) => Math.round(Object.values(a).reduce((s, v) => s + v, 0) / Math.max(1, Object.keys(a).length));
-  const lines = players.slice(0, 11).map((p, i) => `${i + 1}. ${p.name} — ${p.role}, OVR ${ovr(p.attrs)}`).join('\n');
-  return `Generate personalities for these ${Math.min(11, players.length)} players:\n${lines}`;
+  // The WHOLE squad, not just the XI — P1 seeds a 17-man squad, and the bench deserves real characters too
+  // (capping at 11 left slots 11+ on flavourless keyword-projected defaults forever).
+  const lines = players.map((p, i) => `${i + 1}. ${p.name} — ${p.role}, OVR ${ovr(p.attrs)}`).join('\n');
+  return `Generate personalities for these ${players.length} players:\n${lines}`;
 }
 
 function extractArray(content: string): unknown[] {
@@ -124,8 +126,10 @@ export async function generateSquadPersonalities(players: { name: string; role: 
   const fallback = () => players.map(p => defaultPersonality(p.name, p.role));
   if (!llmReady().ok || !players.length) return fallback();
   try {
-    // chatComplete handles the 429/5xx retry-once on the http path; needs ~2400 tokens for the batch.
-    const text = await chatComplete({ system: SYSTEM, user: buildPrompt(players), temperature: 0.9, maxTokens: 2400, timeoutMs: 25000 });
+    // chatComplete handles the 429/5xx retry-once on the http path. Size the budget to the squad (~230
+    // tokens/entry incl. backstory) so a 17-man batch isn't truncated mid-array — capped for sanity.
+    const maxTokens = Math.min(4096, Math.max(2400, players.length * 230));
+    const text = await chatComplete({ system: SYSTEM, user: buildPrompt(players), temperature: 0.9, maxTokens, timeoutMs: 25000 });
     const arr = extractArray(text);
     return players.map((p, i) => coerce(arr[i], p.name, p.role));
   } catch { return fallback(); }
