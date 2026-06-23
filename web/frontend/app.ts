@@ -612,6 +612,22 @@ async function screenDashboard() {
     if (fx) location.hash = `#/watch/${fx.id}`;
   });
 
+  // recent form (last 5 played in this division, oldest→newest) — computed from the fixtures already in
+  // the payload, so no extra request and no engine. W/D/L from the team's own result.
+  const FORM_DOT = (r: 'w' | 'd' | 'l') => h('span', {
+    title: r.toUpperCase(),
+    style: `display:inline-block;width:14px;height:14px;line-height:14px;text-align:center;font-size:9px;font-weight:700;border-radius:3px;color:#0b1018;`
+      + `background:${r === 'w' ? 'var(--accent)' : r === 'd' ? 'var(--muted)' : 'var(--danger)'}`,
+  }, r.toUpperCase());
+  const formCell = (teamId: number): HTMLElement => {
+    const res = league.fixtures
+      .filter(f => f.played && f.homeScore != null && f.awayScore != null && (f.homeTeamId === teamId || f.awayTeamId === teamId))
+      .sort((a, b) => a.round - b.round).slice(-5)
+      .map(f => { const gf = f.homeTeamId === teamId ? f.homeScore! : f.awayScore!; const ga = f.homeTeamId === teamId ? f.awayScore! : f.homeScore!; return gf > ga ? 'w' : gf < ga ? 'l' : 'd'; });
+    return h('td', { class: 'num' }, res.length
+      ? h('span', { style: 'display:inline-flex;gap:3px;justify-content:center' }, ...res.map(FORM_DOT))
+      : h('span', { class: 'muted' }, '—'));
+  };
   // standings table
   const tbody = h('tbody');
   league.standings.forEach((s, i) => {
@@ -623,13 +639,14 @@ async function screenDashboard() {
       h('td', { class: 'num' }, `${s.gf}:${s.ga}`),
       h('td', { class: 'num' }, (s.gd > 0 ? '+' : '') + s.gd),
       h('td', { class: 'num', style: 'font-weight:700' }, String(s.points)),
+      formCell(s.teamId),
     ));
   });
   const table = h('table', {},
     h('thead', {}, h('tr', {},
       h('th', { class: 'num' }, '#'), h('th', {}, 'Club'),
       h('th', { class: 'num' }, 'P'), h('th', { class: 'num' }, 'W'), h('th', { class: 'num' }, 'D'), h('th', { class: 'num' }, 'L'),
-      h('th', { class: 'num' }, 'GF:GA'), h('th', { class: 'num' }, 'GD'), h('th', { class: 'num' }, 'Pts'))),
+      h('th', { class: 'num' }, 'GF:GA'), h('th', { class: 'num' }, 'GD'), h('th', { class: 'num' }, 'Pts'), h('th', { class: 'num' }, 'Form'))),
     tbody);
 
   // my fixtures
