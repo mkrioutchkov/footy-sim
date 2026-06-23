@@ -976,6 +976,12 @@ async function screenWatch(fixtureId: number) {
   const myEpoch = watchEpoch;   // if another teardown/navigation bumps this during init, we bail below
   // Ensure the result is recorded (idempotent, deterministic, same as the stream).
   api.playFixture(fixtureId).catch(() => { /* may already be played */ });
+  // Felt-tactics overlay (BACKLOG2 #1): surface the ACTIVE composite plan persistently in the viewer, seeded
+  // from the team's standing plan so it's visible from kickoff (not just after a shout) — shouts update it live.
+  const myTeam = await api.team().catch(() => null);
+  if (myEpoch !== watchEpoch) return;   // navigated away during the fetch
+  if (myTeam) watchPlayers = myTeam.players.slice(0, 11).map((p, i) => ({ id: i, name: p.name }));
+  let activeDirectives: DirectiveT[] = (myTeam?.plan?.directives as DirectiveT[] | undefined) ?? [];
 
   root.replaceChildren();
   // Rewind to the start — only meaningful for a finished recording (revealed on the first
@@ -1012,9 +1018,11 @@ async function screenWatch(fixtureId: number) {
     const changed = (r.changed ?? '').trim();
     const motivation: MotivationReaction[] = Array.isArray(r.motivation) ? r.motivation : [];
     const dirs: DirectiveT[] = r.plan?.directives ?? r.directives ?? [];
-    // What this shout did.
+    // The persistent "Active tactics" strip owns the full directive list — update it from this shout's plan.
+    if (r.plan?.directives) { activeDirectives = r.plan.directives; renderActivePlan(); }
+    // The receipt now shows only what THIS shout DID (the live plan lives in the strip above).
     if (changed) receiptEl.appendChild(h('div', { class: 'ok' }, '✓ ' + changed));
-    // Motivational reactions (personality-driven morale swings).
+    // Motivational reactions (personality-driven morale swings) — the team responding to the shout.
     for (const m of motivation) {
       receiptEl.appendChild(h('div', { class: 'receipt-line ' + (m.moraleDelta > 0 ? 'up' : 'down') },
         `${m.moraleDelta > 0 ? '▲' : '▼'} ${pname(m.playerId)} ${m.moraleDelta > 0 ? '+' : ''}${m.moraleDelta} morale${m.reaction ? ` — “${m.reaction}”` : ''}`));
@@ -1022,16 +1030,26 @@ async function screenWatch(fixtureId: number) {
     // Manager-voice readback: the whole standing plan in prose (FM never narrates your tactic back).
     const summary = (r.plan?.summary ?? '').trim();
     if (summary) receiptEl.appendChild(h('div', { style: 'font-style:italic;color:var(--accent);margin:6px 0 2px;line-height:1.4' }, '“' + summary + '”'));
-    // The full standing composite plan (the machine breakdown under the prose).
-    if (dirs.length) {
-      receiptEl.appendChild(h('div', { class: 'muted', style: 'margin-top:6px' }, 'Standing plan:'));
-      for (const d of dirs) receiptEl.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
-    } else if (!motivation.length && !changed && !note && !r?.formation) {
+    if (!dirs.length && !motivation.length && !changed && !note && !r?.formation) {
       receiptEl.appendChild(h('div', { class: 'muted' }, "Couldn't read that as an order or a word to the players.")); return;
     }
     if (note) receiptEl.appendChild(h('div', { class: 'muted' }, '• ' + note));
   };
+  // The persistent ACTIVE-PLAN strip: what the team is doing right now (updates on shouts) + a live
+  // possession read so the tactic reads as a felt change, not an invisible directive.
+  const possEl = h('span', { class: 'muted', style: 'font-size:11px' });
+  const planEl = h('div', { class: 'tactics-receipt', style: 'border-bottom:1px solid var(--line);padding-bottom:7px;margin-bottom:7px;flex:0 0 auto;max-height:none' });
+  const renderActivePlan = () => {
+    planEl.replaceChildren(
+      h('div', { class: 'between', style: 'font-size:12px;margin-bottom:3px' },
+        h('span', { class: 'muted', style: 'text-transform:uppercase;letter-spacing:.4px' }, '📋 Active tactics'), possEl),
+      ...(activeDirectives.length
+        ? activeDirectives.map(d => h('div', { class: 'receipt-line', style: 'font-size:12px' }, '• ' + describeDirective(d)))
+        : [h('div', { class: 'muted', style: 'font-size:12px' }, 'No standing instructions — shout to set the plan.')]));
+  };
+  renderActivePlan();
   const panel = h('div', { class: 'tactics-panel' },
+    planEl,
     h('div', { class: 'tactics-row' }, ta, h('button', { class: 'primary small', onclick: applyPlan }, 'Apply')),
     receiptEl,
   );
@@ -1107,6 +1125,11 @@ async function screenWatch(fixtureId: number) {
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
       if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; }
+      // felt-tactics: live possession in the active-plan strip (YOUR share — flip it when you're the away side)
+      if (typeof msg.possessionPct === 'number' && myTeam && msg.homeName) {
+        const mine = msg.homeName === myTeam.name ? msg.possessionPct : 100 - msg.possessionPct;
+        possEl.textContent = `Possession ${Math.round(mine)}%`;
+      }
       // buffer live frames + arm the replay on a goal (a finished-recording replay has its own rewind/seek)
       if (!msg.replay && Array.isArray(msg.players)) {
         liveBuffer.push(msg);
