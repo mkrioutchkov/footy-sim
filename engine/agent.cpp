@@ -498,11 +498,11 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     bool ownDefensiveThird = (fdFor(p.team) > 0.0) ? p.x < PITCH_W / 3.0 : p.x > PITCH_W * 2.0 / 3.0;
     if (skillMoveCooldown == 0 && cp.nearestPlayer && nearbyOpps <= 2 && !ownDefensiveThird
         && cp.score > 0.72 && nearestOppDist > 18.0 && nearestOppDist < 58.0) {
-        double skillChance = 0.03 + attrFactor(p.attrs.creativity) * 0.14;
+        double skillChance = 0.022 + attrFactor(p.attrs.creativity) * 0.085;   // BORIS_WATCH: skillMoves ~194/match (~4x real) + ~54 nutmegs/90 read arcade-y — trim frequency
         // Take-ons live in the final third — that's where beating a man is
         // worth the risk.
         bool inFinalThirdAtk = (fdFor(p.team) > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
-        if (inFinalThirdAtk) skillChance *= 2.0;
+        if (inFinalThirdAtk) skillChance *= 1.6;
         if (engine.rng.random() < skillChance) {
             Player* def = cp.nearestPlayer;
             double fd = fdFor(p.team);
@@ -510,7 +510,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             double dd = std::max(1.0, std::hypot(ddx, ddy));
             bool defAhead = (ddx * fd) / dd > 0.55;
             const char* moveType;
-            if (defAhead && nearestOppDist < 34.0 && attrFactor(p.attrs.creativity) > 0.55) {
+            if (defAhead && nearestOppDist < 28.0 && attrFactor(p.attrs.creativity) > 0.80) {   // BORIS_WATCH: nutmeg only for the most creative at very close range (real nutmegs ~1-3/match)
                 // Nutmeg: straight through the squared-up defender's ground.
                 p.targetX = clamp(p.x + ddx / dd * (dd + 64.0), 30.0, PITCH_W - 30.0);
                 p.targetY = clamp(p.y + ddy / dd * (dd + 64.0), 30.0, PITCH_H - 30.0);
