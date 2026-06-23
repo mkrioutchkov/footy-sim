@@ -26,6 +26,24 @@ bool GameEngine::gkUnderPressure(const Player& gk, double radius) const {
     return false;
 }
 
+// USERWATCH B: real keepers vary distribution tempo by game state — rush when chasing or late,
+// hold when protecting a lead / seeing out time / unpressured. Returns the hold time before the
+// keeper distributes (replaces the old uniform GK_DISTRIBUTE_MS at the catch/claim sites).
+double GameEngine::gkDistributeMs(const Player& gk) const {
+    double mul = 1.0;
+    int diff = (gk.team == Team::Home) ? state.homeScore - state.awayScore
+                                       : state.awayScore - state.homeScore;
+    int minute = static_cast<int>(state.clockMs / 60000.0);
+    if (diff > 0)      mul += 0.40;   // leading: slow it down, manage the game
+    else if (diff < 0) mul -= 0.30;   // chasing: get it back in play quickly
+    if (minute >= 70) {               // late: amplify the game-state intent
+        if (diff > 0)      mul += 0.45;   // protecting a lead late: take your time
+        else if (diff < 0) mul -= 0.30;   // chasing late: hurry
+    }
+    if (gkUnderPressure(gk, 95.0)) mul -= 0.40;   // a forward closing in: release quicker
+    return clamp(GK_DISTRIBUTE_MS * mul, GK_DISTRIBUTE_MS * 0.45, GK_DISTRIBUTE_MS * 2.1);
+}
+
 void GameEngine::updateOneGK(Player& gk, double secs) {
     // Mid-save: dive at the predicted intercept point, nothing else matters.
     if (pendingSave.active && pendingSave.gkId == gk.id) {
@@ -346,7 +364,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
         b.intendedReceiverId = -1;
         blockReboundFor(shooterId, 250);
         b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
-        goalKickMonitor.distributeTimer = GK_DISTRIBUTE_MS;
+        goalKickMonitor.distributeTimer = gkDistributeMs(gk);
         lastLooseOrigin = LooseOrigin::GoalkeeperCatch;
         recordBallImpulse();
         return;
@@ -442,7 +460,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
         b.controllerId = gk.id;
         b.intendedReceiverId = -1;
         b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
-        goalKickMonitor.distributeTimer = GK_DISTRIBUTE_MS;
+        goalKickMonitor.distributeTimer = gkDistributeMs(gk);
         lastLooseOrigin = LooseOrigin::GoalkeeperClaim;
         stats.recordClaimCatch();
         emitEvent("claim", gk.x, gk.y, gk.id);

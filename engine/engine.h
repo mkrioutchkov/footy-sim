@@ -196,6 +196,10 @@ public:
     // Keeper claims an aerial cross in his box: catch / punch / tip-for-corner,
     // keyed on handling. claimD is the slant distance (incl. z) at commit.
     void resolveCrossClaim(Player& gk, double claimD);
+    // USERWATCH B: situational keeper distribution tempo — the hold time before the keeper
+    // releases, keyed on score + clock + pressure (rush chasing/late, hold leading/seeing-out/
+    // unpressured) instead of the old uniform GK_DISTRIBUTE_MS.
+    double gkDistributeMs(const Player& gk) const;
 
     // Goal-kick distribution window: the active goal-kick + a release/timeout timer.
     struct GKMonitor {
