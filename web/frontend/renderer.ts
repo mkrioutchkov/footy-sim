@@ -745,6 +745,11 @@ export class MatchRenderer {
     const hudW = this.hudText.width;
     this.hudBg.roundRect(this.hudText.position.x - hudW / 2 - 14, this.hudText.position.y - 4, hudW + 28, this.hudText.height + 10, 8);
     this.hudBg.fill({ color: 0x0a0f17, alpha: 0.78 });
+    // possession bar — a thin top-edge strip splitting home (left) vs away (right) by possession share
+    const sw = this.app.screen.width;
+    const homeW = Math.max(0, Math.min(1, (state.possessionPct ?? 50) / 100)) * sw;
+    this.hudBg.rect(0, 0, homeW, 5); this.hudBg.fill({ color: HOME_COLOR, alpha: 0.92 });
+    this.hudBg.rect(homeW, 0, sw - homeW, 5); this.hudBg.fill({ color: AWAY_COLOR, alpha: 0.92 });
 
     this.updateTicker(state);
     this.updateMoments(state);
