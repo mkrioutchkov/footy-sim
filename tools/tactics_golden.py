@@ -20,10 +20,17 @@ def summary_for(seed):
     base.pop("directives", None); base.pop("timeline", None)   # DEFAULT match: no tactics
     fp = os.path.join(ROOT, f"_golden_{seed}.json")
     json.dump(base, open(fp, "w"))
-    out = subprocess.run([ENGINE, "--match", fp, "--summary", "--no-debug"],
-                         capture_output=True, text=True, timeout=180).stdout
+    line = None
+    for _attempt in range(3):   # retry: a stray live.exe lock can leave a run with no summary line
+        out = subprocess.run([ENGINE, "--match", fp, "--summary", "--no-debug"],
+                             capture_output=True, text=True, timeout=180).stdout
+        cand = [l for l in out.splitlines() if l.strip().startswith("{")]
+        if cand:
+            line = cand[-1]; break
     os.remove(fp)
-    line = [l for l in out.splitlines() if l.strip().startswith("{")][-1]
+    if line is None:
+        raise RuntimeError(f"live.exe produced no summary for seed {seed} after 3 tries "
+                           "(stray live.exe lock? taskkill live.exe and retry)")
     d = json.loads(line)
     d.pop("version", None)   # version is a cosmetic git-hash field — ignore
     return hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest()[:16], d
