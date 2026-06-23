@@ -91,6 +91,11 @@ export interface TimelineEventT { minute: number; team: 'home' | 'away'; name: s
 export interface MatchFactsT { homeScore: number; awayScore: number; possessionHome: number; shots: { home: number; away: number }; shotsOnTarget: number; saves: number; corners: number; timeline: TimelineEventT[]; ratings: PlayerRatingT[]; }
 export interface ReportT { homeName: string; awayName: string; headline: string; body: string; facts: MatchFactsT; ratings: PlayerRatingT[]; }
 
+// The persisted shout review for a watched match (GET /api/tactics) — empty `shouts` if the match
+// was watched without shouting (or never live-watched). side/scores omitted when there's no log.
+export interface ShoutReviewT { minute: number; text: string; directives: number; formationChange: boolean; morale: number; }
+export interface TacticsReviewT { side?: 'home' | 'away'; scores?: { home: number; away: number }; shouts: ShoutReviewT[]; }
+
 export interface NewsItemT { player: string; type: 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury' | 'pots' | 'young_pots'; headline: string; season: number; slot: number; }
 
 export interface ScoutAttrT { key: string; lo: number; hi: number; }
@@ -203,6 +208,7 @@ export const api = {
   matchContractOffer: (id: number) => req<{ ok: boolean; player?: string; wage?: number; years?: number; offers: ContractOfferT[] }>('POST', `/contract-offer/${id}/match`),
   withdrawContractOffer: (id: number) => req<{ ok: boolean; offers: ContractOfferT[] }>('POST', `/contract-offer/${id}/withdraw`),
   report: (fixtureId: number) => req<ReportT>('GET', `/report?fixture=${fixtureId}`),
+  tactics: (fixtureId: number) => req<TacticsReviewT>('GET', `/tactics?fixture=${fixtureId}`),
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: (limit?: number) => req<{ news: NewsItemT[] }>('GET', limit ? `/news?limit=${limit}` : '/news'),
   history: () => req<{ history: SeasonHistoryT[]; records: ClubRecordsT }>('GET', '/history'),

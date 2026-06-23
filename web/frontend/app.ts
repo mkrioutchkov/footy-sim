@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -1815,18 +1815,42 @@ async function screenCup() {
 
 // ── router ──
 // ── post-match report + player ratings (generated from the recording) ──
+// The persisted shout log for a watched match — minute · what you said · what it changed.
+// Independent of the frame recording (a shout-driven match may have no replay), so it can ride
+// either the full report or the "no recording" fallback. '' when there were no shouts.
+function shoutReviewCard(tac: TacticsReviewT): HTMLElement | string {
+  if (!tac.shouts.length) return '';
+  const changed = (s: ShoutReviewT): string => {
+    const bits = [`${s.directives} instruction${s.directives === 1 ? '' : 's'}`];
+    if (s.formationChange) bits.push('formation change');
+    if (s.morale) bits.push(`${s.morale} player${s.morale === 1 ? '' : 's'} rallied`);
+    return bits.join(' · ');
+  };
+  return h('div', { class: 'card', style: 'margin-top:10px' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, '📣 Your shouts this match'),
+    ...tac.shouts.map(s => h('div', { style: 'padding:5px 0;border-top:1px solid var(--line)' },
+      h('div', { style: 'font-size:13px' }, h('span', { class: 'muted', style: 'font-variant-numeric:tabular-nums' }, `${s.minute}' `), `“${s.text}”`),
+      h('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' }, changed(s)))));
+}
+
 async function screenReport(fixtureId: number) {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Reading the match…')));
+  // The shout review is independent of the frame recording — fetch it alongside, and show it even
+  // when the match wasn't recorded (a shout-driven watch leaves a tactics log but maybe no replay).
+  const tacP = api.tactics(fixtureId).catch((): TacticsReviewT => ({ shouts: [] }));
   let rep: ReportT;
   try { rep = await api.report(fixtureId); }
   catch (e: any) {
+    const tac = await tacP;
     const msg = String(e.message).includes('no recording')
       ? "No report yet — this match wasn't recorded (play or watch it first)."
       : e.message;
     return mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' }, h('h2', {}, 'Match report'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
-      h('div', { class: 'card muted' }, msg)));
+      h('div', { class: 'card muted' }, msg),
+      shoutReviewCard(tac)));
   }
+  const tac = await tacP;
 
   const icon = (t: string) => t === 'goal' ? '⚽' : t === 'red' ? '🟥' : '🟨';
   const timeline = rep.facts.timeline.length
@@ -1859,6 +1883,7 @@ async function screenReport(fixtureId: number) {
     h('div', { class: 'card', style: 'margin-top:10px' },
       h('div', { class: 'section-title', style: 'margin-top:0' }, 'Player ratings'),
       h('div', { style: 'display:flex;gap:24px;flex-wrap:wrap' }, ratingsCol('home', rep.homeName), ratingsCol('away', rep.awayName))),
+    shoutReviewCard(tac),
   ));
 }
 
