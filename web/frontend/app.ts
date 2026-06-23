@@ -2128,12 +2128,45 @@ async function screenSquad() {
       return h('div', { class: 'card' }, head, h('div', { class: 'grid', style: 'gap:6px;margin-top:8px' }, ...rows));
     })();
 
+    // Match-condition panel: a visual per-player STAMINA BAR (user ask) — most tired/injured first, so the
+    // players who need resting surface at the top. Complements the Fit column + the 🩺 rotation card below.
+    const conditionCard = (() => {
+      const condCol = (p: PlayerT) => {
+        if ((p.injuredMatches ?? 0) > 0) return 'var(--danger)';
+        const band = rotMap.get(p.slot)?.band;
+        if (band && BAND_COLOR[band]) return BAND_COLOR[band];
+        const f = p.fitness ?? 100;
+        return f < 50 ? 'var(--danger)' : f < 75 ? '#ffb84d' : f < 90 ? '#7fb2ff' : 'var(--accent)';
+      };
+      const fitVal = (p: PlayerT) => (p.injuredMatches ?? 0) > 0 ? -1 : (p.fitness ?? 100);
+      const ranked = [...players].sort((a, b) => fitVal(a) - fitVal(b));   // most tired/injured first
+      const bar = (p: PlayerT) => {
+        const inj = (p.injuredMatches ?? 0) > 0;
+        const fit = Math.max(0, Math.min(100, p.fitness ?? 100));
+        const col = condCol(p);
+        const r = rotMap.get(p.slot);
+        const risk = r && r.starter && (r.band === 'tired' || r.band === 'exhausted') ? ` ⚠${Math.round(r.risk * 100)}%` : '';
+        return h('div', { class: 'between', style: 'gap:10px;font-size:12px;padding:3px 0;align-items:center' },
+          h('span', { style: 'width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0' },
+            h('span', { style: 'opacity:.45;margin-right:3px' }, p.slot < 11 ? '●' : '○'), p.name,
+            h('span', { class: 'muted', style: 'margin-left:5px;font-size:10px' }, p.role)),
+          h('div', { style: 'flex:1;height:9px;background:var(--panel2,#161f30);border-radius:5px;overflow:hidden' },
+            h('div', { style: `height:100%;width:${inj ? 100 : fit}%;background:${col}${inj ? ';background-image:repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(0,0,0,.3) 3px,rgba(0,0,0,.3) 6px)' : ''}` })),
+          h('span', { class: 'num', style: `width:62px;text-align:right;color:${col}` }, inj ? `🤕${p.injuredMatches}` : `${fit}%`),
+          h('span', { class: 'muted', style: 'width:34px;font-size:10px;color:#ffb84d' }, risk));
+      };
+      return h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, '🔋 Match condition'),
+        h('div', { class: 'muted', style: 'font-size:11px;margin-bottom:6px' }, 'Per-player stamina — most tired first. A tired ⚠ or injured 🤕 starter risks an injury; rotate from the panel below.'),
+        h('div', { style: 'max-height:430px;overflow:auto' }, ...ranked.map(bar)));
+    })();
+
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain (click the armband to set — a strong leader steadies squad morale) · click a header to sort`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
       h('div', { class: 'card scroll-x' }, h('table', {}, thead, tbody)),
-      rotationCard,
+      h('div', { class: 'grid cols-2', style: 'align-items:start' }, conditionCard, rotationCard || h('div')),
       h('div', { class: 'grid cols-2', style: 'align-items:start' },
         h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Depth by position'), depth),
         h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Compare two players'),
