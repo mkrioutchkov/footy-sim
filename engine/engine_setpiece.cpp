@@ -428,6 +428,27 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
 void GameEngine::releaseThrowIn(Player& holder){
     SmallVector<RatedTarget, 11> targets;
     double fd = fdFor(holder.team);
+    // USERWATCH C: a designated LONG-THROW taker in the attacking half hurls it INTO the box
+    // (a flat, fast aerial delivery like a corner) instead of a short throw — the big-throw weapon.
+    // Opt-in via the long_throw_taker directive => default teams (no taker) keep short throws => golden unchanged.
+    bool attackingHalf = (fd > 0.0) ? holder.x > PITCH_W * 0.5 : holder.x < PITCH_W * 0.5;
+    if (attackingHalf && holder.id == designatedTakerFor(SetPiece::ThrowIn, holder.team)) {
+        double oppGoalX = goalXFor(holder.team);
+        double targetX = oppGoalX - fd * 95.0;                                       // ~the 6-yard area
+        double targetY = PITCH_H / 2.0 + (holder.y < PITCH_H / 2.0 ? -55.0 : 55.0);  // near post, throw side
+        double dx = targetX - holder.x, dy = targetY - holder.y, d = std::max(1.0, std::hypot(dx, dy));
+        auto& b = state.ball;
+        b.controllerId = -1;
+        placeBallForRelease(holder, dx, dy);
+        blockReboundFor(holder.id, 600);
+        b.lastTouchTeam = holder.team; b.lastToucherId = holder.id;
+        double speed = clamp(160.0 + d * 0.15, 160.0, 290.0);                        // a powerful long throw
+        b.vx = dx / d * speed; b.vy = dy / d * speed; b.vz = speed * 0.9; b.z = 0;    // flat-fast aerial into the box
+        b.intendedReceiverId = -1;
+        receiverShieldTargetId = -1;
+        pendingPass.active = false;
+        return;
+    }
     for(auto&p:state.players){
         if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
         double d=dist(holder.x,holder.y,p.x,p.y);
