@@ -106,9 +106,14 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
             double goalDist = std::abs(bx - ownGoalX);
             if (goalDist < 250.0) {
                 if (isFullBack()) {
-                    double wallY = lerp(by, PITCH_H / 2.0, 0.65) + (p.homeY < PITCH_H / 2.0 ? -18.0 : 18.0);
-                    p.targetX = bx + fd * 32.0;
-                    p.targetY = wallY;
+                    // Proper defensive wall: stand on the ball->goal line at the legal ~9.15m (91px),
+                    // not the old ~3.2m token gap. The two full-backs form a 2-man wall covering the
+                    // near-post angle; the FK shot already accounts for them via laneBlockers.
+                    double wdx = ownGoalX - bx, wdy = PITCH_H / 2.0 - by, wlen = std::max(1.0, std::hypot(wdx, wdy));
+                    wdx /= wlen; wdy /= wlen;
+                    double off = (p.homeY < PITCH_H / 2.0) ? -20.0 : 20.0;
+                    p.targetX = bx + wdx * 91.0 + (-wdy) * off;
+                    p.targetY = by + wdy * 91.0 + ( wdx) * off;
                 } else if (isCenterBack()) {
                     p.targetX = ownGoalX + fd * 72.0;
                     p.targetY = PITCH_H / 2.0 + (p.id % 2 == 0 ? -46.0 : 46.0);
