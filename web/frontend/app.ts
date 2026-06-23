@@ -866,9 +866,11 @@ let watchBar: HTMLElement | null = null;
 let watchPanel: HTMLElement | null = null;
 let watchStatus: HTMLElement | null = null;   // connecting / connection-lost overlay
 let watchPanelObs: ResizeObserver | null = null;   // keeps the pitch sized to the space the panel leaves
+let activeReplayTimer: ReturnType<typeof setInterval> | null = null;   // live goal-replay playback loop
 let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
 function teardownWatch() {
   watchEpoch++;
+  if (activeReplayTimer) { clearInterval(activeReplayTimer); activeReplayTimer = null; }
   try { watchPanelObs?.disconnect(); } catch { /* */ } watchPanelObs = null;
   try { activeWs?.close(); } catch { /* */ } activeWs = null;
   try { activeRenderer?.destroy(); } catch { /* */ } activeRenderer = null;
@@ -935,12 +937,15 @@ async function screenWatch(fixtureId: number) {
   // Rewind to the start — only meaningful for a finished recording (revealed on the first
   // replay frame), since a live re-sim can't seek backwards.
   const rewindBtn = h('button', { class: 'ghost small', style: 'display:none', onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: 0 })) }, '⏮ Rewind');
+  // ⚽ Replay — appears after the first live goal; plays back the buffered run-up (instant action replay).
+  const replayBtn = h('button', { class: 'primary small', style: 'display:none', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 4 })) }, '4×'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 1 })) }, '1×'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'pause' })) }, 'Pause'),
     rewindBtn,
+    replayBtn,
   );
   document.body.appendChild(bar);
   watchBar = bar;
@@ -1025,6 +1030,31 @@ async function screenWatch(fixtureId: number) {
   activeWs = ws;
   let replayUiApplied = false;
   let gotFrame = false;
+  // ── live goal replay: buffer recent frames; on a goal, snapshot the run-up + offer an instant replay ──
+  const GOAL_CLIP = 130;                       // frames of run-up to keep (~several seconds before the goal)
+  const liveBuffer: WatchMessage[] = [];
+  let goalClip: WatchMessage[] | null = null;
+  let replaying = false;
+  const playClip = () => {
+    if (replaying || !goalClip || !goalClip.length || !activeRenderer) return;
+    replaying = true;
+    replayBtn.disabled = true; replayBtn.textContent = '⏵ Replaying…';
+    const clip = goalClip;
+    let i = 0;
+    if (activeReplayTimer) clearInterval(activeReplayTimer);
+    activeReplayTimer = setInterval(() => {
+      if (!activeRenderer || i >= clip.length) {                                    // clip done (or torn down)
+        if (activeReplayTimer) { clearInterval(activeReplayTimer); activeReplayTimer = null; }
+        replaying = false;
+        replayBtn.disabled = false; replayBtn.textContent = '⚽ Replay goal';
+        if (activeRenderer && liveBuffer.length) activeRenderer.sync(liveBuffer[liveBuffer.length - 1]);   // snap back to live
+        return;
+      }
+      activeRenderer.sync(clip[i]);   // the score/clock rewinds through the clip, then snaps forward to live
+      i++;
+    }, 45);
+  };
+  replayBtn.addEventListener('click', playClip);
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data) as WatchMessage;
@@ -1033,6 +1063,13 @@ async function screenWatch(fixtureId: number) {
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
       if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; }
+      // buffer live frames + arm the replay on a goal (a finished-recording replay has its own rewind/seek)
+      if (!msg.replay && Array.isArray(msg.players)) {
+        liveBuffer.push(msg);
+        if (liveBuffer.length > GOAL_CLIP + 40) liveBuffer.shift();
+        if (msg.events && msg.events.some(e => e.type === 'goal')) { goalClip = liveBuffer.slice(-GOAL_CLIP); replayBtn.style.display = ''; }
+      }
+      if (replaying) return;   // the clip is driving the renderer — keep buffering live frames but don't draw them
       renderer.sync(msg);
     } catch { /* */ }
   };
