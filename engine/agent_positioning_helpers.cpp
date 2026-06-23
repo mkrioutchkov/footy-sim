@@ -341,6 +341,23 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
             c.push_back({ p.homeX + pc.fd * 120.0 + pc.pushUp, clamp(wmHomeY, 40.0, PITCH_H - 40.0), ActionPurpose::Space });
             c.push_back({ clamp(p.homeX + pc.fd * 185.0 + pc.pushUp, 60.0, PITCH_W - 60.0), clamp(wmHomeY, 40.0, PITCH_H - 40.0), ActionPurpose::Overlap });
         }
+        // #2 penetration (overlap-run): in SETTLED final-third possession the FB pushes
+        // proactively to the byline to join the attack — not only when a teammate carries
+        // right alongside (the situational candidates above). Gated on an OPEN destination
+        // so a turnover doesn't strand the FB. Post-#35 (realistic attrs) the extra close
+        // chances this manufactures no longer re-inflate goals (that was why it was parked).
+        if (pc.ballAdvance > 0.55) {
+            double flankY = (p.homeY < PITCH_H / 2.0) ? 42.0 : PITCH_H - 42.0;
+            double bylineX = clampRange(goalXFor(p.team) - pc.fd * 120.0,
+                                        p.homeX + pc.fd * 110.0, goalXFor(p.team) - pc.fd * 55.0);
+            bool destOpen = true;
+            for (auto& o : engine.state.players) {
+                if (o.team == p.team || o.role == Role::GK) continue;
+                if (std::abs(o.x - bylineX) < 90.0 && std::abs(o.y - flankY) < 70.0) { destOpen = false; break; }
+            }
+            if (destOpen)
+                c.push_back({ bylineX, clamp(flankY, 40.0, PITCH_H - 40.0), ActionPurpose::Overlap });
+        }
     }
 
     // CF defender line
