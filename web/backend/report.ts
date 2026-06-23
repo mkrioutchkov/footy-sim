@@ -6,10 +6,7 @@
 // engine run — this works purely off a recording, so it's fully testable with synthetic frames.
 import { db } from './db.ts';
 import { recordingFor, loadRecording, type RecKind } from './match.ts';
-
-const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
-const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
-const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
+import { chatComplete, llmReady } from './llm.ts';
 
 export interface PlayerRating { id: number; name: string; team: 'home' | 'away'; role: string; rating: number; goals: number; assists: number; shots: number; tackles: number }
 export interface TimelineEvent { minute: number; team: 'home' | 'away'; name: string; type: 'goal' | 'yellow' | 'red' }
@@ -139,7 +136,7 @@ function templateReport(facts: MatchFacts, homeName: string, awayName: string): 
 // so it must not be able to contradict the recording. The LLM supplies only the prose body.
 async function writeNarrative(facts: MatchFacts, homeName: string, awayName: string): Promise<{ headline: string; body: string }> {
   const fallback = templateReport(facts, homeName, awayName);
-  if (!KEY) return fallback;
+  if (!llmReady().ok) return fallback;
   const standouts = [...facts.ratings].sort((x, y) => y.rating - x.rating).slice(0, 4)
     .map(r => `${r.name} (${r.team}, ${r.role}) ${r.rating.toFixed(1)}${r.goals ? `, ${r.goals}g` : ''}${r.assists ? `, ${r.assists}a` : ''}`).join('; ');
   const factText = [
@@ -150,27 +147,18 @@ async function writeNarrative(facts: MatchFacts, homeName: string, awayName: str
     `Top performers: ${standouts}`,
   ].filter(Boolean).join('\n');
   try {
-    const res = await fetch(`${BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, temperature: 0.6, max_tokens: 500, messages: [
-        { role: 'system', content: 'You are a football match reporter. From the facts, write a vivid but accurate 2–3 short-paragraph match report. Use ONLY the facts given — do not invent scorers, minutes, or events. Output ONLY JSON: {"body": "..."} — just the report prose.' },
-        { role: 'user', content: factText },
-      ] }),
-      signal: AbortSignal.timeout(20000),
-    });
-    if (res.ok) {
-      const j = await res.json() as { choices?: { message?: { content?: string } }[] };
-      const raw = (j.choices?.[0]?.message?.content ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-      const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
-      if (s >= 0 && e > s) {
-        const obj = JSON.parse(raw.slice(s, e + 1)) as { body?: unknown };
-        const body = typeof obj.body === 'string' && obj.body.trim() ? obj.body.trim() : fallback.body;
-        // Headline is ALWAYS the deterministic scoreline — the LLM only writes the body.
-        return { headline: fallback.headline, body };
-      }
+    const raw = (await chatComplete({
+      system: 'You are a football match reporter. From the facts, write a vivid but accurate 2–3 short-paragraph match report. Use ONLY the facts given — do not invent scorers, minutes, or events. Output ONLY JSON: {"body": "..."} — just the report prose.',
+      user: factText, temperature: 0.6, maxTokens: 500, timeoutMs: 20000,
+    })).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const s = raw.indexOf('{'), e = raw.lastIndexOf('}');
+    if (s >= 0 && e > s) {
+      const obj = JSON.parse(raw.slice(s, e + 1)) as { body?: unknown };
+      const body = typeof obj.body === 'string' && obj.body.trim() ? obj.body.trim() : fallback.body;
+      // Headline is ALWAYS the deterministic scoreline — the LLM only writes the body.
+      return { headline: fallback.headline, body };
     }
-  } catch { /* fall through to the template */ }
+  } catch { /* unreachable / no-key / bad output — fall through to the template */ }
   return fallback;
 }
 

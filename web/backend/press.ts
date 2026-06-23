@@ -4,10 +4,7 @@
 // hot-headed one wilts. LLM-primary (same provider as personality.ts/tactics.ts) with a
 // deterministic keyword fallback, so it never blocks. Reads the dials (the text↔dial coupling).
 import { db } from './db.ts';
-
-const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
-const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
-const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
+import { chatComplete, llmReady } from './llm.ts';
 
 interface Dials { criticismResponse: number; praiseResponse: number; ego: number; temperament: number }
 interface SquadMember { slot: number; name: string; traits: Dials }
@@ -45,32 +42,24 @@ const SYSTEM = `You judge how a football manager's press-conference statement la
 export async function judgePressConference(text: string, squad: SquadMember[]): Promise<PressReaction[]> {
   const tone = toneOf(text);
   const fallback = () => squad.map(m => ({ slot: m.slot, name: m.name, delta: deterministicDelta(tone, m.traits) }));
-  if (!KEY || !text.trim() || !squad.length) return fallback();
+  if (!llmReady().ok || !text.trim() || !squad.length) return fallback();
   try {
     const lines = squad.map((m, i) => `${i + 1}. ${m.name} — praiseResponse ${m.traits.praiseResponse}, criticismResponse ${m.traits.criticismResponse}, ego ${m.traits.ego}, temperament ${m.traits.temperament}`).join('\n');
-    const res = await fetch(`${BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, temperature: 0.4, max_tokens: 1600, messages: [
-        { role: 'system', content: SYSTEM },
-        { role: 'user', content: `Statement: "${text}"\n\nPlayers:\n${lines}` },
-      ] }),
-      signal: AbortSignal.timeout(20000),
+    const arr = extractArray(await chatComplete({
+      system: SYSTEM,
+      user: `Statement: "${text}"\n\nPlayers:\n${lines}`,
+      temperature: 0.4, maxTokens: 1600, timeoutMs: 20000,
+    }));
+    if (arr.length) return squad.map((m, i) => {
+      const obj = arr[i] as { delta?: unknown; quote?: unknown } | undefined;
+      const raw = obj?.delta;
+      // accept only a real number or a non-empty numeric string; null/""/[]/false etc. fall
+      // back to the deterministic per-player delta (unary + coerces those to a finite 0).
+      const n = typeof raw === 'number' ? raw : (typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN);
+      const quote = typeof obj?.quote === 'string' && obj.quote.trim() ? obj.quote.trim().slice(0, 140) : undefined;
+      return { slot: m.slot, name: m.name, delta: Number.isFinite(n) ? clampDelta(n) : deterministicDelta(tone, m.traits), quote };
     });
-    if (res.ok) {
-      const j = await res.json() as { choices?: { message?: { content?: string } }[] };
-      const arr = extractArray(j.choices?.[0]?.message?.content ?? '');
-      if (arr.length) return squad.map((m, i) => {
-        const obj = arr[i] as { delta?: unknown; quote?: unknown } | undefined;
-        const raw = obj?.delta;
-        // accept only a real number or a non-empty numeric string; null/""/[]/false etc. fall
-        // back to the deterministic per-player delta (unary + coerces those to a finite 0).
-        const n = typeof raw === 'number' ? raw : (typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN);
-        const quote = typeof obj?.quote === 'string' && obj.quote.trim() ? obj.quote.trim().slice(0, 140) : undefined;
-        return { slot: m.slot, name: m.name, delta: Number.isFinite(n) ? clampDelta(n) : deterministicDelta(tone, m.traits), quote };
-      });
-    }
-  } catch { /* fall through */ }
+  } catch { /* unreachable / no-key / bad output — fall through */ }
   return fallback();
 }
 

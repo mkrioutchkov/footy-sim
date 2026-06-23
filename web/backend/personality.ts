@@ -5,9 +5,6 @@
 // The motivation loop (shout -> morale via these traits) is a later, separate step.
 import { chatComplete, llmReady } from './llm.ts';
 
-const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
-const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
-const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
 const cap = (s: string, n = 380): string => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
 
 export interface Traits {
@@ -74,24 +71,17 @@ Meanings (0=low,100=high): temperament=fiery vs ice-cool; criticismResponse=HIGH
 // LLM primary, deterministic keyword projection as the always-available fallback.
 export async function deriveTraits(name: string, role: string, backstory: string, tagline: string): Promise<Traits> {
   const fallback = () => deriveTraitsFromText(backstory, tagline, role);
-  if (!KEY || !backstory.trim()) return fallback();
+  if (!llmReady().ok || !backstory.trim()) return fallback();
   try {
-    const res = await fetch(`${BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, temperature: 0.3, max_tokens: 300, messages: [
-        { role: 'system', content: DERIVE_SYSTEM },
-        { role: 'user', content: `${name} — ${role}.\nBackstory: ${backstory}\nTagline: ${tagline}` },
-      ] }),
-      signal: AbortSignal.timeout(20000),
+    const text = await chatComplete({
+      system: DERIVE_SYSTEM,
+      user: `${name} — ${role}.\nBackstory: ${backstory}\nTagline: ${tagline}`,
+      temperature: 0.3, maxTokens: 300, timeoutMs: 20000,
     });
-    if (res.ok) {
-      const j = await res.json() as { choices?: { message?: { content?: string } }[] };
-      const o = extractObject(j.choices?.[0]?.message?.content ?? '');
-      const t = (o?.traits ?? o) as Record<string, unknown> | null;
-      if (t) { const out = {} as Traits; for (const k of TRAIT_KEYS) out[k] = clamp(t[k]); return out; }
-    }
-  } catch { /* fall through */ }
+    const o = extractObject(text);
+    const t = (o?.traits ?? o) as Record<string, unknown> | null;
+    if (t) { const out = {} as Traits; for (const k of TRAIT_KEYS) out[k] = clamp(t[k]); return out; }
+  } catch { /* unreachable / no-key / bad output — fall through */ }
   return fallback();
 }
 
@@ -132,31 +122,13 @@ function extractArray(content: string): unknown[] {
 // players.length entries — any the model omits or mangles fall back to neutral.
 export async function generateSquadPersonalities(players: { name: string; role: string; attrs: Record<string, number> }[]): Promise<Personality[]> {
   const fallback = () => players.map(p => defaultPersonality(p.name, p.role));
-  if (!KEY || !players.length) return fallback();
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(`${BASE}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, temperature: 0.9, max_tokens: 2400, messages: [
-          { role: 'system', content: SYSTEM }, { role: 'user', content: buildPrompt(players) },
-        ] }),
-        signal: AbortSignal.timeout(25000),
-      });
-      if ((res.status === 429 || res.status >= 500) && attempt === 0) {
-        const ra = Number(res.headers.get('retry-after'));
-        await new Promise(r => setTimeout(r, Math.min(Number.isFinite(ra) && ra > 0 ? ra : 1.5, 5) * 1000));
-        continue;
-      }
-      const j = await res.json() as { choices?: { message?: { content?: string } }[] };
-      if (res.ok) {
-        const arr = extractArray(j.choices?.[0]?.message?.content ?? '');
-        return players.map((p, i) => coerce(arr[i], p.name, p.role));
-      }
-      break;
-    } catch { break; }
-  }
-  return fallback();
+  if (!llmReady().ok || !players.length) return fallback();
+  try {
+    // chatComplete handles the 429/5xx retry-once on the http path; needs ~2400 tokens for the batch.
+    const text = await chatComplete({ system: SYSTEM, user: buildPrompt(players), temperature: 0.9, maxTokens: 2400, timeoutMs: 25000 });
+    const arr = extractArray(text);
+    return players.map((p, i) => coerce(arr[i], p.name, p.role));
+  } catch { return fallback(); }
 }
 
 // ── Batched story evolution (news.ts aftermath) ──────────────────────────────
