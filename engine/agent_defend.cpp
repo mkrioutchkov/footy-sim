@@ -34,9 +34,14 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     // A defender who is touch-tight steps in and nicks it — press assignment or
     // not — when either he's in the running lane of an open carry, or the ball
     // is plainly exposed toward him (any carry type that isn't a back-to-goal shield).
+    // audit #1: a SUSTAINED on-the-ball contest (glued within TACKLE_RANGE for ~>0.15s, e.g. a
+    // shielding carrier the container rode without challenging) must RESOLVE — treat it as a nick
+    // chance so the contain-gate doesn't suppress it. Brief grazes (<0.15s) stay jockey.
+    bool sustainedContest = ballContestTicks > 9;   // ~0.15s+ glued (the no-tackle overlap); resolved via the nick path, not force-boosted
     bool nickOpportunity = d < TACKLE_RANGE && (
             (exposedDot > 0.10 && (ctrl->dribbleType == 2 || ctrl->dribbleType == 3))
-         || ballShownDot > 0.45);
+         || ballShownDot > 0.45
+         || sustainedContest);
 
     bool isDef = isDefenderRole();
     if (isDef) {

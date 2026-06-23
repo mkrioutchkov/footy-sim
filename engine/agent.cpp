@@ -43,6 +43,17 @@ void PlayerAI::tick(double sdt) {
     if (ic) holdTicks++;
     else    holdTicks = 0;
 
+    // audit #1: sustained on-the-ball contest timer — how long this player has been glued within
+    // TACKLE_RANGE of an OPPONENT carrier's grounded ball. scoreTackle resolves the contest past
+    // ~0.15s so a defender can't ride glued without ever challenging (the "no-tackle overlap" bug).
+    {
+        const auto& cb = engine.state.ball;
+        Player* cc = cb.controllerId >= 0 ? engine.playerById(cb.controllerId) : nullptr;
+        bool contesting = cc && cc->team != player.team && cb.z < 15.0
+                          && dist(player.x, player.y, cb.x, cb.y) < TACKLE_RANGE;
+        ballContestTicks = contesting ? ballContestTicks + 1 : 0;
+    }
+
     if (cachedPerception.has_value() && cachedPerception->ballControllerId != engine.state.ball.controllerId) {
         if (cachedPerception->ballIsLoose
             && engine.state.ball.controllerId >= 0

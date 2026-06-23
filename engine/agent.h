@@ -183,6 +183,7 @@ public:
 private:
     int    stunLockTicks = 0;
     int    skillMoveCooldown = 0;
+    int    ballContestTicks = 0;   // audit #1: ticks glued within TACKLE_RANGE of an opponent carrier's ball
     double evadeSide = 1.0;
     double evadeSideUntilMs = -1e9;
     int    shotCooldown = 0;
