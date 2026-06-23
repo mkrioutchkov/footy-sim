@@ -235,6 +235,9 @@ export class MatchRenderer {
   // or before the renderer is ready / after it's torn down.
   setReservedBottom(px: number): void {
     const v = Math.max(0, Math.round(px));
+    // Float the commentary feed just above the reserved bottom strip (the live-tactics panel)
+    // so it sits over the pitch as a broadcast lower-third instead of hiding behind the panel.
+    if (this.tickerEl) this.tickerEl.style.bottom = `${v + 14}px`;
     if (v === this.reservedBottom) return;
     this.reservedBottom = v;
     if (!this.destroyed && this.app.renderer) this.calcTransform();
