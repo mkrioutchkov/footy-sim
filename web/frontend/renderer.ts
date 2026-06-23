@@ -630,7 +630,7 @@ export class MatchRenderer {
     let labelIdx = 0;
     for (const ev of (state.events ?? [])) {
       const skillLike = ev.type === 'skill' || ev.type === 'dragback';
-      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : ev.type === 'nutmeg' ? 1000 : skillLike ? 650 : 2200;
+      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : ev.type === 'nutmeg' ? 1000 : ev.type === 'tip' ? 1600 : skillLike ? 650 : 2200;
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
       if (ev.type === 'pass') {
@@ -692,6 +692,42 @@ export class MatchRenderer {
           const a0 = spin * dir + (dir > 0 ? 0 : Math.PI);
           this.eventGfx.arc(cx, cy, sr, a0, a0 + Math.PI * 0.85);
           this.eventGfx.stroke({ width: 2.5, color: swirlColor, alpha: alpha * 0.9 });
+        }
+        continue;
+      }
+      if (ev.type === 'tip') {
+        // Keeper (playerId) tips a shot over/around the bar for a corner. A top-down pitch can't show
+        // HEIGHT, so the iconic save reads as: a reflex-save pulse on the keeper + a fingertip reach +
+        // a bright deflection streak arcing out past the goal-line toward the post (a ball-glint at its
+        // leading edge), plus a "TIPPED OVER!" call. Robust to the payload (falls back to the event spot).
+        const t = ev.age / lifetime;
+        const gk = ev.playerId != null ? byId.get(ev.playerId) : undefined;
+        const cx = gk ? (this.visualPlayers.get(gk.id)?.x ?? gk.x) : ev.x;
+        const cy = gk ? (this.visualPlayers.get(gk.id)?.y ?? gk.y) : ev.y;
+        const toGoal = cx < PITCH_W / 2 ? -1 : 1;          // toward the keeper's own goal-line
+        const cornerDir = cy < PITCH_H / 2 ? -1 : 1;        // toward the nearer post / corner
+        const COL = 0x8fe3ff;
+        const reach = 26 + t * 34;
+        const ex = cx + toGoal * reach, ey = cy + cornerDir * (8 + t * 18);
+        // the deflected ball — a curved streak that bows "up & over" before dropping out near the post
+        this.eventGfx.moveTo(cx, cy);
+        this.eventGfx.quadraticCurveTo(cx + toGoal * reach * 0.4, cy - cornerDir * 12, ex, ey);
+        this.eventGfx.stroke({ width: 3, color: COL, alpha });
+        this.eventGfx.circle(ex, ey, 3.5); this.eventGfx.fill({ color: 0xffffff, alpha });   // ball glint
+        for (const s of [0.6, 1.0, 1.4]) {                  // fingertip reach off the keeper
+          this.eventGfx.moveTo(cx, cy);
+          this.eventGfx.lineTo(cx + toGoal * 9 * s, cy - cornerDir * 4 * s);
+        }
+        this.eventGfx.stroke({ width: 1.5, color: COL, alpha: alpha * 0.8 });
+        this.eventGfx.circle(cx, cy, PLAYER_R + 2 + t * 10);   // reflex-save pulse
+        this.eventGfx.stroke({ width: 2, color: COL, alpha: alpha * 0.7 });
+        if (labelIdx < this.eventLabels.length) {
+          const label = this.eventLabels[labelIdx++];
+          label.text = 'TIPPED OVER!';
+          label.position.set(cx, Math.max(18, cy - reach - 12));
+          label.style.fill = COL;
+          label.alpha = clamp(1 - t, 0, 1);
+          label.visible = true;
         }
         continue;
       }
@@ -836,7 +872,7 @@ export class MatchRenderer {
       this.seenEventKeys.clear();
     }
     this.lastClockMs = state.clockMs;
-    const notable = new Set(['goal', 'shot', 'save', 'claim', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork']);
+    const notable = new Set(['goal', 'shot', 'save', 'claim', 'tip', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork']);
     for (const ev of (state.events ?? [])) {
       if (!notable.has(ev.type)) continue;
       const evClock = state.clockMs - (ev.age ?? 0);
@@ -890,6 +926,7 @@ export class MatchRenderer {
       case 'woodwork': return 'WOODWORK';
       case 'dragback': return 'DRAG-BACK';
       case 'nutmeg': return 'NUTMEG!';
+      case 'tip': return 'TIP OVER';
       default: return type.replace(/_/g, ' ').toUpperCase();
     }
   }
@@ -898,6 +935,7 @@ export class MatchRenderer {
     switch (type) {
       case 'goal': return 0xffdd44;
       case 'save': return 0x44ddff;
+      case 'tip': return 0x8fe3ff;     // keeper tip over the bar — bright reflex-save cyan
       case 'claim': return 0x66e0a0;   // confident catch — distinct from the reflex-save cyan
       case 'woodwork': return 0xffa033;
       case 'foul': return 0xff4444;
