@@ -1188,13 +1188,16 @@ PlayerAttributes legendAttrsFor(int id) {
         /*20 Ronaldo     */ {92, 78, 84, 96, 40, 82, 90},
         /*21 Bale        */ {93, 76, 80, 88, 48, 70, 84},
     };
-    // #35 (SysArch/user decision 13:50, TEAM_CHAT): legends are ELITE, not superhuman.
-    // Compress the maxed attrs (~85-97) toward realistic-elite ~72-78 so the demo match
-    // is realistic — THE unlock for the attribute-driven over-conversion (goals 4.5/shots
-    // 36 -> ~real). Keeps each legend's identity (relative shape); RosterOverride spec
-    // teams (the game layer) are untouched.
+    // #35 (SysArch/user decision): legends are ELITE, not superhuman. Compress the maxed
+    // attrs toward realistic-elite so the SHOWCASE demo reads like a real elite match — THE
+    // unlock for the attribute-driven over-conversion. RosterOverride spec teams (the game
+    // layer) are untouched; each legend's relative identity (shape) is preserved.
+    // Coefficient tightened 0.42 -> 0.26 (2026-06-24, SysArch "a-lite"): the WIDENED 16-seed
+    // agg exposed the true legend goals as 4.4-4.8 (the old 8 fixed seeds under-reported ~3.4);
+    // 0.26 lands the showcase at goals ~3.4 / shots ~25 / oT ~8 / saves ~3.1 / pass% 82 — all
+    // realistic, saves+pass% HELD (no keeper backfire). Top forwards' shooting ~72 (Messi-tier).
     PlayerAttributes a = (id >= 0 && id < 22) ? profiles[id] : PlayerAttributes{};
-    auto cz = [](double v) { return clamp(63.0 + (v - 63.0) * 0.42, 38.0, 80.0); };
+    auto cz = [](double v) { return clamp(63.0 + (v - 63.0) * 0.26, 38.0, 80.0); };
     a.speed = cz(a.speed); a.passing = cz(a.passing); a.creativity = cz(a.creativity);
     a.shooting = cz(a.shooting); a.tackling = cz(a.tackling);
     a.positioning = cz(a.positioning); a.stamina = cz(a.stamina);
