@@ -77,7 +77,9 @@ function renumberSquad(teamId: number): void {
   const rows = db.prepare('SELECT id FROM players WHERE team_id = ? ORDER BY slot, id').all(teamId) as { id: number }[];
   const upd = db.prepare('UPDATE players SET slot = ? WHERE id = ?');
   rows.forEach((r, i) => upd.run(i, r.id));
-  db.prepare('UPDATE teams SET lineup = NULL WHERE id = ?').run(teamId);
+  // lineup + set-piece takers are slot-keyed (like the per-player directives below) — a renumber invalidates
+  // them, so reset both to the default rather than have a taker silently land on whoever now fills that slot.
+  db.prepare('UPDATE teams SET lineup = NULL, set_piece_takers = NULL WHERE id = ?').run(teamId);
   pruneStalePlayerDirectives(teamId);
 }
 
