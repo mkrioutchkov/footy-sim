@@ -396,7 +396,8 @@ export function offerToFreeAgent(teamId: number, agentId: number, wage: number, 
   return tx(() => {
     const team = teamRow(teamId);
     if (!team) return { ok: false, error: 'team not found' };
-    if (!transferWindow(team.league_id).open) return { ok: false, error: 'the transfer window is shut' };
+    // NB: NO transfer-window gate — free agents are signable any time (matches buyFreeAgent, the AI path,
+    // and the "signable any time" market copy). Only club-to-club deals are window-gated.
     const agent = db.prepare('SELECT id, name, role, value, wage FROM free_agents WHERE id = ? AND league_id = ?').get(agentId, team.league_id) as { id: number; name: string; role: string; value: number; wage: number | null } | undefined;
     if (!agent) return { ok: false, error: 'free agent not available' };
     const w = Math.round(wage), y = Math.round(years);
