@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
 import { db } from './db.ts';
-import { getTeamWithPlayers, fieldedXIIndices, ROLE_SLOTS, DEFAULT_TACTICS } from './game.ts';
+import { getTeamWithPlayers, fieldedXIIndices, ROLE_SLOTS, DEFAULT_TACTICS, type SetPieceTakers } from './game.ts';
 import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer } from './plan.ts';
 import { getTeamTalkDeltas, consumeTeamTalk } from './teamtalk.ts';
 import type { Directive } from './tactics.ts';
@@ -109,8 +109,24 @@ function specForTeam(teamId: number, side: 'home' | 'away', talk?: Map<number, n
       };
     });
   }
-  const directives = resolvePlanDirectives(t.plan?.directives, slotToEngine, side);
+  // Set-piece takers (user-watch): the manager's designated FK/corner/pen/long-throw takers ride in as
+  // per-player directives (playerId = squad slot) that resolve to engine ids alongside the plan. A taker
+  // who isn't in the fielded XI is dropped by resolvePlanDirectives → the engine falls back to its default.
+  // Unknown kinds are a no-op in today's engine (main.cpp `else continue`) until Boris reads them.
+  const directives = resolvePlanDirectives([...(t.plan?.directives ?? []), ...setPieceTakerDirectives(t.setPieceTakers)], slotToEngine, side);
   return { spec: { name: t.name, tactics, players }, directives };
+}
+
+// Build the per-player set-piece-taker directives the engine reads at a restart (omits any taker left on
+// the default). Kinds: fk_taker | corner_taker | pen_taker | long_throw_taker; playerId = squad slot.
+function setPieceTakerDirectives(takers: SetPieceTakers | null): Directive[] {
+  if (!takers) return [];
+  const out: Directive[] = [];
+  if (takers.fk != null) out.push({ kind: 'fk_taker', playerId: takers.fk });
+  if (takers.corner != null) out.push({ kind: 'corner_taker', playerId: takers.corner });
+  if (takers.pen != null) out.push({ kind: 'pen_taker', playerId: takers.pen });
+  if (takers.longThrow != null) out.push({ kind: 'long_throw_taker', playerId: takers.longThrow });
+  return out;
 }
 
 // Build a match spec for two teams (shared by league fixtures + cup ties). Each team's persisted

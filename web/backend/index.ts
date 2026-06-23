@@ -161,6 +161,21 @@ app.put('/api/captain', async (req: any, reply) => {
   return { ok: true, captainSlot: slot };
 });
 
+// Set-piece takers (user-watch): designate FK / corner / penalty / long-throw takers (squad slots; null =
+// the engine's default). Validated against the squad; emitted as per-player directives the engine reads at
+// the restart. getTeamWithPlayers returns the current selection (team.setPieceTakers), so no GET needed.
+app.post('/api/set-piece-takers', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slots = new Set((db.prepare('SELECT slot FROM players WHERE team_id = ?').all(teamId) as { slot: number }[]).map(r => r.slot));
+  const pick = (v: unknown): number | null => { const n = Number(v); return v != null && Number.isInteger(n) && slots.has(n) ? n : null; };
+  const takers = { fk: pick(req.body?.fk), corner: pick(req.body?.corner), pen: pick(req.body?.pen), longThrow: pick(req.body?.longThrow) };
+  const allDefault = takers.fk == null && takers.corner == null && takers.pen == null && takers.longThrow == null;
+  db.prepare('UPDATE teams SET set_piece_takers = ? WHERE id = ?').run(allDefault ? null : JSON.stringify(takers), teamId);
+  return { ok: true, setPieceTakers: allDefault ? null : takers };
+});
+
 // §2.13: the pre-match team talk — preview how a tone lands across the squad + lock one in for an
 // upcoming fixture (its per-player morale deltas ride into the match spec as moraleBoost).
 function ownUnplayedFixture(teamId: number, fixtureId: number): { ok: true } | { ok: false; code: number; error: string } {
