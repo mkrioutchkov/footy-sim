@@ -393,7 +393,9 @@ function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ 
     const child = spawn(ENGINE, ['--match', specPath, '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let err = '';
     child.stderr.on('data', (d: Buffer) => { err += d.toString(); });
-    const to = setTimeout(() => { try { child.kill(); } catch { /* gone */ } child.stdout.destroy(new Error(`engine timeout: ${err}`)); }, 120000);
+    // 180s: a full-frame capture is heavier than --summary, so give a slow host room to finish (and earn
+    // a watchable replay) before the playFixture fallback drops it to --summary. A real hang still lapses.
+    const to = setTimeout(() => { try { child.kill(); } catch { /* gone */ } child.stdout.destroy(new Error(`engine timeout: ${err}`)); }, 180000);
     child.on('error', e => { try { child.stdout.destroy(e); } catch { /* gone */ } });
     captureLineStream(kind, refId, child.stdout).then(
       r => { clearTimeout(to); resolve({ homeScore: r.homeScore, awayScore: r.awayScore }); },
@@ -410,9 +412,16 @@ export function playFixture(fixtureId: number): Promise<PlayResult> {
   }
   const specPath = writeSpec(fx);
   // Human-stake matches are recorded (full-frame) so watching replays the recording; AI-only
-  // matches take the lightweight --summary path (no frames kept).
+  // matches take the lightweight --summary path (no frames kept). RESILIENCE: if the full-frame
+  // capture fails (engine timeout on a slow host, a crash, an incomplete capture), fall back to
+  // --summary — the SAME seed yields the SAME score, so the match still resolves (just no replay)
+  // instead of a single recording failure rejecting the whole /api/advance Promise.all and wedging
+  // the season. The matchday must never be blocked by a recording glitch.
   const play = hasHumanStake(fx.home_team_id, fx.away_team_id)
-    ? recordMatch('fixture', fixtureId, specPath)
+    ? recordMatch('fixture', fixtureId, specPath).catch((e: Error) => {
+        console.error(`[match] recording fixture ${fixtureId} failed (${e.message}); falling back to --summary (no replay).`);
+        return runEngineSummary(specPath);
+      })
     : runEngineSummary(specPath);
   return play.then(({ homeScore, awayScore }) => {
     db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, fixtureId);
