@@ -238,7 +238,17 @@ app.post('/api/team/plan', async (req: any, reply) => {
   const plan = { summary: r.plan.summary, directives: r.plan.directives };
   db.prepare('UPDATE teams SET plan_text = ?, plan_directives = ? WHERE id = ?')
     .run(text || null, text ? JSON.stringify(plan) : null, teamId);
-  return { planText: text, plan, note: r.note || '', error: r.error || null };
+  // §3 (takers-via-prompt): if the plain-English plan named dead-ball takers, MERGE them into the same
+  // persistent store the dropdown writes (only the roles named; the rest stay). One prompt assigns takers
+  // too — the dropdown remains the discoverable explicit path.
+  let setPieceTakers = t.setPieceTakers ?? null;
+  if (r.setPieceTakers && Object.keys(r.setPieceTakers).length) {
+    const merged = { fk: null, corner: null, pen: null, longThrow: null, ...(t.setPieceTakers ?? {}), ...r.setPieceTakers };
+    const allDefault = merged.fk == null && merged.corner == null && merged.pen == null && merged.longThrow == null;
+    db.prepare('UPDATE teams SET set_piece_takers = ? WHERE id = ?').run(allDefault ? null : JSON.stringify(merged), teamId);
+    setPieceTakers = allDefault ? null : merged;
+  }
+  return { planText: text, plan, setPieceTakers, note: r.note || '', error: r.error || null };
 });
 
 app.put('/api/tactics', async (req: any, reply) => {

@@ -296,7 +296,7 @@ function planPanel(team: TeamT): HTMLElement {
   // resolve the plan's team-relative ids (0-10) to player names for describeDirective
   watchPlayers = team.players.slice(0, 11).map((p, i) => ({ id: i, name: p.name }));
   const input = h('textarea', { class: 'tactics-input', rows: '3',
-    placeholder: '"high press, build from the back, full-backs bomb on, sit deeper if 2-0 up"' }) as HTMLTextAreaElement;
+    placeholder: '"high press, build from the back, full-backs bomb on, sit deeper if 2-0 up. Suárez takes our penalties, Lars on long throws"' }) as HTMLTextAreaElement;
   input.value = team.planText ?? '';
   const out = h('div', { class: 'tactics-receipt', style: 'margin-top:10px' });
   const renderPlan = (plan: { summary: string; directives: any[] } | null | undefined, note?: string, error?: string | null) => {
@@ -317,9 +317,12 @@ function planPanel(team: TeamT): HTMLElement {
   save.addEventListener('click', async () => {
     save.setAttribute('disabled', 'true'); save.textContent = '…';
     try {
+      const before = JSON.stringify(team.setPieceTakers ?? null);
       const r = await api.teamPlan(input.value.trim());
-      team.planText = r.planText; team.plan = r.plan;
+      team.planText = r.planText; team.plan = r.plan; team.setPieceTakers = r.setPieceTakers ?? null;
       renderPlan(r.plan, r.note, r.error);
+      // §3: if the plan also (re)assigned dead-ball takers, the panel below must reflect it — re-render.
+      if (JSON.stringify(r.setPieceTakers ?? null) !== before) { toast('Set-piece takers set from your plan ⚽'); return void screenTactics(); }
       toast(input.value.trim() ? 'Plan saved' : 'Plan cleared');
     } catch (e: any) { out.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message)); }
     save.removeAttribute('disabled'); save.textContent = 'Save plan';
@@ -327,7 +330,7 @@ function planPanel(team: TeamT): HTMLElement {
   renderPlan(team.plan);
   return h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Tactical plan'),
-    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'Type a standing plan in plain English — it’s compiled to your team’s instructions and seeds every match (and your live shouts). Mid-match, the shout box edits it.'),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'Type a standing plan in plain English — it’s compiled to your team’s instructions and seeds every match (and your live shouts). Name your dead-ball takers here too ("Lars on long throws"). Mid-match, the shout box edits it.'),
     h('div', { class: 'tactics-row' }, input, save),
     vocabPanel(input),
     out,
@@ -816,7 +819,7 @@ function setPieceTakerPanel(team: TeamT): HTMLElement {
   fields.forEach(f => f.s.addEventListener('change', save));
   return h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, '⚽ Set-piece takers'),
-    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:10px' }, 'Designate who takes your dead balls — or leave on Default to let the engine pick by position. A taker who isn’t in your matchday XI falls back to the default.'),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:10px' }, 'Designate who takes your dead balls — or leave on Default to let the engine pick by position. A taker who isn’t in your matchday XI falls back to the default. You can also just say it in your tactical plan above ("Suárez takes our penalties").'),
     h('div', { class: 'grid cols-2', style: 'gap:10px' }, ...fields.map(f =>
       h('label', { class: 'between', style: 'gap:10px;align-items:center;font-size:13px' },
         h('span', { style: 'flex-shrink:0' }, f.label), f.s))));

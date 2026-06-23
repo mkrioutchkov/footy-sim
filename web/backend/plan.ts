@@ -12,7 +12,12 @@ import { chatComplete, llmReady, LlmError } from './llm.ts';
 
 export interface Plan { summary: string; directives: Directive[]; }
 export interface Motivation { playerId: number; moraleDelta: number; reaction: string; durationMin: number; }
-export interface PlanResult { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation?: string | null; raw?: string; error?: string; }
+// Set-piece-taker assignments the prompt can change (slots 0-10, or null to clear a role). A PARTIAL
+// edit — only the roles the shout/brief names are present, so the caller merges into the persistent
+// teams.set_piece_takers (the same store the dropdown writes). Absent role = unchanged.
+export type SPRole = 'fk' | 'corner' | 'pen' | 'longThrow';
+export type PlanTakers = Partial<Record<SPRole, number | null>>;
+export interface PlanResult { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation?: string | null; setPieceTakers?: PlanTakers | null; raw?: string; error?: string; }
 export interface SquadPlayer {
   id: number; name: string; role: string;
   personality?: { traits?: Record<string, number>; tagline?: string } | null;
@@ -51,7 +56,7 @@ function planText(plan: Plan): string {
 }
 
 const SYSTEM = (myTeam: Side, myIds: string, oppIds: string, myScope: number) => `You are the manager's voice, holding a STATEFUL composite plan and editing it per each shout, while ALSO judging the shout's motivational effect on the player addressed. You manage ${myTeam.toUpperCase()} (your ids ${myIds}; opponent ${oppIds}). Output ONLY this JSON object — no prose, no markdown:
-{"plan":{"summary":"<=2 sentences, plain English, the whole standing plan AFTER this shout","directives":[ ...the FULL directive set after the edit... ]},"changed":"<=1 line on what this shout changed (or 'No tactical change.')","motivation":[{"playerId":<your id>,"moraleDelta":-30..30,"reaction":"<short in-character line>","durationMin":<5-30>}],"formation":"<a shape key below, ONLY if the shout asks to change formation; else null>","note":""}
+{"plan":{"summary":"<=2 sentences, plain English, the whole standing plan AFTER this shout","directives":[ ...the FULL directive set after the edit... ]},"changed":"<=1 line on what this shout changed (or 'No tactical change.')","motivation":[{"playerId":<your id>,"moraleDelta":-30..30,"reaction":"<short in-character line>","durationMin":<5-30>}],"formation":"<a shape key below, ONLY if the shout asks to change formation; else null>","setPieceTakers":<null, OR an object naming ONLY the dead-ball roles this shout assigns — {"fk":<id>,"corner":<id>,"pen":<id>,"longThrow":<id>}; id from YOUR XI; use null for a role to clear it ("no set penalty taker")>,"note":""}
 
 STEP 1 — FORMATION CHECK (do this FIRST): does the shout name a team SHAPE? A number ("4-3-3","go 4 4 2","4-1-2-1-2","442") OR a name ("diamond","midfield diamond","christmas tree","three at the back","back three","two up top","five at the back"). If YES: set "formation" to the matching key from [${Object.keys(FORMATIONS).join(', ')}] and DO NOT convert the shape into directives — the engine re-shapes the team itself. Keep "directives" exactly as the prior plan. (You may STILL add a separate explicit order in the same shout: "go 3-5-2 and AB mark their man" => formation "3-5-2" + that one man_mark.) If the shout names NO shape, "formation":null and continue.
 EXAMPLES: "go 4-4-2" => formation "4-4-2", directives unchanged. "switch to a diamond" => formation "4-1-2-1-2". "three at the back" => formation "3-5-2". "AB mark their striker" => formation null.
@@ -70,6 +75,8 @@ team-wide (teamScope ${myScope}): all_out_attack park_the_bus high_press drop_of
 SYNONYMS: cutback = pull it back / square it across the box from the byline (vs cross_early's higher cross). contain = sit off / jockey / show him inside — ease off ONE opponent (per-player opposite of press_hard; vs stay_on_feet = tackle discipline). stay_back = don't bomb forward / don't overlap / hold position — damp his forward runs (vs sit_deep = take up a deep position).
 Resolve names/initials from the squad (tolerate typos); man_mark targets are OPPONENT ids, target_player targets are TEAM-MATE ids. Never invent a player not in a squad — omit + note. OMIT "when" unless the shout states a time/score.
 
+SET-PIECE TAKERS: if the shout names who takes DEAD BALLS, fill "setPieceTakers" with ONLY the named roles (else null). fk = free kicks / "set pieces" / "dead balls", corner = corners, pen = penalties / "spot kicks", longThrow = long throw-ins. The id is one of YOUR players. "AB takes our free kicks and corners, CD on penalties" => {"fk":<AB>,"corner":<AB>,"pen":<CD>}. "no designated penalty taker" => {"pen":null}. This is SEPARATE from directives — do NOT also emit a directive for it. Roles not named stay as they were.
+
 MOTIVATION (the shout's emotional effect — separate from tactics):
 - Judge from the addressed player's PERSONALITY, not the literal words: criticismResponse HIGH => a rocket FIRES them up (positive delta); LOW => they wilt (negative). praiseResponse scales how much praise lifts. High ego => praise risks complacency (smaller/negative). temperament high => bigger swings.
 - A purely motivational shout (no tactic) => directives unchanged, motivation only. A purely tactical shout => motivation usually []. moraleDelta in -30..30; durationMin 5-30.
@@ -86,13 +93,30 @@ function extract(content: string): Record<string, unknown> {
   return {};
 }
 
+// Parse the LLM's "setPieceTakers" into a PARTIAL taker edit: keep only the dead-ball roles it named
+// whose taker is one of MY players (a slot, not an opponent), or an explicit null (clear that role).
+// Empty / no valid role => null (no change). Exported so the deterministic validation is unit-tested
+// without needing the LLM. The caller merges the result into the persistent teams.set_piece_takers.
+export function takersFromRaw(spRaw: unknown, mineIds: Set<number>): PlanTakers | null {
+  if (!spRaw || typeof spRaw !== 'object') return null;
+  const sp = spRaw as Record<string, unknown>;
+  const out: PlanTakers = {};
+  for (const role of ['fk', 'corner', 'pen', 'longThrow'] as SPRole[]) {
+    if (!(role in sp)) continue;
+    const v = sp[role];
+    if (v === null) out[role] = null;                          // explicit clear
+    else { const id = num(v, -1); if (mineIds.has(id)) out[role] = id; }   // must be one of my players
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 const TIME_WORDS = /\b(\d{1,3}\s*(?:'|min|mins|minute|minutes)|half|first|second|opening|closing|last|from the|after the|until|before|kick.?off|whistle|early on|late on)\b/i;
 const SCORE_WORDS = /\b(winning|losing|drawing|level|tied|all square|ahead|behind|trailing|chasing|in front|leading|protect|see it out|goal up|goal down|a man (?:up|down)|nil|equaliser|equalizer)\b/i;
 
 // Validate the returned plan's directives (same rules as tactics.ts) + motivation
 // (id range, clamp, enforce the per-player cap from motUsed). Deterministic given
 // the model output, so cached replays stay identical.
-function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, mineIds: Set<number>, oppIds: Set<number>, motUsed: Map<number, number>): { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation: string | null } {
+function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, mineIds: Set<number>, oppIds: Set<number>, motUsed: Map<number, number>): { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation: string | null; setPieceTakers: PlanTakers | null } {
   const myScope = myTeam === 'home' ? 0 : 1;
   const planRaw = (raw.plan ?? {}) as Record<string, unknown>;
   const timeOK = TIME_WORDS.test(shout), scoreOK = SCORE_WORDS.test(shout);
@@ -152,7 +176,7 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
   if (typeof raw.formation === 'string' && raw.formation.trim()) {
     formation = (FORMATIONS[raw.formation] ? raw.formation : null) ?? normalizeFormation(raw.formation);
   }
-  return { plan: { summary, directives }, changed, motivation, note, formation };
+  return { plan: { summary, directives }, changed, motivation, note, formation, setPieceTakers: takersFromRaw(raw.setPieceTakers, mineIds) };
 }
 
 // Pre-match: compile a manager's plain-English STANDING plan into the composite plan, against an
