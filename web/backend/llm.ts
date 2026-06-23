@@ -51,35 +51,60 @@ export interface ChatRequest {
   temperature?: number;   // http only (the claude-code CLI has no temperature flag)
   maxTokens?: number;     // http only
   timeoutMs?: number;     // http: exact; claude-code: floored to leave CLI cold-start headroom
+  live?: boolean;         // INTERACTIVE call (a manager's shout / plan / lineup) — route to the fast live provider
 }
 
-// Pre-flight readiness — mirrors the old `if (!KEY)` early guard so a caller returns
-// the same note without attempting a call.
-export function llmReady(): { ok: true } | { ok: false; error: string } {
-  if (llmProvider() === 'claude-code') {
+// The DEFAULT provider (TACTICS_LLM_*) is for BATCH/offline work (manager_ai pre-matchday plans, news,
+// reports) where claude-code's per-call process spawn is fine because nobody is waiting. The LIVE override
+// (TACTICS_LLM_LIVE_*) routes INTERACTIVE calls to a fast HTTP provider (~1-3s) — claude-code times out
+// ~half the time on the big shout prompt (TACTICS_LLM_TEST.md). Live FALLS BACK to the default when no live
+// provider is configured, so its absence is safe.
+interface ProviderCfg { provider: LlmProvider; base: string; model: string; key: string; }
+function providerCfg(prefix: string): ProviderCfg {
+  const e = (s: string): string | undefined => process.env[`${prefix}${s}`];
+  const provider: LlmProvider = e('PROVIDER') === 'claude-code' ? 'claude-code' : 'http';
+  return {
+    provider,
+    base: (e('BASE_URL') ?? 'https://api.groq.com/openai/v1').replace(/\/$/, ''),
+    model: e('MODEL') ?? (provider === 'claude-code' ? 'haiku' : 'llama-3.3-70b-versatile'),
+    key: e('API_KEY') ?? '',
+  };
+}
+function resolveProvider(live: boolean): ProviderCfg {
+  return live && process.env.TACTICS_LLM_LIVE_PROVIDER ? providerCfg('TACTICS_LLM_LIVE_') : providerCfg('TACTICS_LLM_');
+}
+
+// Pre-flight readiness — mirrors the old `if (!KEY)` early guard so a caller returns the same note without
+// attempting a call. Pass live=true to check the live provider (interactive callers).
+export function llmReady(live = false): { ok: true } | { ok: false; error: string } {
+  const cfg = resolveProvider(live);
+  if (cfg.provider === 'claude-code') {
     return resolveClaudeBin()
       ? { ok: true }
       : { ok: false, error: 'Claude Code CLI not found — set TACTICS_LLM_CLAUDE_BIN or add `claude` to PATH.' };
   }
-  return (process.env.TACTICS_LLM_API_KEY ?? '')
+  return cfg.key
     ? { ok: true }
     : { ok: false, error: 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
 }
 
 export async function chatComplete(req: ChatRequest): Promise<string> {
-  return llmProvider() === 'claude-code' ? claudeCodeChat(req) : httpChat(req);
+  const cfg = resolveProvider(!!req.live);
+  return cfg.provider === 'claude-code' ? claudeCodeChat(req, cfg) : httpChat(req, cfg);
 }
 
 // ── HTTP (OpenAI-compatible) ─────────────────────────────────────────────────
-async function httpChat(req: ChatRequest): Promise<string> {
-  const BASE = (process.env.TACTICS_LLM_BASE_URL ?? 'https://api.groq.com/openai/v1').replace(/\/$/, '');
-  const MODEL = process.env.TACTICS_LLM_MODEL ?? 'llama-3.3-70b-versatile';
-  const KEY = process.env.TACTICS_LLM_API_KEY ?? '';
+async function httpChat(req: ChatRequest, cfg: ProviderCfg): Promise<string> {
+  const BASE = cfg.base, MODEL = cfg.model, KEY = cfg.key;
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await fetch(`${BASE}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, temperature: req.temperature ?? 0, max_tokens: req.maxTokens ?? 512, messages: [
+      // JSON mode: every compiler prompt demands a single JSON object, and smaller/faster models (e.g.
+      // llama-3.3 on Groq) otherwise emit subtly malformed JSON (a dropped brace) that fails to parse and
+      // silently drops the whole plan. response_format forces well-formed JSON. (The prompts already say "JSON".)
+      body: JSON.stringify({ model: MODEL, temperature: req.temperature ?? 0, max_tokens: req.maxTokens ?? 512,
+        response_format: { type: 'json_object' }, messages: [
         { role: 'system', content: req.system }, { role: 'user', content: req.user },
       ] }),
       signal: AbortSignal.timeout(req.timeoutMs ?? 12000),
@@ -126,10 +151,10 @@ function resolveClaudeBin(): string | null {
   return 'claude';   // assume on PATH (unix, or user-added)
 }
 
-async function claudeCodeChat(req: ChatRequest): Promise<string> {
+async function claudeCodeChat(req: ChatRequest, cfg: ProviderCfg): Promise<string> {
   const bin = resolveClaudeBin();
   if (!bin) throw new LlmError('claude binary not found', 'Claude Code CLI not found — set TACTICS_LLM_CLAUDE_BIN or add `claude` to PATH.');
-  const model = process.env.TACTICS_LLM_MODEL || 'haiku';
+  const model = cfg.model;
   // --print + piped stdin = the user prompt; --system-prompt replaces the default;
   // --disallowed-tools is variadic so it goes LAST (it would otherwise swallow flags).
   const args = ['--print', '--model', model, '--output-format', 'json', '--system-prompt', req.system, '--disallowed-tools', ...TOOLS_OFF];

@@ -145,11 +145,11 @@ export async function compileLineup(text: string, sq: Squad): Promise<LineupResu
   const cacheKey = `${ctx} ${text.trim()}`;
   const hit = cache.get(cacheKey);
   if (hit) return { ...hit, cached: true };
-  const ready = llmReady();
+  const ready = llmReady(true);   // interactive lineup compile — fast live provider
   if (!ready.ok) return { formation: DEFAULT_FORMATION, slots: [], note: '', error: ready.error };
   let content: string;
   try {
-    content = await chatComplete({ system: SYSTEM(ctx), user: text, temperature: 0, maxTokens: 512, timeoutMs: 12000 });
+    content = await chatComplete({ system: SYSTEM(ctx), user: text, temperature: 0, maxTokens: 512, timeoutMs: 12000, live: true });
   } catch (e) {
     return { formation: DEFAULT_FORMATION, slots: [], note: '',
       error: e instanceof LlmError ? e.userMessage : 'the lineup model was unreachable' };

@@ -282,7 +282,7 @@ export async function compilePlanEdit(
   const cacheKey = `${planText(plan)}|${shout.trim()}|${[...motUsed].join(',')}|${ctxStr}`;
   const hit = cache.get(cacheKey);
   if (hit) return { ...hit };
-  const ready = llmReady();
+  const ready = llmReady(true);   // interactive shout/plan — check the FAST live provider
   if (!ready.ok) return { plan, changed: '', motivation: [], note: '', error: ready.error };
   const myIds = myTeam === 'home' ? '0-10' : '11-21';
   const oppIdRange = myTeam === 'home' ? '11-21' : '0-10';
@@ -291,7 +291,7 @@ export async function compilePlanEdit(
   try {
     content = await chatComplete({
       system: SYSTEM(myTeam, myIds, oppIdRange, myTeam === 'home' ? 0 : 1),
-      user, temperature: 0.4, maxTokens: 900, timeoutMs: 15000,
+      user, temperature: 0.4, maxTokens: 900, timeoutMs: 15000, live: true,   // interactive — fast live provider
     });
   } catch (e) {
     return { plan, changed: '', motivation: [], note: '',
