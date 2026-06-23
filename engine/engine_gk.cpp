@@ -259,7 +259,7 @@ void GameEngine::tryGKSave() {
     double reachCover = clamp((reach - need) / reach, 0.0, 1.0);
     double reactTime = clamp(timeToLineMs / 1025.0, 0.18, 1.0);
     double power = clamp((speed - 180.0) / 195.0, 0.0, 0.30);
-    double saveChance = clamp(reachCover * (0.41 + 0.42 * reactTime) + positioning * 0.125 - power,   // 0.38->0.41: small keeper buff to trim the onTarget-conversion creep (goals ~5 -> ~4, still >3.5)
+    double saveChance = clamp(reachCover * (0.38 + 0.42 * reactTime) + positioning * 0.125 - power,   // 0.41->0.38: revert the buff now that shot-selection (a07aeab) cut on-frame volume — let placement/selection carry it, not the keeper
                               GK_SAVE_MIN, GK_SAVE_MAX);
     // Penalties: from 12 yards the keeper is guessing — real save rate is
     // ~17-25%. The reach model overrates him (short flight, centered start).
