@@ -58,6 +58,12 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (!freshCross && cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    // Over-conversion residual (BORIS_OVERCONVERSION §NEW residual): a long-range
+    // shot with defenders closing is low-quality — the keeper reads it, so it pads
+    // on-frame/saves, not goals. Recycle and keep possession instead. A clear sight
+    // (no crowd), a shoot-on-sight directive, or a fresh cross/through finish still shoot.
+    if (!freshCross && !freshThrough && !shootOnSight && shotDistance > 195.0 && per.pressureCount >= 2)
+        return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.55;
     if (shotDistance < 140.0 && per.pressureCount == 0 && angleDeg > 10.0) sc = std::max(sc, 0.38);
