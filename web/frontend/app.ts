@@ -119,14 +119,23 @@ function attrHeat(v: number): string {
 function otherDivisions(league: LeagueT): HTMLElement {
   const others = (league.world ?? []).filter(d => d.tier !== league.tier);
   if (!others.length) return h('div', { style: 'display:none' });
+  // same tier-aware promotion/relegation dots as the main table (a division must exist above/below)
+  const tiers = (league.world ?? []).map(d => d.tier);
+  const promoteN = league.promote ?? 0;
+  const zoneDot = (z: 'promo' | 'releg') => h('span', { title: z === 'promo' ? 'Promotion place' : 'Relegation place', style: `display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px;vertical-align:middle;background:${z === 'promo' ? 'var(--accent)' : 'var(--danger)'}` });
   const cards = others.map(d => {
+    const hasPromo = promoteN > 0 && tiers.some(t => t < d.tier);
+    const hasReleg = promoteN > 0 && tiers.some(t => t > d.tier);
     const tb = h('tbody');
-    d.standings.forEach((s, i) => tb.append(h('tr', { class: s.isUser ? 'me' : '' },
-      h('td', { class: 'num' }, String(i + 1)),
+    d.standings.forEach((s, i) => {
+      const z = hasPromo && i < promoteN ? 'promo' : hasReleg && i >= d.standings.length - promoteN ? 'releg' : null;
+      tb.append(h('tr', { class: s.isUser ? 'me' : '' },
+      h('td', { class: 'num' }, z ? zoneDot(z) : '', String(i + 1)),
       h('td', {}, s.name, s.isUser ? h('span', { class: 'pill', style: 'margin-left:8px' }, ' you') : ''),
       h('td', { class: 'num' }, String(s.played)),
       h('td', { class: 'num' }, (s.gd > 0 ? '+' : '') + s.gd),
-      h('td', { class: 'num', style: 'font-weight:700' }, String(s.points)))));
+      h('td', { class: 'num', style: 'font-weight:700' }, String(s.points))));
+    });
     return h('div', {},
       h('div', { class: 'section-title', style: 'margin-top:0' }, d.name),
       h('table', {}, h('thead', {}, h('tr', {},
