@@ -624,9 +624,12 @@ async function screenDashboard() {
       h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
   }
 
-  // press conference — your words move squad morale via each player's dials
+  // press conference — your words move squad morale via each player's dials. One per match (§2.14 cadence):
+  // you can't spam the media to farm morale, so the room is shut until your next game once you've spoken.
+  const pressOpen = league.pressAvailable !== false;
   const pressInput = h('textarea', { class: 'tactics-input', rows: '2', placeholder: 'Address the media — back your players, demand more, or stay ice-cool…' }) as HTMLTextAreaElement;
   const pressBtn = h('button', { class: 'ghost small' }, 'Address the media');
+  if (!pressOpen) { pressInput.setAttribute('disabled', 'true'); pressBtn.setAttribute('disabled', 'true'); }
   // "How it landed" panel — surfaces the per-player reactions (+ in-character quotes) the backend
   // already returns, instead of collapsing them to a toast. Patched in place: no dashboard rebuild
   // (which would nuke scroll + refetch everything), so the squad cards' morale just goes mildly stale.
@@ -643,13 +646,18 @@ async function screenDashboard() {
         ...[...r.reactions].sort((a, b) => b.delta - a.delta).map(x => h('div', {
           class: 'receipt-line ' + (x.delta > 0 ? 'up' : x.delta < 0 ? 'down' : ''), style: 'font-size:13px;padding:2px 0',
         }, `${x.delta > 0 ? '▲' : x.delta < 0 ? '▼' : '·'} ${x.name} ${x.delta > 0 ? '+' : ''}${x.delta}${x.quote ? ` — “${x.quote}”` : ''}`)));
-      pressInput.value = '';
-    } catch (e: any) { pressReceipt.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message)); }
-    finally { pressBtn.removeAttribute('disabled'); pressBtn.textContent = 'Address the media'; }
+      // one per match — leave the room shut until the next game
+      pressInput.value = ''; pressInput.setAttribute('disabled', 'true'); pressBtn.textContent = 'Spoken to the media';
+    } catch (e: any) {
+      pressReceipt.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message));
+      pressBtn.removeAttribute('disabled'); pressBtn.textContent = 'Address the media';
+    }
   });
   const pressCard = h('div', { class: 'card', style: 'margin-top:14px' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Press conference'),
-    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px' }, 'What you say moves squad morale — each player reacts through his own personality.'),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px' },
+      pressOpen ? 'What you say moves squad morale — each player reacts through his own personality.'
+        : 'You’ve already faced the media this matchday — back after your next match.'),
     pressInput, h('div', { style: 'margin-top:6px' }, pressBtn), pressReceipt);
 
   // ── club news: events that evolved a player's story + dials ──

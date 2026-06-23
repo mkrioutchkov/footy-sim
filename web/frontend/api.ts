@@ -60,7 +60,7 @@ export interface LeagueT {
   leagueId: number; myTeamId: number; standings: StandingT[]; fixtures: FixtureT[];
   season?: number; tier?: number; divisionName?: string; world?: DivisionT[]; seasonComplete?: boolean;
   objective?: ObjectiveT | null; promote?: number;
-  confidence?: { value: number; status: string } | null; boardMood?: string | null;
+  confidence?: { value: number; status: string } | null; boardMood?: string | null; pressAvailable?: boolean;
 }
 export interface RolloverT {
   season: number;
