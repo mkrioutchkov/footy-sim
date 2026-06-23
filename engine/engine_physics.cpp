@@ -549,7 +549,7 @@ void GameEngine::checkBallPlayerCollision(double){
         // (engine sat at ~2 vs ~10 because every cut was a clean collect).
         if(contact->team!=pendingPass.team){
             double ownLineX=ownGoalXFor(contact->team);
-            if(std::abs(b.x-ownLineX)<140.0 && rng.random()<0.28){
+            if(std::abs(b.x-ownLineX)<175.0 && rng.random()<0.55){   // corners 2.7->6.5: dominant source, was 28%/140. Raising the rate further (0.70) was noise — the cut-near-line VOLUME caps it, not the rate; the last ~3 (toward real ~10) need a kicked-clearance-behind source.
                 awardCorner(pendingPass.team, contact->team==Team::Home, b.y);
                 return;
             }
@@ -607,7 +607,7 @@ void GameEngine::checkBallPlayerCollision(double){
             double ownLine=ownGoalXFor(contact->team);
             bool nearLine=std::abs(b.x-ownLine)<150.0;
             bool deflectingBehind=(ownLine==0.0)?b.vx<0:b.vx>0;
-            if(nearLine&&deflectingBehind&&rng.random()<0.65){
+            if(nearLine&&deflectingBehind&&rng.random()<0.80){   // corner boost (was 0.65)
                 awardCorner(shot.team, contact->team==Team::Home, b.y);
             }
         }
