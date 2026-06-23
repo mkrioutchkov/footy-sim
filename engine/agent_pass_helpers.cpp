@@ -327,12 +327,18 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool wideOutletTarget = targetWide && fp > 20.0 && d < 500.0;
     double runnerForwardSpeed = t.vx * fd;
     bool targetAttacker = t.role == Role::CF || t.role == Role::WM;
+    // USERWATCH A3 (Leon Kovac ~4:33 missed it): a teammate CLEAR & ONSIDE in behind with an
+    // open lane is a through-ball target even BEFORE he sprints — the obvious killer pass a
+    // human expects. Strict gates (unmarked, lane fully clear, genuine range) so it never spams.
+    bool clearOnsideAttacker = targetAttacker && receiverPressure == 0 && bl == 0
+                            && onsideGap > 3.0 && onsideGap < 170.0 && targetGoalDist < 430.0;
     bool runnerIntent =
         (assignment && (assignment->role == DefensiveTask::RunAhead
                      || assignment->role == DefensiveTask::InsideRun
                      || assignment->role == DefensiveTask::Overlap
                      || assignment->role == DefensiveTask::CrossLane))
-        || runnerForwardSpeed > 5.0;
+        || runnerForwardSpeed > 5.0
+        || clearOnsideAttacker;
     bool goodThroughWindow = targetAttacker
                           && runnerIntent
                           && fp > 30.0
@@ -345,7 +351,8 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                                        || assignment->role == DefensiveTask::InsideRun
                                        || (assignment->role == DefensiveTask::CrossLane && t.role == Role::WM)))
                           || (assignment && assignment->role == DefensiveTask::Overlap && !wideOutletTarget)
-                          || (isCentralMidfielder() && targetAttacker && !wideOutletTarget);
+                          || (isCentralMidfielder() && targetAttacker && !wideOutletTarget)
+                          || clearOnsideAttacker;
     if (!isWideDelivery && releasedRunner && goodThroughWindow) {
         pur = ActionPurpose::Through;
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
