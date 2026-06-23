@@ -56,6 +56,7 @@ export class MatchRenderer {
   private versionText: Text = null!;
   private uiVersion = '';
   private eventGfx: Graphics;
+  private jockeyGfx: Graphics;
   private eventLabels: Text[] = [];
   private setPieceGfx: Graphics;
   private setPieceText: Text;
@@ -92,6 +93,7 @@ export class MatchRenderer {
     this.ballBody = new Graphics();
     this.ballGlow = new Graphics();
     this.eventGfx = new Graphics();
+    this.jockeyGfx = new Graphics();
     this.setPieceGfx = new Graphics();
     this.setPieceText = new Text({ text: '', style: new TextStyle({ fill: 0xffffff, fontSize: 15, fontFamily: 'monospace', fontWeight: 'bold' }) });
     this.hudText = new Text({ text: '', style: new TextStyle({ fill: 0xf2f5f7, fontSize: 17, fontFamily: 'monospace', fontWeight: 'bold' }) });
@@ -147,6 +149,7 @@ export class MatchRenderer {
     document.getElementById('app')!.appendChild(this.app.canvas);
     this.app.stage.addChild(this.pitchContainer);
     this.pitchContainer.addChild(this.playerLayer);
+    this.pitchContainer.addChild(this.jockeyGfx);   // jockey/shield arcs sit just above the players
     this.pitchContainer.addChild(this.ringGfx);
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
@@ -257,6 +260,7 @@ export class MatchRenderer {
   private drawPitch(): void {
     this.pitchContainer.removeChildren();
     this.pitchContainer.addChild(this.playerLayer);
+    this.pitchContainer.addChild(this.jockeyGfx);
     this.pitchContainer.addChild(this.ringGfx);
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
@@ -625,6 +629,38 @@ export class MatchRenderer {
     this.ballGlow.visible = vb.z > 5;
 
     // ── events ──
+    // ── jockey / containing posture (overlap-no-tackle residue) ── the engine's designated presser(s)
+    //    glued to the carrier are LEGIT close-contests (shielding/jockeying, ~130/match after Boris's
+    //    tackle fix df6a7a4), not "ran through him". A soft amber "shield" arc on the presser's edge
+    //    fronting the carrier makes the non-turnover READ as intentional. Subtle (on-screen often) +
+    //    gated on a genuinely close opponent contest; no-op when the engine omits the pressing ids.
+    this.jockeyGfx.clear();
+    if (b.controllerId != null) {
+      const carrier = byId.get(b.controllerId);
+      const vc = this.visualPlayers.get(b.controllerId);
+      if (carrier && vc) {
+        // The watch frame carries no pressing id, so detect the contest GEOMETRICALLY (the audit's own
+        // definition): an opponent glued to the carrier. Mark the closest 1-2 such defenders.
+        const contenders: { x: number; y: number; d: number }[] = [];
+        for (const p of state.players) {
+          if (p.team === carrier.team || p.id === carrier.id) continue;
+          const vp = this.visualPlayers.get(p.id);
+          if (!vp) continue;
+          const d = Math.hypot(vc.x - vp.x, vc.y - vp.y);
+          if (d >= 1 && d <= PLAYER_R * 2.5) contenders.push({ x: vp.x, y: vp.y, d });   // glued (~touching) contest only
+        }
+        contenders.sort((a, c) => a.d - c.d);
+        for (const c of contenders.slice(0, 2)) {
+          const ang = Math.atan2(vc.y - c.y, vc.x - c.x);
+          this.jockeyGfx.arc(c.x, c.y, PLAYER_R + 3, ang - 0.6, ang + 0.6);
+          this.jockeyGfx.stroke({ width: 2.5, color: 0xf2c14e, alpha: 0.75 });
+          // a faint engagement tick from the defender toward the carrier — reads as "fronting", not chasing
+          this.jockeyGfx.moveTo(c.x + Math.cos(ang) * (PLAYER_R + 1), c.y + Math.sin(ang) * (PLAYER_R + 1));
+          this.jockeyGfx.lineTo(c.x + Math.cos(ang) * (PLAYER_R + 5), c.y + Math.sin(ang) * (PLAYER_R + 5));
+          this.jockeyGfx.stroke({ width: 1.5, color: 0xf2c14e, alpha: 0.55 });
+        }
+      }
+    }
     this.eventGfx.clear();
     for (const label of this.eventLabels) label.visible = false;
     let labelIdx = 0;
