@@ -628,8 +628,8 @@ export class MatchRenderer {
     for (const label of this.eventLabels) label.visible = false;
     let labelIdx = 0;
     for (const ev of (state.events ?? [])) {
-      const skillLike = ev.type === 'skill' || ev.type === 'nutmeg' || ev.type === 'dragback';
-      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : skillLike ? 650 : 2200;
+      const skillLike = ev.type === 'skill' || ev.type === 'dragback';
+      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : ev.type === 'nutmeg' ? 1000 : skillLike ? 650 : 2200;
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
       if (ev.type === 'pass') {
@@ -638,6 +638,43 @@ export class MatchRenderer {
           this.eventGfx.moveTo(ev.x, ev.y);
           this.eventGfx.lineTo(target.x, target.y);
           this.eventGfx.stroke({ width: 2, color: 0x9ed7ff, alpha: alpha * 0.75 });
+        }
+        continue;
+      }
+      if (ev.type === 'nutmeg') {
+        // A dedicated nutmeg: the ball punches THROUGH the beaten opponent (targetId) — a gold streak in
+        // the trickster→victim direction, two red "leg" ticks marking the gap it went through, an
+        // embarrassed pulse ring on the victim, and a "NUTMEG!" call. Robust to the payload: falls back to
+        // the event spot + a horizontal streak if Boris omits playerId/targetId.
+        const t = ev.age / lifetime;
+        const victim = ev.targetId != null ? byId.get(ev.targetId) : undefined;
+        const cx = victim ? (this.visualPlayers.get(victim.id)?.x ?? victim.x) : ev.x;
+        const cy = victim ? (this.visualPlayers.get(victim.id)?.y ?? victim.y) : ev.y;
+        let dx = 1, dy = 0;
+        const tm = ev.playerId != null ? byId.get(ev.playerId) : undefined;
+        if (tm) {
+          const mx = this.visualPlayers.get(tm.id)?.x ?? tm.x, my = this.visualPlayers.get(tm.id)?.y ?? tm.y;
+          const a = Math.atan2(cy - my, cx - mx); dx = Math.cos(a); dy = Math.sin(a);
+        }
+        const reach = PLAYER_R + 10 + t * 16;
+        this.eventGfx.moveTo(cx - dx * reach * 0.5, cy - dy * reach * 0.5);
+        this.eventGfx.lineTo(cx + dx * reach, cy + dy * reach);
+        this.eventGfx.stroke({ width: 3, color: 0xffd24d, alpha });
+        const px = -dy, py = dx;   // perpendicular = the two "legs" the ball threaded
+        for (const s of [1, -1]) {
+          this.eventGfx.moveTo(cx + px * s * (PLAYER_R - 1) - dx * 2, cy + py * s * (PLAYER_R - 1) - dy * 2);
+          this.eventGfx.lineTo(cx + px * s * (PLAYER_R - 1) + dx * 3, cy + py * s * (PLAYER_R - 1) + dy * 3);
+          this.eventGfx.stroke({ width: 2, color: 0xff6b6b, alpha: alpha * 0.85 });
+        }
+        this.eventGfx.circle(cx, cy, PLAYER_R + 2 + t * 9);
+        this.eventGfx.stroke({ width: 2, color: 0xff6b6b, alpha: alpha * 0.7 });
+        if (labelIdx < this.eventLabels.length) {
+          const label = this.eventLabels[labelIdx++];
+          label.text = 'NUTMEG!';
+          label.position.set(cx, Math.max(18, cy - reach - 12));
+          label.style.fill = 0xffd24d;
+          label.alpha = clamp(1 - t, 0, 1);
+          label.visible = true;
         }
         continue;
       }
@@ -843,6 +880,7 @@ export class MatchRenderer {
       case 'punch': return 'PUNCH';
       case 'woodwork': return 'WOODWORK';
       case 'dragback': return 'DRAG-BACK';
+      case 'nutmeg': return 'NUTMEG!';
       default: return type.replace(/_/g, ' ').toUpperCase();
     }
   }
