@@ -148,9 +148,19 @@ void PlayerAI::applyMovement(double sdt) {
         }
     }
 
+    // USERWATCH A2 (~4:04): a player pursuing a WINNABLE loose ball must FULL-SPRINT, not cruise
+    // onto a chance. Ball loose + within contesting range + actually moving toward it => commit to
+    // the sprint (and drop the distance-damping below) — hustle for the 50/50, don't amble.
+    // High-value ONLY (USERWATCH: "winnable AND high-value — a clear chance"): the loose ball is
+    // near a goal — an attacking chance to pounce on, or a defensive emergency to beat the striker
+    // to. Midfield 50/50s stay at normal pursuit pace (this isn't a blanket sprint-everywhere).
+    bool looseBallHighValue = std::abs(engine.state.ball.x - goalXFor(p.team)) < 300.0
+                           || std::abs(engine.state.ball.x - ownGoalX) < 300.0;
+    bool pursuingLooseBall = engine.state.ball.controllerId < 0 && looseBallHighValue
+        && bd < 230.0 && (dx * bdx + dy * bdy) > 0.0;
     double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)
         ? DRIBBLE_FAST_SPEED
-        : (lastActionType == ActionType::Chase || committedPress || defendSprint ? SPEED_SPRINT : SPEED_RUN);
+        : (lastActionType == ActionType::Chase || committedPress || defendSprint || pursuingLooseBall ? SPEED_SPRINT : SPEED_RUN);
 
     // Shielding: slow down when near opponents with ball
     bool isController = (engine.state.ball.controllerId == p.id);
@@ -158,7 +168,7 @@ void PlayerAI::applyMovement(double sdt) {
         baseSpeed *= 0.80; // 20% slower when shielding
     }
 
-    double df = (committedChase || committedPress || defendSprint) ? 1.0 : std::min(d / 120.0, 1.5);
+    double df = (committedChase || committedPress || defendSprint || pursuingLooseBall) ? 1.0 : std::min(d / 120.0, 1.5);
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
 
     double px = p.x, py = p.y;
