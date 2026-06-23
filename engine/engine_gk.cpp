@@ -377,10 +377,14 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     // over the bar concedes a corner — the iconic save the engine never made,
     // so corners were near-extinct. More likely the further he had to reach
     // and the harder the shot.
-    double tipChance = clamp(0.18 + (contactOffset - reach * 0.3) / reach * 0.5 + (speed - 185.0) / 430.0, 0.0, 0.6);
+    double tipChance = clamp(0.25 + (contactOffset - reach * 0.3) / reach * 0.5 + (speed - 185.0) / 430.0, 0.0, 0.65);   // BORIS_GK_TIP_AUDIT: floor 0.18->0.25 lifts corners toward ~10
     if (!caught && rng.random() < tipChance) {
         // (no "save" emit here — resolvePendingSave already emitted it before
         // calling us; a second emit double-counted the visual on a tip.)
+        // BORIS_GK_TIP_AUDIT: count the tip (was uncounted -> keeperClaimTip read 0) + emit a
+        // dedicated 'tip' event so reports/commentary/viewer see the iconic over-the-bar save.
+        stats.recordClaimTip();
+        emitEvent("tip", gk.x, gk.y, gk.id, shooterId);
         Team attackingTeam = gk.team == Team::Home ? Team::Away : Team::Home;
         awardCorner(attackingTeam, gk.team == Team::Home, b.y);
         return;
