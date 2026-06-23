@@ -40,6 +40,7 @@ export interface TeamT {
   userId: number | null; tactics: Tactics; players: PlayerT[];
   formation: string; lineup: number[] | null; budget?: number; wageBudget?: number; wageBill?: number; trainingFocus?: string; sacked?: boolean; captainSlot?: number | null;
   planText?: string | null; plan?: PlanT | null;
+  setPieceTakers?: { fk: number | null; corner: number | null; pen: number | null; longThrow: number | null } | null;
 }
 export interface LineupSlotT { slot: number; role: string; homeX: number; homeY: number; playerName: string; fromSlot: number; misfit?: boolean; }
 export interface FormationsT { pitchW: number; pitchH: number; formations: Record<string, { role: string; x: number; y: number }[]>; }
@@ -182,6 +183,7 @@ export const api = {
   rejectOffer: (id: number) => req<{ ok: boolean; incoming: IncomingOfferT[] }>('POST', `/offer/${id}/reject`),
   setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
   setCaptain: (slot: number) => req<{ ok: boolean; captainSlot: number | null }>('PUT', '/captain', { slot }),
+  setSetPieceTakers: (takers: { fk: number | null; corner: number | null; pen: number | null; longThrow: number | null }) => req<{ ok: boolean; setPieceTakers: TeamT['setPieceTakers'] }>('POST', '/set-piece-takers', takers),
   teamTalk: (fixtureId: number, tone?: string) => req<{ tones: TalkToneT[]; pending: { tone: string; reactions: TalkReactionT[] } | null; tone: string; reactions: TalkReactionT[] }>('GET', `/teamtalk?fixture=${fixtureId}${tone ? `&tone=${tone}` : ''}`),
   setTeamTalk: (fixtureId: number, tone: string) => req<{ ok: boolean; tone: string; reactions: TalkReactionT[] }>('POST', '/teamtalk', { fixtureId, tone }),
   academy: () => req<{ prospects: AcademyProspectT[] }>('GET', '/academy'),

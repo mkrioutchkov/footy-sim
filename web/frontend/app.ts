@@ -792,6 +792,36 @@ async function screenDashboard() {
 }
 
 // ── tactics ──
+// Set-piece takers (user-watch): designate FK / corner / pen / long-throw takers. A taker who isn't in
+// the fielded XI falls back to the engine default (the backend drops his directive at spec-build).
+type TakerKey = 'fk' | 'corner' | 'pen' | 'longThrow';
+function setPieceTakerPanel(team: TeamT): HTMLElement {
+  const players = [...team.players].sort((a, b) => a.slot - b.slot);
+  const cur = team.setPieceTakers ?? { fk: null, corner: null, pen: null, longThrow: null };
+  const fields: { key: TakerKey; label: string; s: HTMLSelectElement }[] = ([
+    ['fk', 'Free kicks'], ['corner', 'Corners'], ['pen', 'Penalties'], ['longThrow', 'Long throws'],
+  ] as [TakerKey, string][]).map(([key, label]) => {
+    const s = h('select', { class: 'tactics-input', style: 'width:auto;min-width:190px;padding:5px 8px' }) as HTMLSelectElement;
+    s.append(h('option', { value: '' }, '— Default (by position) —'));
+    for (const p of players) s.append(h('option', { value: String(p.slot) }, `${p.name} · ${p.role}${p.slot >= 11 ? ' (bench)' : ''}`));
+    s.value = cur[key] != null ? String(cur[key]) : '';
+    return { key, label, s };
+  });
+  const save = async () => {
+    const body = { fk: null as number | null, corner: null as number | null, pen: null as number | null, longThrow: null as number | null };
+    for (const f of fields) body[f.key] = f.s.value === '' ? null : Number(f.s.value);
+    try { await api.setSetPieceTakers(body); toast('Set-piece takers updated'); }
+    catch (e: any) { toast(e.message); }
+  };
+  fields.forEach(f => f.s.addEventListener('change', save));
+  return h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, '⚽ Set-piece takers'),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:10px' }, 'Designate who takes your dead balls — or leave on Default to let the engine pick by position. A taker who isn’t in your matchday XI falls back to the default.'),
+    h('div', { class: 'grid cols-2', style: 'gap:10px' }, ...fields.map(f =>
+      h('label', { class: 'between', style: 'gap:10px;align-items:center;font-size:13px' },
+        h('span', { style: 'flex-shrink:0' }, f.label), f.s))));
+}
+
 async function screenTactics() {
   let team: TeamT;
   try { team = await api.team(); } catch { return route(); }
@@ -802,6 +832,7 @@ async function screenTactics() {
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     planPanel(team),
     formationPanel(team, reg),
+    setPieceTakerPanel(team),
   ));
 }
 
