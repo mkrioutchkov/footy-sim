@@ -194,6 +194,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       out.youth.push(...youthAndRetirement(l.id));     // retire veterans + bring through prospects
       resetFitness(l.id);                              // pre-season: everyone reports back fit
       resetMorale(l.id);                               // and morale resets to fresh optimism
+      db.prepare('UPDATE teams SET last_press_round = NULL WHERE league_id = ?').run(l.id);   // press cadence resets with the fixtures (§2.14)
       db.prepare('UPDATE players SET season_rating_sum = 0, season_apps = 0 WHERE team_id IN (SELECT id FROM teams WHERE league_id = ?)').run(l.id);   // fresh rating tally
       // the old fixtures are about to vanish — drop their recordings + cached reports too, so
       // those tables don't accumulate rows (and gzip files) keyed to dead fixture ids.

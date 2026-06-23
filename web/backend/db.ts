@@ -325,6 +325,10 @@ ensureColumn('teams', 'objective_season', 'objective_season INTEGER'); // the se
 ensureColumn('season_history', 'objective_kind', 'objective_kind TEXT');
 ensureColumn('season_history', 'objective_target', 'objective_target INTEGER');
 ensureColumn('season_history', 'objective_met', 'objective_met INTEGER');   // 1 met / 0 missed / NULL none
+
+// Press-conference cadence (one per the club's match): the played-fixture count at the last presser, so
+// the manager can't spam press conferences to farm morale. NULL = never held one. Reset at rollover.
+ensureColumn('teams', 'last_press_round', 'last_press_round INTEGER');
 ensureColumn('season_history', 'board_tone', 'board_tone TEXT');            // the board's end-of-season verdict tone
 ensureColumn('season_history', 'board_message', 'board_message TEXT');
 ensureColumn('season_history', 'board_confidence', 'board_confidence INTEGER');   // confidence after the season settled

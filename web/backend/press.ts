@@ -65,6 +65,22 @@ export async function judgePressConference(text: string, squad: SquadMember[]): 
 
 const parseJSON = (s: string | null): unknown => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 
+// ── Cadence: one press conference per the club's match (so you can't spam to farm morale) ────────
+// Marker = the club's played-fixture count. You may face the media once between matches; recordPress
+// stamps the current count, and the next match (which increments it) re-opens the room. Reset at rollover.
+const playedCount = (teamId: number): number =>
+  (db.prepare('SELECT COUNT(*) AS n FROM fixtures WHERE (home_team_id = ? OR away_team_id = ?) AND played = 1').get(teamId, teamId) as { n: number }).n;
+
+export function pressAvailable(teamId: number): boolean {
+  const row = db.prepare('SELECT last_press_round FROM teams WHERE id = ?').get(teamId) as { last_press_round: number | null } | undefined;
+  if (!row) return false;
+  return row.last_press_round == null || row.last_press_round < playedCount(teamId);
+}
+
+export function recordPress(teamId: number): void {
+  db.prepare('UPDATE teams SET last_press_round = ? WHERE id = ?').run(playedCount(teamId), teamId);
+}
+
 // Hold a press conference for a club: judge the statement + apply the morale changes.
 export async function applyPressConference(teamId: number, text: string): Promise<{ reactions: PressReaction[]; lifted: number; unsettled: number }> {
   const rows = db.prepare('SELECT slot, name, personality FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as

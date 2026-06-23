@@ -26,7 +26,7 @@ import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from '.
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
-import { applyPressConference } from './press.ts';
+import { applyPressConference, pressAvailable, recordPress } from './press.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory, getClubRecords } from './history.ts';
@@ -504,7 +504,10 @@ app.post('/api/press', async (req: any, reply) => {
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   const text = String(req.body?.text ?? '').trim().slice(0, 400);
   if (!text) return reply.code(400).send({ error: 'say something to the media' });
+  // one presser per match — you can't spam the media to farm morale
+  if (!pressAvailable(teamId)) return reply.code(400).send({ error: "you've already faced the media this matchday — nothing new to say until your next game." });
   const r = await applyPressConference(teamId, text);
+  recordPress(teamId);
   return { ...r, team: getTeamWithPlayers(teamId) };
 });
 
@@ -590,6 +593,7 @@ app.get('/api/league', async (req: any, reply) => {
     promote: PROMOTE,                  // bottom N are relegated — lets the UI place the drop line
     confidence,                        // board confidence / job security
     boardMood: mood,                   // mid-season board mood line (null if no confidence)
+    pressAvailable: pressAvailable(teamId),   // §2.14: can the manager hold a press conference this matchday
   };
 });
 
