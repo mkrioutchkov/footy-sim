@@ -538,6 +538,7 @@ app.get('/api/player/:slot/renew-preview', async (req: any, reply) => {
 
 // Hold a press conference: the manager's statement (free text) is judged against each
 // player's personality dials to move squad morale. LLM-primary with a deterministic fallback.
+const pressInFlight = new Set<number>();   // a presser is mid-judge (multi-second LLM await) — see the guard below
 app.post('/api/press', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
@@ -546,9 +547,18 @@ app.post('/api/press', async (req: any, reply) => {
   if (!text) return reply.code(400).send({ error: 'say something to the media' });
   // one presser per match — you can't spam the media to farm morale
   if (!pressAvailable(teamId)) return reply.code(400).send({ error: "you've already faced the media this matchday — nothing new to say until your next game." });
-  const r = await applyPressConference(teamId, text);
-  recordPress(teamId);
-  return { ...r, team: getTeamWithPlayers(teamId) };
+  // Close the double-submit race: pressAvailable() → await → recordPress() lets two concurrent submits both
+  // pass the gate before either records, double-applying morale. The check+add below is synchronous (no await
+  // between), so on Node's single thread the second submit always sees the in-flight flag and is rejected.
+  if (pressInFlight.has(teamId)) return reply.code(409).send({ error: "you're already in front of the media." });
+  pressInFlight.add(teamId);
+  try {
+    const r = await applyPressConference(teamId, text);
+    recordPress(teamId);   // only consume the once-per-match cadence on success (a failed judge can be retried)
+    return { ...r, team: getTeamWithPlayers(teamId) };
+  } finally {
+    pressInFlight.delete(teamId);
+  }
 });
 
 // Set the club's training focus ('balanced' or a trainable attribute). Drives the
