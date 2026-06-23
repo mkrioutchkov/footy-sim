@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync, readFileSync, existsSync, rmSync, createWrite
 import { gzip, gunzipSync, createGzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import os from 'node:os';
 import type { WebSocket } from 'ws';
 import { db } from './db.ts';
 import { getTeamWithPlayers, fieldedXIIndices, ROLE_SLOTS, DEFAULT_TACTICS, type SetPieceTakers } from './game.ts';
@@ -469,6 +470,25 @@ export function recordReplay(fixtureId: number): void {
     .finally(() => recordingInFlight.delete(fixtureId));
 }
 
+// A matchday sims the WHOLE world (every division's round + any cup ties) — ~16 engine processes at once.
+// Promise.all fired them ALL concurrently, which on a modest player's box (a 4-core laptop) means 16 native
+// engines + node + vite fighting over a handful of cores — a real crash/swap risk. Cap the in-flight engines
+// at the box's own parallelism: a 16-core host still runs the round in one wave (this box is throughput-bound,
+// not oversubscription-bound, so a smaller cap only adds batch barriers), a 4-core box runs ~3 at a time.
+// FOOTY_MATCH_CONCURRENCY overrides for a tuned deploy. Order-preserving so callers can index results by
+// position. (No-op vs Promise.all when the cap >= items.length.)
+const envCap = Math.floor(Number(process.env.FOOTY_MATCH_CONCURRENCY));
+export const MATCH_CONCURRENCY = Number.isFinite(envCap) && envCap >= 1
+  ? envCap
+  : Math.max(2, (os.availableParallelism?.() ?? 4) - 1);
+export async function mapPool<T, R>(items: T[], fn: (item: T) => Promise<R>, limit = MATCH_CONCURRENCY): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]); } };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  return out;
+}
+
 export interface CupTieResult { tieId: number; homeScore: number; awayScore: number; alreadyPlayed: boolean }
 
 // Play a cup tie through the engine and persist its score. Idempotent.
@@ -479,11 +499,17 @@ export function playCupTie(tieId: number): Promise<CupTieResult> {
   if (t.played) return Promise.resolve({ tieId, homeScore: t.home_score ?? 0, awayScore: t.away_score ?? 0, alreadyPlayed: true });
   const file = path.join(SPEC_DIR, `cup-${tieId}.json`);
   writeFileSync(file, JSON.stringify(buildTieSpec(t.home_team_id, t.away_team_id, t.seed)));
-  const play = hasHumanStake(t.home_team_id, t.away_team_id)
-    ? recordMatch('cup', tieId, file)
-    : runEngineSummary(file);
-  return play.then(({ homeScore, awayScore }) => {
+  const human = hasHumanStake(t.home_team_id, t.away_team_id);
+  // Same split as the league: --summary is the authoritative result; a human tie ALSO fires a best-effort,
+  // capped, non-blocking replay recording (a timeout/crash leaves the result + bracket untouched).
+  return runEngineSummary(file).then(({ homeScore, awayScore }) => {
     db.prepare('UPDATE cup_ties SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, tieId);
+    if (human && recordingInFlight.size === 0 && !recordingFor('cup', tieId)) {
+      recordingInFlight.add(tieId);
+      void recordMatch('cup', tieId, file)
+        .catch((e: Error) => console.error(`[match] replay recording cup tie ${tieId} failed (${e.message}); result + bracket unaffected.`))
+        .finally(() => recordingInFlight.delete(tieId));
+    }
     return { tieId, homeScore, awayScore, alreadyPlayed: false };
   });
 }

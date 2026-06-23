@@ -12,7 +12,7 @@ import {
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
-import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay } from './match.ts';
+import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay, mapPool } from './match.ts';
 import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
@@ -760,7 +760,7 @@ app.post('/api/advance', async (req: any, reply) => {
   const userRound = (db.prepare('SELECT MIN(round) AS r FROM fixtures WHERE league_id = ? AND played = 0').get(team.leagueId) as { r: number | null }).r;
   const toPlay = pendingMatchday(team.leagueId);
   if (!toPlay.length) return reply.code(404).send({ error: 'season complete' });
-  const results = await Promise.all(toPlay.map(id => playFixture(id)));
+  const results = await mapPool(toPlay, id => playFixture(id));   // core-capped: a matchday sims the whole world
   // the user's match this matchday (null if they'd already played/watched it ahead)
   const myFx = userRound == null ? null
     : db.prepare('SELECT id FROM fixtures WHERE league_id = ? AND round = ? AND (home_team_id = ? OR away_team_id = ?) LIMIT 1').get(team.leagueId, userRound, teamId, teamId) as { id: number } | undefined;
@@ -791,7 +791,7 @@ app.post('/api/advance', async (req: any, reply) => {
   let cup: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null = null;
   const pend = pendingCupRound(team.leagueId);
   if (pend && userRound != null && pend.round * 3 <= userRound) {
-    await Promise.all(pend.tieIds.map(id => playCupTie(id)));
+    await mapPool(pend.tieIds, id => playCupTie(id));
     const adv = advanceCupRound(team.leagueId, pend.round);
     cup = { round: pend.round, champion: adv?.champion ?? null, myTie: cupTieFor(teamId, team.leagueId, pend.round) };
   }
