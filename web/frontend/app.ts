@@ -1303,6 +1303,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   };
   replayBtn.addEventListener('click', playClip);
   ws.onmessage = (ev) => {
+    if (myEpoch !== watchEpoch) return;   // navigated away — a queued frame must not sync() the now-destroyed renderer or touch detached DOM (matches the guards at the api callsites)
     try {
       const msg = JSON.parse(ev.data) as WatchMessage;
       if (msg.error) { showStatusError(msg.error); return; }   // re-sim failed (e.g. replay-from-shouts)
@@ -1331,7 +1332,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       renderer.sync(msg);
       paintBar(msg.speed);   // highlight the active speed off the frame
 
-    } catch { /* */ }
+    } catch (e) { console.warn('[watch] dropped a malformed frame', e); }   // one bad frame shouldn't kill the watch (the next frame redraws) — but surface it for debugging rather than swallowing silently
   };
   ws.onerror = () => { if (!gotFrame) showStatusError('Could not connect to the match.'); };
   // A close before any frame means the match never streamed (engine missing / failed to start);
