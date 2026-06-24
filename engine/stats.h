@@ -14,6 +14,18 @@ public:
     void recordPassIntercepted()      { passesIntercepted++; }
     void recordPassIntendedReceived() { passesIntended++; }
     void recordPassWrongTeammate()    { wrongTeammate++; }
+    // §F stats-hardening (BORIS_STATS_ARCH #3): count violated counting-INVARIANTS at full-time.
+    // 0 = internally consistent; any miscount that breaks a subset-relationship bumps this, and
+    // since it's emitted in the summary the golden HASH trips => the bug becomes impossible to SHIP.
+    // Catches gross over-counts by construction (onTarget double-count #1c, save>onTarget #1b class).
+    int invariantViolations() const {
+        int v = 0;
+        if (saves > shotsOnTarget) v++;                                  // a save implies an on-target shot
+        if (passesCompleted > passesAttempted) v++;                      // can't complete more than attempted
+        if (passesCompleted + passesIntercepted > passesAttempted) v++;  // the rest go loose/out of play
+        if (shotsOnTarget > shotsHome + shotsAway) v++;                  // on-target is a subset of all shots
+        return v;
+    }
     void recordPassDirection(double forwardProgress) {
         if(forwardProgress > 30.0) forwardPasses++;
         else if(forwardProgress < -30.0) backwardPasses++;

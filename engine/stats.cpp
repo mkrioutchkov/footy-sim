@@ -227,6 +227,8 @@ std::string StatsCollector::summaryJSON() const {
         {"penaltiesScored", penaltiesScored}
     };
 
+    j["invariantViolations"] = invariantViolations();   // §F: 0 = internally consistent; >0 trips the golden hash
+
     j["shotSelection"] = {
         {"audited", shotAudits}, {"betterPassAvailable", betterPassShots}, {"tightAngle", tightAngleShots},
         {"avgAngleDeg", std::round((shotAudits > 0 ? shotAngleTotal / shotAudits : 0) * 10) / 10},
