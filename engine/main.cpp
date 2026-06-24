@@ -5,6 +5,7 @@
 #include <fstream>
 #include <chrono>
 #include <thread>
+#include <mutex>
 #include <algorithm>
 #include <cstdlib>
 
@@ -269,13 +270,51 @@ int main(int argc, char* argv[]) {
         // §1.4 flat-out: advance every tick as fast as possible (default — byte-identical to before).
         while (engine.step()) emit();
     } else {
-        // §1.1 self-paced: advance whole FIXED_DT ticks only as fast as wall-elapsed × speed allows,
-        // so the engine clock tracks what a viewer is watching and a live command lands on the CURRENT
-        // tick (no re-sim). SAME ticks as flat-out -> identical result; only real-time DELIVERY differs
-        // (the determinism invariant). Catch-up = run several whole ticks in a row.
+        // §1.1 self-paced + §1.2 live command channel. Self-pace: advance whole FIXED_DT ticks only as
+        // fast as wall-elapsed × speed allows, so the engine clock tracks what a viewer watches and a live
+        // command lands on the CURRENT tick (no re-sim). SAME ticks as flat-out -> identical result.
+        // §1.2: a reader THREAD owns the blocking stdin read and drains lines into rawCmds; the loop
+        // applies them each iteration without ever blocking the tick.
+        std::vector<std::string> rawCmds;
+        std::mutex cmdMutex;
+        std::thread reader([&]() {
+            std::string line;
+            while (std::getline(std::cin, line))
+                if (!line.empty()) { std::lock_guard<std::mutex> lk(cmdMutex); rawCmds.push_back(line); }
+        });
+        reader.detach();   // blocks on getline; process exit reaps it (no clean join possible). §6 dead-stdout exit = TODO.
+
         auto liveStart = std::chrono::steady_clock::now();
-        double pausedAccum = 0.0;   // pause/resume + mutable speed arrive with the §1.2 command channel
+        double pausedAccum = 0.0;
+        bool paused = false;
+        auto pauseStart = liveStart;
         for (;;) {
+            // Drain + apply live commands. Match-global controls (speed/pause/resume) apply now;
+            // `inject` is logged here and applied per-team in §1.3 (applyLiveCommands). NEVER block here.
+            std::vector<std::string> cmds;
+            { std::lock_guard<std::mutex> lk(cmdMutex); cmds.swap(rawCmds); }
+            for (const auto& line : cmds) {
+                try {
+                    auto j = nlohmann::json::parse(line);
+                    std::string type = j.value("type", std::string());
+                    if (type == "speed") {
+                        double v = j.value("value", 1.0);
+                        if (v > 0.0) { liveSpeed = v; std::cerr << "[live] speed=" << liveSpeed << "\n"; }
+                    } else if (type == "pause") {
+                        if (!paused) { paused = true; pauseStart = std::chrono::steady_clock::now(); std::cerr << "[live] paused\n"; }
+                    } else if (type == "resume") {
+                        if (paused) { pausedAccum += std::chrono::duration<double, std::milli>(
+                                          std::chrono::steady_clock::now() - pauseStart).count();
+                                      paused = false; std::cerr << "[live] resumed\n"; }
+                    } else if (type == "inject") {
+                        std::cerr << "[live] inject queued (atMs=" << j.value("atMs", 0.0)
+                                  << " team=" << j.value("team", -1) << ") — applied in §1.3\n";
+                    }
+                } catch (const std::exception&) {
+                    std::cerr << "[live] bad command: " << line << "\n";
+                }
+            }
+            if (paused) { std::this_thread::sleep_for(std::chrono::milliseconds(5)); continue; }   // match clock holds
             double wallMs = std::chrono::duration<double, std::milli>(
                                 std::chrono::steady_clock::now() - liveStart).count() - pausedAccum;
             double targetClockMs = wallMs * liveSpeed;
