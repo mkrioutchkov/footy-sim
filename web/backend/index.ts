@@ -27,6 +27,7 @@ import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldSta
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
+import { getConcerns, resolveConcern, type ConcernAction } from './concerns.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory, getClubRecords } from './history.ts';
@@ -591,6 +592,26 @@ app.post('/api/press', async (req: any, reply) => {
   } finally {
     pressInFlight.delete(teamId);
   }
+});
+
+// Unsettled players (§2.3 depth) — the dressing-room concerns the manager can act on, + resolving one.
+app.get('/api/concerns', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { concerns: getConcerns(teamId) };
+});
+
+app.post('/api/concerns/:slot', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.params?.slot);
+  const action = String(req.body?.action ?? '') as ConcernAction;
+  if (!['reassure', 'accept', 'reject'].includes(action)) return reply.code(400).send({ error: 'unknown action' });
+  const r = resolveConcern(teamId, slot, action);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, concerns: getConcerns(teamId), team: getTeamWithPlayers(teamId) };
 });
 
 // Set the club's training focus ('balanced' or a trainable attribute). Drives the
