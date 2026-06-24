@@ -335,6 +335,7 @@ ensureColumn('season_history', 'objective_met', 'objective_met INTEGER');   // 1
 // Press-conference cadence (one per the club's match): the played-fixture count at the last presser, so
 // the manager can't spam press conferences to farm morale. NULL = never held one. Reset at rollover.
 ensureColumn('teams', 'last_press_round', 'last_press_round INTEGER');
+ensureColumn('teams', 'last_press_tone', 'last_press_tone TEXT');   // §P2#8 the tone of the last presser, so the next result can vindicate/undermine it (one-shot)
 
 // Set-piece takers (user-watch): the manager's designated FK / corner / penalty / long-throw takers, as
 // squad slots. json {fk,corner,pen,longThrow} (any null = the engine's default position-based pick). Emitted

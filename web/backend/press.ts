@@ -194,10 +194,46 @@ function recordPressNews(teamId: number, tone?: string): void {
   } catch { /* ambient — the headline is a nicety, never block the presser */ }
 }
 
+// §P2#8 press → news story arc: a presser becomes a STORY when the NEXT result tests the stance the
+// manager took. Given the chosen tone × the next match outcome, returns the follow-up headline (the club
+// news feed surfaces it after the match). Punchy broadcast voice; null for an unknown tone.
+const PRESS_ARC: Record<string, { W: string; D: string; L: string }> = {
+  defiant: {
+    W: 'Defiance vindicated — the manager answers his critics with a win',
+    D: 'Defiant stance survives the test — but only a draw to show for it',
+    L: 'Pressure mounts as the manager’s defiant stance backfires',
+  },
+  back_players: {
+    W: 'Faith repaid — the players reward the manager who backed them',
+    D: 'The manager’s public backing yields only a draw',
+    L: 'Questions over the manager’s faith after another defeat',
+  },
+  demand_more: {
+    W: 'Demand answered — the players respond to the manager’s challenge',
+    D: 'Only a half-answer to the manager’s demand for more',
+    L: 'The manager’s call for more falls flat in defeat',
+  },
+  accountable: {
+    W: 'The manager who took the blame gets his reward',
+    D: 'A point to build on for the manager who shouldered the blame',
+    L: 'More soul-searching for the manager who took responsibility',
+  },
+  calm: {
+    W: 'Calm heads prevail — the manager’s composure bears fruit',
+    D: 'The manager’s calm approach earns a hard-fought point',
+    L: 'Calm words tested as the manager’s side slip again',
+  },
+};
+export function pressArcHeadline(tone: string, outcome: 'W' | 'D' | 'L'): string | null {
+  return PRESS_ARC[tone]?.[outcome] ?? null;
+}
+
 export async function applyPressResponse(teamId: number, text: string, tone?: string): Promise<{ reactions: PressReaction[]; lifted: number; unsettled: number; boardDelta: number }> {
   const r = await applyPressConference(teamId, text);
   const boardDelta = tone ? boardDeltaForTone(tone) : 0;
   if (boardDelta) adjustConfidence(teamId, boardDelta);
   recordPressNews(teamId, tone);   // leave a headline in Club news (the press is part of the club's story)
+  // Remember the tone so the next match's aftermath can vindicate or undermine it (§P2#8, one-shot).
+  db.prepare('UPDATE teams SET last_press_tone = ? WHERE id = ?').run(tone ?? null, teamId);
   return { ...r, boardDelta };
 }

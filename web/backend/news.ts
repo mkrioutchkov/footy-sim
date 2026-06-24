@@ -10,6 +10,7 @@ import { getFixture, type SummaryPlayer } from './match.ts';
 import { ratePlayers } from './report.ts';
 import { evolveSquadStories, defaultPersonality, type Personality } from './personality.ts';
 import { nudgeConfidence } from './confidence.ts';
+import { pressArcHeadline } from './press.ts';
 
 export type EvolveType = 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury';   // events that evolve the story
 export type NewsType = EvolveType | 'pots' | 'young_pots' | 'press';                    // + season awards + press-conference headlines
@@ -86,7 +87,17 @@ export async function processMatchAftermath(teamId: number, fixtureId: number, i
     const mySide: 'home' | 'away' = fx.home_team_id === teamId ? 'home' : 'away';
     const mine = mySide === 'home' ? fx.home_score : fx.away_score;
     const theirs = mySide === 'home' ? fx.away_score : fx.home_score;
-    nudgeConfidence(teamId, mine > theirs ? 'W' : mine < theirs ? 'L' : 'D');
+    const outcome: 'W' | 'D' | 'L' = mine > theirs ? 'W' : mine < theirs ? 'L' : 'D';
+    nudgeConfidence(teamId, outcome);
+    // §P2#8 press → news arc: if a presser was held since the last match, the result now vindicates or
+    // undermines that stance — a follow-up headline in Club news, then clear the one-shot marker. Fires
+    // once per fixture by the aftermath_done claim below (keep this block above that claim + any await).
+    const tone = (db.prepare('SELECT last_press_tone AS t FROM teams WHERE id = ?').get(teamId) as { t: string | null } | undefined)?.t;
+    if (tone) {
+      const headline = pressArcHeadline(tone, outcome);
+      if (headline) db.prepare("INSERT INTO player_news (team_id, player_slot, player_name, type, headline, ref_id, season, created_at) VALUES (?, -1, '', 'press', ?, ?, ?, ?)").run(teamId, headline, fixtureId, season, Date.now());
+      db.prepare('UPDATE teams SET last_press_tone = NULL WHERE id = ?').run(teamId);
+    }
   }
   // Claim the matchday now that morale + tally are applied — a re-fire can't double them; the
   // (slower, LLM) story evolution below is best-effort on top.
