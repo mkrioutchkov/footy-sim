@@ -177,9 +177,27 @@ export async function generatePressQuestion(c: PressContext): Promise<PressQuest
 
 // Apply a chosen press response: the per-player morale judge PLUS a board-confidence nudge from the
 // response's tone (free-text with no tone → board-neutral). Returns the morale reactions + board delta.
+// A press conference is part of the club's story, so it leaves a 🎤 headline in Club news (a club-level
+// news row, no player link). Tone-keyed; best-effort so it can never break the press response.
+const PRESS_HEADLINE: Record<string, string> = {
+  back_players: 'Manager publicly backs his players',
+  demand_more: 'Manager demands more from his squad',
+  accountable: 'Manager takes responsibility in front of the media',
+  defiant: 'Manager defiant in his press conference',
+  calm: 'Manager strikes a calm note with the press',
+};
+function recordPressNews(teamId: number, tone?: string): void {
+  try {
+    const headline = (tone && PRESS_HEADLINE[tone]) || 'Manager faces the media';
+    const season = (db.prepare('SELECT l.season FROM leagues l JOIN teams t ON t.league_id = l.id WHERE t.id = ?').get(teamId) as { season: number } | undefined)?.season ?? 1;
+    db.prepare("INSERT INTO player_news (team_id, player_slot, player_name, type, headline, ref_id, season, created_at) VALUES (?, -1, '', 'press', ?, 0, ?, ?)").run(teamId, headline, season, Date.now());
+  } catch { /* ambient — the headline is a nicety, never block the presser */ }
+}
+
 export async function applyPressResponse(teamId: number, text: string, tone?: string): Promise<{ reactions: PressReaction[]; lifted: number; unsettled: number; boardDelta: number }> {
   const r = await applyPressConference(teamId, text);
   const boardDelta = tone ? boardDeltaForTone(tone) : 0;
   if (boardDelta) adjustConfidence(teamId, boardDelta);
+  recordPressNews(teamId, tone);   // leave a headline in Club news (the press is part of the club's story)
   return { ...r, boardDelta };
 }

@@ -12,7 +12,7 @@ import { evolveSquadStories, defaultPersonality, type Personality } from './pers
 import { nudgeConfidence } from './confidence.ts';
 
 export type EvolveType = 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury';   // events that evolve the story
-export type NewsType = EvolveType | 'pots' | 'young_pots';                              // + season awards (no story change)
+export type NewsType = EvolveType | 'pots' | 'young_pots' | 'press';                    // + season awards + press-conference headlines
 
 // Each event: the feed headline + a cue-rich "development" sentence. The sentence is woven into
 // the backstory (the LLM rewrites around it; the fallback appends it verbatim) — its phrases are

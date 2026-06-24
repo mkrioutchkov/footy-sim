@@ -772,7 +772,7 @@ async function screenDashboard() {
     pressQEl, pressInput, h('div', { style: 'margin-top:6px' }, pressBtn), pressReceipt);
 
   // ── club news: events that evolved a player's story + dials ──
-  const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟' };
+  const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟', press: '🎤' };
   // link by CURRENT name → slot (slots renumber on transfers, so a stored slot can drift); only
   // unique names link (a duplicate name can't be resolved to one player), and a player who has
   // since left the club just isn't a link.
@@ -1786,7 +1786,7 @@ async function screenNews() {
   let news: NewsItemT[];
   try { news = (await api.news(200)).news; }
   catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
-  const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟' };
+  const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟', press: '🎤' };
 
   const groups: { season: number; items: NewsItemT[] }[] = [];
   for (const n of news) { const g = groups[groups.length - 1]; if (g && g.season === n.season) g.items.push(n); else groups.push({ season: n.season, items: [n] }); }
