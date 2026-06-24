@@ -325,6 +325,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_history_team_season ON season_history(team
 ensureColumn('teams', 'objective_kind', 'objective_kind TEXT');       // title | promotion | top_half | survival
 ensureColumn('teams', 'objective_target', 'objective_target INTEGER'); // final position that meets it (<=)
 ensureColumn('teams', 'objective_season', 'objective_season INTEGER'); // the season the objective is for
+// Board interaction: the season of the manager's last board meeting (request for backing) — one audience
+// per season, so the chequebook can't be farmed. NULL = never met.
+ensureColumn('teams', 'board_request_season', 'board_request_season INTEGER');
 ensureColumn('season_history', 'objective_kind', 'objective_kind TEXT');
 ensureColumn('season_history', 'objective_target', 'objective_target INTEGER');
 ensureColumn('season_history', 'objective_met', 'objective_met INTEGER');   // 1 met / 0 missed / NULL none

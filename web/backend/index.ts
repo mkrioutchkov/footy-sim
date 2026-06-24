@@ -28,6 +28,7 @@ import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
 import { getConcerns, resolveConcern, type ConcernAction } from './concerns.ts';
+import { getBoardMeeting, requestBoardBacking, type BoardRequestKind } from './board.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory, getClubRecords } from './history.ts';
@@ -612,6 +613,25 @@ app.post('/api/concerns/:slot', async (req: any, reply) => {
   const r = resolveConcern(teamId, slot, action);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, concerns: getConcerns(teamId), team: getTeamWithPlayers(teamId) };
+});
+
+// Board meeting (board interaction) — the once-a-season audience state, and requesting backing.
+app.get('/api/board', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return getBoardMeeting(teamId);
+});
+
+app.post('/api/board/request', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const kind = String(req.body?.kind ?? '') as BoardRequestKind;
+  if (kind !== 'funds' && kind !== 'wages') return reply.code(400).send({ error: 'kind must be funds or wages' });
+  const r = requestBoardBacking(teamId, kind);
+  if (!r.ok) return reply.code(400).send({ error: r.message });
+  return { ...r, meeting: getBoardMeeting(teamId), team: getTeamWithPlayers(teamId) };
 });
 
 // Set the club's training focus ('balanced' or a trainable attribute). Drives the
