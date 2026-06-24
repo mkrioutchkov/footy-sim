@@ -252,7 +252,14 @@ export class MatchRenderer {
     try { this.statPanelEl?.remove(); } catch { /* */ }
     try { this.bannerEl?.remove(); } catch { /* */ }
     try { this.panelEl?.remove(); } catch { /* */ }
+    // Free the WebGL context. Browsers cap live contexts (~16) and Pixi's destroy() leaves it for the
+    // GC, so opening/closing many watches in one SPA session leaks contexts — eventually a later
+    // renderer.init() silently fails and the watch shows a blank pitch (until a reload). A LIVE match
+    // is itself a long session, so this hardens the headline feature. Capture the context, let Pixi
+    // clean up its GPU resources, then explicitly lose it so watch sessions stay bounded.
+    const gl = (this.app.renderer as unknown as { gl?: WebGL2RenderingContext }).gl;
     try { this.app.destroy(true, { children: true, texture: true }); } catch { /* */ }
+    try { gl?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* not WebGL / already gone */ }
   }
 
   // Resize the reserved bottom strip (the live tactics panel floats over the canvas, so
