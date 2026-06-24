@@ -431,31 +431,14 @@ function formationPanel(team: TeamT, reg: FormationsT | null): HTMLElement {
     out.textContent = 'Setting…';
     try {
       const r = await api.setLineup(text);
-      fmt = r.formation; lineup = r.lineup; badge.textContent = r.formation;
-      if (sel) sel.value = r.formation;
+      fmt = r.formation; lineup = r.lineup; badge.textContent = r.formation;   // the read-only badge reflects the shape the plan text set
       out.textContent = r.note || `Lined up in a ${r.formation}.`;
       drawPitch(r.slots?.length ? r.slots.map(s => ({ x: s.homeX, y: s.homeY, role: s.role, name: s.playerName || '—', injured: !!team.players.find(p => p.name === s.playerName)?.injuredMatches, misfit: s.misfit })) : tokensFromReg());
     } catch (e: any) { out.textContent = e.message; }
   };
-  // Minor (playthrough): group the ~35 shapes into Standard vs Experimental so the conventional
-  // formations aren't buried among the novelty ones (2-6-2, 6-0-4, 4-6-0…). A shape is "experimental"
-  // if it fields ≤2 or ≥6 defenders, 0 or ≥4 forwards, or ≥6 in midfield; named/variant keys stay standard.
-  const isNovelty = (name: string): boolean => {
-    const nums = name.split(/[- ]/).map(Number).filter(n => Number.isFinite(n));
-    if (nums.length < 2) return false;
-    const def = nums[0], fwd = nums[nums.length - 1], mid = nums.slice(1, -1).reduce((s, n) => s + n, 0);
-    return def <= 2 || def >= 6 || fwd === 0 || fwd >= 4 || mid >= 6;
-  };
-  const mkOpt = (name: string) => { const o = h('option', { value: name }, name) as HTMLOptionElement; if (name === fmt) o.selected = true; return o; };
-  const fkeys = reg ? Object.keys(reg.formations) : [];
-  const fStd = fkeys.filter(k => !isNovelty(k)), fExp = fkeys.filter(isNovelty);
-  const sel = reg ? h('select', { style: 'max-width:170px' },
-    ...(fStd.length ? [h('optgroup', { label: 'Standard' }, ...fStd.map(mkOpt))] : []),
-    ...(fExp.length ? [h('optgroup', { label: 'Experimental' }, ...fExp.map(mkOpt))] : []),
-  ) as HTMLSelectElement : null;
-  if (sel) sel.addEventListener('change', () => apply(`play ${sel.value}`));
-
-  const input = h('input', { placeholder: 'fine-tune in words — “AB at left back”, “push the full-backs on”' }) as HTMLInputElement;
+  // §P0 (user 2026-06-25): the formation is set IN THE PLAN TEXT (the compiler reads it), so there's no
+  // Shape dropdown — the badge above is the read-only current shape, and you change it in words below.
+  const input = h('input', { placeholder: 'set your shape + tune in words — “play a 4-2-3-1”, “AB at left back”, “push the full-backs on”' }) as HTMLInputElement;
   const setBtn = h('button', { class: 'primary small' }, 'Set');
   const applyInput = () => { const t = input.value.trim(); if (t) { apply(t); input.value = ''; } };
   setBtn.addEventListener('click', applyInput);
@@ -463,10 +446,10 @@ function formationPanel(team: TeamT, reg: FormationsT | null): HTMLElement {
 
   return h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Formation', badge),
-    sel ? h('div', { class: 'row', style: 'gap:10px;margin-bottom:10px' }, h('span', { class: 'muted', style: 'font-size:12px' }, 'Shape'), sel) : '',
     pitchBox,
     warn,
     h('div', { class: 'tactics-row', style: 'margin-top:10px' }, input, setBtn),
+    h('div', { class: 'muted', style: 'font-size:11px;margin-top:5px' }, 'Your shape is set in the plan — just say it in words (“play a 4-2-3-1”, “switch to 3-5-2”). The badge above shows your current shape.'),
     out,
   );
 }
