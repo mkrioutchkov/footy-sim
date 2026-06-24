@@ -198,7 +198,8 @@ export const api = {
   trainingReport: () => req<{ report: TrainingReportT | null }>('GET', '/training-report'),
   setPlayerStory: (slot: number, backstory: string, tagline: string) =>
     req<{ slot: number; personality: PersonalityT; value: number }>('PUT', `/player/${slot}/story`, { backstory, tagline }),
-  press: (text: string) => req<{ reactions: { slot: number; name: string; delta: number; quote?: string }[]; lifted: number; unsettled: number; team: TeamT }>('POST', '/press', { text }),
+  pressQuestion: () => req<{ available: boolean; question?: string; options?: { tone: string; label: string; text: string }[] }>('GET', '/press'),
+  press: (text: string, tone?: string) => req<{ reactions: { slot: number; name: string; delta: number; quote?: string }[]; lifted: number; unsettled: number; boardDelta?: number; confidence?: { value: number; status: string } | null; team: TeamT }>('POST', '/press', { text, tone }),
   renewPreview: (slot: number) =>
     req<{ currentWage: number; newWage: number; delta: number; years: number; affordable: boolean }>('GET', `/player/${slot}/renew-preview`),
   // §2.2 contract negotiation: propose a renewal (resolved at the next matchday), then match/withdraw.

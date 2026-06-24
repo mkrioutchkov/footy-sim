@@ -703,38 +703,58 @@ async function screenDashboard() {
   // press conference — your words move squad morale via each player's dials. One per match (§2.14 cadence):
   // you can't spam the media to farm morale, so the room is shut until your next game once you've spoken.
   const pressOpen = league.pressAvailable !== false;
-  const pressInput = h('textarea', { class: 'tactics-input', rows: '2', placeholder: 'Address the media — back your players, demand more, or stay ice-cool…' }) as HTMLTextAreaElement;
-  const pressBtn = h('button', { class: 'ghost small' }, 'Address the media');
+  const pressInput = h('textarea', { class: 'tactics-input', rows: '2', placeholder: 'Or answer in your own words…' }) as HTMLTextAreaElement;
+  const pressBtn = h('button', { class: 'ghost small' }, 'Say it');
+  const pressQEl = h('div', { style: 'margin-bottom:8px' });   // the journalist question + tone buttons (fetched async)
   if (!pressOpen) { pressInput.setAttribute('disabled', 'true'); pressBtn.setAttribute('disabled', 'true'); }
-  // "How it landed" panel — surfaces the per-player reactions (+ in-character quotes) the backend
-  // already returns, instead of collapsing them to a toast. Patched in place: no dashboard rebuild
-  // (which would nuke scroll + refetch everything), so the squad cards' morale just goes mildly stale.
+  // "How it landed" panel — the per-player reactions (+ quotes) the backend returns, plus the board's
+  // take. Patched in place (no dashboard rebuild, so the squad cards' morale just goes mildly stale).
   const pressReceipt = h('div', { class: 'tactics-receipt', style: 'max-height:300px;margin-top:10px' });
-  pressBtn.addEventListener('click', async () => {
-    const txt = pressInput.value.trim(); if (!txt) { toast('Say something to the media first'); return; }
-    pressBtn.setAttribute('disabled', 'true'); pressBtn.textContent = '…';
+  const shutRoom = () => {
+    pressInput.setAttribute('disabled', 'true'); pressBtn.setAttribute('disabled', 'true'); pressBtn.textContent = 'Spoken to the media';
+    pressQEl.querySelectorAll('button').forEach(b => b.setAttribute('disabled', 'true'));
+  };
+  const submitPress = async (text: string, tone?: string) => {
+    if (!text.trim()) { toast('Say something to the media first'); return; }
+    pressBtn.setAttribute('disabled', 'true');
+    pressQEl.querySelectorAll('button').forEach(b => b.setAttribute('disabled', 'true'));
     pressReceipt.replaceChildren(h('div', { class: 'muted' }, 'Facing the press…'));
     try {
-      const r = await api.press(txt);
+      const r = await api.press(text, tone);
       toast(`Media reaction: ${r.lifted} lifted${r.unsettled ? `, ${r.unsettled} unsettled` : ''}`);
-      pressReceipt.replaceChildren(
+      const lines: (HTMLElement | string)[] = [
         h('div', { class: 'muted', style: 'margin-bottom:5px' }, `How it landed — ${r.lifted} lifted, ${r.unsettled} unsettled:`),
         ...[...r.reactions].sort((a, b) => b.delta - a.delta).map(x => h('div', {
           class: 'receipt-line ' + (x.delta > 0 ? 'up' : x.delta < 0 ? 'down' : ''), style: 'font-size:13px;padding:2px 0',
-        }, `${x.delta > 0 ? '▲' : x.delta < 0 ? '▼' : '·'} ${x.name} ${x.delta > 0 ? '+' : ''}${x.delta}${x.quote ? ` — “${x.quote}”` : ''}`)));
-      // one per match — leave the room shut until the next game
-      pressInput.value = ''; pressInput.setAttribute('disabled', 'true'); pressBtn.textContent = 'Spoken to the media';
+        }, `${x.delta > 0 ? '▲' : x.delta < 0 ? '▼' : '·'} ${x.name} ${x.delta > 0 ? '+' : ''}${x.delta}${x.quote ? ` — “${x.quote}”` : ''}`)),
+      ];
+      if (r.boardDelta) lines.push(h('div', { class: 'receipt-line ' + (r.boardDelta > 0 ? 'up' : 'down'), style: 'font-size:13px;padding:5px 0 0;border-top:1px solid var(--line);margin-top:5px' },
+        `📋 Board ${r.boardDelta > 0 ? '▲ +' : '▼ '}${r.boardDelta}${r.confidence ? ` — confidence ${r.confidence.value} (${CONF_LABEL[r.confidence.status] ?? r.confidence.status})` : ''}`));
+      pressReceipt.replaceChildren(...lines);
+      pressInput.value = ''; shutRoom();   // one per match — leave the room shut until the next game
     } catch (e: any) {
       pressReceipt.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message));
-      pressBtn.removeAttribute('disabled'); pressBtn.textContent = 'Address the media';
+      pressBtn.removeAttribute('disabled');
+      pressQEl.querySelectorAll('button').forEach(b => b.removeAttribute('disabled'));
     }
-  });
+  };
+  pressBtn.addEventListener('click', () => submitPress(pressInput.value));
+  // Fetch the journalist's question + tone-keyed options (LLM, context-aware; template fallback).
+  if (pressOpen) {
+    void api.pressQuestion().then(q => {
+      if (!q.available || !q.question) return;
+      pressQEl.replaceChildren(
+        h('div', { style: 'margin-bottom:7px' }, h('span', { class: 'muted' }, '🎙 '), h('em', {}, `“${q.question}”`)),
+        h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, ...(q.options ?? []).map(o =>
+          h('button', { class: 'ghost small', title: o.text, onclick: () => submitPress(o.text, o.tone) }, o.label))));
+    }).catch(() => { /* the free-text box alone still works */ });
+  }
   const pressCard = h('div', { class: 'card', style: 'margin-top:14px' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Press conference'),
-    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:6px' },
-      pressOpen ? 'What you say moves squad morale — each player reacts through his own personality.'
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' },
+      pressOpen ? 'Face the media — your tone moves squad morale (each player reacts via his personality) and the board takes note.'
         : 'You’ve already faced the media this matchday — back after your next match.'),
-    pressInput, h('div', { style: 'margin-top:6px' }, pressBtn), pressReceipt);
+    pressQEl, pressInput, h('div', { style: 'margin-top:6px' }, pressBtn), pressReceipt);
 
   // ── club news: events that evolved a player's story + dials ──
   const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟' };
