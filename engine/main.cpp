@@ -307,8 +307,27 @@ int main(int argc, char* argv[]) {
                                           std::chrono::steady_clock::now() - pauseStart).count();
                                       paused = false; std::cerr << "[live] resumed\n"; }
                     } else if (type == "inject") {
-                        std::cerr << "[live] inject queued (atMs=" << j.value("atMs", 0.0)
-                                  << " team=" << j.value("team", -1) << ") — applied in §1.3\n";
+                        // §1.3b: parse the inject into a TimelineEntry (same shape as a spec timeline
+                        // entry) and queue it; applyLiveCommands drains it per-team at atMs<=clock.
+                        GameEngine::TimelineEntry entry;
+                        entry.atMs = j.value("atMs", engine.state.clockMs);
+                        entry.team = j.value("team", -1);
+                        if (j.contains("directives")) parseDirectives(j["directives"], entry.directives);
+                        if (j.contains("morale")) for (const auto& m : j["morale"]) {
+                            int pid = m.value("playerId", -1);
+                            if (pid >= 0 && pid < 22) entry.moraleDelta[pid] = m.value("delta", 0.0);
+                        }
+                        if (j.contains("layout")) for (const auto& l : j["layout"]) {
+                            int pid = l.value("playerId", -1);
+                            if (pid >= 0 && pid < 22 && l.contains("role") && l.contains("homeX") && l.contains("homeY")) {
+                                entry.layoutHX[pid] = l["homeX"].get<double>();
+                                entry.layoutHY[pid] = l["homeY"].get<double>();
+                                entry.layoutRole[pid] = roleFromStr(l["role"].get<std::string>());
+                                entry.layoutSet[pid] = true;
+                            }
+                        }
+                        std::cerr << "[live] inject queued (atMs=" << entry.atMs << " team=" << entry.team << ")\n";
+                        engine.liveCommandQueue.push_back(std::move(entry));
                     }
                 } catch (const std::exception&) {
                     std::cerr << "[live] bad command: " << line << "\n";

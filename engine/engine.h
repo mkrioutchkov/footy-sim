@@ -550,6 +550,7 @@ public:
     };
     std::vector<TimelineEntry> directiveTimeline;
     size_t directiveTimelineIdx = 0;
+    std::vector<TimelineEntry> liveCommandQueue;   // §1.3b: live inject overlay (stdin/scheduler), drained by applyLiveCommands at atMs<=clock
     // get_forward/sit_deep relocate a player's formation ANCHOR (homeX) up or
     // down the pitch — every positioning candidate keys off homeX, so the whole
     // shape (attacking base AND defensive station) moves coherently. We snapshot
@@ -563,6 +564,7 @@ public:
     bool baseHomeXCaptured = false;
     void applyDirectives();
     void applyDirectiveEntry(const TimelineEntry& e);   // §1.3: shared timeline+live-inject entry apply (team-scoped)
+    void applyLiveCommands();   // §1.3b: drain liveCommandQueue (atMs<=clock) via applyDirectiveEntry (per-team)
 
     // ── Lifecycle ──
     GameEngine();

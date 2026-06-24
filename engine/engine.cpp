@@ -777,6 +777,7 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; bb.markedOpponents.fill(-1); }
     updateTeamAssignments();
     applyDirectives();
+    applyLiveCommands();   // §1.3b: live inject overlay (per-team), after the pre-match plan, before the agents
     tickAgents(sdt, true);
     if (goalKickMonitor.distributeTimer > 0) {
         goalKickMonitor.distributeTimer -= sdt;

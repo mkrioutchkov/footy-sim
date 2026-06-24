@@ -2,6 +2,7 @@
 #include "agent.h"
 #include <cmath>
 #include <numbers>
+#include <iostream>   // §1.3b: [live] inject-applied logging in applyLiveCommands
 
 // ══════════════════════════════════════════════════════════════
 // Tactical — assignments, defensive roles, tactical audit
@@ -43,6 +44,22 @@ void GameEngine::applyDirectiveEntry(const TimelineEntry& e) {
         baseHomeX[i] = e.layoutHX[i]; baseHomeY[i] = e.layoutHY[i];
         state.players[i].homeX = e.layoutHX[i]; state.players[i].homeY = e.layoutHY[i];
         reassignAgent(state.players[i], e.layoutRole[i]);
+    }
+}
+
+// §1.3b: drain the live inject queue — apply every entry whose atMs has arrived (clock>=atMs),
+// per-team, via the shared applyDirectiveEntry (so live-inject ≡ timeline-replay). Called in
+// fixedUpdate AFTER applyDirectives so the live overlay replaces the pre-match plan. NO rng.
+void GameEngine::applyLiveCommands() {
+    if (liveCommandQueue.empty()) return;
+    for (auto it = liveCommandQueue.begin(); it != liveCommandQueue.end(); ) {
+        if (state.clockMs >= it->atMs) {
+            applyDirectiveEntry(*it);
+            std::cerr << "[live] applied inject atMs=" << it->atMs << " team=" << it->team << "\n";
+            it = liveCommandQueue.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
