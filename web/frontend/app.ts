@@ -780,19 +780,25 @@ async function screenDashboard() {
 
   // ── dressing room: squad harmony at a glance ──
   const HARMONY_ICON: Record<string, string> = { leader: '🧭', pro: '⭐', disruptive: '⚠️', unsettled: '😟' };
-  const harmonyCard = harmony ? (() => {
-    const c = harmony.status === 'united' ? 'var(--accent)' : harmony.status === 'settled' ? '#7fb2ff' : harmony.status === 'restless' ? 'var(--gold)' : 'var(--danger)';
-    return h('div', { class: 'card', style: 'margin-top:14px' },
+  // Re-paintable so a concern action (which moves morale) can refresh it in place — keeping the
+  // dressing-room reading consistent with the concerns panel below it.
+  const harmonyCard = h('div', { class: 'card', style: 'margin-top:14px' });
+  const paintHarmony = (hm: HarmonyT | null): void => {
+    if (!hm) { harmonyCard.style.display = 'none'; return; }
+    harmonyCard.style.display = '';
+    const c = hm.status === 'united' ? 'var(--accent)' : hm.status === 'settled' ? '#7fb2ff' : hm.status === 'restless' ? 'var(--gold)' : 'var(--danger)';
+    harmonyCard.replaceChildren(
       h('div', { class: 'section-title', style: 'margin-top:0' }, 'Dressing room'),
       h('div', { class: 'between', style: 'font-size:13px;margin-bottom:6px' },
-        h('span', { style: `color:${c};font-weight:600;text-transform:capitalize` }, harmony.status),
-        h('span', { class: 'muted' }, `avg morale ${harmony.avgMorale}`)),
-      ...(harmony.players.length
-        ? harmony.players.map(p => h('div', { class: 'between', style: 'font-size:12px;padding:2px 0;cursor:pointer', onclick: () => (location.hash = `#/player/${p.slot}`) },
+        h('span', { style: `color:${c};font-weight:600;text-transform:capitalize` }, hm.status),
+        h('span', { class: 'muted' }, `avg morale ${hm.avgMorale}`)),
+      ...(hm.players.length
+        ? hm.players.map(p => h('div', { class: 'between', style: 'font-size:12px;padding:2px 0;cursor:pointer', onclick: () => (location.hash = `#/player/${p.slot}`) },
             h('span', {}, `${HARMONY_ICON[p.tag] ?? '•'} ${p.name}`),
             h('span', { class: 'muted', style: 'font-size:11px' }, p.note)))
         : [h('div', { class: 'muted', style: 'font-size:12px' }, 'A settled, unremarkable dressing room.')]));
-  })() : h('div', { style: 'display:none' });
+  };
+  paintHarmony(harmony);
 
   // ── dressing room concerns: players agitating to leave + the manager's response (§2.3 depth) ──
   // The actionable extension of the harmony panel: each unsettled player gets three responses. Patched
@@ -810,6 +816,7 @@ async function screenDashboard() {
         const r = await api.resolveConcern(slot, action);
         toast(`${r.message}${r.moraleDelta ? ` (morale ${r.moraleDelta > 0 ? '+' : ''}${r.moraleDelta})` : ''}`);
         paintConcerns(r.concerns);
+        void api.harmony().then(paintHarmony).catch(() => { /* leave the card as-is on a transient failure */ });
       } catch (e: any) { toast('⚠ ' + e.message); paintConcerns(concernList); }
     };
     concernsCard.replaceChildren(
