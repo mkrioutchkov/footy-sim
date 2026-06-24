@@ -1106,6 +1106,26 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   if (myEpoch !== watchEpoch) return;   // navigated away during the fetch
   if (myTeam) watchPlayers = myTeam.players.slice(0, 11).map((p, i) => ({ id: i, name: p.name }));
   let activeDirectives: DirectiveT[] = (myTeam?.plan?.directives as DirectiveT[] | undefined) ?? [];
+  // Directive overlay ("type it → see it work"): a short per-player label, mapped slot→engine-id, for the renderer toggle.
+  const DIR_LABEL: Record<string, string> = {
+    drift_into_pocket: 'pocket', play_between_lines: 'pocket', between_the_lines: 'pocket', drop_into_the_ten: 'pocket',
+    come_short: 'come short', check_to_feet: 'come short', target_man_holdup: 'hold up', hold_it_up: 'hold up', target_man: 'hold up',
+    cut_inside: 'cut in', cut_in: 'cut in', cut_inside_to_shoot: 'cut in', overlap: 'overlap', overlap_runs: 'overlap', get_on_the_overlap: 'overlap',
+    run_in_behind: 'in behind', make_runs: 'make runs', get_forward: 'get fwd', stay_wide: 'stay wide', come_inside: 'invert',
+    stay_central: 'central', sit_deep: 'sit deep', press_hard: 'press', contain: 'contain', tackle_hard: 'tackle hard',
+    stay_on_feet: 'stay up', stay_back: 'hold', dribble_more: 'dribble', play_simple: 'keep simple', shoot_on_sight: 'shoot',
+  };
+  const dirShort = (k: string): string => DIR_LABEL[k] ?? k.replace(/_/g, ' ');
+  const buildDirMap = (isHome: boolean): Map<number, string> => {
+    const off = isHome ? 0 : 11, m = new Map<number, string>();
+    for (const d of activeDirectives) {
+      if (typeof d.playerId !== 'number' || d.playerId < 0 || d.playerId > 10) continue;   // per-player only (skip team-wide)
+      if (!m.has(d.playerId + off)) m.set(d.playerId + off, dirShort(d.kind));   // first directive wins per player
+    }
+    return m;
+  };
+  let watchIsHome = false;   // resolved on the first frame (engine ids 0–10 home / 11–21 away)
+  const refreshDirOverlay = (): void => { activeRenderer?.setDirectives(buildDirMap(watchIsHome)); };
 
   root.replaceChildren();
   // Rewind to the start — only meaningful for a finished recording (revealed on the first
@@ -1133,12 +1153,23 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     speedBtns.forEach((b, i) => { const on = !paused && SPEEDS[i] === sp; b.classList.toggle('primary', on); b.classList.toggle('ghost', !on); });
     pauseBtn.classList.toggle('primary', paused); pauseBtn.classList.toggle('ghost', !paused);
   };
+  // 🎯 directive overlay toggle — surface each player's active tactical instruction on the pitch ("see it work")
+  let dirOn = false;
+  const dirBtn = h('button', { class: 'ghost small', title: 'Show each player’s active tactical instruction on the pitch' },
+    '\u{1F3AF} Tactics') as HTMLButtonElement;
+  dirBtn.addEventListener('click', () => {
+    dirOn = !dirOn;
+    activeRenderer?.setShowDirectives(dirOn);
+    dirBtn.classList.toggle('primary', dirOn);
+    dirBtn.classList.toggle('ghost', !dirOn);
+  });
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
     ...speedBtns,
     pauseBtn,
     rewindBtn,
     replayBtn,
+    dirBtn,
     weatherEl,
   );
   document.body.appendChild(bar);
@@ -1167,7 +1198,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     const motivation: MotivationReaction[] = Array.isArray(r.motivation) ? r.motivation : [];
     const dirs: DirectiveT[] = r.plan?.directives ?? r.directives ?? [];
     // The persistent "Active tactics" strip owns the full directive list — update it from this shout's plan.
-    if (r.plan?.directives) { activeDirectives = r.plan.directives; renderActivePlan(); }
+    if (r.plan?.directives) { activeDirectives = r.plan.directives; renderActivePlan(); refreshDirOverlay(); }
     // The receipt now shows only what THIS shout DID (the live plan lives in the strip above).
     if (changed) receiptEl.appendChild(h('div', { class: 'ok' }, '✓ ' + changed));
     // Motivational reactions (personality-driven morale swings) — the team responding to the shout.
@@ -1279,7 +1310,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       if (msg.replay && !replayUiApplied) { replayUiApplied = true; panel.style.display = 'none'; rewindBtn.style.display = ''; syncReserve(); }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
-      if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; }
+      if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; watchIsHome = msg.homeName === myTeam?.name; refreshDirOverlay(); }
       // §weather: show the match's condition once (clear stays blank — only the notable conditions show)
       if (msg.weather && msg.weather !== 'clear' && !weatherEl.textContent) {
         weatherEl.textContent = msg.weather === 'rain' ? '🌧 Rain' : '🌬 Wind';

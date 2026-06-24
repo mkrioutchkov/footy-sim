@@ -19,6 +19,8 @@ type PlayerEntry = {
   body: Graphics;
   arrow: Graphics;
   label: Text;
+  dirTag: Text;          // the player's ACTIVE tactical directive (shown when the overlay is on; "type it → see it work")
+  dirShown: string;      // last directive text written (dirty-check)
   drawn: boolean;
   wasSliding: boolean;
   wasDiving: boolean;
@@ -110,6 +112,8 @@ export class MatchRenderer {
   // A right-side strip for the live tactics panel (wide screens dock it right so the pitch keeps
   // full HEIGHT instead of being squeezed by a bottom bar). 0 = no right dock (panel bottom/hidden).
   private reservedRight = 0;
+  private directiveMap: Map<number, string> = new Map();   // engine playerId → short active-directive label
+  private showDirectives = false;
 
   constructor() {
     this.app = new Application();
@@ -291,6 +295,11 @@ export class MatchRenderer {
   // Enter/leave goal-replay mode. While on, a persistent "⚽ GOAL REPLAY" overlay marks the rewound
   // clip as a replay (so the score winding back to 0-0 doesn't read as the LIVE match resetting), and
   // the live goal banner is suppressed (updateMoments) so the rewind/replay doesn't mis-fire "GOAL!".
+  // directive overlay (the user's "type it → see it work"): a map of engine playerId → short directive label,
+  // and a toggle. The per-player tags update on the next sync().
+  setDirectives(m: Map<number, string>): void { this.directiveMap = m; }
+  setShowDirectives(on: boolean): void { this.showDirectives = on; }
+
   setReplay(on: boolean): void {
     this.replayMode = on;
     if (!this.bannerEl) return;
@@ -474,13 +483,22 @@ export class MatchRenderer {
           style: new TextStyle({ fill: 0xffffff, fontSize: 11, fontFamily: 'monospace', stroke: { color: 0x081019, width: 2.5 } }),
         });
         label.anchor.set(0.5, 0);
+        const dirTag = new Text({
+          text: '',
+          style: new TextStyle({ fill: 0x5cd6ff, fontSize: 9, fontFamily: 'monospace', fontWeight: 'bold', stroke: { color: 0x081019, width: 2 } }),
+        });
+        dirTag.anchor.set(0.5, 0);
+        dirTag.visible = false;
         this.playerLayer.addChild(body);
         this.playerLayer.addChild(arrow);
         this.playerLayer.addChild(label);
+        this.playerLayer.addChild(dirTag);
         entry = {
           body,
           arrow,
           label,
+          dirTag,
+          dirShown: '',
           name: shortName,
           ratingShown: -1,
           drawn: false,
@@ -684,14 +702,23 @@ export class MatchRenderer {
         entry.label.text = `${entry.name} ${rt.toFixed(1)}`;
         entry.label.tint = this.ratingTint(rt);
       }
+      // directive overlay: the player's active tactical instruction below his name (toggleable)
+      const dir = this.showDirectives ? (this.directiveMap.get(p.id) ?? '') : '';
+      if (dir !== entry.dirShown) { entry.dirShown = dir; entry.dirTag.text = dir; entry.dirTag.visible = dir !== ''; }
+      if (entry.dirTag.visible) entry.dirTag.position.set(vp.x, vp.y + r + 17);
     }
+
+    // eval-hook (verification): the active directive tags currently drawn on the pitch
+    (window as unknown as { __dirOverlay?: unknown }).__dirOverlay = this.showDirectives
+      ? [...this.playerEntries].filter(([, e]) => e.dirTag.visible).map(([id, e]) => ({ id, t: e.dirTag.text }))
+      : [];
 
     // Defensive: drop markers for ids no longer in the frame. The fixed-22 roster makes this a
     // no-op in normal play (only fires when the player set actually shrinks), so it costs nothing
     // per frame — but it stops a removed player being left drawn at a stale position.
     if (this.playerEntries.size > state.players.length) {
       for (const [id, e] of this.playerEntries) {
-        if (!byId.has(id)) { e.body.destroy(); e.arrow.destroy(); e.label.destroy(); this.playerEntries.delete(id); }
+        if (!byId.has(id)) { e.body.destroy(); e.arrow.destroy(); e.label.destroy(); e.dirTag.destroy(); this.playerEntries.delete(id); }
       }
     }
 
