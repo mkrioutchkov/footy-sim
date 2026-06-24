@@ -139,6 +139,17 @@ void GameEngine::kickoff(Team t){
     emitEvent("kickoff", HALF_X, PITCH_H / 2.0, b.controllerId, -1, /*traceOnly=*/true);
 }
 
+// §1.4 (docs/LIVE_MATCH_ARCHITECTURE.md): express the tick as a public bool step() — one fixed
+// update, returns false at full-time. main()'s loop becomes `while (step())`; the future
+// many-games-per-thread runner drives N engines round-robin via step() with no second rewrite.
+// The exit bound (matchDurationMs + 300000) == the old loop's totalMs + added-time buffer, so the
+// default/--summary path is BYTE-IDENTICAL (golden untouched). Live self-pacing will wrap step().
+bool GameEngine::step() {
+    if (state.clockMs >= matchDurationMs + 300000.0 || state.matchState == "finished") return false;
+    update(FIXED_DT);
+    return true;
+}
+
 void GameEngine::update(double dM) {
     accumulator += dM * state.speed;
     int steps = 0;

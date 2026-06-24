@@ -574,6 +574,7 @@ public:
     void startMatch();
     void kickoff(Team t);
     void update(double dM);
+    bool step();   // §1.4 LIVE: one fixed tick, returns false at full-time (while(step()) loop + runner-ready)
     void fixedUpdate(double sdt);
     void tickAgents(double sdt, bool ic);
 private:

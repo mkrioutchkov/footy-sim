@@ -234,11 +234,11 @@ int main(int argc, char* argv[]) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    double totalMs = minutes * 60.0 * 1000.0;
     double lastOutput = 0;
 
-    while (engine.state.clockMs < totalMs + 300000 && engine.state.matchState != "finished") {
-        engine.update(FIXED_DT);
+    // §1.4 LIVE: the tick is now engine.step() (one fixed tick, returns false at full-time), so the
+    // loop is `while (step())` — the runner-ready shape (the old `totalMs` bound now lives in step()).
+    while (engine.step()) {
 
         // Write trace frame every tick; drain the engine's event log with it
         if (trace.isOpen()) {
