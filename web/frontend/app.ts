@@ -31,6 +31,11 @@ function h(tag: string, attrs: Attrs = {}, ...kids: (Node | string)[]): HTMLElem
   for (const kid of kids) e.append(kid instanceof Node ? kid : document.createTextNode(kid));
   return e;
 }
+// a11y: keyboard-accessible props for a clickable NON-button element (a card/row div). role+tabindex make it
+// focusable; Enter/Space activate it like a real button. Spread into h()'s attrs in place of a bare onclick.
+function clickable(handler: () => void): Attrs {
+  return { role: 'button', tabindex: '0', onclick: handler, onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } } };
+}
 // SVG sibling of h() — createElementNS so <svg> children render; values go in as attributes and
 // text as text nodes (so player names can't inject markup), same XSS-safe posture as h().
 function svgEl(tag: string, attrs: Record<string, string | number | undefined> = {}, ...kids: (Node | string)[]): SVGElement {
@@ -502,7 +507,7 @@ async function screenDashboard() {
     const fitText = (p.injuredMatches ?? 0) > 0 ? ` · 🤕${p.injuredMatches}` : (p.fitness != null && p.fitness < 90 ? ` · ${p.fitness}%` : '');
     const moraleText = p.morale != null ? (p.morale >= 75 ? ' · 😊' : p.morale <= 40 ? ' · 😟' : '') : '';
     const r = (n: number) => Math.round(n);
-    const card = h('div', { class: 'pcard', style: 'cursor:pointer', title: 'View profile & personality', onclick: () => (location.hash = `#/player/${p.slot}`) },
+    const card = h('div', { class: 'pcard', style: 'cursor:pointer', title: 'View profile & personality', ...clickable(() => { location.hash = `#/player/${p.slot}`; }) },
       h('div', { class: 'role' }, `${p.role} · OVR ${ovr}${potText}${ageText}${fitText}${moraleText}`),
       h('div', { class: 'pn' }, p.name),
       h('div', { class: 'at' }, `SPD ${r(p.attrs.speed)} · PAS ${r(p.attrs.passing)} · SHO ${r(p.attrs.shooting)}`,
@@ -693,7 +698,7 @@ async function screenDashboard() {
       const opp = f.home === team.name ? f.away : f.home;
       const action = h('span', { style: 'display:flex;gap:6px;align-items:center' }, wx,
         h('span', { class: 'pill' }, `R${f.round}`), h('span', { class: 'muted', style: 'font-size:12px' }, '🔍'));
-      fxBox.append(h('div', { class: 'fx me', style: 'cursor:pointer', title: `Scout ${opp}`, onclick: () => (location.hash = `#/scout/${f.id}`) },
+      fxBox.append(h('div', { class: 'fx me', style: 'cursor:pointer', title: `Scout ${opp}`, ...clickable(() => { location.hash = `#/scout/${f.id}`; }) },
         h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
     }
   }
@@ -767,7 +772,7 @@ async function screenDashboard() {
       h('div', { class: 'section-title', style: 'margin:0' }, 'Club news'),
       news.length > 8 ? h('a', { class: 'a', style: 'font-size:12px;cursor:pointer', onclick: () => (location.hash = '#/news') }, 'View all →') : ''),
     news.length
-      ? h('div', {}, ...news.slice(0, 8).map(n => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0;' + (slotByName.has(n.player) ? 'cursor:pointer' : ''), onclick: () => { const s = slotByName.get(n.player); if (s != null) location.hash = `#/player/${s}`; } },
+      ? h('div', {}, ...news.slice(0, 8).map(n => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0;' + (slotByName.has(n.player) ? 'cursor:pointer' : ''), ...(slotByName.has(n.player) ? clickable(() => { const s = slotByName.get(n.player); if (s != null) location.hash = `#/player/${s}`; }) : {}) },
           h('span', {}, `${NEWS_ICON[n.type] ?? '•'} ${n.headline}`),
           h('span', { class: 'muted', style: 'font-size:11px' }, `S${n.season}`))))
       : h('div', { class: 'muted', style: 'font-size:12px' }, 'No headlines yet — play on and your players will make news.'));
@@ -787,7 +792,7 @@ async function screenDashboard() {
         h('span', { style: `color:${c};font-weight:600;text-transform:capitalize` }, hm.status),
         h('span', { class: 'muted' }, `avg morale ${hm.avgMorale}`)),
       ...(hm.players.length
-        ? hm.players.map(p => h('div', { class: 'between', style: 'font-size:12px;padding:2px 0;cursor:pointer', onclick: () => (location.hash = `#/player/${p.slot}`) },
+        ? hm.players.map(p => h('div', { class: 'between', style: 'font-size:12px;padding:2px 0;cursor:pointer', ...clickable(() => { location.hash = `#/player/${p.slot}`; }) },
             h('span', {}, `${HARMONY_ICON[p.tag] ?? '•'} ${p.name}`),
             h('span', { class: 'muted', style: 'font-size:11px' }, p.note)))
         : [h('div', { class: 'muted', style: 'font-size:12px' }, 'A settled, unremarkable dressing room.')]));
