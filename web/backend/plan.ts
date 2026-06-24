@@ -87,7 +87,7 @@ MOTIVATION (the shout's emotional effect — separate from tactics):
 - CAP: each player's "motUsed" is shown. If a player is already at ${MOTIVATION_CAP}, do NOT add motivation for them (skip; mention in note). Motivation is scarce + meaningful.
 - "we/lads/everyone" addressed motivationally => you may move a few key players, not all 11.
 
-NOTE: short, only for a problem (unknown player, ambiguous, nonsense/abuse-with-no-target). "" when clean.`;
+NOTE: short, only for a problem (unknown player, ambiguous, nonsense/abuse-with-no-target). "" when clean. Never use a kind not listed above.`;
 
 function extract(content: string): Record<string, unknown> {
   const body = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
@@ -121,6 +121,15 @@ const SCORE_WORDS = /\b(winning|losing|drawing|level|tied|all square|ahead|behin
 export const PHASE_WORDS = /\b(in possession|out of possession|when we(?:'re| are|'ve| have)?\s*(?:have|win|won|lose|lost|regain|attack|defend)|win it back|won it back|lose the ball|lost the ball|in transition|on the (?:counter|break|turnover)|counter.?press|gegen.?press|when (?:we'?re )?(?:attacking|defending)|the (?:second|moment|instant) we (?:win|lose|regain))\b/i;
 export const VALID_PHASES = new Set(['in_possession', 'attacking', 'out_of_possession', 'defending', 'transition']);
 
+// honest-decline net (the coverage corpus's #1 failure mode is a SILENT wrong-approximation): if the LLM
+// proposed tactical directives but every kind was unrecognised (no matching primitive → all dropped), left no
+// motivation, and gave no note of its own, surface that it couldn't map the order instead of a silent no-op.
+// Conservative on purpose — only fires when there's genuinely nothing else (real directives/motivation/a note
+// all suppress it), so it never clobbers a legit mapping or the LLM's own note.
+export function declineFallback(hasDirectives: boolean, hasMotivation: boolean, droppedKind: boolean, note: string): string {
+  return (!hasDirectives && !hasMotivation && droppedKind && !note) ? "I couldn't map that to a tactical setting yet." : note;
+}
+
 // Validate the returned plan's directives (same rules as tactics.ts) + motivation
 // (id range, clamp, enforce the per-player cap from motUsed). Deterministic given
 // the model output, so cached replays stay identical.
@@ -129,11 +138,12 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
   const planRaw = (raw.plan ?? {}) as Record<string, unknown>;
   const timeOK = TIME_WORDS.test(shout), scoreOK = SCORE_WORDS.test(shout), phaseOK = PHASE_WORDS.test(shout);
   const directives: Directive[] = [];
+  let droppedKind = false;   // the LLM proposed a directive whose kind isn't a real primitive (→ honest-decline net)
   for (const r of (Array.isArray(planRaw.directives) ? planRaw.directives : [])) {
     if (!r || typeof r !== 'object') continue;
     const d = r as Record<string, unknown>;
     const kind = String(d.kind ?? '');
-    if (!VALID_KINDS.has(kind)) continue;
+    if (!VALID_KINDS.has(kind)) { if (kind) droppedKind = true; continue; }
     const intensity = Math.max(0, Math.min(1, num(d.intensity, 1)));
     let dir: Directive;
     if (TEAM_KIND_SET.has(kind)) {
@@ -180,7 +190,8 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
   }
   const summary = typeof planRaw.summary === 'string' && planRaw.summary.trim() ? planRaw.summary.trim().slice(0, 280) : (directives.length ? 'Standing plan in effect.' : EMPTY_PLAN.summary);
   const changed = typeof raw.changed === 'string' ? raw.changed.trim().slice(0, 160) : '';
-  const note = typeof raw.note === 'string' ? raw.note.trim().slice(0, 200) : '';
+  let note = typeof raw.note === 'string' ? raw.note.trim().slice(0, 200) : '';
+  note = declineFallback(directives.length > 0, motivation.length > 0, droppedKind, note);
   // Formation change: accept only a real registry shape (normalise digits/keys).
   let formation: string | null = null;
   if (typeof raw.formation === 'string' && raw.formation.trim()) {
