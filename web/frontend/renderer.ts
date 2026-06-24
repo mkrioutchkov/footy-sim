@@ -867,6 +867,12 @@ export class MatchRenderer {
     if (restart) {
       const label = this.restartLabel(restart.reason ?? restart.type);
       const teamLabel = restart.team === 'home' ? 'HOME' : 'AWAY';
+      // At a free kick, mark the 9.15m (~91px in pitch coords, per the engine) legal distance — the
+      // defensive WALL lines up on this ring, so the wall formation reads on screen (user ask: SEE walls).
+      if (restart.type === 'free_kick') {
+        this.setPieceGfx.circle(restart.spotX, restart.spotY, 91);
+        this.setPieceGfx.stroke({ width: 1.5, color: 0xffffff, alpha: 0.26 });
+      }
       this.setPieceGfx.circle(restart.spotX, restart.spotY, 18);
       this.setPieceGfx.stroke({ width: 3, color: restart.team === 'home' ? HOME_COLOR : AWAY_COLOR, alpha: 0.95 });
       this.setPieceGfx.circle(restart.spotX, restart.spotY, 4);
