@@ -78,6 +78,7 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
         else if (k == "target_player")  dir.kind = DK::TargetPlayer;
         else if (k == "stay_wide")      dir.kind = DK::StayWide;
         else if (k == "come_inside")    dir.kind = DK::ComeInside;
+        else if (k == "cut_inside" || k == "cut_in" || k == "cut_inside_to_shoot") dir.kind = DK::CutInside;
         else if (k == "stay_central")   dir.kind = DK::StayCentral;
         else if (k == "cross_early")    dir.kind = DK::CrossEarly;
         else if (k == "switch_play")    dir.kind = DK::SwitchPlay;

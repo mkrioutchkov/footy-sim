@@ -224,13 +224,22 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     // goes deep and the near-post runner is legally onside-CLOSE, enabling the onside 6-yard cutback
     // (the realistic close-chance route). Central / build-up carriers fail the wide+final-third gate;
     // the cut-inside-to-SHOOT lane survives via !nearGoal.
-    bool bylineSeek = isWidePlayer() && finalThird && distToGoal < 340.0
+    // cut_inside: a wide carrier in the final third drives toward goal-center (onto his stronger foot)
+    // INSTEAD of the byline — the inverted-winger shot threat. Gated on the directive (0 => unchanged).
+    bool cutInside = engine.directiveBias[p.id].cutInsideBias > 0.0
+        && isWidePlayer() && finalThird && distToGoal < 360.0
+        && std::abs(p.y - PITCH_H / 2.0) > 90.0
+        && !nearGoal;
+    bool bylineSeek = !cutInside && isWidePlayer() && finalThird && distToGoal < 340.0
         && std::abs(p.y - PITCH_H / 2.0) > 120.0
         && per.nearestOpponentDist > 55.0
         && !nearGoal;
     if (bylineSeek) {
         tx = clamp(gx - fd * 40.0, 35.0, PITCH_W - 35.0);                          // byline depth, stay wide
         ty = clamp(p.y + (p.y < PITCH_H / 2.0 ? -10.0 : 10.0), 70.0, PITCH_H - 70.0);
+    } else if (cutInside) {
+        tx = lerp(tx, gx, 0.50);                                                   // drive toward goal
+        ty = clamp(lerp(p.y, PITCH_H / 2.0, 0.42), 70.0, PITCH_H - 70.0);          // cut inside toward center
     } else if (nearGoal) {
         tx = lerp(tx, gx, 0.55);
     } else {
@@ -240,6 +249,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     // Scoring
     double sc = 0.35;
     if (bylineSeek) sc += 0.18;   // §C reward the byline carry so it wins vs an early cross / cut-inside
+    if (cutInside)  sc += 0.20;   // cut_inside: reward the inside drive so it wins vs the byline (mirror)
     double backwardTarget = (tx - p.x) * fd;
     if (backwardTarget < -45.0) {
         sc -= 0.34;
