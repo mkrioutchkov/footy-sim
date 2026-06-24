@@ -12,7 +12,8 @@ const ROLE_SLOTS = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'WM', 'CF', 
 const PLAYER_KINDS = ['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', 'target_player',
   'stay_wide', 'come_inside', 'stay_central', 'cross_early', 'cutback', 'switch_play', 'play_simple',
   'run_in_behind', 'make_runs', 'come_short', 'check_to_feet', 'drift_into_pocket', 'play_between_lines', 'between_the_lines', 'drop_into_the_ten',
-  'target_man_holdup', 'hold_it_up', 'dribble_more', 'press_hard', 'contain', 'tackle_hard', 'stay_on_feet', 'stay_back'];   // come_short/check_to_feet → DK::ComeShort; drift_into_pocket/play_between_lines/between_the_lines/drop_into_the_ten → DK::DriftIntoPocket; target_man_holdup/hold_it_up → DK::TargetManHoldup (WAVE receive primitives, engine main.cpp)
+  'target_man_holdup', 'hold_it_up', 'target_man', 'cut_inside', 'cut_in', 'cut_inside_to_shoot',
+  'dribble_more', 'press_hard', 'contain', 'tackle_hard', 'stay_on_feet', 'stay_back'];   // come_short/check_to_feet → DK::ComeShort; drift_into_pocket/play_between_lines/between_the_lines/drop_into_the_ten → DK::DriftIntoPocket; target_man_holdup/hold_it_up/target_man → DK::TargetManHoldup; cut_inside/cut_in/cut_inside_to_shoot → DK::CutInside (WAVE primitives, engine main.cpp)
 const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 'play_it_long',
   'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down',
   'counter_attack', 'offside_trap',
@@ -89,6 +90,7 @@ PER-PLAYER kinds (need playerId; omit teamScope):
 - make_runs: make runs / keep moving / get on the move / offer the runs.
 - come_short: come short to feet / check to feet / drop to link / receive between the lines / show for it / don't always run in behind — the per-player INVERSE of run_in_behind (drops toward the carrier to link play).
 - drift_into_pocket: drop into the ten / find pockets / play between the lines / get in the hole / receive in the half-space between their defence and midfield (positions in the pocket facing forward, vs come_short's drop toward the ball).
+- cut_inside: cut inside and shoot / come in off the line and have a go / inside forward / a lefty on the right (or righty on the left) drives infield onto his stronger foot to shoot — a WIDE attacker, NOT come_inside (which is an inverting full-back tucking in).
 - target_man_holdup: play him as a target man / hold it up / hold-up play / lay it off / feet not runs / be an out-ball — a forward who holds the ball up with his back to goal and brings others in (NOT make_runs/run_in_behind).
 - dribble_more: take them on / run at them / dribble more / beat your man / be direct 1v1.
 - press_hard: press him / get after him / close him down / hound the ball / don't let him settle.
