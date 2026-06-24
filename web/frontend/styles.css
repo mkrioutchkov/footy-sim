@@ -122,7 +122,20 @@ input[type=range] { accent-color: var(--accent); }
 .form-badge.w { background: var(--accent); }
 .form-badge.d { background: var(--muted); }
 .form-badge.l { background: var(--danger); }
-.spin { color: var(--muted); }
+.spin { color: var(--muted); display: flex; align-items: center; gap: 10px; }
+.spin::before { content: ''; flex: 0 0 auto; width: 15px; height: 15px; border: 2px solid var(--line-soft);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── section nav grid (dashboard) — tidy equal-width icon tiles instead of a ragged button row ── */
+.nav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 10px; }
+.nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 15px 10px; font-weight: 600; box-shadow: none; transition: transform .1s, border-color .15s, background .15s, box-shadow .15s; }
+.nav-item:hover { border-color: var(--accent2); background: var(--hover); transform: translateY(-2px); box-shadow: var(--shadow-card); filter: none; }
+.nav-item:active { transform: translateY(0); }
+.nav-item .ico { font-size: 21px; line-height: 1; }
+.nav-item .lab { font-size: 13px; letter-spacing: .2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 22px 0 10px; }

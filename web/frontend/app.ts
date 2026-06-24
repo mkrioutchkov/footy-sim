@@ -160,6 +160,12 @@ function header(): HTMLElement {
   );
 }
 
+// A section-nav tile for the dashboard grid (icon + label → a hash route).
+function navItem(icon: string, label: string, route: string): HTMLElement {
+  return h('button', { class: 'nav-item', onclick: () => (location.hash = route) },
+    h('span', { class: 'ico' }, icon), h('span', { class: 'lab' }, label));
+}
+
 // ── auth ──
 function screenAuth() {
   let tab: 'login' | 'register' = 'login';
@@ -762,19 +768,22 @@ async function screenDashboard() {
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
         `Managed by ${team.manager} · ${league.divisionName ?? 'League'}${league.season ? ` · Season ${league.season}` : ''} · Position ${myPos}/${league.standings.length}`)),
+      // Primary match-flow actions stay prominent up top; section nav moves to the grid below.
       h('div', { class: 'row' }, watchBtn,
         myNext ? h('button', { class: 'ghost', title: 'Address the squad before your next match', onclick: () => (location.hash = `#/teamtalk/${myNext.id}`) }, 'Team talk') : '',
-        advanceBtn,
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/squad') }, 'Squad'),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/market') }, 'Market'),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/training') }, 'Training'),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/academy') }, 'Academy'),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/staff') }, 'Staff'),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/finances') }, 'Finances'),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/cup') }, 'Cup'),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/history') }, 'History'),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/tactics') }, 'Tactics')),
+        advanceBtn),
     ),
+    h('div', { class: 'card', style: 'padding:14px' },
+      h('div', { class: 'nav-grid' },
+        navItem('👥', 'Squad', '#/squad'),
+        navItem('💸', 'Market', '#/market'),
+        navItem('🏃', 'Training', '#/training'),
+        navItem('🎓', 'Academy', '#/academy'),
+        navItem('🧑‍🏫', 'Staff', '#/staff'),
+        navItem('💰', 'Finances', '#/finances'),
+        navItem('🏆', 'Cup', '#/cup'),
+        navItem('📜', 'History', '#/history'),
+        navItem('♟️', 'Tactics', '#/tactics'))),
     // §1.17: a wage bill over budget (e.g. forced renewals after relegation shrank it) is otherwise
     // only visible if you open Finances — surface it up front (new signings are blocked until under).
     (team.wageBudget != null && team.wageBill != null && team.wageBill > team.wageBudget)
