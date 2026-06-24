@@ -1110,12 +1110,28 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
   // §weather: the match's actual condition, set from the first frame that carries it (clear → blank).
   const weatherEl = h('span', { style: 'margin-left:auto;font-size:13px;color:#9ec5ff' });
+  // speed controls — ascending 1×/2×/4×/8× with the ACTIVE speed highlighted (read off each frame's state.speed),
+  // so you can always see your current speed (the old bar was 8×/4×/1×, no 2×, no active indicator).
+  const SPEEDS = [1, 2, 4, 8];
+  let paused = false;
+  const speedBtns = SPEEDS.map(v => h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: v })) }, `${v}×`) as HTMLButtonElement);
+  // Pause ↔ Resume. The LIVE coordinator takes distinct pause/resume; a re-sim/replay (match.ts) TOGGLES on 'pause'
+  // and ignores 'resume', so send a plain 'pause' there and just flip the label.
+  const pauseBtn = h('button', { class: 'ghost small', onclick: () => {
+    paused = !paused;
+    activeWs?.send(JSON.stringify({ type: live ? (paused ? 'pause' : 'resume') : 'pause' }));
+    pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+    paintBar();
+  } }, '⏸ Pause') as HTMLButtonElement;
+  const paintBar = (s?: number): void => {
+    const sp = typeof s === 'number' ? s : 1;
+    speedBtns.forEach((b, i) => { const on = !paused && SPEEDS[i] === sp; b.classList.toggle('primary', on); b.classList.toggle('ghost', !on); });
+    pauseBtn.classList.toggle('primary', paused); pauseBtn.classList.toggle('ghost', !paused);
+  };
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
-    h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 8 })) }, '8×'),
-    h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 4 })) }, '4×'),
-    h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 1 })) }, '1×'),
-    h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'pause' })) }, 'Pause'),
+    ...speedBtns,
+    pauseBtn,
     rewindBtn,
     replayBtn,
     weatherEl,
@@ -1277,6 +1293,8 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       }
       if (replaying) return;   // the clip is driving the renderer — keep buffering live frames but don't draw them
       renderer.sync(msg);
+      paintBar(msg.speed);   // highlight the active speed off the frame
+
     } catch { /* */ }
   };
   ws.onerror = () => { if (!gotFrame) showStatusError('Could not connect to the match.'); };
