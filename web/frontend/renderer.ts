@@ -884,6 +884,13 @@ export class MatchRenderer {
       this.setPieceGfx.stroke({ width: 3, color: restart.team === 'home' ? HOME_COLOR : AWAY_COLOR, alpha: 0.95 });
       this.setPieceGfx.circle(restart.spotX, restart.spotY, 4);
       this.setPieceGfx.fill({ color: 0xffffff, alpha: 0.95 });
+      // mark the designated TAKER (who's taking the set piece) with a gold ring — completes the FK setup read
+      const taker = restart.takerId != null ? byId.get(restart.takerId) : undefined;
+      if (taker) {
+        this.setPieceGfx.circle(taker.x, taker.y, 13);
+        this.setPieceGfx.stroke({ width: 2, color: 0xffe066, alpha: 0.85 });
+        (window as unknown as { __lastTaker?: unknown }).__lastTaker = { id: restart.takerId, x: Math.round(taker.x), y: Math.round(taker.y), type: restart.type };   // verify hook
+      }
       this.setPieceText.text = `${label} ${teamLabel}`;
       this.setPieceText.position.set(restart.spotX, Math.max(22, restart.spotY - 30));
       this.setPieceText.anchor.set(0.5, 0.5);
