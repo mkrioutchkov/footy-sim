@@ -26,7 +26,7 @@ import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from '.
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
-import { applyPressConference, pressAvailable, recordPress } from './press.ts';
+import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory, getClubRecords } from './history.ts';
@@ -539,11 +539,43 @@ app.get('/api/player/:slot/renew-preview', async (req: any, reply) => {
 // Hold a press conference: the manager's statement (free text) is judged against each
 // player's personality dials to move squad morale. LLM-primary with a deterministic fallback.
 const pressInFlight = new Set<number>();   // a presser is mid-judge (multi-second LLM await) — see the guard below
+
+// Interactive press: a context-aware journalist question + tone-keyed response options (LLM, with a
+// deterministic template fallback). The frontend shows the question + lets the manager pick a tone.
+app.get('/api/press', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  if (!pressAvailable(teamId)) return { available: false };
+  const team = getTeamWithPlayers(teamId)!;
+  const last5 = db.prepare('SELECT home_team_id, away_team_id, home_score, away_score FROM fixtures WHERE (home_team_id = ? OR away_team_id = ?) AND played = 1 ORDER BY round DESC LIMIT 5')
+    .all(teamId, teamId) as { home_team_id: number; away_team_id: number; home_score: number | null; away_score: number | null }[];
+  const res = (f: typeof last5[number]): 'W' | 'D' | 'L' => {
+    const gf = f.home_team_id === teamId ? (f.home_score ?? 0) : (f.away_score ?? 0);
+    const ga = f.home_team_id === teamId ? (f.away_score ?? 0) : (f.home_score ?? 0);
+    return gf > ga ? 'W' : gf < ga ? 'L' : 'D';
+  };
+  const form = last5.slice().reverse().map(res).join('');   // oldest → newest
+  const nextFx = db.prepare('SELECT home_team_id, away_team_id FROM fixtures WHERE (home_team_id = ? OR away_team_id = ?) AND played = 0 ORDER BY round LIMIT 1')
+    .get(teamId, teamId) as { home_team_id: number; away_team_id: number } | undefined;
+  const oppId = nextFx ? (nextFx.home_team_id === teamId ? nextFx.away_team_id : nextFx.home_team_id) : null;
+  const nextOpponent = oppId != null ? (db.prepare('SELECT name FROM teams WHERE id = ?').get(oppId) as { name: string } | undefined)?.name : undefined;
+  const tbl = standings(team.leagueId);
+  const idx = tbl.findIndex(s => (s as { isUser?: boolean }).isUser);
+  const q = await generatePressQuestion({
+    form, lastResult: last5.length ? res(last5[0]) : undefined,
+    position: idx >= 0 ? idx + 1 : 0, teams: tbl.length,
+    objective: getObjective(teamId)?.label, nextOpponent, confidence: getConfidence(teamId)?.status,
+  });
+  return { available: true, ...q };
+});
+
 app.post('/api/press', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   const text = String(req.body?.text ?? '').trim().slice(0, 400);
+  const tone = typeof req.body?.tone === 'string' ? req.body.tone : undefined;   // the chosen option's tone (board effect)
   if (!text) return reply.code(400).send({ error: 'say something to the media' });
   // one presser per match — you can't spam the media to farm morale
   if (!pressAvailable(teamId)) return reply.code(400).send({ error: "you've already faced the media this matchday — nothing new to say until your next game." });
@@ -553,9 +585,9 @@ app.post('/api/press', async (req: any, reply) => {
   if (pressInFlight.has(teamId)) return reply.code(409).send({ error: "you're already in front of the media." });
   pressInFlight.add(teamId);
   try {
-    const r = await applyPressConference(teamId, text);
+    const r = await applyPressResponse(teamId, text, tone);   // morale (dials) + board confidence (tone)
     recordPress(teamId);   // only consume the once-per-match cadence on success (a failed judge can be retried)
-    return { ...r, team: getTeamWithPlayers(teamId) };
+    return { ...r, confidence: getConfidence(teamId), team: getTeamWithPlayers(teamId) };
   } finally {
     pressInFlight.delete(teamId);
   }

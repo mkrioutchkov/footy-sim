@@ -5,6 +5,7 @@
 // deterministic keyword fallback, so it never blocks. Reads the dials (the text↔dial coupling).
 import { db } from './db.ts';
 import { chatComplete, llmReady } from './llm.ts';
+import { adjustConfidence } from './confidence.ts';
 
 interface Dials { criticismResponse: number; praiseResponse: number; ego: number; temperament: number }
 interface SquadMember { slot: number; name: string; traits: Dials }
@@ -96,4 +97,71 @@ export async function applyPressConference(teamId: number, text: string): Promis
   const upd = db.prepare('UPDATE players SET morale = MAX(0, MIN(100, morale + ?)) WHERE team_id = ? AND slot = ?');
   for (const r of reactions) upd.run(r.delta, teamId, r.slot);
   return { reactions, lifted: reactions.filter(r => r.delta > 0).length, unsettled: reactions.filter(r => r.delta < 0).length };
+}
+
+// ── Interactive press conference: a context-aware journalist QUESTION + tone-keyed response OPTIONS.
+// The chosen response feeds the morale judge above AND nudges board confidence by its tone —
+// accountability earns the board's respect, deflection erodes it. ────────────────────────────────────
+export type PressTone = 'back_players' | 'demand_more' | 'accountable' | 'defiant' | 'calm';
+const TONE_BOARD: Record<PressTone, number> = { accountable: 3, calm: 1, back_players: 1, demand_more: 1, defiant: -4 };
+export function boardDeltaForTone(tone: string): number {
+  return (TONE_BOARD as Record<string, number>)[tone] ?? 0;
+}
+
+export interface PressOption { tone: PressTone; label: string; text: string }
+export interface PressQuestion { question: string; options: PressOption[] }
+export interface PressContext {
+  form: string;                       // last 5 e.g. "WWLDL" (newest last), '' early
+  lastResult?: 'W' | 'D' | 'L';
+  position: number; teams: number;
+  objective?: string; nextOpponent?: string; confidence?: string;
+}
+
+// Deterministic template question + the five tone options keyed to the situation — the always-available
+// fallback (and the test fixture). The LLM enriches the wording when reachable; tones/effects stay fixed.
+const STD_OPTIONS: PressOption[] = [
+  { tone: 'back_players', label: 'Back the players', text: 'I believe in this group — they give me everything and we go again together.' },
+  { tone: 'demand_more', label: 'Demand more', text: "Not good enough — I've told them, one or two need to step up and show me more." },
+  { tone: 'accountable', label: 'Take responsibility', text: "That's on me. The buck stops with the manager and I'll put it right." },
+  { tone: 'calm', label: 'Stay calm', text: 'We stay calm and focused — one game at a time, trust the process.' },
+  { tone: 'defiant', label: 'Deflect it', text: "Ask the board, not me. I won't answer that — judge me at the end of the season." },
+];
+function templateQuestion(c: PressContext): PressQuestion {
+  const losing = c.lastResult === 'L' || /LL$/.test(c.form);
+  const winning = c.lastResult === 'W' || /WW$/.test(c.form);
+  const question = losing
+    ? `That result will sting${c.nextOpponent ? `, and ${c.nextOpponent} are next` : ''}. Are you worried about the run?`
+    : winning ? 'Good win — is this side turning a corner?'
+    : c.objective ? `The board want "${c.objective}". Are you on course?`
+    : 'How do you assess where the team is right now?';
+  return { question, options: STD_OPTIONS };
+}
+
+const Q_SYSTEM = `You are a sharp football journalist at a manager's press conference. Given his situation, ask ONE pointed, natural question (max ~22 words), then propose 4-5 short response options he could give, each a distinct TONE. Output ONLY JSON {"question":"...","options":[{"tone":"back_players|demand_more|accountable|defiant|calm","label":"2-3 words","text":"first-person line, max ~18 words"}]}. Make the question specific to the form/result/objective/opponent. Punchy and in-character.`;
+
+export async function generatePressQuestion(c: PressContext): Promise<PressQuestion> {
+  const fb = templateQuestion(c);
+  if (!llmReady(true).ok) return fb;
+  try {
+    const ctx = `Form (last 5, newest last): ${c.form || 'n/a'}. Last result: ${c.lastResult ?? 'n/a'}. League position: ${c.position}/${c.teams}. Board objective: ${c.objective ?? 'n/a'}. Board confidence: ${c.confidence ?? 'n/a'}. Next opponent: ${c.nextOpponent ?? 'n/a'}.`;
+    const raw = await chatComplete({ system: Q_SYSTEM, user: ctx, temperature: 0.7, maxTokens: 500, timeoutMs: 9000, live: true });
+    const o = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')) as { question?: unknown; options?: unknown };
+    const valid: PressOption[] = Array.isArray(o.options) ? o.options.flatMap((x): PressOption[] => {
+      const opt = x as { tone?: unknown; label?: unknown; text?: unknown };
+      const tone = (['back_players', 'demand_more', 'accountable', 'defiant', 'calm'] as const).find(t => t === opt.tone) ?? null;
+      if (!tone || typeof opt.text !== 'string' || !opt.text.trim()) return [];
+      return [{ tone, label: typeof opt.label === 'string' && opt.label.trim() ? opt.label.trim().slice(0, 24) : tone.replace('_', ' '), text: opt.text.trim().slice(0, 160) }];
+    }) : [];
+    const question = typeof o.question === 'string' && o.question.trim() ? o.question.trim().slice(0, 200) : fb.question;
+    return valid.length >= 2 ? { question, options: valid.slice(0, 5) } : fb;
+  } catch { return fb; }
+}
+
+// Apply a chosen press response: the per-player morale judge PLUS a board-confidence nudge from the
+// response's tone (free-text with no tone → board-neutral). Returns the morale reactions + board delta.
+export async function applyPressResponse(teamId: number, text: string, tone?: string): Promise<{ reactions: PressReaction[]; lifted: number; unsettled: number; boardDelta: number }> {
+  const r = await applyPressConference(teamId, text);
+  const boardDelta = tone ? boardDeltaForTone(tone) : 0;
+  if (boardDelta) adjustConfidence(teamId, boardDelta);
+  return { ...r, boardDelta };
 }

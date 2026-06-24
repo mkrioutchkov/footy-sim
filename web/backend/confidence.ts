@@ -28,6 +28,12 @@ export function nudgeConfidence(teamId: number, outcome: 'W' | 'D' | 'L'): void 
   applyDelta(teamId, outcome === 'W' ? 2 : outcome === 'L' ? -2 : 0);
 }
 
+// A small ad-hoc adjustment (e.g. a press-conference tone landing well/badly with the board).
+// No-op on a team without a tracked confidence (board_confidence null → null arithmetic).
+export function adjustConfidence(teamId: number, delta: number): void {
+  if (delta) applyDelta(teamId, delta);
+}
+
 // The season verdict — the major swings. Relegation/promotion dominate; the board objective verdict
 // and a top-/bottom-third finish layer on. Returns the resulting (clamped) confidence.
 export function settleConfidenceAtRollover(opts: {
