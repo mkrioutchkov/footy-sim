@@ -626,6 +626,12 @@ async function screenDashboard() {
     const fx = myNext ?? [...league.fixtures].reverse().find(f => f.involvesMe && f.played);
     if (fx) location.hash = `#/watch/${fx.id}`;
   });
+  // ⚡ OPT-IN live play (beta): the resident coordinator runs your next match in real time with live
+  // shouts that apply on the tick; full-time persists the result (it counts). Default stays the instant
+  // pre-sim via Advance — this is the chosen big-match experience. Only for an upcoming (unplayed) match.
+  const liveBtn = myNext
+    ? h('button', { class: 'ghost', title: 'Play your next match LIVE — watch in real time and shout; the result counts', onclick: () => (location.hash = `#/watch/${myNext.id}?live=1`) }, '⚡ Play LIVE')
+    : '';
 
   // recent form (last 5 played in this division, oldest→newest) — computed from the fixtures already in
   // the payload, so no extra request and no engine. W/D/L from the team's own result.
@@ -769,7 +775,7 @@ async function screenDashboard() {
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
         `Managed by ${team.manager} · ${league.divisionName ?? 'League'}${league.season ? ` · Season ${league.season}` : ''} · Position ${myPos}/${league.standings.length}`)),
       // Primary match-flow actions stay prominent up top; section nav moves to the grid below.
-      h('div', { class: 'row' }, watchBtn,
+      h('div', { class: 'row' }, watchBtn, liveBtn,
         myNext ? h('button', { class: 'ghost', title: 'Address the squad before your next match', onclick: () => (location.hash = `#/teamtalk/${myNext.id}`) }, 'Team talk') : '',
         advanceBtn),
     ),
@@ -1000,6 +1006,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
+    h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 8 })) }, '8×'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 4 })) }, '4×'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 1 })) }, '1×'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'pause' })) }, 'Pause'),

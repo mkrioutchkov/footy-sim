@@ -26,8 +26,11 @@ import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer, type Motivati
 import { FORMATIONS, normalizeFormation, engineRole, PITCH_W } from './formations.ts';
 import { ROLE_SLOTS } from './game.ts';
 import {
-  type RecKind, type Command, captureLineStream, writeEventsLog, hasHumanStake,
+  type RecKind, type Command, type SummaryPlayer, captureLineStream, writeEventsLog, hasHumanStake, getFixture,
 } from './match.ts';
+import { db } from './db.ts';
+import { consumeTeamTalk } from './teamtalk.ts';
+import { processMatchAftermath } from './news.ts';
 
 const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
 export type Side = 'home' | 'away';
@@ -116,11 +119,15 @@ export class LiveMatch {
   private readonly awayName: string;
   private readonly homeTeamId: number;
   private readonly awayTeamId: number;
+  private readonly kind: RecKind;
+  private readonly refId: number;
+  private readonly record: boolean;
   private readonly onGone: (key: string) => void;
 
   constructor(key: string, o: CreateOpts, onGone: (key: string) => void, makeEngine: EngineFactory = realEngine) {
     this.key = key; this.seed = o.seed; this.homeName = o.homeName; this.awayName = o.awayName;
     this.homeTeamId = o.homeTeamId; this.awayTeamId = o.awayTeamId; this.onGone = onGone;
+    this.kind = o.kind; this.refId = o.refId; this.record = o.record;
     this.baseSpec = JSON.parse(readFileSync(o.specPath, 'utf8'));
     this.seedPlan('home', o.seedPlans?.home);
     this.seedPlan('away', o.seedPlans?.away);
@@ -307,9 +314,50 @@ export class LiveMatch {
     if (this.finished || this.disposed) return;   // idempotent: full-time + a later dispose can't double-fire
     this.finished = true;
     if (this.capture) { try { this.capture.end(); } catch { /* already ended */ } this.capture = null; }
+    this.persistResult();   // a live-played match COUNTS: persist the score + aftermath like playFixture
     // The match is over: a fresh connection will now find the recording and replay it, so drop
     // the live instance from the registry. Existing sockets keep the final frame until they leave.
     this.onGone(this.key);
+  }
+
+  // On full-time, persist the LIVE result so the match counts in the league — the same write
+  // playFixture does (score + played + spent team-talk), plus the per-human-side aftermath. The
+  // live final frame is authoritative AND reproducible from the command log (determinism). GUARDED:
+  // only when the fixture is still UNPLAYED, so re-watching a played match live (a re-sim) never
+  // overwrites the official result, and a pre-simmed result is left untouched. Best-effort — the
+  // result/aftermath are ambient and must never crash the match-end path.
+  private persistResult(): void {
+    try {
+      if (!this.record) return;   // only a human-stake live match counts; a spectator re-sim does not
+      const st = this.latest;
+      if (!st || this.kind !== 'fixture') return;
+      const fx = getFixture(this.refId);
+      if (!fx || fx.played) return;   // pre-simmed / re-watch — don't overwrite the official result
+      const homeScore = Math.max(0, Math.round(Number(st.homeScore ?? 0)));
+      const awayScore = Math.max(0, Math.round(Number(st.awayScore ?? 0)));
+      db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, this.refId);
+      consumeTeamTalk(this.refId);
+      // Aftermath (ratings → morale + season tally + news) for each HUMAN side, off the final frame's
+      // per-player stats. A frame carries no per-player passes, so the bounded distribution term is
+      // dropped (same approximation as the live ratings); injuries aren't tracked live yet → [].
+      const players = this.finalSummaryPlayers(st);
+      for (const teamId of [this.homeTeamId, this.awayTeamId]) {
+        const human = (db.prepare('SELECT user_id FROM teams WHERE id = ?').get(teamId) as { user_id: number | null } | undefined)?.user_id != null;
+        if (human) void processMatchAftermath(teamId, this.refId, [], players).catch(() => { /* ambient */ });
+      }
+    } catch { /* best-effort */ }
+  }
+
+  // Map the final live frame's players to the aftermath's SummaryPlayer shape (passes unknown → 0).
+  private finalSummaryPlayers(st: Record<string, unknown>): SummaryPlayer[] {
+    const arr = Array.isArray(st.players) ? st.players as Array<Record<string, unknown>> : [];
+    return arr.map(p => ({
+      id: Number(p.id ?? 0), name: String(p.name ?? ''), role: String(p.role ?? 'CM'),
+      team: p.team === 'away' ? 'away' : 'home',
+      goals: Number(p.goals ?? 0), assists: Number(p.assists ?? 0), shots: Number(p.shots ?? 0),
+      tackles: Number(p.tackles ?? 0), passes: 0, passesCompleted: 0,
+      yellow: Number(p.yellow ?? 0), sentOff: !!p.sentOff,
+    }));
   }
 
   dispose(): void {
