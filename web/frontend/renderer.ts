@@ -27,6 +27,8 @@ type PlayerEntry = {
   diveAngle: number;
   lastDribbleType: number;
   wasSprinting: boolean;
+  name: string;          // the label's base (short) name — the live rating is appended to it
+  ratingShown: number;   // last rating written to the label (dirty-check; -1 = none yet)
 };
 
 export class MatchRenderer {
@@ -403,10 +405,11 @@ export class MatchRenderer {
     for (const p of state.players) {
       let entry = this.playerEntries.get(p.id);
       if (!entry) {
+        const shortName = p.name.split('(')[1]?.replace(')', '') ?? p.name;
         const body = new Graphics();
         const arrow = new Graphics();
         const label = new Text({
-          text: p.name.split('(')[1]?.replace(')', '') ?? p.name,
+          text: shortName,
           // a thin dark outline so the name stays legible against the grass / mowing stripes
           style: new TextStyle({ fill: 0xffffff, fontSize: 9, fontFamily: 'monospace', stroke: { color: 0x081019, width: 2.5 } }),
         });
@@ -418,6 +421,8 @@ export class MatchRenderer {
           body,
           arrow,
           label,
+          name: shortName,
+          ratingShown: -1,
           drawn: false,
           wasSliding: false,
           wasDiving: false,
@@ -601,6 +606,13 @@ export class MatchRenderer {
       }
 
       entry.label.position.set(vp.x, vp.y + r + 3);
+      // live rating ticks beside the name (dirty-checked — the value only moves on a stat/score change)
+      const rt = this.liveRating(p, state.homeScore ?? 0, state.awayScore ?? 0);
+      if (rt !== entry.ratingShown) {
+        entry.ratingShown = rt;
+        entry.label.text = `${entry.name} ${rt.toFixed(1)}`;
+        entry.label.tint = this.ratingTint(rt);
+      }
     }
 
     // Defensive: drop markers for ids no longer in the frame. The fixed-22 roster makes this a
@@ -1185,6 +1197,31 @@ export class MatchRenderer {
     this.momentum = 0; this.displayMomentum = 0; this.ballXEma = PITCH_W / 2;
     this.momPrevClock = clockMs; this.homeAttacksX = null; this.goalFlashUntil = 0;
     this.lastSetPieceType = null; this.prevStatStr = {};
+  }
+
+  // FM-style live player rating, ticking off the SAME model as the post-match report
+  // (report.ts ratePlayer) but from the frame's running per-player stats: base 6.5, lifted by
+  // attacking returns + tackles, with clean-sheet / GK-concession / result / card adjustments.
+  // The frame carries no per-player passes, so the (bounded ±0.5) distribution term is dropped;
+  // win/lose/conceded read the LIVE scoreline, so a rating shifts the moment the score does.
+  private liveRating(p: EngineState['players'][number], homeScore: number, awayScore: number): number {
+    let r = 6.5;
+    r += (p.goals ?? 0) * 1.2 + (p.assists ?? 0) * 0.8 + (p.shots ?? 0) * 0.08 + (p.tackles ?? 0) * 0.06;
+    const conceded = p.team === 'home' ? awayScore : homeScore;
+    const ahead = p.team === 'home' ? homeScore > awayScore : awayScore > homeScore;
+    const behind = p.team === 'home' ? homeScore < awayScore : awayScore < homeScore;
+    const defensive = p.role === 'GK' || p.role === 'CB' || p.role === 'FB';
+    if (defensive && conceded === 0) r += 0.8;
+    if (p.role === 'GK') r -= conceded * 0.25;
+    r += ahead ? 0.3 : (behind ? -0.3 : 0);
+    r -= (p.yellow ?? 0) > 0 ? 0.3 : 0;
+    r -= p.sentOff ? 2.0 : 0;
+    return Math.max(1, Math.min(10, Math.round(r * 10) / 10));
+  }
+
+  // Tint a player label by its rating band — green for a strong game, amber for a poor one.
+  private ratingTint(r: number): number {
+    return r >= 7.5 ? 0x57e08a : r >= 6.5 ? 0xffffff : r >= 5.5 ? 0xcdd6df : 0xf3b06b;
   }
 
   private eventColor(type: string): number {
