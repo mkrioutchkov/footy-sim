@@ -27,6 +27,42 @@ const EMPTY: ManagerCareer = {
   titles: 0, promotions: 0, relegations: 0, cups: 0, objectivesMet: 0, objectivesSet: 0, bestFinish: null, spells: [],
 };
 
+export type ReputationTier = 'unproven' | 'promising' | 'respected' | 'renowned' | 'elite' | 'legendary';
+export interface ManagerReputation { tier: ReputationTier; label: string; score: number; blurb: string; }
+
+// The football world's standing of the manager — a reputation SYNTHESISED from the career CV: silverware
+// dominates, with promotions, a strong win rate, objectives met and longevity layering on, and relegations
+// denting it. Distinct from board CONFIDENCE (the current employer's volatile, in-season view) — reputation
+// is the cumulative, slow-moving media profile shown on the career screen. Pure (derives only from the
+// aggregated career), so it's deterministic + unit-testable.
+export function managerReputation(c: ManagerCareer): ManagerReputation {
+  const winAdj = c.winPct >= 50 ? (c.winPct - 50) * 0.8 : (c.winPct - 50) * 0.4;   // a strong win% boosts; a weak one dents, gentler
+  const score = Math.round(
+    c.titles * 30 + c.cups * 18 + c.promotions * 12 + c.objectivesMet * 6
+    - c.relegations * 10 + winAdj + Math.min(c.seasons, 20) * 1.5,
+  );
+  const tier: ReputationTier =
+    c.seasons === 0 ? 'unproven'
+    : score >= 210 ? 'legendary'
+    : score >= 125 ? 'elite'
+    : score >= 65 ? 'renowned'
+    : score >= 28 ? 'respected'
+    : score >= 8 ? 'promising'
+    : 'unproven';
+  const LABEL: Record<ReputationTier, string> = {
+    unproven: 'Unproven', promising: 'Promising', respected: 'Respected', renowned: 'Renowned', elite: 'Elite', legendary: 'Legendary',
+  };
+  const BLURB: Record<ReputationTier, string> = {
+    unproven: c.seasons === 0 ? 'A fresh face yet to take charge of a full season.' : 'Still to make your mark on the game.',
+    promising: 'An up-and-coming name — the early signs are good.',
+    respected: 'A solid operator the game has come to respect.',
+    renowned: 'A well-known manager with real achievements behind you.',
+    elite: 'Among the most accomplished managers around.',
+    legendary: 'A managerial great — your CV speaks for itself.',
+  };
+  return { tier, label: LABEL[tier], score, blurb: BLURB[tier] };
+}
+
 export function getManagerCareer(userId: number): ManagerCareer {
   const teams = db.prepare('SELECT id, name FROM teams WHERE user_id = ?').all(userId) as unknown as { id: number; name: string }[];
   if (!teams.length) return { ...EMPTY };
