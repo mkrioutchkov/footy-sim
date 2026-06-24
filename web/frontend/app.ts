@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -916,6 +916,30 @@ async function screenDashboard() {
           h('div', { class: 'muted', style: 'font-size:12px;margin-top:3px' }, `Currently ${ordinal(myPos)} — ${margin}.`),
           h('div', { style: `color:${c};font-size:11px;margin-top:3px;font-style:italic` }, consequence)));
       }
+      // §41 board meeting — ask the board to back you (funds/wages), once a season; the grant scales
+      // with confidence. Fetched async + patched in (the card renders immediately).
+      const meetEl = h('div', { style: (conf || obj) ? 'margin-top:10px;border-top:1px solid var(--line);padding-top:8px' : '' });
+      const askBoard = async (kind: 'funds' | 'wages'): Promise<void> => {
+        meetEl.querySelectorAll('button').forEach(b => b.setAttribute('disabled', 'true'));
+        try { const r = await api.boardRequest(kind); toast(r.message + (r.granted && r.budget != null && kind === 'funds' ? ` Budget now £${(r.budget / 1e6).toFixed(0)}M.` : '')); paintMeeting(r.meeting); }
+        catch (e: any) { toast('⚠ ' + e.message); }
+      };
+      const paintMeeting = (m: BoardMeetingT): void => {
+        const btn = (kind: 'funds' | 'wages', label: string, amt: number) => {
+          const b = h('button', { class: 'ghost small', title: amt > 0 ? `The board would add £${(amt / 1e6).toFixed(0)}M` : 'The board won’t back this at your current standing', onclick: () => askBoard(kind) }, `${label}${amt > 0 ? ` · £${(amt / 1e6).toFixed(0)}M` : ''}`);
+          if (!m.available || amt <= 0) b.setAttribute('disabled', 'true');
+          return b;
+        };
+        meetEl.replaceChildren(
+          h('div', { class: 'between', style: 'font-size:13px;margin-bottom:5px' },
+            h('span', {}, '🤝 Board meeting'),
+            m.available ? '' : h('span', { class: 'muted', style: 'font-size:11px' }, 'met this season')),
+          m.available
+            ? h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, btn('funds', 'Ask for transfer funds', m.grants.funds), btn('wages', 'Ask for wage budget', m.grants.wages))
+            : h('div', { class: 'muted', style: 'font-size:12px' }, 'You’ve had your audience with the board — back next season.'));
+      };
+      void api.board().then(paintMeeting).catch(() => { meetEl.style.display = 'none'; });
+      rows.push(meetEl);
       return h('div', { class: 'card', style: 'padding:12px 14px' }, ...rows);
     })(),
     h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table,

@@ -141,6 +141,7 @@ export interface RotationT { players: RotationPlayerT[]; suggestions: RotationSu
 export interface HarmonyPlayerT { slot: number; name: string; tag: 'leader' | 'pro' | 'disruptive' | 'unsettled'; note: string; }
 export interface HarmonyT { harmony: number; status: 'united' | 'settled' | 'restless' | 'fractured'; avgMorale: number; players: HarmonyPlayerT[]; }
 export interface ConcernT { slot: number; name: string; morale: number; kind: 'unsettled' | 'benched_star' | 'wantaway'; reason: string; contractYears: number; canReassure: boolean; }
+export interface BoardMeetingT { available: boolean; confidence: { value: number; status: string } | null; grants: { funds: number; wages: number }; }
 
 export interface ClubRecordsT {
   seasons: number; titles: number; promotions: number; relegations: number; cups: number;
@@ -205,6 +206,9 @@ export const api = {
   concerns: () => req<{ concerns: ConcernT[] }>('GET', '/concerns'),
   resolveConcern: (slot: number, action: 'reassure' | 'accept' | 'reject') =>
     req<{ ok: boolean; action: string; moraleDelta?: number; morale?: number; listed?: boolean; askPrice?: number; message: string; concerns: ConcernT[]; team: TeamT }>('POST', `/concerns/${slot}`, { action }),
+  board: () => req<BoardMeetingT>('GET', '/board'),
+  boardRequest: (kind: 'funds' | 'wages') =>
+    req<{ granted: boolean; kind?: string; amount?: number; budget?: number; wageBudget?: number; message: string; meeting: BoardMeetingT; team: TeamT }>('POST', '/board/request', { kind }),
   renewPreview: (slot: number) =>
     req<{ currentWage: number; newWage: number; delta: number; years: number; affordable: boolean }>('GET', `/player/${slot}/renew-preview`),
   // §2.2 contract negotiation: propose a renewal (resolved at the next matchday), then match/withdraw.
