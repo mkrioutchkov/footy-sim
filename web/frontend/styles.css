@@ -192,6 +192,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   table { font-size: 13px; }
   header.top .wrap { padding: 10px 14px; }
   .players { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  /* fixture rows: drop the 4th (action) column so the weather + Watch/Report group wraps onto its own
+     centred row instead of overflowing the narrow viewport. */
+  .fx { grid-template-columns: 1fr auto 1fr; }
+  .fx .fx-actions { grid-column: 1 / -1; justify-content: center; margin-top: 4px; }
   /* narrow screens: revert the tactics panel to a bottom bar */
   .tactics-panel { top: auto; left: 12px; right: 12px; bottom: 12px; width: auto; max-width: 720px; margin: 0 auto; max-height: 46vh; }
 }

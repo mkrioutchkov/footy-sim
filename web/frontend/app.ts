@@ -688,7 +688,7 @@ async function screenDashboard() {
       ? h('span', { class: 'pill', title: f.weather === 'rain' ? 'Wet pitch — the ball skids further' : 'Windy — long balls and crosses drift', style: 'background:rgba(127,178,255,.14);color:#9ec5ff' }, f.weather === 'rain' ? '🌧 Rain' : '🌬 Wind')
       : '';
     if (f.played) {
-      const action = h('span', { style: 'display:flex;gap:6px;align-items:center' }, wx,
+      const action = h('span', { class: 'fx-actions', style: 'display:flex;gap:6px;align-items:center' }, wx,
         h('button', { class: 'ghost small', onclick: () => (location.hash = `#/watch/${f.id}`) }, 'Watch'),
         h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report'));
       fxBox.append(h('div', { class: 'fx me' }, h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
@@ -696,7 +696,7 @@ async function screenDashboard() {
       // UX: the whole upcoming-fixture ROW scouts the opponent (declutters the ~12 per-row "Scout"
       // buttons SysArch flagged → one row-action + a 🔍 hint, not a button on every line).
       const opp = f.home === team.name ? f.away : f.home;
-      const action = h('span', { style: 'display:flex;gap:6px;align-items:center' }, wx,
+      const action = h('span', { class: 'fx-actions', style: 'display:flex;gap:6px;align-items:center' }, wx,
         h('span', { class: 'pill' }, `R${f.round}`), h('span', { class: 'muted', style: 'font-size:12px' }, '🔍'));
       fxBox.append(h('div', { class: 'fx me', style: 'cursor:pointer', title: `Scout ${opp}`, ...clickable(() => { location.hash = `#/scout/${f.id}`; }) },
         h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
