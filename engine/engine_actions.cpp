@@ -769,7 +769,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     // placement. Without this the open-play error model sprayed pens wide.
     bool penaltyKick=setPiece.type==SetPiece::Penalty;
     if(credibleFinish)executionError*=shotDistance<95.0?0.46:0.56;
-    if(directFreeKickShot)executionError*=0.48;
+    if(directFreeKickShot)executionError*=0.62;   // §FK: less clinical than the old 0.48 — the curl-around-wall + open-corner aim were over-converting (goal-inflation); target ~1-in-12-15
     if(penaltyKick)executionError*=0.30;
     if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.72:0.82;
     if(freshCross)executionError*=s.role==Role::CF?0.46:(s.role==Role::WM?0.62:0.82);
@@ -794,7 +794,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         else if(wideAngle&&shotDistance>=110.0&&shotDistance<=235.0&&clearSight) shotType=3;        // curl
         else if(clearSight&&shotDistance>=120.0&&shotDistance<=250.0&&accuracy>0.45) shotType=2;    // power
     }
-    if(passDebug)fprintf(stderr,"SHOTTYPE t=%d dist=%d ang=%d pr=%d\n",shotType,(int)shotDistance,(int)angleDeg,pressureCount);
+    if(passDebug)fprintf(stderr,"SHOTTYPE t=%d dist=%d ang=%d pr=%d fk=%d lb=%d\n",shotType,(int)shotDistance,(int)angleDeg,pressureCount,directFreeKickShot?1:0,laneBlockers);
     // Placed shots (finesse/curl) aim for the corner the keeper is NOT shading;
     // the random side stays for instinctive/power strikes (keep the rng draw so
     // the deterministic stream count is unchanged — only the value moves).
@@ -815,7 +815,7 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     else if(shotType==3) postFrac=0.30+accuracy*0.06;  // curl: small nudge — the bend already carries it out toward the corner
     else if(shotType==4) postFrac=0.18+accuracy*0.06;  // chip: net is open with the keeper out — aim safely inside
     double postRoll=(rng.random()<0.5?-1.0:1.0);
-    double postSide=shotType?openSide:postRoll;        // every deliberate type aims off the keeper
+    double postSide=(shotType||directFreeKickShot)?openSide:postRoll;  // deliberate types + a direct FK aim off the keeper (open corner), not a random post
     double aimedPost=postSide*GOAL_W*postFrac;
     // Composed strikes are struck cleaner than a snatched effort — tighten the
     // spread a little so they keep finding the frame, but not so far that the
@@ -888,6 +888,11 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
         double fkSpeed=std::min(speed,250.0);
         b.vx=dx/d*fkSpeed; b.vy=dy/d*fkSpeed;
         b.vz=std::max(fkSpeed*0.72,150.0);
+        // §FK curl AROUND/over the wall (Beckham): the chip lofts it (z>2) so the spin SUSTAINS
+        // (curl decays slow airborne, engine_physics:57) and bends it toward the open corner — beats
+        // the wall + reads as a real curling FK, not a flat chip. Sign matches the open-play curler.
+        double vxSign=(dx>=0.0?1.0:-1.0);
+        b.curl=openSide*vxSign*(0.20+accuracy*0.15);
     }
     b.lastTouchTeam=s.team; b.lastToucherId=s.id;
     metrics.shotLaunchSpeedTotal+=speed; metrics.shotLaunchCount++;

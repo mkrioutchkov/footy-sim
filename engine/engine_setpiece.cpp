@@ -166,8 +166,11 @@ void GameEngine::releaseSetPiece(){
         int laneBlockers = countLaneBlockers(state.players, holder->x, holder->y, gx, gy, holder->team, BLOCKER_PERP_FREEKICK, 0.06, 0.90);
         bool central=std::abs(holder->y-gy)<170.0;
         // A defensive wall is normal for a direct free kick — don't veto on it.
-        bool credibleShot=shotDist>105.0&&shotDist<300.0&&central&&angleDeg>5.5&&laneBlockers<=3;
-        double shotChance=clamp(0.48+(300.0-shotDist)/260.0+angleDeg/82.0-laneBlockers*0.10,0.25,0.85);
+        // §FK: a defensive WALL is EXPECTED on a central direct free kick — it must NOT veto the
+        // shot (that left FKs "too few"). The curl-around-the-wall shot (shootBall) beats it, so only
+        // EXCESS blockers beyond the ~3-man wall suppress; base chance raised so 10-28m central FKs fire.
+        bool credibleShot=shotDist>105.0&&shotDist<300.0&&central&&angleDeg>5.5;
+        double shotChance=clamp(0.40+(300.0-shotDist)/300.0+angleDeg/95.0-std::max(0.0,laneBlockers-3.0)*0.12,0.22,0.72);
         if(credibleShot&&rng.random()<shotChance){
             shootBall(*holder,nullptr);
             clearReleasedSetPiece();
