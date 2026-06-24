@@ -1019,8 +1019,13 @@ function setPieceTakerPanel(team: TeamT): HTMLElement {
 }
 
 async function screenTactics() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading tactics…')));
   let team: TeamT;
-  try { team = await api.team(); } catch { return route(); }
+  try { team = await api.team(); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+  }
   const reg = await api.formations().catch(() => null);   // registry for the visual pitch (graceful if it fails)
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
