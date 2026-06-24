@@ -200,6 +200,7 @@ struct Player {
     double crossCollected = 0.0;
     double throughCollected = 0.0;
     double firstTouchFinish = 0.0; // first-time foot finish off a low cross — flat & clean, but not a header
+    bool   wall = false;           // in the defensive FK wall this tick (render-hint; reset each tick, set in setPiecePositioning)
     int    dribbleType = 0;
     // Knock from a hard foul: decays over time, scales down max speed while
     // it lasts. A player carrying a real injury is a substitution candidate.

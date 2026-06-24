@@ -122,6 +122,7 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                     double off = (p.homeY < PITCH_H / 2.0) ? -20.0 : 20.0;
                     p.targetX = bx + wdx * 91.0 + (-wdy) * off;
                     p.targetY = by + wdy * 91.0 + ( wdx) * off;
+                    p.wall = true;   // render-hint: this FB is in the FK wall (Gaylord's wall-highlight)
                 } else if (isCenterBack()) {
                     p.targetX = ownGoalX + fd * 72.0;
                     p.targetY = PITCH_H / 2.0 + (p.id % 2 == 0 ? -46.0 : 46.0);

@@ -18,7 +18,7 @@
 // post-process with Python/TS tools.
 
 static constexpr uint32_t TRACE_MAGIC   = 0x46545346; // "FSTF" (Footy-Sim Trace Format)
-static constexpr uint32_t TRACE_VERSION = 1;
+static constexpr uint32_t TRACE_VERSION = 2;  // v2: + per-player `wall` bool + ball `curl` (render hints)
 
 #pragma pack(push, 1)
 
@@ -40,6 +40,7 @@ struct TracePlayerState {
     int32_t  dribbleType;
     double   tackleAnim;
     double   headingAnim;
+    int32_t  wall;          // v2: in the defensive FK wall this tick (render hint)
 };
 
 struct TraceBallState {
@@ -49,6 +50,7 @@ struct TraceBallState {
     int32_t  controllerId;
     int32_t  intendedReceiverId;
     int32_t  lastToucherId;
+    double   curl;          // v2: lateral spin rad/s (render hint, for the curl trail)
 };
 
 struct TraceFrame {
@@ -122,6 +124,7 @@ public:
         frame.ball.controllerId = state.ball.controllerId;
         frame.ball.intendedReceiverId = state.ball.intendedReceiverId;
         frame.ball.lastToucherId = state.ball.lastToucherId;
+        frame.ball.curl = state.ball.curl;
 
         for (size_t i = 0; i < state.players.size() && i < 22; i++) {
             auto& p = state.players[i];
@@ -135,6 +138,7 @@ public:
             tp.dribbleType = p.dribbleType;
             tp.tackleAnim = p.tackleAnim;
             tp.headingAnim = p.headingAnim;
+            tp.wall = p.wall ? 1 : 0;
         }
         std::fwrite(&frame, sizeof(frame), 1, f);
         frameCount++;

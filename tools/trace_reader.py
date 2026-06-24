@@ -26,10 +26,10 @@ from typing import List, Optional, Iterator
 HEADER_FMT = '<IIi d 32s'
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
-PLAYER_FMT = '<i dd dd dd d d i dd'
+PLAYER_FMT = '<i dd dd dd d d i dd i'  # v2: + wall (int32)
 PLAYER_SIZE = struct.calcsize(PLAYER_FMT)
 
-BALL_FMT = '<dddd dd ii i'
+BALL_FMT = '<dddd dd ii i d'  # v2: + curl (double)
 BALL_SIZE = struct.calcsize(BALL_FMT)
 
 FRAME_FMT = f'<d {BALL_SIZE}s {PLAYER_SIZE * 22}s ii dd'
@@ -53,6 +53,7 @@ class BallState:
     controller_id: int = -1
     intended_receiver_id: int = -1
     last_toucher_id: int = -1
+    curl: float = 0
 
 
 @dataclass
@@ -69,6 +70,7 @@ class PlayerState:
     dribble_type: int = 0
     tackle_anim: float = 0
     heading_anim: float = 0
+    wall: int = 0
 
 
 @dataclass
@@ -180,7 +182,7 @@ class TraceReader:
             x=ball_data[0], y=ball_data[1], vx=ball_data[2], vy=ball_data[3],
             z=ball_data[4], vz=ball_data[5],
             controller_id=ball_data[6], intended_receiver_id=ball_data[7],
-            last_toucher_id=ball_data[8]
+            last_toucher_id=ball_data[8], curl=ball_data[9]
         )
 
         # Players
@@ -191,7 +193,7 @@ class TraceReader:
                 id=pd[0], x=pd[1], y=pd[2], vx=pd[3], vy=pd[4],
                 target_x=pd[5], target_y=pd[6], stamina=pd[7],
                 facing=pd[8], dribble_type=pd[9],
-                tackle_anim=pd[10], heading_anim=pd[11]
+                tackle_anim=pd[10], heading_anim=pd[11], wall=pd[12]
             ))
 
         home_score, away_score = struct.unpack_from('<ii', data, offset); offset += 8

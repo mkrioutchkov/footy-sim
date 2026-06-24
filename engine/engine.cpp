@@ -277,6 +277,7 @@ void GameEngine::fixedUpdate(double sdt) {
 }
 void GameEngine::updatePlayerAnimations(double sdt) {
     for (auto& p : state.players) {
+        p.wall = false;   // render-hint: cleared each tick; setPiecePositioning (runs after this) re-sets it for the FK wall
         if (p.tackleAnim > 0) p.tackleAnim = std::max(0., p.tackleAnim - sdt);
         if (p.headingAnim > 0) p.headingAnim = std::max(0., p.headingAnim - sdt);
         if (p.diveAnim > 0) p.diveAnim = std::max(0., p.diveAnim - sdt);
