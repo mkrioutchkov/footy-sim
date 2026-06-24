@@ -26,7 +26,7 @@ import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer, type Motivati
 import { FORMATIONS, normalizeFormation, engineRole, PITCH_W } from './formations.ts';
 import { ROLE_SLOTS } from './game.ts';
 import {
-  type RecKind, type Command, type SummaryPlayer, captureLineStream, writeEventsLog, hasHumanStake, getFixture,
+  type RecKind, type Command, type SummaryPlayer, captureLineStream, writeEventsLog, hasHumanStake, getFixture, weatherForSeed,
 } from './match.ts';
 import { db } from './db.ts';
 import { consumeTeamTalk } from './teamtalk.ts';
@@ -188,7 +188,7 @@ export class LiveMatch {
     if (sub.ws.readyState !== 1) return;
     sub.ws.send(JSON.stringify({
       ...state, seed: this.seed, speed: this.speed, homeName: this.homeName, awayName: this.awayName,
-      live: true, replay: false, matchState: this.paused ? 'paused' : state.matchState,
+      weather: weatherForSeed(this.seed), live: true, replay: false, matchState: this.paused ? 'paused' : state.matchState,
     }));
   }
 

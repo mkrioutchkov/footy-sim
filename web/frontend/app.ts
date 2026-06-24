@@ -11,7 +11,7 @@ interface TacticsReceipt {
   error?: string; formation?: string; note?: string; changed?: string;
   motivation?: MotivationReaction[]; plan?: PlanT | null; directives?: DirectiveT[];
 }
-type WatchMessage = EngineState & { homeName?: string; awayName?: string; replay?: boolean; tacticsReceipt?: TacticsReceipt; error?: string };
+type WatchMessage = EngineState & { homeName?: string; awayName?: string; weather?: 'clear' | 'rain' | 'wind'; replay?: boolean; tacticsReceipt?: TacticsReceipt; error?: string };
 
 const root = document.getElementById('app')!;
 let user: { id: number; username: string } | null = null;
@@ -1068,6 +1068,8 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const rewindBtn = h('button', { class: 'ghost small', style: 'display:none', onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: 0 })) }, '⏮ Rewind');
   // ⚽ Replay — appears after the first live goal; plays back the buffered run-up (instant action replay).
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
+  // §weather: the match's actual condition, set from the first frame that carries it (clear → blank).
+  const weatherEl = h('span', { style: 'margin-left:auto;font-size:13px;color:#9ec5ff' });
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: 8 })) }, '8×'),
@@ -1076,6 +1078,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'pause' })) }, 'Pause'),
     rewindBtn,
     replayBtn,
+    weatherEl,
   );
   document.body.appendChild(bar);
   watchBar = bar;
@@ -1206,6 +1209,11 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
       if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; }
+      // §weather: show the match's condition once (clear stays blank — only the notable conditions show)
+      if (msg.weather && msg.weather !== 'clear' && !weatherEl.textContent) {
+        weatherEl.textContent = msg.weather === 'rain' ? '🌧 Rain' : '🌬 Wind';
+        weatherEl.title = msg.weather === 'rain' ? 'Wet pitch — the ball skids further' : 'Windy — long balls and crosses drift';
+      }
       // felt-tactics: live possession in the active-plan strip (YOUR share — flip it when you're the away side)
       if (typeof msg.possessionPct === 'number' && myTeam && msg.homeName) {
         const mine = msg.homeName === myTeam.name ? msg.possessionPct : 100 - msg.possessionPct;

@@ -599,15 +599,17 @@ abstract class FramePacer {
   protected seed: number;
   protected homeName: string;
   protected awayName: string;
+  protected weather: Weather;   // §weather: the match's condition (same seed-derived value the spec carried)
 
   constructor(ws: WebSocket, seed: number, homeName: string, awayName: string) {
     this.ws = ws; this.seed = seed; this.homeName = homeName; this.awayName = awayName;
+    this.weather = weatherForSeed(seed);
   }
 
   protected send(state: any): void {
     if (this.ws.readyState !== 1) return;
     this.latest = state;
-    this.ws.send(JSON.stringify({ ...state, seed: this.seed, speed: this.speed, homeName: this.homeName, awayName: this.awayName, replay: this.replay, matchState: this.paused ? 'paused' : state.matchState }));
+    this.ws.send(JSON.stringify({ ...state, seed: this.seed, speed: this.speed, homeName: this.homeName, awayName: this.awayName, weather: this.weather, replay: this.replay, matchState: this.paused ? 'paused' : state.matchState }));
   }
 
   protected tick(): void {
