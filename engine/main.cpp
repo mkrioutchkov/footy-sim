@@ -220,6 +220,10 @@ int main(int argc, char* argv[]) {
                         te.layoutSet[id]  = true;
                     }
                 }
+                // §4 LIVE: which side this entry replaces (0=home, 1=away; -1=both, back-compat).
+                // Lets a recorded TWO-SIDED match replay PER-TEAM byte-identically to the live frames
+                // — live-inject ≡ timeline-replay, since both go through the shared applyDirectiveEntry.
+                te.team = e.value("team", -1);
                 engine.directiveTimeline.push_back(std::move(te));
             }
             std::sort(engine.directiveTimeline.begin(), engine.directiveTimeline.end(),
