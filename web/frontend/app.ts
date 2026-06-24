@@ -2286,7 +2286,7 @@ async function screenSquad() {
         catch (err: any) { toast(err.message); }
       });
       tbody.append(h('tr', { class: p.slot < 11 ? 'me' : '' },
-        h('td', {}, capArm,
+        h('td', { style: 'white-space:nowrap' }, capArm,
           h('span', { style: 'cursor:pointer', onclick: () => (location.hash = `#/player/${p.slot}`) }, p.name),
           p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:10px' }, ' · bench') : '',
           seekingMove(p) ? h('span', { class: 'pill', title: 'Running down his contract and unsettled — likely to push for a move', style: 'margin-left:5px;background:var(--danger);color:#fff;font-size:9px' }, 'seeking move') : ''),
