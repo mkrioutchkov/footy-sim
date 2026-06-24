@@ -75,6 +75,11 @@ void GameEngine::applyBallPhysics(double s) {
     if (b.vz != 0.0 || b.z > 0) {
         b.vz -= GRAVITY * s;
         b.z += b.vz * s;
+        if (weather == 2 && b.z > 0.5) {   // §weather v2 WIND: height-gated lateral drift on AIRBORNE balls only (ground passes immune -> passPct protected)
+            double h = std::min(b.z / WIND_HEIGHT_REF, 1.0);
+            b.vx += windX * h * s;
+            b.vy += windY * h * s;
+        }
         if (b.z <= 0) {
             b.z = 0;
             if (b.vz < -75.0) {

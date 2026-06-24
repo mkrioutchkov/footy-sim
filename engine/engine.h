@@ -104,8 +104,10 @@ public:
     // §weather feature-depth: match-level pitch condition affecting BALL physics. 0=clear (DEFAULT
     // -> zero effect, byte-identical default game), 1=rain/wet (the pitch greases the ball: it skids
     // further, shedding less rolling friction). Set from FOOTY_WEATHER env (or spec) before startMatch.
-    // Kept ball-only + small on purpose; wind/airborne-drift is a deliberate follow-up.
+    // Kept ball-only + small on purpose. 2=wind (§v2): a seed-derived per-match wind vector drifts
+    // AIRBORNE balls laterally (height-gated, so ground passes are immune -> passPct protected).
     int weather = 0;
+    double windX = 0.0, windY = 0.0;   // §weather v2: per-match wind accel vector (units/s^2), seed-derived when weather==2
 
     // Substitutions: an in-place identity swap (the on-pitch slot keeps its
     // id/role/position; only name+attrs+freshness change), so the 22-slot

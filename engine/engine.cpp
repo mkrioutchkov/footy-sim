@@ -1049,6 +1049,20 @@ void GameEngine::initWithSeed(int seed) {
             default:       agents.push_back(std::make_unique<PlayerAI>(p, *this));  break;
         }
     }
+    // §weather v2 WIND: derive the per-match wind vector from a SEPARATE seed-stream so the MAIN rng
+    // (hence the whole clear-vs-wind in-match sim) stays byte-identical — only the airborne drift
+    // differs (a clean paired comparison). Gated weather==2 so clear/rain never draw it, keeping the
+    // default game byte-identical + the live-replay determinism invariant intact.
+    // INIT-COUPLING: weather is set BEFORE initWithSeed (main.cpp), so the vector is derived once here;
+    // a FUTURE live mid-match weather->wind flip must re-derive it (else windX/windY stay 0 = a silent
+    // no-op wind). There is no such command today — weather is init-only. [adversarial-review flag]
+    if (weather == 2) {
+        SeededRNG wrng; wrng.setSeed(static_cast<uint32_t>(seed) ^ 0x57494e44u);  // "WIND"
+        double ang = wrng.random() * 6.283185307179586;            // 0..2pi
+        double mag = WIND_ACCEL_BASE + wrng.random() * WIND_ACCEL_RANGE;
+        windX = std::cos(ang) * mag;
+        windY = std::sin(ang) * mag;
+    }
 }
 
 void GameEngine::creditGoal(int scorerId) {

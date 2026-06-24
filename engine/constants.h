@@ -31,6 +31,12 @@ inline constexpr double PASS_SPEED_DIST = 0.105;
 inline constexpr double SHOT_SPEED_BASE = 285.0;
 inline constexpr double BALL_FRICTION  = 0.70;
 inline constexpr double GRAVITY        = 500.0;
+// §weather v2 WIND: a seed-derived per-match wind vector accelerates AIRBORNE balls laterally.
+// Height-gated (h = min(z/WIND_HEIGHT_REF, 1)) so ground passes are immune -> passPct protected.
+// t^2-scaling is emergent + free: a 2.5s long ball drifts ~12x a 0.7s cross. Tune via a paired agg.
+inline constexpr double WIND_ACCEL_BASE   = 6.0;   // min per-match wind accel (units/s^2) — dialed back from 10 (adversarial review: 16-seed onTarget +25% breached the >20% "too strong" line)
+inline constexpr double WIND_ACCEL_RANGE  = 5.0;   // +0..range (seed-derived) -> mag 6..11 (subtler; holds passPct, pulls the onTarget swing under threshold)
+inline constexpr double WIND_HEIGHT_REF   = 24.0;  // z (= GOAL_H) at/above which wind is full
 
 // ── Interaction distances ──
 inline constexpr double TACKLE_RANGE   = 24.0;
