@@ -142,6 +142,12 @@ export interface HarmonyPlayerT { slot: number; name: string; tag: 'leader' | 'p
 export interface HarmonyT { harmony: number; status: 'united' | 'settled' | 'restless' | 'fractured'; avgMorale: number; players: HarmonyPlayerT[]; }
 export interface ConcernT { slot: number; name: string; morale: number; kind: 'unsettled' | 'benched_star' | 'wantaway'; reason: string; contractYears: number; canReassure: boolean; }
 export interface BoardMeetingT { available: boolean; confidence: { value: number; status: string } | null; grants: { funds: number; wages: number }; }
+export interface ManagerSpellT { team: string; seasons: number; from: number; to: number; titles: number; promotions: number; relegations: number; }
+export interface ManagerCareerT {
+  clubs: number; seasons: number; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
+  winPct: number; titles: number; promotions: number; relegations: number; cups: number; objectivesMet: number; objectivesSet: number;
+  bestFinish: { position: number; division: string; season: number } | null; spells: ManagerSpellT[];
+}
 
 export interface ClubRecordsT {
   seasons: number; titles: number; promotions: number; relegations: number; cups: number;
@@ -207,6 +213,7 @@ export const api = {
   resolveConcern: (slot: number, action: 'reassure' | 'accept' | 'reject') =>
     req<{ ok: boolean; action: string; moraleDelta?: number; morale?: number; listed?: boolean; askPrice?: number; message: string; concerns: ConcernT[]; team: TeamT }>('POST', `/concerns/${slot}`, { action }),
   board: () => req<BoardMeetingT>('GET', '/board'),
+  career: () => req<ManagerCareerT>('GET', '/career'),
   boardRequest: (kind: 'funds' | 'wages') =>
     req<{ granted: boolean; kind?: string; amount?: number; budget?: number; wageBudget?: number; message: string; meeting: BoardMeetingT; team: TeamT }>('POST', '/board/request', { kind }),
   renewPreview: (slot: number) =>

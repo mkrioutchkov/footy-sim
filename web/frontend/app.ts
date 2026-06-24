@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -857,6 +857,7 @@ async function screenDashboard() {
         navItem('💰', 'Finances', '#/finances'),
         navItem('🏆', 'Cup', '#/cup'),
         navItem('📜', 'History', '#/history'),
+        navItem('📋', 'Career', '#/career'),
         navItem('♟️', 'Tactics', '#/tactics'))),
     // §1.17: a wage bill over budget (e.g. forced renewals after relegation shrank it) is otherwise
     // only visible if you open Finances — surface it up front (new signings are blocked until under).
@@ -2268,6 +2269,47 @@ function trophy(icon: string, n: number, label: string): HTMLElement {
     h('div', { style: 'font-size:22px;font-weight:800' }, String(n)),
     h('div', { class: 'muted', style: 'font-size:11px' }, label));
 }
+// ── manager career: the manager's CV aggregated across every club managed ──
+async function screenCareer() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading your career…')));
+  let c: ManagerCareerT;
+  try { c = await api.career(); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+  }
+  const stat = (label: string, val: string | number, sub?: string) => h('div', { class: 'card', style: 'padding:12px 16px;min-width:118px' },
+    h('div', { style: 'font-size:24px;font-weight:700' }, String(val)),
+    h('div', { class: 'muted', style: 'font-size:12px' }, label),
+    sub ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' }, sub) : '');
+  const body = c.seasons === 0
+    ? h('div', { class: 'card' }, h('div', { class: 'muted' }, 'No completed seasons yet — play through a season and your managerial record will build here.'))
+    : h('div', {},
+        h('div', { class: 'row', style: 'gap:12px;flex-wrap:wrap;margin-bottom:14px' },
+          stat('Seasons', c.seasons, c.clubs > 1 ? `${c.clubs} clubs` : undefined),
+          stat('Record', `${c.won}-${c.drawn}-${c.lost}`, `${c.played} games`),
+          stat('Win rate', `${c.winPct}%`),
+          stat('Points', c.points)),
+        h('div', { class: 'card', style: 'margin-bottom:14px' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Honours'),
+          h('div', { class: 'row', style: 'gap:18px;flex-wrap:wrap' },
+            trophy('🏆', c.titles, c.titles === 1 ? 'League title' : 'League titles'),
+            trophy('🥇', c.cups, c.cups === 1 ? 'Cup' : 'Cups'),
+            trophy('⬆️', c.promotions, 'Promotions'),
+            trophy('⬇️', c.relegations, 'Relegations')),
+          c.objectivesSet ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px' },
+            `Board objectives met: ${c.objectivesMet}/${c.objectivesSet}${c.bestFinish ? ` · Best finish: ${ordinal(c.bestFinish.position)} (${c.bestFinish.division}, S${c.bestFinish.season})` : ''}`) : ''),
+        h('div', { class: 'card' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Clubs managed'),
+          ...c.spells.map(s => h('div', { class: 'between', style: 'font-size:13px;padding:5px 0;border-top:1px solid var(--line)' },
+            h('span', {}, h('b', {}, s.team), ' ', h('span', { class: 'muted', style: 'font-size:12px' }, `${s.from === s.to ? `S${s.from}` : `S${s.from}–S${s.to}`} · ${s.seasons} season${s.seasons === 1 ? '' : 's'}`)),
+            h('span', { class: 'muted', style: 'font-size:12px' }, [s.titles ? `${s.titles}🏆` : '', s.promotions ? `${s.promotions}⬆️` : '', s.relegations ? `${s.relegations}⬇️` : ''].filter(Boolean).join('  ') || '—')))));
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' }, h('h2', {}, 'Managerial career'),
+      h('button', { class: 'ghost small', onclick: () => (location.hash = '#/') }, '← Back')),
+    body));
+}
+
 async function screenHistory() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading history…')));
   let hist: SeasonHistoryT[]; let records: import('./api').ClubRecordsT | null = null;
@@ -2534,6 +2576,7 @@ function route() {
   else if (hash === '#/finances') screenFinances();
   else if (hash === '#/cup') screenCup();
   else if (hash === '#/history') screenHistory();
+  else if (hash === '#/career') screenCareer();
   else if (hash.startsWith('#/report/')) screenReport(Number(hash.split('/')[2]));
   else if (hash.startsWith('#/scout/')) screenScout(Number(hash.split('/')[2]));
   else if (hash.startsWith('#/player/')) screenPlayer(Number(hash.split('/')[2]));
