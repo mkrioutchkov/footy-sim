@@ -550,7 +550,9 @@ async function screenDashboard() {
   const pendingRound = pendingUnplayed.length ? Math.min(...pendingUnplayed.map(f => f.round)) : null;
   const myInPending = pendingRound != null ? league.fixtures.find(f => f.involvesMe && f.round === pendingRound) : undefined;
   const simmingMyMatch = !!(myInPending && !myInPending.played);
-  const advanceBtn = h('button', {},
+  const advanceBtn = h('button', { title: simmingMyMatch
+    ? 'Simulate the whole matchday now — including YOUR match (instantly). To play yours yourself, use “Watch my next match” or “⚡ Play LIVE” first.'
+    : 'Simulate every club’s matchday and move the season on. No undo.' },
     !canAdvance ? 'Season complete'
       : simmingMyMatch ? `Play matchday ${pendingRound}`
         : `Advance matchday${pendingRound != null ? ` ${pendingRound}` : ''}`);
@@ -621,7 +623,9 @@ async function screenDashboard() {
     } catch (e: any) { toast(e.message); screenDashboard(); }
   });
 
-  const watchBtn = h('button', { class: 'ghost' }, myNext ? 'Watch my next match' : 'Replay last match');
+  const watchBtn = h('button', { class: 'ghost', title: myNext
+    ? 'Watch your next match as a quick simulation (the result is decided as it plays). To influence it live, use ⚡ Play LIVE instead.'
+    : 'Replay your last match.' }, myNext ? 'Watch my next match' : 'Replay last match');
   watchBtn.addEventListener('click', async () => {
     const fx = myNext ?? [...league.fixtures].reverse().find(f => f.involvesMe && f.played);
     if (fx) location.hash = `#/watch/${fx.id}`;
@@ -693,15 +697,20 @@ async function screenDashboard() {
     const wx = f.weather && f.weather !== 'clear'
       ? h('span', { class: 'pill', title: f.weather === 'rain' ? 'Wet pitch — the ball skids further' : 'Windy — long balls and crosses drift', style: 'background:rgba(127,178,255,.14);color:#9ec5ff' }, f.weather === 'rain' ? '🌧 Rain' : '🌬 Wind')
       : '';
-    const action = f.played
-      ? h('span', { style: 'display:flex;gap:6px;align-items:center' }, wx,
-          h('button', { class: 'ghost small', onclick: () => (location.hash = `#/watch/${f.id}`) }, 'Watch'),
-          h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report'))
-      : h('span', { style: 'display:flex;gap:6px;align-items:center' }, wx,
-          h('button', { class: 'ghost small', onclick: () => (location.hash = `#/scout/${f.id}`) }, '🔍 Scout'),
-          h('span', { class: 'pill' }, `R${f.round}`));
-    fxBox.append(h('div', { class: 'fx me' },
-      h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
+    if (f.played) {
+      const action = h('span', { style: 'display:flex;gap:6px;align-items:center' }, wx,
+        h('button', { class: 'ghost small', onclick: () => (location.hash = `#/watch/${f.id}`) }, 'Watch'),
+        h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report'));
+      fxBox.append(h('div', { class: 'fx me' }, h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
+    } else {
+      // UX: the whole upcoming-fixture ROW scouts the opponent (declutters the ~12 per-row "Scout"
+      // buttons SysArch flagged → one row-action + a 🔍 hint, not a button on every line).
+      const opp = f.home === team.name ? f.away : f.home;
+      const action = h('span', { style: 'display:flex;gap:6px;align-items:center' }, wx,
+        h('span', { class: 'pill' }, `R${f.round}`), h('span', { class: 'muted', style: 'font-size:12px' }, '🔍'));
+      fxBox.append(h('div', { class: 'fx me', style: 'cursor:pointer', title: `Scout ${opp}`, onclick: () => (location.hash = `#/scout/${f.id}`) },
+        h('div', { class: 'h' }, f.home), score, h('div', {}, f.away), action));
+    }
   }
 
   // press conference — your words move squad morale via each player's dials. One per match (§2.14 cadence):
