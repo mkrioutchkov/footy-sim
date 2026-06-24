@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <thread>
 #include <algorithm>
 #include <cstdlib>
 
@@ -137,10 +138,12 @@ int main(int argc, char* argv[]) {
     std::string tracePath;
     std::string matchPath;
     double streamFromMs = 0;   // suppress frame output before this clock (live re-sim resume)
+    bool forceLive = false;    // --live (or FOOTY_LIVE env): self-pace the engine to wall-clock (§1.1)
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--summary") summaryOnly = true;
+        else if (arg == "--live") forceLive = true;
         else if (arg == "--no-debug") debugMode = false;
         else if (arg == "--trace" && i + 1 < argc) tracePath = argv[++i];
         else if (arg == "--match" && i + 1 < argc) matchPath = argv[++i];
@@ -149,6 +152,14 @@ int main(int argc, char* argv[]) {
         else if (i == 2 && arg[0] != '-') minutes = std::atoi(argv[i]);
     }
     const bool streamFrames = !summaryOnly;
+
+    // §1.1 LIVE: gate self-pacing behind FOOTY_LIVE / --live (incompatible with --summary). When off
+    // (the default + every existing path) the binary is byte-identical — the golden is untouched.
+    bool isLiveMode = forceLive;
+    if (const char* fl = std::getenv("FOOTY_LIVE")) isLiveMode = isLiveMode || (fl[0] == '1' || fl[0] == 't' || fl[0] == 'y');
+    double liveSpeed = 1.0;   // wall->sim scalar; FOOTY_LIVE_SPEED tunes it (CRITICAL for fast tests; the §1.2 channel makes it mutable)
+    if (const char* fs = std::getenv("FOOTY_LIVE_SPEED")) { double v = std::atof(fs); if (v > 0.0) liveSpeed = v; }
+    if (isLiveMode && summaryOnly) { std::cerr << "FOOTY_LIVE/--live is incompatible with --summary\n"; return 1; }
 
     GameEngine engine;
 
@@ -236,10 +247,8 @@ int main(int argc, char* argv[]) {
 
     double lastOutput = 0;
 
-    // §1.4 LIVE: the tick is now engine.step() (one fixed tick, returns false at full-time), so the
-    // loop is `while (step())` — the runner-ready shape (the old `totalMs` bound now lives in step()).
-    while (engine.step()) {
-
+    // The per-frame work (trace write + throttled JSON output), shared by both loops below.
+    auto emit = [&]() {
         // Write trace frame every tick; drain the engine's event log with it
         if (trace.isOpen()) {
             trace.writeFrame(engine.state);
@@ -249,11 +258,31 @@ int main(int argc, char* argv[]) {
             }
         }
         engine.traceEventQueue.clear();
-
         // Output JSON every ~33ms (30fps) for real-time display
         if (streamFrames && engine.state.clockMs >= streamFromMs && engine.state.clockMs - lastOutput >= 33.0) {
             lastOutput = engine.state.clockMs;
             std::cout << engine.getJSON() << std::endl;
+        }
+    };
+
+    if (!isLiveMode) {
+        // §1.4 flat-out: advance every tick as fast as possible (default — byte-identical to before).
+        while (engine.step()) emit();
+    } else {
+        // §1.1 self-paced: advance whole FIXED_DT ticks only as fast as wall-elapsed × speed allows,
+        // so the engine clock tracks what a viewer is watching and a live command lands on the CURRENT
+        // tick (no re-sim). SAME ticks as flat-out -> identical result; only real-time DELIVERY differs
+        // (the determinism invariant). Catch-up = run several whole ticks in a row.
+        auto liveStart = std::chrono::steady_clock::now();
+        double pausedAccum = 0.0;   // pause/resume + mutable speed arrive with the §1.2 command channel
+        for (;;) {
+            double wallMs = std::chrono::duration<double, std::milli>(
+                                std::chrono::steady_clock::now() - liveStart).count() - pausedAccum;
+            double targetClockMs = wallMs * liveSpeed;
+            bool more = true;
+            while (engine.state.clockMs < targetClockMs && (more = engine.step())) emit();
+            if (!more) break;   // full-time
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 
