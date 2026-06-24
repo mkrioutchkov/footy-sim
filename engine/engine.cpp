@@ -1224,7 +1224,11 @@ PlayerAttributes legendAttrsFor(int id) {
     // 0.26 lands the showcase at goals ~3.4 / shots ~25 / oT ~8 / saves ~3.1 / pass% 82 — all
     // realistic, saves+pass% HELD (no keeper backfire). Top forwards' shooting ~72 (Messi-tier).
     PlayerAttributes a = (id >= 0 && id < 22) ? profiles[id] : PlayerAttributes{};
-    auto cz = [](double v) { return clamp(63.0 + (v - 63.0) * 0.26, 38.0, 80.0); };
+    // RE-BUMP 0.26->0.28 (2026-06-25, post-offside-fix 82835b4 which shaved the showcase ~0.2): restores the
+    // showcase to goals ~2.71 (24-seed ≈ real 2.8). ⚠ A CONVERSION CLIFF sits just above 0.28 — cz=0.29 jumps to
+    // goals 4.5 (the high-attr shot/save curve is steep here); 0.28 is the TOP of the stable below-cliff zone. Do
+    // NOT raise further. Golden-safe: the golden=fixture-1=SPEC roster, cz-independent (legendAttrsFor bypassed).
+    auto cz = [](double v) { return clamp(63.0 + (v - 63.0) * 0.28, 38.0, 80.0); };
     a.speed = cz(a.speed); a.passing = cz(a.passing); a.creativity = cz(a.creativity);
     a.shooting = cz(a.shooting); a.tackling = cz(a.tackling);
     a.positioning = cz(a.positioning); a.stamina = cz(a.stamina);
