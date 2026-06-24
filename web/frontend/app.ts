@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -481,10 +481,10 @@ const contractStyle = (yrs: number | undefined): string =>
 // ── dashboard ──
 async function screenDashboard() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
-  let team: TeamT, league: LeagueT, news: NewsItemT[] = [], harmony: HarmonyT | null = null, reg: FormationsT | null = null;
+  let team: TeamT, league: LeagueT, news: NewsItemT[] = [], harmony: HarmonyT | null = null, reg: FormationsT | null = null, concerns: ConcernT[] = [];
   try {
-    const [t, l, n, hm, fr] = await Promise.all([api.team(), api.league(), api.news().catch(() => ({ news: [] })), api.harmony().catch(() => null), api.formations().catch(() => null)]);
-    team = t; league = l; news = n.news; harmony = hm; reg = fr;
+    const [t, l, n, hm, fr, cn] = await Promise.all([api.team(), api.league(), api.news().catch(() => ({ news: [] })), api.harmony().catch(() => null), api.formations().catch(() => null), api.concerns().catch(() => ({ concerns: [] }))]);
+    team = t; league = l; news = n.news; harmony = hm; reg = fr; concerns = cn.concerns;
   } catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
     // team()/league() are essential — one transient failure shouldn't strand the home screen on a
@@ -790,6 +790,43 @@ async function screenDashboard() {
         : [h('div', { class: 'muted', style: 'font-size:12px' }, 'A settled, unremarkable dressing room.')]));
   })() : h('div', { style: 'display:none' });
 
+  // ── dressing room concerns: players agitating to leave + the manager's response (§2.3 depth) ──
+  // The actionable extension of the harmony panel: each unsettled player gets three responses. Patched
+  // in place on action (no dashboard rebuild — the squad cards' morale just goes mildly stale).
+  const KIND_LABEL: Record<string, string> = { unsettled: 'Unhappy', benched_star: 'Frustrated', wantaway: 'Wants out' };
+  const concernsCard = h('div', { class: 'card', style: 'margin-top:14px' });
+  let concernList = concerns;
+  const paintConcerns = (list: ConcernT[]): void => {
+    concernList = list;
+    if (!list.length) { concernsCard.style.display = 'none'; concernsCard.replaceChildren(); return; }
+    concernsCard.style.display = '';
+    const act = async (slot: number, action: 'reassure' | 'accept' | 'reject'): Promise<void> => {
+      concernsCard.querySelectorAll('button').forEach(b => b.setAttribute('disabled', 'true'));
+      try {
+        const r = await api.resolveConcern(slot, action);
+        toast(`${r.message}${r.moraleDelta ? ` (morale ${r.moraleDelta > 0 ? '+' : ''}${r.moraleDelta})` : ''}`);
+        paintConcerns(r.concerns);
+      } catch (e: any) { toast('⚠ ' + e.message); paintConcerns(concernList); }
+    };
+    concernsCard.replaceChildren(
+      h('div', { class: 'section-title', style: 'margin-top:0' }, `Dressing room concerns (${list.length})`),
+      h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:4px' }, 'Players angling for a move — talk them round, grant it, or hold firm.'),
+      ...list.map(cn => {
+        const reassure = h('button', { class: 'ghost small', title: cn.canReassure ? 'Talk him round — a morale lift (once per match)' : "You've already had a word — wait until the next match", onclick: () => act(cn.slot, 'reassure') }, 'Reassure');
+        if (!cn.canReassure) reassure.setAttribute('disabled', 'true');
+        return h('div', { style: 'padding:7px 0;border-top:1px solid var(--line)' },
+          h('div', { class: 'between', style: 'font-size:13px' },
+            h('span', {}, h('a', { class: 'a', style: 'cursor:pointer', onclick: () => (location.hash = `#/player/${cn.slot}`) }, cn.name),
+              ' ', h('span', { class: 'pill', style: 'background:#3a2a1f;color:#ffce9a;font-size:10px' }, KIND_LABEL[cn.kind] ?? cn.kind)),
+            h('span', { class: 'muted', style: 'font-size:11px' }, `morale ${cn.morale}`)),
+          h('div', { class: 'muted', style: 'font-size:12px;margin:2px 0 5px' }, cn.reason),
+          h('div', { class: 'row', style: 'gap:6px' }, reassure,
+            h('button', { class: 'ghost small', title: 'Agree to listen to offers — transfer-list him', onclick: () => act(cn.slot, 'accept') }, 'Accept — list'),
+            h('button', { class: 'ghost small', title: 'Refuse — he stays, but his morale drops', onclick: () => act(cn.slot, 'reject') }, 'Reject')));
+      }));
+  };
+  paintConcerns(concerns);
+
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
@@ -880,6 +917,7 @@ async function screenDashboard() {
       h('div', {},
         formationPanel(team, reg),
         harmonyCard,
+        concernsCard,
         newsCard,
         pressCard,
         h('div', { class: 'card', style: 'margin-top:14px' },

@@ -139,6 +139,7 @@ export interface RotationT { players: RotationPlayerT[]; suggestions: RotationSu
 
 export interface HarmonyPlayerT { slot: number; name: string; tag: 'leader' | 'pro' | 'disruptive' | 'unsettled'; note: string; }
 export interface HarmonyT { harmony: number; status: 'united' | 'settled' | 'restless' | 'fractured'; avgMorale: number; players: HarmonyPlayerT[]; }
+export interface ConcernT { slot: number; name: string; morale: number; kind: 'unsettled' | 'benched_star' | 'wantaway'; reason: string; contractYears: number; canReassure: boolean; }
 
 export interface ClubRecordsT {
   seasons: number; titles: number; promotions: number; relegations: number; cups: number;
@@ -200,6 +201,9 @@ export const api = {
     req<{ slot: number; personality: PersonalityT; value: number }>('PUT', `/player/${slot}/story`, { backstory, tagline }),
   pressQuestion: () => req<{ available: boolean; question?: string; options?: { tone: string; label: string; text: string }[] }>('GET', '/press'),
   press: (text: string, tone?: string) => req<{ reactions: { slot: number; name: string; delta: number; quote?: string }[]; lifted: number; unsettled: number; boardDelta?: number; confidence?: { value: number; status: string } | null; team: TeamT }>('POST', '/press', { text, tone }),
+  concerns: () => req<{ concerns: ConcernT[] }>('GET', '/concerns'),
+  resolveConcern: (slot: number, action: 'reassure' | 'accept' | 'reject') =>
+    req<{ ok: boolean; action: string; moraleDelta?: number; morale?: number; listed?: boolean; askPrice?: number; message: string; concerns: ConcernT[]; team: TeamT }>('POST', `/concerns/${slot}`, { action }),
   renewPreview: (slot: number) =>
     req<{ currentWage: number; newWage: number; delta: number; years: number; affordable: boolean }>('GET', `/player/${slot}/renew-preview`),
   // §2.2 contract negotiation: propose a renewal (resolved at the next matchday), then match/withdraw.
