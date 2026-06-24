@@ -217,8 +217,20 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         }
     }
 
-    // Blend toward goal only when close
-    if (nearGoal) {
+    // Blend toward goal only when close. §C byline-carry: a WIDE attacker (WM/FB) in the final
+    // third, genuinely wide + with space + NOT a clean cut-in-to-shoot look, steers to the BYLINE
+    // (deep, staying wide) instead of cutting inside to goal-center — so max(offsideLine, b.x)=b.x
+    // goes deep and the near-post runner is legally onside-CLOSE, enabling the onside 6-yard cutback
+    // (the realistic close-chance route). Central / build-up carriers fail the wide+final-third gate;
+    // the cut-inside-to-SHOOT lane survives via !nearGoal.
+    bool bylineSeek = isWidePlayer() && finalThird && distToGoal < 340.0
+        && std::abs(p.y - PITCH_H / 2.0) > 120.0
+        && per.nearestOpponentDist > 55.0
+        && !nearGoal;
+    if (bylineSeek) {
+        tx = clamp(gx - fd * 40.0, 35.0, PITCH_W - 35.0);                          // byline depth, stay wide
+        ty = clamp(p.y + (p.y < PITCH_H / 2.0 ? -10.0 : 10.0), 70.0, PITCH_H - 70.0);
+    } else if (nearGoal) {
         tx = lerp(tx, gx, 0.55);
     } else {
         tx = lerp(tx, gx, 0.20);
@@ -226,6 +238,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     // Scoring
     double sc = 0.35;
+    if (bylineSeek) sc += 0.18;   // §C reward the byline carry so it wins vs an early cross / cut-inside
     double backwardTarget = (tx - p.x) * fd;
     if (backwardTarget < -45.0) {
         sc -= 0.34;

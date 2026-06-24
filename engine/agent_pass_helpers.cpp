@@ -144,8 +144,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         && fp > -120.0;
 
     double boxTargetGoalDist = std::abs(t.x - goalXFor(p.team));
-    bool centralBoxTarget = std::abs(t.y - PITCH_H / 2.0) < 185.0
-        && boxTargetGoalDist > 75.0 && boxTargetGoalDist < 245.0;
+    // §C Stage 2: a DEEP (byline) carrier can cut back to a now-onside CLOSE runner — once b.x is deep
+    // the near-post runner is legally onside-close (max(line,b.x)=b.x), so widen the cutback target zone
+    // (goalDist>45, y<215) for a deep carrier to let that 6-yard tap-in route qualify for the +0.54 cutback.
+    bool deepCarrier = dgW < 140.0;
+    bool centralBoxTarget = std::abs(t.y - PITCH_H / 2.0) < (deepCarrier ? 215.0 : 185.0)
+        && boxTargetGoalDist > (deepCarrier ? 45.0 : 75.0) && boxTargetGoalDist < 245.0;
     bool aerialTarget = isWideDelivery
         && t.role == Role::CF
         && std::abs(t.y - PITCH_H / 2.0) < 150.0
@@ -161,6 +165,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // cross_early extends the cross window deeper (whip it in early, don't dribble
     // to the byline first).
     double crossRange = engine.directiveBias[p.id].crossEarly ? 420.0 : 340.0;
+    // §C byline-carry: an UNPRESSED wide carrier still far out should carry to the BYLINE (the dribble
+    // byline-seek) rather than crossing early -> shrink the cross window so the deeper carry + onside
+    // cutback wins. Pressed / crossEarly-directive carriers still whip it in early (unchanged).
+    if (isWideDelivery && per.pressureCount == 0 && std::abs(p.y - PITCH_H / 2.0) > 120.0
+        && dgW > 110.0 && !engine.directiveBias[p.id].crossEarly)
+        crossRange = 215.0;
     bool isCross   = isWideDelivery && !cutbackTarget && dgW < crossRange
         && std::abs(p.y - PITCH_H / 2.0) > 120.0 && (fp > -45.0 || aerialTarget);
     bool isCutback = isWideDelivery && !isCross;
