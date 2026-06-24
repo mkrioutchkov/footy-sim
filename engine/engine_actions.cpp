@@ -57,6 +57,15 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isTh
     bool beyondLine = fd > 0.0 ? to.x > line + OFFSIDE_TOLERANCE : to.x < line - OFFSIDE_TOLERANCE;
     bool receiverOffsideAtPass = beyondHalf && beyondPasser && beyondLine;
     pendingPass={true,from.id,to.id,from.team,isCross,isThrough,offsideExempt,receiverOffsideAtPass,from.x,from.y,line};
+    // Snapshot EVERY attacking teammate's offside status now (the law judges position when the ball is played).
+    pendingPass.offsideAtPass = {};
+    for(auto& tm : state.players){
+        if(tm.team!=from.team || tm.id==from.id || tm.role==Role::GK) continue;
+        bool bh = fd>0.0 ? tm.x>HALF_X : tm.x<HALF_X;
+        bool bp = fd>0.0 ? tm.x>from.x+OFFSIDE_TOLERANCE : tm.x<from.x-OFFSIDE_TOLERANCE;
+        bool bl = fd>0.0 ? tm.x>line+OFFSIDE_TOLERANCE : tm.x<line-OFFSIDE_TOLERANCE;
+        pendingPass.offsideAtPass[tm.id] = bh&&bp&&bl;
+    }
 }
 
 bool GameEngine::resolvePendingPass(Player& receiver) {
@@ -70,10 +79,10 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         if (receiver.id == pendingPass.toId) {
             offside = pendingPass.receiverOffsideAtPass;
         } else {
-            bool beyondHalf = fd>0.0 ? receiver.x>HALF_X : receiver.x<HALF_X;
-            bool beyondPasser = fd>0.0 ? receiver.x>pendingPass.passerX+OFFSIDE_TOLERANCE : receiver.x<pendingPass.passerX-OFFSIDE_TOLERANCE;
-            bool beyondLine = fd>0.0 ? receiver.x>pendingPass.offsideLine+OFFSIDE_TOLERANCE : receiver.x<pendingPass.offsideLine-OFFSIDE_TOLERANCE;
-            offside = beyondHalf&&beyondPasser&&beyondLine;
+            // Unintended teammate: judged by HIS position when the ball was PLAYED (the law),
+            // not at collection — collection-time flagged onside players who chased a long ball
+            // 20m+ past the line (diagnosed: 63% of calls, median 164px past the line, all false).
+            offside = pendingPass.offsideAtPass[receiver.id];
         }
         if(offside){
             stats.recordOffside();
