@@ -113,6 +113,9 @@ export interface PressQuestion { question: string; options: PressOption[] }
 export interface PressContext {
   form: string;                       // last 5 e.g. "WWLDL" (newest last), '' early
   lastResult?: 'W' | 'D' | 'L';
+  // the just-played match — lets the press react like a POST-MATCH interview (scoreline + opponent),
+  // not just "you won/lost". Undefined before any match.
+  lastMatch?: { result: 'W' | 'D' | 'L'; gf: number; ga: number; opponent: string; home: boolean };
   position: number; teams: number;
   objective?: string; nextOpponent?: string; confidence?: string;
 }
@@ -127,23 +130,38 @@ const STD_OPTIONS: PressOption[] = [
   { tone: 'defiant', label: 'Deflect it', text: "Ask the board, not me. I won't answer that — judge me at the end of the season." },
 ];
 function templateQuestion(c: PressContext): PressQuestion {
-  const losing = c.lastResult === 'L' || /LL$/.test(c.form);
-  const winning = c.lastResult === 'W' || /WW$/.test(c.form);
-  const question = losing
-    ? `That result will sting${c.nextOpponent ? `, and ${c.nextOpponent} are next` : ''}. Are you worried about the run?`
-    : winning ? 'Good win — is this side turning a corner?'
-    : c.objective ? `The board want "${c.objective}". Are you on course?`
-    : 'How do you assess where the team is right now?';
+  const lm = c.lastMatch;
+  let question: string;
+  if (lm) {
+    // post-match: react to the actual scoreline + opponent
+    const score = `${lm.gf}-${lm.ga}`;
+    const vs = lm.home ? `at home to ${lm.opponent}` : `away at ${lm.opponent}`;
+    question = lm.result === 'W'
+      ? `That ${score} win ${lm.home ? 'over' : 'at'} ${lm.opponent} — is this side turning a corner?`
+      : lm.result === 'L'
+        ? `A ${score} defeat ${vs}${/LL$/.test(c.form) ? ' — and the run goes on' : ''}. What went wrong?`
+        : `A ${score} draw ${vs} — two points dropped, or a point earned?`;
+  } else {
+    const losing = c.lastResult === 'L' || /LL$/.test(c.form);
+    const winning = c.lastResult === 'W' || /WW$/.test(c.form);
+    question = losing
+      ? `That result will sting${c.nextOpponent ? `, and ${c.nextOpponent} are next` : ''}. Are you worried about the run?`
+      : winning ? 'Good win — is this side turning a corner?'
+      : c.objective ? `The board want "${c.objective}". Are you on course?`
+      : 'How do you assess where the team is right now?';
+  }
   return { question, options: STD_OPTIONS };
 }
 
-const Q_SYSTEM = `You are a sharp football journalist at a manager's press conference. Given his situation, ask ONE pointed, natural question (max ~22 words), then propose 4-5 short response options he could give, each a distinct TONE. Output ONLY JSON {"question":"...","options":[{"tone":"back_players|demand_more|accountable|defiant|calm","label":"2-3 words","text":"first-person line, max ~18 words"}]}. Make the question specific to the form/result/objective/opponent. Punchy and in-character.`;
+const Q_SYSTEM = `You are a sharp football journalist at a manager's POST-MATCH press conference. Lead with the JUST-PLAYED result (the scoreline + opponent) when given, then ask ONE pointed, natural question (max ~22 words); also propose 4-5 short response options he could give, each a distinct TONE. Output ONLY JSON {"question":"...","options":[{"tone":"back_players|demand_more|accountable|defiant|calm","label":"2-3 words","text":"first-person line, max ~18 words"}]}. Make the question specific to that result (and the form/objective/next opponent). Punchy and in-character.`;
 
 export async function generatePressQuestion(c: PressContext): Promise<PressQuestion> {
   const fb = templateQuestion(c);
   if (!llmReady(true).ok) return fb;
   try {
-    const ctx = `Form (last 5, newest last): ${c.form || 'n/a'}. Last result: ${c.lastResult ?? 'n/a'}. League position: ${c.position}/${c.teams}. Board objective: ${c.objective ?? 'n/a'}. Board confidence: ${c.confidence ?? 'n/a'}. Next opponent: ${c.nextOpponent ?? 'n/a'}.`;
+    const lm = c.lastMatch;
+    const lastMatchLine = lm ? `Just played: ${lm.result === 'W' ? 'WON' : lm.result === 'L' ? 'LOST' : 'DREW'} ${lm.gf}-${lm.ga} ${lm.home ? 'at home to' : 'away to'} ${lm.opponent}. ` : '';
+    const ctx = `${lastMatchLine}Form (last 5, newest last): ${c.form || 'n/a'}. League position: ${c.position}/${c.teams}. Board objective: ${c.objective ?? 'n/a'}. Board confidence: ${c.confidence ?? 'n/a'}. Next opponent: ${c.nextOpponent ?? 'n/a'}.`;
     const raw = await chatComplete({ system: Q_SYSTEM, user: ctx, temperature: 0.7, maxTokens: 500, timeoutMs: 9000, live: true });
     const o = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')) as { question?: unknown; options?: unknown };
     const valid: PressOption[] = Array.isArray(o.options) ? o.options.flatMap((x): PressOption[] => {

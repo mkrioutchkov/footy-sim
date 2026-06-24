@@ -565,8 +565,16 @@ app.get('/api/press', async (req: any, reply) => {
   const nextOpponent = oppId != null ? (db.prepare('SELECT name FROM teams WHERE id = ?').get(oppId) as { name: string } | undefined)?.name : undefined;
   const tbl = standings(team.leagueId);
   const idx = tbl.findIndex(s => (s as { isUser?: boolean }).isUser);
+  // the just-played match (scoreline + opponent) → a post-match-style, result-aware press question
+  let lastMatch: { result: 'W' | 'D' | 'L'; gf: number; ga: number; opponent: string; home: boolean } | undefined;
+  if (last5.length) {
+    const f0 = last5[0];
+    const home = f0.home_team_id === teamId;
+    const oppName = (db.prepare('SELECT name FROM teams WHERE id = ?').get(home ? f0.away_team_id : f0.home_team_id) as { name: string } | undefined)?.name;
+    if (oppName) lastMatch = { result: res(f0), gf: home ? (f0.home_score ?? 0) : (f0.away_score ?? 0), ga: home ? (f0.away_score ?? 0) : (f0.home_score ?? 0), opponent: oppName, home };
+  }
   const q = await generatePressQuestion({
-    form, lastResult: last5.length ? res(last5[0]) : undefined,
+    form, lastResult: last5.length ? res(last5[0]) : undefined, lastMatch,
     position: idx >= 0 ? idx + 1 : 0, teams: tbl.length,
     objective: getObjective(teamId)?.label, nextOpponent, confidence: getConfidence(teamId)?.status,
   });
