@@ -1222,6 +1222,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const playClip = () => {
     if (replaying || !goalClip || !goalClip.length || !activeRenderer) return;
     replaying = true;
+    activeRenderer.setReplay(true);   // show the "⚽ GOAL REPLAY" overlay so the rewinding score reads as a replay, not a live reset
     replayBtn.disabled = true; replayBtn.textContent = '⏵ Replaying…';
     const clip = goalClip;
     let i = 0;
@@ -1230,6 +1231,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       if (!activeRenderer || i >= clip.length) {                                    // clip done (or torn down)
         if (activeReplayTimer) { clearInterval(activeReplayTimer); activeReplayTimer = null; }
         replaying = false;
+        activeRenderer?.setReplay(false);   // drop the overlay + resume live goal banners
         replayBtn.disabled = false; replayBtn.textContent = '⚽ Replay goal';
         if (activeRenderer && liveBuffer.length) activeRenderer.sync(liveBuffer[liveBuffer.length - 1]);   // snap back to live
         return;

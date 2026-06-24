@@ -69,6 +69,7 @@ export class MatchRenderer {
   private lastSetPieceType: string | null = null;   // corner edge-detection
   private bannerEl: HTMLDivElement | null = null;
   private bannerHideAt = 0;
+  private replayMode = false;            // a goal replay is driving sync() — show a REPLAY overlay, suppress the live goal banner
   private panelEl: HTMLDivElement | null = null;
   private panelHideAt = 0;
   private prevHomeScore = 0;
@@ -285,6 +286,25 @@ export class MatchRenderer {
     if (v === this.reservedRight) return;
     this.reservedRight = v;
     if (!this.destroyed && this.app.renderer) this.calcTransform();
+  }
+
+  // Enter/leave goal-replay mode. While on, a persistent "⚽ GOAL REPLAY" overlay marks the rewound
+  // clip as a replay (so the score winding back to 0-0 doesn't read as the LIVE match resetting), and
+  // the live goal banner is suppressed (updateMoments) so the rewind/replay doesn't mis-fire "GOAL!".
+  setReplay(on: boolean): void {
+    this.replayMode = on;
+    if (!this.bannerEl) return;
+    if (on) {
+      this.bannerEl.textContent = '⚽  GOAL REPLAY';
+      this.bannerEl.style.whiteSpace = 'nowrap';
+      this.bannerEl.style.color = '#ffe97a';
+      this.bannerEl.style.borderColor = '#ffe97a';
+      this.bannerEl.style.display = 'block';
+      this.bannerHideAt = Number.MAX_SAFE_INTEGER;   // stays up for the whole clip
+    } else {
+      this.bannerEl.style.display = 'none';
+      this.bannerHideAt = 0;
+    }
   }
 
   private calcTransform(): void {
@@ -907,17 +927,22 @@ export class MatchRenderer {
       this.prevHomeScore = 0; this.prevAwayScore = 0; this.prevHalf = 1; this.shownFullTime = false;
       this.panelEl.style.display = 'none';
     }
-    // goal banner on score change
+    // goal banner on score change — but during a goal replay the score rewinds then plays forward;
+    // track it silently (the "⚽ GOAL REPLAY" overlay is up) so we don't mis-fire "GOAL!" on the rewind.
     if (hs !== this.prevHomeScore || as !== this.prevAwayScore) {
-      const homeScored = hs > this.prevHomeScore;
-      const who = this.lastGoalScorer;   // set by updateTicker when it logs the goal event
-      this.bannerEl.textContent = `GOAL!  ${who}\n${hn} ${hs} — ${as} ${an}`;
-      this.bannerEl.style.whiteSpace = 'pre';
-      this.bannerEl.style.color = homeScored ? '#ff8a8a' : '#9ecbff';
-      this.bannerEl.style.borderColor = homeScored ? '#ff8a8a' : '#9ecbff';
-      this.bannerEl.style.display = 'block';
-      this.bannerHideAt = now + 4500;
-      this.prevHomeScore = hs; this.prevAwayScore = as;
+      if (this.replayMode) {
+        this.prevHomeScore = hs; this.prevAwayScore = as;
+      } else {
+        const homeScored = hs > this.prevHomeScore;
+        const who = this.lastGoalScorer;   // set by updateTicker when it logs the goal event
+        this.bannerEl.textContent = `GOAL!  ${who}\n${hn} ${hs} — ${as} ${an}`;
+        this.bannerEl.style.whiteSpace = 'pre';
+        this.bannerEl.style.color = homeScored ? '#ff8a8a' : '#9ecbff';
+        this.bannerEl.style.borderColor = homeScored ? '#ff8a8a' : '#9ecbff';
+        this.bannerEl.style.display = 'block';
+        this.bannerHideAt = now + 4500;
+        this.prevHomeScore = hs; this.prevAwayScore = as;
+      }
     }
     if (this.bannerEl.style.display === 'block' && now > this.bannerHideAt) {
       this.bannerEl.style.display = 'none';
