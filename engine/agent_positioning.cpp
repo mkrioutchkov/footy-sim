@@ -149,6 +149,9 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         // link), gated on the directive (default 0 => no-directive match unchanged).
         if (my && cn.pur == ActionPurpose::ComeShort)
             ob += engine.directiveBias[p.id].comeShortBias;
+        // overlap: a directed FB bombs forward on the overlap run (boost the existing Overlap candidate alone).
+        if (my && cn.pur == ActionPurpose::Overlap)
+            ob += engine.directiveBias[p.id].overlapBias;
         // drift_into_pocket: boost the dedicated Pocket purpose alone (the deep between-the-lines target
         // would lose to advanced candidates on danger-bias without its own boost — the come_short lesson).
         if (my && cn.pur == ActionPurpose::Pocket)

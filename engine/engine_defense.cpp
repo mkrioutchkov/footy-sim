@@ -233,6 +233,7 @@ void GameEngine::applyDirectives() {
             // come_short / check_to_feet: the INVERSE of run_in_behind — drop toward the carrier to receive to feet.
             case DirectiveKind::ComeShort:  directiveBias[p->id].comeShortBias = 0.55 * d.intensity; break;
             case DirectiveKind::CutInside:  directiveBias[p->id].cutInsideBias = d.intensity; break;   // wide carrier drives inside to shoot
+            case DirectiveKind::OverlapRun: directiveBias[p->id].overlapBias = 0.30 * d.intensity; break;   // FB bombs forward on the overlap
             // drift_into_pocket: position between the opp def + mid lines to receive facing forward (dedicated Pocket candidate).
             case DirectiveKind::DriftIntoPocket: directiveBias[p->id].pocketBias = 0.50 * d.intensity; break;
             // target_man_holdup: a CF drops short to RECEIVE (reuse the shipped come_short half) AND, once on the
