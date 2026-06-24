@@ -928,6 +928,15 @@ async function screenDashboard() {
           h('div', { class: 'muted', style: 'font-size:12px;margin-top:3px' }, `Currently ${ordinal(myPos)} — ${margin}.`),
           h('div', { style: `color:${c};font-size:11px;margin-top:3px;font-style:italic` }, consequence)));
       }
+      // §2.7 board messages — the board reacting to your last match + setting the next one's expectation.
+      const msgs = league.boardMessages ?? [];
+      if (msgs.length) {
+        rows.push(h('div', { style: (conf || obj) ? 'margin-top:10px;border-top:1px solid var(--line);padding-top:8px' : '' },
+          h('div', { class: 'muted', style: 'font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px' }, 'From the boardroom'),
+          ...msgs.map(m => h('div', { style: 'font-size:12px;margin-top:3px;display:flex;gap:7px;align-items:baseline' },
+            h('span', { style: 'flex:0 0 auto' }, m.kind === 'reaction' ? '💬' : '🎯'),
+            h('span', { class: 'muted' }, m.text)))));
+      }
       // §41 board meeting — ask the board to back you (funds/wages), once a season; the grant scales
       // with confidence. Fetched async + patched in (the card renders immediately).
       const meetEl = h('div', { style: (conf || obj) ? 'margin-top:10px;border-top:1px solid var(--line);padding-top:8px' : '' });

@@ -63,6 +63,7 @@ export interface LeagueT {
   season?: number; tier?: number; divisionName?: string; world?: DivisionT[]; seasonComplete?: boolean;
   objective?: ObjectiveT | null; promote?: number;
   confidence?: { value: number; status: string } | null; boardMood?: string | null; pressAvailable?: boolean;
+  boardMessages?: { kind: 'reaction' | 'expectation'; text: string }[];
 }
 export interface RolloverT {
   season: number;
