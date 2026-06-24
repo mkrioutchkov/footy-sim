@@ -887,12 +887,21 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     if(directFreeKickShot&&laneBlockers>=1){
         double fkSpeed=std::min(speed,250.0);
         b.vx=dx/d*fkSpeed; b.vy=dy/d*fkSpeed;
-        b.vz=std::max(fkSpeed*0.72,150.0);
-        // §FK curl AROUND/over the wall (Beckham): the chip lofts it (z>2) so the spin SUSTAINS
-        // (curl decays slow airborne, engine_physics:57) and bends it toward the open corner — beats
-        // the wall + reads as a real curling FK, not a flat chip. Sign matches the open-play curler.
         double vxSign=(dx>=0.0?1.0:-1.0);
-        b.curl=openSide*vxSign*(0.20+accuracy*0.15);
+        // §FK variety (Commit 2): ~30% a FLOATED DIPPER — lobbed higher over the wall (parabola peaks
+        // well clear, distance-sized loft so it dips under the bar by the line) with LESS curl; else the
+        // §FK curl-around-the-wall default (Commit 1, Beckham): the chip lofts it (z>2 so the spin
+        // SUSTAINS, curl decays slow airborne per engine_physics:57) and bends it toward the open corner.
+        // Choice via a deterministic shooter+clock HASH (NOT a main-rng draw) so it doesn't shift the
+        // match's rng sequence -> a CLEAN paired comparison vs the curl-only baseline + replay-stable.
+        bool fkDipper = ((static_cast<uint32_t>(s.id) * 48271u + static_cast<uint32_t>(state.clockMs)) % 100u < 18u) && shotDistance < 235.0;   // ~18% (a special occasional shot, not a third of FKs — the floated dipper over-converts vs the curler, +0.29 at 30%; keep it a small variety)
+        if(fkDipper){
+            b.vz=clamp(0.5*GRAVITY*(d/std::max(fkSpeed,1.0))*1.05,170.0,330.0);
+            b.curl=openSide*vxSign*(0.10+accuracy*0.07);
+        } else {
+            b.vz=std::max(fkSpeed*0.72,150.0);
+            b.curl=openSide*vxSign*(0.20+accuracy*0.15);
+        }
     }
     b.lastTouchTeam=s.team; b.lastToucherId=s.id;
     metrics.shotLaunchSpeedTotal+=speed; metrics.shotLaunchCount++;
