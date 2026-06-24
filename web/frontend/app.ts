@@ -65,8 +65,8 @@ function confirmModal(title: string, message: string, okLabel = 'Confirm'): Prom
     const onHash = () => finish(false);   // navigating away closes the modal (it lives on body, not root)
     const finish = (v: boolean) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); resolve(v); };
     const ok = h('button', { class: 'primary', onclick: () => finish(true) }, okLabel);
-    const card = h('div', { class: 'modal-card' },
-      h('h3', { style: 'margin-bottom:10px' }, title),
+    const card = h('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title' },
+      h('h3', { id: 'modal-title', style: 'margin-bottom:10px' }, title),
       h('div', { class: 'muted', style: 'margin-bottom:18px;line-height:1.5;white-space:pre-wrap' }, message),
       h('div', { class: 'row', style: 'justify-content:flex-end' }, h('button', { class: 'ghost', onclick: () => finish(false) }, 'Cancel'), ok));
     const backdrop = h('div', { class: 'modal-backdrop', onmousedown: (e: MouseEvent) => { if (e.target === backdrop) finish(false); } }, card);
@@ -84,8 +84,8 @@ function promptModal(title: string, message: string, value = '', okLabel = 'Subm
     const finish = (v: string | null) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); resolve(v); };
     const input = h('input', { type: 'text', value }) as HTMLInputElement;
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(input.value); } });
-    const card = h('div', { class: 'modal-card' },
-      h('h3', { style: 'margin-bottom:10px' }, title),
+    const card = h('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title' },
+      h('h3', { id: 'modal-title', style: 'margin-bottom:10px' }, title),
       message ? h('div', { class: 'muted', style: 'margin-bottom:12px;line-height:1.5;white-space:pre-wrap' }, message) : '',
       h('div', { style: 'margin-bottom:16px' }, input),
       h('div', { class: 'row', style: 'justify-content:flex-end' },
@@ -770,7 +770,7 @@ async function screenDashboard() {
   const newsCard = h('div', { class: 'card', style: 'margin-top:14px' },
     h('div', { class: 'between', style: 'margin-bottom:6px' },
       h('div', { class: 'section-title', style: 'margin:0' }, 'Club news'),
-      news.length > 8 ? h('a', { class: 'a', style: 'font-size:12px;cursor:pointer', onclick: () => (location.hash = '#/news') }, 'View all →') : ''),
+      news.length > 8 ? h('a', { class: 'a', href: '#/news', style: 'font-size:12px' }, 'View all →') : ''),
     news.length
       ? h('div', {}, ...news.slice(0, 8).map(n => h('div', { class: 'between', style: 'font-size:13px;padding:3px 0;' + (slotByName.has(n.player) ? 'cursor:pointer' : ''), ...(slotByName.has(n.player) ? clickable(() => { const s = slotByName.get(n.player); if (s != null) location.hash = `#/player/${s}`; }) : {}) },
           h('span', {}, `${NEWS_ICON[n.type] ?? '•'} ${n.headline}`),
@@ -826,7 +826,7 @@ async function screenDashboard() {
         if (!cn.canReassure) reassure.setAttribute('disabled', 'true');
         return h('div', { style: 'padding:7px 0;border-top:1px solid var(--line)' },
           h('div', { class: 'between', style: 'font-size:13px' },
-            h('span', {}, h('a', { class: 'a', style: 'cursor:pointer', onclick: () => (location.hash = `#/player/${cn.slot}`) }, cn.name),
+            h('span', {}, h('a', { class: 'a', href: `#/player/${cn.slot}` }, cn.name),
               ' ', h('span', { class: 'pill', style: 'background:#3a2a1f;color:#ffce9a;font-size:10px' }, KIND_LABEL[cn.kind] ?? cn.kind)),
             h('span', { class: 'muted', style: 'font-size:11px' }, `morale ${cn.morale}`)),
           h('div', { class: 'muted', style: 'font-size:12px;margin:2px 0 5px' }, cn.reason),
@@ -872,7 +872,7 @@ async function screenDashboard() {
         h('div', { class: 'section-title', style: 'margin-top:0;color:#ffb84d' }, `⏳ Out of contract soon (${expiring.length})`),
         h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'Renew them or they leave on a free at season end. A “seeking move” player is likely to agitate.'),
         h('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px' }, ...expiring.map(p =>
-          h('span', { class: 'pill', title: 'View profile / renew', style: 'cursor:pointer' + (seekingMove(p) ? ';background:var(--danger);color:#fff' : ''), onclick: () => (location.hash = `#/player/${p.slot}`) },
+          h('span', { class: 'pill', title: 'View profile / renew', style: 'cursor:pointer' + (seekingMove(p) ? ';background:var(--danger);color:#fff' : ''), ...clickable(() => (location.hash = `#/player/${p.slot}`)) },
             `${p.name} · ${p.contractYears ?? 0}y${seekingMove(p) ? ' · seeking move' : ''}`))));
     })(),
     // the boardroom: confidence in the manager + the season objective with live progress
@@ -2505,9 +2505,13 @@ async function screenSquad() {
       return c * sortDir;
     });
     const thead = h('thead', {}, h('tr', {}, ...COLS.map(c => {
-      const th = h('th', { class: c.text ? '' : 'num', style: 'cursor:pointer;user-select:none' },
-        c.label + (sortKey === c.key ? (sortDir === 1 ? ' ▲' : ' ▼') : ''));
-      th.addEventListener('click', () => { if (sortKey === c.key) sortDir = (sortDir === 1 ? -1 : 1); else { sortKey = c.key; sortDir = c.text ? 1 : -1; } render(); });
+      const sort = () => { if (sortKey === c.key) sortDir = (sortDir === 1 ? -1 : 1); else { sortKey = c.key; sortDir = c.text ? 1 : -1; } render(); };
+      // a sortable column header: keep the columnheader role (don't override with role=button), add aria-sort + keyboard
+      const th = h('th', {
+        class: c.text ? '' : 'num', style: 'cursor:pointer;user-select:none', tabindex: '0', title: `Sort by ${c.label}`,
+        'aria-sort': sortKey === c.key ? (sortDir === 1 ? 'ascending' : 'descending') : 'none',
+        onclick: sort, onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sort(); } },
+      }, c.label + (sortKey === c.key ? (sortDir === 1 ? ' ▲' : ' ▼') : ''));
       return th;
     })));
     const tbody = h('tbody');
@@ -2515,18 +2519,19 @@ async function screenSquad() {
       const ovr = skillOvr(p.attrs);
       const isCap = captainSlot === p.slot;
       // §2.11: a clickable armband — the captain shows 🧭, others a faint one; clicking names/clears the captain.
-      const capArm = h('span', {
-        title: isCap ? 'Club captain — click to reset to auto (highest leader)' : `Make ${p.name} captain`,
-        style: `cursor:pointer;margin-right:4px;${isCap ? '' : 'opacity:.25'}`,
-      }, '🧭');
-      capArm.addEventListener('click', async (e: any) => {
-        e.stopPropagation();
+      const setCap = async () => {
         try { const r = await api.setCaptain(isCap ? -1 : p.slot); toast(r.captainSlot == null ? 'Captain reset to auto (top leader)' : `${p.name} takes the armband`); screenSquad(); }
         catch (err: any) { toast(err.message); }
-      });
+      };
+      const capArm = h('span', {
+        title: isCap ? 'Club captain — click to reset to auto (highest leader)' : `Make ${p.name} captain`,
+        'aria-label': isCap ? `${p.name} is club captain — reset captain to auto` : `Make ${p.name} club captain`,
+        style: `cursor:pointer;margin-right:4px;${isCap ? '' : 'opacity:.25'}`,
+        ...clickable(setCap),
+      }, '🧭');
       tbody.append(h('tr', { class: p.slot < 11 ? 'me' : '' },
         h('td', { style: 'white-space:nowrap' }, capArm,
-          h('span', { style: 'cursor:pointer', onclick: () => (location.hash = `#/player/${p.slot}`) }, p.name),
+          h('span', { style: 'cursor:pointer', ...clickable(() => (location.hash = `#/player/${p.slot}`)) }, p.name),
           p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:10px' }, ' · bench') : '',
           seekingMove(p) ? h('span', { class: 'pill', title: 'Running down his contract and unsettled — likely to push for a move', style: 'margin-left:5px;background:var(--danger);color:#fff;font-size:9px' }, 'seeking move') : ''),
         h('td', {}, h('span', { class: 'pill' }, p.role)),
