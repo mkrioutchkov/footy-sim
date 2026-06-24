@@ -177,6 +177,46 @@ void GameEngine::releaseSetPiece(){
             return;
         }
     }
+    // §FK Commit 3: a WIDE/DEEP direct FK that wasn't shot is a CROSS, not a CM/FB reset — whip it
+    // to the TALLEST attacker in the box for a header. Mirrors the corner cross (~570 this file):
+    // applyWhipDelivery + beginTrackedPass(isCross=true) arms the freshCross header (the isCross flag
+    // is load-bearing; leave lastLooseOrigin alone). Target = max attrs.height in the box (deterministic
+    // argmax, no rng in the choice). Likely the CF — a tall CB isn't in the box (positioning stays back).
+    if(setPiece.type == SetPiece::FreeKick){
+        double gx2=goalXFor(holder->team), gy2=PITCH_H/2.0;
+        double fkDist=std::hypot(gx2-holder->x, gy2-holder->y);
+        bool wideFK=std::abs(holder->y-gy2)>120.0;
+        if(wideFK && fkDist>250.0 && fkDist<560.0){
+            Player* tgt=nullptr; double best=-1e9;
+            for(auto&p:state.players){
+                if(p.team!=holder->team||p.id==holder->id||p.role==Role::GK||p.sentOff)continue;
+                if(std::abs(p.x-gx2)>180.0||std::abs(p.y-gy2)>200.0)continue;   // in the box
+                double sc=p.attrs.height+(180.0-std::abs(p.y-gy2))*0.02;        // tallest, central tiebreak
+                if(sc>best){best=sc; tgt=&p;}
+            }
+            if(tgt){
+                double tx=gx2+(holder->team==Team::Home?-1.0:1.0)*85.0;
+                double ty=lerp(tgt->y,gy2,0.55);
+                double dx=tx-holder->x, dy=ty-holder->y, d=std::hypot(dx,dy);
+                if(d>1.0){
+                    double speed=clamp(300.0+d*0.30,330.0,380.0);
+                    auto&b=state.ball;
+                    b.controllerId=-1;
+                    placeBallForRelease(*holder,dx,dy);
+                    blockReboundFor(holder->id,900);
+                    b.lastTouchTeam=holder->team; b.lastToucherId=holder->id;
+                    b.vx=dx/d*speed; b.vy=dy/d*speed; b.z=0;
+                    applyWhipDelivery(d,speed,gx2,CROSS_CURL_MIN,CROSS_CURL_RANGE);
+                    b.intendedReceiverId=tgt->id;
+                    receiverShieldTargetId=tgt->id;
+                    stats.recordCrossAttempt(holder->team==Team::Home);
+                    beginTrackedPass(*holder,*tgt,true);
+                    clearReleasedSetPiece();
+                    return;
+                }
+            }
+        }
+    }
     SmallVector<Player*, 11> targets;
     for(auto&p:state.players){
         if(p.team!=holder->team||p.id==holder->id||p.role==Role::GK)continue;
