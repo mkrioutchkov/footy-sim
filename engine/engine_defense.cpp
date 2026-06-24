@@ -118,6 +118,16 @@ void GameEngine::applyDirectives() {
                    || (d.scoreState == CondScore::Losing  && diff <= -n);
             if (!ok) continue;
         }
+        // Condition: possession PHASE for the concerned team (gates counter_press / play-out-from-back /
+        // transition behaviours). inPoss = the ball controller is on this team; transition = recent turnover.
+        if (d.phase != CondPhase::Any) {
+            Player* ctrl = playerById(state.ball.controllerId);
+            bool inPoss = ctrl && ctrl->team == team;
+            bool ok = (d.phase == CondPhase::InPossession   && inPoss)
+                   || (d.phase == CondPhase::OutOfPossession && !inPoss)
+                   || (d.phase == CondPhase::Transition      && state.clockMs < transitionUntilMs);
+            if (!ok) continue;
+        }
         // ── Team-wide dial command: nudge this team's 5 dials. Added on top of
         // the base config in configFor() and clamped, so the whole side shifts
         // shape (press height, line, width, tempo) coherently. ──

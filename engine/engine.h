@@ -517,6 +517,7 @@ public:
         PressIntensity, Mentality, LineHeight,
     };
     enum class CondScore : uint8_t { Any, Winning, Drawing, Losing };
+    enum class CondPhase : uint8_t { Any, InPossession, OutOfPossession, Transition };
     struct Directive {
         int playerId = -1;                          // who it applies to (engine id 0..21)
         int teamScope = -1;                         // -1 = player-scoped; 0 = home team, 1 = away team (dial commands)
@@ -527,6 +528,7 @@ public:
         int toMin = 1000;                           // ...to this one, inclusive (default = whole match)
         CondScore scoreState = CondScore::Any;      // active only in this score state
         int scoreBy = 0;                            // ...by at least N goals (0 => any margin)
+        CondPhase phase = CondPhase::Any;           // active only in this possession phase (in/out/transition)
     };
     std::vector<Directive> directives;
     // Per-player score nudges the scorers read THIS tick; rebuilt every tick by

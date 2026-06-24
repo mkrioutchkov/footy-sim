@@ -124,6 +124,10 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
             if (s == "winning")      dir.scoreState = GameEngine::CondScore::Winning;
             else if (s == "drawing") dir.scoreState = GameEngine::CondScore::Drawing;
             else if (s == "losing")  dir.scoreState = GameEngine::CondScore::Losing;
+            std::string ph = w.contains("phase") && w["phase"].is_string() ? w["phase"].get<std::string>() : "";
+            if (ph == "in_possession" || ph == "attacking")         dir.phase = GameEngine::CondPhase::InPossession;
+            else if (ph == "out_of_possession" || ph == "defending") dir.phase = GameEngine::CondPhase::OutOfPossession;
+            else if (ph == "transition")                            dir.phase = GameEngine::CondPhase::Transition;
         }
         if (team) { if (dir.teamScope != 0 && dir.teamScope != 1) continue; }   // valid team
         else if (dir.playerId < 0 || dir.playerId >= 22) continue;              // fixed-22 guard
