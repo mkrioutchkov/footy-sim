@@ -130,6 +130,23 @@ function setPieceTakerDirectives(takers: SetPieceTakers | null): Directive[] {
   return out;
 }
 
+// §weather: a deterministic per-match condition (the engine reads spec.weather — "rain"/"wet" skids the
+// ball on a wet pitch, "wind" drifts airborne balls; see engine main.cpp:177). A PURE function of the
+// match seed, so a re-sim or replay of the same fixture gets the SAME weather; 'clear' is OMITTED from
+// the spec → byte-identical with pre-weather/AI-vs-AI specs (and the golden, which loads a static
+// weather-free fixture-1.json). Mostly clear, with some rain/wind for variety (the average goal effect
+// is ≈0 — rain −0.56, wind +0.6 — so league balance holds while individual matches vary).
+export type Weather = 'clear' | 'rain' | 'wind';
+export function weatherForSeed(seed: number): Weather {
+  let h = seed | 0;                                       // a well-mixing 32-bit integer hash of the seed
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+  h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+  const b = ((h ^ (h >>> 16)) >>> 0) % 100;
+  if (b < 18) return 'rain';                              // ~18%
+  if (b < 30) return 'wind';                              // ~12%
+  return 'clear';                                         // ~70%
+}
+
 // Build a match spec for two teams (shared by league fixtures + cup ties). Each team's persisted
 // standing plan is resolved to engine ids and merged into the top-level `directives` the engine
 // reads (home 0-10, away +11) — omitted entirely when neither team has a plan, so AI-vs-AI specs
@@ -144,6 +161,8 @@ export function buildTieSpec(homeTeamId: number, awayTeamId: number, seed: numbe
   const directives = [...home.directives, ...away.directives];
   const spec: Record<string, unknown> = { seed, minutes: MINUTES, home: home.spec, away: away.spec };
   if (directives.length) spec.directives = directives;
+  const weather = weatherForSeed(seed);
+  if (weather !== 'clear') spec.weather = weather;       // omit 'clear' ⇒ byte-identical with weather-free specs
   return spec;
 }
 export function buildSpec(fixture: Fixture) {

@@ -54,6 +54,7 @@ export interface FixtureT {
   id: number; round: number; home: string; away: string;
   homeTeamId: number; awayTeamId: number; played: boolean;
   homeScore: number | null; awayScore: number | null; involvesMe: boolean;
+  weather?: 'clear' | 'rain' | 'wind';
 }
 export interface DivisionT { tier: number; name: string; season: number; standings: StandingT[]; }
 export interface ObjectiveT { kind: string; target: number; season: number; label: string; }

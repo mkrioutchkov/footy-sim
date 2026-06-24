@@ -12,7 +12,7 @@ import {
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
-import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, EventsReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay, mapPool, loadEventsLog, tacticsReview } from './match.ts';
+import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, EventsReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay, mapPool, loadEventsLog, tacticsReview, weatherForSeed } from './match.ts';
 import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
@@ -667,13 +667,14 @@ app.get('/api/league', async (req: any, reply) => {
   const leagueId = team.leagueId;
   const names = new Map((db.prepare('SELECT id, name FROM teams WHERE league_id = ?').all(leagueId) as { id: number; name: string }[]).map(t => [t.id, t.name]));
   const fixtures = (db.prepare(
-    'SELECT id, round, home_team_id, away_team_id, played, home_score, away_score FROM fixtures WHERE league_id = ? ORDER BY round, id',
+    'SELECT id, round, home_team_id, away_team_id, played, home_score, away_score, seed FROM fixtures WHERE league_id = ? ORDER BY round, id',
   ).all(leagueId) as any[]).map(f => ({
     id: f.id, round: f.round,
     home: names.get(f.home_team_id), away: names.get(f.away_team_id),
     homeTeamId: f.home_team_id, awayTeamId: f.away_team_id,
     played: !!f.played, homeScore: f.home_score, awayScore: f.away_score,
     involvesMe: f.home_team_id === teamId || f.away_team_id === teamId,
+    weather: weatherForSeed(f.seed),   // §weather: the deterministic per-match condition (forecast / what happened)
   }));
   const lg = db.prepare('SELECT season, tier, name FROM leagues WHERE id = ?').get(leagueId) as { season: number; tier: number; name: string };
   const table = standings(leagueId);
