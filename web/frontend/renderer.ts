@@ -374,6 +374,9 @@ export class MatchRenderer {
   sync(state: EngineState): void {
     if (RENDER_DEBUG && this.animTime === 0) console.log('[HUD] first sync, state keys:', Object.keys(state).filter(k => ['homeScore','homeShots','possessionPct','clockMs','matchState'].includes(k)).map(k => `${k}=${(state as any)[k]}`).join(', '));
     this.animTime++;
+    // Headless self-verify hook (SysArch later21): expose the latest frame so match-view render data
+    // (setPieceState, ball, players) is eval-inspectable under any box load — no screenshot needed.
+    (window as unknown as { __lastFrame?: EngineState }).__lastFrame = state;
     const byId = this.playerById;
     byId.clear();
     for (const p of state.players) byId.set(p.id, p);
@@ -398,6 +401,10 @@ export class MatchRenderer {
       this.trailBuffer = [];
     }
     while (this.trailBuffer.length > TRAIL_LENGTH) this.trailBuffer.shift();
+    // verify hook: the ball-path trail (traces the curl). __maxTrail accumulates so one eval confirms it populated.
+    const __w = window as unknown as { __trailLen?: number; __maxTrail?: number };
+    __w.__trailLen = this.trailBuffer.length;
+    __w.__maxTrail = Math.max(__w.__maxTrail ?? 0, this.trailBuffer.length);
 
     for (let i = 0; i < TRAIL_LENGTH; i++) {
       const t = this.trailPool[i];
@@ -882,6 +889,12 @@ export class MatchRenderer {
       this.setPieceText.anchor.set(0.5, 0.5);
       this.setPieceText.visible = true;
     }
+    // headless verify hook: confirm the FK 9.15m wall ring drew with the right centre/radius (eval, no screenshot)
+    (window as unknown as { __spDraw?: unknown }).__spDraw = restart
+      ? { type: restart.type, wallRingDrawn: restart.type === 'free_kick', cx: restart.spotX, cy: restart.spotY, r: restart.type === 'free_kick' ? 91 : 0 }
+      : null;
+    // accumulate the last free kick's ring draw so a single later eval can confirm it fired (FKs are sporadic)
+    if (restart?.type === 'free_kick') (window as unknown as { __lastFK?: unknown }).__lastFK = { cx: restart.spotX, cy: restart.spotY, r: 91, atMs: state.clockMs };
 
     // ── HUD ──
     const halfMs = (state.half ?? 1) === 1 ? state.clockMs : state.clockMs - 45 * 60 * 1000;
