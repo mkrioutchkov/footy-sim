@@ -881,6 +881,17 @@ export class MatchRenderer {
       if (restart.type === 'free_kick') {
         this.setPieceGfx.circle(restart.spotX, restart.spotY, 91);
         this.setPieceGfx.stroke({ width: 1.5, color: 0xffffff, alpha: 0.26 });
+        // highlight the defensive WALL — the players Boris flags with p.wall, lined up on the 9.15m ring
+        // (the user's core "SEE wall formations" want). Cyan rings, distinct from the gold taker ring.
+        // No-ops until the engine serialises `wall` into the frame (p.wall undefined → empty).
+        const wall = state.players.filter(p => p.wall);
+        if (wall.length) {
+          for (const wp of wall) {
+            this.setPieceGfx.circle(wp.x, wp.y, 12);
+            this.setPieceGfx.stroke({ width: 2.5, color: 0x5cd6ff, alpha: 0.95 });
+          }
+          (window as unknown as { __lastWall?: unknown }).__lastWall = { n: wall.length, ids: wall.map(p => p.id), atMs: state.clockMs };   // verify hook
+        }
       }
       this.setPieceGfx.circle(restart.spotX, restart.spotY, 18);
       this.setPieceGfx.stroke({ width: 3, color: restart.team === 'home' ? HOME_COLOR : AWAY_COLOR, alpha: 0.95 });

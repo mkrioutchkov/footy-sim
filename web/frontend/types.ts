@@ -41,6 +41,7 @@ export interface Player {
   yellow?: number;
   injured?: boolean;
   sentOff?: boolean; // 0=none, 1=close, 2=medium, 3=fast/knock-forward
+  wall?: boolean;    // render-hint (Boris): this player is in the defensive FK wall — drives the wall highlight
 }
 
 export interface Ball {
