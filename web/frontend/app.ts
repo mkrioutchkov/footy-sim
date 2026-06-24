@@ -989,8 +989,10 @@ function describeDirective(d: any): string {
 async function screenWatch(fixtureId: number, shouts = false, live = false) {
   teardownWatch();
   const myEpoch = watchEpoch;   // if another teardown/navigation bumps this during init, we bail below
-  // Ensure the result is recorded (idempotent, deterministic, same as the stream).
-  api.playFixture(fixtureId).catch(() => { /* may already be played */ });
+  // Ensure the result is recorded (idempotent, deterministic, same as the stream). NOT for a LIVE
+  // match — that must reach full-time UNPLAYED so the coordinator persists the live (shout-driven)
+  // result; a pre-sim here would mark it played and the live persist would (correctly) skip.
+  if (!live) api.playFixture(fixtureId).catch(() => { /* may already be played */ });
   // Felt-tactics overlay (BACKLOG2 #1): surface the ACTIVE composite plan persistently in the viewer, seeded
   // from the team's standing plan so it's visible from kickoff (not just after a shout) — shouts update it live.
   const myTeam = await api.team().catch(() => null);
