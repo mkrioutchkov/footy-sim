@@ -60,7 +60,14 @@ const realEngine: EngineFactory = (specPath) => {
     const lines = buf.split(/\r?\n/); buf = lines.pop() ?? '';
     for (const l of lines) if (l.length) frameCb(l);
   });
-  child.stderr.on('data', () => { /* swallow */ });
+  // Surface the engine's `[live]` command acks (speed/pause/resume/inject) — the live path is real
+  // now, so these are the observability for stdin injection; other engine stderr stays swallowed.
+  let errBuf = '';
+  child.stderr.on('data', (d: Buffer) => {
+    errBuf += d.toString();
+    const lines = errBuf.split(/\r?\n/); errBuf = lines.pop() ?? '';
+    for (const l of lines) if (l.startsWith('[live]')) console.log(`[coordinator] engine ${l}`);
+  });
   const fireExit = (): void => { if (!exited) { exited = true; exitCb(); } };
   child.on('close', fireExit);
   child.on('error', fireExit);
