@@ -47,6 +47,10 @@ input:focus, select:focus { outline: none; border-color: var(--accent2); box-sha
 .row { display: flex; gap: 12px; align-items: center; }
 .between { display: flex; justify-content: space-between; align-items: center; }
 .grid { display: grid; gap: 16px; }
+/* grid items default to min-width:auto (won't shrink below their content's min-content), which forced a
+   horizontal overflow on narrow/mobile viewports — let them shrink to the column instead. Desktop is
+   unchanged (items are still sized by the grid template). */
+.grid > * { min-width: 0; }
 .muted { color: var(--muted); }
 .brand { font-weight: 800; letter-spacing: .5px; }
 .brand .a { color: var(--accent); }
