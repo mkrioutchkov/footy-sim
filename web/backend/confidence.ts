@@ -72,6 +72,63 @@ export function recruitmentBacking(status: ConfidenceStatus, objectiveKind: stri
   return status === 'secure' ? 'The board trusts your judgement in the market.' : 'The board wants steady, sensible recruitment.';
 }
 
+export interface BoardMessage { kind: 'reaction' | 'expectation'; text: string; }
+
+// Event-driven board comms for the dashboard: the board REACTING to your last result and SETTING an
+// EXPECTATION for the next fixture. Pure presentation (the route gathers the data) — it complements
+// the static mid-season boardMood line rather than duplicating it. Tone scales with confidence band,
+// the result margin, the relative league standing of the next opponent, and the season objective.
+// No tracked confidence → the board has no stance yet → no messages.
+export function boardMessages(opts: {
+  status: ConfidenceStatus | null;
+  objectiveKind: string | null;
+  lastResult?: { outcome: 'W' | 'D' | 'L'; gf: number; ga: number; opponent: string } | null;
+  nextMatch?: { opponent: string; home: boolean; myPos: number; oppPos: number } | null;
+}): BoardMessage[] {
+  const s = opts.status;
+  if (!s) return [];
+  const msgs: BoardMessage[] = [];
+  const lr = opts.lastResult;
+  if (lr && lr.opponent) {
+    const margin = Math.abs(lr.gf - lr.ga);
+    let text: string;
+    if (lr.outcome === 'W') {
+      text = margin >= 3 ? `The board was thrilled by the ${lr.gf}-${lr.ga} win over ${lr.opponent}.`
+        : (s === 'secure' || s === 'stable') ? `The board was pleased with the win over ${lr.opponent}.`
+        : `A welcome win over ${lr.opponent} — the board wants more of the same.`;
+    } else if (lr.outcome === 'D') {
+      text = (s === 'shaky' || s === 'at_risk') ? `Another draw, with ${lr.opponent} — the board wanted all three points.`
+        : `The board saw the draw with ${lr.opponent} as two points dropped.`;
+    } else {
+      text = s === 'secure' ? `The board treats the defeat to ${lr.opponent} as a blip — they keep full faith.`
+        : s === 'stable' ? `The board was disappointed to lose to ${lr.opponent}.`
+        : s === 'shaky' ? `The defeat to ${lr.opponent} has the board worried.`
+        : `Losing to ${lr.opponent} has the board questioning your position.`;
+    }
+    msgs.push({ kind: 'reaction', text });
+  }
+  const nx = opts.nextMatch;
+  if (nx && nx.opponent) {
+    const where = nx.home ? 'at home' : 'away';
+    const gap = nx.myPos > 0 && nx.oppPos > 0 ? nx.oppPos - nx.myPos : 0;   // >0 → opponent below me (I'm favourite)
+    const ambitious = opts.objectiveKind === 'title' || opts.objectiveKind === 'promotion';
+    let text: string;
+    if (opts.objectiveKind === 'survival' && gap <= -4) {
+      text = `Every point counts in your fight — the board knows ${nx.opponent} ${where} is a hard one.`;
+    } else if (gap >= 4) {
+      text = `The board expects you to see off ${nx.opponent} ${where}.`;
+    } else if (gap <= -4) {
+      text = ambitious ? `${nx.opponent} sit above you, but the board still wants a statement result ${where}.`
+        : `${nx.opponent} are flying — the board would settle for a point ${where}.`;
+    } else {
+      text = ambitious ? `A real test ${where} against ${nx.opponent} — the board expects you to rise to it.`
+        : `A close one ${where} against ${nx.opponent}; the board wants a positive result.`;
+    }
+    msgs.push({ kind: 'expectation', text });
+  }
+  return msgs;
+}
+
 export type BoardTone = 'backed' | 'satisfied' | 'concerned' | 'warned' | 'final_warning' | 'sacked';
 
 // The board's verdict on the manager at rollover, escalating if confidence stays at-risk across

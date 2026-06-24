@@ -34,7 +34,7 @@ import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory, getClubRecords } from './history.ts';
 import { getObjective } from './objectives.ts';
-import { getConfidence, boardMood, recruitmentBacking } from './confidence.ts';
+import { getConfidence, boardMood, recruitmentBacking, boardMessages } from './confidence.ts';
 import { getStaffView, hireStaff, fireStaff } from './staff.ts';
 import { getFinances, payMatchdayIncome } from './finances.ts';
 import { getSquadHarmony } from './harmony.ts';
@@ -720,6 +720,24 @@ app.get('/api/league', async (req: any, reply) => {
   const myPos = table.findIndex(s => s.teamId === teamId) + 1;
   const onTrack = objective ? (myPos > 0 && myPos <= objective.target) : true;
   const mood = confidence ? boardMood(confidence.status, onTrack) : null;
+  // Event-driven board comms: react to my last played match + set expectations for my next one.
+  const mine = fixtures.filter(f => f.involvesMe);
+  const last = mine.filter(f => f.played).at(-1);
+  const lastResult = last ? (() => {
+    const home = last.homeTeamId === teamId;
+    const gf = (home ? last.homeScore : last.awayScore) ?? 0;
+    const ga = (home ? last.awayScore : last.homeScore) ?? 0;
+    const outcome: 'W' | 'D' | 'L' = gf > ga ? 'W' : gf < ga ? 'L' : 'D';
+    return { outcome, gf, ga, opponent: (home ? last.away : last.home) ?? '' };
+  })() : null;
+  const nextFx = mine.find(f => !f.played);
+  const posOf = (tid: number): number => { const i = table.findIndex(s => s.teamId === tid); return i >= 0 ? i + 1 : 0; };
+  const nextMatch = nextFx ? {
+    opponent: (nextFx.homeTeamId === teamId ? nextFx.away : nextFx.home) ?? '',
+    home: nextFx.homeTeamId === teamId,
+    myPos, oppPos: posOf(nextFx.homeTeamId === teamId ? nextFx.awayTeamId : nextFx.homeTeamId),
+  } : null;
+  const messages = boardMessages({ status: confidence?.status ?? null, objectiveKind: objective?.kind ?? null, lastResult, nextMatch });
   // world = every division's table (for the "other divisions" peek); the user's row is
   // flagged isUser within each division's standings.
   return {
@@ -732,6 +750,7 @@ app.get('/api/league', async (req: any, reply) => {
     promote: PROMOTE,                  // bottom N are relegated — lets the UI place the drop line
     confidence,                        // board confidence / job security
     boardMood: mood,                   // mid-season board mood line (null if no confidence)
+    boardMessages: messages,           // event-driven board comms: last-result reaction + next-match expectation
     pressAvailable: pressAvailable(teamId),   // §2.14: can the manager hold a press conference this matchday
   };
 });
