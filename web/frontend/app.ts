@@ -750,7 +750,7 @@ async function screenDashboard() {
         h('div', { style: 'margin-bottom:7px' }, h('span', { class: 'muted' }, '🎙 '), h('em', {}, `“${q.question}”`)),
         h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, ...(q.options ?? []).map(o =>
           h('button', { class: 'ghost small', title: o.text, onclick: () => submitPress(o.text, o.tone) }, o.label))));
-    }).catch(() => { /* the free-text box alone still works */ });
+    }).catch((e) => { console.warn('[press] question fetch failed — the free-text box still works', e); });
   }
   const pressCard = h('div', { class: 'card', style: 'margin-top:14px' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Press conference'),
@@ -815,7 +815,7 @@ async function screenDashboard() {
         const r = await api.resolveConcern(slot, action);
         toast(`${r.message}${r.moraleDelta ? ` (morale ${r.moraleDelta > 0 ? '+' : ''}${r.moraleDelta})` : ''}`);
         paintConcerns(r.concerns);
-        void api.harmony().then(paintHarmony).catch(() => { /* leave the card as-is on a transient failure */ });
+        void api.harmony().then(paintHarmony).catch((e) => { console.warn('[harmony] refresh failed — card left as-is', e); });
       } catch (e: any) { toast('⚠ ' + e.message); paintConcerns(concernList); }
     };
     concernsCard.replaceChildren(
@@ -947,7 +947,7 @@ async function screenDashboard() {
             ? h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, btn('funds', 'Ask for transfer funds', m.grants.funds), btn('wages', 'Ask for wage budget', m.grants.wages))
             : h('div', { class: 'muted', style: 'font-size:12px' }, 'You’ve had your audience with the board — back next season.'));
       };
-      void api.board().then(paintMeeting).catch(() => { meetEl.style.display = 'none'; });
+      void api.board().then(paintMeeting).catch((e) => { console.warn('[board] meeting fetch failed — section hidden', e); meetEl.style.display = 'none'; });
       rows.push(meetEl);
       return h('div', { class: 'card', style: 'padding:12px 14px' }, ...rows);
     })(),
