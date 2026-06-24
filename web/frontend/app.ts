@@ -11,7 +11,7 @@ interface TacticsReceipt {
   error?: string; formation?: string; note?: string; changed?: string;
   motivation?: MotivationReaction[]; plan?: PlanT | null; directives?: DirectiveT[];
 }
-type WatchMessage = EngineState & { homeName?: string; awayName?: string; replay?: boolean; tacticsReceipt?: TacticsReceipt };
+type WatchMessage = EngineState & { homeName?: string; awayName?: string; replay?: boolean; tacticsReceipt?: TacticsReceipt; error?: string };
 
 const root = document.getElementById('app')!;
 let user: { id: number; username: string } | null = null;
@@ -980,7 +980,7 @@ function describeDirective(d: any): string {
   return `${who}: ${d.kind}${cond}`;
 }
 
-async function screenWatch(fixtureId: number) {
+async function screenWatch(fixtureId: number, shouts = false) {
   teardownWatch();
   const myEpoch = watchEpoch;   // if another teardown/navigation bumps this during init, we bail below
   // Ensure the result is recorded (idempotent, deterministic, same as the stream).
@@ -1097,7 +1097,7 @@ async function screenWatch(fixtureId: number) {
   };
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}`);
+  const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}${shouts ? '&shouts=1' : ''}`);
   activeWs = ws;
   let replayUiApplied = false;
   let gotFrame = false;
@@ -1129,6 +1129,7 @@ async function screenWatch(fixtureId: number) {
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data) as WatchMessage;
+      if (msg.error) { showStatusError(msg.error); return; }   // re-sim failed (e.g. replay-from-shouts)
       // A replayed recording is finished playback: drop the live-only shout box and offer rewind.
       if (msg.replay && !replayUiApplied) { replayUiApplied = true; panel.style.display = 'none'; rewindBtn.style.display = ''; syncReserve(); }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
@@ -1827,7 +1828,7 @@ async function screenCup() {
 // The persisted shout log for a watched match — minute · what you said · what it changed.
 // Independent of the frame recording (a shout-driven match may have no replay), so it can ride
 // either the full report or the "no recording" fallback. '' when there were no shouts.
-function shoutReviewCard(tac: TacticsReviewT): HTMLElement | string {
+function shoutReviewCard(tac: TacticsReviewT, fixtureId: number): HTMLElement | string {
   if (!tac.shouts.length) return '';
   const changed = (s: ShoutReviewT): string => {
     const bits = [`${s.directives} instruction${s.directives === 1 ? '' : 's'}`];
@@ -1836,7 +1837,10 @@ function shoutReviewCard(tac: TacticsReviewT): HTMLElement | string {
     return bits.join(' · ');
   };
   return h('div', { class: 'card', style: 'margin-top:10px' },
-    h('div', { class: 'section-title', style: 'margin-top:0' }, '📣 Your shouts this match'),
+    h('div', { class: 'between', style: 'margin-bottom:2px' },
+      h('div', { class: 'section-title', style: 'margin:0' }, '📣 Your shouts this match'),
+      // Re-sim the match from this command log (deterministic) and watch it play back, paced.
+      h('button', { class: 'ghost small', title: 'Re-simulate the match from these shouts and watch it back', onclick: () => (location.hash = `#/watch/${fixtureId}?shouts=1`) }, '▶ Replay from shouts')),
     ...tac.shouts.map(s => h('div', { style: 'padding:5px 0;border-top:1px solid var(--line)' },
       h('div', { style: 'font-size:13px' }, h('span', { class: 'muted', style: 'font-variant-numeric:tabular-nums' }, `${s.minute}' `), `“${s.text}”`),
       h('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' }, changed(s)))));
@@ -1857,7 +1861,7 @@ async function screenReport(fixtureId: number) {
     return mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' }, h('h2', {}, 'Match report'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
       h('div', { class: 'card muted' }, msg),
-      shoutReviewCard(tac)));
+      shoutReviewCard(tac, fixtureId)));
   }
   const tac = await tacP;
 
@@ -1892,7 +1896,7 @@ async function screenReport(fixtureId: number) {
     h('div', { class: 'card', style: 'margin-top:10px' },
       h('div', { class: 'section-title', style: 'margin-top:0' }, 'Player ratings'),
       h('div', { style: 'display:flex;gap:24px;flex-wrap:wrap' }, ratingsCol('home', rep.homeName), ratingsCol('away', rep.awayName))),
-    shoutReviewCard(tac),
+    shoutReviewCard(tac, fixtureId),
   ));
 }
 
@@ -2398,7 +2402,7 @@ function route() {
   const hash = location.hash;
   if (!user) { screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
-  if (hash.startsWith('#/watch/')) screenWatch(Number(hash.split('/')[2]));
+  if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash)); }
   else if (hash === '#/tactics') screenTactics();
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();

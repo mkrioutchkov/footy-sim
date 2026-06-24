@@ -855,3 +855,68 @@ export class ReplayStream extends FramePacer {
     } catch { /* ignore */ }
   }
 }
+
+let replaySeq = 0;
+// "▶ Replay from your shouts": stream a shout-driven match's re-sim from its persisted command log,
+// PACED like a live watch (no upfront wait). Spawns the engine on the self-contained events-log spec
+// (buildReplaySpec) and relays frames through the FramePacer's backpressure — pausing/resuming the
+// engine's stdout as the play queue drains — so the user watches it unfold instead of waiting ~8 min
+// for the emit-bound flat-out batch (replayViaTimeline). Frames are tagged replay:true (the client
+// hides the live-only shout box). Immutable: pause/speed/restart only, no tactics injection.
+export class EventsReplayStream extends FramePacer {
+  private proc: Proc | null = null;
+  private buffer = '';
+  private specFile: string;
+  constructor(ws: WebSocket, log: EventsLog, seed: number, homeName: string, awayName: string) {
+    super(ws, seed, homeName, awayName);
+    this.replay = true;
+    this.specFile = path.join(SPEC_DIR, `replay-shouts-${replaySeq++}.json`);
+    writeFileSync(this.specFile, JSON.stringify(buildReplaySpec(log)));
+    this.start();
+    ws.on('message', (d: Buffer) => this.onCommand(d));
+    ws.on('close', () => this.dispose());
+  }
+  private start(): void {
+    this.stopProc();
+    this.prevClock = null; this.pending = []; this.buffer = '';
+    const child = spawn(ENGINE, ['--match', this.specFile, '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] }) as Proc;
+    this.proc = child;
+    child.stdout.on('data', (data: Buffer) => {
+      if (this.proc !== child || !this.alive) return;
+      child.stdout.pause();                          // backpressure: only sim as fast as we play it back
+      this.buffer += data.toString();
+      const lines = this.buffer.split(/\r?\n/);
+      this.buffer = lines.pop() ?? '';
+      for (const l of lines) if (l.length) this.pending.push(l);
+      this.tick();
+    });
+    child.stderr.on('data', () => { /* swallow */ });
+    child.on('close', () => {
+      if (this.proc !== child) return;
+      this.tick();
+      // engine produced nothing (crash / bad log) — don't leave the viewer on "Connecting…" forever
+      if (!this.latest && this.alive && this.ws.readyState === 1) {
+        try { this.ws.send(JSON.stringify({ error: "Couldn't re-sim this match from its shouts." })); } catch { /* gone */ }
+      }
+    });
+  }
+  protected refill(): void { this.proc?.stdout.resume(); }
+  private onCommand(d: Buffer): void {
+    try {
+      const cmd = JSON.parse(d.toString()) as { type?: string; value?: unknown };
+      if (cmd.type === 'restart') { this.paused = false; this.start(); }
+      else if (cmd.type === 'pause') this.togglePause();
+      else if (cmd.type === 'speed' && typeof cmd.value === 'number') this.setSpeed(cmd.value);
+      // no 'tactics' — a replay is immutable
+    } catch { /* ignore */ }
+  }
+  private stopProc(): void {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    if (this.proc) { this.proc.kill(); this.proc = null; }
+  }
+  override dispose(): void {
+    super.dispose();
+    this.stopProc();
+    try { if (existsSync(this.specFile)) rmSync(this.specFile, { force: true }); } catch { /* best effort */ }
+  }
+}

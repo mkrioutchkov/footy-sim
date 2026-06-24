@@ -12,7 +12,7 @@ import {
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
-import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay, mapPool, loadEventsLog, tacticsReview } from './match.ts';
+import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, EventsReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay, mapPool, loadEventsLog, tacticsReview } from './match.ts';
 import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
@@ -937,6 +937,14 @@ server.on('upgrade', (request, socket, head) => {
       const rec = recordingFor('fixture', fixtureId);
       const frames = rec ? loadRecording(rec) : [];
       if (frames.length) { new ReplayStream(ws as any, frames, fx.seed, homeName, awayName); return; }
+      // "▶ Replay from your shouts" (?shouts=1): a shout-driven match that wasn't frame-recorded still
+      // has a persisted command log — stream a PACED re-sim from it (deterministic), rather than the
+      // live re-sim which would start from an empty plan. (A frame-recorded match already replays its
+      // shouts via ReplayStream above.)
+      if (url.searchParams.get('shouts') === '1') {
+        const log = loadEventsLog('fixture', fixtureId);
+        if (log) { new EventsReplayStream(ws as any, log, fx.seed, homeName, awayName); return; }
+      }
       // Seed the live shout box from the manager's persisted standing plan (team-relative ids;
       // MatchStream resolves them to this watch's roster) so shouts edit the standing plan.
       const seedPlan = canShout ? (getTeamWithPlayers(myTeamId!)?.plan ?? null) : null;
