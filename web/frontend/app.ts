@@ -2324,9 +2324,19 @@ async function screenCareer() {
           ...c.spells.map(s => h('div', { class: 'between', style: 'font-size:13px;padding:5px 0;border-top:1px solid var(--line)' },
             h('span', {}, h('b', {}, s.team), ' ', h('span', { class: 'muted', style: 'font-size:12px' }, `${s.from === s.to ? `S${s.from}` : `S${s.from}–S${s.to}`} · ${s.seasons} season${s.seasons === 1 ? '' : 's'}`)),
             h('span', { class: 'muted', style: 'font-size:12px' }, [s.titles ? `${s.titles}🏆` : '', s.promotions ? `${s.promotions}⬆️` : '', s.relegations ? `${s.relegations}⬇️` : ''].filter(Boolean).join('  ') || '—')))));
+  // §P2#9 reputation badge — the synthesised media standing from the career CV (tier + blurb).
+  const rep = c.reputation;
+  const repBadge = rep ? (() => {
+    const COLOR: Record<string, string> = { unproven: 'var(--muted,#8a93a6)', promising: '#7fb2ff', respected: 'var(--accent)', renowned: 'var(--gold)', elite: 'var(--gold)', legendary: '#ffd24a' };
+    const col = COLOR[rep.tier] ?? 'var(--accent)';
+    const icon = rep.tier === 'legendary' ? '👑' : rep.tier === 'elite' ? '⭐' : '★';
+    return h('span', { class: 'pill', title: rep.blurb, style: `border:1px solid ${col};color:${col};font-weight:700;font-size:12px` }, `${icon} ${rep.label}`);
+  })() : '';
   mount(header(), h('div', { class: 'wrap grid' },
-    h('div', { class: 'between' }, h('h2', {}, 'Managerial career'),
+    h('div', { class: 'between' },
+      h('div', { class: 'row', style: 'gap:10px;align-items:center' }, h('h2', { style: 'margin:0' }, 'Managerial career'), repBadge),
       h('button', { class: 'ghost small', onclick: () => (location.hash = '#/') }, '← Back')),
+    rep ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:-4px;font-style:italic' }, rep.blurb) : '',
     body));
 }
 

@@ -148,6 +148,7 @@ export interface ManagerCareerT {
   clubs: number; seasons: number; played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
   winPct: number; titles: number; promotions: number; relegations: number; cups: number; objectivesMet: number; objectivesSet: number;
   bestFinish: { position: number; division: string; season: number } | null; spells: ManagerSpellT[];
+  reputation?: { tier: string; label: string; score: number; blurb: string };
 }
 
 export interface ClubRecordsT {
