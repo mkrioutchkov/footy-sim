@@ -171,6 +171,14 @@ int main(int argc, char* argv[]) {
         nlohmann::json spec; f >> spec;
         if (spec.contains("seed") && spec["seed"].is_number()) seed = spec["seed"].get<int>();
         if (spec.contains("minutes") && spec["minutes"].is_number()) minutes = spec["minutes"].get<int>();
+        // §weather bridge: an optional per-match condition (rain|wet|wind) so a match SPEC can carry
+        // weather — the product/web path was env-only (FOOTY_WEATHER). Absent -> clear (byte-identical;
+        // golden specs have no "weather" key). The FOOTY_WEATHER env below still overrides, for testing.
+        if (spec.contains("weather") && spec["weather"].is_string()) {
+            std::string w = spec["weather"].get<std::string>();
+            if (w == "wind") engine.weather = 2;
+            else if (w == "rain" || w == "wet") engine.weather = 1;
+        }
         loadTeam(spec["home"], engine.homeRoster, engine.homeConfig);
         loadTeam(spec["away"], engine.awayRoster, engine.awayConfig);
         if (spec.contains("directives") && spec["directives"].is_array())
