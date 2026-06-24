@@ -52,6 +52,7 @@ export interface Ball {
   vy: number;
   z: number;
   vz: number;
+  curl?: number;   // render-hint (Boris): sideways curl/spin magnitude — drives the trail curl tint
   controllerId: number | null;
   intendedReceiverId: number | null;
   lastTouchTeam: Team | null;

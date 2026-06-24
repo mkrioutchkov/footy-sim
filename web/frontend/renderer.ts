@@ -408,6 +408,18 @@ export class MatchRenderer {
     __w.__maxTrail = Math.max(__w.__maxTrail ?? 0, this.trailBuffer.length);
     __w.__maxTrailZ = Math.max(__w.__maxTrailZ ?? 0, ...this.trailBuffer.map(p => p.z), 0);
 
+    // ── curl emphasis: a curling ball (engine's ball.curl, |curl|~0..0.36) tints its trail toward violet
+    //    + thickens it, so the Beckham bend READS (the trail already traces the bent path; this flags it). ──
+    const curlMag = Math.min(Math.abs((b as { curl?: number }).curl ?? 0) / 0.3, 1);
+    (__w as { __maxCurl?: number }).__maxCurl = Math.max((__w as { __maxCurl?: number }).__maxCurl ?? 0, curlMag);
+    const CURL_COLOR = 0xc060ff;
+    const curlTint = (base: number): number => {
+      const t = curlMag * 0.85; if (t < 0.02) return base;
+      const ar = (base >> 16) & 255, ag = (base >> 8) & 255, ab = base & 255;
+      const dr = ((CURL_COLOR >> 16) & 255) - ar, dg = ((CURL_COLOR >> 8) & 255) - ag, db = (CURL_COLOR & 255) - ab;
+      return ((ar + Math.round(dr * t)) << 16) | ((ag + Math.round(dg * t)) << 8) | (ab + Math.round(db * t));
+    };
+
     for (let i = 0; i < TRAIL_LENGTH; i++) {
       const t = this.trailPool[i];
       const idx = this.trailBuffer.length - 1 - i;
@@ -419,7 +431,7 @@ export class MatchRenderer {
         const alpha = (i / TRAIL_LENGTH) * 0.48;
         const r = BALL_R * (0.4 + (1 - i / TRAIL_LENGTH) * 0.75);
         t.circle(0, 0, r);
-        t.fill({ color: 0xffdd44, alpha });
+        t.fill({ color: curlTint(0xffdd44), alpha });
       } else {
         t.visible = false;
       }
@@ -442,10 +454,10 @@ export class MatchRenderer {
         const b2 = this.shotTrailBuffer[i + 1];
         const progress = (i + 1) / this.shotTrailBuffer.length;
         const alpha = progress * 0.85;
-        const width = BALL_R * 0.4 + progress * BALL_R * 1.2;
+        const width = (BALL_R * 0.4 + progress * BALL_R * 1.2) * (1 + curlMag * 0.5);   // a curling shot's trail thickens
         this.shotTrailGfx.moveTo(a.x, a.y - a.z * 0.7);
         this.shotTrailGfx.lineTo(b2.x, b2.y - b2.z * 0.7);   // lofted shots (chips/dippers) arc with the ball
-        this.shotTrailGfx.stroke({ width, color: 0xff4422, alpha });
+        this.shotTrailGfx.stroke({ width, color: curlTint(0xff4422), alpha });
       }
     }
 
