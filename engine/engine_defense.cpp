@@ -17,6 +17,35 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
 // assignment slot (goal-side shadow + opponentId, reusing the LaneBlock
 // executor); the bias kinds stash a per-player nudge the scorers consult. Pure
 // function of clock + score — NO rng (any draw here would desync the stream).
+// §1.3: which team a directive belongs to — team-wide dials carry teamScope (0/1); player
+// directives carry a playerId (0-10 home, 11-21 away). Lets an inject replace only ONE side's set.
+static int directiveTeam(const GameEngine::Directive& d) {
+    return d.teamScope >= 0 ? d.teamScope : (d.playerId >= 0 && d.playerId < 11 ? 0 : 1);
+}
+
+// Apply one timeline / live-inject entry: REPLACE the active directive set (team-scoped when the
+// entry names a team — §1.3/§4 per-team — else the whole set, byte-identical to the old single-set
+// path) + the entry's per-player morale deltas + formation re-anchor. Shared by the timeline replay
+// and applyLiveCommands so live-inject ≡ timeline-replay. Clock-driven, NO rng (determinism).
+void GameEngine::applyDirectiveEntry(const TimelineEntry& e) {
+    if (e.team >= 0) {
+        directives.erase(std::remove_if(directives.begin(), directives.end(),
+            [&](const Directive& d) { return directiveTeam(d) == e.team; }), directives.end());
+        directives.insert(directives.end(), e.directives.begin(), e.directives.end());
+    } else {
+        directives = e.directives;
+    }
+    for (int i = 0; i < 22 && i < (int)state.players.size(); ++i)
+        if (e.moraleDelta[i] != 0.0 && !state.players[i].sentOff)
+            state.players[i].moraleBoost = clamp(state.players[i].moraleBoost + e.moraleDelta[i], -1.0, 1.0);
+    for (int i = 0; i < 22 && i < (int)state.players.size(); ++i) {
+        if (!e.layoutSet[i] || state.players[i].sentOff || state.players[i].role == Role::GK) continue;
+        baseHomeX[i] = e.layoutHX[i]; baseHomeY[i] = e.layoutHY[i];
+        state.players[i].homeX = e.layoutHX[i]; state.players[i].homeY = e.layoutHY[i];
+        reassignAgent(state.players[i], e.layoutRole[i]);
+    }
+}
+
 void GameEngine::applyDirectives() {
     directiveBias.fill({});
     dialOverride = {};      // reset team-wide dial deltas each tick (clock-driven)
@@ -37,24 +66,7 @@ void GameEngine::applyDirectives() {
     // the active directive set. Clock-driven (no rng), so replays are identical.
     while (directiveTimelineIdx < directiveTimeline.size()
            && state.clockMs >= directiveTimeline[directiveTimelineIdx].atMs) {
-        directives = directiveTimeline[directiveTimelineIdx].directives;
-        // A motivational shout on this entry shifts morale (clock-driven, no rng).
-        const auto& md = directiveTimeline[directiveTimelineIdx].moraleDelta;
-        for (int i = 0; i < 22 && i < (int)state.players.size(); ++i)
-            if (md[i] != 0.0 && !state.players[i].sentOff) state.players[i].moraleBoost = clamp(state.players[i].moraleBoost + md[i], -1.0, 1.0);
-        // A formation shout re-shapes the team: re-anchor (base + current) + re-role
-        // + swap the role-AI for each listed player. The per-tick homeX reset above
-        // then springs everyone to their new station; directives still layer on top.
-        const auto& lx = directiveTimeline[directiveTimelineIdx].layoutHX;
-        const auto& ly = directiveTimeline[directiveTimelineIdx].layoutHY;
-        const auto& lr = directiveTimeline[directiveTimelineIdx].layoutRole;
-        const auto& ls = directiveTimeline[directiveTimelineIdx].layoutSet;
-        for (int i = 0; i < 22 && i < (int)state.players.size(); ++i) {
-            if (!ls[i] || state.players[i].sentOff || state.players[i].role == Role::GK) continue;
-            baseHomeX[i] = lx[i]; baseHomeY[i] = ly[i];
-            state.players[i].homeX = lx[i]; state.players[i].homeY = ly[i];
-            reassignAgent(state.players[i], lr[i]);
-        }
+        applyDirectiveEntry(directiveTimeline[directiveTimelineIdx]);
         directiveTimelineIdx++;
     }
     if (directives.empty()) return;

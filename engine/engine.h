@@ -537,6 +537,7 @@ public:
     // re-anchors (base + current) + re-roles + gets a fresh role-AI on fire.
     struct TimelineEntry {
         double atMs = 0.0;
+        int team = -1;   // §1.3/§4: which side this entry replaces (0=home, 1=away); -1 = both (back-compat)
         std::vector<Directive> directives;
         std::array<double, 22> moraleDelta{};
         std::array<double, 22> layoutHX{};
@@ -561,6 +562,7 @@ public:
     std::array<double, 22> baseHomeY = {};
     bool baseHomeXCaptured = false;
     void applyDirectives();
+    void applyDirectiveEntry(const TimelineEntry& e);   // §1.3: shared timeline+live-inject entry apply (team-scoped)
 
     // ── Lifecycle ──
     GameEngine();
