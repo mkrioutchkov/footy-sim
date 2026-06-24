@@ -37,7 +37,7 @@ export class MatchRenderer {
   private playerLayer: Container;
   private trailPool: Graphics[] = [];
   private shotTrailGfx: Graphics;
-  private shotTrailBuffer: { x: number; y: number }[] = [];
+  private shotTrailBuffer: { x: number; y: number; z: number }[] = [];
   private playerEntries: Map<number, PlayerEntry> = new Map();
   private ringGfx: Graphics;
   private ballBody: Graphics;
@@ -86,7 +86,7 @@ export class MatchRenderer {
   private scale = 1;
   private offsetX = 0;
   private offsetY = 0;
-  private trailBuffer: { x: number; y: number }[] = [];
+  private trailBuffer: { x: number; y: number; z: number }[] = [];
   private visualPlayers: Map<number, { x: number; y: number }> = new Map();
   private visualBall: { x: number; y: number; z: number } | null = null;
   private lastControllerId: number | null = null;
@@ -396,15 +396,17 @@ export class MatchRenderer {
 
     // ── trail ──
     if (b.controllerId === null && ballSpeed > 20) {
-      this.trailBuffer.push({ x: vb.x, y: vb.y });
+      this.trailBuffer.push({ x: vb.x, y: vb.y, z: vb.z });   // carry z so the trail can follow a lofted arc
     } else {
       this.trailBuffer = [];
     }
     while (this.trailBuffer.length > TRAIL_LENGTH) this.trailBuffer.shift();
-    // verify hook: the ball-path trail (traces the curl). __maxTrail accumulates so one eval confirms it populated.
-    const __w = window as unknown as { __trailLen?: number; __maxTrail?: number };
+    // verify hook: the ball-path trail (traces the curl). __maxTrail accumulates so one eval confirms it populated;
+    // __maxTrailZ confirms lofted balls carry height into the trail (so it arcs instead of lying flat).
+    const __w = window as unknown as { __trailLen?: number; __maxTrail?: number; __maxTrailZ?: number };
     __w.__trailLen = this.trailBuffer.length;
     __w.__maxTrail = Math.max(__w.__maxTrail ?? 0, this.trailBuffer.length);
+    __w.__maxTrailZ = Math.max(__w.__maxTrailZ ?? 0, ...this.trailBuffer.map(p => p.z), 0);
 
     for (let i = 0; i < TRAIL_LENGTH; i++) {
       const t = this.trailPool[i];
@@ -412,7 +414,7 @@ export class MatchRenderer {
       if (idx >= 0) {
         const pt = this.trailBuffer[idx];
         t.visible = true;
-        t.position.set(pt.x, pt.y);
+        t.position.set(pt.x, pt.y - pt.z * 0.7);   // lift by the same arcOffset the ball uses → trail follows the arc
         t.clear();
         const alpha = (i / TRAIL_LENGTH) * 0.48;
         const r = BALL_R * (0.4 + (1 - i / TRAIL_LENGTH) * 0.75);
@@ -427,7 +429,7 @@ export class MatchRenderer {
     const SHOT_SPEED_THRESHOLD = 350;
     const SHOT_TRAIL_LENGTH = 24;
     if (b.controllerId === null && ballSpeed > SHOT_SPEED_THRESHOLD) {
-      this.shotTrailBuffer.push({ x: vb.x, y: vb.y });
+      this.shotTrailBuffer.push({ x: vb.x, y: vb.y, z: vb.z });
     } else if (ballSpeed < SHOT_SPEED_THRESHOLD * 0.5) {
       this.shotTrailBuffer = [];
     }
@@ -441,8 +443,8 @@ export class MatchRenderer {
         const progress = (i + 1) / this.shotTrailBuffer.length;
         const alpha = progress * 0.85;
         const width = BALL_R * 0.4 + progress * BALL_R * 1.2;
-        this.shotTrailGfx.moveTo(a.x, a.y);
-        this.shotTrailGfx.lineTo(b2.x, b2.y);
+        this.shotTrailGfx.moveTo(a.x, a.y - a.z * 0.7);
+        this.shotTrailGfx.lineTo(b2.x, b2.y - b2.z * 0.7);   // lofted shots (chips/dippers) arc with the ball
         this.shotTrailGfx.stroke({ width, color: 0xff4422, alpha });
       }
     }
