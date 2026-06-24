@@ -980,7 +980,7 @@ function describeDirective(d: any): string {
   return `${who}: ${d.kind}${cond}`;
 }
 
-async function screenWatch(fixtureId: number, shouts = false) {
+async function screenWatch(fixtureId: number, shouts = false, live = false) {
   teardownWatch();
   const myEpoch = watchEpoch;   // if another teardown/navigation bumps this during init, we bail below
   // Ensure the result is recorded (idempotent, deterministic, same as the stream).
@@ -1097,7 +1097,7 @@ async function screenWatch(fixtureId: number, shouts = false) {
   };
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}${shouts ? '&shouts=1' : ''}`);
+  const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}${shouts ? '&shouts=1' : ''}${live ? '&live=1' : ''}`);
   activeWs = ws;
   let replayUiApplied = false;
   let gotFrame = false;
@@ -2402,7 +2402,7 @@ function route() {
   const hash = location.hash;
   if (!user) { screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
-  if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash)); }
+  if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash)); }
   else if (hash === '#/tactics') screenTactics();
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
