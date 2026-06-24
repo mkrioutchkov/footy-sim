@@ -232,6 +232,8 @@ void GameEngine::applyDirectives() {
             case DirectiveKind::RunInBehind: directiveBias[p->id].runAheadBias = 0.30 * d.intensity; break;
             // come_short / check_to_feet: the INVERSE of run_in_behind — drop toward the carrier to receive to feet.
             case DirectiveKind::ComeShort:  directiveBias[p->id].comeShortBias = 0.55 * d.intensity; break;
+            // drift_into_pocket: position between the opp def + mid lines to receive facing forward (dedicated Pocket candidate).
+            case DirectiveKind::DriftIntoPocket: directiveBias[p->id].pocketBias = 0.50 * d.intensity; break;
             // target_man_holdup: a CF drops short to RECEIVE (reuse the shipped come_short half) AND, once on the
             // ball under pressure with no support arrived, HOLDS UP — shields/retains over a forced release.
             case DirectiveKind::TargetManHoldup:

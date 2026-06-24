@@ -131,6 +131,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         if (my && (cn.pur == ActionPurpose::RunAhead || cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::CrossLane)) {
             ob += engine.directiveBias[p.id].runAheadBias;
             ob -= engine.directiveBias[p.id].comeShortBias;  // come_short: suppress runs in behind (the inverse half)
+            ob -= engine.directiveBias[p.id].pocketBias;     // drift_into_pocket: same — drop into the pocket instead of running in behind
             // Quick transition: sprint in behind while the defence is unset (counters).
             // counter_attack amplifies it symmetrically with the through-ball bonus.
             if (engine.state.clockMs < engine.transitionUntilMs)
@@ -148,6 +149,10 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         // link), gated on the directive (default 0 => no-directive match unchanged).
         if (my && cn.pur == ActionPurpose::ComeShort)
             ob += engine.directiveBias[p.id].comeShortBias;
+        // drift_into_pocket: boost the dedicated Pocket purpose alone (the deep between-the-lines target
+        // would lose to advanced candidates on danger-bias without its own boost — the come_short lesson).
+        if (my && cn.pur == ActionPurpose::Pocket)
+            ob += engine.directiveBias[p.id].pocketBias;
 
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;
         double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 6.0;

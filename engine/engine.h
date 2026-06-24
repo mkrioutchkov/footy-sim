@@ -366,6 +366,7 @@ public:
         return c;
     }
     [[nodiscard]] double offsideLineFor(Team t) const;
+    [[nodiscard]] double midlineFor(Team t) const;   // opp central-midfield avg x (top of the pocket; drift_into_pocket)
     [[nodiscard]] bool checkOffside(const Player& receiver, const Player& passer) const;
     void awardOffsideFreeKick(Team defTeam, const Player& offsidePlayer);
     [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const;
@@ -507,7 +508,7 @@ public:
         ManMark, ShootOnSight, GetForward, SitDeep, TargetPlayer,
         StayWide, ComeInside, StayCentral,
         CrossEarly, SwitchPlay, PlaySimple, Cutback,
-        RunInBehind, MakeRuns, ComeShort, DribbleMore, StayBack,
+        RunInBehind, MakeRuns, ComeShort, DriftIntoPocket, DribbleMore, StayBack,
         TargetManHoldup,
         PressHard, TackleHard, StayOnFeet, Contain,
         // ── set-piece taker designations (per-player; playerId = the designated taker) ──
@@ -538,7 +539,7 @@ public:
     // applyDirectives() (stateless, so deterministic).
     struct DirectiveBias { bool shootOnSight=false; int passTargetId=-1; double passTargetBias=0.0;
         bool crossEarly=false; double switchBias=0.0; double simplifyBias=0.0; double cutbackBias=0.0;
-        double runAheadBias=0.0; double comeShortBias=0.0; double dribbleBonus=0.0; double stayBackBias=0.0;
+        double runAheadBias=0.0; double comeShortBias=0.0; double pocketBias=0.0; double dribbleBonus=0.0; double stayBackBias=0.0;
         double holdUpBias=0.0;
         double pressTightness=0.0; double tackleAggression=0.0; double stayOnFeet=0.0; double containBias=0.0; };
     std::array<DirectiveBias, 22> directiveBias = {};

@@ -120,6 +120,17 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
                 double dropY = clamp(lerp(carrier->y, p.homeY, 0.35) + side * 40.0, 50.0, PITCH_H - 50.0);
                 c.push_back({ clamp(dropX, 45.0, PITCH_W - 45.0), dropY, ActionPurpose::ComeShort });
             }
+            // drift_into_pocket / play_between_lines: position in the POCKET — the x-band between the opponent's
+            // defensive line (offsideLineFor) and their midfield line (midlineFor) — to receive facing forward.
+            // Distinct from come_short (which drops to the carrier's feet); the pocket is anchored to the OPP LINES,
+            // onside by construction (behind the def line). Gated on the directive (default 0 => no candidate).
+            if (engine.directiveBias[p.id].pocketBias > 0.0) {
+                double defLine = engine.offsideLineFor(p.team);
+                double midLine = engine.midlineFor(p.team);
+                double pocketX = lerp(defLine, midLine, 0.42);   // biased toward the def line — receive on the last line's shoulder
+                double pocketY = clamp(lerp(PITCH_H / 2.0, p.homeY, 0.45), 60.0, PITCH_H - 60.0);  // drift inside toward the 10 space
+                c.push_back({ clampToLegalX(clamp(pocketX, 45.0, PITCH_W - 45.0), pc.fd), pocketY, ActionPurpose::Pocket });
+            }
             if (isWideMidfielder()) {
                 bool sameSide = std::abs(carrier->y - p.homeY) < 190.0;
                 double flankY = (p.homeY < PITCH_H / 2.0) ? 24.0 : PITCH_H - 24.0;

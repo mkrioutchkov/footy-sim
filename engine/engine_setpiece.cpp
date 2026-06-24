@@ -25,6 +25,17 @@ double GameEngine::offsideLineFor(Team t) const {
     return d1 ? d1->x : (t==Team::Home?0.0:PITCH_W);
 }
 
+// Opponent midfield line: the average x of the opponent's central midfielders (the top of the pocket
+// for drift_into_pocket). Mirrors offsideLineFor's skip-t (we read the OPPONENT's CMs, not our own).
+double GameEngine::midlineFor(Team t) const {
+    double sum=0.0; int n=0;
+    for(auto&p:state.players){
+        if(p.team==t||p.sentOff||p.role!=Role::CM)continue;
+        sum+=p.x; n++;
+    }
+    return n>0 ? sum/n : HALF_X;   // fallback: opp has no central midfielders
+}
+
 bool GameEngine::checkOffside(const Player& receiver, const Player& passer) const {
     const double fd = fdFor(passer.team);
     if(fd==1){if(receiver.x<=HALF_X||receiver.x<=passer.x+OFFSIDE_TOLERANCE)return false;}

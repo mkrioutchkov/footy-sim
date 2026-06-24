@@ -11,7 +11,7 @@
 enum class Team : uint8_t { Home = 0, Away = 1 };
 enum class Role : uint8_t { GK = 0, CB, FB, CM, WM, CF };
 enum class ActionType : uint8_t { Pass, Shoot, Dribble, Tackle, Mark, Chase, Position, Hold };
-enum class ActionPurpose : uint8_t { Keep=0, Build, Cross, Cutback, Through, Clear, Switch, Space, Offer, Cover, KeeperBackpass, RecoverLoose, RecoverOwnTouch, MeetIncoming, Receive, CounterOutlet, RestForward, Observe, RunAhead, InsideRun, HoldWidth, Overlap, CrossLane, EmergCloseDown, LocalCloseDown, Task, ComeShort };
+enum class ActionPurpose : uint8_t { Keep=0, Build, Cross, Cutback, Through, Clear, Switch, Space, Offer, Cover, KeeperBackpass, RecoverLoose, RecoverOwnTouch, MeetIncoming, Receive, CounterOutlet, RestForward, Observe, RunAhead, InsideRun, HoldWidth, Overlap, CrossLane, EmergCloseDown, LocalCloseDown, Task, ComeShort, Pocket };
 
 // ── Defensive task role (was string) ──
 enum class DefensiveTask : uint8_t {
@@ -84,7 +84,7 @@ inline constexpr std::string_view to_string(ActionPurpose p) {
         case ActionPurpose::Cross: return "cross"; case ActionPurpose::Cutback: return "cutback";
         case ActionPurpose::Through: return "through"; case ActionPurpose::Clear: return "clear";
         case ActionPurpose::Switch: return "switch"; case ActionPurpose::Space: return "space";
-        case ActionPurpose::Offer: return "offer"; case ActionPurpose::ComeShort: return "come_short"; case ActionPurpose::Cover: return "cover";
+        case ActionPurpose::Offer: return "offer"; case ActionPurpose::ComeShort: return "come_short"; case ActionPurpose::Pocket: return "pocket"; case ActionPurpose::Cover: return "cover";
         case ActionPurpose::KeeperBackpass: return "keeper_backpass";
         case ActionPurpose::RecoverLoose: return "recover_loose_ball";
         case ActionPurpose::RecoverOwnTouch: return "recover_own_touch";
