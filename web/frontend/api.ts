@@ -18,8 +18,18 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     // Network failure (offline, server down) — fetch rejects rather than resolving.
     throw new ApiError(0, 'Network error — is the server running?');
   }
-  const data = res.status === 204 ? null : await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, (data && (data.error as string)) || `HTTP ${res.status}`);
+  // read the body once as text so a malformed 200 surfaces as a real error (caught by the screen's try/catch)
+  // instead of a null silently cast to T that crashes the screen downstream ("cannot read X of null"). An empty
+  // body (incl. 204) legitimately stays null — only a NON-empty body that fails to parse is treated as malformed.
+  let data: unknown = null;
+  if (res.status !== 204) {
+    const text = await res.text().catch(() => '');
+    if (text) {
+      try { data = JSON.parse(text); }
+      catch { if (res.ok) throw new ApiError(res.status, 'The server sent a malformed response.'); }
+    }
+  }
+  if (!res.ok) throw new ApiError(res.status, ((data as { error?: string } | null)?.error) || `HTTP ${res.status}`);
   return data as T;
 }
 
