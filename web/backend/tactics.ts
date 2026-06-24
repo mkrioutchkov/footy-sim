@@ -15,6 +15,7 @@ const PLAYER_KINDS = ['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', '
 const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 'play_it_long',
   'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down',
   'counter_attack', 'offside_trap',
+  'shoot_from_distance', 'work_it_into_box',   // opposing shot-selection pair → DK::ShootFromDistance/WorkItIntoBox (engine main.cpp; team shoot-range bias)
   // tactical-depth dials (FM team-instruction trio) — gradated, engine reads intensity 0-1 (0.5 = neutral):
   'press_intensity',   // 0=contain/no-chase … 1=high press
   'mentality',         // 0=ultra-defensive … 1=all-out attack (commits bodies forward, higher line, overlaps)
@@ -106,6 +107,8 @@ TEAM-WIDE kinds (set "teamScope":${myScope}, NO playerId) — for the whole side
 - slow_it_down: keep the ball / game management / take the sting out / kill the tempo / waste time.
 - counter_attack: break fast / hit them on the counter / catch them on the break / get out quick when we win it / spring the counter.
 - offside_trap: play an offside trap / step up / catch them offside / squeeze and spring the line / hold a high line.
+- shoot_from_distance: shoot from range / let fly from outside / pepper them / have a go / efforts from distance — extends the team's shot range.
+- work_it_into_box: work it into the box / walk it in / no shots from distance / get a better chance — holds for a closer shot (opposite of shoot_from_distance).
 
 TARGETING:
 - Resolve names to ids from the rosters, tolerating typos/slang/phonetic spelling (e.g. "tanaka"=>Tanaka, "linqvist"=>Lindqvist, "rodri"=>Rodriguez).
