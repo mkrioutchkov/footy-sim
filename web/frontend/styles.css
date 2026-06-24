@@ -158,8 +158,10 @@ input[type=range] { accent-color: var(--accent); }
 .tactics-receipt .receipt-line.up { color: #66e0a0; }
 .tactics-receipt .receipt-line.down { color: #ff8585; }
 
-/* ── a11y ── keyboard focus ring (inputs hide :focus, so restore a visible one for keyboard nav) */
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
+/* ── a11y ── keyboard focus ring (inputs hide :focus, so restore a visible one for keyboard nav).
+   [role="button"] covers the clickable card/row divs (player cards, scout rows, news rows) made
+   keyboard-activatable via clickable() — so tabbing to them shows where focus is. */
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible, [role="button"]:focus-visible {
   outline: 2px solid var(--accent2); outline-offset: 2px;
 }
 /* Respect reduced-motion: kill the button/banner transitions + any animation for sensitive users. */
