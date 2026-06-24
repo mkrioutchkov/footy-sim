@@ -11,7 +11,7 @@ const ROLE_SLOTS = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'WM', 'CF', 
 // Per-player kinds need a playerId; team-wide kinds need a teamScope (0/1).
 const PLAYER_KINDS = ['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', 'target_player',
   'stay_wide', 'come_inside', 'stay_central', 'cross_early', 'cutback', 'switch_play', 'play_simple',
-  'run_in_behind', 'make_runs', 'dribble_more', 'press_hard', 'contain', 'tackle_hard', 'stay_on_feet', 'stay_back'];
+  'run_in_behind', 'make_runs', 'come_short', 'check_to_feet', 'dribble_more', 'press_hard', 'contain', 'tackle_hard', 'stay_on_feet', 'stay_back'];   // come_short/check_to_feet: WAVE-0 drop-short-to-receive (engine main.cpp → DK::ComeShort)
 const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 'play_it_long',
   'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down',
   'counter_attack', 'offside_trap',
@@ -85,6 +85,7 @@ PER-PLAYER kinds (need playerId; omit teamScope):
 - play_simple: keep it simple / one-twos / don't force it / safe passes / recycle it.
 - run_in_behind: run in behind / get in behind / stretch them / make runs off the last man / go beyond.
 - make_runs: make runs / keep moving / get on the move / offer the runs.
+- come_short: come short to feet / check to feet / drop to link / receive between the lines / show for it / don't always run in behind — the per-player INVERSE of run_in_behind (drops toward the carrier to link play).
 - dribble_more: take them on / run at them / dribble more / beat your man / be direct 1v1.
 - press_hard: press him / get after him / close him down / hound the ball / don't let him settle.
 - contain: contain him / sit off him / jockey / show him inside / shepherd him — ease off a specific opponent rather than diving in (the per-player opposite of press_hard).
