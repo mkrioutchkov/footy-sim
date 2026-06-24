@@ -86,6 +86,11 @@ void GameEngine::applyDirectives() {
         applyDirectiveEntry(directiveTimeline[directiveTimelineIdx]);
         directiveTimelineIdx++;
     }
+    // §1.3b determinism fix (SysArch sign-off): apply LIVE injects HERE — the SAME point as the
+    // timeline replay (right after the timeline loop, BEFORE this tick's dial-application) — so a
+    // live inject and its recorded timeline entry both take effect ATOMICALLY on their atMs tick:
+    // live-inject ≡ timeline-replay, no 1-tick offset. Empty queue / non-live = no-op (byte-identical).
+    applyLiveCommands();
     if (directives.empty()) return;
     int minute = static_cast<int>(state.clockMs / 60000.0);
     for (const auto& d : directives) {

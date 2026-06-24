@@ -776,8 +776,8 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     // his first marker for the rest of the match, degrading coordination.
     for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; bb.markedOpponents.fill(-1); }
     updateTeamAssignments();
-    applyDirectives();
-    applyLiveCommands();   // §1.3b: live inject overlay (per-team), after the pre-match plan, before the agents
+    applyDirectives();   // §1.3b: applyLiveCommands now runs INSIDE applyDirectives (after the timeline
+                         // loop, before the dials) so live-inject ≡ timeline-replay — no 1-tick offset.
     tickAgents(sdt, true);
     if (goalKickMonitor.distributeTimer > 0) {
         goalKickMonitor.distributeTimer -= sdt;
