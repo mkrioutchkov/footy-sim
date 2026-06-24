@@ -70,6 +70,7 @@ void GameEngine::applyDirectives() {
     slowTempo = {};         // reset slow_it_down safe-pass hook each tick
     counterAttackBonus = {};   // reset counter_attack transition amplifier each tick
     offsideTrapActive = {};    // reset offside_trap line-hold flag each tick
+    shootDistBias = {};        // reset shoot_from_distance/work_it_into_box shoot-range bias each tick
     allOutActive = {};         // reset all_out_attack runner-commit flag each tick
     // Snapshot the kickoff formation anchors the first time through, then reset
     // every player's homeX/homeY to base — a directive that lapsed (time window
@@ -160,6 +161,8 @@ void GameEngine::applyDirectives() {
                     break;
                 case DirectiveKind::PushUp:         dv.defensiveLineHeight+=30*k; dv.aggression+=10*k; break;
                 case DirectiveKind::OffsideTrap:    dv.defensiveLineHeight+=45*k; dv.aggression+=15*k; offsideTrapActive[d.teamScope]=true; break;
+                case DirectiveKind::ShootFromDistance: shootDistBias[d.teamScope] += 70.0 * k; break;   // shoot from further out
+                case DirectiveKind::WorkItIntoBox:     shootDistBias[d.teamScope] -= 60.0 * k; break;   // hold for a closer shot
                 case DirectiveKind::SlowItDown:     dv.passingDirectness-=34*k; dv.aggression-=22*k; dv.overlapFrequency-=12*k; slowTempo[d.teamScope]+=k; break;
                 // tactical-depth (Gaylord seam): press_intensity 0-1 (0=contain/no-chase, 0.5=neutral,
                 // 1=high press) — exposes the aggression/chase knob as a slider + compresses the block

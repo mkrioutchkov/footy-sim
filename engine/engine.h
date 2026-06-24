@@ -326,6 +326,8 @@ public:
     // tick in applyDirectives (pure clock/score functions, no rng).
     std::array<double, 2> counterAttackBonus{};
     std::array<bool, 2> offsideTrapActive{};
+    // shoot_from_distance / work_it_into_box: signed px added to each shooter's max shoot range (mr). 0 = default.
+    std::array<double, 2> shootDistBias{};
     // all_out_attack: commit the overlap FB + a CM forward even on central /
     // slightly-earlier carries (throw bodies forward), read by assignAttackingRoles.
     // One-tick lagged (updateTeamAssignments precedes applyDirectives) — fine for a
@@ -513,7 +515,7 @@ public:
         // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
         AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
         KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
-        CounterAttack, OffsideTrap,
+        CounterAttack, OffsideTrap, ShootFromDistance, WorkItIntoBox,
         // ── tactical-depth continuous dials (team-wide; intensity is the slider 0-1, 0.5=neutral) ──
         PressIntensity, Mentality, LineHeight,
     };

@@ -105,6 +105,8 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
         else if (k == "slow_it_down")      { dir.kind = DK::SlowItDown;     team = true; }
         else if (k == "counter_attack")    { dir.kind = DK::CounterAttack;  team = true; }
         else if (k == "offside_trap")      { dir.kind = DK::OffsideTrap;    team = true; }
+        else if (k == "shoot_from_distance"){ dir.kind = DK::ShootFromDistance; team = true; }
+        else if (k == "work_it_into_box")   { dir.kind = DK::WorkItIntoBox;     team = true; }
         else if (k == "press_intensity")   { dir.kind = DK::PressIntensity;  team = true; }   // tactical-depth dials (Gaylord seam)
         else if (k == "mentality")         { dir.kind = DK::Mentality;       team = true; }
         else if (k == "line_height")       { dir.kind = DK::LineHeight;      team = true; }
