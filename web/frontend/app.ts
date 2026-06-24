@@ -689,11 +689,15 @@ async function screenDashboard() {
   const fxBox = h('div', {});
   for (const f of league.fixtures.filter(x => x.involvesMe)) {
     const score = f.played ? h('span', { class: 'sc' }, `${f.homeScore}–${f.awayScore}`) : h('span', { class: 'sc muted' }, 'vs');
+    // §weather: a forecast (upcoming) / what-happened (played) badge — only the notable conditions show.
+    const wx = f.weather && f.weather !== 'clear'
+      ? h('span', { class: 'pill', title: f.weather === 'rain' ? 'Wet pitch — the ball skids further' : 'Windy — long balls and crosses drift', style: 'background:rgba(127,178,255,.14);color:#9ec5ff' }, f.weather === 'rain' ? '🌧 Rain' : '🌬 Wind')
+      : '';
     const action = f.played
-      ? h('span', { style: 'display:flex;gap:6px' },
+      ? h('span', { style: 'display:flex;gap:6px;align-items:center' }, wx,
           h('button', { class: 'ghost small', onclick: () => (location.hash = `#/watch/${f.id}`) }, 'Watch'),
           h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report'))
-      : h('span', { style: 'display:flex;gap:6px;align-items:center' },
+      : h('span', { style: 'display:flex;gap:6px;align-items:center' }, wx,
           h('button', { class: 'ghost small', onclick: () => (location.hash = `#/scout/${f.id}`) }, '🔍 Scout'),
           h('span', { class: 'pill' }, `R${f.round}`));
     fxBox.append(h('div', { class: 'fx me' },
