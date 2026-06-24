@@ -2097,8 +2097,9 @@ async function screenFinances() {
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   const net = f.income + f.expense;   // expense is already negative
-  const col = (n: number) => n >= 0 ? 'color:var(--accent)' : 'color:var(--danger)';
-  const signed = (n: number) => (n >= 0 ? '+' : '−') + fmtMoney(Math.abs(n));
+  // zero is NEUTRAL — never a misleading "+£0" in green on an expense/empty line (income +, expense −, zero plain)
+  const col = (n: number) => n > 0 ? 'color:var(--accent)' : n < 0 ? 'color:var(--danger)' : 'color:var(--muted)';
+  const signed = (n: number) => n > 0 ? '+' + fmtMoney(n) : n < 0 ? '−' + fmtMoney(Math.abs(n)) : fmtMoney(0);
   const cell = (label: string, val: string, style = '') => h('div', { style: 'min-width:120px' },
     h('div', { class: 'muted', style: 'font-size:11px' }, label),
     h('div', { style: 'font-size:20px;font-weight:800;' + style }, val));
