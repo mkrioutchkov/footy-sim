@@ -130,6 +130,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         // run_in_behind / make_runs: bias this player toward runs in behind.
         if (my && (cn.pur == ActionPurpose::RunAhead || cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::CrossLane)) {
             ob += engine.directiveBias[p.id].runAheadBias;
+            ob -= engine.directiveBias[p.id].comeShortBias;  // come_short: suppress runs in behind (the inverse half)
             // Quick transition: sprint in behind while the defence is unset (counters).
             // counter_attack amplifies it symmetrically with the through-ball bonus.
             if (engine.state.clockMs < engine.transitionUntilMs)
@@ -143,6 +144,10 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
             if (longB > 0.0 && cn.pur == ActionPurpose::RunAhead && (isCenterForward() || isWideMidfielder()))
                 ob += longB * 0.30;
         }
+        // come_short: the INVERSE of run_in_behind — favour the to-feet Offer candidate (drop short to
+        // link), gated on the directive (default 0 => no-directive match unchanged).
+        if (my && cn.pur == ActionPurpose::ComeShort)
+            ob += engine.directiveBias[p.id].comeShortBias;
 
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;
         double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 6.0;

@@ -111,6 +111,15 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
                 c.push_back({ lerp(p.x, carrier->x, 0.3), lerp(p.y, carrier->y, 0.25), ActionPurpose::Offer });
                 c.push_back({ lerp(p.x, carrier->x, 0.2), clamp(lerp(p.y, carrier->y, 0.15), 40.0, PITCH_H - 40.0), ActionPurpose::Offer });
             }
+            // come_short / check_to_feet: drop ~120px SHORT of the carrier (toward own half), angled off
+            // his lane, to offer a to-feet link option. Gated on the directive (default 0 => no candidate,
+            // no-directive match byte-identical). clampToLegalX keeps it onside.
+            if (engine.directiveBias[p.id].comeShortBias > 0.0) {
+                double dropX = clampToLegalX(carrier->x - pc.fd * 120.0, pc.fd);
+                double side  = (p.homeY < PITCH_H / 2.0) ? -1.0 : 1.0;
+                double dropY = clamp(lerp(carrier->y, p.homeY, 0.35) + side * 40.0, 50.0, PITCH_H - 50.0);
+                c.push_back({ clamp(dropX, 45.0, PITCH_W - 45.0), dropY, ActionPurpose::ComeShort });
+            }
             if (isWideMidfielder()) {
                 bool sameSide = std::abs(carrier->y - p.homeY) < 190.0;
                 double flankY = (p.homeY < PITCH_H / 2.0) ? 24.0 : PITCH_H - 24.0;
