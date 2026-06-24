@@ -285,7 +285,27 @@ Action PlayerAI::resolveChoice(SmallVector<Action, 24>& a) {
 
     if (Action* r = tryFreshBallOverride(a, best, ic, nearGoal)) return *r;
 
-    if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22)) {
+    // target_man_holdup: when this carrier is told to hold it up, raise the
+    // "no good option → shield" threshold so a MARGINAL pass/dribble gives way to
+    // shielding-and-waiting for support — but ONLY when pressured AND no team-mate
+    // has arrived close, and never in/near the box (there he should shoot/feed).
+    // Gated on holdUpBias > 0 (default 0 => threshold unchanged => match byte-identical).
+    double holdUpThresh = 0.0;
+    if (ic && !inBox && !nearGoal && engine.directiveBias[player.id].holdUpBias > 0.0) {
+        double nearOppD = 1e9, nearMateD = 1e9;
+        for (auto& o : engine.state.players) {
+            if (o.role == Role::GK || o.sentOff || o.id == player.id) continue;
+            double d = dist(player.x, player.y, o.x, o.y);
+            if (o.team != player.team) nearOppD = std::min(nearOppD, d);
+            else                       nearMateD = std::min(nearMateD, d);
+        }
+        // pressed (opp within 46px, same radius the shield path uses) and support
+        // not yet arrived (no team-mate within 150px) → wait for the runner.
+        if (nearOppD < 46.0 && nearMateD > 150.0)
+            holdUpThresh = engine.directiveBias[player.id].holdUpBias;   // up to +0.30 onto the 0.22 open-play gate
+    }
+
+    if (ic && best.score < (inBox ? 0.0 : nearGoal ? 0.03 : 0.22 + holdUpThresh)) {
         if (Action* r = tryLowScoreFallback(a, best)) return *r;
         if (!isGoalkeeper()) {
             // Pinned with no good option: SHIELD and work a passing angle (Hold ->
