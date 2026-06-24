@@ -1124,6 +1124,10 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     receiptEl.replaceChildren(h('div', { class: 'muted' }, 'Applying…'));
     activeWs.send(JSON.stringify({ type: 'tactics', text }));
   };
+  // Ctrl/Cmd+Enter applies the shout (same as the Apply button) — keep your hands on the keyboard mid-match.
+  ta.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); applyPlan(); }
+  });
   const showReceipt = (r: TacticsReceipt) => {
     receiptEl.replaceChildren();
     if (r.error) { receiptEl.appendChild(h('div', { class: 'warn' }, '⚠ ' + r.error)); return; }
@@ -1164,7 +1168,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   renderActivePlan();
   const panel = h('div', { class: 'tactics-panel' },
     planEl,
-    h('div', { class: 'tactics-row' }, ta, h('button', { class: 'primary small', onclick: applyPlan }, 'Apply')),
+    h('div', { class: 'tactics-row' }, ta, h('button', { class: 'primary small', title: 'Apply your shout (Ctrl+Enter)', onclick: applyPlan }, 'Apply')),
     receiptEl,
   );
   document.body.appendChild(panel);
@@ -1179,9 +1183,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
 
   // Keep the pitch above the floating panel: reserve exactly the panel's height (+margins),
   // so a tall standing plan doesn't overlap the pitch and a hidden panel (replay) frees the space.
+  // Wide screens dock the panel RIGHT (reserve width → the pitch keeps full height); narrow screens
+  // (≤860px, matching the CSS media query) keep the bottom bar (reserve height). Hidden (replay) → free both.
   const syncReserve = () => {
-    const visible = panel.style.display !== 'none' && panel.offsetHeight > 0;
-    renderer.setReservedBottom(visible ? panel.offsetHeight + 24 : 8);
+    const visible = panel.style.display !== 'none' && panel.offsetWidth > 0;
+    if (!visible) { renderer.setReservedRight(0); renderer.setReservedBottom(8); return; }
+    if (window.innerWidth > 860) { renderer.setReservedRight(panel.offsetWidth + 24); renderer.setReservedBottom(8); }
+    else { renderer.setReservedRight(0); renderer.setReservedBottom(panel.offsetHeight + 24); }
   };
   watchPanelObs = new ResizeObserver(syncReserve);
   watchPanelObs.observe(panel);

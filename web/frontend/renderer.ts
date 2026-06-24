@@ -106,6 +106,9 @@ export class MatchRenderer {
   // screenWatch drives this from the panel's real height so the pitch never sits under it
   // and grows back when the panel is short or hidden (e.g. a replay drops the shout box).
   private reservedBottom = 180;
+  // A right-side strip for the live tactics panel (wide screens dock it right so the pitch keeps
+  // full HEIGHT instead of being squeezed by a bottom bar). 0 = no right dock (panel bottom/hidden).
+  private reservedRight = 0;
 
   constructor() {
     this.app = new Application();
@@ -275,11 +278,20 @@ export class MatchRenderer {
     if (!this.destroyed && this.app.renderer) this.calcTransform();
   }
 
+  // Resize the reserved right-side strip (the live tactics panel docked right on wide screens). The
+  // pitch then centres in the remaining left region and keeps full height. 0 frees it.
+  setReservedRight(px: number): void {
+    const v = Math.max(0, Math.round(px));
+    if (v === this.reservedRight) return;
+    this.reservedRight = v;
+    if (!this.destroyed && this.app.renderer) this.calcTransform();
+  }
+
   private calcTransform(): void {
     if (this.destroyed) return;
-    const sw = this.app.screen.width;
-    // Reserve a strip at the bottom for the live tactics panel so the whole
-    // pitch stays visible above it (the canvas is full-window).
+    // Reserve a strip on the right (the docked tactics panel) so the pitch uses the left region at
+    // FULL height; the bottom strip stays small (just ticker clearance) when the panel is docked right.
+    const sw = this.app.screen.width - this.reservedRight;
     const reserveTop = 8;
     const reserveBottom = this.reservedBottom;
     const sh = this.app.screen.height - reserveTop - reserveBottom;
@@ -418,7 +430,7 @@ export class MatchRenderer {
         const label = new Text({
           text: shortName,
           // a thin dark outline so the name stays legible against the grass / mowing stripes
-          style: new TextStyle({ fill: 0xffffff, fontSize: 9, fontFamily: 'monospace', stroke: { color: 0x081019, width: 2.5 } }),
+          style: new TextStyle({ fill: 0xffffff, fontSize: 11, fontFamily: 'monospace', stroke: { color: 0x081019, width: 2.5 } }),
         });
         label.anchor.set(0.5, 0);
         this.playerLayer.addChild(body);

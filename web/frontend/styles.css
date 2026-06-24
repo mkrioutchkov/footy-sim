@@ -141,8 +141,10 @@ input[type=range] { accent-color: var(--accent); }
 .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 22px 0 10px; }
 
 /* ── live tactics panel (P4) ── */
-.tactics-panel { position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 45; max-width: 720px; margin: 0 auto;
-  display: flex; flex-direction: column; max-height: 38vh;
+/* Docked to the RIGHT on wide screens so the pitch keeps full height (the bottom-bar version squeezed
+   it small, esp. with instructions applied). Narrow screens fall back to a bottom bar (media query). */
+.tactics-panel { position: fixed; top: 60px; right: 12px; bottom: 12px; z-index: 45; width: 340px;
+  display: flex; flex-direction: column; gap: 8px;
   background: rgba(12,19,32,.94); border: 1px solid var(--line); border-radius: 12px; padding: 10px; backdrop-filter: blur(6px); }
 .tactics-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; flex: 0 0 auto; }
 .tactics-input { width: 100%; resize: vertical; font: inherit; color: var(--accent, #e8edf2); background: var(--panel2, #161f30);
@@ -184,5 +186,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   table { font-size: 13px; }
   header.top .wrap { padding: 10px 14px; }
   .players { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
-  .tactics-panel { max-height: 46vh; }
+  /* narrow screens: revert the tactics panel to a bottom bar */
+  .tactics-panel { top: auto; left: 12px; right: 12px; bottom: 12px; width: auto; max-width: 720px; margin: 0 auto; max-height: 46vh; }
 }
