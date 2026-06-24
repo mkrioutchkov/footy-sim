@@ -42,6 +42,7 @@ export interface Player {
   injured?: boolean;
   sentOff?: boolean; // 0=none, 1=close, 2=medium, 3=fast/knock-forward
   wall?: boolean;    // render-hint (Boris): this player is in the defensive FK wall — drives the wall highlight
+  slide?: boolean;   // render-hint (Boris): a committed grounded slide tackle (tackleAnim>400) vs a standing poke
 }
 
 export interface Ball {

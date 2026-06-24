@@ -540,18 +540,29 @@ export class MatchRenderer {
           entry.body.lineTo(-reach * 1.15, r * 0.3);
           entry.body.stroke({ width: 2, color: 0xffffff, alpha: 0.4 });
         } else if (sliding) {
-          // slide tackle: elongated oval + dust trail
           const angle = entry.slideAngle;
           entry.body.rotation = angle;
-          entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
-          entry.body.fill({ color, alpha: 0.7 });
-          entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
-          entry.body.stroke({ width: 1, color: 0x000000 });
-          // dust puffs behind the slide
-          entry.body.circle(-r * 0.8, 0, r * 0.4);
-          entry.body.fill({ color: 0xcccccc, alpha: 0.5 });
-          entry.body.circle(-r * 1.3, 0, r * 0.25);
-          entry.body.fill({ color: 0xdddddd, alpha: 0.3 });
+          if (p.slide) {
+            // committed GROUNDED slide (engine flags p.slide = tackleAnim>400): long flat body + a dust trail
+            entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
+            entry.body.fill({ color, alpha: 0.7 });
+            entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
+            entry.body.stroke({ width: 1, color: 0x000000 });
+            entry.body.circle(-r * 0.8, 0, r * 0.4);
+            entry.body.fill({ color: 0xcccccc, alpha: 0.5 });
+            entry.body.circle(-r * 1.3, 0, r * 0.25);
+            entry.body.fill({ color: 0xdddddd, alpha: 0.3 });
+            (window as unknown as { __lastSlide?: unknown }).__lastSlide = { id: p.id, x: Math.round(vp.x), y: Math.round(vp.y) };   // verify hook
+          } else {
+            // standing POKE (a lesser tackle, tackleAnim 1-400): a slight upright lunge + an outstretched
+            // leg toward the ball — NOT a grounded slide, no dust.
+            entry.body.ellipse(0, 0, r * 1.25, r * 0.85);
+            entry.body.fill({ color, alpha: 0.85 });
+            entry.body.ellipse(0, 0, r * 1.25, r * 0.85);
+            entry.body.stroke({ width: 1.5, color: 0x000000 });
+            entry.body.circle(r * 1.15, 0, r * 0.28);   // the poked leg/foot reaching for the ball
+            entry.body.fill({ color, alpha: 0.85 });
+          }
         } else {
           entry.body.rotation = 0;
           entry.body.circle(0, 0, r);
