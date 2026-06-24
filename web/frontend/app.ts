@@ -142,9 +142,11 @@ function otherDivisions(league: LeagueT): HTMLElement {
         h('th', { class: 'num' }, '#'), h('th', {}, 'Club'),
         h('th', { class: 'num' }, 'P'), h('th', { class: 'num' }, 'GD'), h('th', { class: 'num' }, 'Pts'))), tb));
   });
-  return h('div', { class: 'card' },
-    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Other divisions'),
-    h('div', { class: 'grid cols-auto', style: 'align-items:start' }, ...cards));
+  // Collapsible (collapsed by default) — it's a secondary "peek at the world" that otherwise stacks
+  // every other division's full table onto the dashboard (the density the user flagged). One click opens it.
+  return h('details', { class: 'card' },
+    h('summary', { class: 'section-title', style: 'margin-top:0;cursor:pointer' }, `Other divisions (${others.length})`),
+    h('div', { class: 'grid cols-auto', style: 'align-items:start;margin-top:10px' }, ...cards));
 }
 
 
