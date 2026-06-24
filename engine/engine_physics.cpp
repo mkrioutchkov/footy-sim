@@ -58,13 +58,15 @@ void GameEngine::applyBallPhysics(double s) {
         if (std::abs(b.curl) < 0.02) b.curl = 0.0;
     }
     double friction = std::pow(BALL_FRICTION, s);
+    if (weather == 1) friction = 1.0 - (1.0 - friction) * 0.55;   // §weather rain: wet pitch sheds ~45% less rolling friction (ball skids further)
     b.vx *= friction;
     b.vy *= friction;
     // Rolling friction: a grounded ball below jogging pace stops in a stride
     // or two, not a multi-second exponential crawl that never quite reaches 0.
     double gs = std::hypot(b.vx, b.vy);
     if (b.z < 1.0 && gs > 0.0 && gs < 65.0) {
-        double slowed = std::max(0.0, gs - 95.0 * s);
+        double stopRate = (weather == 1) ? 47.5 : 95.0;   // §weather rain: skids, doesn't pull up in a stride
+        double slowed = std::max(0.0, gs - stopRate * s);
         b.vx *= slowed / gs; b.vy *= slowed / gs;
     }
     if (std::hypot(b.vx, b.vy) < 4) { b.vx = b.vy = 0; }

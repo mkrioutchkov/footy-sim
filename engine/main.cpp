@@ -234,6 +234,8 @@ int main(int argc, char* argv[]) {
     }
 
     if (const char* pd = std::getenv("FOOTY_PASSDEBUG")) engine.passDebug = (pd[0] == '1' || pd[0] == 't' || pd[0] == 'y');
+    // §weather: FOOTY_WEATHER=rain/wet/1 -> wet pitch (ball skids); unset/anything-else -> clear (byte-identical default).
+    if (const char* wx = std::getenv("FOOTY_WEATHER")) { if (wx[0] == 'r' || wx[0] == 'w' || wx[0] == '1') engine.weather = 1; }
 
     engine.initWithSeed(seed);
     engine.setMatchLengthMinutes(minutes);

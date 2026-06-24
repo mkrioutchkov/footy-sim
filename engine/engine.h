@@ -101,6 +101,12 @@ public:
         halfDurationMs  = matchDurationMs / 2.0;
     }
 
+    // §weather feature-depth: match-level pitch condition affecting BALL physics. 0=clear (DEFAULT
+    // -> zero effect, byte-identical default game), 1=rain/wet (the pitch greases the ball: it skids
+    // further, shedding less rolling friction). Set from FOOTY_WEATHER env (or spec) before startMatch.
+    // Kept ball-only + small on purpose; wind/airborne-drift is a deliberate follow-up.
+    int weather = 0;
+
     // Substitutions: an in-place identity swap (the on-pitch slot keeps its
     // id/role/position; only name+attrs+freshness change), so the 22-slot
     // player array and every pointer into it stay valid — no bench array to
