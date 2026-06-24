@@ -934,7 +934,7 @@ std::string GameEngine::getJSON() const {
     j["ball"] = {
         {"x", std::round(b.x * 10) / 10}, {"y", std::round(b.y * 10) / 10},
         {"vx", std::round(b.vx * 10) / 10}, {"vy", std::round(b.vy * 10) / 10},
-        {"z", std::round(b.z * 10) / 10},
+        {"z", std::round(b.z * 10) / 10}, {"curl", std::round(b.curl * 1000) / 1000},
         {"controllerId", b.controllerId >= 0 ? nlohmann::json(b.controllerId) : nlohmann::json(nullptr)},
         {"intendedReceiverId", b.intendedReceiverId >= 0 ? nlohmann::json(b.intendedReceiverId) : nlohmann::json(nullptr)},
         {"lastTouchTeam", std::string(to_string(b.lastTouchTeam))},
@@ -951,7 +951,7 @@ std::string GameEngine::getJSON() const {
             {"stamina", std::round(p.stamina)}, {"facing", std::round(renderFacing[p.id] * 1000) / 1000},
             {"dribbleType", p.dribbleType},
             {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)},
-            {"diveAnim", std::round(p.diveAnim)},
+            {"diveAnim", std::round(p.diveAnim)}, {"wall", p.wall}, {"slide", p.tackleAnim > 400.0},
             {"goals", pGoals[p.id]}, {"assists", pAssists[p.id]}, {"shots", pShots[p.id]},
             {"tackles", pTackles[p.id]}, {"yellow", yellowCards[p.id]},
             {"passes", pPasses[p.id]}, {"passesCompleted", pPassesCompleted[p.id]},
