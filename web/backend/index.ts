@@ -29,6 +29,7 @@ import { previewRenewal, proposeRenewal, processContractOffers, contractOffersFo
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
 import { getConcerns, resolveConcern, type ConcernAction } from './concerns.ts';
 import { getBoardMeeting, requestBoardBacking, type BoardRequestKind } from './board.ts';
+import { getManagerCareer } from './career.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory, getClubRecords } from './history.ts';
@@ -632,6 +633,12 @@ app.post('/api/board/request', async (req: any, reply) => {
   const r = requestBoardBacking(teamId, kind);
   if (!r.ok) return reply.code(400).send({ error: r.message });
   return { ...r, meeting: getBoardMeeting(teamId), team: getTeamWithPlayers(teamId) };
+});
+
+// The manager's career record (aggregated from season_history across every club they've managed).
+app.get('/api/career', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  return getManagerCareer(user.id);
 });
 
 // Set the club's training focus ('balanced' or a trainable attribute). Drives the
