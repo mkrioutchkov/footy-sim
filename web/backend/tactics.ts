@@ -30,7 +30,7 @@ export interface Directive {
   kind: string;
   targetId?: number;
   intensity?: number;
-  when?: { fromMin?: number; toMin?: number; scoreState?: string; scoreBy?: number };
+  when?: { fromMin?: number; toMin?: number; scoreState?: string; scoreBy?: number; phase?: string };   // phase: in_possession/out_of_possession/transition (engine main.cpp CondPhase)
 }
 
 export interface CompileResult { directives: Directive[]; raw: string; cached: boolean; error?: string; note?: string; }

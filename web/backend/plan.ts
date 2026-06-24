@@ -69,7 +69,7 @@ STEP 2 — EDIT THE PLAN BY INTENT (for the non-formation part of the shout):
 "directives" is ALWAYS the complete plan after the edit (not just this shout's delta) — the engine runs exactly what you return. NEVER turn a formation/shape into stay_wide/sit_deep/get_forward directives — that is what "formation" is for.
 
 DIRECTIVES (same vocabulary as the tactics compiler):
-{"playerId":<id, per-player kinds>,"kind":"<kind>","targetId":<id, man_mark/target_player only>,"intensity":0.1-1,"teamScope":${myScope} <team-wide kinds, no playerId>,"when":{"fromMin","toMin","scoreState","scoreBy"}}
+{"playerId":<id, per-player kinds>,"kind":"<kind>","targetId":<id, man_mark/target_player only>,"intensity":0.1-1,"teamScope":${myScope} <team-wide kinds, no playerId>,"when":{"fromMin","toMin","scoreState","scoreBy","phase"}}
 per-player: man_mark target_player shoot_on_sight get_forward sit_deep stay_wide come_inside stay_central cross_early cutback switch_play play_simple run_in_behind make_runs come_short dribble_more press_hard contain tackle_hard stay_on_feet stay_back.
 team-wide (teamScope ${myScope}): all_out_attack park_the_bus high_press drop_off play_it_long keep_it_on_ground get_it_wide play_narrow push_up slow_it_down counter_attack offside_trap press_intensity mentality line_height.
 GRADATED DIALS (the FM team-instruction trio — each takes an "intensity" 0-1 that IS the slider, 0.5 = neutral; prefer these over the binary kinds when the shout implies a DEGREE):
@@ -77,7 +77,7 @@ GRADATED DIALS (the FM team-instruction trio — each takes an "intensity" 0-1 t
 - mentality: how much the team commits forward — ~0.15 ultra-defensive/see it out, ~0.5 balanced, ~0.85-1 all-out attack/chase the game. (vs binary all_out_attack/park_the_bus)
 - line_height: the defensive line — ~0.15 deep/drop off, ~0.5 mid, ~0.85-1 push right up / squeeze with an offside trap. (vs binary push_up/drop_off)
 SYNONYMS: come_short = come short to feet / check to feet / drop to link / receive between the lines / don't always run in behind (per-player INVERSE of run_in_behind). cutback = pull it back / square it across the box from the byline (vs cross_early's higher cross). contain = sit off / jockey / show him inside — ease off ONE opponent (per-player opposite of press_hard; vs stay_on_feet = tackle discipline). stay_back = don't bomb forward / don't overlap / hold position — damp his forward runs (vs sit_deep = take up a deep position).
-Resolve names/initials from the squad (tolerate typos); man_mark targets are OPPONENT ids, target_player targets are TEAM-MATE ids. Never invent a player not in a squad — omit + note. OMIT "when" unless the shout states a time/score.
+Resolve names/initials from the squad (tolerate typos); man_mark targets are OPPONENT ids, target_player targets are TEAM-MATE ids. Never invent a player not in a squad — omit + note. OMIT "when" unless the shout states a time/score/PHASE. PHASE (only if the order ties to a game phase): "phase":"in_possession" (on the ball / when we have it / when attacking), "out_of_possession" (off the ball / when defending), "transition" (the moment we win/lose it / counter-press / on the turnover). e.g. "counter-press the second we lose it" => press_intensity high + "when":{"phase":"transition"}.
 
 SET-PIECE TAKERS: if the shout names who takes DEAD BALLS, fill "setPieceTakers" with ONLY the named roles (else null). fk = free kicks / "set pieces" / "dead balls", corner = corners, pen = penalties / "spot kicks", longThrow = long throw-ins. The id is one of YOUR players. "AB takes our free kicks and corners, CD on penalties" => {"fk":<AB>,"corner":<AB>,"pen":<CD>}. "no designated penalty taker" => {"pen":null}. This is SEPARATE from directives — do NOT also emit a directive for it. Roles not named stay as they were.
 
@@ -116,6 +116,10 @@ export function takersFromRaw(spRaw: unknown, mineIds: Set<number>): PlanTakers 
 
 const TIME_WORDS = /\b(\d{1,3}\s*(?:'|min|mins|minute|minutes)|half|first|second|opening|closing|last|from the|after the|until|before|kick.?off|whistle|early on|late on)\b/i;
 const SCORE_WORDS = /\b(winning|losing|drawing|level|tied|all square|ahead|behind|trailing|chasing|in front|leading|protect|see it out|goal up|goal down|a man (?:up|down)|nil|equaliser|equalizer)\b/i;
+// phase conditions ("when":{"phase"}) — only honoured if the shout actually ties an order to a game phase
+// (in/out of possession or the transition), mirroring the time/score guards so plain orders stay unconditional.
+export const PHASE_WORDS = /\b(in possession|out of possession|when we(?:'re| are|'ve| have)?\s*(?:have|win|won|lose|lost|regain|attack|defend)|win it back|won it back|lose the ball|lost the ball|in transition|on the (?:counter|break|turnover)|counter.?press|gegen.?press|when (?:we'?re )?(?:attacking|defending)|the (?:second|moment|instant) we (?:win|lose|regain))\b/i;
+export const VALID_PHASES = new Set(['in_possession', 'attacking', 'out_of_possession', 'defending', 'transition']);
 
 // Validate the returned plan's directives (same rules as tactics.ts) + motivation
 // (id range, clamp, enforce the per-player cap from motUsed). Deterministic given
@@ -123,7 +127,7 @@ const SCORE_WORDS = /\b(winning|losing|drawing|level|tied|all square|ahead|behin
 function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, mineIds: Set<number>, oppIds: Set<number>, motUsed: Map<number, number>): { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation: string | null; setPieceTakers: PlanTakers | null } {
   const myScope = myTeam === 'home' ? 0 : 1;
   const planRaw = (raw.plan ?? {}) as Record<string, unknown>;
-  const timeOK = TIME_WORDS.test(shout), scoreOK = SCORE_WORDS.test(shout);
+  const timeOK = TIME_WORDS.test(shout), scoreOK = SCORE_WORDS.test(shout), phaseOK = PHASE_WORDS.test(shout);
   const directives: Directive[] = [];
   for (const r of (Array.isArray(planRaw.directives) ? planRaw.directives : [])) {
     if (!r || typeof r !== 'object') continue;
@@ -157,6 +161,8 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
       scoreState: scoreOK && typeof w.scoreState === 'string' ? String(w.scoreState) : 'any',
       scoreBy: scoreOK ? Math.round(num(w.scoreBy, 0)) : 0,
     };
+    const ph = typeof w.phase === 'string' ? w.phase : '';
+    if (phaseOK && VALID_PHASES.has(ph)) dir.when.phase = ph;   // phase condition — gated like time/score, valid engine phases only
     directives.push(dir);
   }
   const motivation: Motivation[] = [];
