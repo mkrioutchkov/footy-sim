@@ -53,6 +53,7 @@ export interface Ball {
   z: number;
   vz: number;
   curl?: number;   // render-hint (Boris): sideways curl/spin magnitude — drives the trail curl tint
+  cutback?: boolean;   // render-hint (Boris, pending serialization): this ball is a cutback (pull-back into the box) — drives a distinct cutback trail cue
   controllerId: number | null;
   intendedReceiverId: number | null;
   lastTouchTeam: Team | null;

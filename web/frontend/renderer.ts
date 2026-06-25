@@ -429,6 +429,14 @@ export class MatchRenderer {
       return ((ar + Math.round(dr * t)) << 16) | ((ag + Math.round(dg * t)) << 8) | (ab + Math.round(db * t));
     };
 
+    // ── cutback emphasis: a "pull-back into the box" (Boris's box-finish play) tints its trail LIME + thickens it,
+    //    so the chance-creating cutback READS distinctly from an ordinary pass. Consumes a ball.cutback render-hint
+    //    (build-ahead — goes live the moment Boris serialises it on the DK::Cutback pass, like ball.curl). ──
+    const cutbackActive = !!(b as { cutback?: boolean }).cutback;
+    const CUTBACK_COLOR = 0x66ff99;
+    (__w as { __cutbackActive?: boolean; __cutbackSeen?: boolean }).__cutbackActive = cutbackActive;
+    if (cutbackActive) (__w as { __cutbackSeen?: boolean }).__cutbackSeen = true;
+
     for (let i = 0; i < TRAIL_LENGTH; i++) {
       const t = this.trailPool[i];
       const idx = this.trailBuffer.length - 1 - i;
@@ -438,9 +446,9 @@ export class MatchRenderer {
         t.position.set(pt.x, pt.y - pt.z * 0.7);   // lift by the same arcOffset the ball uses → trail follows the arc
         t.clear();
         const alpha = (i / TRAIL_LENGTH) * 0.48;
-        const r = BALL_R * (0.4 + (1 - i / TRAIL_LENGTH) * 0.75);
+        const r = BALL_R * (0.4 + (1 - i / TRAIL_LENGTH) * 0.75) * (cutbackActive ? 1.3 : 1);   // a cutback trail reads thicker
         t.circle(0, 0, r);
-        t.fill({ color: curlTint(0xffdd44), alpha });
+        t.fill({ color: cutbackActive ? CUTBACK_COLOR : curlTint(0xffdd44), alpha: cutbackActive ? Math.min(alpha * 1.8, 0.8) : alpha });
       } else {
         t.visible = false;
       }
