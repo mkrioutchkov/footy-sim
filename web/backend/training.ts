@@ -13,7 +13,7 @@
 import { db } from './db.ts';
 import { overall } from './game.ts';
 import { moraleDevFactor } from './morale.ts';
-import { coachingFactor } from './staff.ts';
+import { coachingFactor, categoryCoachFactor } from './staff.ts';
 import { getSquadHarmony, harmonyFactor } from './harmony.ts';
 
 export const TRAINABLE = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'] as const;
@@ -95,6 +95,22 @@ function positionWeights(role: string | undefined): Record<string, number> | nul
   return out;
 }
 
+// A player's primary training category — from his focus when it's a specific attr, else his role's dominant
+// category (used only to look up the per-category coach factor for a club that has assigned coaches).
+function primaryCategoryOf(focus: string, role: string | undefined): string {
+  const direct = ATTR_PRIMARY_CATEGORY[focus];
+  if (direct) return direct;
+  const keys = role ? ROLE_KEY[role] : undefined;            // balanced/position → the role's most-common category
+  if (keys && keys.length) {
+    const counts: Record<string, number> = {};
+    for (const k of keys) { const c = ATTR_PRIMARY_CATEGORY[k]; if (c) counts[c] = (counts[c] ?? 0) + 1; }
+    let best = 'Fitness', bestN = 0;
+    for (const c of Object.keys(counts)) if (counts[c] > bestN) { best = c; bestN = counts[c]; }
+    return best;
+  }
+  return 'Fitness';
+}
+
 // OVR points of drift per matchday before trait/focus scaling: growth while young,
 // a prime plateau, then decline. TASTE: see GAME_LAYER_NOTES.md.
 function ageDrift(age: number): number {
@@ -114,13 +130,14 @@ export function developAttrs(
   attrs: Record<string, number>, age: number, potential: number,
   traits: { professionalism?: number; consistency?: number } | null | undefined,
   focus: string | null, morale = 65, coachFactor = 1, harmonyF = 1,
-  role?: string,
+  role?: string, growthMul = 1,
 ): Record<string, number> {
   const prof = (traits?.professionalism ?? 50) / 100;
   const cons = (traits?.consistency ?? 50) / 100;
   const diligence = 0.6 + 0.8 * ((prof + cons) / 2);          // 0.6..1.4
   let drift = ageDrift(age) * diligence * moraleDevFactor(morale);   // age x diligence x morale
-  if (drift > 0) drift *= coachFactor * harmonyF;             // good coaches + a settled room accelerate growth, not decline
+  // growthMul = training intensity (1 = normal/identity); coaches + a settled room accelerate growth, not decline.
+  if (drift > 0) drift *= growthMul * coachFactor * harmonyF;
   const move = drift >= 0 ? Math.min(drift, Math.max(0, potential - overall(attrs))) : drift;
   // A 'position' focus weights growth by role (spreads a single focus's bonus across the role's key
   // attributes); any other focus keeps the original single-attribute path → byte-identical drift for
@@ -205,19 +222,25 @@ export function explainTraining(
 export function developmentTick(leagueId: number): { players: number } {
   const rows = db.prepare(`
     SELECT p.id, p.team_id AS team_id, p.slot, p.name, p.role, p.attrs, p.age, p.potential,
-           p.personality, p.morale, p.train_focus AS player_focus,
-           t.user_id AS user_id, t.training_focus AS focus
+           p.personality, p.morale, p.train_focus AS player_focus, p.train_intensity AS train_intensity,
+           t.user_id AS user_id, t.training_focus AS focus, t.coach_assignment AS coach_assignment
     FROM players p JOIN teams t ON t.id = p.team_id
     WHERE t.league_id = ?
     ORDER BY p.team_id, p.slot`).all(leagueId) as
     { id: number; team_id: number; slot: number; name: string; role: string; attrs: string; age: number;
       potential: number | null; personality: string | null; morale: number; player_focus: string | null;
-      user_id: number | null; focus: string | null }[];
+      train_intensity: string | null; user_id: number | null; focus: string | null; coach_assignment: string | null }[];
   const upd = db.prepare('UPDATE players SET attrs = ? WHERE id = ?');
   const coachCache = new Map<number, number>();   // team -> coaching factor (1 for AI/no-staff clubs)
   const coachOf = (tid: number): number => { let v = coachCache.get(tid); if (v === undefined) { v = coachingFactor(tid); coachCache.set(tid, v); } return v; };
   const harmonyCache = new Map<number, number>(); // team -> harmony factor (1.0 for a settled squad)
   const harmonyOf = (tid: number): number => { let v = harmonyCache.get(tid); if (v === undefined) { const h = getSquadHarmony(tid); v = h ? harmonyFactor(h.harmony) : 1; harmonyCache.set(tid, v); } return v; };
+  const catFactorCache = new Map<string, number>();   // `${team}|${category}` -> per-category coach factor (assigned clubs only)
+  const categoryFactorOf = (tid: number, assignment: string, cat: string): number => {
+    const key = `${tid}|${cat}`; let v = catFactorCache.get(key);
+    if (v === undefined) { v = categoryCoachFactor(tid, assignment, cat); catFactorCache.set(key, v); }
+    return v;
+  };
   // Collect report lines per human-managed team as we develop their players.
   const reports = new Map<number, { focus: string; lines: TrainLine[] }>();
   let n = 0;
@@ -228,8 +251,14 @@ export function developmentTick(leagueId: number): { players: number } {
     const before = JSON.parse(r.attrs) as Record<string, number>;
     const clubFocus = r.focus ?? 'balanced';
     const focus = r.player_focus ?? clubFocus;       // a per-player focus overrides the club focus
-    const coachF = coachOf(r.team_id), harmonyF = harmonyOf(r.team_id);
-    const after = developAttrs(before, r.age, r.potential, traits, focus, r.morale, coachF, harmonyF, r.role);
+    // Coach factor: an assigned, human-managed club uses the per-category specialist factor; everyone else
+    // (unassigned, AI, legacy) falls back to the flat club-wide factor — byte-identical to before this feature.
+    const coachF = (r.coach_assignment != null && r.user_id != null)
+      ? categoryFactorOf(r.team_id, r.coach_assignment, primaryCategoryOf(focus, r.role))
+      : coachOf(r.team_id);
+    const harmonyF = harmonyOf(r.team_id);
+    const growthMul = intensityFactor(r.train_intensity).growthMul;   // normal / NULL = 1 (identity)
+    const after = developAttrs(before, r.age, r.potential, traits, focus, r.morale, coachF, harmonyF, r.role, growthMul);
     upd.run(JSON.stringify(after), r.id);
     n++;
     if (r.user_id != null) {
