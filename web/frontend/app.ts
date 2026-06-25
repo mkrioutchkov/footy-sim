@@ -44,7 +44,30 @@ function svgEl(tag: string, attrs: Record<string, string | number | undefined> =
   for (const kid of kids) e.append(kid instanceof Node ? kid : document.createTextNode(kid));
   return e;
 }
-function mount(...nodes: Node[]) { root.replaceChildren(...nodes); }
+let lastFocusHash = 'init';
+let navFocusTimer = 0;   // sentinel — guarantees the focus move happens on the first render too
+function mount(...nodes: Node[]) {
+  root.replaceChildren(...nodes);
+  // a11y: tag the content as the <main> landmark, and on a ROUTE CHANGE move focus into it so screen-reader +
+  // keyboard users land on the new content's heading instead of re-traversing the header nav every navigation.
+  // Hash-guarded so an in-screen re-render (same route, e.g. after an action) doesn't steal focus from the user.
+  const main = nodes[nodes.length - 1];
+  if (main instanceof HTMLElement) {
+    main.id = 'main-content'; main.setAttribute('role', 'main'); main.setAttribute('tabindex', '-1');
+    if (location.hash !== lastFocusHash) {
+      // debounced + re-queried at fire time so a screen that mounts twice (skeleton then content) focuses its FINAL
+      // content; hash-guarded so an in-screen re-render of the SAME route never yanks focus from what the user is doing.
+      clearTimeout(navFocusTimer);
+      navFocusTimer = window.setTimeout(() => {
+        lastFocusHash = location.hash;
+        const m = document.getElementById('main-content'); if (!m) return;
+        const target = (m.querySelector('h1, h2') as HTMLElement | null) ?? m;
+        target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+      }, 90);
+    }
+  }
+}
 function toast(msg: string) {
   const t = h('div', { class: 'toast', role: 'status' }, msg);
   document.body.appendChild(t);
@@ -2661,6 +2684,12 @@ function route() {
   else if (hash.startsWith('#/player/')) screenPlayer(Number(hash.split('/')[2]));
   else screenDashboard();
 }
+
+// a11y: a "skip to content" link as the first focusable element lets keyboard users jump past the header nav.
+// It focuses the #main-content landmark directly (NOT via an href hash, which would clobber the SPA route).
+const skipLink = h('a', { href: '#main-content', class: 'skip-link' }, 'Skip to content');
+skipLink.addEventListener('click', (e: Event) => { e.preventDefault(); document.getElementById('main-content')?.focus(); });
+document.body.insertBefore(skipLink, document.body.firstChild);
 
 window.addEventListener('hashchange', route);
 
