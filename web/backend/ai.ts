@@ -6,6 +6,7 @@
 import { db } from './db.ts';
 import { overall, ROLE_SLOTS } from './game.ts';
 import { TRAINABLE } from './training.ts';
+import { seedStaffPool, hireStaff, suggestCoachAssignment, saveCoachAssignment, MAX_STAFF } from './staff.ts';
 
 // Re-pack an AI squad so its strongest role-correct XI fills slots 0..10 (the default-path
 // starting XI) and the rest sit on the bench. Each XI slot takes the best unused player of
@@ -28,8 +29,31 @@ export function optimizeLineup(teamId: number): void {
   order.forEach((id, slot) => upd.run(slot, id));
 }
 
+// AI development philosophy (pillar-4, Phase 2). Each AI club carries a coaching_style that shapes
+// how it develops — a developer pushes squad growth (specialises readily + builds a deep coaching
+// staff), a conservation club plays it safe (steady balanced training, a lean backroom), balanced is
+// the middle. The style is derived deterministically from the club id so a league shows a stable mix,
+// and persisted into teams.coaching_style (the column the spec wires) the first time it's touched.
+const AI_STYLES = ['developer', 'balanced', 'conservation'] as const;
+export type CoachingStyle = (typeof AI_STYLES)[number];
+const STYLE_COACH_TARGET: Record<CoachingStyle, number> = { developer: 3, balanced: 2, conservation: 1 };
+const STYLE_FOCUS_GAP: Record<CoachingStyle, number> = { developer: 4, balanced: 8, conservation: 99 };  // gap needed before specialising (conservation never does)
+
+export function aiCoachingStyle(teamId: number): CoachingStyle {
+  const row = db.prepare('SELECT coaching_style, user_id FROM teams WHERE id = ?').get(teamId) as { coaching_style: string | null; user_id: number | null } | undefined;
+  if (row && (row.coaching_style === 'developer' || row.coaching_style === 'balanced' || row.coaching_style === 'conservation') && row.coaching_style !== 'balanced') return row.coaching_style;
+  // 'balanced'/NULL is the un-assigned default — give AI clubs a stable deterministic style derived from id.
+  if (row && row.user_id == null) {
+    const style = AI_STYLES[teamId % AI_STYLES.length];
+    db.prepare('UPDATE teams SET coaching_style = ? WHERE id = ?').run(style, teamId);
+    return style;
+  }
+  return 'balanced';
+}
+
 // An AI club trains its outfield XI's weakest attribute (shore up the gap), or 'balanced'
 // when the squad is even. Excludes the keeper so his low shooting/passing doesn't skew it.
+// A developer specialises on a smaller gap; a conservation club stays balanced (its philosophy).
 export function pickTrainingFocus(teamId: number): string {
   const xi = db.prepare('SELECT attrs FROM players WHERE team_id = ? ORDER BY slot LIMIT 11').all(teamId) as { attrs: string }[];
   const outfield = xi.slice(1).map(p => JSON.parse(p.attrs) as Record<string, number>);
@@ -38,7 +62,36 @@ export function pickTrainingFocus(teamId: number): string {
   for (const k of TRAINABLE) avg[k] = outfield.reduce((s, a) => s + (a[k] ?? 0), 0) / outfield.length;
   let lo: string = TRAINABLE[0], hi: string = TRAINABLE[0];
   for (const k of TRAINABLE) { if (avg[k] < avg[lo]) lo = k; if (avg[k] > avg[hi]) hi = k; }
-  return (avg[hi] - avg[lo]) > 8 ? lo : 'balanced';                // only specialise if there's a real gap
+  const gap = STYLE_FOCUS_GAP[aiCoachingStyle(teamId)];
+  return (avg[hi] - avg[lo]) > gap ? lo : 'balanced';             // only specialise once the gap clears the style's threshold
+}
+
+// Closes "AI clubs are forever under-coached": an AI club builds a coaching staff so its squad
+// develops through the SAME per-category coach factor a human club gets, instead of the flat
+// no-staff identity. It hires up to its style's target of coaches when it can comfortably afford
+// it (keeping a transfer cushion), then assigns them by specialty so per-category development
+// activates. Idempotent — won't over-hire past the target, and re-assigns the current staff each
+// time. A club with no hire pool (a legacy single-league world) is a safe no-op.
+const AI_BUDGET_CUSHION = 8_000_000;   // leave this much for transfers before spending on staff
+export function aiManagerStaff(teamId: number): void {
+  const info = db.prepare('SELECT t.user_id AS user_id, t.budget AS budget, l.world_id AS world_id FROM teams t JOIN leagues l ON l.id = t.league_id WHERE t.id = ?')
+    .get(teamId) as { user_id: number | null; budget: number; world_id: number | null } | undefined;
+  if (!info || info.user_id != null || info.world_id == null) return;   // humans + pool-less worlds untouched
+  const style = aiCoachingStyle(teamId);
+  const target = STYLE_COACH_TARGET[style];
+  seedStaffPool(info.world_id);
+  const have = db.prepare("SELECT COUNT(*) AS n FROM staff WHERE team_id = ? AND role = 'coach'").get(teamId) as { n: number };
+  let budget = info.budget;
+  let total = (db.prepare('SELECT COUNT(*) AS n FROM staff WHERE team_id = ?').get(teamId) as { n: number }).n;
+  // hire the best AFFORDABLE pool coaches up to the style target (one per tick keeps spend gradual).
+  if (have.n < target && total < MAX_STAFF) {
+    const cand = db.prepare("SELECT id, cost FROM staff WHERE world_id = ? AND team_id IS NULL AND role = 'coach' AND cost <= ? ORDER BY rating DESC LIMIT 1")
+      .get(info.world_id, Math.max(0, budget - AI_BUDGET_CUSHION)) as { id: number; cost: number } | undefined;
+    if (cand) { const r = hireStaff(teamId, cand.id); if (r.ok) { budget -= cand.cost; total++; } }
+  }
+  // assign whatever coaches the club now has, by specialty, so the per-category factor drives development.
+  const suggestion = suggestCoachAssignment(teamId);
+  if (Object.keys(suggestion).length) saveCoachAssignment(teamId, suggestion);
 }
 
 // One management cycle for every AI club in a division: pick a training focus + field the
@@ -46,6 +99,7 @@ export function pickTrainingFocus(teamId: number): string {
 export function aiManagerTick(leagueId: number): { teams: number } {
   const ais = db.prepare('SELECT id FROM teams WHERE league_id = ? AND user_id IS NULL').all(leagueId) as { id: number }[];
   for (const { id } of ais) {
+    aiManagerStaff(id);          // build/assign a coaching staff so the AI squad isn't under-coached
     db.prepare('UPDATE teams SET training_focus = ? WHERE id = ?').run(pickTrainingFocus(id), id);
     optimizeLineup(id);
   }
