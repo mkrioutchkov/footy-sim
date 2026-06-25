@@ -130,6 +130,15 @@ function primaryCategoryOf(focus: string, role: string | undefined): string {
   return 'Fitness';
 }
 
+// Burnout (Phase 2): accumulated training_load taps the brakes on development once it passes a
+// threshold — over-training a squad on 'heavy'/'double' for weeks yields diminishing returns (on top of
+// the higher injury risk). Load 0 (the default) is the IDENTITY (1.0), so an un-pushed squad is unaffected.
+export const LOAD_DECAY = 0.8;             // each matchday a player bleeds 20% of his accumulated load
+export function loadDampen(load: number): number {
+  if (load <= 40) return 1;                                  // a manageable load costs nothing
+  return Math.max(0.6, 1 - (load - 40) / 150);              // load 40→1.0 … 100→0.6 (floored)
+}
+
 // OVR points of drift per matchday before trait/focus scaling: growth while young,
 // a prime plateau, then decline. TASTE: see GAME_LAYER_NOTES.md.
 function ageDrift(age: number): number {
@@ -149,14 +158,15 @@ export function developAttrs(
   attrs: Record<string, number>, age: number, potential: number,
   traits: { professionalism?: number; consistency?: number } | null | undefined,
   focus: string | null, morale = 65, coachFactor = 1, harmonyF = 1,
-  role?: string, growthMul = 1,
+  role?: string, growthMul = 1, loadDampenF = 1,
 ): Record<string, number> {
   const prof = (traits?.professionalism ?? 50) / 100;
   const cons = (traits?.consistency ?? 50) / 100;
   const diligence = 0.6 + 0.8 * ((prof + cons) / 2);          // 0.6..1.4
   let drift = ageDrift(age) * diligence * moraleDevFactor(morale);   // age x diligence x morale
-  // growthMul = training intensity (1 = normal/identity); coaches + a settled room accelerate growth, not decline.
-  if (drift > 0) drift *= growthMul * coachFactor * harmonyF;
+  // growthMul = training intensity (1 = normal/identity); coaches + a settled room accelerate growth, not
+  // decline; loadDampenF (1 = no burnout) trims gains when accumulated load is high. All default to 1.
+  if (drift > 0) drift *= growthMul * coachFactor * harmonyF * loadDampenF;
   const move = drift >= 0 ? Math.min(drift, Math.max(0, potential - overall(attrs))) : drift;
   // A 'position' focus weights growth by role (spreads a single focus's bonus across the role's key
   // attributes); any other focus keeps the original single-attribute path → byte-identical drift for
@@ -192,7 +202,7 @@ export interface TrainLine {
 // drift from the numbers. Order roughly mirrors impact (age phase first, then the modifiers).
 function trainingFactors(
   age: number, traits: { professionalism?: number; consistency?: number } | null | undefined,
-  focus: string, morale: number, coachFactor: number, harmonyF: number, growing: boolean,
+  focus: string, morale: number, coachFactor: number, harmonyF: number, growing: boolean, loadDampenF = 1,
 ): string[] {
   const f: string[] = [];
   f.push(age <= 20 ? 'Young — rapid growth' : age <= 23 ? 'Developing' : age <= 27 ? 'Approaching prime'
@@ -207,6 +217,7 @@ function trainingFactors(
   else if (growing && harmonyF < 1) f.push('Unsettled dressing room drags');
   if (growing && focus === 'position') f.push('Position-specific drills');
   else if (growing && focus && focus !== 'balanced') f.push(`Focused on ${focus}`);
+  if (growing && loadDampenF < 1) f.push(`Heavy workload — gains tapering (−${Math.round((1 - loadDampenF) * 100)}%)`);
   return f;
 }
 
@@ -215,7 +226,7 @@ export function explainTraining(
   before: Record<string, number>, after: Record<string, number>,
   p: { slot: number; name: string; role: string }, age: number,
   traits: { professionalism?: number; consistency?: number } | null | undefined,
-  focus: string, individual: boolean, morale: number, coachFactor: number, harmonyF: number,
+  focus: string, individual: boolean, morale: number, coachFactor: number, harmonyF: number, loadDampenF = 1,
 ): TrainLine {
   const ovrBefore = overall(before), ovrAfter = overall(after);
   const attrs: TrainAttrDelta[] = [];
@@ -229,7 +240,7 @@ export function explainTraining(
     slot: p.slot, name: p.name, role: p.role, age, focus, individual,
     ovrBefore, ovrAfter, ovrDelta: ovrAfter - ovrBefore,
     attrs,
-    factors: trainingFactors(age, traits, focus, morale, coachFactor, harmonyF, ovrAfter >= ovrBefore),
+    factors: trainingFactors(age, traits, focus, morale, coachFactor, harmonyF, ovrAfter >= ovrBefore, loadDampenF),
   };
 }
 
@@ -242,6 +253,7 @@ export function developmentTick(leagueId: number): { players: number } {
   const rows = db.prepare(`
     SELECT p.id, p.team_id AS team_id, p.slot, p.name, p.role, p.attrs, p.age, p.potential,
            p.personality, p.morale, p.train_focus AS player_focus, p.train_intensity AS train_intensity,
+           p.training_load AS training_load,
            t.user_id AS user_id, t.training_focus AS focus, t.coach_assignment AS coach_assignment,
            t.training_intensity AS team_intensity
     FROM players p JOIN teams t ON t.id = p.team_id
@@ -249,9 +261,10 @@ export function developmentTick(leagueId: number): { players: number } {
     ORDER BY p.team_id, p.slot`).all(leagueId) as
     { id: number; team_id: number; slot: number; name: string; role: string; attrs: string; age: number;
       potential: number | null; personality: string | null; morale: number; player_focus: string | null;
-      train_intensity: string | null; user_id: number | null; focus: string | null; coach_assignment: string | null;
+      train_intensity: string | null; training_load: number | null;
+      user_id: number | null; focus: string | null; coach_assignment: string | null;
       team_intensity: string | null }[];
-  const upd = db.prepare('UPDATE players SET attrs = ? WHERE id = ?');
+  const upd = db.prepare('UPDATE players SET attrs = ?, training_load = ? WHERE id = ?');
   const coachCache = new Map<number, number>();   // team -> coaching factor (1 for AI/no-staff clubs)
   const coachOf = (tid: number): number => { let v = coachCache.get(tid); if (v === undefined) { v = coachingFactor(tid); coachCache.set(tid, v); } return v; };
   const harmonyCache = new Map<number, number>(); // team -> harmony factor (1.0 for a settled squad)
@@ -278,14 +291,18 @@ export function developmentTick(leagueId: number): { players: number } {
       ? categoryFactorOf(r.team_id, r.coach_assignment, primaryCategoryOf(focus, r.role))
       : coachOf(r.team_id);
     const harmonyF = harmonyOf(r.team_id);
-    const growthMul = resolveIntensity(r.train_intensity, r.team_intensity).growthMul;   // player override else club dial; both default to 1 (identity)
-    const after = developAttrs(before, r.age, r.potential, traits, focus, r.morale, coachF, harmonyF, r.role, growthMul);
-    upd.run(JSON.stringify(after), r.id);
+    const iFac = resolveIntensity(r.train_intensity, r.team_intensity);   // player override else club dial; both default to identity
+    const load = r.training_load ?? 0;
+    const dampen = loadDampen(load);                                      // burnout: high accumulated load trims this tick's gains (1 = none)
+    const after = developAttrs(before, r.age, r.potential, traits, focus, r.morale, coachF, harmonyF, r.role, iFac.growthMul, dampen);
+    // accrue/bleed the load: it decays each matchday and rises with the intensity's loadAdd (0 at normal).
+    const nextLoad = Math.max(0, Math.min(120, load * LOAD_DECAY + iFac.loadAdd));
+    upd.run(JSON.stringify(after), nextLoad, r.id);
     n++;
     if (r.user_id != null) {
       let rep = reports.get(r.team_id);
       if (!rep) { rep = { focus: clubFocus, lines: [] }; reports.set(r.team_id, rep); }
-      rep.lines.push(explainTraining(before, after, r, r.age, traits, focus, r.player_focus != null, r.morale, coachF, harmonyF));
+      rep.lines.push(explainTraining(before, after, r, r.age, traits, focus, r.player_focus != null, r.morale, coachF, harmonyF, dampen));
     }
   }
   if (reports.size) {

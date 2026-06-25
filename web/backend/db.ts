@@ -142,6 +142,7 @@ ensureColumn('teams', 'training_intensity', "training_intensity TEXT NOT NULL DE
 ensureColumn('players', 'train_intensity', 'train_intensity TEXT');    // double|normal|half|rest; NULL = normal / club default (identity)
 ensureColumn('players', 'train_trait', 'train_trait TEXT');            // PPM/trait being learned; NULL = none
 ensureColumn('players', 'train_trait_prog', 'train_trait_prog REAL NOT NULL DEFAULT 0');      // 0..100; at 100 → merge into personality.traits
+ensureColumn('players', 'training_load', 'training_load REAL NOT NULL DEFAULT 0');            // Phase 2 burnout accumulator: rises with heavy load, decays each tick; high load dampens growth. 0 = identity
 // (staff.specialty/attrs and training_reports.intensity/category_factors are added just after those tables' CREATE below — they're created later in this file.)
 
 // ── Seasons / divisions (pillar 3) ──────────────────────────────────────────
