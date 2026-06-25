@@ -97,3 +97,85 @@ function staffEffectsSummary(teamId: number): { training: number; injuryReductio
     scoutDepth: scoutDepth(teamId),                            // extra key players revealed
   };
 }
+
+// ── Training & Coaches: per-category coach quality (the FM-style specialist-coach layer) ──────────────
+// Each of the four coaching categories maps to one coach attribute. A category's development multiplier comes
+// from the coaches ASSIGNED to it; when a category is UNASSIGNED (or the club has no coach_assignment at all) it
+// FALLS BACK to the flat club-wide coachingFactor — the golden-safe identity path, so a club that never touches
+// coach assignment develops byte-identically to today.
+const CATEGORY_COACH_ATTR: Record<string, string> = {
+  Attacking: 'attacking', Possession: 'technical', Defending: 'defending', Fitness: 'fitness',
+};
+const COACH_CAPACITY = 8;   // players one coach can effectively cover in a category
+
+interface CoachRow { id: number; role: StaffRole; rating: number; specialty: string | null; attrs: string | null; }
+
+// A coach's 7-dimension attrs — parsed from staff.attrs, or lazily spread from his flat rating (byte-safe legacy).
+export function coachAttrs(s: { rating: number; attrs?: string | null }): Record<string, number> {
+  if (s.attrs) { try { const j = JSON.parse(s.attrs) as Record<string, number>; if (j && typeof j === 'object') return j; } catch { /* fall through to backfill */ } }
+  const r = s.rating;
+  return { attacking: r, defending: r, technical: r, tactical: r, fitness: r, gk: r, youth: r };
+}
+
+// The coaches a club has assigned to a category (parsed from teams.coach_assignment JSON).
+function assignedCoaches(teamId: number, assignment: string | null, category: string): CoachRow[] {
+  if (!assignment) return [];
+  let map: Record<string, number[]>;
+  try { map = JSON.parse(assignment) as Record<string, number[]>; } catch { return []; }
+  const ids = map[category];
+  if (!Array.isArray(ids) || !ids.length) return [];
+  return db.prepare(`SELECT id, role, rating, specialty, attrs FROM staff WHERE team_id = ? AND id IN (${ids.map(() => '?').join(',')})`)
+    .all(teamId, ...ids) as unknown as CoachRow[];
+}
+
+// Star rating 0.5..5.0 for a category — the weighted mean of the assigned coaches' relevant attr (50 → 2.5★, 100 → 5★).
+// An assistant_manager is a generalist (0.6 weight); specialists pull full weight. No coaches → a neutral 2.5★.
+export function categoryStars(teamId: number, assignment: string | null, category: string): number {
+  const coaches = assignedCoaches(teamId, assignment, category);
+  if (!coaches.length) return 2.5;
+  const attrKey = CATEGORY_COACH_ATTR[category] ?? 'technical';
+  let sum = 0, w = 0;
+  for (const c of coaches) {
+    const val = coachAttrs(c)[attrKey] ?? c.rating;
+    const weight = c.specialty === 'assistant_manager' ? 0.6 : 1.0;
+    sum += val * weight; w += weight;
+  }
+  return Math.max(0.5, Math.min(5, (sum / Math.max(1e-6, w)) / 20));
+}
+
+// Coverage 0.55..1.0 — how well the assigned coaches cover the squad's load in this category (a lone coach spread
+// across a big squad covers less than a dedicated one). Load is proxied by an even split of the squad over 4 categories.
+export function categoryCoverage(teamId: number, assignment: string | null, category: string): number {
+  const coaches = assignedCoaches(teamId, assignment, category);
+  if (!coaches.length) return 0.55;
+  const squad = (db.prepare('SELECT COUNT(*) AS n FROM players WHERE team_id = ?').get(teamId) as { n: number }).n;
+  const load = Math.max(1, Math.round(squad / 4));
+  return Math.max(0.55, Math.min(1, (coaches.length * COACH_CAPACITY) / load));
+}
+
+// The per-category development multiplier [0.90, 1.30]. UNASSIGNED (NULL coach_assignment, or no coaches for the
+// category) FALLS BACK to the flat club-wide coachingFactor — the byte-identical legacy path. A great coach lifts
+// toward 1.30, a poor one toward 0.90; a neutral 2.5★ at full coverage is exactly 1.0 (no change).
+export function categoryCoachFactor(teamId: number, assignment: string | null, category: string): number {
+  if (!assignment || !assignedCoaches(teamId, assignment, category).length) return coachingFactor(teamId);
+  const stars = categoryStars(teamId, assignment, category);
+  const coverage = categoryCoverage(teamId, assignment, category);
+  return Math.max(0.90, Math.min(1.30, 1 + ((stars - 2.5) / 2.5) * 0.30 * coverage));
+}
+
+// A suggested category→coach assignment by specialty, for the staff screen's default view. Does NOT persist —
+// development keeps using the flat coachingFactor until the manager explicitly saves an assignment.
+export function suggestCoachAssignment(teamId: number): Record<string, number[]> {
+  const coaches = db.prepare("SELECT id, specialty FROM staff WHERE team_id = ? AND role = 'coach'")
+    .all(teamId) as { id: number; specialty: string | null }[];
+  const map: Record<string, number[]> = {};
+  for (const c of coaches) {
+    const spec = c.specialty ?? 'first_team_coach';
+    const cats = spec === 'fitness_coach' ? ['Fitness']
+      : spec === 'gk_coach' || spec === 'set_piece_coach' ? []   // GK / set-piece categories deferred in the MVP
+      : spec === 'assistant_manager' ? ['Attacking', 'Possession', 'Defending', 'Fitness']
+      : ['Attacking', 'Possession', 'Defending'];                // first_team_coach → the outfield categories
+    for (const cat of cats) (map[cat] ??= []).push(c.id);
+  }
+  return map;
+}
