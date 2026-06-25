@@ -21,6 +21,48 @@ export const TRAINABLE = ['speed', 'passing', 'creativity', 'shooting', 'tacklin
 export const VALID_FOCUS = new Set<string>(['balanced', 'position', ...TRAINABLE]);
 const PHYSICAL = new Set<string>(['speed', 'stamina']);   // first to fade with age
 
+// ── Training & Coaches: categories, determinism anchor, intensity (the FM-style development feature) ──
+// The four MVP coaching categories live in CODE (not a table) so the attrs→spec→engine flow is untouched.
+// Each maps onto the trainable attrs; a specialist coach in a category accelerates exactly those attrs.
+export const CATEGORY_ATTRS: Record<string, readonly string[]> = {
+  Attacking:  ['shooting', 'creativity'],
+  Possession: ['passing', 'creativity'],
+  Defending:  ['tackling', 'positioning'],
+  Fitness:    ['speed', 'stamina'],
+};
+export const TRAINING_CATEGORIES = ['Attacking', 'Possession', 'Defending', 'Fitness'] as const;
+// Each trainable attr's ONE primary category — used to resolve a player's coach factor from his focus.
+export const ATTR_PRIMARY_CATEGORY: Record<string, string> = {
+  shooting: 'Attacking', creativity: 'Possession', passing: 'Possession',
+  tackling: 'Defending', positioning: 'Defending', speed: 'Fitness', stamina: 'Fitness',
+};
+
+// Deterministic growth quantum in [0,1) from a stable tuple — the determinism anchor for any NEW per-tick
+// randomness (trait progression, future jitter). NEVER Math.random in the development path, so recordings,
+// replays and the golden match stay byte-stable. FNV-1a over the tuple → 32-bit uint → [0,1).
+function fnv1a(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+export function seededGrowth(playerId: number, season: number, round: number, worldId: number): number {
+  return (fnv1a(`${playerId}|${season}|${round}|${worldId}`) % 1_000_000) / 1_000_000;
+}
+
+// Training intensity → a growth / injury / load triple. 'normal' (and a legacy NULL) is the IDENTITY
+// (growthMul 1, injuryMul 1, loadAdd 0) so the default development path stays byte-identical; harder
+// training grows faster but raises injury risk + load, lighter/rest trades growth for recovery.
+export type TrainIntensity = 'double' | 'normal' | 'half' | 'rest';
+export interface IntensityFactors { growthMul: number; injuryMul: number; loadAdd: number; }
+export function intensityFactor(level: string | null | undefined): IntensityFactors {
+  switch (level) {
+    case 'double': return { growthMul: 1.4, injuryMul: 1.6, loadAdd: 15 };
+    case 'half':   return { growthMul: 0.6, injuryMul: 0.6, loadAdd: -8 };
+    case 'rest':   return { growthMul: 0.0, injuryMul: 0.3, loadAdd: -20 };
+    default:       return { growthMul: 1.0, injuryMul: 1.0, loadAdd: 0 };   // 'normal' / NULL = identity
+  }
+}
+
 // The trainable attributes that matter most for each role — a 'position' focus concentrates
 // growth here (and de-emphasises the rest), so a striker sharpens his shooting and a centre-back
 // his defending rather than spreading thin. Keys outside TRAINABLE (e.g. a keeper's handling) are

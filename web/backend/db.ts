@@ -133,6 +133,16 @@ ensureColumn('teams', 'training_focus', "training_focus TEXT NOT NULL DEFAULT 'b
 // the club focus, so every existing player develops exactly as before until the manager sets one.
 ensureColumn('players', 'train_focus', 'train_focus TEXT');
 
+// Training & Coaches (the FM-style development feature). Every default reproduces today's flat-coaching,
+// normal-intensity behaviour BYTE-IDENTICAL — the feature only changes development once a manager assigns
+// coaches to categories or sets a non-normal intensity. Categories are code-side (training.ts CATEGORY_ATTRS).
+ensureColumn('teams', 'coach_assignment', 'coach_assignment TEXT');    // json {category -> [staffId]}; NULL = unassigned → flat coachingFactor (byte-identical legacy path)
+ensureColumn('teams', 'coaching_style', "coaching_style TEXT NOT NULL DEFAULT 'balanced'");  // AI preset: developer|balanced|conservation
+ensureColumn('players', 'train_intensity', 'train_intensity TEXT');    // double|normal|half|rest; NULL = normal / club default (identity)
+ensureColumn('players', 'train_trait', 'train_trait TEXT');            // PPM/trait being learned; NULL = none
+ensureColumn('players', 'train_trait_prog', 'train_trait_prog REAL NOT NULL DEFAULT 0');      // 0..100; at 100 → merge into personality.traits
+// (staff.specialty/attrs and training_reports.intensity/category_factors are added just after those tables' CREATE below — they're created later in this file.)
+
 // ── Seasons / divisions (pillar 3) ──────────────────────────────────────────
 // A league is one division; divisions of a world are linked by world_id and ranked by
 // tier (1 = top). Legacy single leagues keep tier 1 + world_id NULL and roll over as a
@@ -410,6 +420,13 @@ CREATE TABLE IF NOT EXISTS training_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_training_reports_team ON training_reports(team_id, id);
 `);
+
+// Training & Coaches columns on staff + training_reports (added here, after their CREATE TABLE above —
+// those tables are created later in this file than the teams/players columns). Defaults are byte-identical.
+ensureColumn('staff', 'specialty', 'specialty TEXT');             // assistant_manager|first_team_coach|fitness_coach|gk_coach|set_piece_coach|youth_coach; NULL = legacy (lazily = first_team_coach)
+ensureColumn('staff', 'attrs', 'attrs TEXT');                     // json {attacking,defending,technical,tactical,fitness,gk,youth} 0..100; NULL = lazy-backfill all keys = rating
+ensureColumn('training_reports', 'intensity', 'intensity TEXT');                  // snapshot of the tick's intensity
+ensureColumn('training_reports', 'category_factors', 'category_factors TEXT');    // json {category -> {stars,coverage,factor,load,capacity}}
 
 // ── Pre-match team talk (audit §2.13) ────────────────────────────────────────
 // A manager's pre-match address to the squad: a chosen tone produces per-player morale deltas
