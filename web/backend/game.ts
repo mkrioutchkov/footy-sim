@@ -379,11 +379,11 @@ export interface PlayerRow { slot: number; name: string; role: string; attrs: Re
 export interface SetPieceTakers { fk: number | null; corner: number | null; pen: number | null; longThrow: number | null; }
 export function getTeamWithPlayers(teamId: number): {
   id: number; name: string; manager: string; leagueId: number; userId: number | null;
-  budget: number; wageBudget: number; wageBill: number; trainingFocus: string; tactics: Tactics; formation: string; lineup: number[] | null; sacked: boolean; captainSlot: number | null;
+  budget: number; wageBudget: number; wageBill: number; trainingFocus: string; trainingIntensity: string; tactics: Tactics; formation: string; lineup: number[] | null; sacked: boolean; captainSlot: number | null;
   planText: string | null; plan: Plan | null; setPieceTakers: SetPieceTakers | null; players: PlayerRow[];
 } | null {
-  const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, wage_budget, training_focus, tactics, formation, lineup, plan_text, plan_directives, sacked, captain_slot, set_piece_takers FROM teams WHERE id = ?')
-    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; wage_budget: number; training_focus: string | null; tactics: string; formation: string | null; lineup: string | null; plan_text: string | null; plan_directives: string | null; sacked: number; captain_slot: number | null; set_piece_takers: string | null } | undefined;
+  const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, wage_budget, training_focus, training_intensity, tactics, formation, lineup, plan_text, plan_directives, sacked, captain_slot, set_piece_takers FROM teams WHERE id = ?')
+    .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; wage_budget: number; training_focus: string | null; training_intensity: string | null; tactics: string; formation: string | null; lineup: string | null; plan_text: string | null; plan_directives: string | null; sacked: number; captain_slot: number | null; set_piece_takers: string | null } | undefined;
   if (!t) return null;
   const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, potential, listed, ask_price, wage, contract_years, fitness, injured_matches, morale, train_focus, train_intensity FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
     { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; listed: number; ask_price: number | null; wage: number | null; contract_years: number; fitness: number; injured_matches: number; morale: number; train_focus: string | null; train_intensity: string | null }[])
@@ -405,7 +405,7 @@ export function getTeamWithPlayers(teamId: number): {
   const plan = parseJSON(t.plan_directives) as Plan | null;
   return {
     id: t.id, name: t.name, manager: t.manager, leagueId: t.league_id, userId: t.user_id,
-    budget: t.budget, wageBudget: t.wage_budget, wageBill: players.reduce((s, p) => s + (p.wage ?? 0), 0), trainingFocus: t.training_focus ?? 'balanced', tactics: JSON.parse(t.tactics),
+    budget: t.budget, wageBudget: t.wage_budget, wageBill: players.reduce((s, p) => s + (p.wage ?? 0), 0), trainingFocus: t.training_focus ?? 'balanced', trainingIntensity: t.training_intensity ?? 'normal', tactics: JSON.parse(t.tactics),
     formation: t.formation ?? '4-3-3', lineup, sacked: !!t.sacked, captainSlot: t.captain_slot,
     planText: t.plan_text, plan: plan && Array.isArray(plan.directives) ? plan : null,
     setPieceTakers: parseJSON(t.set_piece_takers) as SetPieceTakers | null, players,

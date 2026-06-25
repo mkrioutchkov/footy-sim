@@ -8,7 +8,7 @@ import { db } from './db.ts';
 import { fieldedXIIndices } from './game.ts';
 import { DEFAULT_FORMATION } from './formations.ts';
 import { physioEffect } from './staff.ts';
-import { intensityFactor } from './training.ts';
+import { resolveIntensity } from './training.ts';
 
 const DRAIN_MIN = 10, DRAIN_VAR = 8;        // condition a starter loses (10..17)
 const RECOVER = 20;                          // condition a rested player regains
@@ -30,7 +30,7 @@ export function fitnessTick(leagueId: number): InjuryEvent[] {
   const events: InjuryEvent[] = [];
   const setFit = db.prepare('UPDATE players SET fitness = ? WHERE id = ?');
   const setInj = db.prepare('UPDATE players SET injured_matches = ? WHERE id = ?');
-  for (const t of db.prepare('SELECT id, formation, lineup FROM teams WHERE league_id = ?').all(leagueId) as { id: number; formation: string | null; lineup: string | null }[]) {
+  for (const t of db.prepare('SELECT id, formation, lineup, training_intensity FROM teams WHERE league_id = ?').all(leagueId) as { id: number; formation: string | null; lineup: string | null; training_intensity: string | null }[]) {
     const id = t.id;
     const players = db.prepare('SELECT id, name, fitness, injured_matches, train_intensity FROM players WHERE team_id = ? ORDER BY slot').all(id) as
       { id: number; name: string; fitness: number; injured_matches: number; train_intensity: string | null }[];
@@ -60,9 +60,10 @@ export function fitnessTick(leagueId: number): InjuryEvent[] {
     //    (rolls against startInjuryRisk on their pre-match fitness — the same number the UI warns with)
     for (const p of players) {
       if (!starterIds.has(p.id) || p.injured_matches > 0) continue;
-      // training intensity scales the injury risk (the cost of growthMul): heavy raises it, rest lowers it;
-      // 'normal'/NULL is injuryMul 1, so the risk — and the Math.random roll against it — stay byte-identical.
-      if (Math.random() < startInjuryRisk(p.fitness, physio.injuryMult * intensityFactor(p.train_intensity).injuryMul)) {
+      // training intensity scales the injury risk (the cost of growthMul): the player's own intensity wins,
+      // else the club dial. Both default to injuryMul 1, so the risk — and the Math.random roll against it —
+      // stay byte-identical for an un-touched club.
+      if (Math.random() < startInjuryRisk(p.fitness, physio.injuryMult * resolveIntensity(p.train_intensity, t.training_intensity).injuryMul)) {
         const matches = INJURY_MIN + Math.floor(Math.random() * INJURY_VAR);
         setInj.run(matches, p.id);
         events.push({ teamId: id, player: p.name, matches });

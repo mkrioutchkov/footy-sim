@@ -63,6 +63,25 @@ export function intensityFactor(level: string | null | undefined): IntensityFact
   }
 }
 
+// Phase 2: the CLUB-WIDE training intensity dial (a gentler scale than the per-player override). 'normal'
+// (and a legacy NULL) is the IDENTITY so the default development + injury path stays byte-identical; the
+// whole squad trains harder/lighter unless a player carries his own per-player intensity (which wins).
+export type TeamIntensity = 'light' | 'normal' | 'heavy';
+export const VALID_TEAM_INTENSITY = new Set<string>(['light', 'normal', 'heavy']);
+export function teamIntensityFactor(level: string | null | undefined): IntensityFactors {
+  switch (level) {
+    case 'light': return { growthMul: 0.7, injuryMul: 0.8, loadAdd: -6 };
+    case 'heavy': return { growthMul: 1.4, injuryMul: 1.4, loadAdd: 10 };
+    default:      return { growthMul: 1.0, injuryMul: 1.0, loadAdd: 0 };    // 'normal' / NULL = identity
+  }
+}
+// The effective intensity for a player: his per-player override (double|half|rest) if set, else the club
+// dial (light|heavy). Both default to identity, so an un-touched club is byte-identical to before Phase 2.
+export function resolveIntensity(playerLevel: string | null | undefined, teamLevel: string | null | undefined): IntensityFactors {
+  if (playerLevel && VALID_INTENSITY.has(playerLevel)) return intensityFactor(playerLevel);
+  return teamIntensityFactor(teamLevel);
+}
+
 // The trainable attributes that matter most for each role — a 'position' focus concentrates
 // growth here (and de-emphasises the rest), so a striker sharpens his shooting and a centre-back
 // his defending rather than spreading thin. Keys outside TRAINABLE (e.g. a keeper's handling) are
@@ -223,13 +242,15 @@ export function developmentTick(leagueId: number): { players: number } {
   const rows = db.prepare(`
     SELECT p.id, p.team_id AS team_id, p.slot, p.name, p.role, p.attrs, p.age, p.potential,
            p.personality, p.morale, p.train_focus AS player_focus, p.train_intensity AS train_intensity,
-           t.user_id AS user_id, t.training_focus AS focus, t.coach_assignment AS coach_assignment
+           t.user_id AS user_id, t.training_focus AS focus, t.coach_assignment AS coach_assignment,
+           t.training_intensity AS team_intensity
     FROM players p JOIN teams t ON t.id = p.team_id
     WHERE t.league_id = ?
     ORDER BY p.team_id, p.slot`).all(leagueId) as
     { id: number; team_id: number; slot: number; name: string; role: string; attrs: string; age: number;
       potential: number | null; personality: string | null; morale: number; player_focus: string | null;
-      train_intensity: string | null; user_id: number | null; focus: string | null; coach_assignment: string | null }[];
+      train_intensity: string | null; user_id: number | null; focus: string | null; coach_assignment: string | null;
+      team_intensity: string | null }[];
   const upd = db.prepare('UPDATE players SET attrs = ? WHERE id = ?');
   const coachCache = new Map<number, number>();   // team -> coaching factor (1 for AI/no-staff clubs)
   const coachOf = (tid: number): number => { let v = coachCache.get(tid); if (v === undefined) { v = coachingFactor(tid); coachCache.set(tid, v); } return v; };
@@ -257,7 +278,7 @@ export function developmentTick(leagueId: number): { players: number } {
       ? categoryFactorOf(r.team_id, r.coach_assignment, primaryCategoryOf(focus, r.role))
       : coachOf(r.team_id);
     const harmonyF = harmonyOf(r.team_id);
-    const growthMul = intensityFactor(r.train_intensity).growthMul;   // normal / NULL = 1 (identity)
+    const growthMul = resolveIntensity(r.train_intensity, r.team_intensity).growthMul;   // player override else club dial; both default to 1 (identity)
     const after = developAttrs(before, r.age, r.potential, traits, focus, r.morale, coachF, harmonyF, r.role, growthMul);
     upd.run(JSON.stringify(after), r.id);
     n++;
@@ -326,5 +347,13 @@ export function setPlayerTrainingIntensity(teamId: number, slot: number, value: 
   const v = clear ? null : value;
   const res = db.prepare('UPDATE players SET train_intensity = ? WHERE team_id = ? AND slot = ?').run(v, teamId, slot);
   if (!res.changes) return { ok: false, intensity: null };
+  return { ok: true, intensity: v };
+}
+
+// The CLUB-WIDE training intensity dial (Phase 2). An invalid value falls back to 'normal' (the
+// byte-identical default). The whole squad trains at this level unless a player has his own override.
+export function setTeamTrainingIntensity(teamId: number, level: string): { ok: boolean; intensity: string } {
+  const v = VALID_TEAM_INTENSITY.has(level) ? level : 'normal';
+  db.prepare('UPDATE teams SET training_intensity = ? WHERE id = ?').run(v, teamId);
   return { ok: true, intensity: v };
 }

@@ -48,7 +48,7 @@ export interface PlayerT { slot: number; name: string; role: string; attrs: Reco
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
-  formation: string; lineup: number[] | null; budget?: number; wageBudget?: number; wageBill?: number; trainingFocus?: string; sacked?: boolean; captainSlot?: number | null;
+  formation: string; lineup: number[] | null; budget?: number; wageBudget?: number; wageBill?: number; trainingFocus?: string; trainingIntensity?: string; sacked?: boolean; captainSlot?: number | null;
   planText?: string | null; plan?: PlanT | null;
   setPieceTakers?: { fk: number | null; corner: number | null; pen: number | null; longThrow: number | null } | null;
 }
@@ -247,6 +247,7 @@ export const api = {
   fireStaff: (staffId: number) => req<StaffViewT>('POST', '/staff/fire', { staffId }),
   saveCoachAssignment: (assignment: Record<string, number[]> | null) => req<StaffViewT>('PUT', '/staff/assignment', { assignment }),
   setPlayerIntensity: (slot: number, value: string) => req<{ ok: boolean; intensity: string | null }>('PUT', '/training/player-intensity', { slot, value }),
+  setTeamIntensity: (value: string) => req<{ ok: boolean; intensity: string }>('PUT', '/training/team-intensity', { value }),
   finances: () => req<FinancesT>('GET', '/finances'),
   harmony: () => req<HarmonyT>('GET', '/harmony'),
   rotation: () => req<RotationT>('GET', '/rotation'),

@@ -138,6 +138,7 @@ ensureColumn('players', 'train_focus', 'train_focus TEXT');
 // coaches to categories or sets a non-normal intensity. Categories are code-side (training.ts CATEGORY_ATTRS).
 ensureColumn('teams', 'coach_assignment', 'coach_assignment TEXT');    // json {category -> [staffId]}; NULL = unassigned → flat coachingFactor (byte-identical legacy path)
 ensureColumn('teams', 'coaching_style', "coaching_style TEXT NOT NULL DEFAULT 'balanced'");  // AI preset: developer|balanced|conservation
+ensureColumn('teams', 'training_intensity', "training_intensity TEXT NOT NULL DEFAULT 'normal'");  // Phase 2 club dial: light|normal|heavy; 'normal'/legacy = byte-identical drift
 ensureColumn('players', 'train_intensity', 'train_intensity TEXT');    // double|normal|half|rest; NULL = normal / club default (identity)
 ensureColumn('players', 'train_trait', 'train_trait TEXT');            // PPM/trait being learned; NULL = none
 ensureColumn('players', 'train_trait_prog', 'train_trait_prog REAL NOT NULL DEFAULT 0');      // 0..100; at 100 → merge into personality.traits

@@ -1673,6 +1673,24 @@ async function screenTraining() {
     catch (e: any) { toast(e.message); }
   });
 
+  // club-wide training intensity dial — a gentler scale than the per-player override (which wins).
+  // 'normal' is the byte-identical default; heavy grows the whole squad faster at a higher injury cost.
+  const TEAM_INTENSITY: [string, string][] = [['light', 'Light'], ['normal', 'Normal'], ['heavy', 'Heavy ↑']];
+  const tiSel = h('select', { class: 'focus-select', title: 'Sets the whole squad’s training load (a player’s own intensity overrides this). Heavier grows faster but tires legs and raises injury risk.' }) as HTMLSelectElement;
+  for (const [iv, lbl] of TEAM_INTENSITY) {
+    const o = h('option', { value: iv }, lbl) as HTMLOptionElement;
+    if (iv === (team.trainingIntensity ?? 'normal')) o.selected = true;
+    tiSel.append(o);
+  }
+  const tiHint = h('span', { class: 'muted', style: 'font-size:12px' });
+  const intensityHint = (v: string) => v === 'heavy' ? 'Whole squad: +40% growth, higher fatigue + injury risk'
+    : v === 'light' ? 'Whole squad: −30% growth, fresher legs + fewer injuries' : 'Whole squad: standard load';
+  tiHint.textContent = intensityHint(team.trainingIntensity ?? 'normal');
+  tiSel.addEventListener('change', async () => {
+    try { const r = await api.setTeamIntensity(tiSel.value); tiHint.textContent = intensityHint(r.intensity); toast(`Club intensity: ${r.intensity}`); }
+    catch (e: any) { toast(e.message); }
+  });
+
   // ── last session's training report — "why did X improve" ──
   const reportCard = (() => {
     if (!report || !report.lines.length) return h('div', { class: 'card' },
@@ -1759,8 +1777,9 @@ async function screenTraining() {
     ),
     reportCard,
     h('div', { class: 'card' },
-      h('div', { class: 'row', style: 'align-items:center;gap:10px;margin-bottom:6px' },
-        h('span', { class: 'section-title', style: 'margin:0' }, 'Club training focus'), sel),
+      h('div', { class: 'row', style: 'align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap' },
+        h('span', { class: 'section-title', style: 'margin:0' }, 'Club training focus'), sel,
+        h('span', { class: 'section-title', style: 'margin:0 0 0 10px' }, 'Intensity'), tiSel, tiHint),
       h('div', { style: 'max-height:540px;overflow:auto;margin-top:8px' },
         h('table', {},
           h('thead', {}, h('tr', {},
