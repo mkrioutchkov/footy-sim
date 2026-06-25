@@ -82,6 +82,31 @@ export function resolveIntensity(playerLevel: string | null | undefined, teamLev
   return teamIntensityFactor(teamLevel);
 }
 
+// Phase 2: one-click training SCHEDULES — a named (focus + club-intensity) combo, FM's preset buttons.
+// Each is just a shortcut over the two existing controls (no new development math), so 'balanced'/normal
+// is the byte-identical default. The focus values are all in VALID_FOCUS; the intensity in VALID_TEAM_INTENSITY.
+export interface TrainingPreset { focus: string; intensity: TeamIntensity; label: string; }
+export const TRAINING_PRESETS: Record<string, TrainingPreset> = {
+  balanced:   { focus: 'balanced', intensity: 'normal', label: 'Balanced' },
+  attacking:  { focus: 'shooting', intensity: 'normal', label: 'Attacking' },
+  possession: { focus: 'passing',  intensity: 'normal', label: 'Possession' },
+  defending:  { focus: 'tackling', intensity: 'normal', label: 'Defending' },
+  fitness:    { focus: 'stamina',  intensity: 'heavy',  label: 'Fitness' },     // build conditioning hard
+  recovery:   { focus: 'balanced', intensity: 'light',  label: 'Recovery' },    // taper / freshen the legs
+};
+export function resolvePreset(name: string): TrainingPreset | null {
+  return Object.prototype.hasOwnProperty.call(TRAINING_PRESETS, name) ? TRAINING_PRESETS[name] : null;
+}
+// Apply a preset = set both the club focus + the club intensity dial in one write (the per-player
+// overrides are untouched — a preset is a club-wide schedule). Returns the resolved preset.
+export function applyTrainingPreset(teamId: number, name: string): { ok: boolean; preset?: TrainingPreset; error?: string } {
+  const p = resolvePreset(name);
+  if (!p) return { ok: false, error: 'unknown preset' };
+  setTrainingFocus(teamId, p.focus);
+  setTeamTrainingIntensity(teamId, p.intensity);
+  return { ok: true, preset: p };
+}
+
 // The trainable attributes that matter most for each role — a 'position' focus concentrates
 // growth here (and de-emphasises the rest), so a striker sharpens his shooting and a centre-back
 // his defending rather than spreading thin. Keys outside TRAINABLE (e.g. a keeper's handling) are

@@ -1691,6 +1691,26 @@ async function screenTraining() {
     catch (e: any) { toast(e.message); }
   });
 
+  // one-click training schedules — set the club focus + intensity together (FM's preset buttons)
+  const PRESETS: [string, string, string][] = [
+    ['balanced', 'Balanced', 'Even development, normal load'],
+    ['attacking', 'Attacking', 'Sharpen shooting, normal load'],
+    ['possession', 'Possession', 'Drill passing, normal load'],
+    ['defending', 'Defending', 'Work the back line, normal load'],
+    ['fitness', 'Fitness', 'Build stamina — heavy load'],
+    ['recovery', 'Recovery', 'Freshen the legs — light load'],
+  ];
+  const presetRow = h('div', { class: 'card' },
+    h('div', { class: 'row', style: 'align-items:center;gap:8px;flex-wrap:wrap' },
+      h('span', { class: 'section-title', style: 'margin:0 6px 0 0' }, 'Quick schedules'),
+      ...PRESETS.map(([name, label, hint]) => h('button', {
+        class: 'ghost', style: 'font-size:12px;padding:4px 10px', title: hint,
+        onclick: async () => {
+          try { const r = await api.applyTrainingPreset(name); toast(`Training schedule: ${r.preset?.label ?? label}`); screenTraining(); }
+          catch (e: any) { toast(e.message); }
+        },
+      }, label))));
+
   // ── last session's training report — "why did X improve" ──
   const reportCard = (() => {
     if (!report || !report.lines.length) return h('div', { class: 'card' },
@@ -1775,6 +1795,7 @@ async function screenTraining() {
         h('div', { class: 'muted' }, 'Players drift toward their potential each matchday — faster while young and for the diligent. Set a club focus, or override one player to push a single attribute (or “Position-specific” to train for his role).')),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
+    presetRow,
     reportCard,
     h('div', { class: 'card' },
       h('div', { class: 'row', style: 'align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap' },

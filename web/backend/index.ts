@@ -19,7 +19,7 @@ import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers } from './market.ts';
 import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } from './plan.ts';
-import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, setTeamTrainingIntensity, getTrainingReport, TRAINABLE, VALID_FOCUS, VALID_INTENSITY, VALID_TEAM_INTENSITY } from './training.ts';
+import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, setTeamTrainingIntensity, applyTrainingPreset, TRAINING_PRESETS, getTrainingReport, TRAINABLE, VALID_FOCUS, VALID_INTENSITY, VALID_TEAM_INTENSITY } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
 import { seedAcademy, getAcademy, promoteProspect } from './youth.ts';
 import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from './teamtalk.ts';
@@ -700,6 +700,19 @@ app.put('/api/training/team-intensity', async (req: any, reply) => {
   const level = String(req.body?.value ?? '');
   if (level && !VALID_TEAM_INTENSITY.has(level)) return reply.code(400).send({ error: 'intensity must be one of: light, normal, heavy' });
   return setTeamTrainingIntensity(teamId, level);
+});
+
+// Apply a one-click training PRESET (a named focus + club-intensity schedule). Sets both the club
+// focus and the club intensity dial in one go (per-player overrides untouched).
+app.put('/api/training/preset', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const name = String(req.body?.name ?? '');
+  if (!Object.prototype.hasOwnProperty.call(TRAINING_PRESETS, name)) return reply.code(400).send({ error: `preset must be one of: ${Object.keys(TRAINING_PRESETS).join(', ')}` });
+  const r = applyTrainingPreset(teamId, name);
+  if (!r.ok) return reply.code(400).send({ error: r.error ?? 'could not apply preset' });
+  return r;
 });
 
 // The latest per-matchday training report for the club (null until the first matchday develops

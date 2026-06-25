@@ -248,6 +248,7 @@ export const api = {
   saveCoachAssignment: (assignment: Record<string, number[]> | null) => req<StaffViewT>('PUT', '/staff/assignment', { assignment }),
   setPlayerIntensity: (slot: number, value: string) => req<{ ok: boolean; intensity: string | null }>('PUT', '/training/player-intensity', { slot, value }),
   setTeamIntensity: (value: string) => req<{ ok: boolean; intensity: string }>('PUT', '/training/team-intensity', { value }),
+  applyTrainingPreset: (name: string) => req<{ ok: boolean; preset?: { focus: string; intensity: string; label: string } }>('PUT', '/training/preset', { name }),
   finances: () => req<FinancesT>('GET', '/finances'),
   harmony: () => req<HarmonyT>('GET', '/harmony'),
   rotation: () => req<RotationT>('GET', '/rotation'),
