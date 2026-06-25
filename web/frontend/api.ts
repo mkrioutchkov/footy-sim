@@ -44,7 +44,7 @@ export interface PersonalityT {
   traits: { temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number; consistency: number; leadership: number; professionalism: number; ego: number };
   nationality: string; backstory: string; tagline: string;
 }
-export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; fitness?: number; injuredMatches?: number; morale?: number; trainFocus?: string | null; trainIntensity?: string | null; }
+export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; fitness?: number; injuredMatches?: number; morale?: number; trainFocus?: string | null; trainIntensity?: string | null; retrainRole?: string | null; roleFamiliarity?: number; }
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
@@ -249,6 +249,7 @@ export const api = {
   setPlayerIntensity: (slot: number, value: string) => req<{ ok: boolean; intensity: string | null }>('PUT', '/training/player-intensity', { slot, value }),
   setTeamIntensity: (value: string) => req<{ ok: boolean; intensity: string }>('PUT', '/training/team-intensity', { value }),
   applyTrainingPreset: (name: string) => req<{ ok: boolean; preset?: { focus: string; intensity: string; label: string } }>('PUT', '/training/preset', { name }),
+  setPlayerRetrain: (slot: number, role: string) => req<{ ok: boolean; retrainRole: string | null }>('PUT', '/training/retrain', { slot, role }),
   finances: () => req<FinancesT>('GET', '/finances'),
   harmony: () => req<HarmonyT>('GET', '/harmony'),
   rotation: () => req<RotationT>('GET', '/rotation'),

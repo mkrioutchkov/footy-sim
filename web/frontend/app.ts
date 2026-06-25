@@ -1778,6 +1778,26 @@ async function screenTraining() {
       try { const r = await api.setPlayerIntensity(p.slot, piSel.value); toast(`${p.name}: ${r.intensity ?? 'normal'} training`); }
       catch (e: any) { toast(e.message); }
     });
+    // position retrain — learn a new role; while settling, he develops a little slower (familiarity bar)
+    const rtSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px', title: 'Retrain this player into a new position. He settles in over several matchdays, developing a little slower until comfortable.' }) as HTMLSelectElement;
+    rtSel.append(h('option', { value: '' }, 'No (stay ' + p.role + ')'));
+    for (const role of ['GK', 'FB', 'CB', 'CM', 'WM', 'CF']) {
+      if (role === p.role) continue;
+      const o = h('option', { value: role }, '→ ' + role) as HTMLOptionElement;
+      if (role === (p.retrainRole ?? '')) o.selected = true;
+      rtSel.append(o);
+    }
+    rtSel.addEventListener('change', async () => {
+      try { const r = await api.setPlayerRetrain(p.slot, rtSel.value || 'clear'); toast(r.retrainRole ? `${p.name}: retraining → ${r.retrainRole}` : `${p.name}: settled at ${p.role}`); screenTraining(); }
+      catch (e: any) { toast(e.message); }
+    });
+    const fam = Math.round(p.roleFamiliarity ?? 100);
+    const retrainCell = p.retrainRole
+      ? h('div', { style: 'min-width:90px' }, rtSel,
+          h('div', { style: 'margin-top:3px;height:5px;background:#26303f;border-radius:3px;overflow:hidden', title: `Settling into ${p.retrainRole}: ${fam}%` },
+            h('div', { style: `height:100%;width:${fam}%;background:var(--accent)` })),
+          h('div', { class: 'muted', style: 'font-size:10px;margin-top:1px' }, `settling ${fam}%`))
+      : rtSel;
     body.append(h('tr', {},
       h('td', {}, p.name, p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench') : ''),
       h('td', {}, h('span', { class: 'pill' }, p.role)),
@@ -1786,6 +1806,7 @@ async function screenTraining() {
       h('td', { class: 'num' }, room > 0 ? h('span', { class: 'a' }, `${pot} (+${room})`) : String(pot)),
       h('td', {}, pfSel),
       h('td', {}, piSel),
+      h('td', {}, retrainCell),
     ));
   }
 
@@ -1805,7 +1826,7 @@ async function screenTraining() {
         h('table', {},
           h('thead', {}, h('tr', {},
             h('th', {}, 'Player'), h('th', {}, 'Pos'),
-            h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'), h('th', {}, 'Focus'), h('th', {}, 'Intensity'))),
+            h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'), h('th', {}, 'Focus'), h('th', {}, 'Intensity'), h('th', {}, 'Retrain'))),
           body)),
     ),
   ));

@@ -143,6 +143,8 @@ ensureColumn('players', 'train_intensity', 'train_intensity TEXT');    // double
 ensureColumn('players', 'train_trait', 'train_trait TEXT');            // PPM/trait being learned; NULL = none
 ensureColumn('players', 'train_trait_prog', 'train_trait_prog REAL NOT NULL DEFAULT 0');      // 0..100; at 100 → merge into personality.traits
 ensureColumn('players', 'training_load', 'training_load REAL NOT NULL DEFAULT 0');            // Phase 2 burnout accumulator: rises with heavy load, decays each tick; high load dampens growth. 0 = identity
+ensureColumn('players', 'retrain_role', 'retrain_role TEXT');                                 // Phase 2 position retrain: target role being learned; NULL = settled in current role
+ensureColumn('players', 'role_familiarity', 'role_familiarity REAL NOT NULL DEFAULT 100');    // 0..100 comfort in the current role; new retrainees start low + climb each tick. 100 = settled (identity, no penalty)
 // (staff.specialty/attrs and training_reports.intensity/category_factors are added just after those tables' CREATE below — they're created later in this file.)
 
 // ── Seasons / divisions (pillar 3) ──────────────────────────────────────────

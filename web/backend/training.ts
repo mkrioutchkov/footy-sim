@@ -164,6 +164,23 @@ export function loadDampen(load: number): number {
   return Math.max(0.6, 1 - (load - 40) / 150);              // load 40→1.0 … 100→0.6 (floored)
 }
 
+// Position retrain (Phase 2): a player learning a NEW role is unsettled — he develops a touch slower until
+// he's comfortable, and his role_familiarity climbs each matchday (faster between related roles). Familiarity
+// 100 (the default) = fully settled → penalty 1.0, so a squad that never retrains is byte-identical.
+export const RETRAIN_ROLES = ['GK', 'FB', 'CB', 'CM', 'WM', 'CF'] as const;
+export const RETRAIN_START_FAMILIARITY = 25;   // a fresh retrainee starts here and climbs
+const ROLE_BAND: Record<string, string> = { GK: 'GK', FB: 'D', CB: 'D', CM: 'M', WM: 'M', CF: 'A' };
+// familiarity gained per matchday while retraining — a switch within a band (FB↔CB) settles faster than across (CB→CF).
+export function roleAdaptation(oldRole: string | undefined, newRole: string): number {
+  if (!oldRole || oldRole === newRole) return 12;
+  return ROLE_BAND[oldRole] === ROLE_BAND[newRole] ? 9 : 5;
+}
+// growth multiplier while adapting: 0% familiar → 0.7×, fully settled (100) → 1.0× (identity).
+export function retrainPenalty(familiarity: number): number {
+  const f = Math.max(0, Math.min(100, familiarity));
+  return 0.7 + 0.3 * (f / 100);
+}
+
 // OVR points of drift per matchday before trait/focus scaling: growth while young,
 // a prime plateau, then decline. TASTE: see GAME_LAYER_NOTES.md.
 function ageDrift(age: number): number {
@@ -183,15 +200,16 @@ export function developAttrs(
   attrs: Record<string, number>, age: number, potential: number,
   traits: { professionalism?: number; consistency?: number } | null | undefined,
   focus: string | null, morale = 65, coachFactor = 1, harmonyF = 1,
-  role?: string, growthMul = 1, loadDampenF = 1,
+  role?: string, growthMul = 1, loadDampenF = 1, retrainPenaltyF = 1,
 ): Record<string, number> {
   const prof = (traits?.professionalism ?? 50) / 100;
   const cons = (traits?.consistency ?? 50) / 100;
   const diligence = 0.6 + 0.8 * ((prof + cons) / 2);          // 0.6..1.4
   let drift = ageDrift(age) * diligence * moraleDevFactor(morale);   // age x diligence x morale
   // growthMul = training intensity (1 = normal/identity); coaches + a settled room accelerate growth, not
-  // decline; loadDampenF (1 = no burnout) trims gains when accumulated load is high. All default to 1.
-  if (drift > 0) drift *= growthMul * coachFactor * harmonyF * loadDampenF;
+  // decline; loadDampenF (1 = no burnout) trims gains when load is high; retrainPenaltyF (1 = settled) trims
+  // gains while a player adapts to a new role. All default to 1.
+  if (drift > 0) drift *= growthMul * coachFactor * harmonyF * loadDampenF * retrainPenaltyF;
   const move = drift >= 0 ? Math.min(drift, Math.max(0, potential - overall(attrs))) : drift;
   // A 'position' focus weights growth by role (spreads a single focus's bonus across the role's key
   // attributes); any other focus keeps the original single-attribute path → byte-identical drift for
@@ -278,7 +296,7 @@ export function developmentTick(leagueId: number): { players: number } {
   const rows = db.prepare(`
     SELECT p.id, p.team_id AS team_id, p.slot, p.name, p.role, p.attrs, p.age, p.potential,
            p.personality, p.morale, p.train_focus AS player_focus, p.train_intensity AS train_intensity,
-           p.training_load AS training_load,
+           p.training_load AS training_load, p.retrain_role AS retrain_role, p.role_familiarity AS role_familiarity,
            t.user_id AS user_id, t.training_focus AS focus, t.coach_assignment AS coach_assignment,
            t.training_intensity AS team_intensity
     FROM players p JOIN teams t ON t.id = p.team_id
@@ -286,10 +304,11 @@ export function developmentTick(leagueId: number): { players: number } {
     ORDER BY p.team_id, p.slot`).all(leagueId) as
     { id: number; team_id: number; slot: number; name: string; role: string; attrs: string; age: number;
       potential: number | null; personality: string | null; morale: number; player_focus: string | null;
-      train_intensity: string | null; training_load: number | null;
+      train_intensity: string | null; training_load: number | null; retrain_role: string | null; role_familiarity: number | null;
       user_id: number | null; focus: string | null; coach_assignment: string | null;
       team_intensity: string | null }[];
   const upd = db.prepare('UPDATE players SET attrs = ?, training_load = ? WHERE id = ?');
+  const retrainUpd = db.prepare('UPDATE players SET role = ?, retrain_role = ?, role_familiarity = ? WHERE id = ?');
   const coachCache = new Map<number, number>();   // team -> coaching factor (1 for AI/no-staff clubs)
   const coachOf = (tid: number): number => { let v = coachCache.get(tid); if (v === undefined) { v = coachingFactor(tid); coachCache.set(tid, v); } return v; };
   const harmonyCache = new Map<number, number>(); // team -> harmony factor (1.0 for a settled squad)
@@ -319,10 +338,17 @@ export function developmentTick(leagueId: number): { players: number } {
     const iFac = resolveIntensity(r.train_intensity, r.team_intensity);   // player override else club dial; both default to identity
     const load = r.training_load ?? 0;
     const dampen = loadDampen(load);                                      // burnout: high accumulated load trims this tick's gains (1 = none)
-    const after = developAttrs(before, r.age, r.potential, traits, focus, r.morale, coachF, harmonyF, r.role, iFac.growthMul, dampen);
+    const retrainPen = r.retrain_role ? retrainPenalty(r.role_familiarity ?? 100) : 1;   // unsettled players develop a little slower (1 = settled)
+    const after = developAttrs(before, r.age, r.potential, traits, focus, r.morale, coachF, harmonyF, r.role, iFac.growthMul, dampen, retrainPen);
     // accrue/bleed the load: it decays each matchday and rises with the intensity's loadAdd (0 at normal).
     const nextLoad = Math.max(0, Math.min(120, load * LOAD_DECAY + iFac.loadAdd));
     upd.run(JSON.stringify(after), nextLoad, r.id);
+    // position retrain: climb familiarity in the target role; once fully comfortable, commit the new role.
+    if (r.retrain_role) {
+      const fam = Math.min(100, (r.role_familiarity ?? 0) + roleAdaptation(r.role, r.retrain_role));
+      if (fam >= 100) retrainUpd.run(r.retrain_role, null, 100, r.id);   // settled — he IS a <new role> now
+      else retrainUpd.run(r.role, r.retrain_role, fam, r.id);            // still adapting
+    }
     n++;
     if (r.user_id != null) {
       let rep = reports.get(r.team_id);
@@ -398,4 +424,17 @@ export function setTeamTrainingIntensity(teamId: number, level: string): { ok: b
   const v = VALID_TEAM_INTENSITY.has(level) ? level : 'normal';
   db.prepare('UPDATE teams SET training_intensity = ? WHERE id = ?').run(v, teamId);
   return { ok: true, intensity: v };
+}
+
+// Start (or clear) a position RETRAIN for one player (Phase 2). An empty value, an invalid role, or the
+// player's CURRENT role clears the retrain (he settles, familiarity back to 100 → byte-identical growth).
+// A valid different role starts the retrain from a low familiarity that climbs each matchday. Scoped to the
+// caller's squad by the slot lookup, so a bad slot is a silent no-op.
+export function setPlayerRetrain(teamId: number, slot: number, role: string): { ok: boolean; retrainRole: string | null } {
+  const p = db.prepare('SELECT id, role FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as { id: number; role: string } | undefined;
+  if (!p) return { ok: false, retrainRole: null };
+  const clear = role === '' || role === p.role || !(RETRAIN_ROLES as readonly string[]).includes(role);
+  if (clear) { db.prepare('UPDATE players SET retrain_role = NULL, role_familiarity = 100 WHERE id = ?').run(p.id); return { ok: true, retrainRole: null }; }
+  db.prepare('UPDATE players SET retrain_role = ?, role_familiarity = ? WHERE id = ?').run(role, RETRAIN_START_FAMILIARITY, p.id);
+  return { ok: true, retrainRole: role };
 }

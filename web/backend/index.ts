@@ -19,7 +19,7 @@ import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers } from './market.ts';
 import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } from './plan.ts';
-import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, setTeamTrainingIntensity, applyTrainingPreset, TRAINING_PRESETS, getTrainingReport, TRAINABLE, VALID_FOCUS, VALID_INTENSITY, VALID_TEAM_INTENSITY } from './training.ts';
+import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, setTeamTrainingIntensity, applyTrainingPreset, TRAINING_PRESETS, setPlayerRetrain, RETRAIN_ROLES, getTrainingReport, TRAINABLE, VALID_FOCUS, VALID_INTENSITY, VALID_TEAM_INTENSITY } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
 import { seedAcademy, getAcademy, promoteProspect } from './youth.ts';
 import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from './teamtalk.ts';
@@ -712,6 +712,21 @@ app.put('/api/training/preset', async (req: any, reply) => {
   if (!Object.prototype.hasOwnProperty.call(TRAINING_PRESETS, name)) return reply.code(400).send({ error: `preset must be one of: ${Object.keys(TRAINING_PRESETS).join(', ')}` });
   const r = applyTrainingPreset(teamId, name);
   if (!r.ok) return reply.code(400).send({ error: r.error ?? 'could not apply preset' });
+  return r;
+});
+
+// Start/clear a position RETRAIN for one player ('' or his current role clears it → he settles).
+// A valid different role starts a settling-in period during which he develops a little slower.
+app.put('/api/training/retrain', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.body?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot must be an integer' });
+  const role = String(req.body?.role ?? '');
+  if (role && role !== 'clear' && !(RETRAIN_ROLES as readonly string[]).includes(role)) return reply.code(400).send({ error: `role must be one of: ${RETRAIN_ROLES.join(', ')}` });
+  const r = setPlayerRetrain(teamId, slot, role === 'clear' ? '' : role);
+  if (!r.ok) return reply.code(404).send({ error: 'no such player in your squad' });
   return r;
 });
 
