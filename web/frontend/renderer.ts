@@ -732,6 +732,7 @@ export class MatchRenderer {
 
     // ── carrier ring ──
     this.ringGfx.clear();
+    let bylineRun = false;
     if (b.controllerId !== null) {
       const ctrl = byId.get(b.controllerId);
       if (ctrl) {
@@ -740,8 +741,22 @@ export class MatchRenderer {
         const rc = ctrl.team === 'home' ? HOME_COLOR : AWAY_COLOR;
         this.ringGfx.circle(vc.x, vc.y, PLAYER_R + (ctrl.dribbleType === 3 ? 10 : 7));
         this.ringGfx.stroke({ width: ctrl.dribbleType === 3 ? 4 : 3, color: rc, alpha: ctrl.dribbleType === 3 ? Math.min(0.85, pulse + 0.25) : pulse });
+        // byline-run cue: a WIDE carrier driving onto the ATTACKING byline (the build-up to Boris's cutback) gets a
+        // lime glow — flags "at the byline, pull-back coming", so the box-finish play reads from the approach. Geometric
+        // (attacking goal-line from homeAttacksX + a wide channel), so it's live now without an engine hint.
+        if (this.homeAttacksX !== null) {
+          const attackX = ctrl.team === 'home' ? this.homeAttacksX : (this.homeAttacksX === 0 ? PITCH_W : 0);
+          if (Math.abs(ctrl.x - attackX) < 60 && (ctrl.y < PITCH_H * 0.22 || ctrl.y > PITCH_H * 0.78)) {
+            bylineRun = true;
+            this.ringGfx.circle(vc.x, vc.y, PLAYER_R + 14);
+            this.ringGfx.stroke({ width: 3, color: 0x66ff99, alpha: Math.min(0.8, pulse + 0.4) });
+          }
+        }
       }
     }
+    const __bw = window as unknown as { __bylineActive?: boolean; __bylineSeen?: boolean };
+    __bw.__bylineActive = bylineRun;
+    if (bylineRun) __bw.__bylineSeen = true;
 
     // ── ball ──
     const arcOffset = vb.z * 0.7;
