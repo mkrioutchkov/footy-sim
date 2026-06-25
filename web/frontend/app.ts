@@ -1729,6 +1729,17 @@ async function screenTraining() {
       try { const r = await api.setPlayerTraining(p.slot, pfSel.value); toast(r.focus ? `${p.name}: ${focusLabel(r.focus)}` : `${p.name} follows the club focus`); }
       catch (e: any) { toast(e.message); }
     });
+    // per-player training intensity — faster growth at a higher injury cost (normal = the default / byte-identical)
+    const piSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px', title: 'Higher intensity grows faster but raises injury risk; rest recovers' }) as HTMLSelectElement;
+    for (const [iv, lbl] of [['normal', 'Normal'], ['double', 'Double ↑'], ['half', 'Light'], ['rest', 'Rest']]) {
+      const o = h('option', { value: iv }, lbl) as HTMLOptionElement;
+      if (iv === (p.trainIntensity ?? 'normal')) o.selected = true;
+      piSel.append(o);
+    }
+    piSel.addEventListener('change', async () => {
+      try { const r = await api.setPlayerIntensity(p.slot, piSel.value); toast(`${p.name}: ${r.intensity ?? 'normal'} training`); }
+      catch (e: any) { toast(e.message); }
+    });
     body.append(h('tr', {},
       h('td', {}, p.name, p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench') : ''),
       h('td', {}, h('span', { class: 'pill' }, p.role)),
@@ -1736,6 +1747,7 @@ async function screenTraining() {
       h('td', { class: 'num' }, String(ovr)),
       h('td', { class: 'num' }, room > 0 ? h('span', { class: 'a' }, `${pot} (+${room})`) : String(pot)),
       h('td', {}, pfSel),
+      h('td', {}, piSel),
     ));
   }
 
@@ -1753,7 +1765,7 @@ async function screenTraining() {
         h('table', {},
           h('thead', {}, h('tr', {},
             h('th', {}, 'Player'), h('th', {}, 'Pos'),
-            h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'), h('th', {}, 'Focus'))),
+            h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'), h('th', {}, 'Focus'), h('th', {}, 'Intensity'))),
           body)),
     ),
   ));
@@ -2237,6 +2249,38 @@ async function screenStaff() {
         h('td', { class: 'num' }, hire)));
     }
 
+    // Coaching focus board: assign coaches to a category → those attributes grow faster (the +% rises). Unassigned
+    // categories use the flat club coaching factor (byte-identical to before the feature).
+    const coaches = v.staff.filter(s => s.role === 'coach');
+    const clampStar = (n: number) => Math.round(Math.max(0, Math.min(5, n)));
+    const starStr = (n: number) => '★'.repeat(clampStar(n)) + '☆'.repeat(5 - clampStar(n));
+    const factorColor = (f: number) => f > 1.02 ? 'var(--accent)' : f < 0.98 ? 'var(--danger)' : 'var(--muted)';
+    const boardCard = h('div', { class: 'card' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, 'Coaching focus'),
+      h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:4px' }, coaches.length
+        ? 'Assign a coach to a category to sharpen those attributes faster. Unassigned categories use your flat club coaching.'
+        : 'Hire coaches, then assign them to categories here to specialise your training.'),
+      ...(v.categories ?? []).map(c => {   // ?? [] = graceful if the shared :4000 hasn't restarted onto the new staff view yet
+        const sel = h('select', { class: 'small', multiple: 'true', size: String(Math.max(2, Math.min(coaches.length, 4))), style: 'min-width:150px' }) as HTMLSelectElement;
+        for (const coach of coaches) {
+          const o = h('option', { value: String(coach.id) }, `${coach.name} · ${coach.rating}`) as HTMLOptionElement;
+          if (c.assigned.includes(coach.id)) o.selected = true;
+          sel.append(o);
+        }
+        sel.addEventListener('change', async () => {
+          const assignment: Record<string, number[]> = Object.fromEntries(v.categories.map(cc => [cc.category, [...cc.assigned]]));
+          assignment[c.category] = [...sel.selectedOptions].map(o => Number(o.value));
+          try { v = await api.saveCoachAssignment(assignment); toast(`${c.category} coaching updated`); render(); } catch (er: any) { toast(er.message); }
+        });
+        return h('div', { class: 'between', style: 'padding:7px 0;border-top:1px solid var(--line);gap:12px;align-items:center' },
+          h('div', { style: 'min-width:96px' },
+            h('div', { style: 'font-weight:600;font-size:13px' }, c.category),
+            h('div', { class: 'muted', style: 'font-size:11px' }, c.assigned.length ? `${starStr(c.stars)} · cover ${Math.round(c.coverage * 100)}%` : 'flat club coaching')),
+          h('div', { style: 'font-size:16px;font-weight:800;min-width:52px;text-align:center;color:' + factorColor(c.factor) }, `${c.factor >= 1 ? '+' : ''}${Math.round((c.factor - 1) * 100)}%`),
+          coaches.length ? sel : h('span', { class: 'muted', style: 'font-size:11px' }, '—'));
+      }),
+    );
+
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Backroom staff'),
@@ -2249,6 +2293,7 @@ async function screenStaff() {
           stat('🩺', `−${e.injuryReduction}%`, 'Injury risk'),
           stat('💪', `+${e.recoverBonus}`, 'Match recovery'),
           stat('🔍', `+${e.scoutDepth}`, 'Scouted players'))),
+      boardCard,
       h('div', { class: 'grid cols-2', style: 'align-items:start' },
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your staff'),
