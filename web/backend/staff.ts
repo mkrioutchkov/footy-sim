@@ -179,3 +179,40 @@ export function suggestCoachAssignment(teamId: number): Record<string, number[]>
   }
   return map;
 }
+
+// The current persisted coach assignment (parsed), or null when unassigned (flat development — byte-identical).
+export function getCoachAssignment(teamId: number): Record<string, number[]> | null {
+  const row = db.prepare('SELECT coach_assignment FROM teams WHERE id = ?').get(teamId) as { coach_assignment: string | null } | undefined;
+  if (!row?.coach_assignment) return null;
+  try { return JSON.parse(row.coach_assignment) as Record<string, number[]>; } catch { return null; }
+}
+
+// Validate + persist a category→coach assignment (the manager's explicit choice — this is what ACTIVATES per-category
+// development). Each category must be a real coaching category and each id a coach the club owns; anything else is
+// dropped. An empty result stores NULL → reverts to the flat coachingFactor (byte-identical development).
+export function saveCoachAssignment(teamId: number, assignment: Record<string, number[]> | null): { ok: boolean } {
+  const own = new Set((db.prepare("SELECT id FROM staff WHERE team_id = ? AND role = 'coach'").all(teamId) as { id: number }[]).map(r => r.id));
+  const clean: Record<string, number[]> = {};
+  if (assignment && typeof assignment === 'object') {
+    for (const cat of Object.keys(CATEGORY_COACH_ATTR)) {
+      const ids = Array.isArray(assignment[cat]) ? assignment[cat].map(Number).filter(id => own.has(id)) : [];
+      if (ids.length) clean[cat] = [...new Set(ids)];
+    }
+  }
+  db.prepare('UPDATE teams SET coach_assignment = ? WHERE id = ?').run(Object.keys(clean).length ? JSON.stringify(clean) : null, teamId);
+  return { ok: true };
+}
+
+// The 4-category coaching board for the staff screen: stars / coverage / development factor + the assigned coach ids.
+export interface CategoryBoard { category: string; stars: number; coverage: number; factor: number; assigned: number[]; }
+export function categoryBoard(teamId: number): CategoryBoard[] {
+  const assignment = getCoachAssignment(teamId);
+  const json = assignment ? JSON.stringify(assignment) : null;
+  return Object.keys(CATEGORY_COACH_ATTR).map(category => ({
+    category,
+    stars: categoryStars(teamId, json, category),
+    coverage: categoryCoverage(teamId, json, category),
+    factor: categoryCoachFactor(teamId, json, category),
+    assigned: assignment?.[category] ?? [],
+  }));
+}

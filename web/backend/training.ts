@@ -317,3 +317,14 @@ export function setPlayerTrainingFocus(teamId: number, slot: number, focus: stri
   if (!res.changes) return { ok: false, focus: null };
   return { ok: true, focus: f };
 }
+
+export const VALID_INTENSITY = new Set<string>(['double', 'normal', 'half', 'rest']);
+// Per-player training intensity. '' / 'normal' / invalid → NULL (the normal default → byte-identical growth + injury).
+// Scoped to the caller's squad by the slot lookup, so a bad slot is a silent no-op.
+export function setPlayerTrainingIntensity(teamId: number, slot: number, value: string): { ok: boolean; intensity: string | null } {
+  const clear = value === '' || value === 'normal' || !VALID_INTENSITY.has(value);
+  const v = clear ? null : value;
+  const res = db.prepare('UPDATE players SET train_intensity = ? WHERE team_id = ? AND slot = ?').run(v, teamId, slot);
+  if (!res.changes) return { ok: false, intensity: null };
+  return { ok: true, intensity: v };
+}
