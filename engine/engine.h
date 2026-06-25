@@ -259,6 +259,7 @@ public:
         Team team = Team::Home;
         bool isCross = false;
         bool isThrough = false;
+        bool isCutback = false;   // render-hint only: in-flight ball is a pulled-back cutback (Gaylord's box-finish lime cue); never read by gameplay
         bool offsideExempt = false;
         // The law judges the receiver's position at the MOMENT the ball is
         // played — captured here; judging at collection flagged legal runs.
@@ -414,7 +415,7 @@ public:
     void emitEvent(const std::string&, double, double, int=-1, int=-1, bool traceOnly=false);
     void blockReboundFor(int playerId, double ms);
     void recordBallImpulse();
-    void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false);
+    void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false, bool isCutback = false);
     bool resolvePendingPass(Player& receiver);
     void auditStuckCarrier(double sdt);
     void updateTeamAssignments();

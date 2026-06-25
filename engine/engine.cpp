@@ -934,7 +934,7 @@ std::string GameEngine::getJSON() const {
     j["ball"] = {
         {"x", std::round(b.x * 10) / 10}, {"y", std::round(b.y * 10) / 10},
         {"vx", std::round(b.vx * 10) / 10}, {"vy", std::round(b.vy * 10) / 10},
-        {"z", std::round(b.z * 10) / 10}, {"curl", std::round(b.curl * 1000) / 1000},
+        {"z", std::round(b.z * 10) / 10}, {"curl", std::round(b.curl * 1000) / 1000}, {"cutback", pendingPass.active && pendingPass.isCutback},
         {"controllerId", b.controllerId >= 0 ? nlohmann::json(b.controllerId) : nlohmann::json(nullptr)},
         {"intendedReceiverId", b.intendedReceiverId >= 0 ? nlohmann::json(b.intendedReceiverId) : nlohmann::json(nullptr)},
         {"lastTouchTeam", std::string(to_string(b.lastTouchTeam))},

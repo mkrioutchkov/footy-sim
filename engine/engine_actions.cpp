@@ -37,7 +37,7 @@ void GameEngine::emitEvent(const std::string& type,double x,double y,int playerI
     while(visualEvents.size()>32)visualEvents.erase(visualEvents.begin());
 }
 
-void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isThrough) {
+void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isThrough,bool isCutback) {
     stats.recordPassAttempt();
     if (from.id >= 0 && from.id < 22) pPasses[from.id]++;   // per-player rating input
     if(isThrough) stats.recordThroughBallAttempt();
@@ -56,7 +56,7 @@ void GameEngine::beginTrackedPass(Player& from,Player& to,bool isCross,bool isTh
     bool beyondPasser = fd > 0.0 ? to.x > from.x + OFFSIDE_TOLERANCE : to.x < from.x - OFFSIDE_TOLERANCE;
     bool beyondLine = fd > 0.0 ? to.x > line + OFFSIDE_TOLERANCE : to.x < line - OFFSIDE_TOLERANCE;
     bool receiverOffsideAtPass = beyondHalf && beyondPasser && beyondLine;
-    pendingPass={true,from.id,to.id,from.team,isCross,isThrough,offsideExempt,receiverOffsideAtPass,from.x,from.y,line};
+    pendingPass={true,from.id,to.id,from.team,isCross,isThrough,isCutback,offsideExempt,receiverOffsideAtPass,from.x,from.y,line};
     // Snapshot EVERY attacking teammate's offside status now (the law judges position when the ball is played).
     pendingPass.offsideAtPass = {};
     for(auto& tm : state.players){
@@ -346,6 +346,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     bool fromWide=std::abs(f.y-PITCH_H/2)>130;
     bool intoBox=std::abs(predX-goalX)<270&&std::abs(predY-PITCH_H/2)<190;
     bool selectedCross=audit&&audit->purpose==ActionPurpose::Cross&&fromWide&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall;
+    bool selectedCutback=audit&&audit->purpose==ActionPurpose::Cutback;   // render-hint only (Gaylord's lime cutback cue); not read by gameplay
     bool whippedCross=fromWide&&intoBox&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall
         &&(!audit||(audit->purpose!=ActionPurpose::Cutback&&audit->purpose!=ActionPurpose::Through&&audit->purpose!=ActionPurpose::Cross));
     // Only deliberate (selected) crosses count as crosses — counting every
@@ -409,7 +410,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         bool riskyFlag=audit->blockers>0||audit->receiverPressure>0||audit->expectedCompletion<0.58;
         stats.recordPassSelection(audit->distance,audit->expectedCompletion,audit->blockers,audit->receiverPressure,riskyFlag,audit->saferOptionTargetId);
     }
-    beginTrackedPass(f,t,selectedCross,throughBall);
+    beginTrackedPass(f,t,selectedCross,throughBall,selectedCutback);
     if(audit){ pendingPass.auComp=audit->expectedCompletion; pendingPass.auBlk=audit->blockers; pendingPass.auPress=(int)audit->receiverPressure; pendingPass.auFwd=audit->forwardProgress; pendingPass.auSafer=audit->saferOptionCompletion; pendingPass.auSaferId=audit->saferOptionTargetId; }
     return true;
 }
