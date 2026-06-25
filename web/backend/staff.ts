@@ -8,7 +8,7 @@ import { randomPlayerName } from './names.ts';
 import { recordFinance } from './finances.ts';
 
 export type StaffRole = 'coach' | 'physio' | 'scout';
-export interface StaffRow { id: number; role: StaffRole; name: string; rating: number; cost: number; }
+export interface StaffRow { id: number; role: StaffRole; name: string; rating: number; cost: number; specialty?: string | null; }
 
 const ROLES: StaffRole[] = ['coach', 'physio', 'scout'];
 export const MAX_STAFF = 8;     // a club can employ at most this many
@@ -36,13 +36,18 @@ export function seedStaffPool(worldId: number): void {
   }
 }
 
-export function getStaffView(teamId: number): { staff: StaffRow[]; pool: StaffRow[]; budget: number; max: number; effects: ReturnType<typeof staffEffectsSummary> } {
+export function getStaffView(teamId: number): {
+  staff: StaffRow[]; pool: StaffRow[]; budget: number; max: number; effects: ReturnType<typeof staffEffectsSummary>;
+  categories: CategoryBoard[]; suggestion: Record<string, number[]>; assignmentSet: boolean;
+} {
   const wid = worldOf(teamId);
   if (wid != null) seedStaffPool(wid);
-  const mine = db.prepare('SELECT id, role, name, rating, cost FROM staff WHERE team_id = ? ORDER BY role, rating DESC').all(teamId) as unknown as StaffRow[];
-  const pool = wid == null ? [] : db.prepare('SELECT id, role, name, rating, cost FROM staff WHERE world_id = ? AND team_id IS NULL ORDER BY role, rating DESC').all(wid) as unknown as StaffRow[];
+  const mine = db.prepare('SELECT id, role, name, rating, cost, specialty FROM staff WHERE team_id = ? ORDER BY role, rating DESC').all(teamId) as unknown as StaffRow[];
+  const pool = wid == null ? [] : db.prepare('SELECT id, role, name, rating, cost, specialty FROM staff WHERE world_id = ? AND team_id IS NULL ORDER BY role, rating DESC').all(wid) as unknown as StaffRow[];
   const budget = (db.prepare('SELECT budget FROM teams WHERE id = ?').get(teamId) as { budget: number }).budget;
-  return { staff: mine, pool, budget, max: MAX_STAFF, effects: staffEffectsSummary(teamId) };
+  // the 4-category coaching board + a by-specialty suggestion + whether the manager has explicitly assigned (vs flat)
+  return { staff: mine, pool, budget, max: MAX_STAFF, effects: staffEffectsSummary(teamId),
+    categories: categoryBoard(teamId), suggestion: suggestCoachAssignment(teamId), assignmentSet: getCoachAssignment(teamId) != null };
 }
 
 export function hireStaff(teamId: number, staffId: number): { ok: boolean; error?: string; name?: string } {

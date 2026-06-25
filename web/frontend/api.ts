@@ -44,7 +44,7 @@ export interface PersonalityT {
   traits: { temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number; consistency: number; leadership: number; professionalism: number; ego: number };
   nationality: string; backstory: string; tagline: string;
 }
-export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; fitness?: number; injuredMatches?: number; morale?: number; trainFocus?: string | null; }
+export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; fitness?: number; injuredMatches?: number; morale?: number; trainFocus?: string | null; trainIntensity?: string | null; }
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
@@ -119,9 +119,10 @@ export interface ScoutT {
   venue: 'home' | 'away'; round: number; roundsAway: number; approach: string[]; form: ScoutFormT[]; keyPlayers: ScoutPlayerT[]; bench: ScoutPlayerT[];
 }
 
-export interface StaffMemberT { id: number; role: 'coach' | 'physio' | 'scout'; name: string; rating: number; cost: number; }
+export interface StaffMemberT { id: number; role: 'coach' | 'physio' | 'scout'; name: string; rating: number; cost: number; specialty?: string | null; }
 export interface StaffEffectsT { training: number; injuryReduction: number; recoverBonus: number; scoutDepth: number; }
-export interface StaffViewT { staff: StaffMemberT[]; pool: StaffMemberT[]; budget: number; max: number; effects: StaffEffectsT; }
+export interface CategoryBoardT { category: string; stars: number; coverage: number; factor: number; assigned: number[]; }
+export interface StaffViewT { staff: StaffMemberT[]; pool: StaffMemberT[]; budget: number; max: number; effects: StaffEffectsT; categories: CategoryBoardT[]; suggestion: Record<string, number[]>; assignmentSet: boolean; }
 
 export interface FinanceEntryT { season: number; kind: string; amount: number; note: string; }
 export interface FinanceSeasonT { season: number; income: number; expense: number; net: number; }
@@ -244,6 +245,8 @@ export const api = {
   staff: () => req<StaffViewT>('GET', '/staff'),
   hireStaff: (staffId: number) => req<StaffViewT & { name?: string }>('POST', '/staff/hire', { staffId }),
   fireStaff: (staffId: number) => req<StaffViewT>('POST', '/staff/fire', { staffId }),
+  saveCoachAssignment: (assignment: Record<string, number[]> | null) => req<StaffViewT>('PUT', '/staff/assignment', { assignment }),
+  setPlayerIntensity: (slot: number, value: string) => req<{ ok: boolean; intensity: string | null }>('PUT', '/training/player-intensity', { slot, value }),
   finances: () => req<FinancesT>('GET', '/finances'),
   harmony: () => req<HarmonyT>('GET', '/harmony'),
   rotation: () => req<RotationT>('GET', '/rotation'),

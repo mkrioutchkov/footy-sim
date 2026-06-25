@@ -19,7 +19,7 @@ import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers } from './market.ts';
 import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } from './plan.ts';
-import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, getTrainingReport, TRAINABLE, VALID_FOCUS } from './training.ts';
+import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, getTrainingReport, TRAINABLE, VALID_FOCUS, VALID_INTENSITY } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
 import { seedAcademy, getAcademy, promoteProspect } from './youth.ts';
 import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from './teamtalk.ts';
@@ -35,7 +35,7 @@ import { buildScoutReport } from './scout.ts';
 import { getHistory, getClubRecords } from './history.ts';
 import { getObjective } from './objectives.ts';
 import { getConfidence, boardMood, recruitmentBacking, boardMessages } from './confidence.ts';
-import { getStaffView, hireStaff, fireStaff } from './staff.ts';
+import { getStaffView, hireStaff, fireStaff, saveCoachAssignment } from './staff.ts';
 import { getFinances, payMatchdayIncome } from './finances.ts';
 import { getSquadHarmony } from './harmony.ts';
 import { processMatchAftermath, recentNews } from './news.ts';
@@ -677,6 +677,20 @@ app.put('/api/training/player', async (req: any, reply) => {
   return r;
 });
 
+// Set ONE player's training intensity (double|normal|half|rest). ''/'normal'/invalid clears to the normal default.
+app.put('/api/training/player-intensity', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.body?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot must be an integer' });
+  const value = String(req.body?.value ?? '');
+  if (value && value !== 'normal' && !VALID_INTENSITY.has(value)) return reply.code(400).send({ error: 'intensity must be one of: double, normal, half, rest' });
+  const r = setPlayerTrainingIntensity(teamId, slot, value);
+  if (!r.ok) return reply.code(404).send({ error: 'no such player in your squad' });
+  return r;
+});
+
 // The latest per-matchday training report for the club (null until the first matchday develops
 // the squad): attribute drift per player + the factors behind it + the staff/harmony contribution.
 app.get('/api/training-report', async (req: any, reply) => {
@@ -852,6 +866,17 @@ app.post('/api/staff/fire', async (req: any, reply) => {
   const r = fireStaff(teamId, staffId);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, ...getStaffView(teamId) };
+});
+
+// Save the category→coach assignment (what ACTIVATES per-category development). A missing/empty assignment reverts
+// to the flat coaching factor (byte-identical). Returns the refreshed staff view so the board re-renders.
+app.put('/api/staff/assignment', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const assignment = (req.body && typeof req.body.assignment === 'object') ? req.body.assignment : null;
+  saveCoachAssignment(teamId, assignment);
+  return getStaffView(teamId);
 });
 
 // The club's finances statement: balance, this-season income/expense by category, recent movements.
