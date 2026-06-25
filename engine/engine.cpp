@@ -1266,7 +1266,19 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
     a.shooting = form(a.shooting); a.tackling = form(a.tackling); a.positioning = form(a.positioning);
     a.stamina = form(a.stamina);
     a.handling = a.positioning;   // legend keepers: handling = positioning (no extra rng roll — preserves the stream)
-    a.height = a.positioning;     // legends: height = positioning => aerial duel unchanged (golden-safe)
+    // Distinct per-legend aerial height (0-100) so the EXISTING height-weighted aerial duel
+    // (engine_physics.cpp:395, 0.5 positioning + 0.5 height) actually bites: tall CBs / target-men
+    // win headers vs small playmakers, instead of a flat positioning-only ~50/50. NOT cz-compressed
+    // (height drives aerial contests, not the over-conversion the cz targets) and no rng draw (the
+    // stream is preserved). Legend-only — spec/golden teams return above with their own attrs, so
+    // the golden stays byte-identical.
+    static const double legendHeight[22] = {
+        /*0 Buffon*/65, /*1 D.Alves*/52, /*2 Ramos*/85, /*3 Pique*/86, /*4 Marcelo*/55,
+        /*5 Iniesta*/48, /*6 Xavi*/46, /*7 Modric*/50, /*8 Neymar*/54, /*9 Messi*/45, /*10 Ronaldinho*/62,
+        /*11 Neuer*/68, /*12 Lahm*/46, /*13 VanDijk*/92, /*14 Chiellini*/84, /*15 Alba*/46,
+        /*16 Kroos*/62, /*17 DeBruyne*/60, /*18 Busquets*/74, /*19 Robben*/56, /*20 Ronaldo*/88, /*21 Bale*/78,
+    };
+    a.height = (id >= 0 && id < 22) ? legendHeight[id] : a.positioning;
     return Player{id, legendNameFor(id, t), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
         a, t == Team::Home ? 0.0 : PI};
 }
