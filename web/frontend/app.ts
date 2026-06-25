@@ -1822,6 +1822,18 @@ async function screenTraining() {
       h('div', { class: 'row', style: 'align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap' },
         h('span', { class: 'section-title', style: 'margin:0' }, 'Club training focus'), sel,
         h('span', { class: 'section-title', style: 'margin:0 0 0 10px' }, 'Intensity'), tiSel, tiHint),
+      (() => {
+        // squad load at a glance — surfaces the per-player overrides + retrains against the club dial
+        const piCount = (v: string) => team.players.filter(p => p.trainIntensity === v).length;
+        const retraining = team.players.filter(p => p.retrainRole).length;
+        const bits: string[] = [];
+        if (piCount('double')) bits.push(`${piCount('double')} on Double ↑`);
+        if (piCount('half')) bits.push(`${piCount('half')} on Light`);
+        if (piCount('rest')) bits.push(`${piCount('rest')} Resting`);
+        if (retraining) bits.push(`${retraining} retraining`);
+        return h('div', { class: 'muted', style: 'font-size:12px;margin:0 0 4px' },
+          bits.length ? `Squad: ${bits.join(' · ')} — everyone else on the club dial` : 'Squad: every player on the club default');
+      })(),
       h('div', { style: 'max-height:540px;overflow:auto;margin-top:8px' },
         h('table', {},
           h('thead', {}, h('tr', {},
