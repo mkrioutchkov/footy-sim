@@ -138,7 +138,8 @@ export interface TrainLineT {
   ovrBefore: number; ovrAfter: number; ovrDelta: number;
   attrs: TrainAttrDeltaT[]; factors: string[];
 }
-export interface TrainingReportT { season: number; round: number; teamFocus: string; coachBoost: number; harmonyFactor: number; lines: TrainLineT[]; }
+export interface CategoryFactorT { category: string; stars: number; coverage: number; factor: number; assigned: number[]; }
+export interface TrainingReportT { season: number; round: number; teamFocus: string; coachBoost: number; harmonyFactor: number; lines: TrainLineT[]; categoryFactors?: CategoryFactorT[]; }
 
 export interface ContractOfferT { id: number; playerSlot: number | null; playerName: string; wage: number; years: number; status: string; counterWage: number | null; counterYears: number | null; }
 export interface AcademyProspectT { id: number; name: string; role: string; age: number; overall: number; potential: number | null; attrs: Record<string, number>; }

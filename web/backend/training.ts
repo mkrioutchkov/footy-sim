@@ -13,7 +13,7 @@
 import { db } from './db.ts';
 import { overall } from './game.ts';
 import { moraleDevFactor } from './morale.ts';
-import { coachingFactor, categoryCoachFactor } from './staff.ts';
+import { coachingFactor, categoryCoachFactor, categoryBoard, type CategoryBoard } from './staff.ts';
 import { getSquadHarmony, harmonyFactor } from './harmony.ts';
 
 export const TRAINABLE = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'] as const;
@@ -359,34 +359,36 @@ export function developmentTick(leagueId: number): { players: number } {
   if (reports.size) {
     const round = (db.prepare('SELECT MAX(round) AS r FROM fixtures WHERE league_id = ? AND played = 1').get(leagueId) as { r: number | null }).r ?? 0;
     const season = (db.prepare('SELECT season FROM leagues WHERE id = ?').get(leagueId) as { season: number } | undefined)?.season ?? 1;
-    for (const [teamId, rep] of reports) recordTrainingReport(teamId, season, round, rep.focus, rep.lines, coachOf(teamId), harmonyOf(teamId));
+    for (const [teamId, rep] of reports) recordTrainingReport(teamId, season, round, rep.focus, rep.lines, coachOf(teamId), harmonyOf(teamId), categoryBoard(teamId));
   }
   return { players: n };
 }
 
 // Persist (and prune to) the latest training report for a club. Latest-only keeps the table tiny
 // and matches the screen (which shows the most recent session).
-function recordTrainingReport(teamId: number, season: number, round: number, teamFocus: string, lines: TrainLine[], coachFactor: number, harmonyF: number): void {
+function recordTrainingReport(teamId: number, season: number, round: number, teamFocus: string, lines: TrainLine[], coachFactor: number, harmonyF: number, categoryFactors: CategoryBoard[]): void {
   db.prepare('DELETE FROM training_reports WHERE team_id = ?').run(teamId);
-  db.prepare(`INSERT INTO training_reports (team_id, season, round, team_focus, coach_factor, harmony_factor, lines, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(teamId, season, round, teamFocus, coachFactor, harmonyF, JSON.stringify(lines), Date.now());
+  db.prepare(`INSERT INTO training_reports (team_id, season, round, team_focus, coach_factor, harmony_factor, lines, category_factors, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(teamId, season, round, teamFocus, coachFactor, harmonyF, JSON.stringify(lines), JSON.stringify(categoryFactors), Date.now());
 }
 
 export interface TrainingReport {
-  season: number; round: number; teamFocus: string; coachBoost: number; harmonyFactor: number; lines: TrainLine[];
+  season: number; round: number; teamFocus: string; coachBoost: number; harmonyFactor: number; lines: TrainLine[]; categoryFactors: CategoryBoard[];
 }
 
 // The latest training report for a club (null until the first matchday develops the squad).
 export function getTrainingReport(teamId: number): TrainingReport | null {
-  const row = db.prepare('SELECT season, round, team_focus, coach_factor, harmony_factor, lines FROM training_reports WHERE team_id = ? ORDER BY id DESC LIMIT 1')
-    .get(teamId) as { season: number; round: number; team_focus: string; coach_factor: number; harmony_factor: number; lines: string } | undefined;
+  const row = db.prepare('SELECT season, round, team_focus, coach_factor, harmony_factor, lines, category_factors FROM training_reports WHERE team_id = ? ORDER BY id DESC LIMIT 1')
+    .get(teamId) as { season: number; round: number; team_focus: string; coach_factor: number; harmony_factor: number; lines: string; category_factors: string | null } | undefined;
   if (!row) return null;
   let lines: TrainLine[] = [];
   try { lines = JSON.parse(row.lines) as TrainLine[]; } catch { lines = []; }
+  let categoryFactors: CategoryBoard[] = [];
+  try { categoryFactors = row.category_factors ? JSON.parse(row.category_factors) as CategoryBoard[] : []; } catch { categoryFactors = []; }
   return {
     season: row.season, round: row.round, teamFocus: row.team_focus,
-    coachBoost: Math.round((row.coach_factor - 1) * 100), harmonyFactor: row.harmony_factor, lines,
+    coachBoost: Math.round((row.coach_factor - 1) * 100), harmonyFactor: row.harmony_factor, lines, categoryFactors,
   };
 }
 

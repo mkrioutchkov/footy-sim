@@ -1742,12 +1742,27 @@ async function screenTraining() {
         l.factors.length ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:4px' }, l.factors.join(' · ')) : '');
     });
 
+    // per-category coaching board snapshot — shows which categories the staff is driving (★ + growth %)
+    const catRow = report.categoryFactors && report.categoryFactors.length
+      ? h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin:0 0 8px' },
+          ...report.categoryFactors.map(c => {
+            const pct = Math.round((c.factor - 1) * 100);
+            const full = Math.max(0, Math.min(5, Math.round(c.stars)));
+            const stars = '★'.repeat(full) + '☆'.repeat(5 - full);
+            const good = pct > 0;
+            return h('span', {
+              class: 'pill', style: `text-transform:none;letter-spacing:0;font-size:11px;${good ? 'color:var(--accent)' : pct < 0 ? 'color:#ffce9a' : 'opacity:.7'}`,
+              title: `${c.category}: ${c.stars.toFixed(1)}★ · coverage ${Math.round(c.coverage * 100)}% · ${pct >= 0 ? '+' : ''}${pct}% growth`,
+            }, `${c.category} ${stars} ${pct >= 0 ? '+' : ''}${pct}%`);
+          }))
+      : '';
     return h('div', { class: 'card' },
       h('div', { class: 'between' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Last training session'),
         h('div', { class: 'muted', style: 'font-size:12px' }, `Season ${report.season} · after Matchday ${report.round}`)),
       h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin:-2px 0 8px;align-items:center' }, ...chips,
         h('span', { class: 'muted', style: 'font-size:12px;margin-left:2px' }, `${improved} improved · ${declined} declined${steady ? ` · ${steady} steady` : ''}`)),
+      catRow,
       h('div', { class: 'grid', style: 'gap:6px;max-height:440px;overflow:auto' }, ...lineEls));
   })();
 
