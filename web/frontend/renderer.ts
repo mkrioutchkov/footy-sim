@@ -348,6 +348,12 @@ export class MatchRenderer {
 
   private drawPitch(): void {
     this.pitchContainer.removeChildren();
+    // restore the ball-motion trail + shot trail (created in the constructor) — removeChildren() above
+    // orphaned them and they were NOT re-added, so the trails silently never rendered (the eval-hooks
+    // only test the trail BUFFER, and the WebGL canvas can't be screenshotted, so it went unnoticed).
+    // Added first → they sit just above the pitch, below the players/ball, matching the original z-order.
+    for (const t of this.trailPool) this.pitchContainer.addChild(t);
+    this.pitchContainer.addChild(this.shotTrailGfx);
     this.pitchContainer.addChild(this.playerLayer);
     this.pitchContainer.addChild(this.jockeyGfx);
     this.pitchContainer.addChild(this.ringGfx);
