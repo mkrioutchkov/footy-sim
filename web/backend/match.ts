@@ -407,7 +407,12 @@ export function purgeRecordings(kind: RecKind, refIds: number[]): void {
 // whistle) leaves only a discarded .tmp, never a partial recording or a scoreline that disagrees
 // with an unplayed fixture. Exported (not just internal) so a synthetic-stream test exercises it
 // without spawning the engine. Returns the derived score + frame count.
-export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.ReadableStream, format = 1): Promise<{ homeScore: number; awayScore: number; frames: number }> {
+// sampleEvery>0 thins captured FRAMES to ~1-in-N (the replay renderer interpolates, so it stays smooth)
+// while ALWAYS keeping the first frame, every score change, every matchState change (kickoff/half/FINISHED —
+// the capture requires a 'finished' last state) and any non-frame/event line. A full capture is ~200k frames
+// (~97MB gz) which floods the replay renderer + balloons load-time memory; thinning the OPT-IN matchday capture
+// makes its replay screenshot-able + light. Default 0 = keep every line (the live-watch recorder is unchanged).
+export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.ReadableStream, format = 1, sampleEvery = 0): Promise<{ homeScore: number; awayScore: number; frames: number }> {
   return new Promise((resolve, reject) => {
     const rel = recRel(kind, refId);
     const abs = path.join(DATA_DIR, rel);
@@ -415,7 +420,7 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
     const gz = createGzip();
     const out = createWriteStream(tmp);
     gz.pipe(out);
-    let buffer = '', frames = 0, homeScore = 0, awayScore = 0, lastState = '', settled = false;
+    let buffer = '', frames = 0, seen = 0, homeScore = 0, awayScore = 0, lastState = '', settled = false;
     const fail = (e: Error): void => {
       if (settled) return; settled = true;
       gz.destroy(); out.destroy();
@@ -424,9 +429,18 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
     };
     const writeLine = (l: string): void => {
       if (!l.length) return;
+      // parse EVERY line for score/state first (a dropped frame still advances the tally), then decide KEEP.
+      let isFrame = false, scoreChanged = false, stateChanged = false;
+      try {
+        const f = JSON.parse(l); isFrame = true;
+        if (typeof f.homeScore === 'number') { if (f.homeScore !== homeScore || (f.awayScore ?? 0) !== awayScore) scoreChanged = true; homeScore = f.homeScore; awayScore = f.awayScore ?? 0; }
+        if (typeof f.matchState === 'string') { if (f.matchState !== lastState) stateChanged = true; lastState = f.matchState; }
+      } catch { /* a non-frame/event line — always kept */ }
+      seen++;
+      // keep everything (no sampling), or any non-frame/score-change/state-change, or every Nth frame (from the 1st)
+      if (!(sampleEvery <= 0 || !isFrame || scoreChanged || stateChanged || (seen % sampleEvery === 1))) return;
       frames++;
       if (!gz.write(l + '\n')) src.pause();   // backpressure -> bounded memory
-      try { const f = JSON.parse(l); if (typeof f.homeScore === 'number') { homeScore = f.homeScore; awayScore = f.awayScore ?? 0; } if (typeof f.matchState === 'string') lastState = f.matchState; } catch { /* skip non-frame line */ }
     };
     gz.on('drain', () => { if (!settled) src.resume(); });
     src.on('data', (d: Buffer) => {
@@ -459,6 +473,9 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
 // Run a match through the engine FULL-FRAME (no --summary) and capture it. Wires the child's
 // lifecycle to the stream: a spawn error or a 120s hang destroys stdout (→ the capture rejects +
 // cleans up); a crash EOFs stdout without a "finished" frame, which captureLineStream rejects.
+// Captured SAMPLED (1-in-REPLAY_SAMPLE frames + every score/state change) so the matchday replay is
+// light enough to load + screenshot — a full ~200k-frame capture floods the renderer (the QA "catch-22").
+const REPLAY_SAMPLE = 8;
 function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ homeScore: number; awayScore: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(ENGINE, ['--match', specPath, '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -468,7 +485,7 @@ function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ 
     // a watchable replay) before the playFixture fallback drops it to --summary. A real hang still lapses.
     const to = setTimeout(() => { try { child.kill(); } catch { /* gone */ } child.stdout.destroy(new Error(`engine timeout: ${err}`)); }, 180000);
     child.on('error', e => { try { child.stdout.destroy(e); } catch { /* gone */ } });
-    captureLineStream(kind, refId, child.stdout).then(
+    captureLineStream(kind, refId, child.stdout, 1, REPLAY_SAMPLE).then(
       r => { clearTimeout(to); resolve({ homeScore: r.homeScore, awayScore: r.awayScore }); },
       e => { clearTimeout(to); try { child.kill(); } catch { /* gone */ } reject(e); },
     );
