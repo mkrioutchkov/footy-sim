@@ -2262,7 +2262,12 @@ async function screenReport(fixtureId: number) {
 
   const f = rep.facts;
   mount(header(), h('div', { class: 'wrap grid' },
-    h('div', { class: 'between' }, h('h2', {}, rep.headline), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    h('div', { class: 'between' }, h('h2', {}, rep.headline),
+      // From the report you can jump straight into the replay (now with rewind/scrub) — no hunting for
+      // the fixture back on the dashboard.
+      h('div', { class: 'row' },
+        h('button', { class: 'ghost', title: 'Watch this match back — rewind and scrub to any moment', onclick: () => (location.hash = `#/watch/${fixtureId}`) }, '▶ Watch replay'),
+        h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'))),
     h('div', { class: 'card' },
       h('div', { style: 'white-space:pre-wrap;line-height:1.5' }, rep.body),
       h('div', { class: 'muted', style: 'margin-top:10px;font-size:12px' },
