@@ -217,6 +217,14 @@ export class MatchRenderer {
       display: 'none', textAlign: 'center', letterSpacing: '2px',
     } as Partial<CSSStyleDeclaration>);
     document.body.appendChild(this.bannerEl);
+    // a one-time celebratory "pop" keyframe for the GOAL banner (goals are the watch highlight) — injected
+    // once, re-triggered per goal by resetting the animation. CSS-only, no per-frame cost.
+    if (!document.getElementById('footy-goalpop-kf')) {
+      const st = document.createElement('style');
+      st.id = 'footy-goalpop-kf';
+      st.textContent = '@keyframes footyGoalPop{0%{transform:translateX(-50%) scale(.5);opacity:0}55%{transform:translateX(-50%) scale(1.12);opacity:1}100%{transform:translateX(-50%) scale(1);opacity:1}}';
+      document.head.appendChild(st);
+    }
     this.panelEl = document.createElement('div');
     Object.assign(this.panelEl.style, {
       position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
@@ -1067,6 +1075,9 @@ export class MatchRenderer {
         this.bannerEl.style.color = homeScored ? '#ff8a8a' : '#9ecbff';
         this.bannerEl.style.borderColor = homeScored ? '#ff8a8a' : '#9ecbff';
         this.bannerEl.style.display = 'block';
+        // re-trigger the celebratory pop (reset → reflow → re-apply so it fires on every goal)
+        this.bannerEl.style.animation = 'none'; void this.bannerEl.offsetWidth;
+        this.bannerEl.style.animation = 'footyGoalPop .45s cubic-bezier(.2,1.5,.45,1)';
         this.bannerHideAt = now + 4500;
         this.prevHomeScore = hs; this.prevAwayScore = as;
       }
