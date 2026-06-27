@@ -134,7 +134,8 @@ function skillOvr(attrs: Record<string, number>): number {
   return Math.round(SKILL_KEYS.reduce((s, k) => s + (attrs[k] ?? 0), 0) / SKILL_KEYS.length);
 }
 // per-cell attribute heat: red (low) → green (high), used across the squad table + compare.
-const SQUAD_ATTRS: [string, string][] = [['speed', 'SPD'], ['passing', 'PAS'], ['creativity', 'CRE'], ['shooting', 'SHO'], ['tackling', 'TAC'], ['positioning', 'POS'], ['stamina', 'STA']];
+// 'POSN' (not 'POS') for the positioning ATTRIBUTE so it never reads the same as the role/Position column.
+const SQUAD_ATTRS: [string, string][] = [['speed', 'SPD'], ['passing', 'PAS'], ['creativity', 'CRE'], ['shooting', 'SHO'], ['tackling', 'TAC'], ['positioning', 'POSN'], ['stamina', 'STA']];
 // §2.10 fitness-band colours: red exhausted/injured, amber tired, green fresh, neutral ok.
 const BAND_COLOR: Record<string, string> = { injured: 'var(--danger)', exhausted: 'var(--danger)', tired: '#ffb84d', ok: '', fresh: 'var(--accent)' };
 function attrHeat(v: number): string {
@@ -543,7 +544,7 @@ async function screenDashboard() {
       h('div', { class: 'role' }, `${p.role} · OVR ${ovr}${potText}${ageText}${fitText}${moraleText}`),
       h('div', { class: 'pn' }, p.name),
       h('div', { class: 'at' }, `SPD ${r(p.attrs.speed)} · PAS ${r(p.attrs.passing)} · SHO ${r(p.attrs.shooting)}`,
-        h('br'), `TAC ${r(p.attrs.tackling)} · POS ${r(p.attrs.positioning)} · CRE ${r(p.attrs.creativity)}`),
+        h('br'), `TAC ${r(p.attrs.tackling)} · POSN ${r(p.attrs.positioning)} · CRE ${r(p.attrs.creativity)}`),
     );
     if (per && per.tagline) {
       card.setAttribute('title', `${per.nationality}${per.nationality ? ' · ' : ''}${per.backstory}`);
@@ -2430,7 +2431,7 @@ async function screenScout(fixtureId: number) {
     title: `R${f.round} · ${f.venue === 'H' ? 'home' : 'away'} ${f.gf}–${f.ga} vs ${f.opponent}`,
   }, f.result));
 
-  const ATTR_ABBR: Record<string, string> = { speed: 'SPD', passing: 'PAS', creativity: 'CRE', shooting: 'SHO', tackling: 'TAC', positioning: 'POS', stamina: 'STA' };
+  const ATTR_ABBR: Record<string, string> = { speed: 'SPD', passing: 'PAS', creativity: 'CRE', shooting: 'SHO', tackling: 'TAC', positioning: 'POSN', stamina: 'STA' };
   const playerRow = (p: ScoutPlayerT) => h('div', { style: 'padding:4px 0;border-bottom:1px solid var(--line)' },
     h('div', { class: 'between', style: 'font-size:13px' },
       h('span', {}, p.danger ? h('span', { title: 'danger man', style: 'margin-right:5px' }, '⚠️') : '',
