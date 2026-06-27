@@ -1172,19 +1172,19 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   root.replaceChildren();
   // Rewind to the start — only meaningful for a finished recording (revealed on the first
   // replay frame), since a live re-sim can't seek backwards.
-  const rewindBtn = h('button', { class: 'ghost small', style: 'display:none', onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: 0 })) }, '⏮ Rewind');
+  const rewindBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Rewind to the start of the recording', onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: 0 })) }, '⏮ Rewind');
   // ⚽ Replay — appears after the first live goal; plays back the buffered run-up (instant action replay).
-  const replayBtn = h('button', { class: 'primary small', style: 'display:none', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
+  const replayBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Action replay of the last goal', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
   // §weather: the match's actual condition, set from the first frame that carries it (clear → blank).
   const weatherEl = h('span', { style: 'margin-left:auto;font-size:13px;color:#9ec5ff' });
   // speed controls — ascending 1×/2×/4×/8× with the ACTIVE speed highlighted (read off each frame's state.speed),
   // so you can always see your current speed (the old bar was 8×/4×/1×, no 2×, no active indicator).
   const SPEEDS = [1, 2, 4, 8];
   let paused = false;
-  const speedBtns = SPEEDS.map(v => h('button', { class: 'ghost small', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: v })) }, `${v}×`) as HTMLButtonElement);
+  const speedBtns = SPEEDS.map(v => h('button', { class: 'ghost small', 'aria-label': `Play at ${v} times speed`, 'aria-pressed': 'false', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: v })) }, `${v}×`) as HTMLButtonElement);
   // Pause ↔ Resume. The LIVE coordinator takes distinct pause/resume; a re-sim/replay (match.ts) TOGGLES on 'pause'
   // and ignores 'resume', so send a plain 'pause' there and just flip the label.
-  const pauseBtn = h('button', { class: 'ghost small', onclick: () => {
+  const pauseBtn = h('button', { class: 'ghost small', 'aria-label': 'Pause or resume playback', 'aria-pressed': 'false', onclick: () => {
     paused = !paused;
     activeWs?.send(JSON.stringify({ type: live ? (paused ? 'pause' : 'resume') : 'pause' }));
     pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
@@ -1192,18 +1192,19 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   } }, '⏸ Pause') as HTMLButtonElement;
   const paintBar = (s?: number): void => {
     const sp = typeof s === 'number' ? s : 1;
-    speedBtns.forEach((b, i) => { const on = !paused && SPEEDS[i] === sp; b.classList.toggle('primary', on); b.classList.toggle('ghost', !on); });
-    pauseBtn.classList.toggle('primary', paused); pauseBtn.classList.toggle('ghost', !paused);
+    speedBtns.forEach((b, i) => { const on = !paused && SPEEDS[i] === sp; b.classList.toggle('primary', on); b.classList.toggle('ghost', !on); b.setAttribute('aria-pressed', String(on)); });
+    pauseBtn.classList.toggle('primary', paused); pauseBtn.classList.toggle('ghost', !paused); pauseBtn.setAttribute('aria-pressed', String(paused));
   };
   // 🎯 directive overlay toggle — surface each player's active tactical instruction on the pitch ("see it work")
   let dirOn = false;
-  const dirBtn = h('button', { class: 'ghost small', title: 'Show each player’s active tactical instruction on the pitch' },
+  const dirBtn = h('button', { class: 'ghost small', 'aria-label': 'Toggle the on-pitch tactics overlay', 'aria-pressed': 'false', title: 'Show each player’s active tactical instruction on the pitch' },
     '\u{1F3AF} Tactics') as HTMLButtonElement;
   dirBtn.addEventListener('click', () => {
     dirOn = !dirOn;
     activeRenderer?.setShowDirectives(dirOn);
     dirBtn.classList.toggle('primary', dirOn);
     dirBtn.classList.toggle('ghost', !dirOn);
+    dirBtn.setAttribute('aria-pressed', String(dirOn));
   });
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
