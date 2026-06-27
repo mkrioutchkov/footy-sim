@@ -2463,7 +2463,8 @@ async function screenScout(fixtureId: number) {
     // scouted attribute fog — ranges that tighten with scout quality (exact at full depth)
     p.attrs ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' },
       p.attrs.map(a => `${ATTR_ABBR[a.key] ?? a.key} ${a.lo === a.hi ? a.lo : `${a.lo}–${a.hi}`}`).join(' · ')) : '');
-  const players = s.keyPlayers.length ? s.keyPlayers.map(playerRow) : [h('div', { class: 'muted', style: 'font-size:13px' }, 'Squad not available.')];
+  const players = s.keyPlayers.length ? s.keyPlayers.map(playerRow)
+    : [h('div', { class: 'muted', style: 'font-size:13px' }, s.bench.length ? 'No likely XI scouted yet — see the rest of the squad below.' : 'Squad not available.')];
   const scoutHint = s.keyPlayers.length && !s.keyPlayers[0].attrs
     ? h('div', { class: 'muted', style: 'margin:-4px 0 8px;font-size:11px' }, 'Hire scouts (Staff) to reveal their players’ attributes + scout deeper into the squad.')
     : '';
