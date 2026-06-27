@@ -437,7 +437,7 @@ export function resolveFreeAgentOffers(leagueId: number): FreeAgentEvent[] {
       { id: number; buyer_team_id: number; free_agent_id: number; player_name: string; role: string; wage: number; years: number; expires_round: number }[];
     const setStatus = db.prepare('UPDATE free_agent_offers SET status = ? WHERE id = ?');
     for (const o of offers) {
-      if (cur > o.expires_round) { setStatus.run('expired', o.id); continue; }   // lapsed unanswered
+      if (cur > o.expires_round) { setStatus.run('expired', o.id); events.push({ teamId: o.buyer_team_id, type: 'fa_expired', player: o.player_name, role: o.role, wage: o.wage, years: o.years }); continue; }   // lapsed unanswered — tell the manager (was silent)
       const team = teamRow(o.buyer_team_id);
       const agent = db.prepare('SELECT id, league_id, name, role, attrs, age, potential, personality, value, wage FROM free_agents WHERE id = ?').get(o.free_agent_id) as FARow | undefined;
       if (!team) { setStatus.run('rejected', o.id); continue; }   // buyer team gone (degenerate)

@@ -617,6 +617,7 @@ async function screenDashboard() {
         if (f.type === 'fa_signed') toast(`✍️ ${f.player} accepted your offer — signed (${fmtMoney(f.wage)}/yr × ${f.years}y)`);
         else if (f.type === 'fa_rejected') toast(`✖ ${f.player} turned down your offer`);
         else if (f.type === 'fa_gone') toast(`🏃 ${f.player} signed for another club before answering your offer`);
+        else if (f.type === 'fa_expired') toast(`⏳ ${f.player} never answered your offer — it lapsed`);
       }
       // §2.4: listings that lapsed unsold at the window deadline
       for (const l of r.listingsExpired ?? []) toast(`⌛ ${l.player}'s listing expired unsold — the window closed`);
