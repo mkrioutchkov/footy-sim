@@ -135,6 +135,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       }
       for (const s of goingUp) {
         db.prepare('UPDATE teams SET league_id = ?, wage_budget = ?, budget = budget + ? WHERE id = ?').run(upper.league.id, tierFinance(upper.league.tier).wageBudget, PROMOTION_BONUS, s.teamId);
+        recordFinance(s.teamId, 'prize', PROMOTION_BONUS, `Promotion windfall — up to ${upper.league.name}`);   // log the windfall so the ledger reconciles with the budget (no-op for AI)
         out.promoted.push({ teamId: s.teamId, team: s.name, fromTier: lower.league.tier, toTier: upper.league.tier });
       }
     }

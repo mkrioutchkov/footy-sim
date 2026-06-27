@@ -348,14 +348,16 @@ export class LiveMatch {
     } catch { /* best-effort */ }
   }
 
-  // Map the final live frame's players to the aftermath's SummaryPlayer shape (passes unknown → 0).
+  // Map the final live frame's players to the aftermath's SummaryPlayer shape. The frame DOES carry
+  // per-player passes/passesCompleted (engine player serialization), so map them — else live-watched
+  // playmakers lose the pass-completion rating bonus (report.ts) that simulated matches apply.
   private finalSummaryPlayers(st: Record<string, unknown>): SummaryPlayer[] {
     const arr = Array.isArray(st.players) ? st.players as Array<Record<string, unknown>> : [];
     return arr.map(p => ({
       id: Number(p.id ?? 0), name: String(p.name ?? ''), role: String(p.role ?? 'CM'),
       team: p.team === 'away' ? 'away' : 'home',
       goals: Number(p.goals ?? 0), assists: Number(p.assists ?? 0), shots: Number(p.shots ?? 0),
-      tackles: Number(p.tackles ?? 0), passes: 0, passesCompleted: 0,
+      tackles: Number(p.tackles ?? 0), passes: Number(p.passes ?? 0), passesCompleted: Number(p.passesCompleted ?? 0),
       yellow: Number(p.yellow ?? 0), sentOff: !!p.sentOff,
     }));
   }

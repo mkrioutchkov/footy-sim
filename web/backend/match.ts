@@ -876,7 +876,7 @@ export class ReplayStream extends FramePacer {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.prevClock = null;
     this.pending = fromMs <= 0 ? this.frames.slice()
-      : this.frames.filter(l => { try { return (JSON.parse(l).clockMs ?? 0) >= fromMs; } catch { return false; } });
+      : this.frames.filter(l => { try { return (JSON.parse(l).clockMs ?? 0) >= fromMs; } catch { return true; } });   // keep non-frame/event lines (captureLineStream + loadRecording preserve them; a seek must too)
     this.paused = false;
     this.tick();
   }
