@@ -585,7 +585,7 @@ async function screenDashboard() {
   advanceBtn.addEventListener('click', async () => {
     const opp = myInPending ? (myInPending.homeTeamId === team.id ? myInPending.away : myInPending.home) : '';
     const msg = simmingMyMatch
-      ? `Your match this matchday — R${pendingRound}${opp ? ` vs ${opp}` : ''} — will be SIMULATED now, along with the rest of the world. To play it yourself, Cancel and use “Watch my next match”. There is no undo.`
+      ? `Your match this matchday — R${pendingRound}${opp ? ` vs ${opp}` : ''} — will be SIMULATED now, along with the rest of the world. To play it yourself, Cancel and hit “⚡ Play next match LIVE” (or “Watch my next match” for a quick sim). There is no undo.`
       : `${myNext ? 'Your match this round is already played — a' : 'A'}dvancing simulates the rest of the world’s matchday now. No undo — set your lineup, tactics and transfers first.`;
     if (!await confirmModal(simmingMyMatch ? 'Simulate your match & advance?' : 'Advance matchday', msg, simmingMyMatch ? 'Simulate & advance' : 'Advance')) return;
     advanceBtn.setAttribute('disabled', 'true'); advanceBtn.textContent = 'Simulating…';
@@ -668,8 +668,10 @@ async function screenDashboard() {
   // ⚡ OPT-IN live play (beta): the resident coordinator runs your next match in real time with live
   // shouts that apply on the tick; full-time persists the result (it counts). Default stays the instant
   // pre-sim via Advance — this is the chosen big-match experience. Only for an upcoming (unplayed) match.
+  // The LIVE path is the headline match experience — make it PRIMARY + prominent so it's the obvious way
+  // to play your next match (otherwise users reach for Watch/Advance, which both SIM it, and never play live).
   const liveBtn = myNext
-    ? h('button', { class: 'ghost', title: 'Play your next match LIVE — watch in real time and shout; the result counts', onclick: () => (location.hash = `#/watch/${myNext.id}?live=1`) }, '⚡ Play LIVE')
+    ? h('button', { class: 'primary', title: 'Play your next match LIVE — watch in real time and shout; the result counts', onclick: () => (location.hash = `#/watch/${myNext.id}?live=1`) }, '⚡ Play next match LIVE')
     : '';
 
   // recent form (last 5 played in this division, oldest→newest) — computed from the fixtures already in
@@ -887,9 +889,15 @@ async function screenDashboard() {
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
         `Managed by ${team.manager} · ${league.divisionName ?? 'League'}${league.season ? ` · Season ${league.season}` : ''} · Position ${myPos}/${league.standings.length}`)),
       // Primary match-flow actions stay prominent up top; section nav moves to the grid below.
-      h('div', { class: 'row' }, watchBtn, liveBtn,
-        myNext ? h('button', { class: 'ghost', title: 'Address the squad before your next match', onclick: () => (location.hash = `#/teamtalk/${myNext.id}`) }, 'Team talk') : '',
-        advanceBtn),
+      // LIVE first (the headline experience), then the quick-sim watch, team talk, and advance.
+      h('div', {},
+        h('div', { class: 'row' }, liveBtn, watchBtn,
+          myNext ? h('button', { class: 'ghost', title: 'Address the squad before your next match', onclick: () => (location.hash = `#/teamtalk/${myNext.id}`) }, 'Team talk') : '',
+          advanceBtn),
+        // played-ahead dead-end: all your matches are done but the season hasn't rolled over yet — explain it
+        // so the missing "Play LIVE" doesn't read as a bug (you simply have no upcoming match this season).
+        !myNext && canAdvance ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' },
+          'You’ve played all your matches this season — keep advancing to finish the season, then play your next fixtures live.') : ''),
     ),
     h('div', { class: 'card', style: 'padding:14px' },
       h('div', { class: 'nav-grid' },
