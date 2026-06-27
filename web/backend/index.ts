@@ -617,6 +617,7 @@ app.post('/api/concerns/:slot', async (req: any, reply) => {
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   const slot = Number(req.params?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot must be an integer' });   // reject a bad param at the boundary (matches every other slot route)
   const action = String(req.body?.action ?? '') as ConcernAction;
   if (!['reassure', 'accept', 'reject'].includes(action)) return reply.code(400).send({ error: 'unknown action' });
   const r = resolveConcern(teamId, slot, action);
