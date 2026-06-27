@@ -156,7 +156,7 @@ export class MatchRenderer {
       this.trailPool.push(t);
     }
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {   // pool ≥ the busiest frame's event count, else callouts silently drop
       const label = new Text({ text: '', style: new TextStyle({ fill: 0xffffff, fontSize: 13, fontFamily: 'monospace', fontWeight: 'bold' }) });
       label.anchor.set(0.5, 0.5);
       label.visible = false;
@@ -857,8 +857,11 @@ export class MatchRenderer {
       if (ev.type === 'pass') {
         const target = ev.targetId != null ? byId.get(ev.targetId) : undefined;
         if (target) {
+          // draw to the receiver's SMOOTHED position (matches the gliding player graphic; the raw engine
+          // position steps per-frame, so the line snapped while the player lerped — same pattern as below)
+          const toV = (ev.targetId != null ? this.visualPlayers.get(ev.targetId) : undefined) ?? { x: target.x, y: target.y };
           this.eventGfx.moveTo(ev.x, ev.y);
-          this.eventGfx.lineTo(target.x, target.y);
+          this.eventGfx.lineTo(toV.x, toV.y);
           this.eventGfx.stroke({ width: 2, color: 0x9ed7ff, alpha: alpha * 0.75 });
         }
         continue;
