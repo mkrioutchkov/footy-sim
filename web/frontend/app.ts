@@ -591,7 +591,14 @@ async function screenDashboard() {
     advanceBtn.setAttribute('disabled', 'true'); advanceBtn.textContent = 'Simulating…';
     try {
       const r = await api.advance();
-      if (r.myResult) toast(`Your match: ${r.myResult.homeScore}–${r.myResult.awayScore}`);
+      if (r.myResult) {
+        // show the result from YOUR perspective (W/D/L + your goals first), not a bare home–away score
+        const fx = league.fixtures.find(f => f.id === r.myFixtureId);
+        const home = fx ? fx.homeTeamId === team.id : true;
+        const gf = home ? r.myResult.homeScore : r.myResult.awayScore;
+        const ga = home ? r.myResult.awayScore : r.myResult.homeScore;
+        toast(`Your match: ${gf > ga ? 'Won' : gf < ga ? 'Lost' : 'Drew'} ${gf}–${ga}`);
+      }
       if (r.transfers?.length) {
         const t = r.transfers[0];
         const verb = t.type === 'buy_listed' ? 'bought' : 'signed';
@@ -618,6 +625,7 @@ async function screenDashboard() {
         if (c.result === 'accepted') toast(`✍️ ${c.player} signed a new ${c.years}-year deal (${fmtMoney(c.wage)}/yr)`);
         else if (c.result === 'countered') toast(`↩ ${c.player}'s agent wants ${fmtMoney(c.counterWage ?? c.wage)}/yr — open his profile to respond`);
         else if (c.result === 'rejected') toast(`✖ ${c.player} turned down the contract offer`);
+        else if (c.result === 'expired') toast(`⏱️ ${c.player}'s contract talks lapsed — he never answered`);
       }
       const wonCup = r.cup?.champion != null && r.cup.champion === team.id;
       if (r.cup?.myTie && !wonCup) {
@@ -654,6 +662,7 @@ async function screenDashboard() {
   watchBtn.addEventListener('click', async () => {
     const fx = myNext ?? [...league.fixtures].reverse().find(f => f.involvesMe && f.played);
     if (fx) location.hash = `#/watch/${fx.id}`;
+    else toast('No match to watch yet — play or advance a matchday first.');
   });
   // ⚡ OPT-IN live play (beta): the resident coordinator runs your next match in real time with live
   // shouts that apply on the tick; full-time persists the result (it counts). Default stays the instant
