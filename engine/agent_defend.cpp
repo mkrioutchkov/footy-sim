@@ -331,7 +331,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
         if (t > 0.03 && t < 1.30) {
             double cx = b.x + b.vx * t, cy = b.y + b.vy * t;        // where the ball is nearest him
             double perp = dist(player.x, player.y, cx, cy);         // how far he must travel to the lane
-            if (perp < 22.0 + 90.0 * t) {                          // reachable: ~90px/s of close-down + a stride
+            if (perp < 16.0 + 55.0 * t) {                          // G4 near-intercepts: realistic close-down (~55px/s + a stride), was 22+90*t which let a defender "teleport" 100-138px to magnetically cut a slow pass (the user's "weird near intercepts"); only genuinely reachable lanes now
                 if (engine.passDebug) fprintf(stderr, "LANECUT id=%d t=%d perp=%d\n", player.id, (int)(engine.state.clockMs / 1000), (int)perp);
                 return Action{ActionType::Chase, 1.06, nullptr,
                               clamp(cx, 10.0, PITCH_W - 10.0), clamp(cy, 10.0, PITCH_H - 10.0),
