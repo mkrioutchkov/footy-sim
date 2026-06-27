@@ -262,7 +262,7 @@ void PlayerAI::applyMovement(double sdt) {
     // and passes through untouched. maxFacingTurn is UNTOUCHED (per the audit / turn-cap-perception note).
     bool offBallFacing = engine.state.ball.controllerId != p.id;
     if (offBallFacing && requestedFacingDelta * prevFacingDeltaSigned < -1e-6)
-        requestedFacingDelta *= 0.30;
+        requestedFacingDelta *= 0.15;   // SysArch 2026-06-28: tightened 0.30→0.15 — the overlap/counter-press off-ball churn re-raised SPIN 16→38; stronger reversal-damp (Boris's suggested lever). Measure-gated.
     prevFacingDeltaSigned = requestedFacingDelta;
     double turnSpeedBlend = clamp((spdAfter - 12.0) / 58.0, 0.0, 1.0);
     double maxFacingTurn = lerp(0.24, 0.055, turnSpeedBlend);
