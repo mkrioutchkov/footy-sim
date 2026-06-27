@@ -529,11 +529,11 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     bool ownDefensiveThird = (fdFor(p.team) > 0.0) ? p.x < PITCH_W / 3.0 : p.x > PITCH_W * 2.0 / 3.0;
     if (skillMoveCooldown == 0 && cp.nearestPlayer && nearbyOpps <= 2 && !ownDefensiveThird
         && cp.score > 0.72 && nearestOppDist > 18.0 && nearestOppDist < 58.0) {
-        double skillChance = 0.022 + attrFactor(p.attrs.creativity) * 0.085;   // BORIS_WATCH: skillMoves ~194/match (~4x real) + ~54 nutmegs/90 read arcade-y — trim frequency
+        double skillChance = 0.013 + attrFactor(p.attrs.creativity) * 0.050;   // G3 razzle: trimmed ~0.6x (was 0.022+0.085) toward real ~20-30/match; goal-safe (skill-moves don't score)
         // Take-ons live in the final third — that's where beating a man is
         // worth the risk.
         bool inFinalThirdAtk = (fdFor(p.team) > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
-        if (inFinalThirdAtk) skillChance *= 1.6;
+        if (inFinalThirdAtk) skillChance *= 1.3;   // BORIS_WATCH G3: trim the final-third take-on spike (1.6->1.3); skill-moves don't score -> goal-safe
         if (engine.rng.random() < skillChance) {
             Player* def = cp.nearestPlayer;
             double fd = fdFor(p.team);
@@ -588,9 +588,9 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             }
             engine.emitEvent(moveType, p.x, p.y, p.id, def->id);
             engine.stats.recordSkillMove();
-            skillMoveCooldown = 300;                       // ~5s between tricks
+            skillMoveCooldown = 450;                       // ~7.5s between tricks (G3 razzle: was 300/~5s — trim skill-move spam)
         } else {
-            skillMoveCooldown = 280;                       // failed read — wait ~4.7s
+            skillMoveCooldown = 400;                       // failed read — wait ~6.7s (G3: was 280)
         }
     }
 
