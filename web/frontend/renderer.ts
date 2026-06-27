@@ -107,6 +107,8 @@ export class MatchRenderer {
   private resizeObs: ResizeObserver | null = null;
   private readonly onResize = () => { if (!this.destroyed) this.calcTransform(); };
   private pitchGfx = new Graphics();   // reused across redraws (not re-allocated per resize)
+  private weatherGfx = new Graphics();   // a wet-pitch overlay when it's raining (weather reaches the watch but never the pitch)
+  private weatherShown = '';             // last weather drawn into weatherGfx (dirty-check)
   // Bottom strip (px) kept clear for the live tactics panel that floats over the canvas.
   // screenWatch drives this from the panel's real height so the pitch never sits under it
   // and grows back when the panel is short or hidden (e.g. a replay drops the shout box).
@@ -348,6 +350,7 @@ export class MatchRenderer {
 
   private drawPitch(): void {
     this.pitchContainer.removeChildren();
+    this.pitchContainer.addChild(this.weatherGfx);   // wet-pitch overlay: above the pitch g (index 0), below everything else
     // restore the ball-motion trail + shot trail (created in the constructor) — removeChildren() above
     // orphaned them and they were NOT re-added, so the trails silently never rendered (the eval-hooks
     // only test the trail BUFFER, and the WebGL canvas can't be screenshotted, so it went unnoticed).
@@ -404,6 +407,18 @@ export class MatchRenderer {
     // Headless self-verify hook (SysArch later21): expose the latest frame so match-view render data
     // (setPieceState, ball, players) is eval-inspectable under any box load — no screenshot needed.
     (window as unknown as { __lastFrame?: EngineState }).__lastFrame = state;
+    // §weather: a wet-pitch overlay on rain (the condition reaches the watch badge but the pitch never
+    // showed it). Redrawn only on change (dirty-checked). Wind stays badge-only (no clear pitch cue).
+    const weather = (state as { weather?: string }).weather ?? 'clear';
+    if (weather !== this.weatherShown) {
+      this.weatherShown = weather;
+      this.weatherGfx.clear();
+      if (weather === 'rain') {
+        this.weatherGfx.rect(-GOAL_DEPTH, 0, PITCH_W + GOAL_DEPTH * 2, PITCH_H);
+        this.weatherGfx.fill({ color: 0x2b4a66, alpha: 0.16 });   // a cool blue-grey wet sheen
+      }
+      (window as unknown as { __weather?: string }).__weather = weather;   // eval-verify hook
+    }
     const byId = this.playerById;
     byId.clear();
     for (const p of state.players) byId.set(p.id, p);
