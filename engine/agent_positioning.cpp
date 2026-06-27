@@ -150,8 +150,16 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         if (my && cn.pur == ActionPurpose::ComeShort)
             ob += engine.directiveBias[p.id].comeShortBias;
         // overlap: a directed FB bombs forward on the overlap run (boost the existing Overlap candidate alone).
-        if (my && cn.pur == ActionPurpose::Overlap)
+        if (my && cn.pur == ActionPurpose::Overlap) {
             ob += engine.directiveBias[p.id].overlapBias;
+            // DEFAULT overlap (user feedback #1 "lack of overlapping runs"): even WITHOUT a directive, the
+            // BALL-SIDE full-back bombs on when the team is SETTLED in the opp half — offering the width the
+            // user found missing (FBs sat at ~5% att-third). Ball-side only (the far FB holds for balance) +
+            // gated on ball advancement, so it never bares both flanks; recovery is structural (the boost
+            // lapses the moment the ball drops back / possession turns over). Pure geometry, no rng.
+            if (isFullBack() && ba > 0.50 && (p.y >= PITCH_H / 2.0) == (b.y >= PITCH_H / 2.0))
+                ob += 0.16;
+        }
         // drift_into_pocket: boost the dedicated Pocket purpose alone (the deep between-the-lines target
         // would lose to advanced candidates on danger-bias without its own boost — the come_short lesson).
         if (my && cn.pur == ActionPurpose::Pocket)

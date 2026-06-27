@@ -366,7 +366,7 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
         // right alongside (the situational candidates above). Gated on an OPEN destination
         // so a turnover doesn't strand the FB. Post-#35 (realistic attrs) the extra close
         // chances this manufactures no longer re-inflate goals (that was why it was parked).
-        if (pc.ballAdvance > 0.55) {
+        if (pc.ballAdvance > 0.48) {   // was 0.55 (final third) → 0.48 = settled in the OPP HALF (user #1 "lack of overlapping runs"): the ball-side FB joins the attack EARLIER, still destOpen-gated so a turnover never strands him
             double flankY = (p.homeY < PITCH_H / 2.0) ? 42.0 : PITCH_H - 42.0;
             double bylineX = clampRange(goalXFor(p.team) - pc.fd * 120.0,
                                         p.homeX + pc.fd * 110.0, goalXFor(p.team) - pc.fd * 55.0);
