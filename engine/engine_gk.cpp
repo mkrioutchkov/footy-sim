@@ -233,6 +233,16 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; }
     gk.x = clamp(gk.x, std::min(goalX + fd * 6.0, goalX + fd * 175.0), std::max(goalX + fd * 6.0, goalX + fd * 175.0));
     gk.y = clamp(gk.y, 5.0, PITCH_H - 5.0);
+
+    // G2 (user live-watch: keeper facing the wrong way during normal play). Only the
+    // three early-return branches above (save / shot-to-goal / cross-coming) set facing;
+    // this default positioning chain moved him but left a STALE facing, so the keeper
+    // visibly faced sideways/backward while tracking. He should watch the ball — unless
+    // he is the one holding it, where the distribution logic aims him. Pure geometry.
+    if (state.ball.controllerId != gk.id) {
+        double fdx = state.ball.x - gk.x, fdy = state.ball.y - gk.y;
+        if (fdx * fdx + fdy * fdy > 1.0) gk.facing = std::atan2(fdy, fdx);
+    }
 }
 
 void GameEngine::tryGKSave() {
