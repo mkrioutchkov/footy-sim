@@ -691,6 +691,10 @@ void GameEngine::collectBall(Player& c) {
         // still dribble/shield during it (and shoot a first-timer).
         double settle = clamp((incoming - 90.0) / 300.0, 0.0, 1.0)
             * (165.0 - attrFactor(c.attrs.positioning) * 110.0);
+        // Fatigue: a tired first touch is heavier — the settle widens as the
+        // tank empties (up to +50%), so late-game balls take longer to compose.
+        // No-op at full stamina (golden shifts only via natural in-match drain).
+        settle *= 1.0 + (1.0 - staminaFrac(c.stamina)) * 0.5;
         firstTouchUntilMs[c.id] = state.clockMs + settle;
     }
     shot.clearFlags();

@@ -17,7 +17,15 @@ void PlayerAI::applyMovement(double sdt) {
     double sprintFrac = clamp((spd - SPEED_SPRINT * 0.55) / (SPEED_SPRINT * 0.45), 0.0, 1.0);
     if (sprintFrac > 0.0)
         p.stamina = std::max(0.0, p.stamina - STAMINA_DRAIN_SPRINT * sprintFrac * sprintFrac * (1.12 - staminaSkill * 0.35));
-    else if (spd < 26.0)
+    else if (spd >= 26.0) {
+        // Match fatigue (FATIGUE_FINDING redesign): a WORKING player tires toward a FLOOR — busier = faster
+        // toward it — and NEVER crashes below it, so SPEED dynamics stay dormant (floor > the 0.35 threshold)
+        // and only the continuous decision gates bite. (The old sprint-only drain pinned everyone ~99; an
+        // un-floored movement drain crashed the busiest player below 35 while others stayed fresh.)
+        double fitFloor = STAMINA_MATCH_FLOOR + staminaSkill * 12.0;   // 50..62: a fitter player floors higher
+        double work = 0.35 + sprintFrac;                              // 0.35 cruising -> 1.35 flat-out
+        p.stamina = std::max(fitFloor, p.stamina - STAMINA_DRAIN_MOVE * work * (1.12 - staminaSkill * 0.35));
+    } else
         p.stamina = std::min(100.0, p.stamina + STAMINA_RECOVER * (0.80 + staminaSkill * 0.45));
 
     double slowThreshold = STAMINA_SLOW_THRESHOLD * 100.0;

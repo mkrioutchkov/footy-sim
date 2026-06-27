@@ -199,7 +199,16 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             return true;
         }
     }
-    if(receiver.team==pendingPass.team){
+    bool passOk=receiver.team==pendingPass.team;
+    if(passDebug){
+        // PASSRES: one line per resolved pass (complete/fail) with match-clock
+        // seconds + passer stamina — lets a probe bucket completion% by window
+        // (early vs late) to confirm decision-level fatigue. Measurement-only.
+        const Player* fromP=playerById(pendingPass.fromId);
+        fprintf(stderr,"PASSRES t=%d ok=%d sf=%d\n",(int)(state.clockMs/1000),passOk?1:0,
+                fromP?(int)fromP->stamina:-1);
+    }
+    if(passOk){
         if(receiver.id>=0&&receiver.id<22&&pendingPass.fromId!=receiver.id){
             lastReceiveFrom[receiver.id]=pendingPass.fromId;
             lastReceiveMs[receiver.id]=state.clockMs;
@@ -314,6 +323,9 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     double passSkill=attrFactor(f.attrs.passing);
     double skillMiss=std::pow(1.0-passSkill,1.4);
     double inacc=skillMiss*(rawDist*0.085+(rawDist/200.0)*(rawDist/200.0)*7.0);
+    // Fatigue: a tired passer sprays it — error grows as the tank empties
+    // (up to +80% at empty). No-op at full stamina, so early passes are clean.
+    inacc*=1.0+(1.0-staminaFrac(f.stamina))*0.8;
     if(secure)inacc*=0.12;   // rolled accurately to feet
     double tdx=dx+(rng.random()-0.5)*inacc;
     double tdy=dy+(rng.random()-0.5)*inacc;
@@ -574,7 +586,8 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         // Per-failure foul odds must be low because duel volume is high —
         double foulChance=(fromBehind?TACKLE_FOUL_FROM_BEHIND:TACKLE_FOUL_NORMAL)*boxFoulScale
             *(1.0 + directiveBias[tackler.id].tackleAggression * 0.35)   // tackle_hard: more reckless
-            *(1.0 - directiveBias[tackler.id].stayOnFeet * 0.45);        // stay_on_feet: cleaner
+            *(1.0 - directiveBias[tackler.id].stayOnFeet * 0.45)         // stay_on_feet: cleaner
+            *(1.0 + (1.0 - staminaFrac(tackler.stamina)) * 0.6);         // tired legs mistime the tackle (+60% at empty; no-op fresh)
         // A deliberate cynical foul IS the foul — he means to bring the man down.
         if(cynical) foulChance = CYNICAL_FOUL_PROB;
         // A booked player plays it safe — fewer reckless fouls, so second
@@ -726,7 +739,10 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     bool dribble20mShot = carrierTracker.carryTrackerId == s.id && carrierTracker.carryPathDistance >= 200.0;
     if (dribble20mShot) stats.recordDribble20mShot();
     double gx=goalXFor(s.team);
-    double accuracy=attrFactor(s.attrs.shooting);
+    // Fatigue: a tired finish is less accurate — accuracy scales with the tank.
+    // Feeds executionError via (1-accuracy)*SHOT_ERROR_SKILL below, so a tired
+    // shooter sprays more. No-op at full stamina.
+    double accuracy=attrFactor(s.attrs.shooting)*staminaFrac(s.stamina);
     double goalCenterY=PITCH_H/2.0;
     double shotDistance=std::hypot(gx-s.x,goalCenterY-s.y);
     double freshCrossMax=s.role==Role::CF?285.0:(s.role==Role::WM?270.0:250.0);

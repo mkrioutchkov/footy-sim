@@ -75,12 +75,19 @@ inline auto dist(double ax, double ay, double bx, double by) -> double {
     return std::sqrt(dx * dx + dy * dy);
 }
 constexpr auto attrFactor(double attr) -> double { return attr / 100.0; }
+// staminaFrac: current/max stamina in [0,1]. 1.0 = fresh (decision gates are a
+// no-op at kickoff), falls as the tank empties so late-game execution degrades
+// (pass/shot/foul accuracy + first-touch settle). Deterministic scalar — adds
+// NO rng; the gates multiply existing values so the RNG stream is byte-identical.
+constexpr auto staminaFrac(double stamina) -> double { return clamp(stamina / 100.0, 0.0, 1.0); }
 constexpr auto fdFor(Team team) -> double { return team == Team::Home ? 1.0 : -1.0; }
 inline double goalXFor(Team team) { return team == Team::Home ? AWAY_GOAL_X : HOME_GOAL_X; }
 inline double ownGoalXFor(Team team) { return team == Team::Home ? HOME_GOAL_X : AWAY_GOAL_X; }
 
 // ── Stamina ──
 inline constexpr double STAMINA_DRAIN_SPRINT  = 0.014;
+inline constexpr double STAMINA_DRAIN_MOVE    = 0.020;    // base match-fatigue rate: a working player tires TOWARD the floor (FATIGUE_FINDING)
+inline constexpr double STAMINA_MATCH_FLOOR   = 50.0;    // a working player never drains below this in-match (above the 0.35 speed-threshold) → no crash, speed stays dormant, only the decision gates bite; a fitter player floors higher
 inline constexpr double STAMINA_RECOVER       = 0.012;
 inline constexpr double STAMINA_SLOW_THRESHOLD = 0.35;
 
