@@ -11,12 +11,12 @@ export interface ManagerCareer {
   winPct: number;                 // 0..100
   titles: number; promotions: number; relegations: number; cups: number;
   objectivesMet: number; objectivesSet: number;
-  bestFinish: { position: number; division: string; season: number } | null;
+  bestFinish: { position: number; tier: number; division: string; season: number } | null;
   spells: ManagerSpell[];         // one per club managed, most recent first
 }
 
 interface HistRow {
-  team_id: number; season: number; division: string; position: number;
+  team_id: number; season: number; tier: number; division: string; position: number;
   played: number; won: number; drawn: number; lost: number; gf: number; ga: number; points: number;
   champion: number; promoted: number; relegated: number; cup_won: number;
   objective_kind: string | null; objective_met: number | null;
@@ -69,7 +69,7 @@ export function getManagerCareer(userId: number): ManagerCareer {
   const ids = teams.map(t => t.id);
   const nameById = new Map(teams.map(t => [t.id, t.name]));
   const ph = ids.map(() => '?').join(',');
-  const rows = db.prepare(`SELECT team_id, season, division, position, played, won, drawn, lost, gf, ga, points, champion, promoted, relegated, cup_won, objective_kind, objective_met FROM season_history WHERE team_id IN (${ph}) ORDER BY season`).all(...ids) as unknown as HistRow[];
+  const rows = db.prepare(`SELECT team_id, season, tier, division, position, played, won, drawn, lost, gf, ga, points, champion, promoted, relegated, cup_won, objective_kind, objective_met FROM season_history WHERE team_id IN (${ph}) ORDER BY season`).all(...ids) as unknown as HistRow[];
 
   const c: ManagerCareer = { ...EMPTY, spells: [] };
   let best: ManagerCareer['bestFinish'] = null;
@@ -79,7 +79,9 @@ export function getManagerCareer(userId: number): ManagerCareer {
     c.gf += r.gf; c.ga += r.ga; c.points += r.points;
     c.titles += r.champion; c.promotions += r.promoted; c.relegations += r.relegated; c.cups += r.cup_won;
     if (r.objective_kind != null) { c.objectivesSet++; if (r.objective_met === 1) c.objectivesMet++; }
-    if (!best || r.position < best.position) best = { position: r.position, division: r.division, season: r.season };
+    // best finish = highest TIER first (lower number), then highest position — matches history.ts (was
+    // position-only, so "2nd in Div 3" wrongly outranked "5th in Div 1").
+    if (!best || r.tier < best.tier || (r.tier === best.tier && r.position < best.position)) best = { position: r.position, tier: r.tier, division: r.division, season: r.season };
     const sp = spells.get(r.team_id) ?? { team: nameById.get(r.team_id) ?? '—', seasons: 0, from: r.season, to: r.season, titles: 0, promotions: 0, relegations: 0 };
     sp.seasons++; sp.from = Math.min(sp.from, r.season); sp.to = Math.max(sp.to, r.season);
     sp.titles += r.champion; sp.promotions += r.promoted; sp.relegations += r.relegated;
