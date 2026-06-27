@@ -73,6 +73,9 @@ function providerCfg(prefix: string): ProviderCfg {
 function resolveProvider(live: boolean): ProviderCfg {
   return live && process.env.TACTICS_LLM_LIVE_PROVIDER ? providerCfg('TACTICS_LLM_LIVE_') : providerCfg('TACTICS_LLM_');
 }
+function providersDiffer(a: ProviderCfg, b: ProviderCfg): boolean {
+  return a.provider !== b.provider || a.base !== b.base || a.model !== b.model;
+}
 
 // Pre-flight readiness — mirrors the old `if (!KEY)` early guard so a caller returns the same note without
 // attempting a call. Pass live=true to check the live provider (interactive callers).
@@ -88,9 +91,27 @@ export function llmReady(live = false): { ok: true } | { ok: false; error: strin
     : { ok: false, error: 'TACTICS_LLM_API_KEY not set (see web/backend/.env)' };
 }
 
-export async function chatComplete(req: ChatRequest): Promise<string> {
-  const cfg = resolveProvider(!!req.live);
+function callProvider(req: ChatRequest, cfg: ProviderCfg): Promise<string> {
   return cfg.provider === 'claude-code' ? claudeCodeChat(req, cfg) : httpChat(req, cfg);
+}
+
+export async function chatComplete(req: ChatRequest): Promise<string> {
+  const live = !!req.live;
+  const cfg = resolveProvider(live);
+  try {
+    return await callProvider(req, cfg);
+  } catch (err) {
+    // LIVE resilience: when the fast live provider is down/rate-limited (the recurring "shout times out /
+    // model unreachable" pain — e.g. Groq quota), fall back to the DEFAULT/batch provider so the shout still
+    // LANDS (slower, but a working order beats a silent no-op). Only fires for interactive calls that have a
+    // DISTINCT live provider configured; BATCH calls never fall back (their determinism depends on the
+    // configured provider). If the fallback also fails, its error (with the user-facing message) propagates.
+    const def = resolveProvider(false);
+    if (live && process.env.TACTICS_LLM_LIVE_PROVIDER && providersDiffer(cfg, def)) {
+      return await callProvider(req, def);
+    }
+    throw err;
+  }
 }
 
 // ── HTTP (OpenAI-compatible) ─────────────────────────────────────────────────
