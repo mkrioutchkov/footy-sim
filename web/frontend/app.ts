@@ -136,6 +136,9 @@ function skillOvr(attrs: Record<string, number>): number {
 // per-cell attribute heat: red (low) → green (high), used across the squad table + compare.
 // 'POSN' (not 'POS') for the positioning ATTRIBUTE so it never reads the same as the role/Position column.
 const SQUAD_ATTRS: [string, string][] = [['speed', 'SPD'], ['passing', 'PAS'], ['creativity', 'CRE'], ['shooting', 'SHO'], ['tackling', 'TAC'], ['positioning', 'POSN'], ['stamina', 'STA']];
+// A player's key attributes as "ABBR value" tokens — the single source of truth so every screen shows
+// the SAME set (the dashboard squad card used to hand-write 6 and silently dropped stamina).
+const attrTokens = (attrs: Record<string, number>): string[] => SQUAD_ATTRS.map(([k, abbr]) => `${abbr} ${Math.round(attrs[k] ?? 0)}`);
 // §2.10 fitness-band colours: red exhausted/injured, amber tired, green fresh, neutral ok.
 const BAND_COLOR: Record<string, string> = { injured: 'var(--danger)', exhausted: 'var(--danger)', tired: '#ffb84d', ok: '', fresh: 'var(--accent)' };
 function attrHeat(v: number): string {
@@ -541,12 +544,11 @@ async function screenDashboard() {
     const ageText = p.age != null ? ` · ${p.age}y` : '';
     const fitText = (p.injuredMatches ?? 0) > 0 ? ` · 🤕${p.injuredMatches}` : (p.fitness != null && p.fitness < 90 ? ` · ${p.fitness}%` : '');
     const moraleText = p.morale != null ? (p.morale >= 75 ? ' · 😊' : p.morale <= 40 ? ' · 😟' : '') : '';
-    const r = (n: number) => Math.round(n);
+    const at = attrTokens(p.attrs);   // all 7, from SQUAD_ATTRS — split 4 / 3 across two lines to fit the card
     const card = h('div', { class: 'pcard', style: 'cursor:pointer', title: 'View profile & personality', ...clickable(() => { location.hash = `#/player/${p.slot}`; }) },
       h('div', { class: 'role' }, `${p.role} · OVR ${ovr}${potText}${ageText}${fitText}${moraleText}`),
       h('div', { class: 'pn' }, p.name),
-      h('div', { class: 'at' }, `SPD ${r(p.attrs.speed)} · PAS ${r(p.attrs.passing)} · SHO ${r(p.attrs.shooting)}`,
-        h('br'), `TAC ${r(p.attrs.tackling)} · POSN ${r(p.attrs.positioning)} · CRE ${r(p.attrs.creativity)}`),
+      h('div', { class: 'at' }, at.slice(0, 4).join(' · '), h('br'), at.slice(4).join(' · ')),
     );
     if (per && per.tagline) {
       card.setAttribute('title', `${per.nationality}${per.nationality ? ' · ' : ''}${per.backstory}`);
@@ -1999,7 +2001,7 @@ async function screenAcademy() {
     body.append(h('tr', {},
       h('td', {}, p.name,
         // the attribute profile so a prospect can be evaluated on more than OVR (the squad/scout views show this)
-        h('div', { class: 'muted', style: 'font-size:10px' }, SQUAD_ATTRS.map(([k, abbr]) => `${abbr} ${Math.round(p.attrs[k] ?? 0)}`).join(' · '))),
+        h('div', { class: 'muted', style: 'font-size:10px' }, attrTokens(p.attrs).join(' · '))),
       h('td', {}, h('span', { class: 'pill' }, p.role)),
       h('td', { class: 'num' }, String(p.age)),
       h('td', { class: 'num' }, String(p.overall)),
