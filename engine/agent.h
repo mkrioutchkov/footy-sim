@@ -199,6 +199,7 @@ private:
     int    lastPassTargetId = -1;
 
     double facing = 0;
+    double prevFacingDeltaSigned = 0;   // G2 dizzy-spin: last tick's signed facing change, to damp oscillation (reversals)
 
     int    recentPassTarget = -1;
     double recentPassTime   = 0;

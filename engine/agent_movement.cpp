@@ -256,6 +256,14 @@ void PlayerAI::applyMovement(double sdt) {
 
     double prevFacing = p.facing;
     double requestedFacingDelta = std::atan2(std::sin(facing - prevFacing), std::cos(facing - prevFacing));
+    // G2 dizzy-spin: an OFF-BALL player whose facing TARGET oscillates (decision-flicker) chases it back and
+    // forth → ~540°/1.5s pirouette. Damp a facing change that REVERSES the previous tick's direction (the
+    // oscillation signature); CONSISTENT rotation (aligning body to travel, reacting to a threat) is same-sign
+    // and passes through untouched. maxFacingTurn is UNTOUCHED (per the audit / turn-cap-perception note).
+    bool offBallFacing = engine.state.ball.controllerId != p.id;
+    if (offBallFacing && requestedFacingDelta * prevFacingDeltaSigned < -1e-6)
+        requestedFacingDelta *= 0.30;
+    prevFacingDeltaSigned = requestedFacingDelta;
     double turnSpeedBlend = clamp((spdAfter - 12.0) / 58.0, 0.0, 1.0);
     double maxFacingTurn = lerp(0.24, 0.055, turnSpeedBlend);
     // Rotating INTO your direction of travel is natural at any speed — the
