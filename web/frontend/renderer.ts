@@ -352,12 +352,13 @@ export class MatchRenderer {
     const g = this.pitchGfx;   // reused (clear + redraw) so a resize/recalc doesn't leak a Graphics each time
     g.clear();
     g.rect(-GOAL_DEPTH, 0, PITCH_W + GOAL_DEPTH * 2, PITCH_H); g.fill(PITCH_GREEN);
-    // mowing stripes
+    // mowing stripes — alternating subtle light/dark bands (a real mown-pitch look; the old single
+    // white-at-0.05 overlay was nearly invisible). Conservative alphas so it reads as texture, not garish.
     const stripeCount = 14;
     const stripeW = PITCH_W / stripeCount;
-    for (let i = 0; i < stripeCount; i += 2) {
+    for (let i = 0; i < stripeCount; i++) {
       g.rect(i * stripeW, 0, stripeW, PITCH_H);
-      g.fill({ color: 0xffffff, alpha: 0.05 });
+      g.fill(i % 2 === 0 ? { color: 0xffffff, alpha: 0.055 } : { color: 0x000000, alpha: 0.05 });
     }
     g.rect(0, 0, PITCH_W, PITCH_H); g.stroke({ width: 3, color: LINE_COLOR });
     g.moveTo(PITCH_W / 2, 0); g.lineTo(PITCH_W / 2, PITCH_H); g.stroke({ width: 2, color: LINE_COLOR });
