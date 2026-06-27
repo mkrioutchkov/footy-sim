@@ -39,9 +39,15 @@ Action* PlayerAI::tryFreshBallOverride(SmallVector<Action, 24>& a, Action& best,
                 if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
             }
         }
+        // G2 (user live-watch: "forced first-time shot"). The fresh-cross volley used to
+        // fire from angleDeg > 5.5 — below the 7.5 acute-shot threshold — i.e. a byline-
+        // tight wild first-timer, with a wide best-0.32 tolerance that overrode a clearly
+        // better touch/lay-off. Require a REAL opening (>11deg) and a tighter tolerance so
+        // a poorly-angled collection takes a touch instead of blazing it. A central, well-
+        // angled volley still fires (it keeps the fresh-finish keeper-beat bonus).
         if (shootOpt && shootOpt->audit.distance < 245.0
-            && shootOpt->audit.angleDeg > 5.5
-            && shootOpt->score > best.score - 0.32)
+            && shootOpt->audit.angleDeg > 11.0
+            && shootOpt->score > best.score - 0.22)
             return shootOpt;
     }
     return nullptr;
