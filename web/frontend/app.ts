@@ -280,9 +280,11 @@ function screenCreateTeam() {
 
 // The standing tactical plan: a plain-English textarea + a read-only resolved-plan display
 // (the compiled directives), mirroring the live shout receipt. Replaces the old 5-dial sliders.
-// The directive vocabulary, grouped FM-style — every entry maps to a REAL engine-backed kind (no
-// born-dead duties). Clicking a chip drops a phrasing into the plan box so the language is
-// discoverable, not guessed. Includes the just-unblocked cutback / contain / stay_back (P0).
+// The directive vocabulary, grouped FM-style — every entry maps to a REAL engine-backed kind in
+// tactics.ts VALID_KINDS (no born-dead duties). Clicking a chip drops a phrasing into the plan box so
+// the language is discoverable, not guessed. Kept in sync as the engine gains primitives — now surfaces
+// the WAVE movement kinds (overlap [user feedback #1], come_short, drift_into_pocket, target_man_holdup,
+// cut_inside) + the team shot-selection pair (shoot_from_distance / work_it_into_box).
 const VOCAB_GROUPS: { title: string; items: { label: string; phrase: string }[] }[] = [
   { title: 'Team shape', items: [
     { label: 'High press', phrase: 'press high and win it back fast' },
@@ -299,17 +301,24 @@ const VOCAB_GROUPS: { title: string; items: { label: string; phrase: string }[] 
     { label: 'Get it wide', phrase: 'use the wings' },
     { label: 'Play narrow', phrase: 'stay narrow, through the middle' },
     { label: 'Slow it down', phrase: 'keep the ball, take the sting out' },
+    { label: 'Work it into the box', phrase: 'work it into the box, no long shots' },
+    { label: 'Shoot from range', phrase: 'have a go from distance' },
   ] },
   { title: 'Player movement', items: [
     { label: 'Get forward', phrase: '[player] get forward' },
     { label: 'Sit deep', phrase: '[player] sit deep' },
     { label: "Stay back", phrase: "[player] don't bomb forward" },
     { label: 'Stay wide', phrase: '[player] hug the touchline' },
-    { label: 'Come inside', phrase: '[player] cut inside' },
+    { label: 'Come inside', phrase: '[player] tuck inside into the half-space' },
+    { label: 'Overlap', phrase: '[player] get on the overlap and bomb down the wing' },
     { label: 'Run in behind', phrase: '[player] run in behind' },
+    { label: 'Come short', phrase: '[player] come short to feet' },
+    { label: 'Drop into pocket', phrase: '[player] drift into the pockets between the lines' },
+    { label: 'Hold it up', phrase: '[player] hold it up as the target man' },
   ] },
   { title: 'On the ball', items: [
     { label: 'Shoot on sight', phrase: '[player] shoot on sight' },
+    { label: 'Cut inside to shoot', phrase: '[player] cut inside onto his stronger foot to shoot' },
     { label: 'Dribble more', phrase: '[player] take them on' },
     { label: 'Cross early', phrase: '[player] whip crosses in early' },
     { label: 'Cut it back', phrase: '[player] pull it back from the byline' },
