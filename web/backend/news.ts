@@ -156,7 +156,7 @@ export function recordSeasonAwards(teamId: number, season: number): SeasonAward[
   awards.push({ teamId, player: pots.name, slot: pots.slot, type: 'pots', headline: potsHead, avg: pots.avg });
   const young = [...rated].filter(p => p.age <= 21).sort((a, b) => b.avg - a.avg)[0];
   if (young && young.name !== pots.name) {
-    const youngHead = `${young.name} — your Young Player of the Season (avg ${young.avg.toFixed(1)})`;
+    const youngHead = `${young.name} — your Young Player of the Season (avg ${young.avg.toFixed(1)} over ${young.apps} games)`;
     ins.run(teamId, young.slot, young.name, 'young_pots', youngHead, season, now);
     awards.push({ teamId, player: young.name, slot: young.slot, type: 'young_pots', headline: youngHead, avg: young.avg });
   }

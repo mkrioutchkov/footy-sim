@@ -51,6 +51,7 @@ export class MatchRenderer {
   private tickerLines: string[] = [];
   private seenEventKeys: Set<string> = new Set();
   private lastGoalScorer = '';   // most recent goal-event scorer name — fed to the goal banner
+  private commentaryNth = 0;     // advances per rotated commentary line so same-minute events don't repeat phrasing
   // ── live stats + momentum ("PRESSURE" panel) ── per-team tallies accumulated off the SAME
   // de-duped event loop as the feed (so a goal counts once), plus a signed momentum scalar.
   private statPanelEl: HTMLDivElement | null = null;
@@ -1205,7 +1206,9 @@ export class MatchRenderer {
   // so it's deterministic) so a run of saves/shots doesn't read identically.
   private commentary(type: string, who: string, target: string): string {
     const w = who || 'someone';
-    const pick = (arr: string[]): string => arr[Math.max(0, Math.floor(this.lastClockMs / 60000)) % arr.length];
+    // rotate by minute AND a per-line counter so a run of saves/shots in one minute doesn't read identically
+    // (still deterministic for a given replay: same event sequence → same counter sequence; display-only)
+    const pick = (arr: string[]): string => arr[Math.abs(Math.floor(this.lastClockMs / 60000) + this.commentaryNth++) % arr.length];
     switch (type) {
       case 'goal':       return pick([`⚽ GOAL! ${w} buries it!`, `⚽ GOAL! ${w} finds the net!`, `⚽ GOAL!! ${w} scores!`]);
       case 'shot':       return pick([`${w} has a crack`, `${w} lets fly`, `${w} tries his luck`]);
