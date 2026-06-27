@@ -75,6 +75,29 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                 p.targetX = bx + fd * (60.0 + slotA * 40.0);
                 p.targetY = by + slotB * 80.0;
             }
+        } else if (spType == SetPiece::GoalKick) {
+            // Build-up shape (user feedback #5 "weird positioning at goal kicks"): the kicking team had
+            // NO goal-kick case — it fell through to open-play positions, so the keeper had no structured
+            // options. Give it real ones: CBs split WIDE just outside the box (the safe short ball, legal
+            // in the area since 2019), FBs push HIGH up the flanks, a CM drops in as the central pivot, the
+            // front men push up to stretch + offer the long ball. Mirrors releaseGoalKick's short(CB/FB) /
+            // long(CF/WM) target search, so the distribution has good targets. Pure geometry, no rng.
+            // A CONNECTED ladder, not everyone-high: CB wide-short → FB/CM the medium link → only the
+            // front men stretch high. (Bombing the FBs to ~300px while the keeper plays SHORT to a CB
+            // left a disconnected build-up — a big gap that lost possession; goals -1.0. Keep them linked.)
+            if (isCenterBack()) {
+                p.targetX = ownGoalX + fd * (115.0 + std::abs(slotA) * 22.0);
+                p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.30 : PITCH_H * 0.70;
+            } else if (isFullBack()) {
+                p.targetX = ownGoalX + fd * (180.0 + slotA * 28.0);
+                p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.18 : PITCH_H * 0.82;
+            } else if (isCentralMidfielder()) {
+                p.targetX = ownGoalX + fd * (175.0 + std::abs(slotA) * 35.0);
+                p.targetY = PITCH_H / 2.0 + slotB * 60.0;
+            } else {
+                p.targetX = ownGoalX + fd * (400.0 + slotA * 35.0);
+                p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.25);
+            }
         }
     } else {
         if (spType == SetPiece::Corner) {
