@@ -1191,6 +1191,18 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   // Rewind to the start — only meaningful for a finished recording (revealed on the first
   // replay frame), since a live re-sim can't seek backwards.
   const rewindBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Rewind to the start of the recording', onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: 0 })) }, '⏮ Rewind');
+  // G3 scrub: a finished recording is random-access (ReplayStream.seekTo re-fills from any clock), so
+  // drag to jump to any minute. Hidden until the first replay frame (same reveal as rewind). The seek
+  // value is a match-clock ms position; the bar tracks the live clock while playing and stops tracking
+  // while you drag (so it doesn't fight your scrub). No backend change → safe to ship without a :4000 restart.
+  const SCRUB_MAX_MS = 96 * 60 * 1000;   // 90' + generous added time; seeking past the end leaves the final frame up
+  let scrubbing = false;
+  const fmtMin = (ms: number): string => `${Math.max(0, Math.floor(ms / 60000))}'`;
+  const scrubLabel = h('span', { class: 'muted', style: "display:none;font-size:12px;min-width:30px;font-variant-numeric:tabular-nums" }, "0'");
+  const scrubEl = h('input', { type: 'range', min: '0', max: String(SCRUB_MAX_MS), step: '15000', value: '0',
+    style: 'display:none;width:150px;accent-color:var(--accent)', 'aria-label': 'Scrub through the match — drag to jump to any point' }) as HTMLInputElement;
+  scrubEl.addEventListener('input', () => { scrubbing = true; scrubLabel.textContent = fmtMin(+scrubEl.value); });
+  scrubEl.addEventListener('change', () => { activeWs?.send(JSON.stringify({ type: 'seek', value: +scrubEl.value })); scrubbing = false; });
   // ⚽ Replay — appears after the first live goal; plays back the buffered run-up (instant action replay).
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Action replay of the last goal', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
   // §weather: the match's actual condition, set from the first frame that carries it (clear → blank).
@@ -1229,6 +1241,8 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     ...speedBtns,
     pauseBtn,
     rewindBtn,
+    scrubEl,
+    scrubLabel,
     replayBtn,
     dirBtn,
     weatherEl,
@@ -1379,7 +1393,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       if (msg.error) { showStatusError(msg.error); return; }   // re-sim failed (e.g. replay-from-shouts)
       // A replayed recording is finished playback: reveal the rewind/scrub controls. The shout box is
       // already gone (the panel is the read-only live-only note when !live), so keep the note visible.
-      if (msg.replay && !replayUiApplied) { replayUiApplied = true; rewindBtn.style.display = ''; syncReserve(); }
+      if (msg.replay && !replayUiApplied) { replayUiApplied = true; rewindBtn.style.display = ''; scrubEl.style.display = ''; scrubLabel.style.display = ''; syncReserve(); }
+      // Track the playhead on the scrub bar while playing (but not while the user is dragging it).
+      if (replayUiApplied && !scrubbing && typeof msg.clockMs === 'number') { scrubEl.value = String(msg.clockMs); scrubLabel.textContent = fmtMin(msg.clockMs); }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
       if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; watchIsHome = msg.homeName === myTeam?.name; refreshDirOverlay(); }
