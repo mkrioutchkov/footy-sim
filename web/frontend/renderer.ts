@@ -485,6 +485,9 @@ export class MatchRenderer {
       let entry = this.playerEntries.get(p.id);
       if (!entry) {
         const shortName = p.name.split('(')[1]?.replace(')', '') ?? p.name;
+        // squad number (jersey-style: GK=1 … ; engine ids 0-10 home / 11-21 away) prefixed to the label
+        // for legibility — "10 Messi" reads at a glance (user feedback #4: player+number legibility).
+        const labelName = `${(p.id % 11) + 1} ${shortName}`;
         // a soft drop-shadow, drawn once (static) and only repositioned each frame: a squashed dark
         // ellipse offset down-right, so every player reads as a lit figure casting a shadow on the turf.
         const shadow = new Graphics();
@@ -493,7 +496,7 @@ export class MatchRenderer {
         const body = new Graphics();
         const arrow = new Graphics();
         const label = new Text({
-          text: shortName,
+          text: labelName,
           // a thin dark outline so the name stays legible against the grass / mowing stripes
           style: new TextStyle({ fill: 0xffffff, fontSize: 11, fontFamily: 'monospace', stroke: { color: 0x081019, width: 2.5 } }),
         });
@@ -516,7 +519,7 @@ export class MatchRenderer {
           label,
           dirTag,
           dirShown: '',
-          name: shortName,
+          name: labelName,
           ratingShown: -1,
           drawn: false,
           wasSliding: false,
