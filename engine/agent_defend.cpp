@@ -340,7 +340,18 @@ Action PlayerAI::scoreChase(const Perception& per) {
         }
     }
 
-    if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun)
+    // G1 crowding (converger cap): the NEAREST few recover a loose ball; a 4th+ teammate piling in just
+    // builds the 6-player scrum the user flagged. Count teammates clearly closer to the ball — if this
+    // player is the 4th+ closest (and not the intended receiver / not on an urgent run / not recovering his
+    // own touch), he HOLDS SHAPE instead of converging. Pure geometry, no rng. The nearest 3 still recover,
+    // so ball-recovery is kept; only the redundant pile-on is dropped (a modest goal cost is acceptable).
+    int closerMates = 0;
+    for (auto& o : engine.state.players) {
+        if (o.team != player.team || o.id == player.id || o.role == Role::GK) continue;
+        if (dist(o.x, o.y, b.x, b.y) < per.ballDist - 2.0) closerMates++;
+    }
+    bool tooManyClosing = closerMates >= 3 && !isIntendedReceiver && !urgentLooseBallRun && !needsRecovery;
+    if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun) || tooManyClosing
         || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery && !urgentLooseBallRun && !cfLoosePassSupport && !nearestEligibleFreeBall))
         return Action{ActionType::Chase, 0.0};
 
