@@ -313,6 +313,8 @@ const VOCAB_GROUPS: { title: string; items: { label: string; phrase: string }[] 
     { label: 'Come inside', phrase: '[player] tuck inside into the half-space' },
     { label: 'Overlap', phrase: '[player] get on the overlap and bomb down the wing' },
     { label: 'Run in behind', phrase: '[player] run in behind' },
+    { label: 'Make runs', phrase: '[player] make runs and get on the move' },
+    { label: 'Stay central', phrase: '[player] stay central and hold the middle' },
     { label: 'Come short', phrase: '[player] come short to feet' },
     { label: 'Drop into pocket', phrase: '[player] drift into the pockets between the lines' },
     { label: 'Hold it up', phrase: '[player] hold it up as the target man' },
@@ -1102,6 +1104,13 @@ const PLAYER_VERB: Record<string, string> = {
   run_in_behind: 'runs in behind', make_runs: 'makes runs', dribble_more: 'takes them on',
   press_hard: 'presses hard', tackle_hard: 'gets stuck in', stay_on_feet: 'stays on his feet',
   cutback: 'cuts it back from the byline', contain: 'sits off and contains', stay_back: 'holds his position',
+  // WAVE movement primitives — readback prose so a compiled directive reads as English, not "player: come_short"
+  come_short: 'comes short to feet', check_to_feet: 'comes short to feet',
+  drift_into_pocket: 'drifts into the pockets', play_between_lines: 'plays between the lines',
+  between_the_lines: 'plays between the lines', drop_into_the_ten: 'drops into the ten',
+  target_man_holdup: 'holds it up as the target man', hold_it_up: 'holds it up', target_man: 'holds it up',
+  cut_inside: 'cuts inside to shoot', cut_in: 'cuts inside', cut_inside_to_shoot: 'cuts inside to shoot',
+  overlap: 'gets on the overlap', overlap_runs: 'overlaps', get_on_the_overlap: 'gets on the overlap',
 };
 function condText(w: any): string {
   let c = '';
