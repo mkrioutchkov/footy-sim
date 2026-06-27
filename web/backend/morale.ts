@@ -21,7 +21,7 @@ export function captainLeadership(teamId: number): number {
   const cap = (db.prepare('SELECT captain_slot FROM teams WHERE id = ?').get(teamId) as { captain_slot: number | null } | undefined)?.captain_slot ?? null;
   const rows = db.prepare('SELECT slot, personality FROM players WHERE team_id = ?').all(teamId) as { slot: number; personality: string | null }[];
   const lead = (p: { personality: string | null }): number => { try { return p.personality ? (JSON.parse(p.personality).traits?.leadership ?? -1) : -1; } catch { return -1; } };
-  if (cap != null) { const c = rows.find(r => r.slot === cap); if (c && lead(c) >= 0) return lead(c); }   // a deliberate (even poor) pick stands
+  if (cap != null) { const c = rows.find(r => r.slot === cap); if (c) { const l = lead(c); return l >= 0 ? l : 50; } }   // a deliberate pick stands (neutral 50 if he has no dials yet) — only auto-pick if the captain is gone
   let best = -1; for (const r of rows) { const l = lead(r); if (l > best) best = l; }
   return best >= 0 ? best : 50;
 }
