@@ -333,7 +333,14 @@ void GameEngine::assignAttackingRoles(Team team, Player& carrier) {
     //    over-commit guard). all_out_attack relaxes it: throw the FB + a CM
     //    forward on central carries and a touch earlier too.
     bool allOut = allOutActive[team == Team::Home ? 0 : 1];
-    if ((ballAdvance > 0.40 && carrierWide) || (allOut && ballAdvance > 0.30)) {
+    // USER FEEDBACK #1 ("lack of overlapping runs"): the FB only bombed forward on a
+    // WIDE + advanced (>0.40) carry, so overlaps were rare (audit: FB ~1.8% attacking-
+    // third). Trigger earlier (>0.32) AND on the classic case — the ball-side WINGER
+    // carrying wide, where his FB overlaps OUTSIDE him — so the run is frequent and
+    // visible. More committed fullbacks = more wide overhang; a deliberate, user-
+    // sanctioned attacking risk ("bumping goals a bit is fine, we can improve defending").
+    bool wingerCarryWide = carrier.role == Role::WM && carrierWide && ballAdvance > 0.28;
+    if ((ballAdvance > 0.32 && carrierWide) || wingerCarryWide || (allOut && ballAdvance > 0.30)) {
         Player* fbOver = nullptr; double bestFb = -1e9;
         for (auto& p : state.players) {
             if (p.team != team || p.id == carrier.id || p.role != Role::FB) continue;
@@ -342,8 +349,10 @@ void GameEngine::assignAttackingRoles(Team team, Player& carrier) {
             if (adv > bestFb) { bestFb = adv; fbOver = &p; }
         }
         if (fbOver) {
-            double ty = clamp(cy + ballSide * 200.0, 40.0, PITCH_H - 40.0);
-            setAssignment(*fbOver, DefensiveTask::Overlap, oppGoalX - fd * 110.0, ty, -1);
+            // hug the touchline and get goal-side: a clear bombing run to the wide
+            // byline beyond the winger (cross/cutback end-point), not a half-hearted edge.
+            double ty = clamp(cy + ballSide * 225.0, 32.0, PITCH_H - 32.0);
+            setAssignment(*fbOver, DefensiveTask::Overlap, oppGoalX - fd * 95.0, ty, -1);
         }
         Player* cmCut = nullptr; double bestCm = -1e9;
         for (auto& p : state.players) {
