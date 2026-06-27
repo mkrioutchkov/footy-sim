@@ -242,11 +242,18 @@ bool GameEngine::checkOutOfPlay() {
     return false;
 }
 
-void GameEngine::checkBallPlayerCollision(double){
+void GameEngine::checkBallPlayerCollision(double sec){
     auto&b=state.ball;
     double bs=std::hypot(b.vx,b.vy);
     const double collectRadius=COLLECT_DIST;
     const double fastContactRadius=PLAYER_R+BALL_R-3.0;
+    // Swept-contact origin (user feedback #2 "the ball just travels through the player"): a FAST loose
+    // ball moves up to ~15px/tick (bs~900px/s × FIXED_DT) against a ~13.5px contact radius, so a single
+    // end-of-tick POINT test lets it skip PAST a player between ticks (the closest approach falls mid-tick).
+    // For fast balls we test each player against the ball's PATH this tick (prev→cur), not just the
+    // endpoint; slow balls keep the point test (byte-identical). prev = undo the step applyBallPhysics
+    // just applied (b.x += b.vx*sec). Live shots stay protected by the shot-in-flight gate below.
+    double prevX=b.x-b.vx*sec, prevY=b.y-b.vy*sec;
 
     // ── First-time finish ── A driven LOW cross/cutback reaching an attacking
     // runner in the box is swept in FIRST-TIME rather than trapped: it is too
@@ -499,7 +506,14 @@ void GameEngine::checkBallPlayerCollision(double){
 
     for(auto&p:state.players){
         if(!canContestBall(p))continue;
-        double d=dist(p.x,p.y,b.x,b.y);
+        // Fast ball → swept distance (closest approach of the player to the prev→cur path);
+        // slow ball → the original endpoint test (byte-identical, no tunnelling at low speed).
+        double d;
+        if(bs>COLLISION_FAST_CONTACT){
+            double sx=b.x-prevX,sy=b.y-prevY,seg2=sx*sx+sy*sy;
+            double t=seg2>1e-6?clamp(((p.x-prevX)*sx+(p.y-prevY)*sy)/seg2,0.0,1.0):0.0;
+            d=dist(p.x,p.y,prevX+sx*t,prevY+sy*t);
+        }else d=dist(p.x,p.y,b.x,b.y);
         // A live shot is only touchable by its pre-rolled blocker — everyone
         // else lost their one deliberate chance at launch. Keyed on the loose
         // origin (not shot.active, which the GK assessment clears at 250px).
