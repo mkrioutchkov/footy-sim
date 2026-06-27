@@ -1963,7 +1963,9 @@ async function screenAcademy() {
       catch (e: any) { toast(e.message); promote.removeAttribute('disabled'); }
     });
     body.append(h('tr', {},
-      h('td', {}, p.name),
+      h('td', {}, p.name,
+        // the attribute profile so a prospect can be evaluated on more than OVR (the squad/scout views show this)
+        h('div', { class: 'muted', style: 'font-size:10px' }, SQUAD_ATTRS.map(([k, abbr]) => `${abbr} ${Math.round(p.attrs[k] ?? 0)}`).join(' · '))),
       h('td', {}, h('span', { class: 'pill' }, p.role)),
       h('td', { class: 'num' }, String(p.age)),
       h('td', { class: 'num' }, String(p.overall)),
