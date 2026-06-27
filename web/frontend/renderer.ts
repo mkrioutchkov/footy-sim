@@ -16,6 +16,7 @@ const TRAIL_LENGTH = 16;
 const RENDER_DEBUG = false;
 
 type PlayerEntry = {
+  shadow: Graphics;      // a soft drop-shadow under the body → reads as a lit 3D figure, not a flat disc
   body: Graphics;
   arrow: Graphics;
   label: Text;
@@ -366,6 +367,7 @@ export class MatchRenderer {
     this.drawGoal(g, PITCH_W, PITCH_H / 2, -1);
     this.drawPenaltyArea(g, 0); this.drawPenaltyArea(g, PITCH_W);
     this.drawGoalArea(g, 0); this.drawGoalArea(g, PITCH_W);
+    this.drawPenaltyDetail(g, 0); this.drawPenaltyDetail(g, PITCH_W);   // penalty spots + the "D" arcs
     this.drawMarkingArc(g, 0, 0, CORNER_ARC_R, 0, Math.PI / 2);
     this.drawMarkingArc(g, PITCH_W, 0, CORNER_ARC_R, Math.PI / 2, Math.PI);
     this.drawMarkingArc(g, 0, PITCH_H, CORNER_ARC_R, -Math.PI / 2, 0);
@@ -483,6 +485,11 @@ export class MatchRenderer {
       let entry = this.playerEntries.get(p.id);
       if (!entry) {
         const shortName = p.name.split('(')[1]?.replace(')', '') ?? p.name;
+        // a soft drop-shadow, drawn once (static) and only repositioned each frame: a squashed dark
+        // ellipse offset down-right, so every player reads as a lit figure casting a shadow on the turf.
+        const shadow = new Graphics();
+        shadow.ellipse(PLAYER_R * 0.28, PLAYER_R * 0.42, PLAYER_R * 1.02, PLAYER_R * 0.62);
+        shadow.fill({ color: 0x000000, alpha: 0.22 });
         const body = new Graphics();
         const arrow = new Graphics();
         const label = new Text({
@@ -497,11 +504,13 @@ export class MatchRenderer {
         });
         dirTag.anchor.set(0.5, 0);
         dirTag.visible = false;
+        this.playerLayer.addChild(shadow);   // BEHIND the body (added first within the layer)
         this.playerLayer.addChild(body);
         this.playerLayer.addChild(arrow);
         this.playerLayer.addChild(label);
         this.playerLayer.addChild(dirTag);
         entry = {
+          shadow,
           body,
           arrow,
           label,
@@ -549,6 +558,8 @@ export class MatchRenderer {
       entry.lastDribbleType = p.dribbleType;
       entry.wasSprinting = sprinting;
 
+      entry.shadow.position.set(vp.x, vp.y);   // follows the body (static graphic, just repositioned)
+      entry.shadow.visible = !diving;          // a diving keeper is airborne — no ground shadow
       entry.body.position.set(vp.x, vp.y);
       entry.body.alpha = hasBall ? 1 : 0.82; // consistent alpha: carriers pop, others uniform
       if (needsRedraw) {
@@ -1466,6 +1477,21 @@ export class MatchRenderer {
     const l = x === 0 ? 0 : PITCH_W - PENALTY_AREA_W;
     const t = (PITCH_H - PENALTY_AREA_H) / 2;
     g.rect(l, t, PENALTY_AREA_W, PENALTY_AREA_H); g.stroke({ width: 2, color: LINE_COLOR });
+  }
+
+  // The penalty spot + the "D" (the arc of centre-circle radius around the spot that falls OUTSIDE the box).
+  // Standard pitch markings the renderer was missing — pure geometry off the existing constants.
+  private drawPenaltyDetail(g: Graphics, x: number): void {
+    const side = x === 0 ? 1 : -1;
+    const spotX = x + side * PENALTY_AREA_W * 0.66;     // ~11m from the goal line (16.5m box)
+    const cy = PITCH_H / 2;
+    g.circle(spotX, cy, 2.5); g.fill(LINE_COLOR);       // penalty spot
+    const dx = Math.abs((x + side * PENALTY_AREA_W) - spotX);   // spot → front edge of the box
+    if (dx < CENTER_CIRCLE_R) {
+      const half = Math.acos(dx / CENTER_CIRCLE_R);
+      const base = x === 0 ? 0 : Math.PI;               // the D bulges toward midfield
+      this.drawMarkingArc(g, spotX, cy, CENTER_CIRCLE_R, base - half, base + half);
+    }
   }
 
   private drawMarkingArc(g: Graphics, x: number, y: number, radius: number, start: number, end: number): void {
