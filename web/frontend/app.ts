@@ -1288,11 +1288,20 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         : [h('div', { class: 'muted', style: 'font-size:12px' }, 'No standing instructions — shout to set the plan.')]));
   };
   renderActivePlan();
-  const panel = h('div', { class: 'tactics-panel' },
-    planEl,
-    h('div', { class: 'tactics-row' }, ta, h('button', { class: 'primary small', title: 'Apply your shout (Ctrl+Enter)', onclick: applyPlan }, 'Apply')),
-    receiptEl,
-  );
+  // Shouts apply ON THE TICK — only a LIVE match (⚡ Play LIVE / the resident coordinator) honours them.
+  // A replay, a re-sim (?shouts=1) or a quick-watch is finished/deterministic playback, so an editable
+  // shout box there is meaningless (and misleading). Live → the full interactive panel; otherwise a
+  // read-only note that points to where tactics DO take effect (G2 — was editable on past/replayed matches).
+  const panel = live
+    ? h('div', { class: 'tactics-panel' },
+        planEl,
+        h('div', { class: 'tactics-row' }, ta, h('button', { class: 'primary small', title: 'Apply your shout (Ctrl+Enter)', onclick: applyPlan }, 'Apply')),
+        receiptEl,
+      )
+    : h('div', { class: 'tactics-panel' },
+        h('div', { class: 'tactics-receipt', style: 'max-height:none' },
+          h('div', { class: 'muted', style: 'font-size:12px;line-height:1.5' },
+            '💡 Shouts are live-only — to steer a match in real time, use ⚡ Play LIVE. Your standing plan (Dashboard → Tactics) is already applied and seeds your next match.')));
   document.body.appendChild(panel);
   watchPanel = panel;
 
@@ -1368,8 +1377,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     try {
       const msg = JSON.parse(ev.data) as WatchMessage;
       if (msg.error) { showStatusError(msg.error); return; }   // re-sim failed (e.g. replay-from-shouts)
-      // A replayed recording is finished playback: drop the live-only shout box and offer rewind.
-      if (msg.replay && !replayUiApplied) { replayUiApplied = true; panel.style.display = 'none'; rewindBtn.style.display = ''; syncReserve(); }
+      // A replayed recording is finished playback: reveal the rewind/scrub controls. The shout box is
+      // already gone (the panel is the read-only live-only note when !live), so keep the note visible.
+      if (msg.replay && !replayUiApplied) { replayUiApplied = true; rewindBtn.style.display = ''; syncReserve(); }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
       if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; watchIsHome = msg.homeName === myTeam?.name; refreshDirOverlay(); }

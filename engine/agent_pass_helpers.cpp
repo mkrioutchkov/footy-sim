@@ -74,6 +74,19 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     double longBall = engine.longBallBias[p.team == Team::Home ? 0 : 1];
     if (completion < 0.44 - longBall * 0.24) return std::nullopt;   // play_it_long: allow riskier long balls
 
+    // ── G1 BUILD-UP LOOK (user 2026-06-27: "still prototype, make it look better") ──
+    // In our own build-up third the defenders were pinging mid-completion balls to each
+    // other that get picked off — reads aimless, not "patiently probe for a gap". Demand
+    // a HIGHER completion floor here UNLESS the pass genuinely breaks a line into a real
+    // gap (forward, unmarked receiver, clean lane). The keeper recycle (keeperOutlet) is
+    // excluded so there is always a safe valve — this can't stall the build-up, only make
+    // it pick the safe keep until a gap opens. play_it_long sides bypass it (they commit).
+    if (!keeperOutlet && longBall <= 0.0 && ownProgress < PITCH_W * 0.42) {
+        bool breaksLine = fp > 120.0 && receiverPressure == 0 && bl == 0 && laneRisk < 0.8;
+        double buildFloor = breaksLine ? 0.50 : 0.66;
+        if (completion < buildFloor) return std::nullopt;
+    }
+
     double progression = clamp(fp / 240.0, -0.5, 1.0);
     double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
     // passingDirectness (centred at 50): high -> reward forward passes more and
@@ -107,8 +120,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // risky/forward ball, so the side strings a long possession instead of gifting it
     // with a hopeful direct pass. Pairs with the mid-block + forwards-drop: the
     // opponent holds off, so pressureCount==0 happens often here and 20+ moves form.
-    if (per.pressureCount == 0 && ownProgress < PITCH_W * 0.5) {
-        if (safeConnector || recyclePass) sc += 0.30;
+    // G1: also reward safe retention under LIGHT pressure (==1), not just fully unpressed
+    // — that is exactly when the aimless risky ping happened. Scale the keep-bonus down a
+    // touch when pressed so the side still progresses when a real forward gap is on.
+    if (per.pressureCount <= 1 && ownProgress < PITCH_W * 0.5) {
+        double pressScale = per.pressureCount == 0 ? 1.0 : 0.65;
+        if (safeConnector || recyclePass) sc += 0.30 * pressScale;
         sc -= (1.0 - completion) * 0.45;
     }
     if (keeperOutlet) {
