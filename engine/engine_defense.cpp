@@ -456,6 +456,14 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
 
         // Phase 8: Close-down
         assignCloseDown(ctx, carrier);
+    } else if (state.clockMs < transitionUntilMs) {
+        // G3 COUNTER-PRESS (1-2-man gegenpress, SysArch directive). In the ~400ms after
+        // we LOST the ball (transition window), send the SECOND hunter at the new carrier
+        // to win it back immediately — but keep everyone else HOLDING SHAPE (no lane /
+        // cover / screen / close-down push-up). That is the difference from the failed
+        // full-press attempt that set highPress and re-crowded: this adds exactly ONE
+        // extra man, and the G1 converger cap bounds the pile at 2. A brief, focused hunt.
+        assignSecondaryPress(ctx, carrier);
     }
 
     // Phase 9-10: Threat identification & marking
