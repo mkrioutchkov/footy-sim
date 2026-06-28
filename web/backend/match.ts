@@ -178,10 +178,34 @@ export function writeSpec(fixture: Fixture): string {
 
 export interface PlayResult { fixtureId: number; homeScore: number; awayScore: number; alreadyPlayed: boolean; players?: SummaryPlayer[]; }
 
-// Cap concurrent best-effort recordings so they can't pile up on a slow host (where each runs to the
-// timeout and fails) — at most one in flight; others just skip (no replay for that match, which is fine
-// now the result + aftermath come from --summary). A fast host finishes well before the next matchday.
-const recordingInFlight = new Set<number>();
+// Best-effort replay recordings run ONE AT A TIME (so they can't pile up + swamp a slow host), but via a
+// SEQUENTIAL QUEUE rather than a drop-if-busy gate — the old `at most one in flight, others skip` lost a
+// game's recording whenever two human matches (or a league + cup tie) finished close together (viewer P2).
+// Now every queued match records in turn; failures are isolated + the result/aftermath are untouched either
+// way (they come from --summary). Dedup keeps a fixture from being queued twice.
+type RecordJob = { kind: 'fixture' | 'cup'; id: number; spec: string };
+const recordQueue: RecordJob[] = [];
+const recordQueued = new Set<string>();   // `${kind}:${id}` currently queued or recording (dedupe)
+let recordingActive = false;
+function enqueueRecording(kind: 'fixture' | 'cup', id: number, spec: string): void {
+  const key = `${kind}:${id}`;
+  if (recordQueued.has(key) || recordingFor(kind, id)) return;   // already queued/recording, or already on disk
+  recordQueued.add(key);
+  recordQueue.push({ kind, id, spec });
+  void drainRecordQueue();
+}
+async function drainRecordQueue(): Promise<void> {
+  if (recordingActive) return;            // a drain is already running — it picks up newly-queued jobs
+  recordingActive = true;
+  try {
+    while (recordQueue.length) {
+      const job = recordQueue.shift()!;
+      try { await recordMatch(job.kind, job.id, job.spec); }
+      catch (e) { console.error(`[match] replay recording ${job.kind} ${job.id} failed (${(e as Error).message}); result + aftermath unaffected.`); }
+      finally { recordQueued.delete(`${job.kind}:${job.id}`); }
+    }
+  } finally { recordingActive = false; }
+}
 
 // Run a fixture through the engine (deterministic via the stored seed) and
 // persist the score. Idempotent: a played fixture returns its stored result.
@@ -516,12 +540,12 @@ export function playFixture(fixtureId: number): Promise<PlayResult> {
 // can't pile up on a slow host. Failure is silent: the result + aftermath already came from --summary.
 export function recordReplay(fixtureId: number): void {
   const fx = getFixture(fixtureId);
-  if (!fx || !hasHumanStake(fx.home_team_id, fx.away_team_id)) return;
-  if (recordingInFlight.size > 0 || recordingFor('fixture', fixtureId)) return;
-  recordingInFlight.add(fixtureId);
-  void recordMatch('fixture', fixtureId, writeSpec(fx))
-    .catch((e: Error) => console.error(`[match] replay recording fixture ${fixtureId} failed (${e.message}); result + aftermath unaffected.`))
-    .finally(() => recordingInFlight.delete(fixtureId));
+  if (!fx) return;
+  // Default: only human-stake matches are recorded (your games — faithful + bounded ~38/season). The
+  // FOOTY_RECORD_ALL knob records any fixture passed here too (for "watch any game" testing; off by
+  // default so the default disk footprint + behaviour are unchanged).
+  if (process.env.FOOTY_RECORD_ALL !== '1' && !hasHumanStake(fx.home_team_id, fx.away_team_id)) return;
+  enqueueRecording('fixture', fixtureId, writeSpec(fx));
 }
 
 // A matchday sims the WHOLE world (every division's round + any cup ties) — ~16 engine processes at once.
@@ -558,12 +582,7 @@ export function playCupTie(tieId: number): Promise<CupTieResult> {
   // capped, non-blocking replay recording (a timeout/crash leaves the result + bracket untouched).
   return runEngineSummary(file).then(({ homeScore, awayScore }) => {
     db.prepare('UPDATE cup_ties SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, tieId);
-    if (human && recordingInFlight.size === 0 && !recordingFor('cup', tieId)) {
-      recordingInFlight.add(tieId);
-      void recordMatch('cup', tieId, file)
-        .catch((e: Error) => console.error(`[match] replay recording cup tie ${tieId} failed (${e.message}); result + bracket unaffected.`))
-        .finally(() => recordingInFlight.delete(tieId));
-    }
+    if (human || process.env.FOOTY_RECORD_ALL === '1') enqueueRecording('cup', tieId, file);
     return { tieId, homeScore, awayScore, alreadyPlayed: false };
   });
 }
