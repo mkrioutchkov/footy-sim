@@ -1230,9 +1230,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         onclick: () => seekTo(Math.max(0, g.clockMs - 4000)),
       }, '⚽'));
     }
+    highlightBtn.style.display = goalIndex.length ? '' : 'none';   // a goals-tour is only useful with goals
   };
   // ⚽ Replay — appears after the first live goal; plays back the buffered run-up (instant action replay).
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Action replay of the last goal', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
+  // 🎞 Highlights — tours every goal (jumps to ~5s before each, ~11s apart). Shown once the goal index is
+  // known (recorded replays, from the report timeline). Reuses seekTo so it works on recorded + (future) live.
+  const highlightBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Play the goal highlights', title: 'Tour every goal' }, '🎞 Highlights') as HTMLButtonElement;
   // §weather: the match's actual condition, set from the first frame that carries it (clear → blank).
   const weatherEl = h('span', { style: 'margin-left:auto;font-size:13px;color:#9ec5ff' });
   // 📹 Recorded vs ⚙ Re-simulated: a recorded replay is faithful to the stored result; a non-recorded
@@ -1278,6 +1282,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     scrubLabel,
     goLiveBtn,
     replayBtn,
+    highlightBtn,
     dirBtn,
     weatherEl,
     recBadge,
@@ -1482,6 +1487,26 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     if (liveSeek) seekLiveBuffer(targetMs);
     else activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, targetMs) }));
   };
+  // 🎞 highlights reel: tour every goal — seek to ~5s before each, ~11s apart. Reuses seekTo (so it rides
+  // the recorded backend-seek, or the live buffer). Stops on click, at the end, or on navigation (epoch).
+  let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+  const stopHighlights = (): void => {
+    if (highlightTimer) { clearTimeout(highlightTimer); highlightTimer = null; }
+    highlightBtn.textContent = '🎞 Highlights'; highlightBtn.classList.add('ghost'); highlightBtn.classList.remove('primary');
+  };
+  const playHighlights = (): void => {
+    if (!goalIndex.length) return;
+    let gi = 0;
+    highlightBtn.textContent = '⏹ Stop'; highlightBtn.classList.add('primary'); highlightBtn.classList.remove('ghost');
+    const next = (): void => {
+      if (myEpoch !== watchEpoch || gi >= goalIndex.length) { stopHighlights(); return; }
+      seekTo(Math.max(0, goalIndex[gi].clockMs - 5000));
+      gi++;
+      highlightTimer = setTimeout(next, 11000);
+    };
+    next();
+  };
+  highlightBtn.onclick = () => { if (highlightTimer) stopHighlights(); else playHighlights(); };
   const playClip = () => {
     if (replaying || !goalClip || !goalClip.length || !activeRenderer) return;
     replaying = true;
