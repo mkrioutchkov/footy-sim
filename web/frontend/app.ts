@@ -1435,6 +1435,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const GOAL_CLIP = 130;                       // frames of run-up to keep (~several seconds before the goal)
   const LIVE_BUFFER_MAX = 7200;                // ~12 min of rewind at the ~10fps thinned rate (bounds memory ~35MB)
   const liveBuffer: WatchMessage[] = [];
+  const liveMarks: { clockMs: number; name: string; kind: string }[] = [];   // goal/card markers indexed live (no report)
   let goalClip: WatchMessage[] | null = null;
   let replaying = false;
   // ── live rewind (viewer #1) ── a live watch (re-sim or coordinator) has NO backend seek — frames are
@@ -1580,6 +1581,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
           if (liveBuffer.length > LIVE_BUFFER_MAX) liveBuffer.shift();
         }
         if (goalFrame) { goalClip = liveBuffer.slice(-GOAL_CLIP); replayBtn.style.display = ''; }
+        // live goal/card markers — a live watch has no report, so index events as they happen → the scrub
+        // shows ⚽/🟨/🟥 + jump-to-goal + , / . + highlights all work mid-game (recorded gets these from the report).
+        const marks = (msg.events ?? []).filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red');
+        if (marks.length && typeof msg.clockMs === 'number') {
+          for (const e of marks) liveMarks.push({ clockMs: msg.clockMs, name: e.playerId != null ? pname(e.playerId) : (e.type === 'goal' ? 'Goal' : e.type === 'red' ? 'Red card' : 'Booking'), kind: e.type });
+          buildMarkers(liveMarks);
+        }
         // reveal the rewind/scrub controls for a LIVE watch once there's enough buffered to seek within
         if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; rewindBtn.style.display = ''; rewind10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
       }
