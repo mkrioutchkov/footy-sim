@@ -1218,17 +1218,18 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   scrubEl.addEventListener('change', () => { seekTo(+scrubEl.value); scrubbing = false; });
   // ⏪ back-10s — a real rewind (not jump-to-start), relative to the live playhead. Revealed with the scrub.
   const rewind10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds', onclick: () => seekTo(Math.max(0, currentMs - 10000)) }, '⏪ 10s') as HTMLButtonElement;
-  let goalIndex: { clockMs: number; name: string }[] = [];   // sorted; powers the , / . prev-next-goal keys
-  const buildGoalMarkers = (goals: { clockMs: number; name: string }[]): void => {
-    goalIndex = [...goals].sort((a, b) => a.clockMs - b.clockMs);
+  let goalIndex: { clockMs: number; name: string }[] = [];   // GOALS only — powers highlights + the , / . keys
+  const MARKER_ICON: Record<string, string> = { goal: '⚽', yellow: '🟨', red: '🟥' };
+  const buildMarkers = (events: { clockMs: number; name: string; kind: string }[]): void => {
+    goalIndex = events.filter(e => e.kind === 'goal').map(e => ({ clockMs: e.clockMs, name: e.name })).sort((a, b) => a.clockMs - b.clockMs);
     goalMarkers.replaceChildren();
-    for (const g of goalIndex) {
-      const pct = Math.min(99.5, Math.max(0, (g.clockMs / SCRUB_MAX_MS) * 100));
+    for (const e of events) {   // goals + cards on the timeline; click any to jump to it
+      const pct = Math.min(99.5, Math.max(0, (e.clockMs / SCRUB_MAX_MS) * 100));
       goalMarkers.append(h('span', {
-        title: `${Math.floor(g.clockMs / 60000)}' — ${g.name} · click to jump`,
+        title: `${Math.floor(e.clockMs / 60000)}' — ${e.name} · click to jump`,
         style: `position:absolute;left:${pct}%;top:-3px;transform:translateX(-50%);font-size:12px;line-height:1;cursor:pointer;pointer-events:auto`,
-        onclick: () => seekTo(Math.max(0, g.clockMs - 4000)),
-      }, '⚽'));
+        onclick: () => seekTo(Math.max(0, e.clockMs - 4000)),
+      }, MARKER_ICON[e.kind] ?? '•'));
     }
     highlightBtn.style.display = goalIndex.length ? '' : 'none';   // a goals-tour is only useful with goals
   };
@@ -1383,10 +1384,10 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   if (!live) {
     api.report(fixtureId).then(rep => {
       if (myEpoch !== watchEpoch) return;
-      const goals = (rep.facts?.timeline ?? [])
-        .filter(e => e.type === 'goal')
-        .map(e => ({ clockMs: (e.minute ?? 0) * 60000, name: e.name }));
-      if (goals.length) buildGoalMarkers(goals);
+      const events = (rep.facts?.timeline ?? [])
+        .filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red')
+        .map(e => ({ clockMs: (e.minute ?? 0) * 60000, name: e.name, kind: e.type }));
+      if (events.length) buildMarkers(events);
     }).catch(() => { /* no report (re-sim / another club) → scrub without markers */ });
   }
 
