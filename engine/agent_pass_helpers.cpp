@@ -386,10 +386,18 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                           || (assignment && assignment->role == DefensiveTask::Overlap && !wideOutletTarget)
                           || (isCentralMidfielder() && targetAttacker && !wideOutletTarget)
                           || clearOnsideAttacker;
-    if (!isWideDelivery && releasedRunner && goodThroughWindow) {
+    // USER #2 "PASSES INTO SPACE" (Park North vs max ~2:21, winger ran in behind UNFED): the
+    // genuinely-CLEAN killer ball (clearOnsideAttacker = an unmarked, ONSIDE CF/WM in behind with
+    // a clear lane, <430 to goal) should fire EVEN at moderate fp, which goodThroughWindow's fp>30
+    // gate blocks. It's strictly gated (receiverPressure==0, bl==0, onside) so it never adds a
+    // hopeful punt — the broad gate-relax was REVERTED for cratering goals; THIS plays only the
+    // clean 1-on-1, with a boost so it beats the safe square pass / the take-on.
+    bool cleanKillerBall = !isWideDelivery && clearOnsideAttacker;
+    if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall) {
         pur = ActionPurpose::Through;
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
         sc += 0.24 + attrFactor(p.attrs.creativity) * 0.15;
+        if (cleanKillerBall) sc += 0.16;
         // Quick transition: hit the runner FAST while the defence is unset.
         // counter_attack amplifies this (and the matching off-ball-run bonus).
         if (engine.state.clockMs < engine.transitionUntilMs)
