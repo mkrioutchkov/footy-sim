@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -903,6 +903,8 @@ async function screenDashboard() {
     ),
     h('div', { class: 'card', style: 'padding:14px' },
       h('div', { class: 'nav-grid' },
+        navItem('📅', 'My Matches', '#/matches'),
+        navItem('⚽', 'Results', '#/league'),
         navItem('👥', 'Squad', '#/squad'),
         navItem('💸', 'Market', '#/market'),
         navItem('🏃', 'Training', '#/training'),
@@ -2904,11 +2906,67 @@ async function screenSquad() {
   render();
 }
 
+// ── match hubs: watch any game (viewer P1 #1/#2) ── the dashboard only surfaces next/last; these list
+// the full history. Data is already served by /api/league (every fixture in the division); screenWatch
+// handles any id (a recorded replay, else a live re-sim fallback).
+function matchRow(f: FixtureT, withReport: boolean): HTMLElement {
+  const wx = f.weather && f.weather !== 'clear'
+    ? h('span', { class: 'pill', title: f.weather === 'rain' ? 'Wet pitch' : 'Windy', style: 'background:rgba(127,178,255,.14);color:#9ec5ff' }, f.weather === 'rain' ? '🌧' : '🌬')
+    : '';
+  return h('div', { class: 'fx' + (f.involvesMe ? ' me' : '') },
+    h('div', { class: 'h' }, f.home),
+    h('span', { class: 'sc' }, `${f.homeScore ?? 0}–${f.awayScore ?? 0}`),
+    h('div', {}, f.away),
+    h('span', { class: 'fx-actions', style: 'display:flex;gap:6px;align-items:center' }, wx,
+      h('button', { class: 'ghost small', title: 'Watch this match', onclick: () => (location.hash = `#/watch/${f.id}`) }, '▶ Watch'),
+      withReport ? h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report') : ''));
+}
+
+async function loadLeagueOr(fallback: (e: any) => void): Promise<LeagueT | null> {
+  try { return await api.league(); }
+  catch (e: any) { fallback(e); return null; }
+}
+
+async function screenMyMatches() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
+  const league = await loadLeagueOr(e => {
+    if (String(e.message).includes('no team')) screenCreateTeam();
+    else mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+  });
+  if (!league) return;
+  const mine = league.fixtures.filter(f => f.involvesMe && f.played).sort((a, b) => b.round - a.round);
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' }, h('h2', {}, '📅 My Matches'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    mine.length
+      ? h('div', { class: 'card' }, ...mine.map(f => matchRow(f, true)))
+      : h('div', { class: 'card muted' }, 'No matches played yet — play or advance a matchday, then watch them back here.')));
+}
+
+async function screenLeagueMatches() {
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
+  const league = await loadLeagueOr(e => {
+    if (String(e.message).includes('no team')) screenCreateTeam();
+    else mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+  });
+  if (!league) return;
+  const played = league.fixtures.filter(f => f.played);
+  const rounds = [...new Set(played.map(f => f.round))].sort((a, b) => b - a);
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' }, h('h2', {}, '⚽ League — all results'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    played.length
+      ? h('div', {}, ...rounds.map(rd => h('div', { class: 'card', style: 'margin-bottom:10px' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, `Round ${rd}`),
+          ...played.filter(f => f.round === rd).map(f => matchRow(f, f.involvesMe)))))
+      : h('div', { class: 'card muted' }, 'No results played yet this season — advance a matchday.')));
+}
+
 function route() {
   const hash = location.hash;
   if (!user) { screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
   if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash)); }
+  else if (hash === '#/matches') screenMyMatches();
+  else if (hash === '#/league') screenLeagueMatches();
   else if (hash === '#/tactics') screenTactics();
   else if (hash === '#/market') screenMarket();
   else if (hash === '#/training') screenTraining();
