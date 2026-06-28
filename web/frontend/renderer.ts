@@ -93,6 +93,21 @@ export class MatchRenderer {
   private trailBuffer: { x: number; y: number; z: number }[] = [];
   private visualPlayers: Map<number, { x: number; y: number }> = new Map();
   private visualBall: { x: number; y: number; z: number } | null = null;
+  // ── P0 smooth playback ── recordings keep only ~4fps keyframes, so drawing them raw makes positions
+  // jump every ~250ms ("2fps" feel). sync() now INGESTS a frame (events + shapes + stores each entity's
+  // prev→target + the segment timing), and a 60fps ticker (renderFrame) TWEENS positions between frames.
+  // t = elapsed/segment, LINEAR (the entities move at ~constant velocity between real samples); a big jump
+  // (kickoff/seek/out-of-bounds) snaps instead of sliding across the pitch. Pause needs no special-case:
+  // no new frame ⇒ t clamps to 1 and motion holds. The choppy per-frame draw is gone.
+  private playerTargets: Map<number, { px: number; py: number; tx: number; ty: number }> = new Map();
+  private ballPrev = { x: 0, y: 0, z: 0 };
+  private ballTarget = { x: 0, y: 0, z: 0 };
+  private segStart = 0;        // performance.now() when the latest frame was ingested
+  private segDur = 250;        // measured ms between the last two frames (the tween window)
+  private lastIngest = 0;      // performance.now() of the previous ingest (to measure segDur)
+  private lastTickMs = 0;      // performance.now() of the previous renderFrame tick (for animTime dt)
+  private interpReady = false; // a frame has been ingested → renderFrame may tween/draw
+  private lastState: EngineState | null = null;   // latest frame — renderFrame reads it for ball/ring/jockey
   private lastControllerId: number | null = null;
   private prevControllerId: number | null = null;
   private animTime = 0;
@@ -249,6 +264,9 @@ export class MatchRenderer {
 
     this.drawPitch();
     this.calcTransform();
+    // P0: drive 60fps position tweening between the ~4fps keyframes. Pixi's shared ticker already
+    // renders the stage each rAF; renderFrame advances the interpolation so positions glide.
+    this.app.ticker.add(this.renderFrame);
     // Recalculate the pitch transform whenever the canvas actually changes
     // size. Window 'resize' alone misses canvas-size changes (and Pixi v8's
     // renderer emits no resize event), leaving the pitch at a stale scale.
@@ -265,6 +283,7 @@ export class MatchRenderer {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    try { this.app.ticker?.remove(this.renderFrame); } catch { /* */ }   // stop the tween loop before tearing down
     try { this.resizeObs?.disconnect(); } catch { /* */ } this.resizeObs = null;
     try { window.removeEventListener('resize', this.onResize); } catch { /* */ }
     try { delete (window as unknown as { __app?: Application }).__app; } catch { /* */ }
@@ -396,14 +415,151 @@ export class MatchRenderer {
     this.playerEntries.clear();
     this.visualPlayers.clear();
     this.visualBall = null;
+    this.playerTargets.clear();   // P0: drop stale tween targets so a fresh watch snaps to the first frame
+    this.interpReady = false;
+    this.lastState = null;
+    this.lastIngest = 0;
     this.lastControllerId = null;
     this.prevControllerId = null;
     this.trailBuffer = [];
   }
 
+  // ── P0: 60fps position tween between the ~4fps keyframes ── runs every rAF (Pixi's shared ticker).
+  // sync() ingested the frame (events/shapes + each entity's prev→target + the segment window); here we
+  // LERP positions by t = elapsed/segment and draw the POSITIONAL layer (players, ball, carrier ring,
+  // jockey arcs) so motion glides instead of jumping. Linear = constant velocity between real samples (a
+  // teleport already snapped to prev=target in sync). No new frame ⇒ t holds at 1 ⇒ motion freezes — which
+  // is exactly right for pause and for waiting on a seek's frames.
+  private renderFrame = (): void => {
+    if (this.destroyed || !this.inited || !this.interpReady || !this.lastState) return;
+    const now = performance.now();
+    // animTime drives the ring-pulse / dribble-stride / skill-spin sines. Advance it by dt/segDur so it
+    // gains ~1 unit PER FRAME-SEGMENT — i.e. the SAME rate as the old once-per-sync increment (preserving
+    // every tuned multiplier), but smoothly across the rAF ticks instead of stepping 4×/sec. (A naive
+    // per-tick ++ ran the animations ~15× too fast — caught in adversarial review.) dt clamped for stalls.
+    const dtMs = this.lastTickMs ? Math.min(now - this.lastTickMs, 100) : 16;
+    this.lastTickMs = now;
+    this.animTime += dtMs / this.segDur;
+    const t = this.segDur > 0 ? clamp((now - this.segStart) / this.segDur, 0, 1) : 1;
+    const state = this.lastState;
+    const b = state.ball;
+    const byId = this.playerById;
+
+    // players — tween then position body/shadow/arrow/label/dirTag (shapes were drawn in sync)
+    for (const [id, tg] of this.playerTargets) {
+      const entry = this.playerEntries.get(id);
+      if (!entry) continue;
+      const ix = lerp(tg.px, tg.tx, t);
+      const iy = lerp(tg.py, tg.ty, t);
+      let v = this.visualPlayers.get(id);
+      if (!v) { v = { x: ix, y: iy }; this.visualPlayers.set(id, v); } else { v.x = ix; v.y = iy; }
+      entry.shadow.position.set(ix, iy);
+      entry.body.position.set(ix, iy);
+      entry.arrow.position.set(ix, iy);
+      entry.label.position.set(ix, iy + PLAYER_R + 3);
+      if (entry.dirTag.visible) entry.dirTag.position.set(ix, iy + PLAYER_R + 17);
+    }
+
+    // ball — tween its position (renderFrame owns visualBall now)
+    const ibx = lerp(this.ballPrev.x, this.ballTarget.x, t);
+    const iby = lerp(this.ballPrev.y, this.ballTarget.y, t);
+    const ibz = lerp(this.ballPrev.z, this.ballTarget.z, t);
+    if (!this.visualBall) this.visualBall = { x: ibx, y: iby, z: ibz };
+    else { this.visualBall.x = ibx; this.visualBall.y = iby; this.visualBall.z = ibz; }
+
+    // ── carrier ring (rides the carrier's tweened pos + pulses on animTime) ──
+    this.ringGfx.clear();
+    let bylineRun = false;
+    if (b.controllerId !== null) {
+      const ctrl = byId.get(b.controllerId);
+      if (ctrl) {
+        const vc = this.visualPlayers.get(ctrl.id) ?? { x: ctrl.x, y: ctrl.y };
+        const pulse = 0.25 + 0.35 * Math.sin(this.animTime * 0.08);
+        const rc = ctrl.team === 'home' ? HOME_COLOR : AWAY_COLOR;
+        this.ringGfx.circle(vc.x, vc.y, PLAYER_R + (ctrl.dribbleType === 3 ? 10 : 7));
+        this.ringGfx.stroke({ width: ctrl.dribbleType === 3 ? 4 : 3, color: rc, alpha: ctrl.dribbleType === 3 ? Math.min(0.85, pulse + 0.25) : pulse });
+        // byline-run cue: a WIDE carrier driving onto the ATTACKING byline gets a lime glow (the box-finish
+        // build-up reads from the approach). Geometric (attacking goal-line + a wide channel).
+        if (this.homeAttacksX !== null) {
+          const attackX = ctrl.team === 'home' ? this.homeAttacksX : (this.homeAttacksX === 0 ? PITCH_W : 0);
+          // use the TWEENED carrier pos (vc) so the lime byline glow stays glued to the ring, not the
+          // ~4fps-stale raw ctrl.x/ctrl.y (caught in adversarial review).
+          if (Math.abs(vc.x - attackX) < 60 && (vc.y < PITCH_H * 0.22 || vc.y > PITCH_H * 0.78)) {
+            bylineRun = true;
+            this.ringGfx.circle(vc.x, vc.y, PLAYER_R + 14);
+            this.ringGfx.stroke({ width: 3, color: 0x66ff99, alpha: Math.min(0.8, pulse + 0.4) });
+          }
+        }
+      }
+    }
+    const __bw = window as unknown as { __bylineActive?: boolean; __bylineSeen?: boolean };
+    __bw.__bylineActive = bylineRun;
+    if (bylineRun) __bw.__bylineSeen = true;
+
+    // ── ball draw (interpolated pos + Z lift + dribble stride) ──
+    const arcOffset = ibz * 0.7;
+    const shadowAlpha = clamp(ibz / 120, 0.05, 0.55);
+    let touchX = 0, touchY = 0;
+    if (b.controllerId !== null && ibz < 2) {
+      const ctrl = byId.get(b.controllerId);
+      const cspd = ctrl ? Math.hypot(ctrl.vx, ctrl.vy) : 0;
+      if (ctrl && cspd > 12) {
+        const ma = Math.atan2(ctrl.vy, ctrl.vx);
+        const stride = Math.sin(this.animTime * (0.30 + Math.min(cspd, 70) * 0.004) + ctrl.id);
+        const push = Math.max(0, stride) * 3.0;
+        const sway = stride * 2.0;
+        touchX = Math.cos(ma) * push - Math.sin(ma) * sway;
+        touchY = Math.sin(ma) * push + Math.cos(ma) * sway;
+      }
+    }
+    this.ballBody.position.set(ibx + touchX, iby + touchY - arcOffset);
+    const heightRatio = clamp(ibz / 250, 0, 1);
+    this.ballBody.scale.set(1 - heightRatio * 0.3);
+    this.ballGlow.position.set(ibx, iby);
+    this.ballGlow.clear();
+    if (ibz > 5) {
+      this.ballGlow.ellipse(0, 0, BALL_R * (1 + heightRatio * 0.8), BALL_R * 0.5);
+      this.ballGlow.fill({ color: 0x000000, alpha: shadowAlpha });
+    }
+    this.ballGlow.visible = ibz > 5;
+
+    // ── jockey / containing posture: shield arcs on the closest 1-2 pressers glued to the carrier ──
+    this.jockeyGfx.clear();
+    if (b.controllerId != null) {
+      const carrier = byId.get(b.controllerId);
+      const vc = this.visualPlayers.get(b.controllerId);
+      if (carrier && vc) {
+        const contenders: { x: number; y: number; d: number }[] = [];
+        for (const p of state.players) {
+          if (p.team === carrier.team || p.id === carrier.id) continue;
+          const vp = this.visualPlayers.get(p.id);
+          if (!vp) continue;
+          const d = Math.hypot(vc.x - vp.x, vc.y - vp.y);
+          if (d >= 1 && d <= PLAYER_R * 2.5) contenders.push({ x: vp.x, y: vp.y, d });
+        }
+        contenders.sort((a, c) => a.d - c.d);
+        for (const c of contenders.slice(0, 2)) {
+          const ang = Math.atan2(vc.y - c.y, vc.x - c.x);
+          this.jockeyGfx.arc(c.x, c.y, PLAYER_R + 3, ang - 0.6, ang + 0.6);
+          this.jockeyGfx.stroke({ width: 2.5, color: 0xf2c14e, alpha: 0.75 });
+          this.jockeyGfx.moveTo(c.x + Math.cos(ang) * (PLAYER_R + 1), c.y + Math.sin(ang) * (PLAYER_R + 1));
+          this.jockeyGfx.lineTo(c.x + Math.cos(ang) * (PLAYER_R + 5), c.y + Math.sin(ang) * (PLAYER_R + 5));
+          this.jockeyGfx.stroke({ width: 1.5, color: 0xf2c14e, alpha: 0.55 });
+        }
+      }
+    }
+  };
+
   sync(state: EngineState): void {
     if (RENDER_DEBUG && this.animTime === 0) console.log('[HUD] first sync, state keys:', Object.keys(state).filter(k => ['homeScore','homeShots','possessionPct','clockMs','matchState'].includes(k)).map(k => `${k}=${(state as any)[k]}`).join(', '));
-    this.animTime++;
+    // ── P0 ingest: measure the frame interval (the tween window) + arm renderFrame. animTime now advances
+    // in renderFrame (per rAF) so stride/pulse/phase animations age smoothly, not in ~4fps steps.
+    const nowMs = performance.now();
+    this.segDur = clamp(this.lastIngest ? nowMs - this.lastIngest : 250, 60, 600);
+    this.lastIngest = nowMs;
+    this.segStart = nowMs;
+    this.lastState = state;
+    this.interpReady = true;
     // Headless self-verify hook (SysArch later21): expose the latest frame so match-view render data
     // (setPieceState, ball, players) is eval-inspectable under any box load — no screenshot needed.
     (window as unknown as { __lastFrame?: EngineState }).__lastFrame = state;
@@ -430,11 +586,18 @@ export class MatchRenderer {
     const ballSpeed = Math.sqrt(b.vx ** 2 + b.vy ** 2);
     if (b.controllerId !== this.lastControllerId) {
       this.prevControllerId = this.lastControllerId;
-      this.visualBall = null;
       this.trailBuffer = [];
       this.lastControllerId = b.controllerId;
+      // NOTE: do NOT null visualBall here — the prev→target tween + the >160px snap below already handle a
+      // possession change cleanly. Nulling it made ballPrev===ballTarget for that segment, freezing the ball
+      // for ~250ms after every receipt (caught in adversarial review).
     }
-    const vb = this.smoothBall(b.x, b.y, b.z ?? 0);
+    // P0: store the ball's prev→target for the 60fps tween (snap a big jump: kickoff/seek/out-of-bounds).
+    // vb = the CURRENT interpolated ball (renderFrame owns the actual draw); used here only for trail/arrow refs.
+    const vb = this.visualBall ?? { x: b.x, y: b.y, z: b.z ?? 0 };
+    this.ballPrev = { x: vb.x, y: vb.y, z: vb.z };
+    this.ballTarget = { x: b.x, y: b.y, z: b.z ?? 0 };
+    if (Math.hypot(b.x - vb.x, b.y - vb.y) > 160) this.ballPrev = { ...this.ballTarget };
 
     // ── trail ──
     if (b.controllerId === null && ballSpeed > 20) {
@@ -569,7 +732,14 @@ export class MatchRenderer {
         : (p.team === 'home' ? HOME_COLOR : AWAY_COLOR);
       const hasBall = b.controllerId === p.id;
       const r = PLAYER_R;
-      const vp = this.smoothPlayer(p.id, p.x, p.y);
+      // P0: store this player's prev→target for the 60fps tween (snap a teleport so we don't slide across
+      // the pitch). vp = the CURRENT interpolated pos — renderFrame owns the actual position.set; vp is used
+      // here only for shape references (dive reach, boot-toward-ball direction).
+      const vp = this.visualPlayers.get(p.id) ?? { x: p.x, y: p.y };
+      if (!this.visualPlayers.has(p.id)) this.visualPlayers.set(p.id, { x: p.x, y: p.y });
+      let tg = this.playerTargets.get(p.id);
+      if (!tg) { tg = { px: p.x, py: p.y, tx: p.x, ty: p.y }; this.playerTargets.set(p.id, tg); }
+      else { tg.px = vp.x; tg.py = vp.y; tg.tx = p.x; tg.ty = p.y; if (Math.hypot(p.x - vp.x, p.y - vp.y) > 120) { tg.px = p.x; tg.py = p.y; } }
       const diving = p.role === 'GK' && (p.diveAnim ?? 0) > 0;
       const sliding = !diving && (p.tackleAnim ?? 0) > 0;
       const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
@@ -592,10 +762,8 @@ export class MatchRenderer {
       entry.lastDribbleType = p.dribbleType;
       entry.wasSprinting = sprinting;
 
-      entry.shadow.position.set(vp.x, vp.y);   // follows the body (static graphic, just repositioned)
-      entry.shadow.visible = !diving;          // a diving keeper is airborne — no ground shadow
-      entry.body.position.set(vp.x, vp.y);
-      entry.body.alpha = hasBall ? 1 : 0.82; // consistent alpha: carriers pop, others uniform
+      entry.shadow.visible = !diving;          // a diving keeper is airborne — no ground shadow (positioned in renderFrame)
+      entry.body.alpha = hasBall ? 1 : 0.82; // consistent alpha: carriers pop, others uniform (positioned in renderFrame)
       if (needsRedraw) {
         entry.body.clear();
         if (diving) {
@@ -671,8 +839,7 @@ export class MatchRenderer {
         if (!sliding && !diving) entry.drawn = true;
       }
 
-      // arrow — redraw at relative coords
-      entry.arrow.position.set(vp.x, vp.y);
+      // arrow — redraw at relative coords (positioned in renderFrame)
       entry.arrow.clear();
       // smooth facing: update angle when moving fast enough, otherwise scan toward ball
       const MIN_SPEED = 8;
@@ -747,8 +914,8 @@ export class MatchRenderer {
         entry.arrow.stroke({ width: 2, color: 0xfff1a8, alpha: 0.8 });
       }
 
-      entry.label.position.set(vp.x, vp.y + r + 3);
-      // live rating ticks beside the name (dirty-checked — the value only moves on a stat/score change)
+      // live rating ticks beside the name (dirty-checked — the value only moves on a stat/score change).
+      // label + dirTag are positioned in renderFrame (they ride the tweened player position).
       const rt = this.liveRating(p, state.homeScore ?? 0, state.awayScore ?? 0);
       if (rt !== entry.ratingShown) {
         entry.ratingShown = rt;
@@ -758,7 +925,6 @@ export class MatchRenderer {
       // directive overlay: the player's active tactical instruction below his name (toggleable)
       const dir = this.showDirectives ? (this.directiveMap.get(p.id) ?? '') : '';
       if (dir !== entry.dirShown) { entry.dirShown = dir; entry.dirTag.text = dir; entry.dirTag.visible = dir !== ''; }
-      if (entry.dirTag.visible) entry.dirTag.position.set(vp.x, vp.y + r + 17);
     }
 
     // eval-hook (verification): the active directive tags currently drawn on the pitch
@@ -771,103 +937,14 @@ export class MatchRenderer {
     // per frame — but it stops a removed player being left drawn at a stale position.
     if (this.playerEntries.size > state.players.length) {
       for (const [id, e] of this.playerEntries) {
-        if (!byId.has(id)) { e.body.destroy(); e.arrow.destroy(); e.label.destroy(); e.dirTag.destroy(); this.playerEntries.delete(id); }
+        if (!byId.has(id)) { e.shadow.destroy(); e.body.destroy(); e.arrow.destroy(); e.label.destroy(); e.dirTag.destroy(); this.playerEntries.delete(id); this.playerTargets.delete(id); this.visualPlayers.delete(id); }
       }
     }
 
-    // ── carrier ring ──
-    this.ringGfx.clear();
-    let bylineRun = false;
-    if (b.controllerId !== null) {
-      const ctrl = byId.get(b.controllerId);
-      if (ctrl) {
-        const vc = this.visualPlayers.get(ctrl.id) ?? { x: ctrl.x, y: ctrl.y };
-        const pulse = 0.25 + 0.35 * Math.sin(this.animTime * 0.08);
-        const rc = ctrl.team === 'home' ? HOME_COLOR : AWAY_COLOR;
-        this.ringGfx.circle(vc.x, vc.y, PLAYER_R + (ctrl.dribbleType === 3 ? 10 : 7));
-        this.ringGfx.stroke({ width: ctrl.dribbleType === 3 ? 4 : 3, color: rc, alpha: ctrl.dribbleType === 3 ? Math.min(0.85, pulse + 0.25) : pulse });
-        // byline-run cue: a WIDE carrier driving onto the ATTACKING byline (the build-up to Boris's cutback) gets a
-        // lime glow — flags "at the byline, pull-back coming", so the box-finish play reads from the approach. Geometric
-        // (attacking goal-line from homeAttacksX + a wide channel), so it's live now without an engine hint.
-        if (this.homeAttacksX !== null) {
-          const attackX = ctrl.team === 'home' ? this.homeAttacksX : (this.homeAttacksX === 0 ? PITCH_W : 0);
-          if (Math.abs(ctrl.x - attackX) < 60 && (ctrl.y < PITCH_H * 0.22 || ctrl.y > PITCH_H * 0.78)) {
-            bylineRun = true;
-            this.ringGfx.circle(vc.x, vc.y, PLAYER_R + 14);
-            this.ringGfx.stroke({ width: 3, color: 0x66ff99, alpha: Math.min(0.8, pulse + 0.4) });
-          }
-        }
-      }
-    }
-    const __bw = window as unknown as { __bylineActive?: boolean; __bylineSeen?: boolean };
-    __bw.__bylineActive = bylineRun;
-    if (bylineRun) __bw.__bylineSeen = true;
-
-    // ── ball ──
-    const arcOffset = vb.z * 0.7;
-    const shadowAlpha = clamp(vb.z / 120, 0.05, 0.55); // stronger shadow for elevation clarity
-    // dribble touches: while a moving carrier controls the ball on the ground,
-    // nudge it ahead and between the feet in a stride rhythm so dribbling reads
-    // as touches rather than the ball being glued to the player
-    let touchX = 0, touchY = 0;
-    if (b.controllerId !== null && vb.z < 2) {
-      const ctrl = byId.get(b.controllerId);
-      const cspd = ctrl ? Math.hypot(ctrl.vx, ctrl.vy) : 0;
-      if (ctrl && cspd > 12) {
-        const ma = Math.atan2(ctrl.vy, ctrl.vx);
-        const stride = Math.sin(this.animTime * (0.30 + Math.min(cspd, 70) * 0.004) + ctrl.id);
-        const push = Math.max(0, stride) * 3.0;
-        const sway = stride * 2.0;
-        touchX = Math.cos(ma) * push - Math.sin(ma) * sway;
-        touchY = Math.sin(ma) * push + Math.cos(ma) * sway;
-      }
-    }
-    // ball position with Z lift
-    this.ballBody.position.set(vb.x + touchX, vb.y + touchY - arcOffset);
-    const heightRatio = clamp(vb.z / 250, 0, 1);
-    this.ballBody.scale.set(1 - heightRatio * 0.3); // smaller when high up
-    // ball shadow on ground
-    this.ballGlow.position.set(vb.x, vb.y);
-    this.ballGlow.clear();
-    if (vb.z > 5) {
-      this.ballGlow.ellipse(0, 0, BALL_R * (1 + heightRatio * 0.8), BALL_R * 0.5);
-      this.ballGlow.fill({ color: 0x000000, alpha: shadowAlpha });
-    }
-    this.ballGlow.visible = vb.z > 5;
+    // ── carrier ring + ball + jockey arcs are POSITIONAL → drawn in renderFrame (per rAF) so they ride
+    //    the tweened positions instead of jumping at ~4fps with the keyframes. ──
 
     // ── events ──
-    // ── jockey / containing posture (overlap-no-tackle residue) ── the engine's designated presser(s)
-    //    glued to the carrier are LEGIT close-contests (shielding/jockeying, ~130/match after Boris's
-    //    tackle fix df6a7a4), not "ran through him". A soft amber "shield" arc on the presser's edge
-    //    fronting the carrier makes the non-turnover READ as intentional. Subtle (on-screen often) +
-    //    gated on a genuinely close opponent contest; no-op when the engine omits the pressing ids.
-    this.jockeyGfx.clear();
-    if (b.controllerId != null) {
-      const carrier = byId.get(b.controllerId);
-      const vc = this.visualPlayers.get(b.controllerId);
-      if (carrier && vc) {
-        // The watch frame carries no pressing id, so detect the contest GEOMETRICALLY (the audit's own
-        // definition): an opponent glued to the carrier. Mark the closest 1-2 such defenders.
-        const contenders: { x: number; y: number; d: number }[] = [];
-        for (const p of state.players) {
-          if (p.team === carrier.team || p.id === carrier.id) continue;
-          const vp = this.visualPlayers.get(p.id);
-          if (!vp) continue;
-          const d = Math.hypot(vc.x - vp.x, vc.y - vp.y);
-          if (d >= 1 && d <= PLAYER_R * 2.5) contenders.push({ x: vp.x, y: vp.y, d });   // glued (~touching) contest only
-        }
-        contenders.sort((a, c) => a.d - c.d);
-        for (const c of contenders.slice(0, 2)) {
-          const ang = Math.atan2(vc.y - c.y, vc.x - c.x);
-          this.jockeyGfx.arc(c.x, c.y, PLAYER_R + 3, ang - 0.6, ang + 0.6);
-          this.jockeyGfx.stroke({ width: 2.5, color: 0xf2c14e, alpha: 0.75 });
-          // a faint engagement tick from the defender toward the carrier — reads as "fronting", not chasing
-          this.jockeyGfx.moveTo(c.x + Math.cos(ang) * (PLAYER_R + 1), c.y + Math.sin(ang) * (PLAYER_R + 1));
-          this.jockeyGfx.lineTo(c.x + Math.cos(ang) * (PLAYER_R + 5), c.y + Math.sin(ang) * (PLAYER_R + 5));
-          this.jockeyGfx.stroke({ width: 1.5, color: 0xf2c14e, alpha: 0.55 });
-        }
-      }
-    }
     this.eventGfx.clear();
     for (const label of this.eventLabels) label.visible = false;
     let labelIdx = 0;
@@ -1068,6 +1145,9 @@ export class MatchRenderer {
     this.updateMomentum(state);   // PRESSURE: integrate after the ticker folds in event impulses
     this.renderStatPanel();
     this.updateMoments(state);
+    // Draw the positional layer once immediately (at t≈0) so the just-created shapes don't sit at the
+    // origin for a frame before the ticker's first renderFrame — then the 60fps ticker takes over.
+    this.renderFrame();
   }
 
   // Clip a team name to the HUD width, falling back to a default — shared by the HUD + the
@@ -1461,30 +1541,8 @@ export class MatchRenderer {
     }
   }
 
-  private smoothPlayer(id: number, x: number, y: number): { x: number; y: number } {
-    let v = this.visualPlayers.get(id);
-    if (!v) {
-      v = { x, y };
-      this.visualPlayers.set(id, v);
-      return v;
-    }
-    const jump = Math.hypot(x - v.x, y - v.y) > 120;
-    v.x = jump ? x : lerp(v.x, x, 0.45);
-    v.y = jump ? y : lerp(v.y, y, 0.45);
-    return v;
-  }
-
-  private smoothBall(x: number, y: number, z: number): { x: number; y: number; z: number } {
-    if (!this.visualBall) {
-      this.visualBall = { x, y, z };
-      return this.visualBall;
-    }
-    const jump = Math.hypot(x - this.visualBall.x, y - this.visualBall.y) > 160;
-    this.visualBall.x = jump ? x : lerp(this.visualBall.x, x, 0.58);
-    this.visualBall.y = jump ? y : lerp(this.visualBall.y, y, 0.58);
-    this.visualBall.z = jump ? z : lerp(this.visualBall.z, z, 0.58);
-    return this.visualBall;
-  }
+  // (smoothPlayer/smoothBall removed — the per-frame exponential chase was replaced by the 60fps
+  // prev→target tween in renderFrame, which gives true inter-frame motion instead of a 4fps step.)
 
   private drawGoal(g: Graphics, x: number, y: number, dir: number): void {
     const hw = GOAL_W / 2;
