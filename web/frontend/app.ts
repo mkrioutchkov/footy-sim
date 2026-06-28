@@ -3026,6 +3026,33 @@ document.body.insertBefore(skipLink, document.body.firstChild);
 
 window.addEventListener('hashchange', route);
 
+// ── stale-tab guard ── the SPA ships as one content-hashed bundle with no HMR for the watch screen, so an
+// open tab keeps running the OLD code after a deploy — which is exactly why the user saw "still choppy" on a
+// tab opened before the P0 renderer rewrite. Poll the served index.html for a changed asset hash and offer a
+// one-click reload. No-ops in dev (vite serves modules directly, no hashed index-*.js) — only the built :4000.
+function watchForNewVersion(): void {
+  const mine = [...document.querySelectorAll('script[src]')].map(s => s.getAttribute('src') || '').find(s => /assets\/index-[\w-]+\.js/.test(s));
+  if (!mine) return;
+  let bannerShown = false;
+  const check = async (): Promise<void> => {
+    if (bannerShown) return;
+    try {
+      const html = await (await fetch('/?_v=' + Date.now(), { cache: 'no-store' })).text();
+      const m = html.match(/assets\/index-[\w-]+\.js/);
+      if (m && !mine.includes(m[0])) {
+        bannerShown = true;
+        document.body.appendChild(h('div', {
+          role: 'button', tabindex: '0', title: 'Reload to get the latest version',
+          style: 'position:fixed;top:0;left:0;right:0;z-index:99999;background:var(--accent,#1b9af7);color:#fff;font:600 13px/1.5 system-ui,monospace;padding:9px 14px;text-align:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)',
+          onclick: () => location.reload(),
+        }, '↻ A new version of the match viewer is available — click to reload'));
+      }
+    } catch { /* offline / transient — retry next tick */ }
+  };
+  setInterval(() => void check(), 90000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) void check(); });
+}
+
 (async function boot() {
   try {
     const me = await api.me();
@@ -3033,4 +3060,5 @@ window.addEventListener('hashchange', route);
     if (user && me.teamId == null && location.hash !== '#/tactics') { screenCreateTeam(); return; }
   } catch { /* */ }
   route();
+  watchForNewVersion();
 })();
