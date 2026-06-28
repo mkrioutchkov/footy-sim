@@ -1089,12 +1089,14 @@ let watchBar: HTMLElement | null = null;
 let watchPanel: HTMLElement | null = null;
 let watchStatus: HTMLElement | null = null;   // connecting / connection-lost overlay
 let watchPanelObs: ResizeObserver | null = null;   // keeps the pitch sized to the space the panel leaves
+let watchKeyHandler: ((e: KeyboardEvent) => void) | null = null;   // P3 viewer keyboard shortcuts (space/←/→/,/.)
 let activeReplayTimer: ReturnType<typeof setInterval> | null = null;   // live goal-replay playback loop
 let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
 function teardownWatch() {
   watchEpoch++;
   if (activeReplayTimer) { clearInterval(activeReplayTimer); activeReplayTimer = null; }
   try { watchPanelObs?.disconnect(); } catch { /* */ } watchPanelObs = null;
+  if (watchKeyHandler) { window.removeEventListener('keydown', watchKeyHandler); watchKeyHandler = null; }
   try { activeWs?.close(); } catch { /* */ } activeWs = null;
   try { activeRenderer?.destroy(); } catch { /* */ } activeRenderer = null;
   watchBar?.remove(); watchBar = null;     // teardown owns the floating control bar + tactics panel,
@@ -1214,9 +1216,11 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   scrubEl.addEventListener('change', () => { activeWs?.send(JSON.stringify({ type: 'seek', value: +scrubEl.value })); scrubbing = false; });
   // ⏪ back-10s — a real rewind (not jump-to-start), relative to the live playhead. Revealed with the scrub.
   const rewind10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds', onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, currentMs - 10000) })) }, '⏪ 10s') as HTMLButtonElement;
+  let goalIndex: { clockMs: number; name: string }[] = [];   // sorted; powers the , / . prev-next-goal keys
   const buildGoalMarkers = (goals: { clockMs: number; name: string }[]): void => {
+    goalIndex = [...goals].sort((a, b) => a.clockMs - b.clockMs);
     goalMarkers.replaceChildren();
-    for (const g of goals) {
+    for (const g of goalIndex) {
       const pct = Math.min(99.5, Math.max(0, (g.clockMs / SCRUB_MAX_MS) * 100));
       goalMarkers.append(h('span', {
         title: `${Math.floor(g.clockMs / 60000)}' — ${g.name} · click to jump`,
@@ -1231,7 +1235,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const weatherEl = h('span', { style: 'margin-left:auto;font-size:13px;color:#9ec5ff' });
   // speed controls — ascending 1×/2×/4×/8× with the ACTIVE speed highlighted (read off each frame's state.speed),
   // so you can always see your current speed (the old bar was 8×/4×/1×, no 2×, no active indicator).
-  const SPEEDS = [1, 2, 4, 8];
+  const SPEEDS = [0.5, 1, 2, 4, 8];   // 0.5× slow-mo for detail (backend clamps [0.25,60]); keep 8× to skip ahead
   let paused = false;
   const speedBtns = SPEEDS.map(v => h('button', { class: 'ghost small', 'aria-label': `Play at ${v} times speed`, 'aria-pressed': 'false', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: v })) }, `${v}×`) as HTMLButtonElement);
   // Pause ↔ Resume. The LIVE coordinator takes distinct pause/resume; a re-sim/replay (match.ts) TOGGLES on 'pause'
@@ -1272,6 +1276,24 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   );
   document.body.appendChild(bar);
   watchBar = bar;
+  // P3 viewer keyboard shortcuts: space = pause/resume, ←/→ = seek ∓10s, , / . = prev/next goal.
+  // Seek-keys are no-ops on a live match (the coordinator ignores seek) + when no goal index is loaded.
+  // Removed in teardownWatch. Ignores keystrokes while typing in the shout box.
+  watchKeyHandler = (e: KeyboardEvent): void => {
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, currentMs - 10000) })); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); activeWs?.send(JSON.stringify({ type: 'seek', value: currentMs + 10000 })); }
+    else if (e.key === ',' || e.key === '.') {
+      if (!goalIndex.length) return;
+      const target = e.key === '.'
+        ? goalIndex.find(g => g.clockMs > currentMs + 1500)
+        : [...goalIndex].reverse().find(g => g.clockMs < currentMs - 1500);
+      if (target) { e.preventDefault(); activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, target.clockMs - 4000) })); }
+    }
+  };
+  window.addEventListener('keydown', watchKeyHandler);
 
   // ── live tactics panel: type a plan, see what was understood, apply it ──
   const receiptEl = h('div', { class: 'tactics-receipt' });
