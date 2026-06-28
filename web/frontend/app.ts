@@ -1196,7 +1196,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   root.replaceChildren();
   // Rewind to the start — only meaningful for a finished recording (revealed on the first
   // replay frame), since a live re-sim can't seek backwards.
-  const rewindBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Rewind to the start of the recording', onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: 0 })) }, '⏮ Rewind');
+  const rewindBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Rewind to the start', onclick: () => seekTo(0) }, '⏮ Rewind');
+  // ● LIVE — shown only while rewound on a LIVE watch; jumps back to the live edge (defined below).
+  const goLiveBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Resume live', title: 'Jump back to the live edge', onclick: () => resumeLive() }, '● LIVE') as HTMLButtonElement;
   // G3 scrub: a finished recording is random-access (ReplayStream.seekTo re-fills from any clock), so
   // drag to jump to any moment. Hidden until the first replay frame (same reveal as rewind). The seek
   // value is a match-clock ms position; the bar tracks the live clock while playing and stops tracking
@@ -1213,9 +1215,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const goalMarkers = h('div', { style: 'position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none' });
   const scrubWrap = h('div', { style: 'display:none;position:relative;align-items:center;width:180px;height:18px' }, scrubEl, goalMarkers) as HTMLElement;
   scrubEl.addEventListener('input', () => { scrubbing = true; scrubLabel.textContent = fmtClock(+scrubEl.value); });
-  scrubEl.addEventListener('change', () => { activeWs?.send(JSON.stringify({ type: 'seek', value: +scrubEl.value })); scrubbing = false; });
+  scrubEl.addEventListener('change', () => { seekTo(+scrubEl.value); scrubbing = false; });
   // ⏪ back-10s — a real rewind (not jump-to-start), relative to the live playhead. Revealed with the scrub.
-  const rewind10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds', onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, currentMs - 10000) })) }, '⏪ 10s') as HTMLButtonElement;
+  const rewind10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds', onclick: () => seekTo(Math.max(0, currentMs - 10000)) }, '⏪ 10s') as HTMLButtonElement;
   let goalIndex: { clockMs: number; name: string }[] = [];   // sorted; powers the , / . prev-next-goal keys
   const buildGoalMarkers = (goals: { clockMs: number; name: string }[]): void => {
     goalIndex = [...goals].sort((a, b) => a.clockMs - b.clockMs);
@@ -1225,7 +1227,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       goalMarkers.append(h('span', {
         title: `${Math.floor(g.clockMs / 60000)}' — ${g.name} · click to jump`,
         style: `position:absolute;left:${pct}%;top:-3px;transform:translateX(-50%);font-size:12px;line-height:1;cursor:pointer;pointer-events:auto`,
-        onclick: () => activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, g.clockMs - 4000) })),
+        onclick: () => seekTo(Math.max(0, g.clockMs - 4000)),
       }, '⚽'));
     }
   };
@@ -1274,6 +1276,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     rewind10Btn,
     scrubWrap,
     scrubLabel,
+    goLiveBtn,
     replayBtn,
     dirBtn,
     weatherEl,
@@ -1288,14 +1291,14 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     const tag = (e.target as HTMLElement | null)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
     if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, currentMs - 10000) })); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); activeWs?.send(JSON.stringify({ type: 'seek', value: currentMs + 10000 })); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); seekTo(Math.max(0, currentMs - 10000)); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); seekTo(currentMs + 10000); }
     else if (e.key === ',' || e.key === '.') {
       if (!goalIndex.length) return;
       const target = e.key === '.'
         ? goalIndex.find(g => g.clockMs > currentMs + 1500)
         : [...goalIndex].reverse().find(g => g.clockMs < currentMs - 1500);
-      if (target) { e.preventDefault(); activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, target.clockMs - 4000) })); }
+      if (target) { e.preventDefault(); seekTo(Math.max(0, target.clockMs - 4000)); }
     }
   };
   window.addEventListener('keydown', watchKeyHandler);
@@ -1424,9 +1427,61 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   let gotFrame = false;
   // ── live goal replay: buffer recent frames; on a goal, snapshot the run-up + offer an instant replay ──
   const GOAL_CLIP = 130;                       // frames of run-up to keep (~several seconds before the goal)
+  const LIVE_BUFFER_MAX = 7200;                // ~12 min of rewind at the ~10fps thinned rate (bounds memory ~35MB)
   const liveBuffer: WatchMessage[] = [];
   let goalClip: WatchMessage[] | null = null;
   let replaying = false;
+  // ── live rewind (viewer #1) ── a live watch (re-sim or coordinator) has NO backend seek — frames are
+  // generated on the fly. So buffer them client-side + let the scrub / ⏪ / ⏮ play BACK through the buffer
+  // (real-time paced) and catch up to live; ● LIVE resumes. Additive: a live watch with no rewind action is
+  // untouched. A RECORDED replay keeps using the backend seek (full random access). `replaying` gates the
+  // live-frame render in onmessage (frames keep buffering while you're rewound).
+  let liveSeek = false;   // a live watch has buffered enough → route the scrub/rewind to the buffer
+  let playbackGen = 0;    // bumped per buffer-playback start → invalidates any prior step() chain (re-entrant safety)
+  const resumeLive = (): void => {
+    replaying = false;
+    if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }
+    activeRenderer?.setReplay(false);
+    goLiveBtn.style.display = 'none';
+    if (activeRenderer && liveBuffer.length) {
+      const f = liveBuffer[liveBuffer.length - 1];
+      activeRenderer.sync(f);
+      if (typeof f.clockMs === 'number') { currentMs = f.clockMs; if (!scrubbing) { scrubEl.value = String(f.clockMs); scrubLabel.textContent = fmtClock(f.clockMs); } }
+    }
+  };
+  const startBufferPlayback = (startIdx: number): void => {
+    if (!activeRenderer || !liveBuffer.length) return;
+    const myGen = ++playbackGen;            // a fresh re-scrub invalidates any in-flight step() chain
+    replaying = true;                       // gate the live-frame render (onmessage keeps buffering)
+    activeRenderer.setReplay(true);         // the "⚽ REPLAY" overlay so the rewound clock reads as a replay
+    goLiveBtn.style.display = '';
+    let i = Math.max(0, Math.min(startIdx, liveBuffer.length - 1));
+    if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }
+    const step = (): void => {
+      if (!activeRenderer || !replaying || myGen !== playbackGen) return;   // torn down / resumed / superseded
+      if (i >= liveBuffer.length - 1) { resumeLive(); return; }  // caught up to the live edge → follow live
+      const f = liveBuffer[i];
+      activeRenderer.sync(f);
+      if (typeof f.clockMs === 'number' && !scrubbing) { currentMs = f.clockMs; scrubEl.value = String(f.clockMs); scrubLabel.textContent = fmtClock(f.clockMs); }
+      const cur = f.clockMs ?? 0, nxt = liveBuffer[i + 1]?.clockMs ?? cur + 250;
+      i++;
+      activeReplayTimer = setTimeout(step, Math.max(16, Math.min(nxt - cur, 1000)));   // real-time paced
+    };
+    step();
+  };
+  const seekLiveBuffer = (targetMs: number): void => {
+    if (!liveBuffer.length) return;
+    const lastMs = liveBuffer[liveBuffer.length - 1].clockMs ?? 0;
+    if (targetMs >= lastMs - 300) { resumeLive(); return; }     // at/after the live edge → just follow live
+    let idx = liveBuffer.findIndex(f => (f.clockMs ?? 0) >= targetMs);
+    if (idx < 0) idx = 0;
+    startBufferPlayback(idx);
+  };
+  // unified seek: a recorded replay seeks the backend (full random access); a live watch seeks the buffer.
+  const seekTo = (targetMs: number): void => {
+    if (liveSeek) seekLiveBuffer(targetMs);
+    else activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, targetMs) }));
+  };
   const playClip = () => {
     if (replaying || !goalClip || !goalClip.length || !activeRenderer) return;
     replaying = true;
@@ -1434,17 +1489,20 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     replayBtn.disabled = true; replayBtn.textContent = '⏵ Replaying…';
     const clip = goalClip;
     let i = 0;
-    if (activeReplayTimer) clearInterval(activeReplayTimer);
+    playbackGen++;   // supersede any live-rewind step() chain (shared activeReplayTimer)
+    if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }   // a live-rewind timer is a setTimeout — clear BOTH
     activeReplayTimer = setInterval(() => {
       if (!activeRenderer || i >= clip.length) {                                    // clip done (or torn down)
         if (activeReplayTimer) { clearInterval(activeReplayTimer); activeReplayTimer = null; }
         replaying = false;
         activeRenderer?.setReplay(false);   // drop the overlay + resume live goal banners
         replayBtn.disabled = false; replayBtn.textContent = '⚽ Replay goal';
-        if (activeRenderer && liveBuffer.length) activeRenderer.sync(liveBuffer[liveBuffer.length - 1]);   // snap back to live
+        if (activeRenderer && liveBuffer.length) { const lf = liveBuffer[liveBuffer.length - 1]; activeRenderer.sync(lf); if (typeof lf.clockMs === 'number' && !scrubbing) { currentMs = lf.clockMs; scrubEl.value = String(lf.clockMs); scrubLabel.textContent = fmtClock(lf.clockMs); } }   // snap back to live
         return;
       }
-      activeRenderer.sync(clip[i]);   // the score/clock rewinds through the clip, then snaps forward to live
+      const cf = clip[i];
+      activeRenderer.sync(cf);   // the score/clock rewinds through the clip, then snaps forward to live
+      if (typeof cf.clockMs === 'number' && !scrubbing) { currentMs = cf.clockMs; scrubEl.value = String(cf.clockMs); scrubLabel.textContent = fmtClock(cf.clockMs); }   // keep the scrub tracking during the clip
       i++;
     }, 45);
   };
@@ -1457,8 +1515,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       // A replayed recording is finished playback: reveal the rewind/scrub/back-10s controls. The shout
       // box is already gone (the panel is the read-only live-only note when !live), so keep the note visible.
       if (msg.replay && !replayUiApplied) { replayUiApplied = true; rewindBtn.style.display = ''; rewind10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
-      // Track the playhead on the scrub bar + the back-10s anchor while playing (but not while dragging).
-      if (replayUiApplied && typeof msg.clockMs === 'number') {
+      // Track the playhead while FOLLOWING (a recorded replay, or a live watch at the edge) — but not while
+      // dragging, and not while rewound (`replaying`: the buffer-playback loop owns the playhead then).
+      if ((replayUiApplied || liveSeek) && !replaying && typeof msg.clockMs === 'number') {
         currentMs = msg.clockMs;
         if (!scrubbing) { scrubEl.value = String(msg.clockMs); scrubLabel.textContent = fmtClock(msg.clockMs); }
       }
@@ -1481,13 +1540,24 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         const mine = msg.homeName === myTeam.name ? msg.possessionPct : 100 - msg.possessionPct;
         possEl.textContent = `Possession ${Math.round(mine)}%`;
       }
-      // buffer live frames + arm the replay on a goal (a finished-recording replay has its own rewind/seek)
+      // buffer live frames (a recorded replay has its own backend rewind/seek). The buffer powers BOTH the
+      // goal replay AND the live rewind (viewer #1) — keep ~a full match so you can rewind to any of it.
       if (!msg.replay && Array.isArray(msg.players)) {
-        liveBuffer.push(msg);
-        if (liveBuffer.length > GOAL_CLIP + 40) liveBuffer.shift();
-        if (msg.events && msg.events.some(e => e.type === 'goal')) { goalClip = liveBuffer.slice(-GOAL_CLIP); replayBtn.style.display = ''; }
+        // Thin the rewind buffer to ~10fps (the renderer interpolates, so playback stays smooth) — this bounds
+        // memory AND gives a predictable ~12-min rewind window regardless of the raw live frame rate (~37fps).
+        // Always keep a goal frame (for the run-up + marker). The LIVE render below is unthinned (full fps).
+        const lastBuf = liveBuffer[liveBuffer.length - 1];
+        const goalFrame = !!(msg.events && msg.events.some(e => e.type === 'goal'));
+        const dueByTime = !lastBuf || typeof msg.clockMs !== 'number' || typeof lastBuf.clockMs !== 'number' || Math.abs(msg.clockMs - lastBuf.clockMs) >= 100;
+        if (goalFrame || dueByTime) {
+          liveBuffer.push(msg);
+          if (liveBuffer.length > LIVE_BUFFER_MAX) liveBuffer.shift();
+        }
+        if (goalFrame) { goalClip = liveBuffer.slice(-GOAL_CLIP); replayBtn.style.display = ''; }
+        // reveal the rewind/scrub controls for a LIVE watch once there's enough buffered to seek within
+        if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; rewindBtn.style.display = ''; rewind10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
       }
-      if (replaying) return;   // the clip is driving the renderer — keep buffering live frames but don't draw them
+      if (replaying) return;   // a goal clip OR a live rewind is driving the renderer — keep buffering, don't draw live
       renderer.sync(msg);
       paintBar(msg.speed);   // highlight the active speed off the frame
 
