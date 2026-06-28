@@ -135,6 +135,15 @@ void PlayerAI::applyMovement(double sdt) {
             if (carrier && carrier->team != p.team && bd < 200.0) defendSprint = true;
         }
     }
+    // E1 (user-visible live-watch standout: attackers JOG back on a turnover, leaving a 0v1
+    // breakaway). The sprint gate above is DEFENDERS-ONLY, so a CF/WM ambles back at jog pace
+    // while the defenders bust a gut. Extend the recovery sprint to attackers when an OPPONENT
+    // controls the ball nearby — they hustle back into shape instead of strolling. (defendSprint
+    // just lifts the speed cap to SPEED_SPRINT below; pure state, no rng.)
+    if (!defendSprint && !isObserving && (isCenterForward() || isWideMidfielder())) {
+        Player* oppCarrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
+        if (oppCarrier && oppCarrier->team != p.team && bd < 180.0) defendSprint = true;
+    }
 
     double cruiseMul = isObserving
         ? observingCruiseMul()
