@@ -1233,6 +1233,10 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Action replay of the last goal', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
   // §weather: the match's actual condition, set from the first frame that carries it (clear → blank).
   const weatherEl = h('span', { style: 'margin-left:auto;font-size:13px;color:#9ec5ff' });
+  // 📹 Recorded vs ⚙ Re-simulated: a recorded replay is faithful to the stored result; a non-recorded
+  // fixture falls back to a fresh engine re-sim whose scoreline can differ from the league table. Set on
+  // the first frame so the divergence is honest (this is the 4-1-here-vs-0-2-in-the-table confusion).
+  const recBadge = h('span', { style: 'font-size:12px;color:#9ec5ff' });
   // speed controls — ascending 1×/2×/4×/8× with the ACTIVE speed highlighted (read off each frame's state.speed),
   // so you can always see your current speed (the old bar was 8×/4×/1×, no 2×, no active indicator).
   const SPEEDS = [0.5, 1, 2, 4, 8];   // 0.5× slow-mo for detail (backend clamps [0.25,60]); keep 8× to skip ahead
@@ -1273,6 +1277,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     replayBtn,
     dirBtn,
     weatherEl,
+    recBadge,
   );
   document.body.appendChild(bar);
   watchBar = bar;
@@ -1459,7 +1464,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
-      if (!gotFrame) { gotFrame = true; status.remove(); watchStatus = null; watchIsHome = msg.homeName === myTeam?.name; refreshDirOverlay(); }
+      if (!gotFrame) {
+        gotFrame = true; status.remove(); watchStatus = null; watchIsHome = msg.homeName === myTeam?.name; refreshDirOverlay();
+        if (live) { recBadge.textContent = '🔴 LIVE'; recBadge.title = 'Live match — the result counts.'; }
+        else if (shouts) { recBadge.textContent = '⚙ Re-sim'; recBadge.title = 'Re-simulated from your shouts.'; }
+        else if (msg.replay) { recBadge.textContent = '📹 Recorded'; recBadge.title = 'A faithful recording of how this match was played.'; }
+        else { recBadge.textContent = '⚙ Re-simulated'; recBadge.title = 'Not recorded — re-simulated on the latest engine, so the scoreline may differ from the league table.'; }
+      }
       // §weather: show the match's condition once (clear stays blank — only the notable conditions show)
       if (msg.weather && msg.weather !== 'clear' && !weatherEl.textContent) {
         weatherEl.textContent = msg.weather === 'rain' ? '🌧 Rain' : '🌬 Wind';
