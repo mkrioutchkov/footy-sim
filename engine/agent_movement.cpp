@@ -233,6 +233,13 @@ void PlayerAI::applyMovement(double sdt) {
             double pressure = clamp((68.0 - nearOppDist) / 68.0, 0.0, 1.0);
             double shieldLerp = lerp(0.035, 0.08, pressure);
             facing = facing + std::atan2(std::sin(awayAngle - facing), std::cos(awayAngle - facing)) * shieldLerp;
+            // F3 (facing audit): a shielding carrier at a sprint re-aligns his facing toward
+            // travel a touch, so he doesn't moonwalk forward at speed facing 180 back — the
+            // shield blend alone left him permanently turned away while motoring upfield.
+            if (spdAfter > 35.0) {
+                double moveAngle = std::atan2(p.vy, p.vx);
+                facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * 0.08;
+            }
         } else {
             // Open field: face toward ball velocity (movement direction)
             auto& b = engine.state.ball;
@@ -260,6 +267,12 @@ void PlayerAI::applyMovement(double sdt) {
             double w = spdAfter > 45.0 ? 0.16 : 0.06;
             facing = facing + std::atan2(std::sin(moveAngle - facing), std::cos(moveAngle - facing)) * w;
         }
+    } else if (engine.state.ball.intendedReceiverId == p.id) {
+        // F4 (facing audit): the pass is on its way to ME (here controllerId<0, ball in flight)
+        // — face the incoming ball, not a stale 3s-old ball-memory ghost. He already MOVES to
+        // meet it; now he LOOKS at it too, across the whole pitch (was gated to bd<80 below).
+        double ballAngle = std::atan2(bdy, bdx);
+        facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.16;
     } else if (engine.state.ball.controllerId < 0 && bd < 80.0 && spdAfter < 52.0) {
         double ballAngle = std::atan2(bdy, bdx);
         facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.15;
