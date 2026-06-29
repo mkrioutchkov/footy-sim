@@ -285,7 +285,12 @@ void GameEngine::releaseGoalKick(Player& holder){
         for(auto& p:state.players){
             if(p.team!=holder.team||p.id==holder.id||p.role==Role::GK||p.sentOff)continue;
             double d=dist(holder.x,holder.y,p.x,p.y);
-            if(d<60.0||d>300.0)continue;
+            // GK DISTRIBUTION POLISH (user "better distribution"): the 60px floor made the keeper
+            // SKIP a close, open defender right next to him and hoof it 50/50 instead — dumb. Allow
+            // the simple short roll to a close open man (down to 42px) + a touch longer (320). The
+            // openness (nearestOpp>42) + clean-lane gates below are UNCHANGED, so it only plays out
+            // to a SAFE option — no added risk, just fewer needless punts.
+            if(d<42.0||d>320.0)continue;
             double nearestOpp=1e9;
             for(auto& o:state.players){
                 if(o.team==holder.team||o.role==Role::GK||o.sentOff)continue;
@@ -294,7 +299,11 @@ void GameEngine::releaseGoalKick(Player& holder){
             if(nearestOpp<=42.0)continue;
             if(countLaneBlockers(state.players,holder.x,holder.y,p.x,p.y,holder.team,BLOCKER_PERP_GK_DIST,0.12,0.92)!=0)continue;
             double progress=(p.x-ownGoalX)*fd;
-            double score=progress*0.30-d*0.20+(p.role==Role::FB?40.0:p.role==Role::CB?22.0:0.0);
+            // GK DISTRIBUTION POLISH: among the safe short options, prefer the MOST OPEN man (most
+            // space around him), not just the most advanced — a keeper rolls it to the defender in
+            // acres, not the one with a forward breathing on him. Picks the genuinely-safe ball.
+            double score=progress*0.30-d*0.20+(p.role==Role::FB?40.0:p.role==Role::CB?22.0:0.0)
+                        +(std::min(nearestOpp,160.0)-42.0)*0.45;
             if(score>bestSafe){bestSafe=score;sp=&p;}
         }
         if(sp&&passBallTo(holder,*sp,false,false,nullptr,/*secure=*/true)){
