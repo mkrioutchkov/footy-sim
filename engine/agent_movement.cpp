@@ -237,14 +237,22 @@ void PlayerAI::applyMovement(double sdt) {
             // Open field: face toward ball velocity (movement direction)
             auto& b = engine.state.ball;
             double bs = std::hypot(b.vx, b.vy);
-            if(bs > 0.5) facing = facing + std::atan2(std::sin(std::atan2(-b.vy, -b.vx) - facing), std::cos(std::atan2(-b.vy, -b.vx) - facing)) * 0.05;
+            // F2 (facing audit): the carrier should face the way the ball ROLLS (his dribble
+            // direction), not away from it — the -b.vy,-b.vx negation faced him backward.
+            if(bs > 0.5) facing = facing + std::atan2(std::sin(std::atan2(b.vy, b.vx) - facing), std::cos(std::atan2(b.vy, b.vx) - facing)) * 0.05;
         }
     } else if (engine.state.ball.controllerId >= 0) {
         Player* carrier = engine.playerById(engine.state.ball.controllerId);
         // Ball-watching is a jogging habit: at speed you face your run, or
         // you moonwalk — players were sprinting backward at 74px/s for
         // seconds while staring at the carrier.
-        if (carrier && carrier->team != p.team && bd < 170.0 && spdAfter < 38.0) {
+        // F1 (facing audit, THE headline: 31.6% of chasing defenders had their BACK to the ball;
+        // E1's sprint-backs worsened it). A defender near a ball-carrying opponent now keeps his
+        // EYE ON THE BALL across the engaged range and up to a RUN (was barely-moving <38): he
+        // backpedals/jockeys facing the threat instead of turning his back. Only at a true SPRINT
+        // (>56, the body has to face the run) does he face his movement. Threat-aware: gated to an
+        // opponent carrier within the engaged range.
+        if (carrier && carrier->team != p.team && bd < 290.0 && spdAfter < 56.0) {
             double ballAngle = std::atan2(bdy, bdx);
             facing = facing + std::atan2(std::sin(ballAngle - facing), std::cos(ballAngle - facing)) * 0.18;
         } else if (spdAfter > 5.0) {

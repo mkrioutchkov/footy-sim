@@ -286,6 +286,7 @@ public:
     } activeKnockAhead;
     std::array<double, 22> knockAheadCooldownUntil = {};
     LooseOrigin lastLooseOrigin = LooseOrigin::None;
+    int woodworkCooldown = 0;   // W1: ticks to skip the woodwork check after a hit so the rebound clears the band (no re-collision / stick)
     struct VisualEvent {
         std::string type;
         double x = 0, y = 0, clockMs = 0;

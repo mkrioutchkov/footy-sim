@@ -170,6 +170,10 @@ bool GameEngine::checkGoal(){
 bool GameEngine::checkWoodwork() {
     auto& b = state.ball;
     if (b.controllerId >= 0) return false;
+    // W1 (user "completely broken hitting of the woodwork"): after a hit, the rebound could still
+    // satisfy the same height/x band next tick → re-collide, bounce repeatedly, or STICK at the bar.
+    // Hold a few ticks so the rebound clears the band before we re-check. Clock-driven, no rng.
+    if (woodworkCooldown > 0) { woodworkCooldown--; return false; }
     double goalX, inSign;
     if (b.vx < -1.0 && b.x <= HOME_GOAL_X + BALL_R + 2.0 && b.x > HOME_GOAL_X - 28.0) { goalX = HOME_GOAL_X; inSign = 1.0; }
     else if (b.vx > 1.0 && b.x >= AWAY_GOAL_X - BALL_R - 2.0 && b.x < AWAY_GOAL_X + 28.0) { goalX = AWAY_GOAL_X; inSign = -1.0; }
@@ -185,6 +189,7 @@ bool GameEngine::checkWoodwork() {
         b.vz = -std::abs(b.vz) * 0.45 - 30.0;
         b.vy *= 0.70;
         b.curl = 0.0;
+        woodworkCooldown = 4;   // W1: don't re-collide with the bar next tick
         lastLooseOrigin = LooseOrigin::Woodwork;
         emitEvent("woodwork", goalX, b.y, b.lastToucherId);
         return true;
@@ -195,9 +200,10 @@ bool GameEngine::checkWoodwork() {
         double postSide = (b.y >= center) ? 1.0 : -1.0;
         b.x = goalX + inSign * (BALL_R + 2.0);
         b.vx = -b.vx * 0.45;
-        b.vy = postSide * std::abs(b.vy) * 0.55;   // shove back off the upright
+        b.vy = postSide * std::abs(b.vy) * 0.55;   // shove back off the upright (away from goal-center)
         b.vz *= 0.6;
         b.curl = 0.0;
+        woodworkCooldown = 4;   // W1: don't re-collide with the post next tick
         lastLooseOrigin = LooseOrigin::Woodwork;
         emitEvent("woodwork", goalX, center + postSide * half, b.lastToucherId);
         return true;
