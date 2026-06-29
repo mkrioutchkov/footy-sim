@@ -55,6 +55,10 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (toGoalDist < 1.0) toGoalDist = 1.0;
     double facingDot = (std::cos(p.facing) * toGoalX + std::sin(p.facing) * toGoalY) / toGoalDist;
     if (!freshCross && !freshThrough && facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    // F6 (facing audit): a fresh cross/through finish skips the veto above (a volley/header
+    // can legitimately be side-on), but still refuse a TRUE back-to-goal shot (>120 deg off
+    // the goal) — that looked broken. Rear tolerance for glancing headers is preserved.
+    if ((freshCross || freshThrough) && facingDot < -0.5 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (!freshCross && !freshThrough && facingDot < 0.35 && shotDistance > 135.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (!freshCross && cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)

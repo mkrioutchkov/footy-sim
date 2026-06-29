@@ -186,7 +186,7 @@ bool GameEngine::checkWoodwork() {
     if (withinPosts && topOfBall >= GOAL_H - 1.0 && b.z <= GOAL_H + BALL_R + 4.0) {
         b.x = goalX + inSign * (BALL_R + 2.0);
         b.vx = -b.vx * 0.32;
-        b.vz = -std::abs(b.vz) * 0.45 - 30.0;
+        b.vz = -b.vz * 0.45 - 12.0;   // W3: reflect the vertical (preserves a ball grazing the bar from above) + a small downward nudge — was -abs()*0.45-30, a forced dead-stick drop
         b.vy *= 0.70;
         b.curl = 0.0;
         woodworkCooldown = 4;   // W1: don't re-collide with the bar next tick

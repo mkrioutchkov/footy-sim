@@ -242,6 +242,11 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     if (state.ball.controllerId != gk.id) {
         double fdx = state.ball.x - gk.x, fdy = state.ball.y - gk.y;
         if (fdx * fdx + fdy * fdy > 1.0) gk.facing = std::atan2(fdy, fdx);
+    } else {
+        // F5 (facing audit): while HOLDING the ball pre-distribution, look UP THE PITCH
+        // (toward where he'll release) instead of holding a stale facing. The distribution
+        // logic still aims the actual throw/kick; this only orients his body upfield.
+        gk.facing = std::atan2(PITCH_H / 2.0 - gk.y, fd * (PITCH_W * 0.5));
     }
 }
 
