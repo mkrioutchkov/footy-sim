@@ -141,10 +141,12 @@ inline constexpr double PRE_CONTACT_CHASE_REACH = 36.4;
 // ── Whipped deliveries (deliberate crosses + corners) ──
 // These are the dials calibrated 2026-06-12: cut-out/misjudge govern how
 // often a whip survives the box, the speed pair governs how it looks.
-inline constexpr double CROSS_DRIVE_SPEED_BASE   = 330.0;
-inline constexpr double CROSS_DRIVE_SPEED_PER_PX = 0.45;
-inline constexpr double CROSS_DRIVE_SPEED_MIN    = 360.0;
-inline constexpr double CROSS_DRIVE_SPEED_MAX    = 560.0;
+// User (watching fixture 2241): "crosses fly in too fast." 10px=1m, so 360-560 px/s was 36-56 m/s
+// — a real driven cross is ~25-35 m/s and 56 m/s was absurd. Pulled to ~30-42 m/s (300-420 px/s).
+inline constexpr double CROSS_DRIVE_SPEED_BASE   = 270.0;
+inline constexpr double CROSS_DRIVE_SPEED_PER_PX = 0.42;
+inline constexpr double CROSS_DRIVE_SPEED_MIN    = 300.0;
+inline constexpr double CROSS_DRIVE_SPEED_MAX    = 420.0;
 inline constexpr double CROSS_DIP_TARGET_Z       = 18.0;  // ball height at arrival
 inline constexpr double CROSS_CURL_MIN           = 0.27;  // rad/s — more visible whip on crosses + FK-crosses (was 0.20)
 inline constexpr double CROSS_CURL_RANGE         = 0.21;  // (was 0.17). Pre-rot scales with curl -> aim preserved.
