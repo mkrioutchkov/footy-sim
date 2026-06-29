@@ -393,11 +393,25 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // hopeful punt — the broad gate-relax was REVERTED for cratering goals; THIS plays only the
     // clean 1-on-1, with a boost so it beats the safe square pass / the take-on.
     bool cleanKillerBall = !isWideDelivery && clearOnsideAttacker;
-    if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall) {
+    // CHANCE-CREATION (goals-fine-to-raise from better creation): a CM deliberately sent into the
+    // box (AdvanceMidfield, assignAttackingRoles) who arrives UNMARKED, ONSIDE, central and in a
+    // clean lane is a legit killer-ball recipient. The run-STATE already ships (engine_defense.cpp),
+    // but the Through reward above was CF/WM-only (clearOnsideAttacker/goodThroughWindow both gate on
+    // targetAttacker), so the slip to an arriving CM was never rewarded and lost to a safe recycle.
+    // Strict gates (unmarked, clear lane, onside, central, inside the box) so it never adds a hopeful
+    // ball; byte-identical in any tick where no CM holds AdvanceMidfield.
+    bool cmKillerBall = !isWideDelivery && t.role == Role::CM
+                     && assignment && assignment->role == DefensiveTask::AdvanceMidfield
+                     && receiverPressure == 0 && bl == 0
+                     && onsideGap > 3.0 && onsideGap < 170.0
+                     && std::abs(t.y - PITCH_H / 2.0) < 150.0
+                     && targetGoalDist < 245.0 && fp > 20.0;
+    if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall) {
         pur = ActionPurpose::Through;
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
         sc += 0.24 + attrFactor(p.attrs.creativity) * 0.15;
         if (cleanKillerBall) sc += 0.16;
+        if (cmKillerBall) sc += 0.12;   // slip the arriving midfield runner in (smaller than the CF/WM premium — conservative)
         // Quick transition: hit the runner FAST while the defence is unset.
         // counter_attack amplifies this (and the matching off-ball-run bonus).
         if (engine.state.clockMs < engine.transitionUntilMs)
