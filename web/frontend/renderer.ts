@@ -555,7 +555,11 @@ export class MatchRenderer {
     // ── P0 ingest: measure the frame interval (the tween window) + arm renderFrame. animTime now advances
     // in renderFrame (per rAF) so stride/pulse/phase animations age smoothly, not in ~4fps steps.
     const nowMs = performance.now();
-    this.segDur = clamp(this.lastIngest ? nowMs - this.lastIngest : 250, 60, 600);
+    // Tween window = the measured inter-frame interval. Floor at 16ms (one display frame), NOT 60ms: at high
+    // playback speed frames arrive fast (8× ≈ 31ms apart), and a 60ms floor paced each segment slower than
+    // frames re-targeted it → the motion covered only ~half each delta → FF looked laggy/half-speed (user
+    // report). 16ms lets high-speed frames interpolate at the right pace; normal speed is unaffected (>16ms).
+    this.segDur = clamp(this.lastIngest ? nowMs - this.lastIngest : 250, 16, 600);
     this.lastIngest = nowMs;
     this.segStart = nowMs;
     this.lastState = state;
