@@ -359,9 +359,15 @@ public:
             c.aggression += 14.0 * urgency;
             c.defensiveLineHeight += 12.0 * urgency;
             c.passingDirectness += 13.0 * urgency;
-        } else if (diff > 0 && minLeft < 15.0) {
-            c.aggression -= 8.0;
-            c.defensiveLineHeight -= 12.0;
+        } else if (diff > 0 && minLeft < 22.0) {
+            // E4 (game-state realism): a side protecting a lead drops off EARLIER and deeper as the
+            // lead grows + the clock runs down — was a FLAT -8/-12 only inside 15min, so a 1-0 side
+            // at 70' sat neutral and invited the comeback. Scaled like the chasing push but gentler
+            // (a winning team manages the game, it doesn't panic). Pure score+clock, determinism holds.
+            double protect = clamp((22.0 - minLeft) / 22.0, 0.0, 1.0) * (0.7 + 0.3 * clamp((double)(diff - 1), 0.0, 2.0));
+            c.aggression -= 12.0 * protect;
+            c.defensiveLineHeight -= 16.0 * protect;
+            c.passingDirectness -= 7.0 * protect;
         }
         c.aggression = clamp(c.aggression, 0.0, 100.0);
         c.passingDirectness = clamp(c.passingDirectness, 0.0, 100.0);
