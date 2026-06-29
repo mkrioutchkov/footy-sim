@@ -292,6 +292,7 @@ function screenCreateTeam() {
 const VOCAB_GROUPS: { title: string; items: { label: string; phrase: string }[] }[] = [
   { title: 'Team shape', items: [
     { label: 'High press', phrase: 'press high and win it back fast' },
+    { label: 'Counter-press', phrase: 'counter-press — win it back the moment we lose it' },
     { label: 'Drop off', phrase: 'sit back and stay compact' },
     { label: 'All-out attack', phrase: 'throw everyone forward' },
     { label: 'Park the bus', phrase: 'shut up shop and see it out' },
