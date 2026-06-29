@@ -1094,10 +1094,11 @@ let activeReplayTimer: ReturnType<typeof setInterval> | null = null;   // live g
 let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
 function teardownWatch() {
   watchEpoch++;
-  if (activeReplayTimer) { clearInterval(activeReplayTimer); activeReplayTimer = null; }
+  if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }   // a live-rewind timer is a setTimeout — clear BOTH kinds
   try { watchPanelObs?.disconnect(); } catch { /* */ } watchPanelObs = null;
   if (watchKeyHandler) { window.removeEventListener('keydown', watchKeyHandler); watchKeyHandler = null; }
   try { activeWs?.close(); } catch { /* */ } activeWs = null;
+  try { activeRenderer?.setReplay(false); } catch { /* */ }   // dismiss any GOAL-REPLAY banner before tearing down (no stuck overlay across watches)
   try { activeRenderer?.destroy(); } catch { /* */ } activeRenderer = null;
   watchBar?.remove(); watchBar = null;     // teardown owns the floating control bar + tactics panel,
   watchPanel?.remove(); watchPanel = null; // so navigation (incl. watch→watch) never leaves them stacked
@@ -1446,6 +1447,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   let liveSeek = false;   // a live watch has buffered enough → route the scrub/rewind to the buffer
   let playbackGen = 0;    // bumped per buffer-playback start → invalidates any prior step() chain (re-entrant safety)
   const resumeLive = (): void => {
+    if (myEpoch !== watchEpoch) return;   // a stale callback must not touch the new watch's renderer/controls
     replaying = false;
     if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }
     activeRenderer?.setReplay(false);
@@ -1460,12 +1462,16 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     if (!activeRenderer || !liveBuffer.length) return;
     const myGen = ++playbackGen;            // a fresh re-scrub invalidates any in-flight step() chain
     replaying = true;                       // gate the live-frame render (onmessage keeps buffering)
-    activeRenderer.setReplay(true);         // the "⚽ REPLAY" overlay so the rewound clock reads as a replay
+    // P0 bug-fix: do NOT raise the "⚽ GOAL REPLAY" banner for a PLAIN buffer-rewind — that's playClip's job
+    // (an actual goal replay). And the resume button reads ● LIVE only on a TRUE live match; on a re-sim it's
+    // "▶ Resume" (a re-sim has no live edge). The button's presence is the rewound indicator.
+    goLiveBtn.textContent = live ? '● LIVE' : '▶ Resume';
+    goLiveBtn.title = live ? 'Jump back to the live edge' : 'Resume to the latest point';
     goLiveBtn.style.display = '';
     let i = Math.max(0, Math.min(startIdx, liveBuffer.length - 1));
     if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }
     const step = (): void => {
-      if (!activeRenderer || !replaying || myGen !== playbackGen) return;   // torn down / resumed / superseded
+      if (myEpoch !== watchEpoch || !activeRenderer || !replaying || myGen !== playbackGen) return;   // navigated / torn down / resumed / superseded
       if (i >= liveBuffer.length - 1) { resumeLive(); return; }  // caught up to the live edge → follow live
       const f = liveBuffer[i];
       activeRenderer.sync(f);
@@ -1510,16 +1516,16 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   };
   highlightBtn.onclick = () => { if (highlightTimer) stopHighlights(); else playHighlights(); };
   const playClip = () => {
-    if (replaying || !goalClip || !goalClip.length || !activeRenderer) return;
+    if (myEpoch !== watchEpoch || replaying || !goalClip || !goalClip.length || !activeRenderer) return;
     replaying = true;
-    activeRenderer.setReplay(true);   // show the "⚽ GOAL REPLAY" overlay so the rewinding score reads as a replay, not a live reset
+    activeRenderer.setReplay(true);   // GOAL-REPLAY banner — ONLY here (an actual goal replay), not plain rewind
     replayBtn.disabled = true; replayBtn.textContent = '⏵ Replaying…';
     const clip = goalClip;
     let i = 0;
     playbackGen++;   // supersede any live-rewind step() chain (shared activeReplayTimer)
     if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }   // a live-rewind timer is a setTimeout — clear BOTH
     activeReplayTimer = setInterval(() => {
-      if (!activeRenderer || i >= clip.length) {                                    // clip done (or torn down)
+      if (myEpoch !== watchEpoch || !activeRenderer || i >= clip.length) {          // navigated / torn down / clip done
         if (activeReplayTimer) { clearInterval(activeReplayTimer); activeReplayTimer = null; }
         replaying = false;
         activeRenderer?.setReplay(false);   // drop the overlay + resume live goal banners
@@ -1580,7 +1586,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
           liveBuffer.push(msg);
           if (liveBuffer.length > LIVE_BUFFER_MAX) liveBuffer.shift();
         }
-        if (goalFrame) { goalClip = liveBuffer.slice(-GOAL_CLIP); replayBtn.style.display = ''; }
+        // ⚽ Replay-goal (with its GOAL-REPLAY banner) is a TRUE-live-only control — on a re-sim it'd raise
+        // the banner inappropriately; re-sim users jump to goals via the markers instead. (P0 bug-fix #6.)
+        if (goalFrame) { goalClip = liveBuffer.slice(-GOAL_CLIP); if (live) replayBtn.style.display = ''; }
         // live goal/card markers — a live watch has no report, so index events as they happen → the scrub
         // shows ⚽/🟨/🟥 + jump-to-goal + , / . + highlights all work mid-game (recorded gets these from the report).
         const marks = (msg.events ?? []).filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red');
@@ -3050,13 +3058,18 @@ function matchRow(f: FixtureT, withReport: boolean): HTMLElement {
   const wx = f.weather && f.weather !== 'clear'
     ? h('span', { class: 'pill', title: f.weather === 'rain' ? 'Wet pitch' : 'Windy', style: 'background:rgba(127,178,255,.14);color:#9ec5ff' }, f.weather === 'rain' ? '🌧' : '🌬')
     : '';
+  // Only a PLAYED fixture is watchable — opening an unplayed one would mark it played + live-re-sim it with
+  // the (live-only) controls (P0 bug-fix #5). Unplayed shows "vs ⏳ scheduled", not a misleading 0–0 + Watch.
+  const actions = f.played
+    ? h('span', { class: 'fx-actions', style: 'display:flex;gap:6px;align-items:center' }, wx,
+        h('button', { class: 'ghost small', title: 'Watch this match', onclick: () => (location.hash = `#/watch/${f.id}`) }, '▶ Watch'),
+        withReport ? h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report') : '')
+    : h('span', { class: 'fx-actions', style: 'display:flex;gap:6px;align-items:center' }, wx, h('span', { class: 'muted', style: 'font-size:12px' }, '⏳ scheduled'));
   return h('div', { class: 'fx' + (f.involvesMe ? ' me' : '') },
     h('div', { class: 'h' }, f.home),
-    h('span', { class: 'sc' }, `${f.homeScore ?? 0}–${f.awayScore ?? 0}`),
+    f.played ? h('span', { class: 'sc' }, `${f.homeScore ?? 0}–${f.awayScore ?? 0}`) : h('span', { class: 'sc muted' }, 'vs'),
     h('div', {}, f.away),
-    h('span', { class: 'fx-actions', style: 'display:flex;gap:6px;align-items:center' }, wx,
-      h('button', { class: 'ghost small', title: 'Watch this match', onclick: () => (location.hash = `#/watch/${f.id}`) }, '▶ Watch'),
-      withReport ? h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report') : ''));
+    actions);
 }
 
 async function loadLeagueOr(fallback: (e: any) => void): Promise<LeagueT | null> {
