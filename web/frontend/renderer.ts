@@ -111,7 +111,8 @@ export class MatchRenderer {
   private lastControllerId: number | null = null;
   private prevControllerId: number | null = null;
   private animTime = 0;
-  private facingAngles: Map<number, number> = new Map();
+  private facingAngles: Map<number, number> = new Map();   // F7: the TARGET facing (advanced per keyframe in sync)
+  private facingPrev: Map<number, number> = new Map();     // F7: facing at the segment start → tween from here
   private prevFacingAngles: Map<number, number> = new Map();
   // Per-frame id→player index, rebuilt each sync() — replaces O(n) state.players.find() lookups
   // (carrier ring, dribble touches, pass/skill events, ticker) that ran several times a frame.
@@ -416,6 +417,7 @@ export class MatchRenderer {
     this.visualPlayers.clear();
     this.visualBall = null;
     this.playerTargets.clear();   // P0: drop stale tween targets so a fresh watch snaps to the first frame
+    this.facingPrev.clear(); this.facingAngles.clear();   // F7: re-snap facing with positions after a reset
     this.interpReady = false;
     this.lastState = null;
     this.lastIngest = 0;
@@ -445,6 +447,14 @@ export class MatchRenderer {
     const b = state.ball;
     const byId = this.playerById;
 
+    // ball — tween its position FIRST (renderFrame owns visualBall) so the player loop aims boots at the
+    // CURRENT-tick ball (F7 review: it was reading the previous tick's visualBall → a ~16ms boot-aim lag).
+    const ibx = lerp(this.ballPrev.x, this.ballTarget.x, t);
+    const iby = lerp(this.ballPrev.y, this.ballTarget.y, t);
+    const ibz = lerp(this.ballPrev.z, this.ballTarget.z, t);
+    if (!this.visualBall) this.visualBall = { x: ibx, y: iby, z: ibz };
+    else { this.visualBall.x = ibx; this.visualBall.y = iby; this.visualBall.z = ibz; }
+
     // players — tween then position body/shadow/arrow/label/dirTag (shapes were drawn in sync)
     for (const [id, tg] of this.playerTargets) {
       const entry = this.playerEntries.get(id);
@@ -456,16 +466,12 @@ export class MatchRenderer {
       entry.shadow.position.set(ix, iy);
       entry.body.position.set(ix, iy);
       entry.arrow.position.set(ix, iy);
+      // F7: redraw the boot/head arrow at the LERPED facing every tick (was keyframe-rate → boots lagged turns).
+      const pp = byId.get(id);
+      if (pp) this.drawPlayerArrow(entry, pp, this.lerpAngle(this.facingPrev.get(id) ?? this.facingAngles.get(id) ?? 0, this.facingAngles.get(id) ?? 0, t), ix, iy, ibx, iby);
       entry.label.position.set(ix, iy + PLAYER_R + 3);
       if (entry.dirTag.visible) entry.dirTag.position.set(ix, iy + PLAYER_R + 17);
     }
-
-    // ball — tween its position (renderFrame owns visualBall now)
-    const ibx = lerp(this.ballPrev.x, this.ballTarget.x, t);
-    const iby = lerp(this.ballPrev.y, this.ballTarget.y, t);
-    const ibz = lerp(this.ballPrev.z, this.ballTarget.z, t);
-    if (!this.visualBall) this.visualBall = { x: ibx, y: iby, z: ibz };
-    else { this.visualBall.x = ibx; this.visualBall.y = iby; this.visualBall.z = ibz; }
 
     // ── carrier ring (rides the carrier's tweened pos + pulses on animTime) ──
     this.ringGfx.clear();
@@ -843,31 +849,25 @@ export class MatchRenderer {
         if (!sliding && !diving) entry.drawn = true;
       }
 
-      // arrow — redraw at relative coords (positioned in renderFrame)
-      entry.arrow.clear();
-      // smooth facing: update angle when moving fast enough, otherwise scan toward ball
+      // F7: advance the TARGET facing here (per keyframe); the boot/head arrow is now redrawn PER TICK at a
+      // LERPED facing in renderFrame (drawPlayerArrow) — it used to draw here at keyframe rate, so the boots
+      // lagged a turn by up to ~250ms. Store the segment-start facing to tween from (snap ⇒ no tween).
       const MIN_SPEED = 8;
       let angle = this.facingAngles.get(p.id);
-      if (angle === undefined) {
-        angle = p.team === 'home' ? 0 : Math.PI;
-      }
+      if (angle === undefined) angle = p.team === 'home' ? 0 : Math.PI;
+      const prevAngle = angle;
+      let snappedFacing = false;
       if (p.facing !== undefined) {
-        if (b.controllerId === p.id && this.prevControllerId !== p.id) {
-          // snap facing when player just received the ball
-          angle = p.facing;
-        } else {
-          angle = this.turnTowards(angle, p.facing, Math.PI / 18);
-        }
+        if (b.controllerId === p.id && this.prevControllerId !== p.id) { angle = p.facing; snappedFacing = true; }   // snap on receive
+        else angle = this.turnTowards(angle, p.facing, Math.PI / 18);
       } else if (speed > MIN_SPEED) {
-        const newAngle = Math.atan2(p.vy, p.vx);
-        angle = this.turnTowards(angle, newAngle, Math.PI / 24);
+        angle = this.turnTowards(angle, Math.atan2(p.vy, p.vx), Math.PI / 24);
       } else {
-        const lookAngle = Math.atan2(state.ball.y - p.y, state.ball.x - p.x);
-        angle = this.turnTowards(angle, lookAngle, Math.PI / 60);
+        angle = this.turnTowards(angle, Math.atan2(state.ball.y - p.y, state.ball.x - p.x), Math.PI / 60);
       }
+      this.facingPrev.set(p.id, snappedFacing ? angle : prevAngle);
       this.facingAngles.set(p.id, angle);
-      // Diagnose unexpected facing jumps even though ordinary turns are capped (debug-only —
-      // skips a per-player map get/set every frame in normal play).
+      // Diagnose unexpected facing jumps even though ordinary turns are capped (debug-only).
       if (RENDER_DEBUG) {
         const prevA = this.prevFacingAngles.get(p.id);
         if (prevA !== undefined) {
@@ -876,46 +876,6 @@ export class MatchRenderer {
           if (na > Math.PI * 0.7) console.warn(`[facing_flicker] player ${p.id} (${p.role}) angle jumped ${Math.round(na * 180 / Math.PI)} deg - speed=${Math.round(speed)}`);
         }
         this.prevFacingAngles.set(p.id, angle);
-      }
-      const heading = (p.headingAnim ?? 0) > 0;
-      const forwardX = Math.cos(angle);
-      const forwardY = Math.sin(angle);
-      const controlDx = hasBall ? vb.x - vp.x : 0;
-      const controlDy = hasBall ? vb.y - vp.y : 0;
-      const controlDist = Math.hypot(controlDx, controlDy);
-      const feetX = hasBall && controlDist > 2 ? controlDx / controlDist : forwardX;
-      const feetY = hasBall && controlDist > 2 ? controlDy / controlDist : forwardY;
-      const feetSideX = -feetY;
-      const feetSideY = feetX;
-      const bootForward = hasBall ? Math.max(r * 0.62, Math.min(r * 0.94, controlDist - BALL_R * 0.5)) : r * 0.74;
-      const bootSpread = hasBall ? BALL_R + 2.3 : r * 0.37;
-      const leftBootX = feetX * bootForward + feetSideX * bootSpread;
-      const leftBootY = feetY * bootForward + feetSideY * bootSpread;
-      const rightBootX = feetX * bootForward - feetSideX * bootSpread;
-      const rightBootY = feetY * bootForward - feetSideY * bootSpread;
-      entry.arrow.moveTo(feetSideX * r * 0.22, feetSideY * r * 0.22);
-      entry.arrow.lineTo(leftBootX, leftBootY);
-      entry.arrow.moveTo(-feetSideX * r * 0.22, -feetSideY * r * 0.22);
-      entry.arrow.lineTo(rightBootX, rightBootY);
-      entry.arrow.stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
-      entry.arrow.circle(leftBootX, leftBootY, hasBall ? 2.8 : 2.4);
-      entry.arrow.circle(rightBootX, rightBootY, hasBall ? 2.8 : 2.4);
-      entry.arrow.fill({ color: 0x171717 });
-      // Top-down head stays centered inside the team marker; boots indicate possession.
-      entry.arrow.circle(0, 0, heading ? r * 0.47 : r * 0.41);
-      entry.arrow.fill({ color: 0xffdfbb });
-      entry.arrow.circle(0, 0, heading ? r * 0.47 : r * 0.41);
-      entry.arrow.stroke({ width: 1, color: 0x33261c });
-      if (heading) {
-        entry.arrow.circle(forwardX * r * 1.65, forwardY * r * 1.65, r * 0.82);
-        entry.arrow.stroke({ width: 2, color: 0xfff1a8, alpha: 0.75 });
-      }
-      if (knockDribble) {
-        entry.arrow.moveTo(forwardX * r * 1.18 + feetSideX * r * 0.56, forwardY * r * 1.18 + feetSideY * r * 0.56);
-        entry.arrow.lineTo(forwardX * r * 2.0 + feetSideX * r * 0.56, forwardY * r * 2.0 + feetSideY * r * 0.56);
-        entry.arrow.moveTo(forwardX * r * 1.18 - feetSideX * r * 0.56, forwardY * r * 1.18 - feetSideY * r * 0.56);
-        entry.arrow.lineTo(forwardX * r * 2.0 - feetSideX * r * 0.56, forwardY * r * 2.0 - feetSideY * r * 0.56);
-        entry.arrow.stroke({ width: 2, color: 0xfff1a8, alpha: 0.8 });
       }
 
       // live rating ticks beside the name (dirty-checked — the value only moves on a stat/score change).
@@ -1607,5 +1567,60 @@ export class MatchRenderer {
   private turnTowards(current: number, target: number, maxStep: number): number {
     const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current));
     return current + clamp(delta, -maxStep, maxStep);
+  }
+
+  // F7: shortest-path angle interpolation (handles the ±π wrap) for the per-tick facing tween.
+  private lerpAngle(a: number, b: number, t: number): number {
+    return a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
+  }
+
+  // F7: draw the player's boot/head arrow at a given facing — called PER TICK from renderFrame (was drawn at
+  // keyframe rate in sync → boots lagged a turn by up to ~250ms). Local coords; the arrow Graphics is
+  // positioned at the tweened player pos by renderFrame. vp/vb are the interpolated player + ball positions.
+  private drawPlayerArrow(entry: PlayerEntry, p: EngineState['players'][number], angle: number, vpx: number, vpy: number, vbx: number, vby: number): void {
+    const r = PLAYER_R;
+    const hasBall = this.lastState?.ball.controllerId === p.id;
+    const heading = (p.headingAnim ?? 0) > 0;
+    const knockDribble = p.dribbleType === 3;
+    const a = entry.arrow;
+    a.clear();
+    const forwardX = Math.cos(angle);
+    const forwardY = Math.sin(angle);
+    const controlDx = hasBall ? vbx - vpx : 0;
+    const controlDy = hasBall ? vby - vpy : 0;
+    const controlDist = Math.hypot(controlDx, controlDy);
+    const feetX = hasBall && controlDist > 2 ? controlDx / controlDist : forwardX;
+    const feetY = hasBall && controlDist > 2 ? controlDy / controlDist : forwardY;
+    const feetSideX = -feetY;
+    const feetSideY = feetX;
+    const bootForward = hasBall ? Math.max(r * 0.62, Math.min(r * 0.94, controlDist - BALL_R * 0.5)) : r * 0.74;
+    const bootSpread = hasBall ? BALL_R + 2.3 : r * 0.37;
+    const leftBootX = feetX * bootForward + feetSideX * bootSpread;
+    const leftBootY = feetY * bootForward + feetSideY * bootSpread;
+    const rightBootX = feetX * bootForward - feetSideX * bootSpread;
+    const rightBootY = feetY * bootForward - feetSideY * bootSpread;
+    a.moveTo(feetSideX * r * 0.22, feetSideY * r * 0.22);
+    a.lineTo(leftBootX, leftBootY);
+    a.moveTo(-feetSideX * r * 0.22, -feetSideY * r * 0.22);
+    a.lineTo(rightBootX, rightBootY);
+    a.stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
+    a.circle(leftBootX, leftBootY, hasBall ? 2.8 : 2.4);
+    a.circle(rightBootX, rightBootY, hasBall ? 2.8 : 2.4);
+    a.fill({ color: 0x171717 });
+    a.circle(0, 0, heading ? r * 0.47 : r * 0.41);
+    a.fill({ color: 0xffdfbb });
+    a.circle(0, 0, heading ? r * 0.47 : r * 0.41);
+    a.stroke({ width: 1, color: 0x33261c });
+    if (heading) {
+      a.circle(forwardX * r * 1.65, forwardY * r * 1.65, r * 0.82);
+      a.stroke({ width: 2, color: 0xfff1a8, alpha: 0.75 });
+    }
+    if (knockDribble) {
+      a.moveTo(forwardX * r * 1.18 + feetSideX * r * 0.56, forwardY * r * 1.18 + feetSideY * r * 0.56);
+      a.lineTo(forwardX * r * 2.0 + feetSideX * r * 0.56, forwardY * r * 2.0 + feetSideY * r * 0.56);
+      a.moveTo(forwardX * r * 1.18 - feetSideX * r * 0.56, forwardY * r * 1.18 - feetSideY * r * 0.56);
+      a.lineTo(forwardX * r * 2.0 - feetSideX * r * 0.56, forwardY * r * 2.0 - feetSideY * r * 0.56);
+      a.stroke({ width: 2, color: 0xfff1a8, alpha: 0.8 });
+    }
   }
 }
