@@ -878,6 +878,11 @@ export class MatchStream extends FramePacer {
 // queue from a different clock) but no shouts; the client hides the tactics box on a replay.
 export class ReplayStream extends FramePacer {
   private frames: string[];
+  // clockMs per line, extracted ONCE with a cheap regex at construction. seekTo() used to JSON.parse EVERY
+  // line on EVERY seek — on a ~20k-frame recording (~30MB of JSON) that was ~2-3s PER seek/scrub/−10s (the
+  // user's "rewind/−10s laggy"). A numeric pre-index makes a seek O(n) compares (~ms). null = no clockMs (a
+  // non-frame/metadata line) → always kept, matching the "a seek must preserve non-frame lines" intent.
+  private frameClocks: (number | null)[];
   // Takes the already-loaded frames (loaded once by the caller) — so /ws/match can verify the
   // recording actually has frames before choosing replay over the live re-sim, never leaving a
   // viewer staring at a blank pitch because a row outlived its file.
@@ -885,17 +890,19 @@ export class ReplayStream extends FramePacer {
     super(ws, seed, homeName, awayName);
     this.replay = true;
     this.frames = frames;
+    this.frameClocks = frames.map(l => { const m = l.match(/"clockMs":(-?\d+(?:\.\d+)?)/); return m ? +m[1] : null; });
     ws.on('message', (d: Buffer) => this.onCommand(d));
     ws.on('close', () => this.dispose());
     this.seekTo(0);
   }
 
-  // Load every frame at/after `fromMs` into the queue and (re)start pacing from there.
+  // Load every frame at/after `fromMs` into the queue and (re)start pacing from there. Uses the pre-indexed
+  // frameClocks (no per-seek JSON.parse) so a seek is instant.
   private seekTo(fromMs: number): void {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.prevClock = null;
     this.pending = fromMs <= 0 ? this.frames.slice()
-      : this.frames.filter(l => { try { return (JSON.parse(l).clockMs ?? 0) >= fromMs; } catch { return true; } });   // keep non-frame/event lines (captureLineStream + loadRecording preserve them; a seek must too)
+      : this.frames.filter((_l, i) => { const c = this.frameClocks[i]; return c === null || c >= fromMs; });   // keep non-frame/event lines (captureLineStream + loadRecording preserve them; a seek must too)
     this.paused = false;
     this.tick();
   }
