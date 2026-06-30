@@ -3064,10 +3064,12 @@ async function screenSquad() {
 // ── match hubs: watch any game (viewer P1 #1/#2) ── the dashboard only surfaces next/last; these list
 // the full history. Data is already served by /api/league (every fixture in the division); screenWatch
 // handles any id (a recorded replay, else a live re-sim fallback).
-function matchRow(f: FixtureT, withReport: boolean): HTMLElement {
+function matchRow(f: FixtureT, withReport: boolean, rankOf?: (name: string) => number | undefined): HTMLElement {
   const wx = f.weather && f.weather !== 'clear'
     ? h('span', { class: 'pill', title: f.weather === 'rain' ? 'Wet pitch' : 'Windy', style: 'background:rgba(127,178,255,.14);color:#9ec5ff' }, f.weather === 'rain' ? '🌧' : '🌬')
     : '';
+  // current league position next to each club (FM-style context for the result) — from the live standings
+  const rank = (name: string): HTMLElement | string => { const r = rankOf?.(name); return r ? h('span', { class: 'muted', title: `League position ${r}`, style: 'font-size:10px;margin-left:4px' }, `#${r}`) : ''; };
   // Only a PLAYED fixture is watchable — opening an unplayed one would mark it played + live-re-sim it with
   // the (live-only) controls (P0 bug-fix #5). Unplayed shows "vs ⏳ scheduled", not a misleading 0–0 + Watch.
   const actions = f.played
@@ -3076,10 +3078,16 @@ function matchRow(f: FixtureT, withReport: boolean): HTMLElement {
         withReport ? h('button', { class: 'ghost small', onclick: () => (location.hash = `#/report/${f.id}`) }, 'Report') : '')
     : h('span', { class: 'fx-actions', style: 'display:flex;gap:6px;align-items:center' }, wx, h('span', { class: 'muted', style: 'font-size:12px' }, '⏳ scheduled'));
   return h('div', { class: 'fx' + (f.involvesMe ? ' me' : '') },
-    h('div', { class: 'h' }, f.home),
+    h('div', { class: 'h' }, f.home, rank(f.home)),
     f.played ? h('span', { class: 'sc' }, `${f.homeScore ?? 0}–${f.awayScore ?? 0}`) : h('span', { class: 'sc muted' }, 'vs'),
-    h('div', {}, f.away),
+    h('div', {}, f.away, rank(f.away)),
     actions);
+}
+
+// teamName → current league position (1-based), from the position-ordered standings
+function rankLookup(league: LeagueT): (name: string) => number | undefined {
+  const byName = new Map(league.standings.map((s, i) => [s.name, i + 1]));
+  return (name: string) => byName.get(name);
 }
 
 async function loadLeagueOr(fallback: (e: any) => void): Promise<LeagueT | null> {
@@ -3095,10 +3103,11 @@ async function screenMyMatches() {
   });
   if (!league) return;
   const mine = league.fixtures.filter(f => f.involvesMe && f.played).sort((a, b) => b.round - a.round);
+  const rankOf = rankLookup(league);
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('h2', {}, '📅 My Matches'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     mine.length
-      ? h('div', { class: 'card' }, ...mine.map(f => matchRow(f, true)))
+      ? h('div', { class: 'card' }, ...mine.map(f => matchRow(f, true, rankOf)))
       : h('div', { class: 'card muted' }, 'No matches played yet — play or advance a matchday, then watch them back here.')));
 }
 
@@ -3111,12 +3120,13 @@ async function screenLeagueMatches() {
   if (!league) return;
   const played = league.fixtures.filter(f => f.played);
   const rounds = [...new Set(played.map(f => f.round))].sort((a, b) => b - a);
+  const rankOf = rankLookup(league);
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('h2', {}, '⚽ League — all results'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     played.length
       ? h('div', {}, ...rounds.map(rd => h('div', { class: 'card', style: 'margin-bottom:10px' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, `Round ${rd}`),
-          ...played.filter(f => f.round === rd).map(f => matchRow(f, f.involvesMe)))))
+          ...played.filter(f => f.round === rd).map(f => matchRow(f, f.involvesMe, rankOf)))))
       : h('div', { class: 'card muted' }, 'No results played yet this season — advance a matchday.')));
 }
 
