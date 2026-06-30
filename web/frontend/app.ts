@@ -2437,15 +2437,20 @@ async function screenReport(fixtureId: number) {
     : '';
 
   // ratings, one column per side, best first
-  const ratingsCol = (team: 'home' | 'away', label: string) => h('div', { style: 'flex:1;min-width:200px' },
-    h('div', { class: 'section-title', style: 'margin-top:0' }, label),
-    ...rep.ratings.filter(r => r.team === team).sort((a, b) => b.rating - a.rating).map(r => {
-      const tag = (n: number, s: string) => n > 0 ? h('span', { class: 'pill', style: 'margin-left:4px' }, `${n}${s}`) : '';
-      const hot = r.rating >= 7.5 ? 'color:var(--accent,#4ea1ff);font-weight:700;' : r.rating < 5 ? 'opacity:.6;' : '';
-      return h('div', { class: 'between', style: 'font-size:13px;padding:2px 0' },
-        h('span', {}, `${r.name} `, h('span', { class: 'muted', style: 'font-size:11px' }, r.role), tag(r.goals, '⚽'), tag(r.assists, '🅰')),
-        h('span', { style: hot }, r.rating.toFixed(1)));
-    }));
+  const ratingsCol = (team: 'home' | 'away', label: string) => {
+    const cleanSheet = (team === 'home' ? rep.facts.awayScore : rep.facts.homeScore) === 0;   // this side conceded nothing
+    return h('div', { style: 'flex:1;min-width:200px' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, label),
+      ...rep.ratings.filter(r => r.team === team).sort((a, b) => b.rating - a.rating).map(r => {
+        const tag = (n: number, s: string, title: string) => n > 0 ? h('span', { class: 'pill', title, style: 'margin-left:4px' }, `${n}${s}`) : '';
+        const hot = r.rating >= 7.5 ? 'color:var(--accent,#4ea1ff);font-weight:700;' : r.rating < 5 ? 'opacity:.6;' : '';
+        const cs = (cleanSheet && r.role === 'GK') ? h('span', { class: 'pill', title: 'Clean sheet', style: 'margin-left:4px' }, '🧤') : '';
+        return h('div', { class: 'between', style: 'font-size:13px;padding:2px 0' },
+          h('span', {}, `${r.name} `, h('span', { class: 'muted', style: 'font-size:11px' }, r.role),
+            tag(r.goals, '⚽', 'Goals'), tag(r.assists, '🅰', 'Assists'), tag(r.shots, '🎯', 'Shots'), tag(r.tackles, '🛡', 'Tackles'), cs),
+          h('span', { style: hot }, r.rating.toFixed(1)));
+      }));
+  };
 
   const f = rep.facts;
   mount(header(), h('div', { class: 'wrap grid' },
