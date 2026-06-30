@@ -1134,9 +1134,12 @@ export class MatchRenderer {
     // goal banner on score change — but during a goal replay the score rewinds then plays forward;
     // track it silently (the "⚽ GOAL REPLAY" overlay is up) so we don't mis-fire "GOAL!" on the rewind.
     if (hs !== this.prevHomeScore || as !== this.prevAwayScore) {
-      if (this.replayMode) {
-        this.prevHomeScore = hs; this.prevAwayScore = as;
-      } else {
+      // Only celebrate a REAL goal: a single FORWARD increment during normal play. A seek / scrub / rewind
+      // jumps the score (down on a rewind, or up by >1 when you jump across goals) — never fire "GOAL!" then,
+      // and DROP any showing banner so it can't stick ("GOAL" for a goal now in the future or well in the past).
+      // A goal-replay rewinds the score silently (the "⚽ GOAL REPLAY" overlay is up instead).
+      const delta = (hs - this.prevHomeScore) + (as - this.prevAwayScore);
+      if (!this.replayMode && delta === 1) {
         const homeScored = hs > this.prevHomeScore;
         const who = this.lastGoalScorer;   // set by updateTicker when it logs the goal event
         this.bannerEl.textContent = `GOAL!  ${who}\n${hn} ${hs} — ${as} ${an}`;
@@ -1148,8 +1151,10 @@ export class MatchRenderer {
         this.bannerEl.style.animation = 'none'; void this.bannerEl.offsetWidth;
         this.bannerEl.style.animation = 'footyGoalPop .45s cubic-bezier(.2,1.5,.45,1)';
         this.bannerHideAt = now + 4500;
-        this.prevHomeScore = hs; this.prevAwayScore = as;
+      } else if (!this.replayMode && this.bannerEl.style.display === 'block') {
+        this.bannerEl.style.display = 'none'; this.bannerHideAt = 0;   // a seek/rewind changed the score → clear any stale GOAL banner now
       }
+      this.prevHomeScore = hs; this.prevAwayScore = as;
     }
     if (this.bannerEl.style.display === 'block' && now > this.bannerHideAt) {
       this.bannerEl.style.display = 'none';

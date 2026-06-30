@@ -1219,7 +1219,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   scrubEl.addEventListener('input', () => { scrubbing = true; scrubLabel.textContent = fmtClock(+scrubEl.value); });
   scrubEl.addEventListener('change', () => { seekTo(+scrubEl.value); scrubbing = false; });
   // ⏪ back-10s — a real rewind (not jump-to-start), relative to the live playhead. Revealed with the scrub.
+  const rewind5Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 5 seconds', title: 'Back 5 seconds', onclick: () => seekTo(Math.max(0, currentMs - 5000)) }, '⏪ 5s') as HTMLButtonElement;
   const rewind10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds', onclick: () => seekTo(Math.max(0, currentMs - 10000)) }, '⏪ 10s') as HTMLButtonElement;
+  const rewind30Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 30 seconds', title: 'Back 30 seconds', onclick: () => seekTo(Math.max(0, currentMs - 30000)) }, '⏪ 30s') as HTMLButtonElement;
   let goalIndex: { clockMs: number; name: string }[] = [];   // GOALS only — powers highlights + the , / . keys
   const MARKER_ICON: Record<string, string> = { goal: '⚽', yellow: '🟨', red: '🟥' };
   const buildMarkers = (events: { clockMs: number; name: string; kind: string }[]): void => {
@@ -1280,7 +1282,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     ...speedBtns,
     pauseBtn,
     rewindBtn,
+    rewind5Btn,
     rewind10Btn,
+    rewind30Btn,
     scrubWrap,
     scrubLabel,
     goLiveBtn,
@@ -1548,7 +1552,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       if (msg.error) { showStatusError(msg.error); return; }   // re-sim failed (e.g. replay-from-shouts)
       // A replayed recording is finished playback: reveal the rewind/scrub/back-10s controls. The shout
       // box is already gone (the panel is the read-only live-only note when !live), so keep the note visible.
-      if (msg.replay && !replayUiApplied) { replayUiApplied = true; rewindBtn.style.display = ''; rewind10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
+      if (msg.replay && !replayUiApplied) { replayUiApplied = true; rewindBtn.style.display = ''; rewind5Btn.style.display = ''; rewind10Btn.style.display = ''; rewind30Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
       // Track the playhead while FOLLOWING (a recorded replay, or a live watch at the edge) — but not while
       // dragging, and not while rewound (`replaying`: the buffer-playback loop owns the playhead then).
       if ((replayUiApplied || liveSeek) && !replaying && typeof msg.clockMs === 'number') {
@@ -1598,7 +1602,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
           buildMarkers(liveMarks);
         }
         // reveal the rewind/scrub controls for a LIVE watch once there's enough buffered to seek within
-        if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; rewindBtn.style.display = ''; rewind10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
+        if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; rewindBtn.style.display = ''; rewind5Btn.style.display = ''; rewind10Btn.style.display = ''; rewind30Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
       }
       if (replaying) return;   // a goal clip OR a live rewind is driving the renderer — keep buffering, don't draw live
       renderer.sync(msg);
