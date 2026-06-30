@@ -609,6 +609,12 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             // often, so raising fouls toward real exploded yellows/reds. Lowered to
             // calibrate cards to the higher foul volume (cynical fouls stay bookable).
             double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.20 : 0.055);   // SysArch 2026-06-30: yellows measured ~5.5/match (≈1.5× real 3-4) → trim 0.28/0.075 → 0.20/0.055
+            // A booked player's borderline SECOND foul: a real ref usually warns
+            // rather than firing the automatic second yellow. Second-yellow reds were
+            // measured ~0.62/match (≈2.5× real ~0.25), piled up in chippy high-yellow
+            // games — trimming the average never tamed that tail; this does. (A cynical
+            // second foul stays bookable — he meant it.)
+            if (yellowCards[tackler.id] >= 1 && !cynical) cardChance *= 0.45;
             bool straightRed = fromBehind && rng.random() < 0.0032;   // reds measured ~0.60 ≈ 2.4× real → 0.005->0.0032
             if (straightRed || rng.random() < cardChance) {
                 if (!straightRed) {
