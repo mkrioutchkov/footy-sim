@@ -80,6 +80,7 @@ export class MatchRenderer {
   private prevAwayScore = 0;
   private prevHalf = 1;
   private shownFullTime = false;
+  private momentsClock = 0;   // last clock seen by updateMoments — a big jump = a seek (suppress/clear banners)
   private versionText: Text = null!;
   private uiVersion = '';
   private eventGfx: Graphics;
@@ -1131,6 +1132,14 @@ export class MatchRenderer {
       this.prevHomeScore = 0; this.prevAwayScore = 0; this.prevHalf = 1; this.shownFullTime = false;
       this.panelEl.style.display = 'none';
     }
+    // A seek / scrub / rewind jumps the clock (back, or far forward). Clear any showing banner/panel so nothing
+    // sticks from before the jump — a "GOAL" / "HALF TIME" / "FULL TIME" now in the future or well in the past.
+    const seeked = !this.replayMode && (state.clockMs < this.momentsClock - 500 || state.clockMs > this.momentsClock + 4000);
+    this.momentsClock = state.clockMs;
+    if (seeked) {
+      if (this.bannerEl.style.display === 'block') { this.bannerEl.style.display = 'none'; this.bannerHideAt = 0; }
+      if (this.panelEl.style.display === 'block') { this.panelEl.style.display = 'none'; this.panelHideAt = 0; }
+    }
     // goal banner on score change — but during a goal replay the score rewinds then plays forward;
     // track it silently (the "⚽ GOAL REPLAY" overlay is up) so we don't mis-fire "GOAL!" on the rewind.
     if (hs !== this.prevHomeScore || as !== this.prevAwayScore) {
@@ -1186,11 +1195,15 @@ export class MatchRenderer {
     };
     if (half === 2 && this.prevHalf === 1) {
       this.prevHalf = 2;
-      showPanel('HALF TIME', false);
+      if (!seeked) showPanel('HALF TIME', false);   // a forward seek into the 2nd half shouldn't pop "HALF TIME"
+    } else if (half === 1 && this.prevHalf === 2) {
+      this.prevHalf = 1;   // rewound back into the 1st half → let HALF TIME fire again on forward play
     }
     if (finished && !this.shownFullTime) {
       this.shownFullTime = true;
       showPanel('FULL TIME', true);
+    } else if (!finished && this.shownFullTime) {
+      this.shownFullTime = false; this.panelEl.style.display = 'none'; this.panelHideAt = 0;   // rewound out of full-time → drop the sticky panel
     }
     if (this.panelEl.style.display === 'block' && now > this.panelHideAt) {
       this.panelEl.style.display = 'none';
