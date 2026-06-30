@@ -197,6 +197,18 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         && std::abs(p.y - PITCH_H / 2.0) > 120.0 && (fp > -45.0 || aerialTarget);
     bool isCutback = isWideDelivery && !isCross;
 
+    // BP1 (backward-pass audit, user "180-degree unrealistic passes"): the scorer never read facing,
+    // so a BLIND pass played behind where the passer is LOOKING scored like any other. Penalise ONLY a
+    // genuinely blind backpass (>135deg off the facing) in CALM possession that is NOT a sanctioned or
+    // creative backward ball — keeper outlet, secure pressured escape, cross, and CUTBACK are all legit
+    // backward and excluded (a cutback is >135deg off the facing but a prime chance; the blunt version
+    // that hit cutbacks cost goals and was reverted). Through-balls are forward, so they never qualify.
+    if (!keeperOutlet && !securePressuredOutlet && !isCross && !isCutback && per.pressureCount == 0) {
+        double pdl = std::sqrt(ls);
+        double facingDot = pdl > 1.0 ? (dx * std::cos(p.facing) + dy * std::sin(p.facing)) / pdl : 1.0;
+        if (facingDot < -0.7) sc -= (-facingDot - 0.7) / 0.3 * 0.30;   // 0 at ~135deg -> -0.30 at a true 180deg no-looker
+    }
+
     // ── Cross / cutback scoring ──
     if (isCross) {
         sc += 0.26;
