@@ -40,12 +40,17 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
         double perp = std::sqrt((o.x - p.x - t2 * dx) * (o.x - p.x - t2 * dx)
                               + (o.y - p.y - t2 * dy) * (o.y - p.y - t2 * dy));
-        if (perp < PASS_BLOCKER_PERP) bl++;
-        // Defender who can STEP INTO the lane and cut it out — mirrors the defenders'
-        // lane-interception (they now close ~90px/s). 50% of interceptions have ZERO
-        // strict blockers (a defender steps in during flight), so the passer must
-        // read these too: graded risk, full weight at the strict radius fading to 0
-        // at ~112px, only counted mid-lane (the ends are pressure/point-blank).
+        // STEP-IN realism (user 0:40 Kovac + the Okafor pass): a defender CLOSING on the lane reaches
+        // FURTHER than his static perp suggests — he'll be nearer by the time the ball arrives. So a
+        // closer's effective BLOCKER radius extends with his speed TOWARD the closest-approach point
+        // (Kovac stepped in from 40px at ~48px/s and cut a slow build-up ball). A defender drifting
+        // AWAY keeps the static radius, so a pass into a vacating lane isn't over-penalised. The graded
+        // mid-lane risk (50% of interceptions are a step-in, ZERO strict blockers) is otherwise intact.
+        double cx = p.x + t2 * dx, cy = p.y + t2 * dy;
+        double tlx = cx - o.x, tly = cy - o.y, tld = std::hypot(tlx, tly);
+        double closing = tld > 1.0 ? (o.vx * tlx + o.vy * tly) / tld : 0.0;   // px/s toward the lane
+        double effBlocker = PASS_BLOCKER_PERP + clamp(closing / 50.0, 0.0, 1.0) * 13.0;
+        if (perp < effBlocker) bl++;
         else if (perp < 112.0 && t2 > 0.10 && t2 < 0.92) laneRisk += clamp((112.0 - perp) / 76.0, 0.0, 1.0);
         // Opponent right on the boot at release: near-certain deflection that
         // the wide lane radius under-weighted (passes straight into a marker
