@@ -795,6 +795,14 @@ void GameEngine::moveBallCarrier(double sdt){
     }
     double limit=c->dribbleType==1?DRIBBLE_CLOSE_SPEED:c->dribbleType==3?DRIBBLE_FAST_SPEED:DRIBBLE_MEDIUM_SPEED;
     double speed=attrFactor(c->attrs.speed)*limit;
+    // Fatigue (queue #8): a tired carrier dribbles slower too. Running already scales by stamina
+    // (agent_movement.cpp) but the carry did NOT, so a spent player still knocked it at full pace.
+    // Same ramp: full above the slow threshold, down to a skill-based floor when exhausted.
+    double dribSlowThr = STAMINA_SLOW_THRESHOLD * 100.0;
+    if (c->stamina < dribSlowThr) {
+        double staminaSkill = attrFactor(c->attrs.stamina);
+        speed *= lerp(0.54 + staminaSkill * 0.20, 1.0, clamp(c->stamina / std::max(1.0, dribSlowThr), 0.0, 1.0));
+    }
     double dx=c->targetX-c->x,dy=c->targetY-c->y,d=std::hypot(dx,dy);
     double secs=sdt/1000.0,px=c->x,py=c->y;
     double previousSpeed=std::hypot(c->vx,c->vy);
