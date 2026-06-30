@@ -590,10 +590,12 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             *(1.0 + (1.0 - staminaFrac(tackler.stamina)) * 0.6);         // tired legs mistime the tackle (+60% at empty; no-op fresh)
         // A deliberate cynical foul IS the foul — he means to bring the man down.
         if(cynical) foulChance = CYNICAL_FOUL_PROB;
-        // A booked player plays it safe — fewer reckless fouls, so second
-        // yellows (and the resulting reds) stay near real rates. (Even a booked
-        // last man still cynically fouls — he just risks the second yellow.)
-        if(yellowCards[tackler.id]>=1 && !cynical)foulChance*=0.38;   // a booked player is VERY careful — 0.55->0.38 trims second-yellow reds (~0.57 -> ~real 0.3)
+        // A booked player plays it safe — fewer reckless AND cynical fouls, so second
+        // yellows (and the resulting reds) drop toward real rates. A booked last man
+        // knows a second foul = off, so he's far more careful even when tempted to
+        // cynically pull the man down. (SysArch 2026-06-30: reds measured ~0.60/match
+        // ≈ 2.4× real ~0.25 — the booked-CYNICAL path was bypassing this damping.)
+        if(yellowCards[tackler.id]>=1)foulChance*=0.38;   // booked → VERY careful (now incl. cynical: trims second-yellow reds)
         if(rng.random()<foulChance){
             stats.recordTackleFoul();
             if(cynical) stats.recordTacticalFoul();
@@ -606,8 +608,8 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
             // Card-per-foul was ~32% (≈2× real ~17%): a foul fired a card far too
             // often, so raising fouls toward real exploded yellows/reds. Lowered to
             // calibrate cards to the higher foul volume (cynical fouls stay bookable).
-            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.28 : 0.075);
-            bool straightRed = fromBehind && rng.random() < 0.005;   // 0.010 -> 0.005: red rate was ~2× real; trim as fouls rise
+            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.20 : 0.055);   // SysArch 2026-06-30: yellows measured ~5.5/match (≈1.5× real 3-4) → trim 0.28/0.075 → 0.20/0.055
+            bool straightRed = fromBehind && rng.random() < 0.0032;   // reds measured ~0.60 ≈ 2.4× real → 0.005->0.0032
             if (straightRed || rng.random() < cardChance) {
                 if (!straightRed) {
                     yellowCards[tackler.id]++;
