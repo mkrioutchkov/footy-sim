@@ -111,6 +111,25 @@ counts shot-tips (deliberate per `BORIS_GK_TIP_AUDIT`).
 - **`willSave` dead branch / `deepestX` unused** → harmless dead code in delicate GK
   / positioning paths; risk > reward to touch.
 
+## TypeScript game-layer audit (web/backend — separate from the C++ engine)
+
+Extended the audit to the Node game layer (goal-neutral by construction — it doesn't
+touch the sim). Results so far:
+
+- **Season / standings / competition** (`season.ts`, `cup.ts`, `career.ts`,
+  `objectives.ts`, `board.ts`, `history.ts`, standings in `game.ts`): CLEAN. Points
+  3/1/0, `gd = gf - ga`, a stable transitive standings sort, promotion/relegation
+  (right teams/count, no off-by-one), prize money, rollover ordering, objective
+  thresholds, cup brackets, and history/career best-finish all verified correct.
+- **Match result / reports / ratings / news / finances** (`match.ts`, `report.ts`,
+  `news.ts`, `finances.ts`, `contracts.ts`, `market.ts`, `scout.ts`): CLEAN. Result
+  persistence (no home/away swap), recording aggregation (survives frame sampling),
+  possession, finance sign conventions (no double-charge, budget guarded), contract
+  expiry, and ratings all correct. Crucially, the 3 engine stat fixes are consumed
+  **without double-correction** (report.ts's score-delta attribution degrades
+  gracefully). Only residual was **stale own-goal comments** in `report.ts` +
+  `CONTRACT.md` (fixed — the logic was already correct).
+
 ## Clean bill of health
 
 - **Sanitizers**: ASan+UBSan clean across 6 full matches (freeze-rescue, red cards,
