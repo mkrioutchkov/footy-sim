@@ -423,7 +423,11 @@ void PlayerAI::posDefensiveLine(SmallVector<PositionCandidate, 32>& c, const Pos
     struct LineMate { double progress; int id; };
     SmallVector<LineMate, 5> lineMates;
     for (auto& t : engine.state.players) {
-        if (t.team != p.team || t.role == Role::GK) continue;
+        // Skip sent-off team-mates: a parked ejected defender (off-pitch, y=-40)
+        // must not be folded into the back-line average / line-mate set, or the
+        // remaining defenders position relative to a line that includes a man who
+        // isn't on the pitch. Consistent with every other geometry loop.
+        if (t.team != p.team || t.role == Role::GK || t.sentOff) continue;
         if (engine.agentFor(t)->isDefenderRole()) {
             sumX += t.x; count++;
             lineMates.push_back({ (t.x - ownGoalXFor(p.team)) * pc.fd, t.id });

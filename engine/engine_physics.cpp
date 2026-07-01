@@ -225,7 +225,13 @@ bool GameEngine::checkOutOfPlay() {
         awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H);
         return true;
     }
-    if (b.x + BALL_R < HOME_GOAL_X) {
+    if (b.x < HOME_GOAL_X) {
+        // Center-crossing (not whole-ball `b.x + BALL_R < ...`): a slow ball can
+        // come to REST with its centre behind the goal line (x in (-BALL_R, 0)) —
+        // physically out — yet the whole-ball test never fires, so no goal-kick/
+        // corner is awarded and the ball sits dead until the freeze-rescue gifts it
+        // to the wrong player behind his own byline. The touchline test above is
+        // already centre-based (b.y < 0); match it here.
         // A ball over the bar (or wide) is out — only one passing UNDER the bar
         // between the posts was a goal (already taken by checkGoal).
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
@@ -236,7 +242,7 @@ bool GameEngine::checkOutOfPlay() {
             return true;
         }
     }
-    if (b.x - BALL_R > AWAY_GOAL_X) {
+    if (b.x > AWAY_GOAL_X) {   // centre-crossing (see HOME_GOAL_X note above)
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
         if (!inGoal) {
             clearState();

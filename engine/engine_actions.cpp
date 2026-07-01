@@ -239,7 +239,8 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
     }
     if (pendingPass.isCross && receiver.team == pendingPass.team) {
         stats.recordCrossComplete();
-        if (plausibleHeader) receiver.crossCollected = 1500.0;
+        // (removed dead `if (plausibleHeader) receiver.crossCollected = 1500.0;`
+        //  — every plausibleHeader path above returns, so it was unreachable.)
     }
     if (pendingPass.isThrough && receiver.team == pendingPass.team) {
         receiver.throughCollected = 1400.0;

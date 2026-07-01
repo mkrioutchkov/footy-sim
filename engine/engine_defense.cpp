@@ -421,7 +421,11 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     // advanced opponent (which also keeps him onside-marked, not played on).
     double deepestRunner = 1e9;
     for (auto& p : state.players) {
-        if (p.team == team || p.role == Role::GK || p.id == carrier.id) continue;
+        // Skip sent-off players: they're parked off-pitch (y=-40) at their homeX,
+        // so an ejected opponent could still be picked as the "deepest runner" and
+        // drag the back line to mark a phantom. Every other geometry loop (offside
+        // line, GK cover, cynical-foul cover) already excludes sentOff — match it.
+        if (p.team == team || p.role == Role::GK || p.sentOff || p.id == carrier.id) continue;
         deepestRunner = std::min(deepestRunner, std::abs(p.x - ownGoalX));
     }
     // Normally the line stays a stride goal-side of the deepest runner (keeps him
