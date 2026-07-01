@@ -129,6 +129,21 @@ touch the sim). Results so far:
   **without double-correction** (report.ts's score-delta attribution degrades
   gracefully). Only residual was **stale own-goal comments** in `report.ts` +
   `CONTRACT.md` (fixed — the logic was already correct).
+- **Auth / DB / security** (`auth.ts`, `db.ts`, all `index.ts` routes): CLEAN of real
+  defects — the codebase is disciplined: every `/api` route is auth-guarded, every
+  mutation scopes SQL to the session team (`AND team_id = ?` etc.), all SQL uses
+  bound params (no injection), no IDOR found, humans never share a league, session
+  tokens are 24 random bytes with enforced expiry. Only 3 **LOW** hardening notes
+  (flagged, NOT auto-applied since auth is sensitive): login is a username-enumeration
+  timing oracle (`auth.ts:59` returns before scrypt — add a dummy hash on the miss
+  path); session cookie lacks `secure` (has httpOnly+sameSite:lax); no CSRF token
+  (sameSite:lax currently covers it).
+- **Squad management / manager AI** (`training.ts`, `youth.ts`, `staff.ts`, `morale.ts`,
+  `harmony.ts`, `rotation.ts`, `lineup.ts`, `fitness.ts`, `manager/*.ts`): CLEAN. The
+  manager test suite passes 21/21; training/decline math (headroom-capped, clamped),
+  youth regen (in-range, valid role, no dup slots), fitness/injury auto-sub, morale/
+  harmony signs, lineup selection (exactly one GK, valid 11-permutation), and the
+  manager AI (only signs affordable players, never fields an illegal XI) all verified.
 
 ## Clean bill of health
 
