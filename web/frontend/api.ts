@@ -22,14 +22,24 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   // instead of a null silently cast to T that crashes the screen downstream ("cannot read X of null"). An empty
   // body (incl. 204) legitimately stays null — only a NON-empty body that fails to parse is treated as malformed.
   let data: unknown = null;
+  let rawText = '';
   if (res.status !== 204) {
-    const text = await res.text().catch(() => '');
-    if (text) {
-      try { data = JSON.parse(text); }
+    rawText = await res.text().catch(() => '');
+    if (rawText) {
+      try { data = JSON.parse(rawText); }
       catch { if (res.ok) throw new ApiError(res.status, 'The server sent a malformed response.'); }
     }
   }
-  if (!res.ok) throw new ApiError(res.status, ((data as { error?: string } | null)?.error) || `HTTP ${res.status}`);
+  // Session expired / not logged in: notify the app once so it can drop the stale in-memory user and return
+  // to the login screen, instead of every protected screen printing a raw "not logged in" under a live URL.
+  if (res.status === 401) { try { window.dispatchEvent(new Event('footy:auth-expired')); } catch { /* non-browser */ } }
+  if (!res.ok) {
+    const serverMsg = (data as { error?: string } | null)?.error;
+    // A non-JSON error body (a proxy's plain-text "Bad Gateway", an upstream 500) is otherwise discarded → the
+    // user only ever sees "HTTP 502". Surface a short, non-HTML body as the message; else fall back to the code.
+    const bodyMsg = !serverMsg && rawText && rawText.length <= 200 && !/<[a-z!]/i.test(rawText) ? rawText.trim() : '';
+    throw new ApiError(res.status, serverMsg || bodyMsg || `HTTP ${res.status}`);
+  }
   return data as T;
 }
 
@@ -213,7 +223,7 @@ export const api = {
   setTraining: (focus: string) => req<{ ok: boolean; focus: string }>('PUT', '/training', { focus }),
   setCaptain: (slot: number) => req<{ ok: boolean; captainSlot: number | null }>('PUT', '/captain', { slot }),
   setSetPieceTakers: (takers: { fk: number | null; corner: number | null; pen: number | null; longThrow: number | null }) => req<{ ok: boolean; setPieceTakers: TeamT['setPieceTakers'] }>('POST', '/set-piece-takers', takers),
-  teamTalk: (fixtureId: number, tone?: string) => req<{ tones: TalkToneT[]; pending: { tone: string; reactions: TalkReactionT[] } | null; tone: string; reactions: TalkReactionT[] }>('GET', `/teamtalk?fixture=${fixtureId}${tone ? `&tone=${tone}` : ''}`),
+  teamTalk: (fixtureId: number, tone?: string) => req<{ tones: TalkToneT[]; pending: { tone: string; reactions: TalkReactionT[] } | null; tone: string; reactions: TalkReactionT[] }>('GET', `/teamtalk?fixture=${fixtureId}${tone ? `&tone=${encodeURIComponent(tone)}` : ''}`),
   setTeamTalk: (fixtureId: number, tone: string) => req<{ ok: boolean; tone: string; reactions: TalkReactionT[] }>('POST', '/teamtalk', { fixtureId, tone }),
   academy: () => req<{ prospects: AcademyProspectT[] }>('GET', '/academy'),
   promoteProspect: (id: number) => req<{ ok: boolean; player?: string; prospects: AcademyProspectT[] }>('POST', `/academy/${id}/promote`),
