@@ -45,12 +45,12 @@ direction ("don't care about the goal target so much, easy to fix post-mortem �
 all"). They are genuine bugs; the goal rate is to be **re-calibrated post-hoc** from
 this corrected baseline.
 
-**Combined measured impact (30-seed sweep): goals ≈ 2.85** (vs the 3.07 pre-fix
-baseline — the goal-raising fixes A/B and the goal-reducing fix C roughly offset, so
-the rate actually lands *closer* to the ~2.8 real-world target), with a now-realistic
-home/away split (~1.65/1.20 = a ~+0.35 home advantage, correcting the old backwards
-home *disadvantage*). Health: 0 unfinished matches, 0 invariant violations, and fewer
-freeze-rescues. So no post-hoc goal re-tune turned out to be necessary.
+**Combined measured impact (30-seed sweep): goals = 2.77** (vs the 3.07 pre-fix
+baseline — the goal-raising fixes A/B and the goal-reducing fix C more than offset, so
+the rate lands *on* the ~2.8 real-world target), shots 24.8, with a now-realistic
+home/away split (correcting the old backwards home *disadvantage*). Health: 0 unfinished
+matches, 0 invariant violations, determinism preserved, and fewer freeze-rescues. So no
+post-hoc goal re-tune turned out to be necessary.
 
 | # | Fix | File:line | Measured goal impact | Notes |
 |---|-----|-----------|----------------------|-------|
