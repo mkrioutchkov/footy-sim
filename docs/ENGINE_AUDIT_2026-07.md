@@ -128,17 +128,22 @@ dead-zone-radius hypothesis was wrong — `bs<30` already widens the collect rad
 at `engine_physics.cpp:570`). In every case the nearest player is a **fullback 35–50 px
 away** who `canContest=1`, is `blockUntil=0` (not contest-blocked), and is the nearest
 eligible man (`nCloserEligible=0`) — yet his target points to a defensive-line/shape
-position *away from* the ball, not at it. So `agent_defend.cpp`'s `nearestEligibleFreeBall`
-recovery (which *should* fire: loose, slow, within 340 px, nobody closer) is being
-out-prioritised by the fullback's defensive-shape hold for a dead ball in his own wide
-corner. The ball then sits until `detectSimulationFreeze` teleports control to him at 3 s.
-Self-heals, deterministic, matches complete — but a real pursuit gap.
+position *away from* the ball, not at it. Traced deeper: `agent_defend.cpp decide()`
+**does** produce the recovery — `per.ballIsLoose` is true (`= controllerId<0`), the
+hold-shape gate (`agent_defend.cpp:354`) is NOT taken (loose, canContest, `ballDist≈35<180`),
+so it returns the `nearestEligibleFreeBall` Chase at `agent_defend.cpp:358`. The player's
+final target is nonetheless the shape position, so **the Chase is overridden downstream at
+action arbitration** — a higher-weight positioning/formation action beats the 0.96 recovery
+Chase for a wide fullback. The ball sits until `detectSimulationFreeze` teleports control to
+him at 3 s. Self-heals, deterministic, matches complete — but a real arbitration gap.
 
-Fix direction (needs a 30-seed A/B — behavioural, not goal-neutral): raise dead-ball
-recovery priority above the wide defender's shape hold when he is the nearest eligible man
-to a stationary uncontested ball (i.e. let `nearestEligibleFreeBall` force the chase return
-ahead of the line-hold, not just clear the hold-shape gate). Held pending verification
-budget, not correctness doubt.
+Fix direction (needs a 30-seed A/B — behavioural, not goal-neutral; and must be done at the
+**action-selection layer**, not by reordering `decide()`): when a player is the nearest
+eligible man to a **stationary uncontested** ball, the RecoverLoose Chase must win
+arbitration over his shape/formation target (e.g. floor its weight above the positioning
+action, gated tightly to `bs≈0 && nearestEligibleFreeBall` so normal shape-holding is
+untouched). Held pending verification budget + arbitration-layer investigation, not
+correctness doubt.
 
 ## Tools / harness correctness fixes (commit `5dd835f`) — simulation-invariant
 
