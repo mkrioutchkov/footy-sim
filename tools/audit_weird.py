@@ -92,7 +92,7 @@ def main():
                 flips.append(ms)
             last_team_holder = team
         # GK far from goal with live danger in his box
-        for gk_idx, goal_x in ((0, 35.0), (11, 1015.0)):
+        for gk_idx, goal_x in ((0, 0.0), (11, 1050.0)):
             gk = players[gk_idx] if players[gk_idx].id in (0, 11) else None
             if gk is None:
                 continue

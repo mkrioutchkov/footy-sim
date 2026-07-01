@@ -36,8 +36,8 @@ for (const seed of [102, 103]) {
   assert(state.slideTackleDistanceAlerts === 0, `seed ${seed} generated tackle launches`);
   assert(state.ownPassGoals === 0, `seed ${seed} generated an own-pass goal`);
   assert(state.unknownLooseGoals === 0, `seed ${seed} generated an unknown loose-ball goal`);
-  assert((state.passSelection?.pressuredReceptions ?? 0) >= 0, `seed ${seed} lacks pass selection telemetry`);
-  assert((state.marking?.finalThirdSamples ?? 0) >= 0, `seed ${seed} lacks marking telemetry`);
+  assert(state.passSelection?.pressuredReceptions !== undefined, `seed ${seed} lacks pass selection telemetry`);
+  assert((state.marking?.finalThirdSamples ?? 0) > 0, `seed ${seed} lacks marking telemetry`);
 }
 
 console.log('native scenarios passed: 20-minute flow, restart, tackle and loose-goal guards');
