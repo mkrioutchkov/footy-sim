@@ -6,10 +6,13 @@
   "scripts": {
     "dev": "vite",
     "native:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-native.ps1",
+    "native:build:linux": "bash scripts/build-native.sh",
     "preserver": "npm run native:build",
     "server": "tsx tools/cpp-server.ts",
     "cpp-server": "tsx tools/cpp-server.ts",
     "game": "tsx --env-file-if-exists=web/backend/.env web/backend/index.ts",
+    "serve": "FOOTY_HOST=0.0.0.0 tsx --env-file-if-exists=web/backend/.env web/backend/index.ts",
+    "host": "npm run native:build:linux && vite build && npm run serve",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.backend.json --noEmit",
     "prebatch": "npm run native:build",
     "batch": "tsx tools/native-batch.ts",

@@ -43,6 +43,9 @@ import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
 
 const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
+// Bind host: defaults to loopback (safe for local dev). Set FOOTY_HOST=0.0.0.0 to expose the
+// server on the LAN (play from your phone over Wi-Fi) or inside a container/deploy.
+const HOST = process.env.FOOTY_HOST ?? '127.0.0.1';
 // Give any pre-market league a free-agent pool + every player a potential (one-time,
 // idempotent backfills for saves that predate pillars 1 & 2).
 backfillFreeAgents();
@@ -1076,8 +1079,9 @@ if (existsSync(DIST)) {
 }
 
 const server = app.server;
-await app.listen({ port: PORT, host: '127.0.0.1' });
-console.log(`footy game server on http://localhost:${PORT}`);
+await app.listen({ port: PORT, host: HOST });
+console.log(`footy game server on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`
+  + (HOST === '0.0.0.0' ? ` (also reachable on this machine's LAN IP:${PORT})` : ''));
 
 // ── match-watch WebSocket: /ws/match?fixture=ID (re-runs the deterministic sim) ──
 const wss = new WebSocketServer({ noServer: true });

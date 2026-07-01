@@ -37,6 +37,32 @@ The SQLite DB lives at `web/backend/data/footy.sqlite` (gitignored — delete it
 wipe all accounts/leagues). `tsx` does **not** hot-reload: restart `npm run game`
 after any `web/backend/` or `engine/` change (rebuild the engine first).
 
+## Play on your phone (installable PWA)
+
+The frontend is an installable **PWA** — on Android/iOS, open the app URL in the browser and
+choose **Add to Home Screen** to get a fullscreen app with its own icon (no browser chrome).
+It works offline-tolerant (the app shell is cached; live data still needs the backend).
+
+The engine and backend are *server* software (a native binary + Node), so your phone is always a
+thin client to a running backend. Two ways to host it:
+
+**On your own machine (same Wi-Fi as your phone)** — Linux/macOS:
+```
+npm install
+npm run host        # builds the engine (g++) + frontend, serves the whole app on 0.0.0.0:4000
+```
+Then open `http://<your-computer's-LAN-IP>:4000` on your phone → Add to Home Screen.
+(`npm run host` = `native:build:linux` + `vite build` + `serve`. On Windows, build with
+`npm run native:build`, then `npm run build`, then `FOOTY_HOST=0.0.0.0 npm run game`.)
+
+**Deploy to an always-on host** (reachable anywhere) — a single-image Docker build:
+```
+docker build -t footy .
+docker run -p 4000:4000 -v footy-data:/app/web/backend/data footy
+```
+Push that image to Fly.io / Render / any container host. `FOOTY_HOST`/`FOOTY_PORT` set the bind
+address; plain-English tactics need an LLM (`TACTICS_LLM_*`) — the rest runs without one.
+
 ## Engine development
 
 The engine is a standalone deterministic binary:
