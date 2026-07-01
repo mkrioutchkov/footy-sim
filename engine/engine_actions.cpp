@@ -718,6 +718,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
         return false;
     }
     stats.recordTackleWin(false);
+    if(tackler.id>=0&&tackler.id<22)pTackles[tackler.id]++;   // a loose-deflection win is still a tackle won by this player (mirrors the clean-win branch); was omitted, under-counting per-player tackles ~46%
     emitEvent("tackle_loose", (tackler.x+carrier.x)/2.0, (tackler.y+carrier.y)/2.0, tackler.id, carrier.id);
     b.controllerId=-1;
     // A poke-away travels a few meters, not 12+ — high speeds here sent every

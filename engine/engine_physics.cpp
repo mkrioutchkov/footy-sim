@@ -164,12 +164,21 @@ bool GameEngine::checkGoal(){
         double goalDist=0;
         if(shot.tracked)goalDist=dist(shot.originX,shot.originY,goalLineX,PITCH_H/2);
         Player* scorer=playerById(lastGoal.toucherId);
-        std::optional<Role> scorerRole=scorer?std::optional<Role>(scorer->role):std::nullopt;
+        // OWN GOAL: the last toucher is a defender of the CONCEDING team (a deflection
+        // into his own net). Don't credit HIM a personal goal/assist or attribute the
+        // goal to his role/header — the scoreline is authoritative. (report.ts already
+        // filters pGoals via legitGoals but NOT assists/goalsByRole, so this leaked.)
+        bool ownGoal = lastGoal.touchTeam != scoringTeam;
+        std::optional<Role> scorerRole=(scorer && !ownGoal)?std::optional<Role>(scorer->role):std::nullopt;
         if(lastGoal.source==GoalSource::Penalty)stats.recordPenaltyGoal();
         if(shot.dribble20m&&lastGoal.source==GoalSource::Shot)stats.recordDribble20mGoal();
-        stats.recordGoal(scoringTeam,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,shot.header);
+        stats.recordGoal(scoringTeam,lastGoal.source,goalDist,lastGoal.ballSpeed,scorerRole,ownGoal?false:shot.header);
+        // A goal from a tracked shot never hit the shotsOnTarget ledger (only SAVED
+        // shots did) — count it so shotsOnTarget includes scored shots. Only raises it,
+        // so saves<=shotsOnTarget still holds.
+        if(lastGoal.source==GoalSource::Shot||lastGoal.source==GoalSource::Penalty)stats.recordShotOnTarget();
         if(passDebug&&shot.tracked)fprintf(stderr,"GOALSCORED type=%d src=%d\n",shot.type,(int)lastGoal.source);
-        creditGoal(lastGoal.toucherId);
+        if(!ownGoal)creditGoal(lastGoal.toucherId);
         emitEvent("goal", goalLineX, b.y, lastGoal.toucherId);
         if(scoringTeam==Team::Home)state.homeScore++; else state.awayScore++;
         shot.active=false; shot.clearFlags();
