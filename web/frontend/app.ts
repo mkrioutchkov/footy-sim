@@ -1250,15 +1250,17 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const rewind5Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 5 seconds', title: 'Back 5 seconds', onclick: () => seekTo(Math.max(0, currentMs - 5000)) }, '⏪ 5s') as HTMLButtonElement;
   const rewind10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds', onclick: () => seekTo(Math.max(0, currentMs - 10000)) }, '⏪ 10s') as HTMLButtonElement;
   const rewind30Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 30 seconds', title: 'Back 30 seconds', onclick: () => seekTo(Math.max(0, currentMs - 30000)) }, '⏪ 30s') as HTMLButtonElement;
-  // The moments the 🎞 reel + the , / . keys tour: goals AND red cards (the drama). A goalless-but-eventful
-  // match (a sending-off, a 0-0 with a red) now gets a highlights tour, not nothing. Yellows stay as
-  // clickable scrub markers only (a 5-yellow game shouldn't turn the reel into a card show). Penalties/big
-  // saves would need richer backend event data than the report timeline (goal/yellow/red) carries today.
+  // The moments the 🎞 reel + the , / . keys tour: the drama — goals, red cards, penalties, woodwork. A
+  // goalless-but-eventful match (a sending-off, a saved penalty, a 0-0 that rattled the bar) now gets a
+  // highlights tour, not nothing. Yellows stay as clickable scrub markers only (a 5-yellow game shouldn't
+  // turn the reel into a card show). Recorded matches get these from the report timeline (analyzeRecording
+  // now surfaces penalty/woodwork); a live watch indexes them from the frame events as they happen.
   let highlightIndex: { clockMs: number; name: string; kind: string }[] = [];
   let hasReportMarkers = false;   // the report timeline (full, upfront) was loaded → don't let the incremental live-marks clobber it
-  const MARKER_ICON: Record<string, string> = { goal: '⚽', yellow: '🟨', red: '🟥' };
+  const MARKER_ICON: Record<string, string> = { goal: '⚽', yellow: '🟨', red: '🟥', penalty: '🎯', woodwork: '🪵' };
+  const HIGHLIGHT_KINDS = new Set(['goal', 'red', 'penalty', 'woodwork']);
   const buildMarkers = (events: { clockMs: number; name: string; kind: string }[]): void => {
-    highlightIndex = events.filter(e => e.kind === 'goal' || e.kind === 'red').map(e => ({ clockMs: e.clockMs, name: e.name, kind: e.kind })).sort((a, b) => a.clockMs - b.clockMs);
+    highlightIndex = events.filter(e => HIGHLIGHT_KINDS.has(e.kind)).map(e => ({ clockMs: e.clockMs, name: e.name, kind: e.kind })).sort((a, b) => a.clockMs - b.clockMs);
     goalMarkers.replaceChildren();
     for (const e of events) {   // goals + cards on the timeline; click any to jump to it
       const pct = Math.min(99.5, Math.max(0, (e.clockMs / SCRUB_MAX_MS) * 100));
@@ -1274,7 +1276,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Action replay of the last goal', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
   // 🎞 Highlights — tours every goal + red card (jumps to ~5s before each, ~11s apart). Shown once the
   // moment index is known (recorded from the report timeline; live from the indexed events). Reuses seekTo.
-  const highlightBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Play the highlights', title: 'Tour every goal and red card' }, '🎞 Highlights') as HTMLButtonElement;
+  const highlightBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Play the highlights', title: 'Tour the highlights — goals, red cards, penalties, woodwork' }, '🎞 Highlights') as HTMLButtonElement;
   // §weather: the match's actual condition, set from the first frame that carries it (clear → blank).
   const weatherEl = h('span', { style: 'margin-left:auto;font-size:13px;color:#9ec5ff' });
   // 📹 Recorded vs ⚙ Re-simulated: a recorded replay is faithful to the stored result; a non-recorded
@@ -1425,7 +1427,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     api.report(fixtureId).then(rep => {
       if (myEpoch !== watchEpoch) return;
       const events = (rep.facts?.timeline ?? [])
-        .filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red')
+        .filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red' || e.type === 'penalty' || e.type === 'woodwork')
         .map(e => ({ clockMs: (e.minute ?? 0) * 60000, name: e.name, kind: e.type }));
       if (events.length) { buildMarkers(events); hasReportMarkers = true; }   // full upfront set → suppress the incremental live-marks (which reassign wholesale)
     }).catch(() => { /* no report (re-sim / another club) → scrub without markers (falls back to live-marks) */ });
@@ -1645,7 +1647,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         // report-less fixture) indexes events as they happen so the scrub shows ⚽/🟨/🟥 + jump + , / . +
         // highlights mid-game. SKIP when the report already supplied the full timeline (recorded, and now the
         // buffered shouts-replay) — else buildMarkers(liveMarks) reassigns wholesale and clobbers the full set.
-        const marks = hasReportMarkers ? [] : (msg.events ?? []).filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red');
+        const marks = hasReportMarkers ? [] : (msg.events ?? []).filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red' || e.type === 'penalty' || e.type === 'woodwork');
         if (marks.length && typeof msg.clockMs === 'number') {
           let added = false;
           for (const e of marks) {
@@ -1656,7 +1658,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
             const key = `${e.type}:${e.playerId}:${Math.round(evClock / 400)}`;
             if (seenMarkKeys.has(key)) continue;
             seenMarkKeys.add(key);
-            liveMarks.push({ clockMs: evClock, name: e.playerId != null ? pname(e.playerId) : (e.type === 'goal' ? 'Goal' : e.type === 'red' ? 'Red card' : 'Booking'), kind: e.type });
+            liveMarks.push({ clockMs: evClock, name: e.playerId != null ? pname(e.playerId) : (e.type === 'goal' ? 'Goal' : e.type === 'red' ? 'Red card' : e.type === 'penalty' ? 'Penalty' : e.type === 'woodwork' ? 'Woodwork' : 'Booking'), kind: e.type });
             added = true;
           }
           if (added) buildMarkers(liveMarks);
