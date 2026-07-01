@@ -61,6 +61,24 @@ post-hoc goal re-tune turned out to be necessary.
 | E | **Loose-ball "separation standoff"**: a dead ball has no controller, so no chaser is exempt from the mutual `separateTeammates` push; 2+ converging players cancel each other and orbit ~20-33px out, never reaching the ~14px collect radius → the ball sits dead for 1-3s. Fix: exempt the single nearest eligible chaser (like the controller) | `engine_physics.cpp:30` (`separateTeammates`) | **+0.32 goals** (50 seeds, 1.2σ — not significant but consistently positive ≈ small real effect; no-red subset +0.35); reduces freeze-rescues and LOITER/dead-ball stalls | Match-integrity/polish (same character as the shipped freeze fix, distinct root cause). Prototype cut the worst standoff 5.4s→2.2s. Held only because the goal delta isn't provably zero. |
 | F | Finish-flags (`crossCollected`/`firstTouchFinish`/`throughCollected`) are set just before `shootBall()` and never cleared on the shot — they decay over 900-1400ms, so a SAME-player rebound shot inside that window re-applies the first-time-finish error reduction (and re-counts `recordHeadedShot`) | `engine_actions.cpp:156`, `engine_physics.cpp:305` | negligible (rare: same player, rebound, <1s) | State-leak; clear the flags at the end of `shootBall()`. Very low frequency. |
 
+## Stats-correctness fixes shipped (commit `5519235`) — simulation-invariant
+
+Found by a dedicated stats audit; all three change only reported counters (verified
+byte-identical scores + player positions) and all feed `report.ts` player **ratings**:
+
+- **Own goals** no longer credit the conceding player a personal goal/assist or the
+  goal's role/header (gate on `lastGoal.touchTeam == scoringTeam`). `report.ts` filtered
+  `pGoals` but not assists/`goalsByRole`, so this leaked into ratings.
+- **`shotsOnTarget`** now includes scored shots from a tracked shot (was counting only
+  *saved* shots — a definitional under-count). Only raises it, so `saves ≤ shotsOnTarget`
+  holds. (seed 113: 5→9 = +4 goals.)
+- **Per-player `pTackles`** now counts loose-deflection wins, not only clean-control wins
+  (was under-counting a ball-winner ~46%). (seed 113: per-player sum 213→352 = aggregate.)
+
+Low-severity stat/telemetry items left unfixed (inert / cosmetic): the `headerAudit.unrealistic`
+detector is tautologically always-false (`engine_actions.cpp:105`); `keeperClaimTip` also
+counts shot-tips (deliberate per `BORIS_GK_TIP_AUDIT`).
+
 ## Rejected after verification (NOT bugs — don't re-file)
 
 - **Cross "bend" up to 178°** → `COLLISION_REFLECT_FACTOR = 1.3` is correct physics
@@ -106,5 +124,15 @@ behavioural/tuning (out of scope):
 - **Set pieces**: spot placement, taker-end selection, penalty/keeper line, offside
   exemptions, and the FK wall are correct. Only findings B(now reverted)/D above.
 - **Match flow**: card issuance, 2nd-yellow→red, send-off accounting, subs, injuries,
-  clock/half transitions, and `offsideLineFor` are correct. Only findings C + the
+  clock/half transitions, and `offsideLineFor` are correct. Only finding C + the
   two sent-off-geometry fixes (shipped) above.
+- **Directives / tactics runtime + injuries/fitness** (2nd wave): CLEAN. Bias arrays
+  reset every tick (no cross-tick/cross-match leak), bounded 0..21 indexing, `when`
+  windows evaluated correctly & purely from clock+score, team-scope slots consistent,
+  byte-deterministic under a 27-directive torture spec; injury severity monotonic and
+  cleared on send-off/sub. Only unreachable defensive notes (dial default-intensity
+  1.0-vs-0.5-neutral; sub doesn't reset moraleBoost) — not shipped.
+- **Ball physics / collision / collection / weather / aerial duels** (2nd wave): CLEAN.
+  327k-frame scan found zero NaN / negative-z / hover / tunnel-through; rain & wind
+  sign/scale/gate correct; corner-side mapping consistent; extreme cross "bend" is a
+  legit header layoff, not a curl error. Only the inert header-detector note above.
