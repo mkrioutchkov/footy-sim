@@ -42,7 +42,9 @@ import { processMatchAftermath, recentNews } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
 
-const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
+// PORT: prefer FOOTY_PORT, then the platform-injected PORT (Render/Heroku/Cloud Run set this),
+// else 4000 for local dev.
+const PORT = Number.parseInt(process.env.FOOTY_PORT ?? process.env.PORT ?? '4000', 10);
 // Bind host: defaults to loopback (safe for local dev). Set FOOTY_HOST=0.0.0.0 to expose the
 // server on the LAN (play from your phone over Wi-Fi) or inside a container/deploy.
 const HOST = process.env.FOOTY_HOST ?? '127.0.0.1';
