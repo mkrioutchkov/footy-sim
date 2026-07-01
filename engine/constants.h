@@ -200,6 +200,11 @@ inline constexpr double GK_CATCH_HANDLING_WEIGHT = 0.38;
 //  the catch/parry outcome became handling-keyed in the keeper rework.)
 // Hold after a clean catch before distributing — 250ms read as a pinball.
 inline constexpr double GK_DISTRIBUTE_MS        = 950.0;
+// Max time the keeper will HOLD waiting for a clean lane before he stops
+// stalling and just plays the best ball he has (or hoofs it). Sits well under
+// the stuck-carrier watchdog (STUCK_CARRIER_TIMEOUT_MS*0.65 = 2730ms) so the
+// keeper distributes himself instead of being force-passed as a "stuck carrier".
+inline constexpr double GK_MAX_HOLD_MS          = 1800.0;
 
 // ── GK cross-claim (keeper commands his box) ──
 // A claim is a save of the DELIVERY: the keeper attacks an aerial cross that

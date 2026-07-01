@@ -422,6 +422,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
             stats.recordGoalKickAttempt();
         }
         goalKickMonitor.distributeTimer=0;
+        goalKickMonitor.holdSinceMs=-1;
     };
 
     // Distribution tactic: a team told to play it long sends its keeper long too
@@ -472,6 +473,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         emitEvent("pass", holder.x, holder.y, holder.id, toId);
         if(wasGoalKick){goalKickMonitor.active=true;goalKickMonitor.team=holder.team;goalKickMonitor.startedMs=state.clockMs;stats.recordGoalKickAttempt();}
         goalKickMonitor.distributeTimer=0;
+        goalKickMonitor.holdSinceMs=-1;
     };
     // 1) Safest open outlet — a secure (fast, accurate) short roll that completes
     //    almost always.
@@ -487,10 +489,25 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder){
         puntLong();return;
     }
     // 3) Otherwise HOLD and wait for a lane to open rather than passing into
-    //    traffic. The keeper can't be tackled while holding, so this costs nothing
-    //    and is what lifts completion into the high-90s — he simply never gifts it.
-    setPiece.armed=true;phase.actionTimer=250;            // hold the ball and retry shortly
-    goalKickMonitor.distributeTimer=0;
+    //    traffic. The keeper can't be tackled while holding, so waiting for a lane
+    //    is cheap and lifts completion into the high-90s — but it is NOT free
+    //    forever: with no clean lane and under 3 bodies, the old code re-armed a
+    //    set-piece (`setPiece.armed=true; type stays None`) to "retry shortly".
+    //    That was a freeze bug — an armed set-piece diverts fixedUpdate into
+    //    updateSetPiecePhase, which has NO branch for an armed/type-None keeper
+    //    holding the ball, so nothing ever re-called this function. The keeper sat
+    //    frozen ~2.7s until the stuck-carrier watchdog force-passed him.
+    //    Fix: DON'T arm. Re-arm the distribute timer instead — fixedUpdate counts
+    //    it down and re-enters releaseSetPiece → back here for a genuine retry,
+    //    all in open play where the keeper is positioned and tackle-immune.
+    //    And cap the total hold: once he has waited GK_MAX_HOLD_MS for a lane that
+    //    never opened, stop stalling and play the best ball he has, or hoof long.
+    if(goalKickMonitor.holdSinceMs<0)goalKickMonitor.holdSinceMs=state.clockMs;
+    if(state.clockMs-goalKickMonitor.holdSinceMs>GK_MAX_HOLD_MS){
+        for(auto& o:outs){if(passBallTo(holder,*o.p,false,false,nullptr)){onRelease(o.p->id);return;}}
+        puntLong();return;
+    }
+    goalKickMonitor.distributeTimer=250;                  // hold in open play; retry in 250ms
 }
 
 void GameEngine::releaseThrowIn(Player& holder){

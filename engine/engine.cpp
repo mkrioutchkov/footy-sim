@@ -396,6 +396,21 @@ void GameEngine::detectSimulationFreeze(double sdt) {
     if (setPiece.armed || phase.kickoffPhase) return;
     auto& fb = state.ball;
     int cid = fb.controllerId;
+    // A keeper holding for distribution keeps a stationary ball legitimately; his
+    // hold is bounded by the GK distribution cap (GK_MAX_HOLD_MS → forced punt),
+    // not by this freeze watchdog. Watching him here only fired a false-positive
+    // "freeze" ~1.5s in and nudged him forward with the ball — a keeper wandering
+    // upfield. Skip GK carriers; the distribution logic owns his release.
+    {
+        Player* cctrl = cid >= 0 ? playerById(cid) : nullptr;
+        if (cctrl && cctrl->role == Role::GK) {
+            freezeDetector.freezeWatchMs = 0;
+            freezeDetector.freezeBallX = fb.x;
+            freezeDetector.freezeBallY = fb.y;
+            freezeDetector.freezeLastController = cid;
+            return;
+        }
+    }
     if (cid < 0) {
         // A LOOSE ball can come to rest uncollected — nobody is assigned to chase
         // it (e.g. it rolls dead into a corner). It then sits there forever: the
@@ -839,6 +854,13 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
         goalKickMonitor.distributeTimer -= sdt;
         if (goalKickMonitor.distributeTimer <= 0) releaseSetPiece();
     }
+    // The keeper's hold-for-a-lane clock is only meaningful while a GK holds the
+    // ball; the moment the ball leaves him (distribution, or knocked loose) it
+    // resets so the next hold episode starts fresh (never fires the cap stale).
+    {
+        Player* ctrl = b.controllerId >= 0 ? playerById(b.controllerId) : nullptr;
+        if (!ctrl || ctrl->role != Role::GK) goalKickMonitor.holdSinceMs = -1;
+    }
     if (b.intendedReceiverId >= 0 && b.controllerId < 0) {
         Player* receiver = playerById(b.intendedReceiverId);
         if (receiver) {
@@ -921,6 +943,17 @@ void GameEngine::tickAgents(double sdt, bool ic) {
 
 void GameEngine::auditStuckCarrier(double sdt){
     Player* carrier=playerById(state.ball.controllerId);
+    // A keeper standing on the ball is NOT a stuck carrier — holding for
+    // distribution is legitimate (legal up to 6s) and is now self-capped by the
+    // GK distribution logic (initial delay + GK_MAX_HOLD_MS, then a forced punt).
+    // Watching him here only produced a false-positive force-pass ~2.7s in, which
+    // raced — and beat — his own hold cap. This watchdog is for OUTFIELD carriers
+    // who genuinely wedge; leave the keeper to his distribution logic.
+    if(carrier && carrier->role==Role::GK){
+        carrierTracker.watchedCarrierId=-1;
+        carrierTracker.watchedCarrierMs=0;
+        return;
+    }
     if(!carrier){
         carrierTracker.watchedCarrierId=-1;
         carrierTracker.watchedCarrierMs=0;

@@ -221,6 +221,7 @@ public:
         bool active = false;
         Team team = Team::Home;
         double startedMs = 0;
+        double holdSinceMs = -1;   // clock when the keeper began HOLDING for a lane (-1 = not holding)
     } goalKickMonitor;
 
     std::array<double, 22> contestBlockedUntil = {};
