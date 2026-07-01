@@ -38,10 +38,19 @@ goal rate is an emergent, *sensitive* quantity. Consequences:
 3. **Dead-code removal** (`1cf0e37`) — unreachable `receiver.crossCollected = 1500`
    in `resolvePendingPass` (every `plausibleHeader` path above it returns).
 
-## HELD — real correctness fixes with a goal side-effect (need a balance call)
+## SHIPPED (commit `32332a9`) — all six behavioural correctness fixes
 
-These are genuine bugs, but each shifts the goal rate, so they are parked for an
-explicit decision rather than shipped.
+These were initially parked because each shifts the goal rate, then shipped on
+direction ("don't care about the goal target so much, easy to fix post-mortem — fix
+all"). They are genuine bugs; the goal rate is to be **re-calibrated post-hoc** from
+this corrected baseline.
+
+**Combined measured impact (30-seed sweep): goals ≈ 2.85** (vs the 3.07 pre-fix
+baseline — the goal-raising fixes A/B and the goal-reducing fix C roughly offset, so
+the rate actually lands *closer* to the ~2.8 real-world target), with a now-realistic
+home/away split (~1.65/1.20 = a ~+0.35 home advantage, correcting the old backwards
+home *disadvantage*). Health: 0 unfinished matches, 0 invariant violations, and fewer
+freeze-rescues. So no post-hoc goal re-tune turned out to be necessary.
 
 | # | Fix | File:line | Measured goal impact | Notes |
 |---|-----|-----------|----------------------|-------|
