@@ -368,13 +368,21 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
             recentPassTarget = a.target->id;
             recentPassTime = engine.state.clockMs;
             engine.emitEvent("pass", p.x, p.y, p.id, a.target->id);
+            double passDist = dist(p.x, p.y, a.target->x, a.target->y);
+            bool combinationZone = (fdFor(p.team) > 0.0 ? p.x > HALF_X - 90.0 : p.x < HALF_X + 90.0);
+            double passFwd = (a.target->x - p.x) * fdFor(p.team);
+            // A give-and-go is only ON for a SHORT pass played FORWARD in the
+            // attacking half — the one situation the return-into-space wall-pass
+            // bonus (scorePassToTarget) should reward. Arming a one-two after
+            // EVERY released pass (long balls, square balls, backpasses included)
+            // made the receiver want to immediately return the ball to whoever
+            // just fed him, driving A->B->A->B ping-pong (~122/match, 60 seqs).
             auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
-            bb.oneTwo = TeamBlackboard::OneTwo{ p.id, a.target->id, engine.state.clockMs + 2000.0 };
+            if (passDist < 190.0 && combinationZone && passFwd > 20.0)
+                bb.oneTwo = TeamBlackboard::OneTwo{ p.id, a.target->id, engine.state.clockMs + 2000.0 };
             // Short pass in the opponent's half: move again quickly so the
             // give-and-go is physically possible — a ~1s freeze after every
             // pass meant the one-two runner stood still through the window.
-            double passDist = dist(p.x, p.y, a.target->x, a.target->y);
-            bool combinationZone = (fdFor(p.team) > 0.0 ? p.x > HALF_X - 90.0 : p.x < HALF_X + 90.0);
             stunLockTicks = (passDist < 190.0 && combinationZone)
                 ? 16 + static_cast<int>(engine.rng.random() * 9)
                 : 50 + static_cast<int>(engine.rng.random() * 21);
