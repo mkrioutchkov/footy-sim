@@ -9,7 +9,7 @@ import { recordingFor, loadRecording, type RecKind, type SummaryPlayer } from '.
 import { chatComplete, llmReady } from './llm.ts';
 
 export interface PlayerRating { id: number; name: string; team: 'home' | 'away'; role: string; rating: number; goals: number; assists: number; shots: number; tackles: number }
-export interface TimelineEvent { minute: number; team: 'home' | 'away'; name: string; type: 'goal' | 'yellow' | 'red' }
+export interface TimelineEvent { minute: number; team: 'home' | 'away'; name: string; type: 'goal' | 'yellow' | 'red' | 'penalty' | 'woodwork' }
 export interface MatchFacts {
   homeScore: number; awayScore: number;
   possessionHome: number;              // home possession %
@@ -73,6 +73,7 @@ export function analyzeRecording(frames: Iterable<string>): MatchFacts {
   const prevStat = new Map<number, { goals: number; yellow: number; sentOff: boolean }>();
   const legitGoals = new Map<number, number>();   // goals scored WITH the player's own side scoring
   const timeline: TimelineEvent[] = [];
+  const seenEv = new Set<string>();   // dedup a transient event (it lingers ~78 frames) by type:player:evClock-bucket
   for (const line of frames) {
     let f: any; try { f = JSON.parse(line); } catch { continue; }
     if (!Array.isArray(f.players)) continue;
@@ -102,6 +103,21 @@ export function analyzeRecording(frames: Iterable<string>): MatchFacts {
     credit('home', Math.max(0, num(f.homeScore) - prevHome));
     credit('away', Math.max(0, num(f.awayScore) - prevAway));
     prevHome = num(f.homeScore); prevAway = num(f.awayScore);
+    // Notable non-score/card moments for the timeline (a saved/missed penalty, a shot off the woodwork) — the
+    // drama a goals-only reel misses. Read from the frame's transient events (kept in the recording, see
+    // captureLineStream), deduped by evClock so one event isn't re-added across the ~78 frames it lingers.
+    for (const e of (Array.isArray(f.events) ? f.events : [])) {
+      if (e.type !== 'penalty' && e.type !== 'woodwork') continue;
+      const evClock = num(f.clockMs) - num(e.age);
+      const key = `${e.type}:${e.playerId ?? '?'}:${Math.round(evClock / 400)}`;
+      if (seenEv.has(key)) continue;
+      seenEv.add(key);
+      // Guard the lookup: an untouched-ball woodwork has playerId null → num(null) is 0, which would wrongly
+      // match the real id-0 player. Only resolve a name/team from a present, non-negative id (else "Woodwork").
+      const pl = (e.playerId != null && num(e.playerId) >= 0) ? f.players.find((p: any) => num(p.id) === num(e.playerId)) : undefined;
+      const team: 'home' | 'away' = pl ? (pl.team === 'away' ? 'away' : 'home') : 'home';
+      timeline.push({ minute: minuteOf(evClock), team, name: pl ? String(pl.name) : (e.type === 'penalty' ? 'Penalty' : 'Woodwork'), type: e.type });
+    }
     last = f;
   }
   if (!last) return { homeScore: 0, awayScore: 0, possessionHome: 50, shots: { home: 0, away: 0 }, shotsOnTarget: 0, saves: 0, corners: 0, timeline: [], ratings: [] };

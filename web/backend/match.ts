@@ -454,15 +454,19 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
     const writeLine = (l: string): void => {
       if (!l.length) return;
       // parse EVERY line for score/state first (a dropped frame still advances the tally), then decide KEEP.
-      let isFrame = false, scoreChanged = false, stateChanged = false;
+      let isFrame = false, scoreChanged = false, stateChanged = false, eventful = false;
       try {
         const f = JSON.parse(l); isFrame = true;
         if (typeof f.homeScore === 'number') { if (f.homeScore !== homeScore || (f.awayScore ?? 0) !== awayScore) scoreChanged = true; homeScore = f.homeScore; awayScore = f.awayScore ?? 0; }
         if (typeof f.matchState === 'string') { if (f.matchState !== lastState) stateChanged = true; lastState = f.matchState; }
+        // Always keep a frame carrying a FRESH notable transient event (a saved/missed penalty, woodwork) so
+        // the timeline (analyzeRecording) can surface it — these don't move score/card state, so they'd
+        // otherwise be thinned away. Rare + age-gated (~a few frames each) → negligible size cost.
+        if (Array.isArray(f.events)) eventful = f.events.some((e: any) => (e.type === 'penalty' || e.type === 'woodwork') && (typeof e.age === 'number' ? e.age : 999) < 150);
       } catch { /* a non-frame/event line — always kept */ }
       seen++;
-      // keep everything (no sampling), or any non-frame/score-change/state-change, or every Nth frame (from the 1st)
-      if (!(sampleEvery <= 0 || !isFrame || scoreChanged || stateChanged || (seen % sampleEvery === 1))) return;
+      // keep everything (no sampling), or any non-frame/score-change/state-change/notable-event, or every Nth frame
+      if (!(sampleEvery <= 0 || !isFrame || scoreChanged || stateChanged || eventful || (seen % sampleEvery === 1))) return;
       frames++;
       if (!gz.write(l + '\n')) src.pause();   // backpressure -> bounded memory
     };
