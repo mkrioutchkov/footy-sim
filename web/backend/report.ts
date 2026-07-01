@@ -62,9 +62,9 @@ export function ratePlayers(players: SummaryPlayer[], homeScore: number, awaySco
 // Scan a recording's frames into structured match facts: a goal/card timeline + final team /
 // per-player stats + ratings. Goals are driven by the SCORE delta (authoritative) so the timeline
 // can never disagree with the headline scoreline; the scorer's NAME comes from a same-side goal
-// increment that frame, else "Own goal" (the engine credits the opponent who put it into his own
-// net — his per-player tally rises while the OTHER side's score does, so we must not read the
-// scoring team off the player). Only goals that coincide with the player's own side scoring count
+// increment that frame, else "Own goal" (score-delta attribution is authoritative regardless of how
+// the engine credits per-player goals — the engine no longer credits the conceding player for an
+// own goal, but this path stays correct either way). Only goals that coincide with the player's own side scoring count
 // toward his ratings, so an own goal isn't rewarded. (Iterates once, holding only running state +
 // the last frame — never all frames — so it's safe to stream over a long recording.)
 export function analyzeRecording(frames: Iterable<string>): MatchFacts {

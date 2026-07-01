@@ -117,19 +117,19 @@ removing one breaks reports / ratings / news:
   (`engine.cpp` `j.update(summary)`), so they ride on the live frame as well as the
   summary.
 
-### Own-goal attribution — per-player `goals` is last-toucher; the SCORE is authoritative
+### Own-goal attribution — the SCORE is authoritative
 
-The engine credits per-player **`goals` to the *last toucher*, regardless of which
-net the ball entered** (`engine_physics.cpp` — both goal branches call
-`creditGoal(lastGoal.toucherId)`; the increment is unconditional). So an own-goal
-deflector's own `goals` tally rises while the **opponent's** score increases. The web
-layer never trusts per-player `goals` for attribution: `report.ts analyzeRecording`
+The engine credits per-player **`goals`/`assists` only to a last toucher on the
+*scoring* team** (`engine_physics.cpp finishGoal` gates `creditGoal` — and the goal's
+role/header attribution — on `lastGoal.touchTeam == scoringTeam`; an own goal credits
+no player and is recorded with role "unknown"). The web layer still does not
+reconstruct attribution from per-player `goals`: `report.ts analyzeRecording`
 attributes goals by **score DELTA** (`homeScore`/`awayScore` change between frames),
 matches it to a same-side per-player increment for the scorer name, and labels the
-unmatched case the literal string **`"Own goal"`**; own goals are excluded from a
-player's rating credit (`legitGoals`). **`homeScore`/`awayScore` are the authoritative
-scoreline — never reconstruct the score by summing per-player `goals`** (that
-mis-sides own goals).
+unmatched case the literal string **`"Own goal"`** — this stays robust regardless of
+the engine's per-player crediting. Own goals earn no rating credit (`legitGoals`).
+**`homeScore`/`awayScore` are the authoritative scoreline — never reconstruct the
+score by summing per-player `goals`.**
 
 ### Completion marker — `matchState: "finished"`
 
