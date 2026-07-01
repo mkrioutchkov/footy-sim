@@ -444,7 +444,7 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
     const gz = createGzip();
     const out = createWriteStream(tmp);
     gz.pipe(out);
-    let buffer = '', frames = 0, seen = 0, homeScore = 0, awayScore = 0, lastState = '', settled = false;
+    let buffer = '', frames = 0, seen = 0, homeScore = 0, awayScore = 0, lastState = '', settled = false, ended = false;
     const fail = (e: Error): void => {
       if (settled) return; settled = true;
       gz.destroy(); out.destroy();
@@ -474,8 +474,14 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
     });
     src.on('error', e => fail(e));
     out.on('error', e => fail(e));
+    // A source .destroy()-ed WITHOUT an error (e.g. coordinator.dispose() when the last viewer leaves
+    // mid-match) emits neither 'end' nor 'error' — only 'close'. Without this the Promise never settles and
+    // gz/out (+ the .tmp file's fd) leak. 'close' also fires on the clean path AFTER 'end', so guard on
+    // `ended` so this only rejects the genuinely-truncated case. fail() destroys gz/out + removes the .tmp.
+    src.on('close', () => { if (!settled && !ended) fail(new Error('capture source closed before end')); });
     src.on('end', () => {
       if (settled) return;
+      ended = true;
       if (buffer.trim().length) writeLine(buffer.trim());
       if (!frames || lastState !== 'finished') { fail(new Error(`incomplete capture (${frames} frames, last "${lastState}")`)); return; }
       gz.end();   // flush the gzip trailer through to the file
@@ -678,6 +684,7 @@ abstract class FramePacer {
   }
 }
 
+let watchSpecSeq = 0;   // makes each MatchStream's engine-input spec UNIQUE (see sessionSpecPath) so concurrent watches of one fixture don't share/clobber/delete one file
 export class MatchStream extends FramePacer {
   private proc: Proc | null = null;
   private buffer = '';
@@ -728,7 +735,11 @@ export class MatchStream extends FramePacer {
       const mine = all.filter(d => (d.teamScope === 0 || d.teamScope === 1) ? d.teamScope === wantScope : (d.playerId >= lo && d.playerId <= lo + 10));
       if (mine.length || (seedPlan.summary && seedPlan.summary !== EMPTY_PLAN.summary)) this.plan = { summary: seedPlan.summary || EMPTY_PLAN.summary, directives: mine };
     }
-    this.sessionSpecPath = specPath.replace(/\.json$/, '') + '.watch.json';
+    // UNIQUE per instance (not a deterministic fixture-<id>.watch.json): two concurrent watches of the same
+    // fixture (home+away managers, a spectator, two tabs) must not share one engine-input file — else one
+    // shouter's timeline clobbers the other's, and one viewer's dispose() would delete a file the other still
+    // re-reads on --stream-from re-spawn. A unique name makes writeSessionSpec/start/dispose fully instance-local.
+    this.sessionSpecPath = specPath.replace(/\.json$/, '') + `.watch.${watchSpecSeq++}.json`;
     this.writeSessionSpec();
     this.start();
     ws.on('message', (d: Buffer) => this.onCommand(d));
@@ -853,6 +864,9 @@ export class MatchStream extends FramePacer {
     super.dispose();
     this.stopProc();
     this.persistTactics();
+    // Remove this instance's unique engine-input spec (only needed while its engine runs). Safe because the
+    // name is per-instance (see sessionSpecPath) — no concurrent viewer shares it. Mirrors EventsReplayStream.dispose().
+    try { if (existsSync(this.sessionSpecPath)) rmSync(this.sessionSpecPath, { force: true }); } catch { /* best effort */ }
   }
 
   // On socket close, persist the shout command log as the durable event-sourcing artifact
@@ -903,6 +917,10 @@ export class ReplayStream extends FramePacer {
     this.prevClock = null;
     this.pending = fromMs <= 0 ? this.frames.slice()
       : this.frames.filter((_l, i) => { const c = this.frameClocks[i]; return c === null || c >= fromMs; });   // keep non-frame/event lines (captureLineStream + loadRecording preserve them; a seek must too)
+    // Seeking past the end (the client scrub max is a generous fixed 96', most matches end ~94') filters to
+    // an empty queue → refill() is a no-op → the pitch/scrub would freeze with no feedback. Re-send the final
+    // frame so the last state (the real full-time) is (re)shown at the end of the track instead of stranding it.
+    if (this.pending.length === 0 && this.frames.length) this.pending = this.frames.slice(-1);
     this.paused = false;
     this.tick();
   }
@@ -925,15 +943,18 @@ let replaySeq = 0;
 // PACED like a live watch (no upfront wait). Spawns the engine on the self-contained events-log spec
 // (buildReplaySpec) and relays frames through the FramePacer's backpressure — pausing/resuming the
 // engine's stdout as the play queue drains — so the user watches it unfold instead of waiting ~8 min
-// for the emit-bound flat-out batch (replayViaTimeline). Frames are tagged replay:true (the client
-// hides the live-only shout box). Immutable: pause/speed/restart only, no tactics injection.
+// for the emit-bound flat-out batch (replayViaTimeline). Immutable: pause/speed/restart, no tactics.
+// NOTE: frames are NOT tagged replay:true. This re-sim has no BACKEND random-access seek (it's a live
+// engine spawn), so it rides the SAME client-side buffer + rewind path a live watch uses — the scrub /
+// ⏪ / ⏮ / 🎞 controls then actually work (a rewind window into the buffered frames), instead of showing
+// dead backend-seek controls. The shout box stays hidden via the client's `live` flag, not this one.
 export class EventsReplayStream extends FramePacer {
   private proc: Proc | null = null;
   private buffer = '';
   private specFile: string;
   constructor(ws: WebSocket, log: EventsLog, seed: number, homeName: string, awayName: string) {
     super(ws, seed, homeName, awayName);
-    this.replay = true;
+    this.replay = false;
     this.specFile = path.join(SPEC_DIR, `replay-shouts-${replaySeq++}.json`);
     writeFileSync(this.specFile, JSON.stringify(buildReplaySpec(log)));
     this.start();
