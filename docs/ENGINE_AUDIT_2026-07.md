@@ -20,7 +20,22 @@ goal rate is an emergent, *sensitive* quantity. Consequences:
   "primary goal-rate dial" `SHOT_SCOOP_CHANCE` moves goals only ~0.3 across its whole
   0.80→0.98 range (within noise); keeper reach and shot-error knobs are similarly weak.
   Holding goals while cutting cross/through-ball volume needs a *structural* finishing
-  re-model, not tuning.
+  re-model, not tuning. **Re-confirmed post-cut** (commit `84689c7`): with the cross/
+  through spam removed, `SHOT_SCOOP_CHANCE 0.80→0.90` still moved goals the wrong way
+  (within noise). So the goal rate after the cut (~3.47) is left for a structural
+  finishing pass, not shipped as a dial tweak.
+
+## Cross / through-ball volume cut — SHIPPED (commit `84689c7`)
+
+The original request. Over 30 seeds: **crossesAttempted 246 → 73 (−70%)**,
+**throughBallsAttempted 121 → 40 (−67%)** — both were ~5x real. Corners (14) and
+shots-on-target (8.9) land realistic; health clean (0 unfinished / 0 freeze / 0
+invariant / deterministic). Levers: the wide-carrier cross override now fires only for
+a genuinely wide carrier in the final third with a good target at a competing weight;
+the helper `isCross` bonus trimmed; the through-ball window narrowed to a real
+in-behind ball. **Side effect: goals rose 2.77 → 3.47** (removing wasteful possession
+lets teams work better chances) — to be re-calibrated via the structural finishing pass
+noted above, NOT via dials.
 
 ## Shipped (goal-neutral / match-integrity) — on `master`
 
