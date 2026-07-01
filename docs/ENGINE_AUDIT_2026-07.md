@@ -145,6 +145,21 @@ touch the sim). Results so far:
   harmony signs, lineup selection (exactly one GK, valid 11-permutation), and the
   manager AI (only signs affordable players, never fields an illegal XI) all verified.
 
+## Frontend (web/frontend — PixiJS SPA) — 3 live-watch fixes SHIPPED (commit `a6a3a5c`)
+
+Audited the SPA renderer + live-match replay/seek path (the commit log showed past
+seek/banner bugs). Found and fixed 3 player-visible defects (typecheck clean):
+- **Duplicate scrub markers**: goal/card markers were pushed once per FRAME, not per event
+  — an engine event lingers ~78 frames, so one goal stacked ~78 markers (broke the
+  highlights reel + `,`/`.` nav). Now deduped per event (renderer's ticker key).
+- **False GOAL banner on rewind**: a plain buffer-rewind replayed forward across a goal and
+  re-popped "GOAL!"/"HALF TIME" (didn't set replay-suppression mode). Fixed.
+- **Invisible mid-stream error**: an error after the first frame was written to a detached
+  DOM node (unseen while the pitch froze). Now re-attaches.
+
+Renderer interpolation/seek-snap, sprite id-mapping, sent-off handling, api client
+error/race paths, and the watch-teardown lifecycle audited clean.
+
 ## Clean bill of health
 
 - **Sanitizers**: ASan+UBSan clean across 6 full matches (freeze-rescue, red cards,
