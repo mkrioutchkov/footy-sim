@@ -94,6 +94,42 @@ Low-severity stat/telemetry items left unfixed (inert / cosmetic): the `headerAu
 detector is tautologically always-false (`engine_actions.cpp:105`); `keeperClaimTip` also
 counts shot-tips (deliberate per `BORIS_GK_TIP_AUDIT`).
 
+## Keeper distribution freeze fixed (commit `241c80d`)
+
+Sister bug to finding **D** (a held-ball state the malformed-arm watchdog can't see), but
+in the **GK open-play distribution** path, and much more frequent. Surfaced by
+`native-scenarios.ts` (seed 103 tripped `stuckCarrierAlerts`).
+
+- **Root cause**: step 4 of `releaseGoalkeeperDistribution` ("no clean lane, not swarmed —
+  hold and wait") did `setPiece.armed = true` (type stays `None`) to "retry shortly". But
+  an armed set-piece routes `fixedUpdate` into `updateSetPiecePhase`, which has **no branch**
+  for an armed/type-`None` keeper holding the ball — nothing ever re-called the distribution
+  logic. The keeper sat frozen on the ball ~2.7s until the `auditStuckCarrier` watchdog
+  force-passed him. Hit ~6/60 seeds (e.g. 103 twice).
+- **Fix** (`engine_setpiece.cpp`, `engine.cpp`, `constants.h`, `engine.h`): don't arm —
+  re-arm `goalKickMonitor.distributeTimer` (250 ms) so `fixedUpdate` → `releaseSetPiece` →
+  distribution retries in **open play** (keeper positioned + tackle-immune). Cap the total
+  wait at `GK_MAX_HOLD_MS` (1800 ms): then play the best outlet or hoof long. `holdSinceMs`
+  tracks the wait, reset on release and centrally whenever no keeper holds the ball. Also
+  **exempt the GK carrier from both the stuck-carrier and simulation-freeze watchdogs** —
+  a keeper holding for distribution is legitimate (legal up to 6 s) and now self-capped;
+  watching him only produced false-positive rescues that *raced* his own cap (the freeze
+  detector even nudged him upfield with the ball).
+- **Result**: `stuckCarrierAlerts` 0 across 30×90 min (was 6 seeds); matches complete;
+  deterministic; ASan/UBSan clean. Goal rate reshuffles slightly (butterfly) — re-tune post-hoc.
+
+## Tools / harness correctness fixes (commit `5dd835f`) — simulation-invariant
+
+Downstream of the `5519235` stat fix (`shotsOnTarget` now includes scored shots):
+
+- **`native-batch.ts`**: `shotsOnTargetPct` added `+ goals` on top of the now-inclusive
+  `shotsOnTarget` (double-count); `savePct` / `goalsPerShotOnTargetPct` used `saves+goals` /
+  `shotsOnTarget+goals` denominators. All corrected to a single `total('shotsOnTarget')`.
+- **`native-scenarios.ts`**: telemetry asserts were `(x ?? 0) >= 0` — trivially true and the
+  `?? 0` let an absent field pass. Now assert presence / positive.
+- **`audit_weird.py`**: GK-abandon probe measured distance from `goal_x = 35/1015`; true goal
+  lines are `0/1050`.
+
 ## Rejected after verification (NOT bugs — don't re-file)
 
 - **Cross "bend" up to 178°** → `COLLISION_REFLECT_FACTOR = 1.3` is correct physics
