@@ -60,6 +60,7 @@ public:
         double freezeBallX = 0, freezeBallY = 0;
         int freezeLastController = -1;
         double lastFreezeAlertMs = -1e9;
+        double looseNearestD = 1e9;   // closest player to a stalled loose ball while it is watched
     } freezeDetector;
 
     struct GoalInfo {

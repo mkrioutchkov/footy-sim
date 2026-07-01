@@ -64,6 +64,18 @@ inline constexpr double HALF_DURATION   = 45.0 * 60.0 * 1000.0;
 inline constexpr double THIRD_1         = PITCH_W / 3.0;       // 350
 inline constexpr double THIRD_2         = 2.0 * PITCH_W / 3.0; // 700
 
+// A LOOSE ball left uncollected (nobody assigned to chase it — e.g. parked in a
+// corner) otherwise sits dead forever: the half-end whistle needs the ball OUT
+// of the final third, so a dead ball in a final third hangs the match to the
+// +5:00 hard cap (some matches never even reach half-time). detectSimulationFreeze
+// watches a stationary loose ball and, after this long, hands it to the nearest player.
+inline constexpr double LOOSE_BALL_STALL_MS    = 3000.0;
+inline constexpr double LOOSE_BALL_STALL_SPEED = 24.0;   // px/s below which a loose ball counts as 'at rest'
+// A half must not overrun announced added time indefinitely — a persistent
+// final-third camp would otherwise starve the !inFinalThird whistle. Blow the
+// whistle this far past announced added time regardless of where the ball is.
+inline constexpr double ADDED_TIME_MAX_OVERRUN_MS = 120000.0;
+
 // ── Utility ──
 constexpr auto clamp(double v, double lo, double hi) -> double { return v < lo ? lo : v > hi ? hi : v; }
 constexpr auto clampRange(double v, double a, double b) -> double { return clamp(v, std::min(a, b), std::max(a, b)); }

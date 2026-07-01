@@ -145,7 +145,16 @@ void GameEngine::kickoff(Team t){
 // The exit bound (matchDurationMs + 300000) == the old loop's totalMs + added-time buffer, so the
 // default/--summary path is BYTE-IDENTICAL (golden untouched). Live self-pacing will wrap step().
 bool GameEngine::step() {
-    if (state.clockMs >= matchDurationMs + 300000.0 || state.matchState == "finished") return false;
+    if (state.matchState == "finished") return false;
+    if (state.clockMs >= matchDurationMs + 300000.0) {
+        // Hard cap reached without a natural full-time whistle (e.g. a stall kept
+        // the ball in a final third so the half never ended). Finalize cleanly so
+        // the summary reports a FINISHED match with the score recorded — rather
+        // than a 'running' match frozen at 95:00 that never called recordScore.
+        state.matchState = "finished";
+        stats.recordScore(state.homeScore, state.awayScore);
+        return false;
+    }
     update(FIXED_DT);
     return true;
 }
@@ -217,7 +226,11 @@ void GameEngine::fixedUpdate(double sdt) {
         double overtimeMs = state.clockMs - halfEndMs;
         double bx = state.ball.x;
         bool inFinalThird = (bx < THIRD_1 || bx > THIRD_2);
-        if (overtimeMs >= phase.announcedAddedMs && !inFinalThird) {
+        // Normally the whistle waits for the ball to leave the final third. But a
+        // persistent final-third camp would starve that condition indefinitely, so
+        // force the whistle once we are well past the announced added time.
+        bool hardOverrun = overtimeMs >= phase.announcedAddedMs + ADDED_TIME_MAX_OVERRUN_MS;
+        if ((overtimeMs >= phase.announcedAddedMs && !inFinalThird) || hardOverrun) {
             phase.addedTimeActive = false;
             phase.stoppageMs = 0;
             phase.announcedAddedMs = 0;
@@ -384,7 +397,49 @@ void GameEngine::detectSimulationFreeze(double sdt) {
     auto& fb = state.ball;
     int cid = fb.controllerId;
     if (cid < 0) {
-        freezeDetector.freezeWatchMs = 0;
+        // A LOOSE ball can come to rest uncollected — nobody is assigned to chase
+        // it (e.g. it rolls dead into a corner). It then sits there forever: the
+        // controlled-carrier watcher below only runs while a player HOLDS the ball,
+        // so it never sees this. A dead ball in a final third also starves the
+        // half-end whistle (which needs !inFinalThird), hanging the match to the
+        // +5:00 hard cap. Watch a stationary loose ball and, after
+        // LOOSE_BALL_STALL_MS, give it to the nearest player so play restarts.
+        double bs = std::hypot(fb.vx, fb.vy);
+        // Nearest player to the loose ball right now (deterministic: min dist, tie -> lower id).
+        Player* best = nullptr; double bestD = 1e9;
+        for (auto& p : state.players) {
+            if (p.sentOff) continue;
+            double d = dist(fb.x, fb.y, p.x, p.y);
+            if (d < bestD) { bestD = d; best = &p; }
+        }
+        bool wasLoose = freezeDetector.freezeLastController == -1;   // loose last tick too
+        bool travelling = bs >= LOOSE_BALL_STALL_SPEED
+            || dist(fb.x, fb.y, freezeDetector.freezeBallX, freezeDetector.freezeBallY) >= 5.0;
+        // A ball a player is CLOSING IN ON is not stuck — it's about to be collected.
+        // Only a ball nobody has moved toward for the whole window is genuinely
+        // abandoned. Re-arm whenever the nearest player gets >5px closer than the
+        // baseline set when the watch armed.
+        bool someoneClosing = wasLoose && bestD < freezeDetector.looseNearestD - 5.0;
+        if (!wasLoose || travelling || someoneClosing) {
+            freezeDetector.freezeWatchMs = 0;
+            freezeDetector.freezeBallX = fb.x;
+            freezeDetector.freezeBallY = fb.y;
+            freezeDetector.looseNearestD = bestD;
+        } else {
+            freezeDetector.freezeWatchMs += sdt;
+            if (freezeDetector.freezeWatchMs > LOOSE_BALL_STALL_MS && best
+                    && state.clockMs - freezeDetector.lastFreezeAlertMs > 5000) {
+                stats.recordSimulationFreeze();
+                fb.controllerId = best->id;               // updateControlledBall snaps it to him next tick
+                fb.vx = fb.vy = fb.vz = 0.0; fb.z = 0.0; fb.curl = 0.0;
+                fb.lastTouchTeam = best->team;
+                fb.lastToucherId = best->id;
+                fb.intendedReceiverId = -1;
+                lastLooseOrigin = LooseOrigin::None;
+                freezeDetector.lastFreezeAlertMs = state.clockMs;
+                freezeDetector.freezeWatchMs = 0;
+            }
+        }
         freezeDetector.freezeLastController = -1;
     } else if (cid != freezeDetector.freezeLastController) {
         freezeDetector.freezeWatchMs = 0;
