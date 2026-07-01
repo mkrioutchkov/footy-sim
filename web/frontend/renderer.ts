@@ -32,6 +32,14 @@ type PlayerEntry = {
   wasSprinting: boolean;
   name: string;          // the label's base (short) name — the live rating is appended to it
   ratingShown: number;   // last rating written to the label (dirty-check; -1 = none yet)
+  // ── boot-arrow dirty-check (the arrow redraws in the 60fps ticker; skip it when its inputs are unchanged) ──
+  armDrawn: boolean;     // has the arrow been drawn at least once
+  armAngle: number;      // last facing angle drawn
+  armCtrlX: number;      // last ball-relative control vector drawn (a carrier aims his boots at the ball)
+  armCtrlY: number;
+  armHasBall: boolean;
+  armHeading: boolean;   // last header-pose state
+  armKnock: boolean;     // last knock-dribble state
 };
 
 export class MatchRenderer {
@@ -100,7 +108,7 @@ export class MatchRenderer {
   // t = elapsed/segment, LINEAR (the entities move at ~constant velocity between real samples); a big jump
   // (kickoff/seek/out-of-bounds) snaps instead of sliding across the pitch. Pause needs no special-case:
   // no new frame ⇒ t clamps to 1 and motion holds. The choppy per-frame draw is gone.
-  private playerTargets: Map<number, { px: number; py: number; tx: number; ty: number }> = new Map();
+  private playerTargets: Map<number, { id: number; px: number; py: number; tx: number; ty: number }> = new Map();
   private ballPrev = { x: 0, y: 0, z: 0 };
   private ballTarget = { x: 0, y: 0, z: 0 };
   private segStart = 0;        // performance.now() when the latest frame was ingested
@@ -456,8 +464,10 @@ export class MatchRenderer {
     if (!this.visualBall) this.visualBall = { x: ibx, y: iby, z: ibz };
     else { this.visualBall.x = ibx; this.visualBall.y = iby; this.visualBall.z = ibz; }
 
-    // players — tween then position body/shadow/arrow/label/dirTag (shapes were drawn in sync)
-    for (const [id, tg] of this.playerTargets) {
+    // players — tween then position body/shadow/arrow/label/dirTag (shapes were drawn in sync).
+    // Iterate .values() (id lives on the record) so the Map iterator doesn't allocate a [k,v] tuple per rAF.
+    for (const tg of this.playerTargets.values()) {
+      const id = tg.id;
       const entry = this.playerEntries.get(id);
       if (!entry) continue;
       const ix = lerp(tg.px, tg.tx, t);
@@ -536,21 +546,25 @@ export class MatchRenderer {
       const carrier = byId.get(b.controllerId);
       const vc = this.visualPlayers.get(b.controllerId);
       if (carrier && vc) {
-        const contenders: { x: number; y: number; d: number }[] = [];
+        // nearest two pressers, tracked in scalars — no per-rAF array/sort/slice allocation (hot 60fps path).
+        let b1x = 0, b1y = 0, b1d = Infinity, b2x = 0, b2y = 0, b2d = Infinity;
         for (const p of state.players) {
           if (p.team === carrier.team || p.id === carrier.id) continue;
           const vp = this.visualPlayers.get(p.id);
           if (!vp) continue;
           const d = Math.hypot(vc.x - vp.x, vc.y - vp.y);
-          if (d >= 1 && d <= PLAYER_R * 2.5) contenders.push({ x: vp.x, y: vp.y, d });
+          if (d < 1 || d > PLAYER_R * 2.5) continue;
+          if (d < b1d) { b2x = b1x; b2y = b1y; b2d = b1d; b1x = vp.x; b1y = vp.y; b1d = d; }
+          else if (d < b2d) { b2x = vp.x; b2y = vp.y; b2d = d; }
         }
-        contenders.sort((a, c) => a.d - c.d);
-        for (const c of contenders.slice(0, 2)) {
-          const ang = Math.atan2(vc.y - c.y, vc.x - c.x);
-          this.jockeyGfx.arc(c.x, c.y, PLAYER_R + 3, ang - 0.6, ang + 0.6);
+        for (let k = 0; k < 2; k++) {
+          const cx = k === 0 ? b1x : b2x, cy = k === 0 ? b1y : b2y;
+          if ((k === 0 ? b1d : b2d) === Infinity) continue;
+          const ang = Math.atan2(vc.y - cy, vc.x - cx);
+          this.jockeyGfx.arc(cx, cy, PLAYER_R + 3, ang - 0.6, ang + 0.6);
           this.jockeyGfx.stroke({ width: 2.5, color: 0xf2c14e, alpha: 0.75 });
-          this.jockeyGfx.moveTo(c.x + Math.cos(ang) * (PLAYER_R + 1), c.y + Math.sin(ang) * (PLAYER_R + 1));
-          this.jockeyGfx.lineTo(c.x + Math.cos(ang) * (PLAYER_R + 5), c.y + Math.sin(ang) * (PLAYER_R + 5));
+          this.jockeyGfx.moveTo(cx + Math.cos(ang) * (PLAYER_R + 1), cy + Math.sin(ang) * (PLAYER_R + 1));
+          this.jockeyGfx.lineTo(cx + Math.cos(ang) * (PLAYER_R + 5), cy + Math.sin(ang) * (PLAYER_R + 5));
           this.jockeyGfx.stroke({ width: 1.5, color: 0xf2c14e, alpha: 0.55 });
         }
       }
@@ -622,7 +636,9 @@ export class MatchRenderer {
     const __w = window as unknown as { __trailLen?: number; __maxTrail?: number; __maxTrailZ?: number };
     __w.__trailLen = this.trailBuffer.length;
     __w.__maxTrail = Math.max(__w.__maxTrail ?? 0, this.trailBuffer.length);
-    __w.__maxTrailZ = Math.max(__w.__maxTrailZ ?? 0, ...this.trailBuffer.map(p => p.z), 0);
+    let __mz = __w.__maxTrailZ ?? 0;                      // allocation-free (was trailBuffer.map()+spread each ingest)
+    for (const tp of this.trailBuffer) if (tp.z > __mz) __mz = tp.z;
+    __w.__maxTrailZ = __mz;
 
     // ── curl emphasis: a curling ball (engine's ball.curl, |curl|~0..0.36) tints its trail toward violet
     //    + thickens it, so the Beckham bend READS (the trail already traces the bent path; this flags it). ──
@@ -734,6 +750,7 @@ export class MatchRenderer {
           diveAngle: p.team === 'home' ? Math.PI : 0,
           lastDribbleType: p.dribbleType,
           wasSprinting: false,
+          armDrawn: false, armAngle: 0, armCtrlX: 0, armCtrlY: 0, armHasBall: false, armHeading: false, armKnock: false,
         };
         this.playerEntries.set(p.id, entry);
       }
@@ -749,7 +766,7 @@ export class MatchRenderer {
       const vp = this.visualPlayers.get(p.id) ?? { x: p.x, y: p.y };
       if (!this.visualPlayers.has(p.id)) this.visualPlayers.set(p.id, { x: p.x, y: p.y });
       let tg = this.playerTargets.get(p.id);
-      if (!tg) { tg = { px: p.x, py: p.y, tx: p.x, ty: p.y }; this.playerTargets.set(p.id, tg); }
+      if (!tg) { tg = { id: p.id, px: p.x, py: p.y, tx: p.x, ty: p.y }; this.playerTargets.set(p.id, tg); }
       else { tg.px = vp.x; tg.py = vp.y; tg.tx = p.x; tg.ty = p.y; if (Math.hypot(p.x - vp.x, p.y - vp.y) > 120) { tg.px = p.x; tg.py = p.y; } }
       const diving = p.role === 'GK' && (p.diveAnim ?? 0) > 0;
       const sliding = !diving && (p.tackleAnim ?? 0) > 0;
@@ -1195,12 +1212,15 @@ export class MatchRenderer {
     };
     if (half === 2 && this.prevHalf === 1) {
       this.prevHalf = 2;
-      if (!seeked) showPanel('HALF TIME', false);   // a forward seek into the 2nd half shouldn't pop "HALF TIME"
+      // A forward seek into the 2nd half — OR a live-buffer rewind replaying forward across the interval
+      // (replayMode) — shouldn't re-pop "HALF TIME". replayMode forces `seeked` false (line ~1137), so the
+      // GOAL banner's `!this.replayMode` guard is mirrored here for the panels.
+      if (!seeked && !this.replayMode) showPanel('HALF TIME', false);
     } else if (half === 1 && this.prevHalf === 2) {
-      this.prevHalf = 1;   // rewound back into the 1st half → let HALF TIME fire again on forward play
+      this.prevHalf = 1;   // rewound back into the 1st half → let HALF TIME fire again on forward LIVE play
     }
-    if (finished && !this.shownFullTime) {
-      this.shownFullTime = true;
+    if (finished && !this.shownFullTime && !this.replayMode) {
+      this.shownFullTime = true;   // guarded: a rewind replaying forward to the finished edge mustn't re-pop it (fires on resumeLive)
       showPanel('FULL TIME', true);
     } else if (!finished && this.shownFullTime) {
       this.shownFullTime = false; this.panelEl.style.display = 'none'; this.panelHideAt = 0;   // rewound out of full-time → drop the sticky panel
@@ -1600,12 +1620,23 @@ export class MatchRenderer {
     const hasBall = this.lastState?.ball.controllerId === p.id;
     const heading = (p.headingAnim ?? 0) > 0;
     const knockDribble = p.dribbleType === 3;
+    const controlDx = hasBall ? vbx - vpx : 0;
+    const controlDy = hasBall ? vby - vpy : 0;
+    // Dirty-check: the arrow's local geometry is a pure function of (facing angle, hasBall, the ball-relative
+    // control vector while carrying, header pose, knock-dribble). renderFrame still repositions arrow.position
+    // every tick, so skipping the clear()+re-tessellate here when nothing changed is invisible — it just spares
+    // ~22 Graphics rebuilds/rAF for a still, same-facing pitch (e.g. any pause/stoppage). Carrier + turning
+    // players still redraw (their angle / ball-vector move each tick).
+    if (entry.armDrawn
+      && Math.abs(angle - entry.armAngle) < 0.01
+      && hasBall === entry.armHasBall && heading === entry.armHeading && knockDribble === entry.armKnock
+      && Math.abs(controlDx - entry.armCtrlX) < 0.5 && Math.abs(controlDy - entry.armCtrlY) < 0.5) return;
+    entry.armDrawn = true; entry.armAngle = angle; entry.armHasBall = hasBall;
+    entry.armHeading = heading; entry.armKnock = knockDribble; entry.armCtrlX = controlDx; entry.armCtrlY = controlDy;
     const a = entry.arrow;
     a.clear();
     const forwardX = Math.cos(angle);
     const forwardY = Math.sin(angle);
-    const controlDx = hasBall ? vbx - vpx : 0;
-    const controlDy = hasBall ? vby - vpy : 0;
     const controlDist = Math.hypot(controlDx, controlDy);
     const feetX = hasBall && controlDist > 2 ? controlDx / controlDist : forwardX;
     const feetY = hasBall && controlDist > 2 ? controlDy / controlDist : forwardY;
