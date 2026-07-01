@@ -118,6 +118,21 @@ in the **GK open-play distribution** path, and much more frequent. Surfaced by
 - **Result**: `stuckCarrierAlerts` 0 across 30×90 min (was 6 seeds); matches complete;
   deterministic; ASan/UBSan clean. Goal rate reshuffles slightly (butterfly) — re-tune post-hoc.
 
+### Next candidate — touchline collection dead-zone (root-caused, not yet fixed)
+
+The residual freeze-rescues (~6 per 40×90 min, all `FREEZE LOOSE`) are balls that come to
+rest **~4–7 px inside a touchline** and never get collected — e.g. seed 103 at `(88, 4)` /
+`(88, 4)`, seed 104 `(960, 6)`, seed 114 `(80, 7)`. Root cause: `PLAYER_R = 12`,
+`BALL_R = 4.5`, `COLLECT_DIST = 8`. A player's center is body-clamped ≥ `PLAYER_R` off the
+line, so against a ball at `y ≈ 4` he can only reach `COLLECT_DIST` when *perfectly*
+x-aligned; any x-offset leaves him permanently > 8 px away. The ball sits in a collection
+dead-zone until the loose-ball freeze-rescue (`detectSimulationFreeze`) teleports control to
+the nearest player. Self-heals, deterministic, matches complete — but it's a real gap.
+Candidate fixes (each needs a 30-seed A/B — behavioural, not goal-neutral): widen the
+effective collect tolerance for a slow ball near a boundary; or nudge a near-line resting
+ball a few px infield; or rule a fully-stalled ball out for a throw-in. Held pending
+verification budget, not correctness doubt.
+
 ## Tools / harness correctness fixes (commit `5dd835f`) — simulation-invariant
 
 Downstream of the `5519235` stat fix (`shotsOnTarget` now includes scored shots):
