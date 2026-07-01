@@ -323,7 +323,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (pur == ActionPurpose::Build && bl > 0) sc += cr * 0.12;
     if (pur == ActionPurpose::Clear)           sc -= cr * 0.10;
 
-    if (engine.phase.addedTimeActive) {
+    if (engine.phase.addedTimeActive && engine.phase.half == 2) {   // 2nd-half stoppage only
         bool inDefThird = (p.team == Team::Home) ? p.x < THIRD_1 : p.x > THIRD_2;
         if (inDefThird) {
             bool targetExitsThird = (p.team == Team::Home) ? t.x > THIRD_1 : t.x < THIRD_2;

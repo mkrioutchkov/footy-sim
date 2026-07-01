@@ -266,8 +266,13 @@ void GameEngine::releaseSetPiece(){
     for(Player* target:targets){
         if(passBallTo(*holder,*target,false,false,nullptr)){clearReleasedSetPiece();return;}
     }
-    setPiece.armed=true;
-    phase.actionTimer=250;
+    // No pass target worked (every lane blocked). The old fallback re-armed
+    // (armed=true, timer=250) into a taker-less held-ball state the malformed-arm
+    // watchdog can't see (it needs controllerId<0) — the taker kept the ball and it
+    // stalled ~2.7s until auditStuckCarrier force-passed it. Instead just clear the
+    // set-piece and let the taker (still holding the ball) play on as a normal
+    // carrier next tick — no stall.
+    clearReleasedSetPiece();
 }
 
 void GameEngine::releaseGoalKick(Player& holder){

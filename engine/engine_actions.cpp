@@ -972,6 +972,10 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
             if(rng.random()<chance){shot.blockerId=o.id;break;}
         }
     }
+    // Consume the first-time-finish flags now the shot has used them: they otherwise
+    // decay over 900-1400ms, so a SAME-player rebound shot inside that window would
+    // wrongly re-apply the header/first-touch error reduction (and re-count the shot).
+    s.crossCollected = 0.0; s.firstTouchFinish = 0.0; s.throughCollected = 0.0;
 }
 
 // ══════════════════════════════════════════════════════════════

@@ -128,7 +128,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     // error (SHOT_ERROR_LONG_RANGE) is unchanged, so most still fly wide — this
     // only shifts WHEN strikers try them, concentrating screamers into the nervy
     // closing minutes rather than inflating the baseline goal rate.
-    bool lateGame = engine.phase.addedTimeActive;
+    bool lateGame = engine.phase.addedTimeActive && engine.phase.half == 2;   // end-of-match urgency is 2nd-half stoppage only (H1 added time is not "closing minutes")
     if (shotDistance > 175.0) sc -= lateGame ? 0.18 : 0.34;
     if (lateGame && shotDistance > 175.0 && shotDistance < 250.0 && per.pressureCount == 0 && angleDeg > 8.0)
         sc += 0.24;

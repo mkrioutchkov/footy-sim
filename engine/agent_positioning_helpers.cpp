@@ -38,7 +38,11 @@ void PlayerAI::posDefensiveCover(SmallVector<PositionCandidate, 32>& c, const Po
     auto& b = engine.state.ball;
 
     double og = ownGoalXFor(p.team);
-    double rx = clamp(lerp(p.x, og, 0.5), og, p.x);
+    // clampRange (order-agnostic): for the AWAY team og=1050 > p.x, so the old
+    // clamp(mid, og, p.x) had inverted bounds and collapsed every retreat-cover
+    // target to the own goal line — away defended a broken, too-deep shape while
+    // home (og=0) was correct. Fixes the home/away symmetry break.
+    double rx = clampRange(lerp(p.x, og, 0.5), og, p.x);
     c.push_back({ rx, p.homeY, ActionPurpose::Cover });
     c.push_back({ rx, p.homeY - 30.0, ActionPurpose::Cover });
     c.push_back({ rx, p.homeY + 30.0, ActionPurpose::Cover });

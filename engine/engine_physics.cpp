@@ -11,6 +11,23 @@
 void GameEngine::separateTeammates(double sdt) {
     double secs = sdt / 1000.0;
     double maxPush = 32.0 * secs;
+    // Loose-ball standoff fix: a dead ball has no controller, so NONE of the
+    // converging chasers is exempt from the mutual separation push — they cancel
+    // each other's inward step and orbit ~20-33px out, never reaching the ~14px
+    // collect radius, so the ball sits dead for seconds. Exempt the SINGLE nearest
+    // eligible chaser (like the controller). Deterministic (lowest dist, first-index tiebreak).
+    int looseWinner = -1;
+    {
+        auto& lb = state.ball;
+        if (lb.controllerId < 0 && lb.z < 6.0 && std::hypot(lb.vx, lb.vy) < 40.0) {
+            double best = 30.0;
+            for (auto& p : state.players) {
+                if (p.role == Role::GK || p.sentOff || contestBlockedUntil[p.id] > state.clockMs) continue;
+                double dd = dist(p.x, p.y, lb.x, lb.y);
+                if (dd < best) { best = dd; looseWinner = p.id; }
+            }
+        }
+    }
     for (size_t i = 0; i < state.players.size(); ++i) {
         for (size_t j = i + 1; j < state.players.size(); ++j) {
             Player& a = state.players[i];
@@ -27,8 +44,8 @@ void GameEngine::separateTeammates(double sdt) {
             // Deep overlap (two bodies on one pixel) escalates the push hard —
             // the gentle 0.5px/tick separation lost to shared chase targets.
             double push = std::min(maxPush * (d < 12.0 ? 4.0 : 1.0), (minDist - d) * pushScale * (d < 12.0 ? 4.0 : 1.0));
-            bool aFixed = state.ball.controllerId == a.id || isActiveKnockAheadRunner(a.id);
-            bool bFixed = state.ball.controllerId == b.id || isActiveKnockAheadRunner(b.id);
+            bool aFixed = state.ball.controllerId == a.id || isActiveKnockAheadRunner(a.id) || a.id == looseWinner;
+            bool bFixed = state.ball.controllerId == b.id || isActiveKnockAheadRunner(b.id) || b.id == looseWinner;
             if (aFixed && bFixed) continue;
             if (aFixed) {
                 b.x = clampToPitchX(b.x + nx * push * 2.0);
@@ -225,7 +242,11 @@ bool GameEngine::checkOutOfPlay() {
         awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H);
         return true;
     }
-    if (b.x + BALL_R < HOME_GOAL_X) {
+    if (b.x < HOME_GOAL_X) {
+        // Centre-crossing (not whole-ball `b.x + BALL_R < ...`): a slow ball can
+        // rest with its centre behind the goal line — out, but the whole-ball test
+        // never fired, so no goal-kick/corner was awarded. The touchline test above
+        // is already centre-based (b.y < 0); match it here.
         // A ball over the bar (or wide) is out — only one passing UNDER the bar
         // between the posts was a goal (already taken by checkGoal).
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
@@ -236,7 +257,7 @@ bool GameEngine::checkOutOfPlay() {
             return true;
         }
     }
-    if (b.x - BALL_R > AWAY_GOAL_X) {
+    if (b.x > AWAY_GOAL_X) {   // centre-crossing (see HOME_GOAL_X note above)
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
         if (!inGoal) {
             clearState();
