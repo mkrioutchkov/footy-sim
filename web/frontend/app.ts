@@ -1092,10 +1092,12 @@ let watchStatus: HTMLElement | null = null;   // connecting / connection-lost ov
 let watchPanelObs: ResizeObserver | null = null;   // keeps the pitch sized to the space the panel leaves
 let watchKeyHandler: ((e: KeyboardEvent) => void) | null = null;   // P3 viewer keyboard shortcuts (space/←/→/,/.)
 let activeReplayTimer: ReturnType<typeof setInterval> | null = null;   // live goal-replay playback loop
+let activeHighlightTimer: ReturnType<typeof setTimeout> | null = null;   // 🎞 highlights-reel tour step (survives teardown otherwise)
 let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
 function teardownWatch() {
   watchEpoch++;
   if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }   // a live-rewind timer is a setTimeout — clear BOTH kinds
+  if (activeHighlightTimer) { clearTimeout(activeHighlightTimer); activeHighlightTimer = null; }   // stop a highlights tour scheduled but not yet fired
   try { watchPanelObs?.disconnect(); } catch { /* */ } watchPanelObs = null;
   if (watchKeyHandler) { window.removeEventListener('keydown', watchKeyHandler); watchKeyHandler = null; }
   try { activeWs?.close(); } catch { /* */ } activeWs = null;
@@ -1210,22 +1212,27 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   let currentMs = 0;                      // the live playhead (each frame's clockMs) — drives ⏪ back-10s
   const fmtClock = (ms: number): string => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
   const scrubLabel = h('span', { class: 'muted', style: "display:none;font-size:12px;min-width:38px;font-variant-numeric:tabular-nums" }, '0:00');
-  const scrubEl = h('input', { type: 'range', min: '0', max: String(SCRUB_MAX_MS), step: '5000', value: '0',
+  const scrubEl = h('input', { type: 'range', min: '0', max: String(SCRUB_MAX_MS), step: '1000', value: '0',
     style: 'width:100%;accent-color:var(--accent)', 'aria-label': 'Scrub through the match — drag to jump to any point' }) as HTMLInputElement;
   // ⚽ goal markers float over the scrub track (built from the report timeline so every goal is known
   // upfront — you can jump to one before playback reaches it). The wrap is the revealed unit, not scrubEl.
   const goalMarkers = h('div', { style: 'position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none' });
-  const scrubWrap = h('div', { style: 'display:none;position:relative;align-items:center;width:180px;height:18px' }, scrubEl, goalMarkers) as HTMLElement;
+  const scrubWrap = h('div', { class: 'scrub-wrap', style: 'display:none;position:relative;align-items:center;width:180px;height:18px' }, scrubEl, goalMarkers) as HTMLElement;
   scrubEl.addEventListener('input', () => { scrubbing = true; scrubLabel.textContent = fmtClock(+scrubEl.value); });
   scrubEl.addEventListener('change', () => { seekTo(+scrubEl.value); scrubbing = false; });
   // ⏪ back-10s — a real rewind (not jump-to-start), relative to the live playhead. Revealed with the scrub.
   const rewind5Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 5 seconds', title: 'Back 5 seconds', onclick: () => seekTo(Math.max(0, currentMs - 5000)) }, '⏪ 5s') as HTMLButtonElement;
   const rewind10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds', onclick: () => seekTo(Math.max(0, currentMs - 10000)) }, '⏪ 10s') as HTMLButtonElement;
   const rewind30Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 30 seconds', title: 'Back 30 seconds', onclick: () => seekTo(Math.max(0, currentMs - 30000)) }, '⏪ 30s') as HTMLButtonElement;
-  let goalIndex: { clockMs: number; name: string }[] = [];   // GOALS only — powers highlights + the , / . keys
+  // The moments the 🎞 reel + the , / . keys tour: goals AND red cards (the drama). A goalless-but-eventful
+  // match (a sending-off, a 0-0 with a red) now gets a highlights tour, not nothing. Yellows stay as
+  // clickable scrub markers only (a 5-yellow game shouldn't turn the reel into a card show). Penalties/big
+  // saves would need richer backend event data than the report timeline (goal/yellow/red) carries today.
+  let highlightIndex: { clockMs: number; name: string; kind: string }[] = [];
+  let hasReportMarkers = false;   // the report timeline (full, upfront) was loaded → don't let the incremental live-marks clobber it
   const MARKER_ICON: Record<string, string> = { goal: '⚽', yellow: '🟨', red: '🟥' };
   const buildMarkers = (events: { clockMs: number; name: string; kind: string }[]): void => {
-    goalIndex = events.filter(e => e.kind === 'goal').map(e => ({ clockMs: e.clockMs, name: e.name })).sort((a, b) => a.clockMs - b.clockMs);
+    highlightIndex = events.filter(e => e.kind === 'goal' || e.kind === 'red').map(e => ({ clockMs: e.clockMs, name: e.name, kind: e.kind })).sort((a, b) => a.clockMs - b.clockMs);
     goalMarkers.replaceChildren();
     for (const e of events) {   // goals + cards on the timeline; click any to jump to it
       const pct = Math.min(99.5, Math.max(0, (e.clockMs / SCRUB_MAX_MS) * 100));
@@ -1235,13 +1242,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         onclick: () => seekTo(Math.max(0, e.clockMs - 4000)),
       }, MARKER_ICON[e.kind] ?? '•'));
     }
-    highlightBtn.style.display = goalIndex.length ? '' : 'none';   // a goals-tour is only useful with goals
+    highlightBtn.style.display = highlightIndex.length ? '' : 'none';   // a moments-tour needs at least one goal/red
   };
   // ⚽ Replay — appears after the first live goal; plays back the buffered run-up (instant action replay).
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Action replay of the last goal', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
-  // 🎞 Highlights — tours every goal (jumps to ~5s before each, ~11s apart). Shown once the goal index is
-  // known (recorded replays, from the report timeline). Reuses seekTo so it works on recorded + (future) live.
-  const highlightBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Play the goal highlights', title: 'Tour every goal' }, '🎞 Highlights') as HTMLButtonElement;
+  // 🎞 Highlights — tours every goal + red card (jumps to ~5s before each, ~11s apart). Shown once the
+  // moment index is known (recorded from the report timeline; live from the indexed events). Reuses seekTo.
+  const highlightBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Play the highlights', title: 'Tour every goal and red card' }, '🎞 Highlights') as HTMLButtonElement;
   // §weather: the match's actual condition, set from the first frame that carries it (clear → blank).
   const weatherEl = h('span', { style: 'margin-left:auto;font-size:13px;color:#9ec5ff' });
   // 📹 Recorded vs ⚙ Re-simulated: a recorded replay is faithful to the stored result; a non-recorded
@@ -1296,20 +1303,21 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   );
   document.body.appendChild(bar);
   watchBar = bar;
-  // P3 viewer keyboard shortcuts: space = pause/resume, ←/→ = seek ∓10s, , / . = prev/next goal.
-  // Seek-keys are no-ops on a live match (the coordinator ignores seek) + when no goal index is loaded.
-  // Removed in teardownWatch. Ignores keystrokes while typing in the shout box.
+  // P3 viewer keyboard shortcuts: space = pause/resume, ←/→ = seek ∓10s (Shift+←/→ = fine ∓2s),
+  // , / . = prev/next moment (goal or red card). Seek-keys are no-ops on a live match (the coordinator
+  // ignores seek) + before a moment index is loaded. Removed in teardownWatch. Ignored while typing a shout.
   watchKeyHandler = (e: KeyboardEvent): void => {
     const tag = (e.target as HTMLElement | null)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    const step = e.shiftKey ? 2000 : 10000;   // Shift = a fine 2s nudge for landing on a specific touch
     if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); seekTo(Math.max(0, currentMs - 10000)); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); seekTo(currentMs + 10000); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); seekTo(Math.max(0, currentMs - step)); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); seekTo(currentMs + step); }
     else if (e.key === ',' || e.key === '.') {
-      if (!goalIndex.length) return;
+      if (!highlightIndex.length) return;
       const target = e.key === '.'
-        ? goalIndex.find(g => g.clockMs > currentMs + 1500)
-        : [...goalIndex].reverse().find(g => g.clockMs < currentMs - 1500);
+        ? highlightIndex.find(g => g.clockMs > currentMs + 1500)
+        : [...highlightIndex].reverse().find(g => g.clockMs < currentMs - 1500);
       if (target) { e.preventDefault(); seekTo(Math.max(0, target.clockMs - 4000)); }
     }
   };
@@ -1393,8 +1401,8 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       const events = (rep.facts?.timeline ?? [])
         .filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red')
         .map(e => ({ clockMs: (e.minute ?? 0) * 60000, name: e.name, kind: e.type }));
-      if (events.length) buildMarkers(events);
-    }).catch(() => { /* no report (re-sim / another club) → scrub without markers */ });
+      if (events.length) { buildMarkers(events); hasReportMarkers = true; }   // full upfront set → suppress the incremental live-marks (which reassign wholesale)
+    }).catch(() => { /* no report (re-sim / another club) → scrub without markers (falls back to live-marks) */ });
   }
 
   const renderer = new MatchRenderer();
@@ -1506,29 +1514,33 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   };
   // unified seek: a recorded replay seeks the backend (full random access); a live watch seeks the buffer.
   const seekTo = (targetMs: number): void => {
-    if (liveSeek) seekLiveBuffer(targetMs);
-    else activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, targetMs) }));
+    if (liveSeek) { seekLiveBuffer(targetMs); return; }
+    if (!replayUiApplied) return;   // a live re-sim before its buffer is ready / a non-seekable stream: nothing to backend-seek (avoid a dead send)
+    activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, targetMs) }));
+    // ReplayStream.seekTo() force-resumes the backend, so re-sync the local pause label — else the Pause
+    // button inverts (reads "▶ Resume" while the match visibly plays, and needs two clicks to recover).
+    if (paused) { paused = false; pauseBtn.textContent = '⏸ Pause'; paintBar(); }
   };
-  // 🎞 highlights reel: tour every goal — seek to ~5s before each, ~11s apart. Reuses seekTo (so it rides
-  // the recorded backend-seek, or the live buffer). Stops on click, at the end, or on navigation (epoch).
-  let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+  // 🎞 highlights reel: tour every goal + red card — seek to ~5s before each, ~11s apart. Reuses seekTo (so
+  // it rides the recorded backend-seek, or the live buffer). Stops on click, at the end, or on navigation
+  // (epoch). The timer is module-level (activeHighlightTimer) so teardownWatch can cancel a pending tour step.
   const stopHighlights = (): void => {
-    if (highlightTimer) { clearTimeout(highlightTimer); highlightTimer = null; }
+    if (activeHighlightTimer) { clearTimeout(activeHighlightTimer); activeHighlightTimer = null; }
     highlightBtn.textContent = '🎞 Highlights'; highlightBtn.classList.add('ghost'); highlightBtn.classList.remove('primary');
   };
   const playHighlights = (): void => {
-    if (!goalIndex.length) return;
+    if (!highlightIndex.length) return;
     let gi = 0;
     highlightBtn.textContent = '⏹ Stop'; highlightBtn.classList.add('primary'); highlightBtn.classList.remove('ghost');
     const next = (): void => {
-      if (myEpoch !== watchEpoch || gi >= goalIndex.length) { stopHighlights(); return; }
-      seekTo(Math.max(0, goalIndex[gi].clockMs - 5000));
+      if (myEpoch !== watchEpoch || gi >= highlightIndex.length) { stopHighlights(); return; }
+      seekTo(Math.max(0, highlightIndex[gi].clockMs - 5000));
       gi++;
-      highlightTimer = setTimeout(next, 11000);
+      activeHighlightTimer = setTimeout(next, 11000);
     };
     next();
   };
-  highlightBtn.onclick = () => { if (highlightTimer) stopHighlights(); else playHighlights(); };
+  highlightBtn.onclick = () => { if (activeHighlightTimer) stopHighlights(); else playHighlights(); };
   const playClip = () => {
     if (myEpoch !== watchEpoch || replaying || !goalClip || !goalClip.length || !activeRenderer) return;
     replaying = true;
@@ -1603,9 +1615,11 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         // ⚽ Replay-goal (with its GOAL-REPLAY banner) is a TRUE-live-only control — on a re-sim it'd raise
         // the banner inappropriately; re-sim users jump to goals via the markers instead. (P0 bug-fix #6.)
         if (goalFrame) { goalClip = liveBuffer.slice(-GOAL_CLIP); if (live) replayBtn.style.display = ''; }
-        // live goal/card markers — a live watch has no report, so index events as they happen → the scrub
-        // shows ⚽/🟨/🟥 + jump-to-goal + , / . + highlights all work mid-game (recorded gets these from the report).
-        const marks = (msg.events ?? []).filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red');
+        // live goal/card markers — a stream with NO upfront report (a true live match; a re-sim of a
+        // report-less fixture) indexes events as they happen so the scrub shows ⚽/🟨/🟥 + jump + , / . +
+        // highlights mid-game. SKIP when the report already supplied the full timeline (recorded, and now the
+        // buffered shouts-replay) — else buildMarkers(liveMarks) reassigns wholesale and clobbers the full set.
+        const marks = hasReportMarkers ? [] : (msg.events ?? []).filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red');
         if (marks.length && typeof msg.clockMs === 'number') {
           let added = false;
           for (const e of marks) {

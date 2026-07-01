@@ -104,7 +104,8 @@ input[type=range] { accent-color: var(--accent); }
 .pill { font-size: 11px; padding: 2px 9px; border-radius: 999px; background: var(--panel2); color: var(--muted);
   border: 1px solid var(--line-soft); font-weight: 600; }
 
-.watch-bar { position: fixed; top: 12px; left: 12px; z-index: 40; display: flex; gap: 8px; }
+.watch-bar { position: fixed; top: 12px; left: 12px; z-index: 40; display: flex; gap: 8px;
+  flex-wrap: wrap; max-width: calc(100vw - 24px); align-items: center; }   /* wrap instead of running the later controls (Highlights/Tactics/badge) off a narrow viewport */
 .watch-status { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 46;
   display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
   background: rgba(12,19,32,.92); border: 1px solid var(--line); border-radius: 12px; padding: 22px 30px; }
@@ -204,4 +205,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .fx .fx-actions { grid-column: 1 / -1; justify-content: center; margin-top: 4px; }
   /* narrow screens: revert the tactics panel to a bottom bar */
   .tactics-panel { top: auto; left: 12px; right: 12px; bottom: 12px; width: auto; max-width: 720px; margin: 0 auto; max-height: 46vh; }
+  /* the floating watch controls stay reachable on a phone: tighten spacing + let the scrub take a full row */
+  .watch-bar { gap: 5px; }
+  .watch-bar .scrub-wrap { width: 100% !important; order: 99; }   /* the scrub gets its own full-width row below the buttons */
 }
