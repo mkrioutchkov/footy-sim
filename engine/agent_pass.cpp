@@ -58,10 +58,15 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
     }
 
     // ── Crossing carrier override ──
+    // Only a genuinely WIDE carrier in the final third whips one in (was: any wide
+    // player within 520px of goal off-centre by 75px = the whole attacking half,
+    // which spammed ~246 crosses/match, ~5x real). crossEarly directive keeps a
+    // deeper, less-selective window.
     double goalX = goalXFor(p.team);
+    bool crossEarly = engine.directiveBias[p.id].crossEarly;
     bool crossingCarrier = isWidePlayer()
-        && std::abs(p.y - PITCH_H / 2.0) > 75.0
-        && std::abs(p.x - goalX) < 520.0;
+        && std::abs(p.y - PITCH_H / 2.0) > (crossEarly ? 120.0 : 150.0)
+        && std::abs(p.x - goalX) < (crossEarly ? 360.0 : 250.0);
     if (crossingCarrier) {
         Player* bestRunner = nullptr;
         double bestScore = -1e9;
@@ -83,10 +88,10 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
             double score = central + roleBonus + goalThreat + (300.0 - targetGoalDist) / 390.0 - pressure * 0.25 - d / 900.0;
             if (score > bestScore) { bestScore = score; bestRunner = &t; }
         }
-        if (bestRunner && bestScore > -0.05) {
+        if (bestRunner && bestScore > (crossEarly ? 0.15 : 0.42)) {   // demand a genuinely good target (was -0.05)
             double d = dist(p.x, p.y, bestRunner->x, bestRunner->y);
             double fp = (bestRunner->x - p.x) * fd;
-            r.push_back(Action{ActionType::Pass, clamp(0.78 + bestScore * 0.20, 0.0, 0.98), bestRunner, 0, 0,
+            r.push_back(Action{ActionType::Pass, clamp(0.55 + bestScore * 0.25, 0.0, 0.90), bestRunner, 0, 0,   // lower floor (was 0.78) so the cross competes on merit
                                ActionPurpose::Cross, ActionAudit{d, fp, 0.72, 0, 0, 0, 0}});
         }
     }

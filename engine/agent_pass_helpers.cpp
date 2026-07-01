@@ -211,7 +211,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     // ── Cross / cutback scoring ──
     if (isCross) {
-        sc += 0.26;
+        sc += 0.05;   // was 0.26 — this helper is the 2nd cross source; trimmed with the wide-carrier override to pull total crosses toward realistic (~40-60/match)
         if (engine.directiveBias[p.id].crossEarly) sc += 0.55;   // "whip it in early"
         if (t.role == Role::CF) sc += 0.30;
         else if (t.role == Role::WM) sc += 0.10;
@@ -387,16 +387,16 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                      || assignment->role == DefensiveTask::InsideRun
                      || assignment->role == DefensiveTask::Overlap
                      || assignment->role == DefensiveTask::CrossLane))
-        || runnerForwardSpeed > 5.0
+        || runnerForwardSpeed > 26.0
         || clearOnsideAttacker;
     bool goodThroughWindow = targetAttacker
                           && runnerIntent
                           && fp > 30.0
                           && onsideGap > -12.0
-                          && onsideGap < 210.0
+                          && onsideGap < 130.0
                           && bl <= 1
                           && receiverPressure <= 1
-                          && targetGoalDist < 480.0;
+                          && targetGoalDist < 255.0;   // was 480 (nearly half-pitch); a real in-behind ball, not a hopeful diagonal — pulls through-balls toward ~15-30/match
     bool releasedRunner = (assignment && (assignment->role == DefensiveTask::RunAhead
                                        || assignment->role == DefensiveTask::InsideRun
                                        || (assignment->role == DefensiveTask::CrossLane && t.role == Role::WM)))
@@ -426,7 +426,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall) {
         pur = ActionPurpose::Through;
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
-        sc += 0.24 + attrFactor(p.attrs.creativity) * 0.15;
+        sc += 0.12 + attrFactor(p.attrs.creativity) * 0.10;   // trimmed with the window above to cut through-ball spam (~121 -> target ~15-30/match)
         if (cleanKillerBall) sc += 0.16;
         if (cmKillerBall) sc += 0.12;   // slip the arriving midfield runner in (smaller than the CF/WM premium — conservative)
         // Quick transition: hit the runner FAST while the defence is unset.
