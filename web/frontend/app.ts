@@ -46,6 +46,12 @@ function svgEl(tag: string, attrs: Record<string, string | number | undefined> =
 }
 let lastFocusHash = 'init';
 let navFocusTimer = 0;   // sentinel — guarantees the focus move happens on the first render too
+// ── route-generation guard ── bumped on every route() dispatch. An async screen captures `const alive =
+// screenGuard();` at entry and calls `if (!alive()) return;` after each await before it touches the DOM, so a
+// slow fetch can't mount() stale content over a screen the user has since navigated to — and can't orphan the
+// watch's body-attached controls/socket by wiping its canvas. Mirrors screenWatch's watchEpoch, generalised.
+let routeGen = 0;
+function screenGuard(): () => boolean { const g = routeGen; return () => g === routeGen; }
 function mount(...nodes: Node[]) {
   root.replaceChildren(...nodes);
   // a11y: tag the content as the <main> landmark, and on a ROUTE CHANGE move focus into it so screen-reader +
@@ -81,10 +87,18 @@ function toast(msg: string) {
 // ── in-app modals (replace native confirm()/prompt(), which are ugly + block the event loop) ──
 // Both resolve a promise: cancel → false/null, confirm → true/the input value. ESC and a
 // backdrop click cancel; Enter confirms. The focused control is set on open for keyboard use.
+// a11y: keep Tab inside the open dialog (a modal must not let keyboard/SR users tab into the inert page behind).
+function trapTab(e: KeyboardEvent, card: HTMLElement): void {
+  const f = card.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])');
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1], active = document.activeElement;
+  if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+}
 function confirmModal(title: string, message: string, okLabel = 'Confirm'): Promise<boolean> {
   return new Promise(resolve => {
     let done = false;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(false); else if (e.key === 'Enter') finish(true); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(false); else if (e.key === 'Enter') finish(true); else if (e.key === 'Tab') trapTab(e, card); };
     const onHash = () => finish(false);   // navigating away closes the modal (it lives on body, not root)
     const finish = (v: boolean) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); resolve(v); };
     const ok = h('button', { class: 'primary', onclick: () => finish(true) }, okLabel);
@@ -102,7 +116,7 @@ function confirmModal(title: string, message: string, okLabel = 'Confirm'): Prom
 function promptModal(title: string, message: string, value = '', okLabel = 'Submit'): Promise<string | null> {
   return new Promise(resolve => {
     let done = false;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(null); else if (e.key === 'Tab') trapTab(e, card); };
     const onHash = () => finish(null);   // navigating away closes the modal (it lives on body, not root)
     const finish = (v: string | null) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); resolve(v); };
     const input = h('input', { type: 'text', value }) as HTMLInputElement;
@@ -122,9 +136,14 @@ function promptModal(title: string, message: string, value = '', okLabel = 'Subm
   });
 }
 function fmtMoney(n: number): string {
+  if (n < 0) return `-${fmtMoney(-n)}`;   // a deficit renders as -£1.2M, not £-1200000 (raw, hyphen glued to £)
   if (n >= 1e6) return `£${(n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1)}M`;
-  if (n >= 1e3) return `£${Math.round(n / 1e3)}K`;
-  return `£${n}`;
+  if (n >= 1e3) {
+    const k = Math.round(n / 1e3);
+    if (k >= 1000) return `£${(k / 1000).toFixed(1)}M`;   // 999,500+ rounds to 1000K → roll up to £1.0M, not £1000K
+    return `£${k}K`;
+  }
+  return `£${Math.round(n)}`;
 }
 // OVR = mean of the 7 core skills (excludes height/handling) — matches the backend's
 // overall() and the market/training screens, so a player's OVR reads the same everywhere
@@ -204,8 +223,8 @@ function navItem(icon: string, label: string, route: string): HTMLElement {
 function screenAuth() {
   let tab: 'login' | 'register' = 'login';
   const err = h('div', { class: 'err' });
-  const uname = h('input', { placeholder: 'username', autocomplete: 'username' }) as HTMLInputElement;
-  const pass = h('input', { type: 'password', placeholder: 'password', autocomplete: 'current-password' }) as HTMLInputElement;
+  const uname = h('input', { id: 'f-uname', placeholder: 'username', autocomplete: 'username' }) as HTMLInputElement;
+  const pass = h('input', { id: 'f-pass', type: 'password', placeholder: 'password', autocomplete: 'current-password' }) as HTMLInputElement;
   const submit = h('button', {}, 'Sign in');
 
   async function go() {
@@ -239,8 +258,8 @@ function screenAuth() {
       h('div', { class: 'brand', style: 'font-size:24px;margin-bottom:6px' }, 'FOOTY ', h('span', { class: 'a' }, 'MANAGER')),
       h('div', { class: 'muted', style: 'margin-bottom:18px' }, 'Build a team. Set your tactics. Play the season.'),
       tabs,
-      h('div', { class: 'field' }, h('label', {}, 'Username'), uname),
-      h('div', { class: 'field' }, h('label', {}, 'Password'), pass),
+      h('div', { class: 'field' }, h('label', { for: 'f-uname' }, 'Username'), uname),
+      h('div', { class: 'field' }, h('label', { for: 'f-pass' }, 'Password'), pass),
       submit, err,
     ),
   ));
@@ -248,7 +267,7 @@ function screenAuth() {
 
 // ── create team ──
 function screenCreateTeam() {
-  const name = h('input', { placeholder: 'e.g. Brisbane Roar', value: `${user!.username} FC` }) as HTMLInputElement;
+  const name = h('input', { id: 'f-clubname', placeholder: 'e.g. Brisbane Roar', value: `${user!.username} FC` }) as HTMLInputElement;
   const planInput = h('textarea', { class: 'tactics-input', rows: '3',
     placeholder: 'Optional — your tactical plan in plain English: "high press, build from the back, full-backs bomb on, sit deeper if 2-0 up". You can set or change it any time from Tactics.' }) as HTMLTextAreaElement;
   const err = h('div', { class: 'err' });
@@ -274,7 +293,7 @@ function screenCreateTeam() {
     h('div', { class: 'card' },
       h('h2', {}, 'Create your club'),
       h('div', { class: 'muted', style: 'margin-bottom:16px' }, 'We’ll generate your squad — a starting XI plus bench — and drop you into an 8-team league against AI managers.'),
-      h('div', { class: 'field' }, h('label', {}, 'Club name'), name),
+      h('div', { class: 'field' }, h('label', { for: 'f-clubname' }, 'Club name'), name),
       h('div', { class: 'section-title' }, 'Tactical plan'),
       planInput,
       h('div', { style: 'margin-top:16px' }, create), err,
@@ -509,6 +528,7 @@ const contractStyle = (yrs: number | undefined): string =>
 
 // ── dashboard ──
 async function screenDashboard() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let team: TeamT, league: LeagueT, news: NewsItemT[] = [], harmony: HarmonyT | null = null, reg: FormationsT | null = null, concerns: ConcernT[] = [];
   try {
@@ -518,6 +538,7 @@ async function screenDashboard() {
     if (String(e.message).includes('no team')) return screenCreateTeam();
     // team()/league() are essential — one transient failure shouldn't strand the home screen on a
     // bare error string with no way out. Offer a retry (news/harmony already fall back above).
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' },
       h('div', { class: 'err' }, 'Couldn’t load your club — ' + (e.message || 'something went wrong') + '.'),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenDashboard() }, '↻ Retry')));
@@ -526,6 +547,7 @@ async function screenDashboard() {
   // §2.5: a sacked manager's save is over — the board let you go. No dashboard; offer a fresh start
   // (a new team supersedes the old, so the career restarts cleanly).
   if (team.sacked) {
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' },
       h('div', { class: 'card', style: 'text-align:center;border:1px solid var(--danger);max-width:560px;margin:40px auto' },
         h('h2', { style: 'color:var(--danger);margin-top:0' }, '🪦 You’ve been sacked'),
@@ -887,6 +909,7 @@ async function screenDashboard() {
   };
   paintConcerns(concerns);
 
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
@@ -1009,7 +1032,7 @@ async function screenDashboard() {
       rows.push(meetEl);
       return h('div', { class: 'card', style: 'padding:12px 14px' }, ...rows);
     })(),
-    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), table,
+    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), h('div', { class: 'scroll-x' }, table),
       (hasPromotion || hasRelegation) ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:8px;display:flex;gap:16px' },
         hasPromotion ? h('span', {}, ZONE_DOT('promo'), 'Promotion') : '',
         hasRelegation ? h('span', {}, ZONE_DOT('releg'), 'Relegation') : '') : ''),
@@ -1065,14 +1088,17 @@ function setPieceTakerPanel(team: TeamT): HTMLElement {
 }
 
 async function screenTactics() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading tactics…')));
   let team: TeamT;
   try { team = await api.team(); }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   const reg = await api.formations().catch(() => null);   // registry for the visual pitch (graceful if it fails)
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('h2', {}, 'Tactics'),
@@ -1655,11 +1681,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
 
 // ── transfer market ──
 async function screenMarket() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let market: MarketT;
   try { market = await api.market(); }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   let offers: OfferT[] = [];
@@ -1880,6 +1908,7 @@ async function screenMarket() {
           h('table', {}, ...incoming.map(incRow)))
       : '';
 
+    if (!alive()) return;
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Transfer market'),
@@ -1936,11 +1965,13 @@ const focusLabel = (f: string) => FOCUS_LABEL[f] ?? (f ? f[0].toUpperCase() + f.
 const fmtDelta = (d: number) => `${d > 0 ? '+' : ''}${d}`;
 
 async function screenTraining() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let team: TeamT;
   try { team = await api.team(); }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   // The report is best-effort — show the screen even if it hasn't been generated yet (or 404s).
@@ -1949,7 +1980,7 @@ async function screenTraining() {
   const ovrOf = (p: typeof team.players[number]) => skillOvr(p.attrs);
 
   // club-wide focus selector
-  const sel = h('select', { class: 'focus-select' }) as HTMLSelectElement;
+  const sel = h('select', { class: 'focus-select', 'aria-label': 'Club training focus' }) as HTMLSelectElement;
   for (const f of TRAINING_FOCI) {
     const o = h('option', { value: f }, focusLabel(f)) as HTMLOptionElement;
     if (f === (team.trainingFocus ?? 'balanced')) o.selected = true;
@@ -1963,7 +1994,7 @@ async function screenTraining() {
   // club-wide training intensity dial — a gentler scale than the per-player override (which wins).
   // 'normal' is the byte-identical default; heavy grows the whole squad faster at a higher injury cost.
   const TEAM_INTENSITY: [string, string][] = [['light', 'Light'], ['normal', 'Normal'], ['heavy', 'Heavy ↑']];
-  const tiSel = h('select', { class: 'focus-select', title: 'Sets the whole squad’s training load (a player’s own intensity overrides this). Heavier grows faster but tires legs and raises injury risk.' }) as HTMLSelectElement;
+  const tiSel = h('select', { class: 'focus-select', 'aria-label': 'Club training intensity', title: 'Sets the whole squad’s training load (a player’s own intensity overrides this). Heavier grows faster but tires legs and raises injury risk.' }) as HTMLSelectElement;
   for (const [iv, lbl] of TEAM_INTENSITY) {
     const o = h('option', { value: iv }, lbl) as HTMLOptionElement;
     if (iv === (team.trainingIntensity ?? 'normal')) o.selected = true;
@@ -2058,7 +2089,7 @@ async function screenTraining() {
   for (const p of [...team.players].sort((a, b) => a.slot - b.slot)) {
     const ovr = ovrOf(p), pot = p.potential ?? ovr;
     const room = pot - ovr;
-    const pfSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px' }) as HTMLSelectElement;
+    const pfSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px', 'aria-label': 'Training focus for ' + p.name }) as HTMLSelectElement;
     pfSel.append(h('option', { value: '' }, 'Follow club'));
     for (const f of TRAINING_FOCI) {
       const o = h('option', { value: f }, focusLabel(f)) as HTMLOptionElement;
@@ -2070,7 +2101,7 @@ async function screenTraining() {
       catch (e: any) { toast(e.message); }
     });
     // per-player training intensity — faster growth at a higher injury cost (normal = the default / byte-identical)
-    const piSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px', title: 'Higher intensity grows faster but raises injury risk; rest recovers' }) as HTMLSelectElement;
+    const piSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px', 'aria-label': 'Training intensity for ' + p.name, title: 'Higher intensity grows faster but raises injury risk; rest recovers' }) as HTMLSelectElement;
     for (const [iv, lbl] of [['normal', 'Normal'], ['double', 'Double ↑'], ['half', 'Light'], ['rest', 'Rest']]) {
       const o = h('option', { value: iv }, lbl) as HTMLOptionElement;
       if (iv === (p.trainIntensity ?? 'normal')) o.selected = true;
@@ -2081,7 +2112,7 @@ async function screenTraining() {
       catch (e: any) { toast(e.message); }
     });
     // position retrain — learn a new role; while settling, he develops a little slower (familiarity bar)
-    const rtSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px', title: 'Retrain this player into a new position. He settles in over several matchdays, developing a little slower until comfortable.' }) as HTMLSelectElement;
+    const rtSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px', 'aria-label': 'Retrain position for ' + p.name, title: 'Retrain this player into a new position. He settles in over several matchdays, developing a little slower until comfortable.' }) as HTMLSelectElement;
     rtSel.append(h('option', { value: '' }, 'No (stay ' + p.role + ')'));
     for (const role of ['GK', 'FB', 'CB', 'CM', 'WM', 'CF']) {
       if (role === p.role) continue;
@@ -2112,6 +2143,7 @@ async function screenTraining() {
     ));
   }
 
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, 'Training'),
@@ -2148,15 +2180,18 @@ async function screenTraining() {
 
 // ── pre-match team talk (§2.13): pick a tone, see how it lands, deliver it ──
 async function screenTeamTalk(fixtureId: number) {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Gathering the squad…')));
   let data: { tones: TalkToneT[]; pending: { tone: string } | null; tone: string; reactions: TalkReactionT[] };
   try { data = await api.teamTalk(fixtureId); }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => (location.hash = '#/') }, '← Back')));
   }
   let tone = data.tone;
+  let talkReq = 0;   // ignore an out-of-order tone-preview response (rapid clicks can resolve in the wrong order)
 
   function render() {
     const reactColor = (d: number) => d >= 0.08 ? 'var(--accent)' : d <= -0.08 ? 'var(--danger)' : 'var(--muted, #8a93a3)';
@@ -2164,7 +2199,7 @@ async function screenTeamTalk(fixtureId: number) {
     const rattles = data.reactions.filter(r => r.delta <= -0.08).length;
     const toneBtns = data.tones.map(t => {
       const b = h('button', { class: t.key === tone ? 'primary small' : 'ghost small', title: t.blurb }, t.label);
-      if (t.key !== tone) b.addEventListener('click', async () => { try { data = await api.teamTalk(fixtureId, t.key); tone = data.tone; render(); } catch (e: any) { toast(e.message); } });
+      if (t.key !== tone) b.addEventListener('click', async () => { const my = ++talkReq; try { const d = await api.teamTalk(fixtureId, t.key); if (!alive() || my !== talkReq) return; data = d; tone = d.tone; render(); } catch (e: any) { toast(e.message); } });
       return b;
     });
     const blurb = data.tones.find(t => t.key === tone)?.blurb ?? '';
@@ -2179,6 +2214,7 @@ async function screenTeamTalk(fixtureId: number) {
       catch (e: any) { toast(e.message); deliver.removeAttribute('disabled'); deliver.textContent = 'Deliver this talk'; }
     });
 
+    if (!alive()) return;
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Team talk'), h('div', { class: 'muted' }, 'How you address the squad before kick-off shades their morale for the match — and each player reacts to his own temperament.')),
@@ -2205,10 +2241,11 @@ async function screenTeamTalk(fixtureId: number) {
 
 // ── youth academy (§2.9): the club's developing prospects + promote-to-squad ──
 async function screenAcademy() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading the academy…')));
   let prospects: AcademyProspectT[];
   try { prospects = (await api.academy()).prospects; }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
 
   const body = h('tbody');
   for (const p of prospects) {
@@ -2230,6 +2267,7 @@ async function screenAcademy() {
       h('td', {}, promote)));
   }
 
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, 'Youth academy'),
@@ -2246,15 +2284,17 @@ async function screenAcademy() {
 
 // ── news archive (§2.14): the full club-news feed, grouped by season ──
 async function screenNews() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading the archive…')));
   let news: NewsItemT[];
   try { news = (await api.news(200)).news; }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
   const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟', press: '🎤' };
 
   const groups: { season: number; items: NewsItemT[] }[] = [];
   for (const n of news) { const g = groups[groups.length - 1]; if (g && g.season === n.season) g.items.push(n); else groups.push({ season: n.season, items: [n] }); }
 
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, 'News archive'), h('div', { class: 'muted' }, `${news.length} headline(s) across your tenure`)),
@@ -2289,10 +2329,11 @@ const ATTR_LABELS: { key: keyof PlayerT['attrs']; label: string }[] = [
 ];
 const attrTierColor = (v: number): string => v >= 75 ? 'var(--accent,#43d39e)' : v >= 50 ? 'var(--gold,#ffe97a)' : 'var(--danger,#ff6b6b)';
 async function screenPlayer(slot: number) {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let team: TeamT;
   try { team = await api.team(); }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
   const p = team.players.find(x => x.slot === slot);
   if (!p) { location.hash = '#/'; return; }
   const ovr = skillOvr(p.attrs);
@@ -2343,8 +2384,8 @@ async function screenPlayer(slot: number) {
   else traitsEl.replaceChildren(h('div', { class: 'muted', style: 'font-size:13px;line-height:1.5' },
     'No personality yet — write a backstory below and save to derive these dials, or generate the whole squad’s personalities from the squad screen.'));
 
-  const back = h('textarea', { class: 'tactics-input', rows: '4', placeholder: 'Backstory — e.g. "A model professional and ice-cool penalty taker who rises on the big occasion."' }, p.personality?.backstory ?? '') as HTMLTextAreaElement;
-  const tag = h('input', { placeholder: 'Tagline (≤6 words, in character)', value: p.personality?.tagline ?? '' }) as HTMLInputElement;
+  const back = h('textarea', { id: 'f-backstory', class: 'tactics-input', rows: '4', placeholder: 'Backstory — e.g. "A model professional and ice-cool penalty taker who rises on the big occasion."' }, p.personality?.backstory ?? '') as HTMLTextAreaElement;
+  const tag = h('input', { id: 'f-tagline', placeholder: 'Tagline (≤6 words, in character)', value: p.personality?.tagline ?? '' }) as HTMLInputElement;
   const valEl = h('span', { class: 'muted', style: 'font-size:12px' });
   const save = h('button', {}, 'Save story & re-derive traits');
   save.addEventListener('click', async () => {
@@ -2359,6 +2400,7 @@ async function screenPlayer(slot: number) {
     finally { save.removeAttribute('disabled'); save.textContent = 'Save story & re-derive traits'; }
   });
 
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, p.name),
@@ -2383,8 +2425,8 @@ async function screenPlayer(slot: number) {
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Backstory'),
         h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'These dials are read off the backstory — and the player’s training rate and transfer value read the dials. Rewrite the story and the numbers re-derive.'),
-        h('div', { class: 'field' }, h('label', {}, 'Backstory'), back),
-        h('div', { class: 'field' }, h('label', {}, 'Tagline'), tag),
+        h('div', { class: 'field' }, h('label', { for: 'f-backstory' }, 'Backstory'), back),
+        h('div', { class: 'field' }, h('label', { for: 'f-tagline' }, 'Tagline'), tag),
         h('div', { class: 'row', style: 'align-items:center;gap:10px' }, save, valEl),
       ),
     ),
@@ -2393,10 +2435,11 @@ async function screenPlayer(slot: number) {
 
 // ── cup (knockout bracket) ──
 async function screenCup() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let cup: CupT;
   try { cup = await api.cup(); }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
   if (!cup.rounds.length) return mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('h2', {}, 'Cup'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     h('div', { class: 'card muted' }, 'No cup this season.')));
@@ -2410,6 +2453,7 @@ async function screenCup() {
       teamRow(t.home, t.homeScore, t.winnerTeamId != null && t.winnerTeamId === t.homeTeamId, t.homeTeamId === cup.myTeamId),
       teamRow(t.away, t.awayScore, t.winnerTeamId != null && t.winnerTeamId === t.awayTeamId, t.awayTeamId === cup.myTeamId)))));
 
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, 'Cup'),
@@ -2443,6 +2487,7 @@ function shoutReviewCard(tac: TacticsReviewT, fixtureId: number): HTMLElement | 
 }
 
 async function screenReport(fixtureId: number) {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Reading the match…')));
   // The shout review is independent of the frame recording — fetch it alongside, and show it even
   // when the match wasn't recorded (a shout-driven watch leaves a tactics log but maybe no replay).
@@ -2454,6 +2499,7 @@ async function screenReport(fixtureId: number) {
     const msg = String(e.message).includes('no recording')
       ? "No report yet — this match wasn't recorded (play or watch it first)."
       : e.message;
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' }, h('h2', {}, 'Match report'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
       h('div', { class: 'card muted' }, msg),
@@ -2487,6 +2533,7 @@ async function screenReport(fixtureId: number) {
   };
 
   const f = rep.facts;
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('h2', {}, rep.headline),
       // From the report you can jump straight into the replay (now with rewind/scrub) — no hunting for
@@ -2512,11 +2559,13 @@ const FIN_LABEL: Record<string, string> = {
   staff: 'Staff fees', sponsor: 'Sponsorship', gate: 'Gate & TV', other: 'Other',
 };
 async function screenFinances() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let f: FinancesT;
   try { f = await api.finances(); }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   const net = f.income + f.expense;   // expense is already negative
@@ -2539,6 +2588,7 @@ async function screenFinances() {
         h('span', { style: col(e.amount) }, signed(e.amount))))
     : [h('div', { class: 'muted', style: 'font-size:13px' }, 'No transactions recorded yet — play on, sign players, win prize money.')];
 
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, 'Finances'), h('div', { class: 'muted' }, `Season ${f.season}`)),
@@ -2575,8 +2625,8 @@ async function screenFinances() {
         h('th', { class: 'num' }, 'Season'), h('th', { class: 'num' }, 'Income'), h('th', { class: 'num' }, 'Expense'), h('th', { class: 'num' }, 'Net'))),
         h('tbody', {}, ...f.history.map(s => h('tr', {},
           h('td', { class: 'num' }, `S${s.season}`),
-          h('td', { class: 'num', style: 'color:var(--accent)' }, signed(s.income)),
-          h('td', { class: 'num', style: 'color:var(--danger)' }, signed(s.expense)),
+          h('td', { class: 'num', style: s.income !== 0 ? 'color:var(--accent)' : 'color:var(--muted)' }, signed(s.income)),
+          h('td', { class: 'num', style: s.expense !== 0 ? 'color:var(--danger)' : 'color:var(--muted)' }, signed(s.expense)),
           h('td', { class: 'num', style: 'font-weight:700;' + col(s.net) }, signed(s.net))))))) : '',
   ));
 }
@@ -2585,11 +2635,13 @@ async function screenFinances() {
 const ROLE_ICON: Record<string, string> = { coach: '🎓', physio: '🩺', scout: '🔍' };
 const ROLE_LABEL: Record<string, string> = { coach: 'Coach', physio: 'Physio', scout: 'Scout' };
 async function screenStaff() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let v: StaffViewT;
   try { v = await api.staff(); }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   const guard = (btn: HTMLElement, fn: () => Promise<void>) => async () => {
@@ -2668,6 +2720,7 @@ async function screenStaff() {
       }),
     );
 
+    if (!alive()) return;
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Backroom staff'),
@@ -2702,11 +2755,13 @@ function ordinal(n: number): string {
   return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 }
 async function screenScout(fixtureId: number) {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Scouting the opposition…')));
   let s: ScoutT;
   try { s = await api.scout(fixtureId); }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' },
       h('div', { class: 'err' }, e.message),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => (location.hash = '#/') }, '← Back')));
@@ -2743,6 +2798,7 @@ async function screenScout(fixtureId: number) {
         ...s.bench.map(playerRow))
     : '';
 
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, `Scouting — ${o.name}`),
@@ -2791,11 +2847,13 @@ function trophy(icon: string, n: number, label: string): HTMLElement {
 }
 // ── manager career: the manager's CV aggregated across every club managed ──
 async function screenCareer() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading your career…')));
   let c: ManagerCareerT;
   try { c = await api.career(); }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   const stat = (label: string, val: string | number, sub?: string) => h('div', { class: 'card', style: 'padding:12px 16px;min-width:118px' },
@@ -2832,6 +2890,7 @@ async function screenCareer() {
     const icon = rep.tier === 'legendary' ? '👑' : rep.tier === 'elite' ? '⭐' : '★';
     return h('span', { class: 'pill', title: rep.blurb, style: `border:1px solid ${col};color:${col};font-weight:700;font-size:12px` }, `${icon} ${rep.label}`);
   })() : '';
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', { class: 'row', style: 'gap:10px;align-items:center' }, h('h2', { style: 'margin:0' }, 'Managerial career'), repBadge),
@@ -2841,11 +2900,13 @@ async function screenCareer() {
 }
 
 async function screenHistory() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading history…')));
   let hist: SeasonHistoryT[]; let records: import('./api').ClubRecordsT | null = null;
   try { const r = await api.history(); hist = r.history; records = r.records; }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
 
@@ -2879,6 +2940,7 @@ async function screenHistory() {
       h('td', {}, honours)));
   }
 
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, 'Club history'),
@@ -2906,13 +2968,18 @@ async function screenHistory() {
   ));
 }
 
+// Persisted squad-table view state so a captain/rotation action (which reloads the whole screen) — or a
+// return visit — keeps the user's chosen sort column/direction and the two compare picks. See screenSquad.
+const squadView: { sortKey: string; sortDir: 1 | -1; cmpA: number; cmpB: number } = { sortKey: 'slot', sortDir: 1, cmpA: -1, cmpB: -1 };
 // ── squad spine screen: sortable attribute table + heat + depth chart + compare ──
 async function screenSquad() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading squad…')));
   let team: TeamT;
   try { team = await api.team(); }
   catch (e: any) {
     if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenSquad() }, '↻ Retry')));
   }
@@ -2940,7 +3007,7 @@ async function screenSquad() {
   const autoSlot = autoCap && leadOf(autoCap) >= 0 ? autoCap.slot : -1;
   const captainSlot = team.captainSlot != null && players.some(p => p.slot === team.captainSlot) ? team.captainSlot : autoSlot;
 
-  let sortKey = 'slot', sortDir: 1 | -1 = 1, cmpA = -1, cmpB = -1;
+  let sortKey = squadView.sortKey, sortDir: 1 | -1 = squadView.sortDir, cmpA = squadView.cmpA, cmpB = squadView.cmpB;
   const COLS: { key: string; label: string; text?: boolean; get: (p: PlayerT) => number | string }[] = [
     { key: 'slot', label: 'Name', text: true, get: p => p.name },
     { key: 'role', label: 'Pos', text: true, get: p => p.role },
@@ -2962,7 +3029,7 @@ async function screenSquad() {
       return c * sortDir;
     });
     const thead = h('thead', {}, h('tr', {}, ...COLS.map(c => {
-      const sort = () => { if (sortKey === c.key) sortDir = (sortDir === 1 ? -1 : 1); else { sortKey = c.key; sortDir = c.text ? 1 : -1; } render(); };
+      const sort = () => { if (sortKey === c.key) sortDir = (sortDir === 1 ? -1 : 1); else { sortKey = c.key; sortDir = c.text ? 1 : -1; } squadView.sortKey = sortKey; squadView.sortDir = sortDir; render(); };
       // a sortable column header: keep the columnheader role (don't override with role=button), add aria-sort + keyboard
       const th = h('th', {
         class: c.text ? '' : 'num', style: 'cursor:pointer;user-select:none', tabindex: '0', title: `Sort by ${c.label}`,
@@ -3009,10 +3076,10 @@ async function screenSquad() {
       ...g.ps.map(p => h('div', { style: 'font-size:12px;padding:1px 0;' + (p.slot < 11 ? '' : 'opacity:.55'), }, `${p.slot < 11 ? '●' : '○'} ${p.name} ${skillOvr(p.attrs)}`)))));
     // compare
     const opt = (sel: number) => [h('option', { value: '-1' }, '— pick —'), ...players.map(p => { const o = h('option', { value: String(p.slot) }, `${p.name} (${p.role})`) as HTMLOptionElement; if (p.slot === sel) o.selected = true; return o; })];
-    const selA = h('select', {}, ...opt(cmpA)) as HTMLSelectElement;
-    const selB = h('select', {}, ...opt(cmpB)) as HTMLSelectElement;
-    selA.addEventListener('change', () => { cmpA = Number(selA.value); render(); });
-    selB.addEventListener('change', () => { cmpB = Number(selB.value); render(); });
+    const selA = h('select', { 'aria-label': 'Compare — first player' }, ...opt(cmpA)) as HTMLSelectElement;
+    const selB = h('select', { 'aria-label': 'Compare — second player' }, ...opt(cmpB)) as HTMLSelectElement;
+    selA.addEventListener('change', () => { cmpA = Number(selA.value); squadView.cmpA = cmpA; render(); });
+    selB.addEventListener('change', () => { cmpB = Number(selB.value); squadView.cmpB = cmpB; render(); });
     const pa = players.find(p => p.slot === cmpA), pb = players.find(p => p.slot === cmpB);
     const cmp = pa && pb
       ? h('div', {}, ...SQUAD_ATTRS.map(([a, lab]) => h('div', { class: 'row', style: 'gap:10px;align-items:center;font-size:12px;margin:3px 0;justify-content:center' },
@@ -3081,6 +3148,7 @@ async function screenSquad() {
         h('div', { style: 'max-height:430px;overflow:auto' }, ...ranked.map(bar)));
     })();
 
+    if (!alive()) return;
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain (click the armband to set — a strong leader steadies squad morale) · click a header to sort`)),
@@ -3130,6 +3198,7 @@ async function loadLeagueOr(fallback: (e: any) => void): Promise<LeagueT | null>
 }
 
 async function screenMyMatches() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   const league = await loadLeagueOr(e => {
     if (String(e.message).includes('no team')) screenCreateTeam();
@@ -3138,6 +3207,7 @@ async function screenMyMatches() {
   if (!league) return;
   const mine = league.fixtures.filter(f => f.involvesMe && f.played).sort((a, b) => b.round - a.round);
   const rankOf = rankLookup(league);
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('h2', {}, '📅 My Matches'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     mine.length
@@ -3146,6 +3216,7 @@ async function screenMyMatches() {
 }
 
 async function screenLeagueMatches() {
+  const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   const league = await loadLeagueOr(e => {
     if (String(e.message).includes('no team')) screenCreateTeam();
@@ -3155,6 +3226,7 @@ async function screenLeagueMatches() {
   const played = league.fixtures.filter(f => f.played);
   const rounds = [...new Set(played.map(f => f.round))].sort((a, b) => b - a);
   const rankOf = rankLookup(league);
+  if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('h2', {}, '⚽ League — all results'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     played.length
@@ -3166,6 +3238,7 @@ async function screenLeagueMatches() {
 
 function route() {
   const hash = location.hash;
+  routeGen++;   // invalidate any in-flight screen's pending mount (see screenGuard) — the new route owns the DOM now
   if (!user) { screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
   if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash)); }
@@ -3196,6 +3269,9 @@ skipLink.addEventListener('click', (e: Event) => { e.preventDefault(); document.
 document.body.insertBefore(skipLink, document.body.firstChild);
 
 window.addEventListener('hashchange', route);
+// Session expired (any api call got a 401): drop the stale user and fall back to the login screen instead of
+// leaving a raw "not logged in" under a live URL. teardownWatch() stops any running watch first.
+window.addEventListener('footy:auth-expired', () => { if (!user) return; user = null; teardownWatch(); route(); });
 
 // ── stale-tab guard ── the SPA ships as one content-hashed bundle with no HMR for the watch screen, so an
 // open tab keeps running the OLD code after a deploy — which is exactly why the user saw "still choppy" on a
