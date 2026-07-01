@@ -242,6 +242,35 @@ Action PlayerAI::scoreChase(const Perception& per) {
         }
     }
     bool urgentLooseBallRun = incomingLooseBall || deadBallRecoveryRun || closeLooseBall;
+
+    // ── Dead-ball recovery override (wide/corner pursuit gap) ──
+    // A STATIONARY uncontested ball that this player can reach and is the nearest
+    // eligible man to MUST be collected — and the recovery must WIN arbitration
+    // over his shape/line positioning (which scores up to ~1.0). The two branches
+    // below cap the recovery at 0.96 (free-ball, d>=45) and 1.0 (urgent, d<45), so
+    // a wide fullback's defensive-line candidate out-arbitrates it and the ball is
+    // stranded in the corner until the 3s freeze-rescue teleports control to him.
+    // This single override covers BOTH distance bands: for a truly dead ball
+    // (bs<15) that I am closest-eligible to, floor the chase above any positioning
+    // candidate. Tightly gated to bs<15 => all moving loose-ball play is unchanged.
+    if (canContest && per.ballIsLoose && b.z <= AERIAL_HEIGHT && ballSpeed < 15.0
+        && !isIntendedReceiver && per.ballDist < 340.0) {
+        bool amNearestEligible = true;
+        for (auto& q : engine.state.players) {
+            if (q.id == player.id || q.role == Role::GK) continue;
+            if (dist(q.x, q.y, b.x, b.y) + 25.0 < per.ballDist && engine.canContestBall(q)) {
+                amNearestEligible = false;
+                break;
+            }
+        }
+        if (amNearestEligible)
+            // Target the ball tightly (BALL_R margin, not the usual 10px) so a ball
+            // wedged in the true corner is reachable — a 10px inset left the chaser
+            // pointed ~10px short of a corner ball, just outside a clean collect.
+            return Action{ActionType::Chase, 1.60, nullptr,
+                          clamp(b.x, BALL_R, PITCH_W - BALL_R), clamp(b.y, BALL_R, PITCH_H - BALL_R),
+                          ActionPurpose::RecoverLoose};
+    }
     // Free ball: a slow loose ball whose nearer players are all contest-blocked
     // (e.g. shepherding their own clearance) is anyone's — the nearest eligible
     // player must go get it, even from beyond the usual chase radius. Without

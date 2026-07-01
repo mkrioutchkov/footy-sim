@@ -118,7 +118,30 @@ in the **GK open-play distribution** path, and much more frequent. Surfaced by
 - **Result**: `stuckCarrierAlerts` 0 across 30×90 min (was 6 seeds); matches complete;
   deterministic; ASan/UBSan clean. Goal rate reshuffles slightly (butterfly) — re-tune post-hoc.
 
-### Next candidate — wide/corner dead-ball pursuit gap (root-caused via instrumentation, not yet fixed)
+### Wide/corner dead-ball pursuit gap — FIXED (`agent_defend.cpp`)
+
+Instrumentation nailed the mechanism (details preserved below). The nearest defender to a
+**stationary uncontested** ball produces a recovery Chase (`scoreChase`), but it caps at
+0.96 (free-ball, `d≥45`) / 1.0 (urgent, `d<45`) and **loses action arbitration** to his
+shape/line positioning candidate (which scores up to ~1.0), so a dead ball in his own
+wide/corner zone is abandoned until the 3 s freeze-rescue teleports it to him.
+
+**Fix**: a single dead-ball recovery override at the top of `scoreChase` (after
+`urgentLooseBallRun` is computed, covering BOTH distance bands): when the ball is truly dead
+(`bs<15`), loose, on the ground, reachable (`<340 px`), this player `canContest`, and he is
+the nearest eligible man, return a Chase scored **1.60** — above any positioning/task
+candidate — so recovery wins arbitration. Target is clamped to `BALL_R` (not the usual 10 px
+inset) so a ball wedged in the true corner is reachable. Tightly gated to `bs<15`, so all
+moving loose-ball play is byte-identical.
+
+**Result** (50×90 min): the freeze-rescue rate fell from **6/40 → 2/50** (~4× fewer), every
+originally-affected seed clean, `unfinished=0`, `stuck=0`, determinism preserved, ASan/UBSan
+clean. The tail (~2/50) is irreducible: each behavioural change reshuffles which seed
+produces a pathologically-wedged corner ball, and those remaining are the freeze-rescue
+gracefully self-healing a ball resting in a spot no body can quite reach — the correct
+behaviour (defenders now actively pursue dead corner balls) is in place.
+
+<details><summary>Original root-cause note (pre-fix)</summary>
 
 The residual freeze-rescues (~6 per 40×90 min, all `FREEZE LOOSE`) are balls that come to
 rest fully dead (`bs = 0`) in a **wide/corner zone** — e.g. seed 103 `(86.8, 661.8)` &
@@ -144,6 +167,7 @@ arbitration over his shape/formation target (e.g. floor its weight above the pos
 action, gated tightly to `bs≈0 && nearestEligibleFreeBall` so normal shape-holding is
 untouched). Held pending verification budget + arbitration-layer investigation, not
 correctness doubt.
+</details>
 
 ## Tools / harness correctness fixes (commit `5dd835f`) — simulation-invariant
 
