@@ -1425,6 +1425,10 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   watchStatus = status;
   const showStatusError = (msg: string) => {
     if (myEpoch !== watchEpoch) return;   // superseded — don't resurrect an overlay teardown removed
+    // Once the first frame arrived, `status` was removed from the DOM (see `status.remove()`). A later
+    // mid-stream error (e.g. a failed re-sim) must re-attach it, or the message is written to a detached
+    // node and the user sees nothing while the pitch freezes.
+    if (!status.isConnected) { document.body.appendChild(status); watchStatus = status; }
     status.replaceChildren(
       h('div', { class: 'err' }, msg),
       h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
@@ -1442,6 +1446,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const LIVE_BUFFER_MAX = 7200;                // ~12 min of rewind at the ~10fps thinned rate (bounds memory ~35MB)
   const liveBuffer: WatchMessage[] = [];
   const liveMarks: { clockMs: number; name: string; kind: string }[] = [];   // goal/card markers indexed live (no report)
+  const seenMarkKeys = new Set<string>();   // dedup live markers per EVENT (events linger ~78 frames), not per frame
   let goalClip: WatchMessage[] | null = null;
   let replaying = false;
   // ── live rewind (viewer #1) ── a live watch (re-sim or coordinator) has NO backend seek — frames are
@@ -1467,9 +1472,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     if (!activeRenderer || !liveBuffer.length) return;
     const myGen = ++playbackGen;            // a fresh re-scrub invalidates any in-flight step() chain
     replaying = true;                       // gate the live-frame render (onmessage keeps buffering)
-    // P0 bug-fix: do NOT raise the "⚽ GOAL REPLAY" banner for a PLAIN buffer-rewind — that's playClip's job
-    // (an actual goal replay). And the resume button reads ● LIVE only on a TRUE live match; on a re-sim it's
-    // "▶ Resume" (a re-sim has no live edge). The button's presence is the rewound indicator.
+    // Suppress the live GOAL / HALF-TIME banner while replaying buffered frames FORWARD across a rewind —
+    // else crossing a goal during the rewind re-pops "GOAL!" though none was scored. setReplay only sets the
+    // suppression flag; the "⚽ GOAL REPLAY" overlay is playClip's separate doing, so a PLAIN rewind still
+    // shows no overlay (that stays playClip's job). resumeLive() clears the flag.
+    activeRenderer.setReplay(true);
+    // The resume button reads ● LIVE only on a TRUE live match; on a re-sim it's "▶ Resume" (no live edge).
+    // The button's presence is the rewound indicator.
     goLiveBtn.textContent = live ? '● LIVE' : '▶ Resume';
     goLiveBtn.title = live ? 'Jump back to the live edge' : 'Resume to the latest point';
     goLiveBtn.style.display = '';
@@ -1598,8 +1607,19 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         // shows ⚽/🟨/🟥 + jump-to-goal + , / . + highlights all work mid-game (recorded gets these from the report).
         const marks = (msg.events ?? []).filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red');
         if (marks.length && typeof msg.clockMs === 'number') {
-          for (const e of marks) liveMarks.push({ clockMs: msg.clockMs, name: e.playerId != null ? pname(e.playerId) : (e.type === 'goal' ? 'Goal' : e.type === 'red' ? 'Red card' : 'Booking'), kind: e.type });
-          buildMarkers(liveMarks);
+          let added = false;
+          for (const e of marks) {
+            // An engine event lingers ~2600ms in the feed (~78 frames at 30fps), so pushing per-frame stacks
+            // ~78 duplicate markers per goal (breaking highlights + ,/. nav). Dedup per EVENT with the same key
+            // the renderer's ticker uses (type:player:evClock/400 — evClock = frameClock − age).
+            const evClock = msg.clockMs - (e.age ?? 0);
+            const key = `${e.type}:${e.playerId}:${Math.round(evClock / 400)}`;
+            if (seenMarkKeys.has(key)) continue;
+            seenMarkKeys.add(key);
+            liveMarks.push({ clockMs: evClock, name: e.playerId != null ? pname(e.playerId) : (e.type === 'goal' ? 'Goal' : e.type === 'red' ? 'Red card' : 'Booking'), kind: e.type });
+            added = true;
+          }
+          if (added) buildMarkers(liveMarks);
         }
         // reveal the rewind/scrub controls for a LIVE watch once there's enough buffered to seek within
         if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; rewindBtn.style.display = ''; rewind5Btn.style.display = ''; rewind10Btn.style.display = ''; rewind30Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
