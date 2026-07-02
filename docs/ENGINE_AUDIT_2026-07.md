@@ -369,3 +369,24 @@ Current held-in-range: goals 2.80-2.90 ✓ · conv/SoT 34.5 ~✓ · saves 5.6-5.
 draws 25% ✓ · SoT 8.0-8.4 ✓ · corners 11.6 ✓ · offsides 3.1 ✓ · yellows 3.75 ✓.
 Still open: crosses ~67 (load-bearing), headed-share ~32% (downstream of cross
 volume), passes ~1840 (press redesign), fouls ~24-28 (borderline).
+
+### Press redesign — the four-experiment map (all reverted; do NOT retry incrementally)
+
+Four A/Bs establish that the defense has NO incremental softening path — every
+pixel of press glue is load-bearing:
+
+| experiment | change | result |
+|---|---|---|
+| tempo2 | primary standoff 16→34 + support 18→40 | shots 37, goals 4.25 |
+| tempo5 | graded standoff 14-38 + anti-matador hold-ground + support 40 | shots 36, goals 4.65, crosses 97 |
+| scrum  | support bodies ONLY 18→34 (primary glue untouched) | shots 34, goals 4.25, crosses 87, corners 18 |
+| (analysis) | presser target `carrier − standoff·fd` | backpedals at carrier speed = 40-yard escort ("matador") |
+
+Duels DID fall each time (804→633 attempts in `scrum`) — the glue is what
+stops ball progression, not just what contests it. Conclusion: build 1v1
+containment FIRST — (1) a jockey that holds ground and forces direction
+changes rather than chasing an offset point, (2) a drive-past resolution
+(carrier pushing through the jockey's zone triggers a contest), (3) wide-lane
+containment so wingers can't carry outside a goal-side jockey. Only then can
+standoffs widen and the pass tempo (~1820, real ~1000) come down. Until that
+project lands, the glue press stays.
