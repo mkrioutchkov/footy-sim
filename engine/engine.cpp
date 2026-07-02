@@ -319,11 +319,36 @@ void GameEngine::updatePossessionTracking(double sdt) {
             carrierTracker.carryLastX = c->x;
             carrierTracker.carryLastY = c->y;
             carrierTracker.carryPathDistance = 0;
+            carrierTracker.carryStartMs = state.clockMs;
+            carrierTracker.carryRevsY = 0;
+            carrierTracker.carryLastDirY = 0;
+            carrierTracker.marathonRecorded = false;
+            carrierTracker.shuttleRecorded = false;
         } else {
             double step = dist(c->x, c->y, carrierTracker.carryLastX, carrierTracker.carryLastY);
             if (step < 45.0) carrierTracker.carryPathDistance += step;
+            // Lateral shuttle: count y-direction reversals within one carry —
+            // the "dribbled side to side for ages" pattern.
+            double dy = c->y - carrierTracker.carryLastY;
+            int dirY = dy > 0.5 ? 1 : (dy < -0.5 ? -1 : 0);
+            if (dirY != 0) {
+                if (carrierTracker.carryLastDirY != 0 && dirY != carrierTracker.carryLastDirY)
+                    carrierTracker.carryRevsY++;
+                carrierTracker.carryLastDirY = dirY;
+            }
             carrierTracker.carryLastX = c->x;
             carrierTracker.carryLastY = c->y;
+            double carryMs = state.clockMs - carrierTracker.carryStartMs;
+            if (!carrierTracker.marathonRecorded && carryMs >= 8000.0 && c->role != Role::GK) {
+                carrierTracker.marathonRecorded = true;
+                stats.recordMarathonCarry();
+            }
+            if (!carrierTracker.shuttleRecorded && carryMs >= 6000.0
+                && carrierTracker.carryRevsY >= 3 && c->role != Role::GK) {
+                carrierTracker.shuttleRecorded = true;
+                stats.recordShuttleCarry();
+            }
+            stats.noteLongestCarry(carryMs);
         }
         if (c->id != carrierTracker.backwardCarryCarrierId) {
             carrierTracker.backwardCarryCarrierId = c->id;
@@ -387,6 +412,28 @@ void GameEngine::updatePossessionTracking(double sdt) {
         carrierTracker.stationaryHoldCarrierId = -1;
         carrierTracker.stationaryHoldMs = 0;
         carrierTracker.stationaryHoldRecorded = false;
+    }
+    // Line-too-deep sampler (user: "defensive lines drop a bit too deep
+    // sometimes when they shouldn't"): once a second per team — flag when the
+    // back line sits inside 110px of its own goal while the ball is far away
+    // (>450px from that goal) and no attacker is even near the line depth.
+    if (state.clockMs >= lineDepthNextMs && !setPiece.armed && !phase.kickoffPhase) {
+        lineDepthNextMs = state.clockMs + 1000.0;
+        for (int t = 0; t < 2; t++) {
+            Team team = t == 0 ? Team::Home : Team::Away;
+            double goalX = ownGoalXFor(team);
+            double line = 1e9;
+            for (auto& p : state.players)
+                if (p.team == team && !p.sentOff && (p.role == Role::CB || p.role == Role::FB))
+                    line = std::min(line, std::abs(p.x - goalX));
+            if (line > 110.0) continue;
+            if (std::abs(state.ball.x - goalX) < 450.0) continue;
+            bool threatDeep = false;
+            for (auto& p : state.players)
+                if (p.team != team && p.role != Role::GK && !p.sentOff
+                    && std::abs(p.x - goalX) < line + 60.0) { threatDeep = true; break; }
+            if (!threatDeep) stats.recordLineTooDeep();
+        }
     }
     stats.recordPossession(metrics.possessionHome, metrics.possessionAway);
     auditStuckCarrier(sdt);

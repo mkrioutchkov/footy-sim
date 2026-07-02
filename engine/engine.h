@@ -47,6 +47,12 @@ public:
 
         int carryTrackerId = -1;
         double carryLastX = 0, carryLastY = 0, carryPathDistance = 0;
+        // Marathon/shuttle carry flags (2026-07-02 user: "Tanaka dribbled non
+        // stop for ages side to side, defenders in repeat patterns"): carry
+        // start clock, lateral-direction reversals, and one-shot markers.
+        double carryStartMs = 0;
+        int carryRevsY = 0, carryLastDirY = 0;
+        bool marathonRecorded = false, shuttleRecorded = false;
 
         int stationaryHoldCarrierId = -1;
         double stationaryHoldMs = 0;
@@ -441,6 +447,7 @@ public:
     // tick (phase glue + intra-move re-anchors) — the capped step toward the
     // control offset must apply ONCE per tick or receptions double-step.
     double glueStepDoneMs = -1;
+    double lineDepthNextMs = 0;   // 1s sampler for the line-too-deep quality flag
     void updateTeamAssignments();
     void assignDefensiveRoles(Team team, Player& carrier);
     // Wake the in-possession team's off-ball runners: designate up to 3 attacking

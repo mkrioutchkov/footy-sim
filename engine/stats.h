@@ -150,6 +150,10 @@ public:
     void recordWoodwork()               { woodworkHits++; }
     void recordClearance()              { clearances++; }   // Clear-purpose releases (both the hoof gate and relabeled candidates); real ~30-40/match both teams
     void recordBlobMoment()             { blobMoments++; }  // 6+ players within 50px, open play, 1.5s throttle
+    void recordMarathonCarry()          { marathonCarries++; }        // outfield single-possession carry >= 8s
+    void recordShuttleCarry()           { shuttleCarries++; }         // >= 6s carry with >= 3 lateral reversals
+    void recordLineTooDeep()            { lineTooDeepSamples++; }     // 1s samples: back line <110px, ball far, no deep threat
+    void noteLongestCarry(double ms)    { if (ms > longestCarryMs) longestCarryMs = ms; }
     void recordBallJump()               { ballJumps++; }
     void recordQuestionableShot()       { questionableShots++; }
     void recordQuestionablePress()      { questionPress++; }
@@ -241,6 +245,8 @@ private:
     int woodworkHits=0;   // frame (post/bar) contacts — real ~0.5-1/match; audit 2026-07-02 measured 8
     int clearances=0;
     int blobMoments=0;
+    int marathonCarries=0, shuttleCarries=0, lineTooDeepSamples=0;
+    double longestCarryMs=0;
     int ballJumps=0;
     int teammatePingPongs=0;
     int questionableShots=0;
