@@ -390,3 +390,19 @@ changes rather than chasing an offset point, (2) a drive-past resolution
 containment so wingers can't carry outside a goal-side jockey. Only then can
 standoffs widen and the pass tempo (~1820, real ~1000) come down. Until that
 project lands, the glue press stays.
+
+### Press redesign stage 1 — SHIPPED: the grudging-give-ground jockey
+
+First standoff softening in five attempts that does NOT leak (shots 26.5 vs
+the 34-37 leak signature). `assignPrimaryPress`: standoff 16 (flat contact) →
+`clamp(30 − carrierDrive·0.45, 12, 30)` + half-body inside shade. A DRIVING
+carrier compresses the jockey's held distance into tackle range within ~1s
+(progression still stopped — kills the matador); a carrier who holds keeps a
+30px gap (the carrier visually has the ball now, not a defender in his chest).
+Cost: goals +0.2, crosses +7 (mild, within drift).
+
+Stage 2 (support bodies 18→32 on top) LEAKED (shots 32.6, corners 19.6) and
+was reverted: the support glue is ALSO load-bearing — not as pressure but as
+short-lane interception around the jockey. Stage 3 therefore needs LANE-AWARE
+support positioning (block the exits, not hug the carrier) before support
+distances can widen; only then does the pass tempo unlock.

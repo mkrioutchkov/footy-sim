@@ -48,9 +48,24 @@ void GameEngine::assignPrimaryPress(DefenseContext& ctx, Player& carrier) {
     }
     // press_hard: the presser gets right on top of the carrier (tighter standoff).
     // contain: the opposite — sit off and jockey rather than engage.
-    double standoff = 16.0 - directiveBias[primary->id].pressTightness * 13.0
+    // ── Jockey stage 1 (press-redesign task, see the four-experiment map in the
+    // audit doc) ── The old flat 16px = body contact on every touch. A real first
+    // defender jockeys a couple strides off and GIVES GROUND GRUDGINGLY: the held
+    // distance shrinks with the carrier's drive speed, so a carrier who pushes at
+    // goal closes the gap into tackle range within ~1s (progression still gets
+    // stopped — the flaw that sank every flat-standoff attempt was the jockey
+    // backpedaling at FULL carrier speed forever, the 40-yard matador escort).
+    // A carrier who HOLDS the ball keeps the 30px gap — which is exactly what
+    // lets the composure dwell breathe (tempo) without the defense leaking.
+    double carrierDrive = std::max(0.0, -(carrier.vx * ctx.fd));   // px/s driving at our goal
+    double standoff = clamp(30.0 - carrierDrive * 0.45, 12.0, 30.0)
+                           - directiveBias[primary->id].pressTightness * 13.0
                            + directiveBias[primary->id].containBias * 22.0;
-    setAssignment(*primary, DefensiveTask::PrimaryPress, carrier.x - ctx.fd * standoff, carrier.y, carrier.id);
+    // Shade half a body inside (goal-center side) — show the carrier the wide
+    // lane, protect the middle. The populated-box cross gate owns the wide lane.
+    double insideShade = (carrier.y < PITCH_H / 2.0 ? 7.0 : -7.0);
+    setAssignment(*primary, DefensiveTask::PrimaryPress,
+                  carrier.x - ctx.fd * std::max(10.0, standoff), carrier.y + insideShade, carrier.id);
     ctx.assigned[primary->id] = true;
 }
 
