@@ -331,3 +331,20 @@ and documented in code comments at the decision sites):
    penalty-spot band, so the new first-time finish rarely fires. Widening its
    gate to 215px was rejected (minted 20m pot-shots). Fix in positioning:
    runners must attack the 80-140px band on wide-carry triggers.
+
+### Out-of-sample validation (seeds 301-340, n=40 — never used for tuning)
+
+All session tuning used seeds 201-220; this is the honest held-out scoreboard
+for the final tree (`bda26ad`):
+
+goals 3.42 · shots 25.7 ✓ · SoT 9.3 ✓ · conv 13.4% · saves 3.9 · corners 13.1 ·
+fouls 23.8 ✓ · yellows 3.2 ✓ · offsides 4.1 ✓ · passes 1810 · completion 86% ·
+crosses 69 · headed goals 34% · draws 20% · 0 stuck/freeze/unfinished.
+
+Read: the integrity + discipline + volume stats generalize; **goals (3.4) and
+headed-share (34%) read worse out-of-sample than in-sample (3.05 / 25%)** —
+partial overfit to the tuning seeds, and a real side effect: the box-burst
+runs put bodies in the box while cross volume is still ~70/match, so crosses
+find heads more often. Headed-share should normalize when cross volume drops,
+which is blocked on central chance supply (the staged cutback work). Use fresh
+seed ranges per tuning arc going forward.
