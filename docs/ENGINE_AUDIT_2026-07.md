@@ -419,3 +419,11 @@ a carrier dribbling into/through the jockey's containment zone must face a
 genuine contested roll (jockey mirrors laterally + tackle window on entry),
 so beating the man is a dice roll weighted by attributes, not free routing.
 Until that exists, support-glue positioning stays as-is.
+
+Stage-3b attempt (drive-past duel: lunge-range tackle trigger for the assigned
+jockey vs a bursting carrier) — NOT shipped: tackle volume barely moved
+(792→767, it rarely fires) while shots drifted +3. Root insight: a tackle
+TRIGGER can't rescue a jockey whose position is already beaten when the
+carrier passes — the duel needs the MOVEMENT layer first (lateral mirroring so
+the jockey stays between carrier and goal through the burst), then the wider
+trigger becomes meaningful. That mirroring is the real stage-3 build item.
