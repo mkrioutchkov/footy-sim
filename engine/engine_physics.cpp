@@ -299,14 +299,29 @@ void GameEngine::checkBallPlayerCollision(double sec){
     // the clean first-touch error model (a FOOT finish, not a header). This sits
     // ahead of the keeper-gather so the striker who is first to the ball wins —
     // but only when he is actually closer to it than any keeper.
-    if (b.controllerId < 0 && pendingPass.active && pendingPass.isCross
-        && b.intendedReceiverId >= 0 && bs > 190.0 && b.z <= GROUND_MEET_MAX_Z + 6.0) {
+    // Cutbacks now finish first-time too (isCutback was a render-only hint): the
+    // pulled-back ball to an arriving runner at the spot is real football's
+    // signature close chance, but its reception was a normal trap — take a touch
+    // at 12m with defenders closing, recycle. Sweeping it first-time is what
+    // converts the engine's existing cutback volume into genuine box chances
+    // (shot mix sat at close 2% / medium 68%; real ~20/40). Lower speed gate
+    // than the driven cross — a cutback is a measured pull-back, not a whip.
+    if (b.controllerId < 0 && pendingPass.active
+        && (pendingPass.isCross ? bs > 190.0 : pendingPass.isCutback && bs > 110.0)
+        && b.intendedReceiverId >= 0 && b.z <= GROUND_MEET_MAX_Z + 6.0) {
         Player* rcv = playerById(b.intendedReceiverId);
         if (rcv && rcv->team == pendingPass.team
             && (rcv->role == Role::CF || rcv->role == Role::WM || rcv->role == Role::CM)) {
             double goalX = goalXFor(rcv->team);
             double tgd = std::abs(rcv->x - goalX);
             double dRcv = dist(rcv->x, rcv->y, b.x, b.y);
+            // NOTE (measured): cutback receivers currently arrive at tgd ~195 —
+            // OUTSIDE this 175 gate — so the cutback first-time finish rarely
+            // fires yet. Widening the gate to 215 was A/B'd and REJECTED: it
+            // just minted 20m first-time pot-shots (long-shot share up, goals
+            // +0.5). The right fix is POSITIONING — the cutback runner must
+            // attack the penalty-spot band (80-140px), not hang at the edge;
+            // until then this fires only on the (correctly) well-positioned few.
             bool inBox = tgd < 175.0 && std::abs(rcv->y - PITCH_H / 2.0) < 200.0;
             bool reachable = dRcv <= MEET_REACH_GROUND + 10.0;
             bool keeperCloser = false;

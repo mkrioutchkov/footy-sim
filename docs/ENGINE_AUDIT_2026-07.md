@@ -287,3 +287,47 @@ behavioural/tuning (out of scope):
   327k-frame scan found zero NaN / negative-z / hover / tunnel-through; rain & wind
   sign/scale/gate correct; corner-side mapping consistent; extreme cross "bend" is a
   legit header layoff, not a curl error. Only the inert header-detector note above.
+
+## Realism-benchmark pass (Fable session, 2026-07-02)
+
+Method: 20-40 × 90-min sweeps benchmarked against real top-league averages at
+every step (`scratchpad/bench.py` pattern — goals, shots, SoT, conversion,
+saves, blocks, corners, fouls, cards, offsides, passes, completion, crosses,
+pens, headed-goal share, draw rate, watchdogs).
+
+**Shipped** (`3033d8a`, `0493240`, cutback-finish commit):
+- Restart pacing: throw-in 4s / corner+FK 7s / goal kick 6s / pen 9s /
+  post-goal kickoff 6s / GK hold 2s. `auditStuckCarrier` now skips armed
+  restarts (it force-passed every held taker ~2.7s in).
+- Composure dwell: unpressured carriers hold ~1-2.8s before non-killer passes.
+- Cross rebalance: box-crowd penalties on both cross paths, cutback-only
+  clean-window bonus, wide-funnel sugar trim, CROSS_CUTOUT_BASE 0.28→0.40,
+  aerial-duel defender base 0.52→0.58.
+- Cutback first-time finish (pendingPass.isCutback was render-only).
+
+**Scoreboard** (was → now, real): goals 3.50→2.95 (2.7-2.9) · conv 13.7→11.2%
+(10-11) · draws 17.5→~25-30% (25) · headed goals 30→20% (15-20) · fouls 27→23
+(20-25) · corners 13.2→11 (10-11) · offsides 3.4 (3-4) · passes 2128→1840
+(850-1000) · 0-0s exist again · 0 stuck/freeze/unfinished.
+
+**Structural findings — the three projects that remain** (each A/B'd, reverted,
+and documented in code comments at the decision sites):
+1. **Press redesign** (`engine_defense_helpers.cpp assignPrimaryPress`,
+   `agent_positioning.cpp` LocalCloseDown): median nearest-defender distance at
+   pass release is 25px — permanent glue-contact pressing sets the frantic
+   tempo AND is the only thing stopping ball progression. Standing off (34-40px
+   graded standoff, anti-matador hold-ground jockey) leaked 36-37 shots/match
+   because 1v1 jockeys can't delay carriers and wingers carry outside the
+   goal-side contain point. Needs: jockey-beats-dribble mechanics + wide
+   containment before the standoff can soften. Blocks the remaining pass-count
+   gap (1840 vs ~1000).
+2. **Cross volume is load-bearing offense** (`agent_pass.cpp` override
+   comment): ~70/match vs real 30-40; the override supplies ~50 and per-tick
+   re-evaluation defeats thresholds/weights. Restricting it to cross_early
+   collapsed attack to 1.05 goals (9/20 goalless). Blocks on №3.
+3. **Close-chance positioning**: shot mix close/medium/long = 2/68/30% vs real
+   ~20/40/40. Per-bucket conversion is RIGHT — the box occupation is wrong:
+   cutback receivers measured at tgd≈195 (edge of box), never in the
+   penalty-spot band, so the new first-time finish rarely fires. Widening its
+   gate to 215px was rejected (minted 20m pot-shots). Fix in positioning:
+   runners must attack the 80-140px band on wide-carry triggers.
