@@ -222,8 +222,19 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             // forces tempo — so possession rhythm emerges from the press, not a
             // timer. Shots/dribbles are never braked; the carrier carries instead
             // of standing (Dribble outscores the braked pass).
-            bool killerBall = x.purpose == ActionPurpose::Through
-                || x.purpose == ActionPurpose::Cutback;
+            // A "Cutback" is only a killer ball when it actually finds a runner
+            // in the penalty-spot band — that window IS fleeting, play it now.
+            // The isCutback classifier is a catch-all (any wide non-cross
+            // delivery), so a ~24m lay-back to a deep CM wears the same purpose;
+            // that one is ordinary recycling and pays the dwell like any other
+            // pass — which keeps the wide carrier CARRYING (byline-seek) while
+            // the box-burst runner arrives, fixing the cutback's timing from the
+            // carrier's side too (runner-side fix: agent_movement.cpp boxBurst).
+            bool spotBandCutback = x.purpose == ActionPurpose::Cutback
+                && x.target
+                && std::abs(x.target->x - goalXFor(player.team)) < 165.0
+                && std::abs(x.target->y - PITCH_H / 2.0) < 120.0;
+            bool killerBall = x.purpose == ActionPurpose::Through || spotBandCutback;
             bool lineBreakOutlet = x.type == ActionType::Pass
                 && x.target
                 && (x.target->role == Role::WM || x.target->role == Role::CF)
