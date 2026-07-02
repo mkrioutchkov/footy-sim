@@ -179,19 +179,25 @@ inline constexpr double SHOT_SCOOP_CHANCE        = 0.80;  // primary goal-rate d
 // REACTION_*, PLACEMENT_*, SPEED_*, BASE) were removed: dead since the keeper
 // became a physical tracker (he saves by reaching/collecting, not a placement
 // roll). Only the final clamp(roll, MIN, MAX) survives in engine_gk.
-inline constexpr double GK_SAVE_MIN             = 0.05;
+inline constexpr double GK_SAVE_MIN             = 0.09;   // 0.05->0.09: even a wrong-footed keeper gets a boot/fingertip to some
 // Save-ROLL ceiling. NOTE: measured a near-no-op on goal rate — the keeper saves
 // mostly by physically COLLECTING the ball (the tracker), not this roll, so this
 // is NOT the scoring throttle. Kept named (was a stray 0.84 literal in engine_gk).
-inline constexpr double GK_SAVE_MAX             = 0.72;
+inline constexpr double GK_SAVE_MAX             = 0.76;   // 0.72->0.76: real keepers stop ~2/3 of on-target; engine conceded 38% per SoT (real 30-34)
 inline constexpr double GK_CATCH_HANDLING_BASE  = 0.22;
 // ── Realistic reach envelope (10px = 1m) ── replaces the flat isotropic circle.
 // A keeper has a short STANDING reach but can EXTEND into a dive; a dive covers
 // ground over TIME, so a fast shot far from his set line beats him, and a lofted
 // ball adds a vertical cost he often can't pay. Centre/slow shots stay easy.
 inline constexpr double GK_STAND_REACH    = PLAYER_R + BALL_R + 7.0;  // ~23.5px standing arm reach
-inline constexpr double GK_MAX_DIVE_BASE  = 13.0;   // full lateral dive (base)
-inline constexpr double GK_MAX_DIVE_SKILL = 13.0;   // ...+ up to this with handling
+// Dive reach re-based (13/13 -> 17/16): at 13+13·hand the keeper's total
+// envelope (stand 23.5 + dive ≤26) barely covered typical shot placement
+// (34-44px off his line), so `reachCover` sat near zero and saveChance hit the
+// clamp FLOOR on most dive rolls — the save model's coefficients were dead
+// dials (a +0.05 base buff changed literally nothing across 20 matches). Real
+// keepers cover ~3m of lateral dive; 17+16·hand ≈ 25-33px dive + 23.5 stand.
+inline constexpr double GK_MAX_DIVE_BASE  = 17.0;   // full lateral dive (base)
+inline constexpr double GK_MAX_DIVE_SKILL = 16.0;   // ...+ up to this with handling
 inline constexpr double GK_DIVE_FULL_T    = 0.42;   // seconds of flight to reach full stretch
 inline constexpr double GK_STAND_Z        = 8.0;    // free vertical reach (px) before height costs him
 inline constexpr double GK_Z_WEIGHT       = 1.35;   // going UP is slow/expensive vs going sideways
