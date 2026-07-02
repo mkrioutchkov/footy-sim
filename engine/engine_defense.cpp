@@ -18,6 +18,10 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
     // (earlier phases = higher priority claim their spot; later ones shade
     // off it). Man-oriented tasks (a real opponent to touch: press, marks with
     // opponentId) are untouched — they MUST converge.
+    // 40px is MEASURED, not arbitrary: 48-seed paired A/B gave blobs −22.8±15.1
+    // with goals in band; the 55px notch was A/B'd the same evening and REJECTED
+    // (blob gain marginal 395→392, goals +0.58 paired — way past the ±0.35 gate:
+    // wider shading visibly loosens the defensive block). Don't raise it blind.
     if (opponentId < 0 && role != DefensiveTask::PrimaryPress && role != DefensiveTask::SecondaryPress) {
         for (auto& q : state.players) {
             if (q.team != player.team || q.id == player.id || q.sentOff) continue;
