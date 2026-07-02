@@ -818,6 +818,12 @@ void GameEngine::shootBall(Player&s,const ShotSelectionAudit* selectionAudit){
     if(directFreeKickShot)executionError*=0.62;   // §FK: less clinical than the old 0.48 — the curl-around-wall + open-corner aim were over-converting (goal-inflation); target ~1-in-12-15
     if(penaltyKick)executionError*=0.30;
     if(freshThrough&&angleDeg>8.0&&pressureCount<=1)executionError*=shotDistance<170.0?0.72:0.82;
+    // 2026-07-02 audit NOTE: headed goals run 32-41% of all goals (real 13-24%)
+    // and this error privilege is the conversion lever (headers convert LOWER
+    // than foot shots in reality, ASA −0.65 log-odds). A CF 0.46→0.56 /
+    // WM 0.62→0.70 moderation was A/B'd at 16×90min and came back NOISE-SWAMPED
+    // (headed share 32→45% while total goals fell — divergence chaos ±4 headed
+    // goals dwarfs the lever). Needs a 48+ seed paired read before touching.
     if(freshCross)executionError*=s.role==Role::CF?0.46:(s.role==Role::WM?0.62:0.82);
     if(firstTouch)executionError*=shotDistance<120.0?0.50:0.62;
     // ── Shot type — pick HOW to beat the keeper and route to the physics.
