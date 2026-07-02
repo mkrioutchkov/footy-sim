@@ -397,11 +397,15 @@ void GameEngine::checkBallPlayerCollision(double sec){
                                  && b.z + BALL_R <= GOAL_H;   // #1b: under the bar too
                 if (goalBound) {
                     stats.recordShotOnTarget();
-                    // #1c: a weak goalbound roller the keeper routinely scoops up is a
-                    // CLAIM, not a "save" — counting every one of them is why saves run
-                    // ~8/match (= onTarget) instead of the real ~3-4 (< onTarget 8-9).
-                    // Count only genuine-pace stops as saves; the weak ones stay on-target.
-                    if (std::hypot(b.vx, b.vy) > 295.0) stats.recordSave();   // #35: re-tuned 340->295 for the compressed-attr regime (slower shots; only 14% cleared 340 -> saves 1.5; real 3-4)
+                    // Real-world convention (Opta): EVERY on-target shot the keeper
+                    // stops is a save, however routine the gather. The old >295px/s
+                    // pace gate (#1c/#35) was calibrated when shotsOnTarget itself
+                    // under-counted (it excluded scored shots pre-5519235), which
+                    // made "saves = onTarget" look inflated — circular. With the
+                    // on-target ledger complete, the audit read SoT 8.45 = goals
+                    // 3.10 + saves 3.60 + 1.75 UNACCOUNTED (these scoops); counting
+                    // them lands saves at ~5.3 (real 5-6) and closes the ledger.
+                    stats.recordSave();
                     emitEvent("save", keeperContact->x, keeperContact->y, keeperContact->id);
                     keeperContact->diveAnim = std::max(keeperContact->diveAnim, 440.0);  // render-only stretch
                 }
