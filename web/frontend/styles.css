@@ -207,5 +207,5 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .tactics-panel { top: auto; left: 12px; right: 12px; bottom: 12px; width: auto; max-width: 720px; margin: 0 auto; max-height: 46vh; }
   /* the floating watch controls stay reachable on a phone: tighten spacing + let the scrub take a full row */
   .watch-bar { gap: 5px; }
-  .watch-bar .scrub-wrap { width: 100% !important; order: 99; }   /* the scrub gets its own full-width row below the buttons */
+  .watch-bar .scrub-wrap { width: 100% !important; max-width: none !important; order: 99; }   /* the scrub gets its own full-width row below the buttons */
 }

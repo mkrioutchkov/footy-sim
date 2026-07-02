@@ -639,6 +639,7 @@ abstract class FramePacer {
   protected latest: any = null;
   protected alive = true;
   protected replay = false;   // tags the wire frame so the client hides live-only controls
+  protected durationMs = 0;   // the recording's real match length (ReplayStream sets it) — sizes the client scrub slider; 0 = unknown/live
   // explicit fields (not constructor parameter properties) — the tools tsconfig type-checks this
   // file under erasableSyntaxOnly, which disallows that syntax.
   protected ws: WebSocket;
@@ -655,7 +656,7 @@ abstract class FramePacer {
   protected send(state: any): void {
     if (this.ws.readyState !== 1) return;
     this.latest = state;
-    this.ws.send(JSON.stringify({ ...state, seed: this.seed, speed: this.speed, homeName: this.homeName, awayName: this.awayName, weather: this.weather, replay: this.replay, matchState: this.paused ? 'paused' : state.matchState }));
+    this.ws.send(JSON.stringify({ ...state, seed: this.seed, speed: this.speed, homeName: this.homeName, awayName: this.awayName, weather: this.weather, replay: this.replay, durationMs: this.durationMs || undefined, matchState: this.paused ? 'paused' : state.matchState }));
   }
 
   protected tick(): void {
@@ -909,6 +910,8 @@ export class ReplayStream extends FramePacer {
     this.replay = true;
     this.frames = frames;
     this.frameClocks = frames.map(l => { const m = l.match(/"clockMs":(-?\d+(?:\.\d+)?)/); return m ? +m[1] : null; });
+    // the recording's real length — the client sizes its scrub slider to this instead of a fixed 96'
+    this.durationMs = this.frameClocks.reduce<number>((mx, c) => (c !== null && c > mx ? c : mx), 0);
     ws.on('message', (d: Buffer) => this.onCommand(d));
     ws.on('close', () => this.dispose());
     this.seekTo(0);

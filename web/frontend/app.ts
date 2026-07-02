@@ -11,7 +11,7 @@ interface TacticsReceipt {
   error?: string; formation?: string; note?: string; changed?: string;
   motivation?: MotivationReaction[]; plan?: PlanT | null; directives?: DirectiveT[];
 }
-type WatchMessage = EngineState & { homeName?: string; awayName?: string; weather?: 'clear' | 'rain' | 'wind'; replay?: boolean; tacticsReceipt?: TacticsReceipt; error?: string };
+type WatchMessage = EngineState & { homeName?: string; awayName?: string; weather?: 'clear' | 'rain' | 'wind'; replay?: boolean; durationMs?: number; tacticsReceipt?: TacticsReceipt; error?: string };
 
 const root = document.getElementById('app')!;
 let user: { id: number; username: string } | null = null;
@@ -1224,32 +1224,30 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const refreshDirOverlay = (): void => { activeRenderer?.setDirectives(buildDirMap(watchIsHome)); };
 
   root.replaceChildren();
-  // Rewind to the start — only meaningful for a finished recording (revealed on the first
-  // replay frame), since a live re-sim can't seek backwards.
-  const rewindBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Rewind to the start', onclick: () => seekTo(0) }, '⏮ Rewind');
-  // ● LIVE — shown only while rewound on a LIVE watch; jumps back to the live edge (defined below).
+  // ── SIMPLIFIED control bar (user: "too many controls — just a slider, speed, rewind/FF") ──
+  // Core: pause · speed · ⏪10s/10s⏩ · the slider (with clickable moment markers) · ● LIVE when rewound.
+  // Everything secondary (tactics overlay, highlights tour, goal replay) lives behind one ⋯ menu.
+  // ● LIVE — shown only while rewound; jumps back to the live edge (▶ Resume on a re-sim).
   const goLiveBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Resume live', title: 'Jump back to the live edge', onclick: () => resumeLive() }, '● LIVE') as HTMLButtonElement;
-  // G3 scrub: a finished recording is random-access (ReplayStream.seekTo re-fills from any clock), so
-  // drag to jump to any moment. Hidden until the first replay frame (same reveal as rewind). The seek
-  // value is a match-clock ms position; the bar tracks the live clock while playing and stops tracking
-  // while you drag (so it doesn't fight your scrub). No backend change → safe to ship without a :4000 restart.
-  const SCRUB_MAX_MS = 96 * 60 * 1000;   // 90' + generous added time; seeking past the end leaves the final frame up
+  // The slider is THE navigation control: drag to any moment (recorded = backend random access; live/re-sim =
+  // the client buffer). It spans the REAL match length once known (durationMs from a recording) — not a fixed
+  // 96' with a dead tail; markers recompute when the range tightens.
+  const SCRUB_MAX_MS = 96 * 60 * 1000;    // fallback until the real duration is known (live: the match is still growing)
+  let scrubMaxMs = SCRUB_MAX_MS;
   let scrubbing = false;
-  let currentMs = 0;                      // the live playhead (each frame's clockMs) — drives ⏪ back-10s
+  let currentMs = 0;                      // the live playhead (each frame's clockMs) — drives ⏪/⏩
   const fmtClock = (ms: number): string => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
   const scrubLabel = h('span', { class: 'muted', style: "display:none;font-size:12px;min-width:38px;font-variant-numeric:tabular-nums" }, '0:00');
   const scrubEl = h('input', { type: 'range', min: '0', max: String(SCRUB_MAX_MS), step: '1000', value: '0',
     style: 'width:100%;accent-color:var(--accent)', 'aria-label': 'Scrub through the match — drag to jump to any point' }) as HTMLInputElement;
-  // ⚽ goal markers float over the scrub track (built from the report timeline so every goal is known
-  // upfront — you can jump to one before playback reaches it). The wrap is the revealed unit, not scrubEl.
+  // ⚽ moment markers float over the scrub track (report timeline upfront on recorded; indexed live otherwise).
   const goalMarkers = h('div', { style: 'position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none' });
-  const scrubWrap = h('div', { class: 'scrub-wrap', style: 'display:none;position:relative;align-items:center;width:180px;height:18px' }, scrubEl, goalMarkers) as HTMLElement;
+  const scrubWrap = h('div', { class: 'scrub-wrap', style: 'display:none;position:relative;align-items:center;flex:1 1 170px;min-width:130px;max-width:360px;height:18px' }, scrubEl, goalMarkers) as HTMLElement;
   scrubEl.addEventListener('input', () => { scrubbing = true; scrubLabel.textContent = fmtClock(+scrubEl.value); });
   scrubEl.addEventListener('change', () => { seekTo(+scrubEl.value); scrubbing = false; });
-  // ⏪ back-10s — a real rewind (not jump-to-start), relative to the live playhead. Revealed with the scrub.
-  const rewind5Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 5 seconds', title: 'Back 5 seconds', onclick: () => seekTo(Math.max(0, currentMs - 5000)) }, '⏪ 5s') as HTMLButtonElement;
-  const rewind10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds', onclick: () => seekTo(Math.max(0, currentMs - 10000)) }, '⏪ 10s') as HTMLButtonElement;
-  const rewind30Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 30 seconds', title: 'Back 30 seconds', onclick: () => seekTo(Math.max(0, currentMs - 30000)) }, '⏪ 30s') as HTMLButtonElement;
+  // ⏪ / ⏩ — the ONLY step buttons (the slider + ←/→ cover the rest). Revealed with the scrub.
+  const back10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds (←)', onclick: () => seekTo(Math.max(0, currentMs - 10000)) }, '⏪ 10s') as HTMLButtonElement;
+  const fwd10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Forward 10 seconds', title: 'Forward 10 seconds (→)', onclick: () => seekTo(currentMs + 10000) }, '10s ⏩') as HTMLButtonElement;
   // The moments the 🎞 reel + the , / . keys tour: the drama — goals, red cards, penalties, woodwork. A
   // goalless-but-eventful match (a sending-off, a saved penalty, a 0-0 that rattled the bar) now gets a
   // highlights tour, not nothing. Yellows stay as clickable scrub markers only (a 5-yellow game shouldn't
@@ -1257,13 +1255,15 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   // now surfaces penalty/woodwork); a live watch indexes them from the frame events as they happen.
   let highlightIndex: { clockMs: number; name: string; kind: string }[] = [];
   let hasReportMarkers = false;   // the report timeline (full, upfront) was loaded → don't let the incremental live-marks clobber it
+  let lastMarkerEvents: { clockMs: number; name: string; kind: string }[] | null = null;   // rebuilt when the scrub range tightens
   const MARKER_ICON: Record<string, string> = { goal: '⚽', yellow: '🟨', red: '🟥', penalty: '🎯', woodwork: '🪵' };
   const HIGHLIGHT_KINDS = new Set(['goal', 'red', 'penalty', 'woodwork']);
   const buildMarkers = (events: { clockMs: number; name: string; kind: string }[]): void => {
+    lastMarkerEvents = events;
     highlightIndex = events.filter(e => HIGHLIGHT_KINDS.has(e.kind)).map(e => ({ clockMs: e.clockMs, name: e.name, kind: e.kind })).sort((a, b) => a.clockMs - b.clockMs);
     goalMarkers.replaceChildren();
     for (const e of events) {   // goals + cards on the timeline; click any to jump to it
-      const pct = Math.min(99.5, Math.max(0, (e.clockMs / SCRUB_MAX_MS) * 100));
+      const pct = Math.min(99.5, Math.max(0, (e.clockMs / scrubMaxMs) * 100));
       goalMarkers.append(h('span', {
         title: `${Math.floor(e.clockMs / 60000)}' — ${e.name} · click to jump`,
         style: `position:absolute;left:${pct}%;top:-3px;transform:translateX(-50%);font-size:12px;line-height:1;cursor:pointer;pointer-events:auto`,
@@ -1271,6 +1271,14 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       }, MARKER_ICON[e.kind] ?? '•'));
     }
     highlightBtn.style.display = highlightIndex.length ? '' : 'none';   // a moments-tour needs at least one goal/red
+  };
+  // Tighten the slider to the REAL match length (a recording knows it upfront via durationMs). The old fixed
+  // 96' range left the last ~6% of the track dead + compressed the markers; recompute them on the new scale.
+  const setScrubMax = (ms: number): void => {
+    if (!(ms > 0) || Math.abs(ms - scrubMaxMs) < 1500) return;   // once, and only for a real change
+    scrubMaxMs = ms;
+    scrubEl.max = String(ms);
+    if (lastMarkerEvents) buildMarkers(lastMarkerEvents);
   };
   // ⚽ Replay — appears after the first live goal; plays back the buffered run-up (instant action replay).
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Action replay of the last goal', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
@@ -1283,13 +1291,20 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   // fixture falls back to a fresh engine re-sim whose scoreline can differ from the league table. Set on
   // the first frame so the divergence is honest (this is the 4-1-here-vs-0-2-in-the-table confusion).
   const recBadge = h('span', { style: 'font-size:12px;color:#9ec5ff' });
-  // speed controls — ascending 1×/2×/4×/8× with the ACTIVE speed highlighted (read off each frame's state.speed),
-  // so you can always see your current speed (the old bar was 8×/4×/1×, no 2×, no active indicator).
-  const SPEEDS = [0.5, 1, 2, 4, 8];   // 0.5× slow-mo for detail (backend clamps [0.25,60]); keep 8× to skip ahead
+  // speed — ONE compact select (was five buttons). The value tracks each frame's ACTUAL state.speed, so it
+  // always shows the real playback rate; curSpeed also paces the client-side buffer playback when rewound.
+  const SPEEDS = [0.5, 1, 2, 4, 8];   // 0.5× slow-mo for detail (backend clamps [0.25,60]); 8× to skip ahead
   let paused = false;
-  const speedBtns = SPEEDS.map(v => h('button', { class: 'ghost small', 'aria-label': `Play at ${v} times speed`, 'aria-pressed': 'false', onclick: () => activeWs?.send(JSON.stringify({ type: 'speed', value: v })) }, `${v}×`) as HTMLButtonElement);
+  let curSpeed = 1;                   // last speed reported by a frame — the one true playback rate
+  const speedSel = h('select', {
+    'aria-label': 'Playback speed', title: 'Playback speed',
+    style: 'padding:3px 6px;font-size:12px;background:rgba(12,19,32,.85);color:inherit;border:1px solid var(--line);border-radius:6px;cursor:pointer',
+  }, ...SPEEDS.map(v => h('option', { value: String(v) }, `${v}×`))) as HTMLSelectElement;
+  speedSel.value = '1';
+  speedSel.addEventListener('change', () => activeWs?.send(JSON.stringify({ type: 'speed', value: +speedSel.value })));
   // Pause ↔ Resume. The LIVE coordinator takes distinct pause/resume; a re-sim/replay (match.ts) TOGGLES on 'pause'
-  // and ignores 'resume', so send a plain 'pause' there and just flip the label.
+  // and ignores 'resume', so send a plain 'pause' there and just flip the label. Pausing also freezes the
+  // client-side buffer playback when rewound (step() holds while paused).
   const pauseBtn = h('button', { class: 'ghost small', 'aria-label': 'Pause or resume playback', 'aria-pressed': 'false', onclick: () => {
     paused = !paused;
     activeWs?.send(JSON.stringify({ type: live ? (paused ? 'pause' : 'resume') : 'pause' }));
@@ -1297,8 +1312,10 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     paintBar();
   } }, '⏸ Pause') as HTMLButtonElement;
   const paintBar = (s?: number): void => {
-    const sp = typeof s === 'number' ? s : 1;
-    speedBtns.forEach((b, i) => { const on = !paused && SPEEDS[i] === sp; b.classList.toggle('primary', on); b.classList.toggle('ghost', !on); b.setAttribute('aria-pressed', String(on)); });
+    if (typeof s === 'number' && SPEEDS.includes(s)) {
+      curSpeed = s;
+      if (speedSel.value !== String(s)) speedSel.value = String(s);   // don't churn the control while it matches
+    }
     pauseBtn.classList.toggle('primary', paused); pauseBtn.classList.toggle('ghost', !paused); pauseBtn.setAttribute('aria-pressed', String(paused));
   };
   // 🎯 directive overlay toggle — surface each player's active tactical instruction on the pitch ("see it work")
@@ -1312,20 +1329,28 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     dirBtn.classList.toggle('ghost', !dirOn);
     dirBtn.setAttribute('aria-pressed', String(dirOn));
   });
+  // ⋯ — everything secondary in ONE place (tactics overlay, highlights tour, live goal replay), so the bar
+  // itself stays: pause · speed · ⏪/⏩ · slider · ● LIVE. The items keep their own show/hide logic inside.
+  const morePop = h('div', { style: 'display:none;position:absolute;top:100%;right:0;margin-top:6px;z-index:41;background:rgba(12,19,32,.96);border:1px solid var(--line);border-radius:8px;padding:6px;flex-direction:column;gap:6px;min-width:160px' },
+    dirBtn, highlightBtn, replayBtn) as HTMLElement;
+  const moreBtn = h('button', { class: 'ghost small', 'aria-label': 'More controls', 'aria-haspopup': 'true', 'aria-expanded': 'false', title: 'More — tactics overlay, highlights, goal replay' }, '⋯') as HTMLButtonElement;
+  moreBtn.addEventListener('click', () => {
+    const open = morePop.style.display === 'none';
+    morePop.style.display = open ? 'flex' : 'none';
+    moreBtn.setAttribute('aria-expanded', String(open));
+    moreBtn.classList.toggle('primary', open); moreBtn.classList.toggle('ghost', !open);
+  });
+  const moreWrap = h('div', { style: 'position:relative' }, moreBtn, morePop);
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
-    ...speedBtns,
     pauseBtn,
-    rewindBtn,
-    rewind5Btn,
-    rewind10Btn,
-    rewind30Btn,
+    speedSel,
+    back10Btn,
+    fwd10Btn,
     scrubWrap,
     scrubLabel,
     goLiveBtn,
-    replayBtn,
-    highlightBtn,
-    dirBtn,
+    moreWrap,
     weatherEl,
     recBadge,
   );
@@ -1522,13 +1547,16 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }
     const step = (): void => {
       if (myEpoch !== watchEpoch || !activeRenderer || !replaying || myGen !== playbackGen) return;   // navigated / torn down / resumed / superseded
+      if (paused) { activeReplayTimer = setTimeout(step, 150); return; }   // ⏸ freezes the buffer playback too (was: button said paused, pitch kept moving)
       if (i >= liveBuffer.length - 1) { resumeLive(); return; }  // caught up to the live edge → follow live
       const f = liveBuffer[i];
       activeRenderer.sync(f);
       if (typeof f.clockMs === 'number' && !scrubbing) { currentMs = f.clockMs; scrubEl.value = String(f.clockMs); scrubLabel.textContent = fmtClock(f.clockMs); }
       const cur = f.clockMs ?? 0, nxt = liveBuffer[i + 1]?.clockMs ?? cur + 250;
       i++;
-      activeReplayTimer = setTimeout(step, Math.max(16, Math.min(nxt - cur, 1000)));   // real-time paced
+      // paced by the frame deltas SCALED by the chosen speed (was: real-time only — the speed control
+      // silently did nothing while rewound). curSpeed tracks the last frame's actual state.speed.
+      activeReplayTimer = setTimeout(step, Math.max(16, Math.min((nxt - cur) / Math.max(0.25, curSpeed), 1000)));
     };
     step();
   };
@@ -1601,7 +1629,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       if (msg.error) { showStatusError(msg.error); return; }   // re-sim failed (e.g. replay-from-shouts)
       // A replayed recording is finished playback: reveal the rewind/scrub/back-10s controls. The shout
       // box is already gone (the panel is the read-only live-only note when !live), so keep the note visible.
-      if (msg.replay && !replayUiApplied) { replayUiApplied = true; rewindBtn.style.display = ''; rewind5Btn.style.display = ''; rewind10Btn.style.display = ''; rewind30Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
+      if (msg.replay && !replayUiApplied) { replayUiApplied = true; back10Btn.style.display = ''; fwd10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
+      // a recording knows its real length → the slider spans the actual match, not a fixed 96'
+      if (typeof msg.durationMs === 'number') setScrubMax(msg.durationMs + 1000);
       // Track the playhead while FOLLOWING (a recorded replay, or a live watch at the edge) — but not while
       // dragging, and not while rewound (`replaying`: the buffer-playback loop owns the playhead then).
       if ((replayUiApplied || liveSeek) && !replaying && typeof msg.clockMs === 'number') {
@@ -1664,7 +1694,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
           if (added) buildMarkers(liveMarks);
         }
         // reveal the rewind/scrub controls for a LIVE watch once there's enough buffered to seek within
-        if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; rewindBtn.style.display = ''; rewind5Btn.style.display = ''; rewind10Btn.style.display = ''; rewind30Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
+        if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; back10Btn.style.display = ''; fwd10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
       }
       if (replaying) return;   // a goal clip OR a live rewind is driving the renderer — keep buffering, don't draw live
       renderer.sync(msg);
