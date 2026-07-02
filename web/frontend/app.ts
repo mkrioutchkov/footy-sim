@@ -1117,6 +1117,7 @@ let watchPanel: HTMLElement | null = null;
 let watchStatus: HTMLElement | null = null;   // connecting / connection-lost overlay
 let watchPanelObs: ResizeObserver | null = null;   // keeps the pitch sized to the space the panel leaves
 let watchKeyHandler: ((e: KeyboardEvent) => void) | null = null;   // P3 viewer keyboard shortcuts (space/←/→/,/.)
+let watchVisHandler: (() => void) | null = null;   // background-tab handling (skip draw work while hidden; snap current on return)
 let activeReplayTimer: ReturnType<typeof setInterval> | null = null;   // live goal-replay playback loop
 let activeHighlightTimer: ReturnType<typeof setTimeout> | null = null;   // 🎞 highlights-reel tour step (survives teardown otherwise)
 let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
@@ -1126,6 +1127,7 @@ function teardownWatch() {
   if (activeHighlightTimer) { clearTimeout(activeHighlightTimer); activeHighlightTimer = null; }   // stop a highlights tour scheduled but not yet fired
   try { watchPanelObs?.disconnect(); } catch { /* */ } watchPanelObs = null;
   if (watchKeyHandler) { window.removeEventListener('keydown', watchKeyHandler); watchKeyHandler = null; }
+  if (watchVisHandler) { document.removeEventListener('visibilitychange', watchVisHandler); watchVisHandler = null; }
   try { activeWs?.close(); } catch { /* */ } activeWs = null;
   try { activeRenderer?.setReplay(false); } catch { /* */ }   // dismiss any GOAL-REPLAY banner before tearing down (no stuck overlay across watches)
   try { activeRenderer?.destroy(); } catch { /* */ } activeRenderer = null;
@@ -1234,6 +1236,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   // 96' with a dead tail; markers recompute when the range tightens.
   const SCRUB_MAX_MS = 96 * 60 * 1000;    // fallback until the real duration is known (live: the match is still growing)
   let scrubMaxMs = SCRUB_MAX_MS;
+  let scrubMinMs = 0;                     // live watches raise this to the oldest BUFFERED frame (the rewind window)
   let scrubbing = false;
   let currentMs = 0;                      // the live playhead (each frame's clockMs) — drives ⏪/⏩
   const fmtClock = (ms: number): string => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -1268,7 +1271,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     highlightIndex = events.filter(e => HIGHLIGHT_KINDS.has(e.kind)).map(e => ({ clockMs: e.clockMs, name: e.name, kind: e.kind })).sort((a, b) => a.clockMs - b.clockMs);
     goalMarkers.replaceChildren();
     for (const e of events) {   // goals + cards on the timeline; click any to jump to it
-      const pct = Math.min(99.5, Math.max(0, (e.clockMs / scrubMaxMs) * 100));
+      // position within the CURRENT range (live: the rewind window; recorded: 0..duration) — a moment older
+      // than the window pins to the left edge (clicking it seeks the oldest buffered frame).
+      const pct = Math.min(99.5, Math.max(0, ((e.clockMs - scrubMinMs) / Math.max(1, scrubMaxMs - scrubMinMs)) * 100));
       goalMarkers.append(h('span', {
         title: `${Math.floor(e.clockMs / 60000)}' — ${e.name} · click to jump`,
         style: `position:absolute;left:${pct}%;top:-3px;transform:translateX(-50%);font-size:12px;line-height:1;cursor:pointer;pointer-events:auto`,
@@ -1277,14 +1282,20 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     }
     highlightBtn.style.display = highlightIndex.length ? '' : 'none';   // a moments-tour needs at least one goal/red
   };
-  // Tighten the slider to the REAL match length (a recording knows it upfront via durationMs). The old fixed
-  // 96' range left the last ~6% of the track dead + compressed the markers; recompute them on the new scale.
-  const setScrubMax = (ms: number): void => {
-    if (!(ms > 0) || Math.abs(ms - scrubMaxMs) < 1500) return;   // once, and only for a real change
-    scrubMaxMs = ms;
-    scrubEl.max = String(ms);
+  // The slider spans what you can actually REACH. Recorded: 0 → the real match length (durationMs — the old
+  // fixed 96' left a dead ~6% tail + compressed markers). LIVE: the buffered rewind WINDOW (oldest buffered
+  // frame → the live edge), so the whole track is real instead of 0–96' with only ~12 min of it seekable.
+  // Markers recompute on a range change; the range never moves under an in-progress drag (scrubbing).
+  const setScrubRange = (minMs: number, maxMs: number): void => {
+    if (scrubbing || !(maxMs > minMs)) return;
+    if (Math.abs(maxMs - scrubMaxMs) < 1500 && Math.abs(minMs - scrubMinMs) < 1500) return;   // dirty-check (live updates arrive ~10/s)
+    scrubMinMs = Math.max(0, minMs);
+    scrubMaxMs = maxMs;
+    scrubEl.min = String(scrubMinMs);
+    scrubEl.max = String(maxMs);
     if (lastMarkerEvents) buildMarkers(lastMarkerEvents);
   };
+  const setScrubMax = (ms: number): void => setScrubRange(0, ms);
   // ⚽ Replay — appears after the first live goal; plays back the buffered run-up (instant action replay).
   const replayBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Action replay of the last goal', title: 'Action replay of the last goal' }, '⚽ Replay goal') as HTMLButtonElement;
   // 🎞 Highlights — tours every goal + red card (jumps to ~5s before each, ~11s apart). Shown once the
@@ -1519,6 +1530,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const seenMarkKeys = new Set<string>();   // dedup live markers per EVENT (events linger ~78 frames), not per frame
   let goalClip: WatchMessage[] | null = null;
   let replaying = false;
+  let hiddenLatest: WatchMessage | null = null;   // newest frame skipped while the tab was hidden — synced once on return
   // ── live rewind (viewer #1) ── a live watch (re-sim or coordinator) has NO backend seek — frames are
   // generated on the fly. So buffer them client-side + let the scrub / ⏪ / ⏮ play BACK through the buffer
   // (real-time paced) and catch up to live; ● LIVE resumes. Additive: a live watch with no rewind action is
@@ -1644,6 +1656,15 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     }, 45);
   };
   replayBtn.addEventListener('click', playClip);
+  // Background-tab policy: while hidden, a throttled (≥1s) replay timer would crawl a rewind/goal-clip at
+  // ~1fps AND hold `replaying` so nothing live draws on return — jump back to live instead. On return,
+  // sync the newest frame we skipped so the pitch is current the instant the tab is visible again.
+  watchVisHandler = (): void => {
+    if (myEpoch !== watchEpoch) return;
+    if (document.hidden) { if (replaying) resumeLive(); return; }
+    if (hiddenLatest && activeRenderer) { const f = hiddenLatest; hiddenLatest = null; renderer.sync(f); paintBar(f.speed); }
+  };
+  document.addEventListener('visibilitychange', watchVisHandler);
   ws.onmessage = (ev) => {
     if (myEpoch !== watchEpoch) return;   // navigated away — a queued frame must not sync() the now-destroyed renderer or touch detached DOM (matches the guards at the api callsites)
     try {
@@ -1721,8 +1742,19 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         }
         // reveal the rewind/scrub controls for a LIVE watch once there's enough buffered to seek within
         if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; back10Btn.style.display = ''; fwd10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
+        // the live slider spans the actual rewind WINDOW (oldest buffered → the live edge) — the whole track
+        // is reachable, instead of a fixed 96' where only the last ~12 buffered minutes meant anything.
+        // setScrubRange dirty-checks (1.5s) + never moves the range mid-drag, so this is cheap per push.
+        if (liveSeek) {
+          const oldest = liveBuffer[0]?.clockMs, newest = liveBuffer[liveBuffer.length - 1]?.clockMs;
+          if (typeof oldest === 'number' && typeof newest === 'number') setScrubRange(oldest, Math.max(newest, oldest + 30000));
+        }
       }
       if (replaying) return;   // a goal clip OR a live rewind is driving the renderer — keep buffering, don't draw live
+      // Background tab: rAF is paused so nothing renders anyway — skip the full sync (trail/event/DOM work at
+      // 30-37Hz for the whole match) and just remember the newest frame; visibilitychange snaps it current.
+      if (document.hidden) { hiddenLatest = msg; return; }
+      hiddenLatest = null;
       renderer.sync(msg);
       paintBar(msg.speed);   // highlight the active speed off the frame
 
