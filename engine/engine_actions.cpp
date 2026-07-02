@@ -722,8 +722,12 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     emitEvent("tackle_loose", (tackler.x+carrier.x)/2.0, (tackler.y+carrier.y)/2.0, tackler.id, carrier.id);
     b.controllerId=-1;
     // A poke-away travels a few meters, not 12+ — high speeds here sent every
-    // contested ball pinging across the pitch.
-    double kickSpeed=30+outcomeRoll*42+(carrier.dribbleType==3?16:0)+(carrierSpeed>DRIBBLE_MEDIUM_SPEED?10:0);
+    // contested ball pinging across the pitch. But 30-98px/s dropped it INSIDE
+    // the duel bubble: trace analysis found ~54 A-B-A-B rallies/match — the
+    // same attacker/defender pair whacking the ball between them 4-8 times at
+    // <1.2s per exchange (the user-reported "ping-pong"). 45-120px/s lets the
+    // break escape the pair without restoring the cross-pitch ping.
+    double kickSpeed=45+outcomeRoll*48+(carrier.dribbleType==3?16:0)+(carrierSpeed>DRIBBLE_MEDIUM_SPEED?10:0);
     b.vx=std::cos(angle)*kickSpeed; b.vy=std::sin(angle)*kickSpeed;
     b.x=clamp(b.x,5.0,PITCH_W-5.0); b.y=clamp(b.y,5.0,PITCH_H-5.0);
     if(kickSpeed>180){stats.recordSlideTackleDistance();}
@@ -732,8 +736,13 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     b.intendedReceiverId=-1; b.z=b.vz=0;
     lastLooseOrigin = LooseOrigin::TackleDeflection;
     recordBallImpulse();
-    blockReboundFor(tackler.id,250);
-    blockReboundFor(carrier.id,450);
+    // Both duelists need a real beat after the poke (was 250/450ms — expired
+    // before the ball left the bubble, so the SAME pair re-collected and
+    // re-dueled on loop). 700ms turns the break into a genuine 50/50 for the
+    // better-positioned player or a third man; the ghost-body ricochet keeps
+    // the locked pair's bodies physical meanwhile.
+    blockReboundFor(tackler.id,700);
+    blockReboundFor(carrier.id,700);
     carrier.vx=carrier.vy=0;
     return true;
 }
