@@ -252,6 +252,13 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                 if      (holdTicks < 60)  x.score -= 0.26;   // <1.0s: just took the touch
                 else if (holdTicks < 110) x.score -= 0.16;   // <1.8s: still composing
                 else if (holdTicks < 170) x.score -= 0.07;   // <2.8s: about ready
+                // Stage-2 dwell gate NOTE (2026-07-02 audit): an extra −0.34 for
+                // holdTicks<40 in the own-40% zone was A/B'd at 48 paired seeds
+                // and came back INERT on volume (passes 1794→1782, dwell u250ms
+                // 15→12%) — good candidates out-bid even −0.60 total. Only real
+                // effect: ping-pong −18% (82→67/match). A volume fix needs a HARD
+                // selection gate (skip scoring Pass entirely below a dwell floor)
+                // or a different lever — penalties don't move this arbitration.
             }
         }
 
