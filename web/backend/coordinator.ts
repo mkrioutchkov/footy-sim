@@ -26,7 +26,7 @@ import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer, type Motivati
 import { FORMATIONS, normalizeFormation, engineRole, PITCH_W } from './formations.ts';
 import { ROLE_SLOTS } from './game.ts';
 import {
-  type RecKind, type Command, type SummaryPlayer, captureLineStream, writeEventsLog, hasHumanStake, getFixture, weatherForSeed,
+  type RecKind, type Command, type SummaryPlayer, captureLineStream, writeEventsLog, hasHumanStake, getFixture, weatherForSeed, REPLAY_SAMPLE,
 } from './match.ts';
 import { db } from './db.ts';
 import { consumeTeamTalk } from './teamtalk.ts';
@@ -132,10 +132,13 @@ export class LiveMatch {
     this.seedPlan('home', o.seedPlans?.home);
     this.seedPlan('away', o.seedPlans?.away);
     // Record live human-stake matches as format 2 (frames + the command log) by teeing each
-    // frame into the proven capture path while we broadcast it.
+    // frame into the proven capture path while we broadcast it. SAMPLED like the matchday path —
+    // an unthinned 90' capture stored ~160-200k frames, so every later watch gunzipped + pre-indexed
+    // the lot (score/state/eventful frames are always kept, so the replay + report timeline stay exact;
+    // the renderer interpolates the rest). The det-verify tooling does its own field-diff, not this file.
     if (o.record) {
       this.capture = new PassThrough();
-      captureLineStream(o.kind, o.refId, this.capture, 2)
+      captureLineStream(o.kind, o.refId, this.capture, 2, REPLAY_SAMPLE)
         .then(({ homeScore, awayScore }) => writeEventsLog(o.kind, o.refId, {
           seed: o.seed, duration: Number(this.latest?.clockMs ?? 0),
           scores: { home: homeScore, away: awayScore },

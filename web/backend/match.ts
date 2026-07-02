@@ -509,7 +509,7 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
 // cleans up); a crash EOFs stdout without a "finished" frame, which captureLineStream rejects.
 // Captured SAMPLED (1-in-REPLAY_SAMPLE frames + every score/state change) so the matchday replay is
 // light enough to load + screenshot — a full ~200k-frame capture floods the renderer (the QA "catch-22").
-const REPLAY_SAMPLE = 8;
+export const REPLAY_SAMPLE = 8;   // exported: the live coordinator's capture thins with the same rate (unthinned live matches stored ~160-200k frames)
 function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ homeScore: number; awayScore: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(ENGINE, ['--match', specPath, '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -612,13 +612,19 @@ export function paceStep(pending: string[], prevClock: number | null, speed: num
   if (pending.length === 0) return { state: null, prevClock, delayMs: DEFAULT_FRAME_MS, drained: 0 };
   if (speed > 1) {
     const budget = DEFAULT_FRAME_MS * speed;
-    let advanced = 0, drained = 0, pc = prevClock, state: any = null;
+    let advanced = 0, drained = 0, pc = prevClock;
+    let lastLine: string | null = null;
     while (pending.length && advanced < budget) {
       const line = pending.shift()!; drained++;
-      let f: any; try { f = JSON.parse(line); } catch { continue; }
-      advanced += pc === null ? DEFAULT_FRAME_MS : Math.max(0, (f.clockMs ?? pc) - pc);
-      pc = f.clockMs ?? pc; state = f;
+      // SKIPPED frames only need their clock — extract it with the same cheap regex ReplayStream's
+      // pre-index uses. Full-parsing every drained 22-player frame cost ~240 parses/sec at 8×
+      // (~1,800/sec at the 60× cap) on the box the engine shares. Only the frame actually SENT is parsed.
+      const m = line.match(/"clockMs":(-?\d+(?:\.\d+)?)/);
+      if (m) { const c = +m[1]; advanced += pc === null ? DEFAULT_FRAME_MS : Math.max(0, c - pc); pc = c; }
+      lastLine = line;
     }
+    let state: any = null;
+    if (lastLine !== null) { try { state = JSON.parse(lastLine); } catch { /* malformed tail — tick() retries the queue */ } }
     // Pace by the match-clock actually CONSUMED, not a fixed 33ms tick. On a thinned recording
     // (REPLAY_SAMPLE=8 → ~264ms between frames) one frame overshoots the whole 2×/4× budget, and a
     // fixed delay floored playback at ~8× no matter what speed was chosen (2× and 4× played
