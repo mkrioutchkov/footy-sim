@@ -406,3 +406,16 @@ was reverted: the support glue is ALSO load-bearing — not as pressure but as
 short-lane interception around the jockey. Stage 3 therefore needs LANE-AWARE
 support positioning (block the exits, not hug the carrier) before support
 distances can widen; only then does the pass tempo unlock.
+
+Stage-3 attempt (lane-aware support: supporters stand on the nearest outlet
+lane at 40% out instead of hugging the carrier) leaked WORST of all — shots
+43, crosses 137, goals 4.7 — and sharpened the requirement decisively: pass-
+lane blocking does not stop the CARRIER, and one jockey alone can be steered
+around because beat-the-man is free steering (scoreDribble has no contested
+1v1 against a set jockey; tackles only fire inside 24px which the carrier
+routes around). The support hug at 18px is the engine's only anti-carry
+mechanism: bodies in the way. REVISED stage 3: build the DRIVE-PAST DUEL —
+a carrier dribbling into/through the jockey's containment zone must face a
+genuine contested roll (jockey mirrors laterally + tackle window on entry),
+so beating the man is a dice roll weighted by attributes, not free routing.
+Until that exists, support-glue positioning stays as-is.
