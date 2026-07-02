@@ -112,6 +112,13 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
                 if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, carrier->x, carrier->y) < 60.0) carrierPressure++;
             }
             if (carrierPressure >= 2) {
+                // CROWDING NOTE (2026-07-02 audit): gating these Offer candidates
+                // to the 2 nearest teammates was A/B'd against the blob probe
+                // (~60 six-player knots/15min, balanced 3v3 mixes) and was INERT
+                // — blob counts unchanged (63/58/63 → 67/58/79). These candidates
+                // are not the knot driver (they rarely win arbitration). Blob
+                // attribution needs engine-side logging of each member's chosen
+                // purpose at knot time before the next lever attempt.
                 c.push_back({ lerp(p.x, carrier->x, 0.3), lerp(p.y, carrier->y, 0.25), ActionPurpose::Offer });
                 c.push_back({ lerp(p.x, carrier->x, 0.2), clamp(lerp(p.y, carrier->y, 0.15), 40.0, PITCH_H - 40.0), ActionPurpose::Offer });
             }
