@@ -706,15 +706,42 @@ async function screenDashboard() {
     style: `display:inline-block;width:14px;height:14px;line-height:14px;text-align:center;font-size:9px;font-weight:700;border-radius:3px;color:#0b1018;`
       + `background:${r === 'w' ? 'var(--accent)' : r === 'd' ? 'var(--muted)' : 'var(--danger)'}`,
   }, r.toUpperCase());
-  const formCell = (teamId: number): HTMLElement => {
+  const formDots = (teamId: number): HTMLElement => {
     const res = league.fixtures
       .filter(f => f.played && f.homeScore != null && f.awayScore != null && (f.homeTeamId === teamId || f.awayTeamId === teamId))
       .sort((a, b) => a.round - b.round).slice(-5)
       .map(f => { const gf = f.homeTeamId === teamId ? f.homeScore! : f.awayScore!; const ga = f.homeTeamId === teamId ? f.awayScore! : f.homeScore!; return gf > ga ? 'w' : gf < ga ? 'l' : 'd'; });
-    return h('td', { class: 'num' }, res.length
+    return res.length
       ? h('span', { style: 'display:inline-flex;gap:3px;justify-content:center' }, ...res.map(FORM_DOT))
-      : h('span', { class: 'muted' }, '—'));
+      : h('span', { class: 'muted' }, '—');
   };
+  const formCell = (teamId: number): HTMLElement => h('td', { class: 'num' }, formDots(teamId));
+  // ── next-match hero: WHO you play, their position + form vs yours, venue + weather, and every
+  //    match action (LIVE / sim / talk / scout) in ONE place — was scattered across the header row +
+  //    the fixtures list. Only when there IS an upcoming match; the header keeps Advance (+ replay-last).
+  const posOf = (teamId: number): number => league.standings.findIndex(s => s.teamId === teamId) + 1;
+  const teamTalkBtn = myNext ? h('button', { class: 'ghost', title: 'Address the squad before your next match', onclick: () => (location.hash = `#/teamtalk/${myNext.id}`) }, '🎤 Team talk') : '';
+  const scoutBtn = myNext ? h('button', { class: 'ghost', title: 'Scout the opposition — shape, danger men, weak spots', onclick: () => (location.hash = `#/scout/${myNext.id}`) }, '🔍 Scout them') : '';
+  const heroSide = (teamId: number, name: string, alignRight: boolean): HTMLElement => {
+    const p = posOf(teamId);
+    const mine = teamId === team.id;
+    return h('div', { style: `flex:1;min-width:150px;text-align:${alignRight ? 'right' : 'left'}` },
+      h('div', { style: `font-size:16px;font-weight:700;${mine ? 'color:var(--accent);' : ''}` }, name),
+      h('div', { class: 'muted', style: 'font-size:12px;margin:2px 0 4px' }, p > 0 ? `${ordinal(p)} in the table` : ''),
+      formDots(teamId));
+  };
+  const nextMatchCard = myNext ? h('div', { class: 'card', style: 'padding:14px 16px' },
+    h('div', { class: 'between', style: 'margin-bottom:8px' },
+      h('div', { class: 'section-title', style: 'margin:0' }, `Next match · Round ${myNext.round} · ${team.id === myNext.homeTeamId ? '🏟 at home' : '🚌 away'}`),
+      myNext.weather && myNext.weather !== 'clear'
+        ? h('span', { class: 'pill', title: myNext.weather === 'rain' ? 'Wet pitch — the ball skids further' : 'Windy — long balls and crosses drift', style: 'background:rgba(127,178,255,.14);color:#9ec5ff' }, myNext.weather === 'rain' ? '🌧 Rain forecast' : '🌬 Windy forecast')
+        : ''),
+    h('div', { style: 'display:flex;align-items:center;gap:16px;flex-wrap:wrap' },
+      heroSide(myNext.homeTeamId, myNext.home, true),
+      h('div', { class: 'muted', style: 'font-weight:800;font-size:14px' }, 'vs'),
+      heroSide(myNext.awayTeamId, myNext.away, false)),
+    h('div', { class: 'row', style: 'margin-top:12px;flex-wrap:wrap' }, liveBtn, watchBtn, teamTalkBtn, scoutBtn)) : '';
+
   // promotion / relegation zones — only where they ACTUALLY apply (a division must exist above/below in
   // this world), so the top tier shows no promotion + the bottom shows no relegation. A small dot on the
   // position + a legend; deliberately content-level so it never fights the .me row highlight.
@@ -914,17 +941,16 @@ async function screenDashboard() {
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, team.name), h('div', { class: 'muted' },
         `Managed by ${team.manager} · ${league.divisionName ?? 'League'}${league.season ? ` · Season ${league.season}` : ''} · Position ${myPos}/${league.standings.length}`)),
-      // Primary match-flow actions stay prominent up top; section nav moves to the grid below.
-      // LIVE first (the headline experience), then the quick-sim watch, team talk, and advance.
+      // Match-flow actions live in the next-match hero card below; the header keeps Advance
+      // (+ replay-last when there's no upcoming match — the hero only exists with one).
       h('div', {},
-        h('div', { class: 'row' }, liveBtn, watchBtn,
-          myNext ? h('button', { class: 'ghost', title: 'Address the squad before your next match', onclick: () => (location.hash = `#/teamtalk/${myNext.id}`) }, 'Team talk') : '',
-          advanceBtn),
+        h('div', { class: 'row' }, myNext ? '' : watchBtn, advanceBtn),
         // played-ahead dead-end: all your matches are done but the season hasn't rolled over yet — explain it
         // so the missing "Play LIVE" doesn't read as a bug (you simply have no upcoming match this season).
         !myNext && canAdvance ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' },
           'You’ve played all your matches this season — keep advancing to finish the season, then play your next fixtures live.') : ''),
     ),
+    nextMatchCard,
     h('div', { class: 'card', style: 'padding:14px' },
       h('div', { class: 'nav-grid' },
         navItem('📅', 'My Matches', '#/matches'),
