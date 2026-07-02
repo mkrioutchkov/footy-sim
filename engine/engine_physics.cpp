@@ -560,7 +560,41 @@ void GameEngine::checkBallPlayerCollision(double sec){
     }
 
     for(auto&p:state.players){
-        if(!canContestBall(p))continue;
+        if(!canContestBall(p)){
+            // ── Ghost-body fix (user-reported: "ball passes through a player") ──
+            // A contest lockout (beaten defender 600-950ms, tackle loser, recent
+            // passer 450-900ms, whiffed reaction duel 360ms) made the player's
+            // whole BODY a ghost: trace analysis measured ~900 opponent + ~800
+            // recent-toucher frame-hits per match where a grounded ball rolled
+            // DEAD-CENTER (<8px) through a body with velocity unchanged. A locked
+            // player can't WIN the ball, but he still has legs — a true center
+            // hit ricochets off him (grazes at 8-13.5px still pass by, matching
+            // the whiff branch's "passes clean" intent for near-misses). The
+            // ricochet is incidental: lastTouch is NOT updated (no possession /
+            // offside / restart-attribution side effects), no new lockouts.
+            // Exempt: GK (own handling paths), sent-off (parked off-pitch), armed
+            // set-pieces (everyone is contest-blocked while the ball is placed),
+            // live shots (the pre-rolled-blocker rule owns those), aerial balls.
+            if(p.role!=Role::GK && !p.sentOff && !setPiece.armed
+               && b.controllerId<0 && b.z<15.0 && bs>30.0
+               && !(lastLooseOrigin==LooseOrigin::Shot && bs>95.0)){
+                double sx=b.x-prevX,sy=b.y-prevY,seg2=sx*sx+sy*sy;
+                double tg=seg2>1e-6?clamp(((p.x-prevX)*sx+(p.y-prevY)*sy)/seg2,0.0,1.0):0.0;
+                double dg=dist(p.x,p.y,prevX+sx*tg,prevY+sy*tg);
+                double toward=(p.x-b.x)*b.vx+(p.y-b.y)*b.vy;
+                if(dg<8.0 && toward>0.0){
+                    double nx=b.x-p.x,ny=b.y-p.y,nd=std::hypot(nx,ny);
+                    if(nd<1e-6){nx=-b.vx/bs;ny=-b.vy/bs;nd=1.0;}
+                    nx/=nd;ny/=nd;
+                    b.x=p.x+nx*(PLAYER_R+BALL_R);b.y=p.y+ny*(PLAYER_R+BALL_R);
+                    double dot=b.vx*nx+b.vy*ny;
+                    if(dot<0){b.vx-=COLLISION_REFLECT_FACTOR*dot*nx;b.vy-=COLLISION_REFLECT_FACTOR*dot*ny;}
+                    b.vx*=0.72;b.vy*=0.72;   // a leggy, messy ricochet, not a clean block
+                    recordBallImpulse();
+                }
+            }
+            continue;
+        }
         // Fast ball → swept distance (closest approach of the player to the prev→cur path);
         // slow ball → the original endpoint test (byte-identical, no tunnelling at low speed).
         double d;
