@@ -364,7 +364,8 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
         &&(!audit||(audit->purpose!=ActionPurpose::Cutback&&audit->purpose!=ActionPurpose::Through&&audit->purpose!=ActionPurpose::Cross));
     // Only deliberate (selected) crosses count as crosses — counting every
     // incidental lofted wide ball reported ~350 "crosses" per match.
-    if(selectedCross)stats.recordCrossAttempt(f.team==Team::Home);
+    if(selectedCross){stats.recordCrossAttempt(f.team==Team::Home);stats.recordOpenPlayCross();}
+    if(selectedCutback)stats.recordCutbackAttempt();
     if(selectedCross){
         // Lead the runner goalward and slightly central instead of to feet —
         // headed chances need the ball met closer to goal, but a fixed box-zone

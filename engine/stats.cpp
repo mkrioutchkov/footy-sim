@@ -105,6 +105,8 @@ std::string StatsCollector::summaryJSON() const {
     j["throughBallsAttempted"] = throughBallsAttempted;
     j["throughBallsCompleted"] = throughBallsCompleted;
     j["crossesAttempted"] = crossesAttempted;
+    j["openPlayCrossesAttempted"] = openPlayCrossesAttempted;
+    j["cutbacksAttempted"] = cutbacksAttempted;
     j["homeCrossesAttempted"] = homeCrossesAttempted;
     j["awayCrossesAttempted"] = awayCrossesAttempted;
     j["crossesCompleted"] = crossesCompleted;
@@ -155,6 +157,7 @@ std::string StatsCollector::summaryJSON() const {
     j["skillMoves"] = skillMoves;
     j["shotsBlocked"] = shotsBlocked;
     j["dizzySpins"] = dizzySpins;
+    j["woodworkHits"] = woodworkHits;
     j["ballJumps"] = ballJumps;
     j["teammatePingPongs"] = teammatePingPongs;
     j["slideTackleDistanceAlerts"] = slideTackleDistance;

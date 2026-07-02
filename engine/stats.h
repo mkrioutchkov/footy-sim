@@ -52,6 +52,12 @@ public:
     void recordThroughBallComplete() { throughBallsCompleted++; }
     void recordCrossAttempt(bool home) { crossesAttempted++; (home ? homeCrossesAttempted : awayCrossesAttempted)++; }
     void recordCrossComplete() { crossesCompleted++; }
+    // Taxonomy (2026-07-02 audit): crossesAttempted lumps open-play whips with
+    // set-piece deliveries, and cutbacks were counted NOWHERE — every future
+    // calibration pass needs the split to compare against real benchmarks
+    // (aerial-cross completion 18-25% ≠ cutback completion).
+    void recordOpenPlayCross() { openPlayCrossesAttempted++; }
+    void recordCutbackAttempt() { cutbacksAttempted++; }
     void recordHeader(double incomingZ, double deliveryDist, double speed, bool unrealistic) {
         headers++;
         headerZTotal += incomingZ;
@@ -130,6 +136,7 @@ public:
     void recordStuckCarrier()           { stuckAlerts++; }
     void recordSimulationFreeze()       { simFreezes++; }
     void recordDizzySpin()              { dizzySpins++; }
+    void recordWoodwork()               { woodworkHits++; }
     void recordBallJump()               { ballJumps++; }
     void recordQuestionableShot()       { questionableShots++; }
     void recordQuestionablePress()      { questionPress++; }
@@ -185,6 +192,7 @@ private:
     int passesAttempted=0, passesCompleted=0, passesIntercepted=0, passesIntended=0, wrongTeammate=0;
     int throughBallsAttempted=0, throughBallsCompleted=0;
     int crossesAttempted=0, crossesCompleted=0, headers=0, headedShots=0;
+    int openPlayCrossesAttempted=0, cutbacksAttempted=0;
     int homeCrossesAttempted=0, awayCrossesAttempted=0;   // per-team (the combined total is possession-confounded for benchmarks)
     int headerClearances=0, headerLayoffs=0, headerControls=0;
     int unrealisticHeaders=0;
@@ -216,6 +224,7 @@ private:
     int stuckAlerts=0;
     int simFreezes=0;
     int dizzySpins=0;
+    int woodworkHits=0;   // frame (post/bar) contacts — real ~0.5-1/match; audit 2026-07-02 measured 8
     int ballJumps=0;
     int teammatePingPongs=0;
     int questionableShots=0;

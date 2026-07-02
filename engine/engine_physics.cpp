@@ -209,6 +209,11 @@ bool GameEngine::checkWoodwork() {
     double topOfBall = b.z + BALL_R;
     bool withinPosts = dyPost <= half;
     // ── Crossbar ── arriving at the bar height, between the uprights.
+    // NOTE (2026-07-02 audit): shrinking this band + the post band to physical
+    // contact was A/B'd and made almost no dent in woodworkHits (3.19->3.0)
+    // while costing rebound scrambles — the hit rate is driven by shot AIM
+    // (postFrac puts a typical credible finesse at ~36.1px vs the post at
+    // 36.5), not by hitbox slack. Fix the aim distribution, not this.
     if (withinPosts && topOfBall >= GOAL_H - 1.0 && b.z <= GOAL_H + BALL_R + 4.0) {
         b.x = goalX + inSign * (BALL_R + 2.0);
         b.vx = -b.vx * 0.32;
@@ -217,11 +222,14 @@ bool GameEngine::checkWoodwork() {
         b.curl = 0.0;
         woodworkCooldown = 4;   // W1: don't re-collide with the bar next tick
         lastLooseOrigin = LooseOrigin::Woodwork;
+        stats.recordWoodwork();
         emitEvent("woodwork", goalX, b.y, b.lastToucherId);
         return true;
     }
     // ── Post ── catching an upright (a sliver inside to just outside it), under
     // the bar. Mostly turns near-misses into rattles; rebounds back into play.
+    // (See the crossbar NOTE: band-tightening A/B'd 2026-07-02, ineffective —
+    // the woodwork rate lives in the aim distribution.)
     if (topOfBall <= GOAL_H + 2.0 && dyPost >= half - 1.5 && dyPost <= half + BALL_R + 3.0) {
         double postSide = (b.y >= center) ? 1.0 : -1.0;
         b.x = goalX + inSign * (BALL_R + 2.0);
@@ -231,6 +239,7 @@ bool GameEngine::checkWoodwork() {
         b.curl = 0.0;
         woodworkCooldown = 4;   // W1: don't re-collide with the post next tick
         lastLooseOrigin = LooseOrigin::Woodwork;
+        stats.recordWoodwork();
         emitEvent("woodwork", goalX, center + postSide * half, b.lastToucherId);
         return true;
     }
