@@ -322,20 +322,33 @@ void GameEngine::updatePossessionTracking(double sdt) {
             carrierTracker.carryStartMs = state.clockMs;
             carrierTracker.carryRevsY = 0;
             carrierTracker.carryLastDirY = 0;
+            carrierTracker.carryPivotY = c->y;
             carrierTracker.marathonRecorded = false;
             carrierTracker.shuttleRecorded = false;
         } else {
             double step = dist(c->x, c->y, carrierTracker.carryLastX, carrierTracker.carryLastY);
             if (step < 45.0) carrierTracker.carryPathDistance += step;
-            // Lateral shuttle: count y-direction reversals within one carry —
-            // the "dribbled side to side for ages" pattern.
-            double dy = c->y - carrierTracker.carryLastY;
-            int dirY = dy > 0.5 ? 1 : (dy < -0.5 ? -1 : 0);
-            if (dirY != 0) {
-                if (carrierTracker.carryLastDirY != 0 && dirY != carrierTracker.carryLastDirY)
-                    carrierTracker.carryRevsY++;
-                carrierTracker.carryLastDirY = dirY;
+            // Lateral shuttle: count amplitude-qualified y reversals — the
+            // "dribbled side to side for ages" pattern. Per-tick sign flips are
+            // dominated by steering jitter and undercount macro swings (they
+            // never reached 3 in a full match), so this uses hysteresis peak
+            // detection: a swing must retrace >= SHUTTLE_AMP px from its extreme
+            // before it counts as a reversal in the opposite direction.
+            constexpr double SHUTTLE_AMP = 45.0;
+            double y = c->y;
+            int dir = carrierTracker.carryLastDirY;
+            double& pivot = carrierTracker.carryPivotY;
+            if (dir > 0) {
+                if (y > pivot) pivot = y;
+                else if (pivot - y >= SHUTTLE_AMP) { carrierTracker.carryRevsY++; dir = -1; pivot = y; }
+            } else if (dir < 0) {
+                if (y < pivot) pivot = y;
+                else if (y - pivot >= SHUTTLE_AMP) { carrierTracker.carryRevsY++; dir = 1; pivot = y; }
+            } else {
+                if (y - pivot >= SHUTTLE_AMP) { dir = 1; pivot = y; }
+                else if (pivot - y >= SHUTTLE_AMP) { dir = -1; pivot = y; }
             }
+            carrierTracker.carryLastDirY = dir;
             carrierTracker.carryLastX = c->x;
             carrierTracker.carryLastY = c->y;
             double carryMs = state.clockMs - carrierTracker.carryStartMs;

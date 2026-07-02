@@ -49,9 +49,12 @@ public:
         double carryLastX = 0, carryLastY = 0, carryPathDistance = 0;
         // Marathon/shuttle carry flags (2026-07-02 user: "Tanaka dribbled non
         // stop for ages side to side, defenders in repeat patterns"): carry
-        // start clock, lateral-direction reversals, and one-shot markers.
+        // start clock, amplitude-qualified lateral reversals (hysteresis peak
+        // detection — carryPivotY is the y-extreme of the current committed
+        // swing direction), and one-shot markers.
         double carryStartMs = 0;
         int carryRevsY = 0, carryLastDirY = 0;
+        double carryPivotY = 0;
         bool marathonRecorded = false, shuttleRecorded = false;
 
         int stationaryHoldCarrierId = -1;
