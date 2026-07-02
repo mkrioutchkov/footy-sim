@@ -256,9 +256,15 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                 // holdTicks<40 in the own-40% zone was A/B'd at 48 paired seeds
                 // and came back INERT on volume (passes 1794→1782, dwell u250ms
                 // 15→12%) — good candidates out-bid even −0.60 total. Only real
-                // effect: ping-pong −18% (82→67/match). A volume fix needs a HARD
-                // selection gate (skip scoring Pass entirely below a dwell floor)
-                // or a different lever — penalties don't move this arbitration.
+                // effect: ping-pong −18% (82→67/match). Penalties don't move this
+                // arbitration; hence the HARD gate below.
+                // Stage-2b HARD dwell gate: in calm own-40% build-up an ordinary
+                // pass is simply not on the menu for the first ~1.3s of holding —
+                // the carrier scans/carries (Dribble always scores, no deadlock).
+                // Killer balls, line-break outlets and any tight press remain
+                // exempt via the conditions above.
+                if (holdTicks < 80 && progress < PITCH_W * 0.42)
+                    x.score -= 2.0;
             }
         }
 
