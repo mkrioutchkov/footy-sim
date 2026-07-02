@@ -9,7 +9,10 @@ import { recordingFor, loadRecording, type RecKind, type SummaryPlayer } from '.
 import { chatComplete, llmReady } from './llm.ts';
 
 export interface PlayerRating { id: number; name: string; team: 'home' | 'away'; role: string; rating: number; goals: number; assists: number; shots: number; tackles: number }
-export interface TimelineEvent { minute: number; team: 'home' | 'away'; name: string; type: 'goal' | 'yellow' | 'red' | 'penalty' | 'woodwork' }
+// clockMs = the EXACT event clock (the frame where the score/card flipped; evClock for penalty/woodwork).
+// The viewer seeks markers/highlights with it — the display `minute` (floor+1) overshoots by up to 60s,
+// which made every recorded jump-to-goal land AFTER the goal. Optional: old cached reports lack it.
+export interface TimelineEvent { minute: number; team: 'home' | 'away'; name: string; type: 'goal' | 'yellow' | 'red' | 'penalty' | 'woodwork'; clockMs?: number }
 export interface MatchFacts {
   homeScore: number; awayScore: number;
   possessionHome: number;              // home possession %
@@ -86,8 +89,8 @@ export function analyzeRecording(frames: Iterable<string>): MatchFacts {
       const goals = num(p.goals), yellow = num(p.yellow), sentOff = !!p.sentOff;
       if (was) {
         if (goals > was.goals) inc[team].push({ id: num(p.id), name });
-        if (yellow > was.yellow) timeline.push({ minute, team, name, type: 'yellow' });
-        if (sentOff && !was.sentOff) timeline.push({ minute, team, name, type: 'red' });
+        if (yellow > was.yellow) timeline.push({ minute, team, name, type: 'yellow', clockMs: num(f.clockMs) });
+        if (sentOff && !was.sentOff) timeline.push({ minute, team, name, type: 'red', clockMs: num(f.clockMs) });
       }
       prevStat.set(p.id, { goals, yellow, sentOff });
     }
@@ -97,7 +100,7 @@ export function analyzeRecording(frames: Iterable<string>): MatchFacts {
       for (let i = 0; i < n; i++) {
         const scorer = inc[side].shift();
         if (scorer) legitGoals.set(scorer.id, (legitGoals.get(scorer.id) ?? 0) + 1);
-        timeline.push({ minute, team: side, name: scorer?.name ?? 'Own goal', type: 'goal' });
+        timeline.push({ minute, team: side, name: scorer?.name ?? 'Own goal', type: 'goal', clockMs: num(f.clockMs) });
       }
     };
     credit('home', Math.max(0, num(f.homeScore) - prevHome));
@@ -116,7 +119,7 @@ export function analyzeRecording(frames: Iterable<string>): MatchFacts {
       // match the real id-0 player. Only resolve a name/team from a present, non-negative id (else "Woodwork").
       const pl = (e.playerId != null && num(e.playerId) >= 0) ? f.players.find((p: any) => num(p.id) === num(e.playerId)) : undefined;
       const team: 'home' | 'away' = pl ? (pl.team === 'away' ? 'away' : 'home') : 'home';
-      timeline.push({ minute: minuteOf(evClock), team, name: pl ? String(pl.name) : (e.type === 'penalty' ? 'Penalty' : 'Woodwork'), type: e.type });
+      timeline.push({ minute: minuteOf(evClock), team, name: pl ? String(pl.name) : (e.type === 'penalty' ? 'Penalty' : 'Woodwork'), type: e.type, clockMs: Math.max(0, evClock) });
     }
     last = f;
   }

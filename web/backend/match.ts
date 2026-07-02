@@ -619,7 +619,12 @@ export function paceStep(pending: string[], prevClock: number | null, speed: num
       advanced += pc === null ? DEFAULT_FRAME_MS : Math.max(0, (f.clockMs ?? pc) - pc);
       pc = f.clockMs ?? pc; state = f;
     }
-    return { state, prevClock: pc, delayMs: DEFAULT_FRAME_MS, drained };
+    // Pace by the match-clock actually CONSUMED, not a fixed 33ms tick. On a thinned recording
+    // (REPLAY_SAMPLE=8 → ~264ms between frames) one frame overshoots the whole 2×/4× budget, and a
+    // fixed delay floored playback at ~8× no matter what speed was chosen (2× and 4× played
+    // identically fast). advanced/speed keeps the wall-clock honest: one 264ms frame at 2× waits
+    // 132ms; an unthinned ~33ms live stream still lands on ~33ms (unchanged).
+    return { state, prevClock: pc, delayMs: Math.max(DEFAULT_FRAME_MS, advanced / speed), drained };
   }
   const line = pending.shift()!;
   let state: any; try { state = JSON.parse(line); } catch { return { state: null, prevClock, delayMs: 1, drained: 1 }; }
@@ -675,6 +680,9 @@ abstract class FramePacer {
   protected setSpeed(v: number): void {
     this.speed = Math.max(0.25, Math.min(60, v));
     if (this.latest) this.send(this.latest);
+    // Re-arm the in-flight tick under the NEW speed — else the change only bites after the previously
+    // scheduled inter-frame delay (up to ~528ms leaving 0.5× on a thinned recording), reading as a stall.
+    if (!this.paused && this.timer) { clearTimeout(this.timer); this.timer = null; this.tick(); }
   }
   protected togglePause(): void {
     this.paused = !this.paused;
@@ -783,6 +791,7 @@ export class MatchStream extends FramePacer {
       const cmd = JSON.parse(d.toString()) as { type?: string; value?: unknown; text?: string };
       if (cmd.type === 'restart') { this.paused = false; this.start(); }
       else if (cmd.type === 'pause') this.togglePause();
+      else if (cmd.type === 'resume') { if (this.paused) this.togglePause(); }   // live-mode clients send distinct pause/resume
       else if (cmd.type === 'speed' && typeof cmd.value === 'number') this.setSpeed(cmd.value);
       else if (cmd.type === 'tactics' && this.canShout) {
         // Edit the plan mid-match (text -> plan + motivation; the compile calls the LLM).
@@ -938,6 +947,9 @@ export class ReplayStream extends FramePacer {
     try {
       const cmd = JSON.parse(d.toString()) as { type?: string; value?: unknown };
       if (cmd.type === 'pause') this.togglePause();
+      // a client in LIVE mode sends distinct pause/resume — honour resume (a finished live match's URL
+      // still says ?live=1 but routes HERE once recorded; ignoring 'resume' left its pause button dead/inverted)
+      else if (cmd.type === 'resume') { if (this.paused) this.togglePause(); }
       else if (cmd.type === 'speed' && typeof cmd.value === 'number') this.setSpeed(cmd.value);
       else if (cmd.type === 'restart') this.seekTo(0);
       else if (cmd.type === 'seek' && typeof cmd.value === 'number') this.seekTo(Math.max(0, cmd.value));
@@ -998,6 +1010,7 @@ export class EventsReplayStream extends FramePacer {
       const cmd = JSON.parse(d.toString()) as { type?: string; value?: unknown };
       if (cmd.type === 'restart') { this.paused = false; this.start(); }
       else if (cmd.type === 'pause') this.togglePause();
+      else if (cmd.type === 'resume') { if (this.paused) this.togglePause(); }   // live-mode clients send distinct pause/resume
       else if (cmd.type === 'speed' && typeof cmd.value === 'number') this.setSpeed(cmd.value);
       // no 'tactics' — a replay is immutable
     } catch { /* ignore */ }
