@@ -673,6 +673,11 @@ abstract class FramePacer {
   protected tick(): void {
     if (this.timer || this.paused || !this.alive) return;
     if (this.pending.length === 0) { this.refill(); return; }
+    // LOW-WATER refill: resuming the source only when the queue EMPTIED made fast-forward starve on a
+    // live re-sim — each drain-to-empty waited a full resume→chunk round-trip, capping 8× at ~3.6×.
+    // Refill while we still have frames to pace so the pipe fills in parallel (growth stays bounded:
+    // the stdout handler re-pauses after every chunk; a recording's refill is a no-op).
+    if (this.pending.length < 32) this.refill();
     const r = paceStep(this.pending, this.prevClock, this.speed);
     this.prevClock = r.prevClock;
     if (r.state === null) { this.tick(); return; }   // parse-skip / nothing drained — try the next
@@ -778,11 +783,14 @@ export class MatchStream extends FramePacer {
     this.proc = child;
     child.stdout.on('data', (data: Buffer) => {
       if (this.proc !== child || !this.alive) return;
-      child.stdout.pause();
       this.buffer += data.toString();
       const lines = this.buffer.split(/\r?\n/);
       this.buffer = lines.pop() ?? '';
       for (const l of lines) if (l.length) this.pending.push(l);
+      // HIGH-WATER backpressure: pausing after EVERY chunk made each refill a full resume→chunk
+      // round-trip, starving fast-forward (~5 frames per tick at 8×). Let the pipe flow until the
+      // queue is genuinely ahead (bounded: ~256 frames ≈ a few hundred KB + one chunk).
+      if (this.pending.length > 256) child.stdout.pause();
       this.tick();
     });
     child.stderr.on('data', () => { /* swallow */ });
@@ -993,11 +1001,13 @@ export class EventsReplayStream extends FramePacer {
     this.proc = child;
     child.stdout.on('data', (data: Buffer) => {
       if (this.proc !== child || !this.alive) return;
-      child.stdout.pause();                          // backpressure: only sim as fast as we play it back
       this.buffer += data.toString();
       const lines = this.buffer.split(/\r?\n/);
       this.buffer = lines.pop() ?? '';
       for (const l of lines) if (l.length) this.pending.push(l);
+      // HIGH-WATER backpressure (see MatchStream): pause only when genuinely ahead, so fast-forward
+      // isn't starved by a resume→chunk round-trip per refill. Bounded ~256 frames + one chunk.
+      if (this.pending.length > 256) child.stdout.pause();
       this.tick();
     });
     child.stderr.on('data', () => { /* swallow */ });
