@@ -212,6 +212,17 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // ── Cross / cutback scoring ──
     if (isCross) {
         sc += 0.05;   // was 0.26 — this helper is the 2nd cross source; trimmed with the wide-carrier override to pull total crosses toward realistic (~40-60/match)
+        // A crowded box makes the cross a coin-flip turnover — count the bodies
+        // and recycle/pull it back instead (mirrors the override's crowd gate).
+        {
+            double gxc = goalXFor(p.team);
+            int boxDefenders = 0;
+            for (auto& o : engine.state.players) {
+                if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+                if (std::abs(o.x - gxc) < 200.0 && std::abs(o.y - PITCH_H / 2.0) < 170.0) boxDefenders++;
+            }
+            sc -= std::max(0, boxDefenders - 2) * 0.10;
+        }
         if (engine.directiveBias[p.id].crossEarly) sc += 0.55;   // "whip it in early"
         if (t.role == Role::CF) sc += 0.30;
         else if (t.role == Role::WM) sc += 0.10;
@@ -260,10 +271,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         && receiverPressure <= 1) {
         sc += carrierFinalThird ? 0.30 : 0.20;
     }
-    if ((isCross || isCutback) && receiverPressure <= 1 && bl <= 1) sc += 0.08;
+    if (isCutback && receiverPressure <= 1 && bl <= 1) sc += 0.08;   // was cross+cutback; the cutback is the one to reward
     if (isWideMidfielder() && dgW < 450.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 230.0) sc += 0.24;
-    if (isWideMidfielder() && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.32;
-    if (isFullBack() && fp > 0.0 && std::abs(p.y - PITCH_H / 2.0) > 75.0 && dgW < 430.0) sc += 0.30;
+    if (isWideMidfielder() && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.26;   // wide-funnel sugar trimmed 0.32
+    if (isFullBack() && fp > 0.0 && std::abs(p.y - PITCH_H / 2.0) > 75.0 && dgW < 430.0) sc += 0.24;       // trimmed 0.30
     bool targetWide = (t.role == Role::WM || t.role == Role::FB) && std::abs(t.y - PITCH_H / 2.0) > 125.0;
     bool passerCanFindWide = isDefenderLike();
     if (passerCanFindWide && targetWide && fp > 20.0 && d < 460.0 && bl <= 1 && receiverPressure <= 1) {

@@ -58,10 +58,17 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
     }
 
     // ── Crossing carrier override ──
-    // Only a genuinely WIDE carrier in the final third whips one in (was: any wide
-    // player within 520px of goal off-centre by 75px = the whole attacking half,
-    // which spammed ~246 crosses/match, ~5x real). crossEarly directive keeps a
-    // deeper, less-selective window.
+    // ⚠ Load-bearing offense — do NOT remove without replacing the chances.
+    // History: this block is the engine's cross-volume machine (originally ~246
+    // crosses/match, gated to ~76; attribution testing shows it produces ~50 of
+    // those). Score thresholds and arbitration weights CANNOT cut its volume:
+    // the carrier re-evaluates every tick, so any per-tick chance of the cross
+    // winning saturates over a multi-second wide possession (threshold 0.42 ->
+    // 1.05 and a 0.90 -> 0.72 weight cap each moved volume by ~1/match). And an
+    // A/B with the override restricted to the cross_early directive collapsed
+    // the attack entirely — 1.05 goals/match, 9-of-20 matches 0-0 — because
+    // central penetration/cutback chance creation doesn't yet exist to replace
+    // it. Until that exists (chance-mix rebuild), this stays as the offense.
     double goalX = goalXFor(p.team);
     bool crossEarly = engine.directiveBias[p.id].crossEarly;
     bool crossingCarrier = isWidePlayer()
@@ -88,10 +95,28 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
             double score = central + roleBonus + goalThreat + (300.0 - targetGoalDist) / 390.0 - pressure * 0.25 - d / 900.0;
             if (score > bestScore) { bestScore = score; bestRunner = &t; }
         }
-        if (bestRunner && bestScore > (crossEarly ? 0.15 : 0.42)) {   // demand a genuinely good target (was -0.05)
+        // A packed box kills the cross: real wingers recycle or pull it back when
+        // the area is crowded — whipping it into 4+ defenders is a turnover, and
+        // indiscriminate crossing is why the engine sat at ~76 crosses (real
+        // 30-40) with every attack looking identical.
+        if (bestRunner) {
+            int boxDefenders = 0;
+            for (auto& o : engine.state.players) {
+                if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+                if (std::abs(o.x - goalX) < 200.0 && std::abs(o.y - PITCH_H / 2.0) < 170.0) boxDefenders++;
+            }
+            bestScore -= std::max(0, boxDefenders - 2) * 0.13;
+        }
+        // Threshold calibrated by attribution test: this override produced ~50 of
+        // the ~72 crosses/match (helper ~21 + corners ~11 are the rest). The score
+        // scale runs ~1.0-1.7 for a decent runner, so 0.42/0.55 barely gated —
+        // 1.05 demands a genuinely elite target (central, near goal, unmarked,
+        // uncrowded box) and drops the override's volume to a garnish on top of
+        // the organic helper crosses.
+        if (bestRunner && bestScore > (crossEarly ? 0.15 : 1.05)) {
             double d = dist(p.x, p.y, bestRunner->x, bestRunner->y);
             double fp = (bestRunner->x - p.x) * fd;
-            r.push_back(Action{ActionType::Pass, clamp(0.55 + bestScore * 0.25, 0.0, 0.90), bestRunner, 0, 0,   // lower floor (was 0.78) so the cross competes on merit
+            r.push_back(Action{ActionType::Pass, clamp(0.55 + bestScore * 0.25, 0.0, 0.90), bestRunner, 0, 0,
                                ActionPurpose::Cross, ActionAudit{d, fp, 0.72, 0, 0, 0, 0}});
         }
     }

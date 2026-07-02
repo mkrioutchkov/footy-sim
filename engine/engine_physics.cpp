@@ -437,9 +437,13 @@ void GameEngine::checkBallPlayerCollision(double sec){
                     // distinct height (then the tall man wins more).
                     double dAer = 0.5*attrFactor(dueler->attrs.positioning)   + 0.5*attrFactor(dueler->attrs.height);
                     double iAer = 0.5*attrFactor(intended->attrs.positioning) + 0.5*attrFactor(intended->attrs.height);
-                    double duelChance=clamp(0.52
+                    // Defender-favoured base (0.52 -> 0.58): the marker attacks a
+                    // whipped ball moving TOWARD him — real defenses win most
+                    // contested aerials, and at 0.52 the engine ran 30% headed
+                    // goals (real 15-20%).
+                    double duelChance=clamp(0.58
                         +(dAer-iAer)*0.35
-                        +(48.0-duelerDist)/48.0*0.18,0.12,0.76);
+                        +(48.0-duelerDist)/48.0*0.18,0.12,0.80);
                     if(rng.random()<duelChance){
                         dueler->headingAnim=520.0;
                         collectBall(*dueler);   // routes to header clearance
