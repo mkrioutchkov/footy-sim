@@ -170,6 +170,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // the near-post runner is legally onside-close (max(line,b.x)=b.x), so widen the cutback target zone
     // (goalDist>45, y<215) for a deep carrier to let that 6-yard tap-in route qualify for the +0.54 cutback.
     bool deepCarrier = dgW < 140.0;
+    // NOTE: the 245 outer gate means the +0.54 cutback premium also pays out on
+    // ~24m lay-backs (measured receiver median tgd ~240) — but tightening it to
+    // 190 was A/B'd and REJECTED: with fewer qualifying ground cutbacks, wide
+    // carriers switched to WHIPPED CROSSES instead (headed goals 25%->36%,
+    // saves 2.75, draws 10%). Keep the wide gate until central chance creation
+    // can absorb the volume; the box-burst runs are stage 1 of that.
     bool centralBoxTarget = std::abs(t.y - PITCH_H / 2.0) < (deepCarrier ? 215.0 : 185.0)
         && boxTargetGoalDist > (deepCarrier ? 45.0 : 75.0) && boxTargetGoalDist < 245.0;
     bool aerialTarget = isWideDelivery

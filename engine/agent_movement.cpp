@@ -175,9 +175,30 @@ void PlayerAI::applyMovement(double sdt) {
                            || std::abs(engine.state.ball.x - ownGoalX) < 300.0;
     bool pursuingLooseBall = engine.state.ball.controllerId < 0 && looseBallHighValue
         && bd < 230.0 && (dx * bdx + dy * bdy) > 0.0;
+    // Attacking the delivery (mirror of E1's sprint-back): a runner whose chosen
+    // position is in the opponent's box while HIS OWN team's carrier is wide /
+    // advanced in the final third must BURST there — real cutback and low-cross
+    // runs arrive WITH the ball. At jog pace + the approach damping below, the
+    // CF was measured arriving ~50px late on every pull-back (pos tgd median
+    // 197 vs his own target 149 at release) — the box was empty on 81% of
+    // cutbacks, which is why the shot mix had 2% close-range chances.
+    bool boxBurst = false;
+    if (!defendSprint && !committedChase && !committedPress
+        && lastActionType == ActionType::Position
+        && (lastPurpose == ActionPurpose::InsideRun || lastPurpose == ActionPurpose::RunAhead
+            || lastPurpose == ActionPurpose::Offer || lastPurpose == ActionPurpose::Space)
+        && (isCenterForward() || isWideMidfielder() || isCentralMidfielder())) {
+        double oppGoalX = goalXFor(p.team);
+        bool targetAttacksBox = std::abs(p.targetX - oppGoalX) < 210.0
+            && std::abs(p.targetY - PITCH_H / 2.0) < 200.0;
+        if (targetAttacksBox && carrier && carrier->team == p.team && carrier->id != p.id
+            && std::abs(carrier->x - oppGoalX) < 330.0) {
+            boxBurst = true;
+        }
+    }
     double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)
         ? DRIBBLE_FAST_SPEED
-        : (lastActionType == ActionType::Chase || committedPress || defendSprint || pursuingLooseBall ? SPEED_SPRINT : SPEED_RUN);
+        : (lastActionType == ActionType::Chase || committedPress || defendSprint || pursuingLooseBall || boxBurst ? SPEED_SPRINT : SPEED_RUN);
 
     // Shielding: slow down when near opponents with ball
     bool isController = (engine.state.ball.controllerId == p.id);
@@ -185,7 +206,7 @@ void PlayerAI::applyMovement(double sdt) {
         baseSpeed *= 0.80; // 20% slower when shielding
     }
 
-    double df = (committedChase || committedPress || defendSprint || pursuingLooseBall) ? 1.0 : std::min(d / 120.0, 1.5);
+    double df = (committedChase || committedPress || defendSprint || pursuingLooseBall || boxBurst) ? 1.0 : std::min(d / 120.0, 1.5);
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
 
     double px = p.x, py = p.y;

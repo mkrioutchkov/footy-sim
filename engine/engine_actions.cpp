@@ -359,7 +359,7 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     bool fromWide=std::abs(f.y-PITCH_H/2)>130;
     bool intoBox=std::abs(predX-goalX)<270&&std::abs(predY-PITCH_H/2)<190;
     bool selectedCross=audit&&audit->purpose==ActionPurpose::Cross&&fromWide&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall;
-    bool selectedCutback=audit&&audit->purpose==ActionPurpose::Cutback;   // render-hint only (Gaylord's lime cutback cue); not read by gameplay
+    bool selectedCutback=audit&&audit->purpose==ActionPurpose::Cutback;   // render-hint + first-time-finish arm (engine_physics.cpp)
     bool whippedCross=fromWide&&intoBox&&(f.role==Role::WM||f.role==Role::FB)&&!throughBall
         &&(!audit||(audit->purpose!=ActionPurpose::Cutback&&audit->purpose!=ActionPurpose::Through&&audit->purpose!=ActionPurpose::Cross));
     // Only deliberate (selected) crosses count as crosses — counting every
