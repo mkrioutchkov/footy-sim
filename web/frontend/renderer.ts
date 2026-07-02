@@ -179,9 +179,14 @@ export class MatchRenderer {
     this.ballGlow.circle(0, 0, r + 2);
     this.ballGlow.stroke({ width: 1, color: 0xffffff, alpha: 0.3 });
 
-    // pre-create trail pool
+    // pre-create trail pool — each dot is drawn ONCE as a white unit circle; per sync only position/
+    // scale/alpha/tint change (a clear()+circle()+fill() per visible dot re-tessellated ~500-600
+    // Graphics/sec during ball flight — pure waste, the geometry is a function of the pool index).
     for (let i = 0; i < TRAIL_LENGTH; i++) {
       const t = new Graphics();
+      t.circle(0, 0, 1);
+      t.fill({ color: 0xffffff });
+      t.visible = false;
       this.pitchContainer.addChild(t);
       this.trailPool.push(t);
     }
@@ -670,11 +675,13 @@ export class MatchRenderer {
         const pt = this.trailBuffer[idx];
         t.visible = true;
         t.position.set(pt.x, pt.y - pt.z * 0.7);   // lift by the same arcOffset the ball uses → trail follows the arc
-        t.clear();
+        // the dot is a pre-drawn white unit circle — scale it to the radius, tint it the colour (no
+        // clear()+re-tessellate per dot per sync; see the pool construction)
         const alpha = (i / TRAIL_LENGTH) * 0.48;
         const r = BALL_R * (0.4 + (1 - i / TRAIL_LENGTH) * 0.75) * (cutbackActive ? 1.3 : 1);   // a cutback trail reads thicker
-        t.circle(0, 0, r);
-        t.fill({ color: cutbackActive ? CUTBACK_COLOR : curlTint(0xffdd44), alpha: cutbackActive ? Math.min(alpha * 1.8, 0.8) : alpha });
+        t.scale.set(r);
+        t.alpha = cutbackActive ? Math.min(alpha * 1.8, 0.8) : alpha;
+        t.tint = cutbackActive ? CUTBACK_COLOR : curlTint(0xffdd44);
       } else {
         t.visible = false;
       }

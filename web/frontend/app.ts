@@ -1318,12 +1318,15 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   }, ...SPEEDS.map(v => h('option', { value: String(v) }, `${v}×`))) as HTMLSelectElement;
   speedSel.value = '1';
   speedSel.addEventListener('change', () => activeWs?.send(JSON.stringify({ type: 'speed', value: +speedSel.value })));
-  // Pause ↔ Resume. The LIVE coordinator takes distinct pause/resume; a re-sim/replay (match.ts) TOGGLES on 'pause'
-  // and ignores 'resume', so send a plain 'pause' there and just flip the label. Pausing also freezes the
-  // client-side buffer playback when rewound (step() holds while paused).
+  // Pause ↔ Resume — distinct pause/resume commands (every stream handles 'resume' now, so no more
+  // per-mode toggle protocol). Pausing also freezes the client-side buffer playback when rewound
+  // (step() holds while paused). The local state is RECONCILED from each frame's matchState (below),
+  // so a refused command (spectator seat) or another manager's pause can't leave the button lying.
+  let pauseClickedAt = 0;   // grace window: in-flight pre-click frames must not flap the just-clicked state back
   const pauseBtn = h('button', { class: 'ghost small', 'aria-label': 'Pause or resume playback', 'aria-pressed': 'false', onclick: () => {
     paused = !paused;
-    activeWs?.send(JSON.stringify({ type: live ? (paused ? 'pause' : 'resume') : 'pause' }));
+    pauseClickedAt = performance.now();
+    activeWs?.send(JSON.stringify({ type: paused ? 'pause' : 'resume' }));
     pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
     paintBar();
   } }, '⏸ Pause') as HTMLButtonElement;
@@ -1602,9 +1605,12 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     startBufferPlayback(idx);
   };
   // unified seek: a recorded replay seeks the backend (full random access); a live watch seeks the buffer.
+  let pendingSeekMs: number | null = null;   // a backend seek is in flight — drop pre-seek frames so the pitch/thumb don't flick back first
+  let pendingSeekAt = 0;
   const seekTo = (targetMs: number): void => {
     if (liveSeek) { seekLiveBuffer(targetMs); return; }
     if (!replayUiApplied) return;   // a live re-sim before its buffer is ready / a non-seekable stream: nothing to backend-seek (avoid a dead send)
+    pendingSeekMs = Math.max(0, targetMs); pendingSeekAt = performance.now();
     activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, targetMs) }));
     // ReplayStream.seekTo() force-resumes the backend, so re-sync the local pause label — else the Pause
     // button inverts (reads "▶ Resume" while the match visibly plays, and needs two clicks to recover).
@@ -1670,6 +1676,22 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     try {
       const msg = JSON.parse(ev.data) as WatchMessage;
       if (msg.error) { showStatusError(msg.error); return; }   // re-sim failed (e.g. replay-from-shouts)
+      // A backend seek is in flight: frames sent BEFORE the backend processed it would flick the pitch +
+      // thumb back to the pre-seek position for a beat. Drop them until a frame lands near the target
+      // (or the gate times out — accept whatever streams then, e.g. a seek past the end re-sends the tail).
+      if (pendingSeekMs !== null && typeof msg.clockMs === 'number') {
+        if (Math.abs(msg.clockMs - pendingSeekMs) <= 2500 || performance.now() - pendingSeekAt > 2000) pendingSeekMs = null;
+        else return;
+      }
+      // Reconcile pause from the stream's own state: a refused command (spectator seat on a live match),
+      // another manager pausing, or a backend force-resume can all desync the local flag — the frame is
+      // the truth. Grace window after a local click so in-flight pre-click frames don't flap it back.
+      // NOT while rewound (`replaying`): there the local pause governs the BUFFER playback, and the live
+      // feed's 'running' state must not resume it out from under the viewer.
+      if (typeof msg.matchState === 'string' && !replaying && performance.now() - pauseClickedAt > 1200) {
+        const srvPaused = msg.matchState === 'paused';
+        if (srvPaused !== paused) { paused = srvPaused; pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause'; paintBar(msg.speed); }
+      }
       // A replayed recording is finished playback: reveal the rewind/scrub/back-10s controls. The shout
       // box is already gone (the panel is the read-only live-only note when !live), so keep the note visible.
       if (msg.replay && !replayUiApplied) { replayUiApplied = true; back10Btn.style.display = ''; fwd10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
