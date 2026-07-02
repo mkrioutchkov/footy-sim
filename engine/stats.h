@@ -149,6 +149,7 @@ public:
     void recordDizzySpin()              { dizzySpins++; }
     void recordWoodwork()               { woodworkHits++; }
     void recordClearance()              { clearances++; }   // Clear-purpose releases (both the hoof gate and relabeled candidates); real ~30-40/match both teams
+    void recordBlobMoment()             { blobMoments++; }  // 6+ players within 50px, open play, 1.5s throttle
     void recordBallJump()               { ballJumps++; }
     void recordQuestionableShot()       { questionableShots++; }
     void recordQuestionablePress()      { questionPress++; }
@@ -239,6 +240,7 @@ private:
     int dizzySpins=0;
     int woodworkHits=0;   // frame (post/bar) contacts — real ~0.5-1/match; audit 2026-07-02 measured 8
     int clearances=0;
+    int blobMoments=0;
     int ballJumps=0;
     int teammatePingPongs=0;
     int questionableShots=0;

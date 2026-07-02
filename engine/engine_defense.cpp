@@ -9,7 +9,29 @@
 // ══════════════════════════════════════════════════════════════
 
 void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, double y, int opponentId) {
-    assignmentByPlayer[player.id] = {role, opponentId, clamp(x, 35.0, PITCH_W - 35.0), clamp(y, 35.0, PITCH_H - 35.0)};
+    double tx = clamp(x, 35.0, PITCH_W - 35.0);
+    double ty = clamp(y, 35.0, PITCH_H - 35.0);
+    // Assignment-target spacing (2026-07-02 knot logger): 41% of six-player-crowd
+    // members were defensive TASK targets stacked within 50px — press point,
+    // lanes, screen and cover all sit on the same carrier→goal line. Keep a
+    // ZONE target a body-width off any same-team assignment already placed
+    // (earlier phases = higher priority claim their spot; later ones shade
+    // off it). Man-oriented tasks (a real opponent to touch: press, marks with
+    // opponentId) are untouched — they MUST converge.
+    if (opponentId < 0 && role != DefensiveTask::PrimaryPress && role != DefensiveTask::SecondaryPress) {
+        for (auto& q : state.players) {
+            if (q.team != player.team || q.id == player.id || q.sentOff) continue;
+            const auto& other = assignmentByPlayer[q.id];
+            if (other.role == DefensiveTask::None) continue;
+            double ddx = tx - other.targetX, ddy = ty - other.targetY;
+            double d = std::hypot(ddx, ddy);
+            if (d >= 40.0) continue;
+            if (d < 1.0) { ddx = (player.id % 2 == 0) ? 1.0 : -1.0; ddy = 0.0; d = 1.0; }
+            tx = clamp(other.targetX + ddx / d * 40.0, 35.0, PITCH_W - 35.0);
+            ty = clamp(other.targetY + ddy / d * 40.0, 35.0, PITCH_H - 35.0);
+        }
+    }
+    assignmentByPlayer[player.id] = {role, opponentId, tx, ty};
 }
 
 // ── Plain-English tactics interpreter ──

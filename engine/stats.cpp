@@ -163,6 +163,7 @@ std::string StatsCollector::summaryJSON() const {
     j["dizzySpins"] = dizzySpins;
     j["woodworkHits"] = woodworkHits;
     j["clearances"] = clearances;
+    j["blobMoments"] = blobMoments;
     j["ballJumps"] = ballJumps;
     j["teammatePingPongs"] = teammatePingPongs;
     j["slideTackleDistanceAlerts"] = slideTackleDistance;

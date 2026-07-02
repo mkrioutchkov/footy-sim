@@ -393,12 +393,13 @@ void GameEngine::updatePossessionTracking(double sdt) {
     auditBlobPurposes();
 }
 
-// FOOTY_BLOBDEBUG=1 → one stderr line per knot moment (throttled 1.5s): every
-// member's role/team/last action/purpose/target. Feeds the crowding ticket's
-// attribution question; costs nothing when the env is unset.
+// Knot counting is ALWAYS on (summary blobMoments — the crowding ticket's
+// summary-level target metric; 15-min traces are too noisy at n=3).
+// FOOTY_BLOBDEBUG=1 additionally stderr-logs each knot with every member's
+// role/team/last action/purpose/target (attribution).
 void GameEngine::auditBlobPurposes() {
     static const bool on = [] { const char* e = std::getenv("FOOTY_BLOBDEBUG"); return e && e[0] == '1'; }();
-    if (!on || setPiece.armed || phase.kickoffPhase) return;
+    if (setPiece.armed || phase.kickoffPhase) return;
     if (state.clockMs < blobLogNextMs) return;
     for (auto& seed : state.players) {
         if (seed.sentOff) continue;
@@ -407,6 +408,8 @@ void GameEngine::auditBlobPurposes() {
             if (!q.sentOff && dist(q.x, q.y, seed.x, seed.y) < 50.0) n++;
         if (n < 6) continue;
         blobLogNextMs = state.clockMs + 1500.0;
+        stats.recordBlobMoment();
+        if (!on) return;
         std::fprintf(stderr, "BLOB %.0fms @(%.0f,%.0f) ball=(%.0f,%.0f,ctrl=%d):",
                      state.clockMs, seed.x, seed.y, state.ball.x, state.ball.y, state.ball.controllerId);
         for (auto& q : state.players) {
