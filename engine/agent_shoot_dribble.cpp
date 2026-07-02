@@ -1,6 +1,5 @@
 #include "engine.h"
 #include "agent.h"
-#include <cstdio>
 
 Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
@@ -113,7 +112,11 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 
     if (freshCross) sc += freshCrossShotBonus();
     if (freshThrough) {
-        sc += per.pressureCount == 0 ? 0.22 : 0.10;
+        // Distance-shaped (was flat +0.22 unpressured): an UNPRESSURED collector
+        // still 18m+ out should carry his 1v1 in (the breakaway drive in
+        // scoreDribble), not snap-shoot — the early bonus only pays close-in.
+        // A pressured collector (recovering CB on his back) still shoots early.
+        sc += per.pressureCount == 0 ? (shotDistance < 180.0 ? 0.22 : 0.02) : 0.10;
         if (shotDistance < 170.0 && angleDeg > 8.0) sc += 0.16;
     }
     if (shotDistance < 160.0 && angleDeg > 6.5) sc += per.pressureCount <= 1 ? 0.24 : 0.10;
@@ -250,10 +253,39 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         tx = lerp(tx, gx, 0.20);
     }
 
+    // ── Breakaway drive ── A through-ball collector who is genuinely IN BEHIND
+    // (no outfield defender goal-side in his corridor) drives at the keeper
+    // before finishing — real 1v1s are finished from 8-12m, not 20m. Without
+    // this, the freshThrough shot bonus fired from wherever the ball was
+    // collected (~180-250px), which is why 27 completed through balls/match
+    // produced almost no close-range chances (shot mix: close 2% vs real ~20%).
+    bool breakawayDrive = false;
+    if (freshThrough && distToGoal > 120.0 && distToGoal < 310.0) {
+        // A defender only kills the 1v1 if he can actually make the drive lane:
+        // goal-side AND within ~60px lateral of the carrier-to-goal line. The
+        // first version counted anyone goal-side within 120y — with a retreating
+        // line that is ALWAYS someone, so the drive never fired (measured 0).
+        int defendersAhead = 0;
+        double lx = gx - p.x, ly = PITCH_H / 2.0 - p.y, ll = std::hypot(lx, ly);
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+            if ((o.x - p.x) * fd <= -10.0) continue;               // chasing from behind
+            double t = ll > 1.0 ? clamp(((o.x - p.x) * lx + (o.y - p.y) * ly) / (ll * ll), 0.0, 1.0) : 0.0;
+            double lane = dist(o.x, o.y, p.x + lx * t, p.y + ly * t);
+            if (lane < 60.0) defendersAhead++;
+        }
+        if (defendersAhead == 0) {
+            breakawayDrive = true;
+            tx = clamp(gx - fd * 90.0, 35.0, PITCH_W - 35.0);   // drive to ~9m out
+            ty = clamp(lerp(p.y, PITCH_H / 2.0, 0.35), 70.0, PITCH_H - 70.0);
+        }
+    }
+
     // Scoring
     double sc = 0.35;
     if (bylineSeek) sc += 0.18;   // §C reward the byline carry so it wins vs an early cross / cut-inside
     if (cutInside)  sc += 0.20;   // cut_inside: reward the inside drive so it wins vs the byline (mirror)
+    if (breakawayDrive) sc += 0.30;   // the 1v1 carry must beat the 20m snapshot
     double backwardTarget = (tx - p.x) * fd;
     if (backwardTarget < -45.0) {
         sc -= 0.34;

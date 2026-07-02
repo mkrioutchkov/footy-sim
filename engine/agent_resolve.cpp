@@ -26,11 +26,23 @@ Action* PlayerAI::tryFreshBallOverride(SmallVector<Action, 24>& a, Action& best,
                 if (!dribbleOpt || x.score > dribbleOpt->score) dribbleOpt = &x;
             }
         }
-        if (shootOpt && shootOpt->score > best.score - 0.18
+        // An UNPRESSURED collector still 18m+ out snap-shooting is the reason 27
+        // completed through balls/match produced almost no close chances — this
+        // override's 0.18 tolerance picked the shot regardless of relative
+        // scores (nerfing the shot score changed literally nothing). A real 1v1
+        // is CARRIED to 8-12m first: far + unpressured now prefers the dribble
+        // (the breakaway drive targets ~9m out); the shot stays first choice
+        // when close, pressured (recovering CB on his back), or with no carry.
+        bool farSnap = shootOpt && shootOpt->audit.distance > 180.0
+            && shootOpt->audit.pressureCount == 0;
+        if (shootOpt && !farSnap && shootOpt->score > best.score - 0.18
             && shootOpt->audit.distance < 245.0)
             return shootOpt;
-        if (dribbleOpt && nearGoal && dribbleOpt->score > best.score - 0.14)
+        if (dribbleOpt && (nearGoal || farSnap) && dribbleOpt->score > best.score - 0.14)
             return dribbleOpt;
+        if (shootOpt && shootOpt->score > best.score - 0.18
+            && shootOpt->audit.distance < 245.0)
+            return shootOpt;   // no viable carry — take the shot anyway
     }
     if (ic && player.crossCollected > 0.0) {
         Action* shootOpt = nullptr;

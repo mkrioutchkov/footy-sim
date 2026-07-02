@@ -348,3 +348,24 @@ runs put bodies in the box while cross volume is still ~70/match, so crosses
 find heads more often. Headed-share should normalize when cross volume drops,
 which is blocked on central chance supply (the staged cutback work). Use fresh
 seed ranges per tuning arc going forward.
+
+### Keeper + 1v1 arc (post ghost-body fix)
+
+- **Save ledger closed**: routine gathers now count as saves (Opta convention);
+  the >295px/s gate was calibrated against the old under-counted SoT. Saves
+  land 5.3-5.8 (real 5-6). Simulation-invariant.
+- **The "dead keeper dial" mechanism found**: dive reach (stand 23.5 + dive
+  ≤26px) barely covered typical placement (34-44px off), so saveChance sat on
+  the 0.05 clamp floor — coefficient buffs were provably no-ops (byte-identical
+  A/B). Re-based the physical reach (17+16·hand) + floor 0.09: goals 3.15→2.90,
+  conv/SoT 38→34.5%, same-seed A/B on fresh seeds 401-420.
+- **Breakaway drive**: through-ball collectors (27 completed/match) snap-shot
+  from 18-25m because `tryFreshBallOverride` returned the shot inside a 0.18
+  tolerance regardless of relative scores (another dead-dial: score nerfs
+  changed nothing). Far + unpressured collectors now carry the 1v1 to ~9m
+  (lane-checked corridor, was never-firing at ±120y). Goals 2.80 ✓.
+
+Current held-in-range: goals 2.80-2.90 ✓ · conv/SoT 34.5 ~✓ · saves 5.6-5.8 ✓ ·
+draws 25% ✓ · SoT 8.0-8.4 ✓ · corners 11.6 ✓ · offsides 3.1 ✓ · yellows 3.75 ✓.
+Still open: crosses ~67 (load-bearing), headed-share ~32% (downstream of cross
+volume), passes ~1840 (press redesign), fouls ~24-28 (borderline).
