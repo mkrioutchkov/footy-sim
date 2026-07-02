@@ -754,6 +754,20 @@ void GameEngine::checkBallPlayerCollision(double sec){
 void GameEngine::collectBall(Player& c) {
     auto& b = state.ball;
     if (!canContestBall(c)) return;
+    // Same-team snatch guard (2026-07-02 audit, the "fake pass then teleported
+    // back" moment): a teammate could take over a just-touched ball within one
+    // visual frame — control flapped #18→#15→#18 across consecutive ticks,
+    // snapping the ball ~20px each flip. If MY team touched it <300ms ago, the
+    // toucher is still on top of it, and it isn't a pass meant for me, it's
+    // HIS ball — leave it. Opponents and intended receivers are unaffected.
+    if (receiverShieldTargetId != c.id && lastCollectionTeam.has_value()
+        && c.team == *lastCollectionTeam
+        && state.clockMs - lastSameTeamCollectionMs < 300.0
+        && b.lastToucherId >= 0 && b.lastToucherId != c.id) {
+        Player* prevT = playerById(b.lastToucherId);
+        if (prevT && prevT->team == c.team && dist(prevT->x, prevT->y, b.x, b.y) < 45.0)
+            return;
+    }
     contestBlockedUntil[c.id] = 0;
     bool intended = receiverShieldTargetId == c.id;
     bool teammateTarget = receiverShieldTargetId >= 0 && b.lastTouchTeam == c.team;
@@ -836,7 +850,10 @@ bool GameEngine::collectBall(Player& c, const std::string&, double allowedDist) 
     return true;
 }
 
-void GameEngine::updateControlledBall(double) {
+void GameEngine::updateControlledBall(double sec) {
+    // sec = SECONDS this tick (callers pass `sec`); the intra-tick re-glue
+    // calls in moveBallCarrier pass 0 — they only re-anchor the target, the
+    // convergence step below is driven by the once-per-tick timed call.
     Player* c = playerById(state.ball.controllerId);
     if (!c || phase.kickoffPhase) return;
     double dx = std::cos(c->facing), dy = std::sin(c->facing);
@@ -872,8 +889,43 @@ void GameEngine::updateControlledBall(double) {
         double len = std::hypot(dx, dy);
         if (len > 0.001) { dx /= len; dy /= len; }
     }
-    state.ball.x = clamp(c->x + dx * CONTROL_DIST, 5.0, PITCH_W - 5.0);
-    state.ball.y = clamp(c->y + dy * CONTROL_DIST, 5.0, PITCH_H - 5.0);
+    double tx = clamp(c->x + dx * CONTROL_DIST, 5.0, PITCH_W - 5.0);
+    double ty = clamp(c->y + dy * CONTROL_DIST, 5.0, PITCH_H - 5.0);
+    // Step the carried ball toward its control offset instead of hard-snapping.
+    // The snap was THE dominant "ball flows weird" artifact: 89% of receptions
+    // jumped the ball 10-21px in a single tick (first-4-min audit, fixture
+    // 2245). Cap follows the carrier's pace + a firm-touch allowance, so the
+    // ball converges to the same offset within ~2-3 ticks and a reception
+    // reads as a touch, not a teleport. Big separations (placement/teleport
+    // cases >60px) still snap — those are deliberate resets.
+    double prevBx = state.ball.x, prevBy = state.ball.y;
+    double mx = tx - state.ball.x, my = ty - state.ball.y;
+    double md = std::hypot(mx, my);
+    double maxStep = (std::hypot(c->vx, c->vy) + 300.0) * sec;
+    bool firstTimedCallThisTick = sec > 1e-6 && state.clockMs != glueStepDoneMs;
+    if (firstTimedCallThisTick) glueStepDoneMs = state.clockMs;
+    if (md < 60.0 && !(firstTimedCallThisTick && md <= maxStep)) {
+        // Converging (or a repeat/0-time call): step at most maxStep once per
+        // tick; repeat calls only re-anchor, they don't move the ball again.
+        if (firstTimedCallThisTick && md > 1e-9) {
+            state.ball.x += mx / md * maxStep;
+            state.ball.y += my / md * maxStep;
+        }
+    } else {
+        state.ball.x = tx;
+        state.ball.y = ty;
+    }
+    // Truthful carried-ball velocity: the glue used to leave a stale (or zero)
+    // vx/vy while writing position directly, so the recorded stream showed the
+    // ball "moving right, velocity left" or moving with v=0 — renderer trails
+    // and every velocity-reading probe lied during carries. Derive it from the
+    // actual displacement; every release path overwrites it anyway. Only on
+    // the first timed call — a repeat timed call sees ~zero displacement and
+    // would wipe the honest value.
+    if (firstTimedCallThisTick) {
+        state.ball.vx = (state.ball.x - prevBx) / sec;
+        state.ball.vy = (state.ball.y - prevBy) / sec;
+    }
     state.ball.lastTouchTeam = c->team;
     state.ball.lastToucherId = c->id;
 }

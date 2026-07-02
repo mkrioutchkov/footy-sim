@@ -433,6 +433,10 @@ public:
     // invisible in traces). Env-gated; default off = byte-identical.
     void auditBlobPurposes();
     double blobLogNextMs = 0;
+    // Carry-glue convergence bookkeeping: updateControlledBall runs 2-3x per
+    // tick (phase glue + intra-move re-anchors) — the capped step toward the
+    // control offset must apply ONCE per tick or receptions double-step.
+    double glueStepDoneMs = -1;
     void updateTeamAssignments();
     void assignDefensiveRoles(Team team, Player& carrier);
     // Wake the in-possession team's off-ball runners: designate up to 3 attacking
