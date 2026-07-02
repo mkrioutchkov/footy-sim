@@ -605,8 +605,16 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         double px = clamp(releaseSpot ? setPiece.spotX : setPiece.spotX - fd * standBack, 5.0, PITCH_W - 5.0);
         double py = clamp(setPiece.spotY, 5.0, PITCH_H - 5.0);
         if (releaseSpot) {
-            taker.x = px;
-            taker.y = py;
+            // Step in briskly, don't snap: the one-tick hop from the stand-back
+            // offset onto the spot was the audit's "carrier teleport" (~14px in
+            // 17ms, 2-5×/15min, scan_anomalies PLAYER_TELEPORT). The kick still
+            // launches from the spot this tick — the taker just strides the last
+            // step like a human instead of blinking; kicking from a stride back
+            // is exactly how every open-play kick already looks (CONTROL_DIST).
+            double dx = px - taker.x, dy = py - taker.y;
+            double d = std::hypot(dx, dy);
+            double step = std::min(SPEED_SPRINT * 2.0 * (sdt / 1000.0), d);
+            if (d > 0.5) { taker.x += dx / d * step; taker.y += dy / d * step; }
         } else {
             // Steer to the stand-back point; snapping every tick made the taker
             // vibrate against moveBallCarrier walking him toward the spot.
