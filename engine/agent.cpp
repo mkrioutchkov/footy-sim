@@ -209,21 +209,38 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space && carryLaunchZone && hasGrassToCarry) {
                 x.score += spaceCarryRoleBonus();
             }
-            bool earlyAttackingOutlet = x.type == ActionType::Pass
+            // ── Tempo brake (composure dwell) ── An UNPRESSURED carrier doesn't
+            // ping the ball on first touch — he scans and carries before releasing.
+            // The old brake excluded Build/Switch/Cross/Cutback/Through, i.e.
+            // nearly every real pass, and lasted 0.2-0.4s — a no-op that left the
+            // match at ~2100 passes (real ~900-1000, one release every ~6s not
+            // ~2.5s). Now every unpressured pass EXCEPT a genuine killer ball
+            // (Through/Cutback — those windows are fleeting) pays a dwell that
+            // decays over ~2s of hold. A quick vertical outlet that genuinely
+            // breaks lines stays exempt (fast transitions are real football).
+            // Pressure lifts the brake entirely (pc>0): being closed down is what
+            // forces tempo — so possession rhythm emerges from the press, not a
+            // timer. Shots/dribbles are never braked; the carrier carries instead
+            // of standing (Dribble outscores the braked pass).
+            bool killerBall = x.purpose == ActionPurpose::Through
+                || x.purpose == ActionPurpose::Cutback;
+            bool lineBreakOutlet = x.type == ActionType::Pass
                 && x.target
                 && (x.target->role == Role::WM || x.target->role == Role::CF)
-                && x.audit.forwardProgress > 8.0
-                && x.audit.expectedCompletion > 0.68
+                && x.audit.forwardProgress > 60.0
+                && x.audit.expectedCompletion > 0.72
                 && x.audit.blockers <= 1
                 && x.audit.receiverPressure <= 1;
-            if (pc == 0 && x.type == ActionType::Pass && !earlyAttackingOutlet
-                && x.purpose != ActionPurpose::Build
-                && x.purpose != ActionPurpose::Switch
-                && x.purpose != ActionPurpose::Cross
-                && x.purpose != ActionPurpose::Cutback
-                && x.purpose != ActionPurpose::Through) {
-                if (holdTicks < 12) x.score -= 0.18;
-                else if (holdTicks < 24) x.score -= 0.10;
+            // Only TIGHT pressure lifts the dwell: a jockeying container 3-4m off
+            // (the measured-press standoff) doesn't force a release — a defender
+            // arriving at touching distance, or two bodies closing in, does.
+            // (pc counts opponents within 60px = 6m, which made the brake a no-op
+            // once the assigned presser arrived — i.e. always.)
+            bool tightPress = per.nearestOpponentDist < 30.0 || pc >= 2;
+            if (!tightPress && x.type == ActionType::Pass && !killerBall && !lineBreakOutlet) {
+                if      (holdTicks < 60)  x.score -= 0.26;   // <1.0s: just took the touch
+                else if (holdTicks < 110) x.score -= 0.16;   // <1.8s: still composing
+                else if (holdTicks < 170) x.score -= 0.07;   // <2.8s: about ready
             }
         }
 

@@ -682,7 +682,9 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
         // Place the BALL at the goal-kick spot and let the keeper jog to it
         // via the generic taker walk — snapping him there teleported the GK
         // ~100px on every restart (the most frequent visual pop left).
-        phase.actionTimer = 1550;
+        // 6s total (was 1.55s): a goal kick is a breather, not a quick restart —
+        // part of the restart-pacing pass that brings in-play time toward real.
+        phase.actionTimer = 6000;
         setPiece.takerId = -1;
         for (auto& p : state.players) {
             if (p.team == tmTeam && p.role == Role::GK) {

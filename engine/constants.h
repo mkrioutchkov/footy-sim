@@ -198,8 +198,11 @@ inline constexpr double GK_Z_WEIGHT       = 1.35;   // going UP is slow/expensiv
 inline constexpr double GK_CATCH_HANDLING_WEIGHT = 0.38;
 // (old GK_CATCH_SPEED_* and GK_PARRY_SPEED_* model constants removed — dead since
 //  the catch/parry outcome became handling-keyed in the keeper rework.)
-// Hold after a clean catch before distributing — 250ms read as a pinball.
-inline constexpr double GK_DISTRIBUTE_MS        = 950.0;
+// Hold after a clean catch before distributing — 250ms read as a pinball, and
+// 950ms was still a hot-potato keeper. Real keepers hold 3-6s (bounce, scan,
+// step up); 2000ms base × the game-state multipliers in gkDistributeMs lands
+// 0.9-4.2s. Part of the restart-pacing pass toward realistic in-play time.
+inline constexpr double GK_DISTRIBUTE_MS        = 2000.0;
 // Max time the keeper will HOLD waiting for a clean lane before he stops
 // stalling and just plays the best ball he has (or hoofs it). Sits well under
 // the stuck-carrier watchdog (STUCK_CARRIER_TIMEOUT_MS*0.65 = 2730ms) so the

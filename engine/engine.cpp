@@ -89,7 +89,7 @@ void GameEngine::startMatch() {
     kickoff(Team::Home);
 }
 
-void GameEngine::kickoff(Team t){
+void GameEngine::kickoff(Team t, double holdMs){
     phase.nextKickoffTeam=(t==Team::Home)?Team::Away:Team::Home;
     contestBlockedUntil.fill(0);
     receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
@@ -128,7 +128,7 @@ void GameEngine::kickoff(Team t){
         }
     }
     phase.kickoffPhase=true;
-    phase.actionTimer=600;
+    phase.actionTimer=holdMs;
     phase.lastKickoffMs=state.clockMs;
     setPiece.armed=false;
     setPiece.reason.clear();
@@ -236,7 +236,7 @@ void GameEngine::fixedUpdate(double sdt) {
             phase.announcedAddedMs = 0;
             if (phase.half == 1) {
                 phase.half = 2;
-                phase.halfTimePause = 2000;
+                phase.halfTimePause = 5000;   // a visible break, not a real 15min
                 // Law: the team that did NOT kick off the match starts H2.
                 phase.nextKickoffTeam = phase.matchKickoffTeam == Team::Home ? Team::Away : Team::Home;
             } else {
@@ -517,10 +517,17 @@ static double minDistFor(SetPiece sp) {
     if (sp == SetPiece::Penalty) return 96.0;
     return 78.0;
 }
+// Post-arrival hold before the restart is taken. The old values (0.65-1.8s)
+// resumed play near-instantly, which packed ~85 in-play minutes into the 90 —
+// every rate stat (passes/shots/crosses) ran ~1.5-2x real because the match
+// simply contained too much football. Real restarts take 12-40s; these sit at
+// game-friendly fractions of that (a watched match shouldn't be half dead air),
+// and double as the window where the box crowd / wall / spread actually forms
+// on screen before the ball comes in.
 static double actionTimerFor(SetPiece sp) {
-    if (sp == SetPiece::ThrowIn) return 650.0;
-    if (sp == SetPiece::Penalty) return 1800.0;
-    return 1500.0;
+    if (sp == SetPiece::ThrowIn) return 4000.0;
+    if (sp == SetPiece::Penalty) return 9000.0;
+    return 7000.0;   // corner / free kick
 }
 
 // Gaylord seam (16:48): the engine id of the team's designated taker for this set-piece type
@@ -942,6 +949,16 @@ void GameEngine::tickAgents(double sdt, bool ic) {
 }
 
 void GameEngine::auditStuckCarrier(double sdt){
+    // A held restart is SUPPOSED to be stationary — the taker stands at the spot
+    // for the whole set-piece/kickoff hold (now seconds long under the restart-
+    // pacing pass). Watching him here force-passed every corner/free-kick taker
+    // ~2.7s into his hold (~50 false stuck-alerts per match). Same guard the
+    // freeze detector has always had.
+    if(setPiece.armed || phase.kickoffPhase || phase.halfTimePause > 0){
+        carrierTracker.watchedCarrierId=-1;
+        carrierTracker.watchedCarrierMs=0;
+        return;
+    }
     Player* carrier=playerById(state.ball.controllerId);
     // A keeper standing on the ball is NOT a stuck carrier — holding for
     // distribution is legitimate (legal up to 6s) and is now self-capped by the

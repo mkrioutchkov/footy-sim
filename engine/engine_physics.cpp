@@ -182,7 +182,7 @@ bool GameEngine::checkGoal(){
         emitEvent("goal", goalLineX, b.y, lastGoal.toucherId);
         if(scoringTeam==Team::Home)state.homeScore++; else state.awayScore++;
         shot.active=false; shot.clearFlags();
-        kickoff(scoringTeam==Team::Home?Team::Away:Team::Home);
+        kickoff(scoringTeam==Team::Home?Team::Away:Team::Home, 6000.0);   // celebration + reset breather
     };
     if(b.x+BALL_R<HOME_GOAL_X){ finishGoal(Team::Away, HOME_GOAL_X); return true; }
     if(b.x-BALL_R>AWAY_GOAL_X){ finishGoal(Team::Home, AWAY_GOAL_X); return true; }
