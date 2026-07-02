@@ -53,8 +53,13 @@ export class MatchRenderer {
   private ringGfx: Graphics;
   private ballBody: Graphics;
   private ballGlow: Graphics;
-  private hudText: Text;
-  private hudBg: Graphics;
+  // ── scoreboard (DOM) ── one clean full-width strip: teams + score + a BIG clock + shots/poss.
+  // DOM (not canvas Text) so it's crisp, styleable from styles.css, and can never be occluded by
+  // the floating controls (the old canvas HUD sat under the top-left button pile).
+  private hudEl: HTMLDivElement | null = null;
+  private hudRefs: { home: HTMLElement; score: HTMLElement; away: HTMLElement; half: HTMLElement; time: HTMLElement;
+    added: HTMLElement; shots: HTMLElement; poss: HTMLElement; state: HTMLElement; possHome: HTMLElement } | null = null;
+  private prevHud: Record<string, string> = {};   // dirty-check — don't rewrite scoreboard text nodes every sync
   private tickerEl: HTMLDivElement | null = null;
   private tickerLines: string[] = [];
   private prevTickerText = '';   // dirty-check — don't rewrite the feed's text node on every sync
@@ -143,6 +148,9 @@ export class MatchRenderer {
   // A right-side strip for the live tactics panel (wide screens dock it right so the pitch keeps
   // full HEIGHT instead of being squeezed by a bottom bar). 0 = no right dock (panel bottom/hidden).
   private reservedRight = 0;
+  // Top strip kept clear for the DOM scoreboard + the control bar. screenWatch refines this from
+  // the bar's real bottom edge (it wraps on narrow screens); 110 ≈ scoreboard + one bar row.
+  private reservedTop = 110;
   private directiveMap: Map<number, string> = new Map();   // engine playerId → short active-directive label
   private showDirectives = false;
 
@@ -157,8 +165,6 @@ export class MatchRenderer {
     this.jockeyGfx = new Graphics();
     this.setPieceGfx = new Graphics();
     this.setPieceText = new Text({ text: '', style: new TextStyle({ fill: 0xffffff, fontSize: 15, fontFamily: 'monospace', fontWeight: 'bold' }) });
-    this.hudText = new Text({ text: '', style: new TextStyle({ fill: 0xf2f5f7, fontSize: 17, fontFamily: 'monospace', fontWeight: 'bold' }) });
-    this.hudBg = new Graphics();
 
     // pre-draw football (white with black pentagon pattern)
     const r = BALL_R;
@@ -223,24 +229,17 @@ export class MatchRenderer {
     for (const label of this.eventLabels) this.pitchContainer.addChild(label);
     this.pitchContainer.addChild(this.setPieceGfx);
     this.pitchContainer.addChild(this.setPieceText);
-     this.app.stage.sortableChildren = true;
-    this.app.stage.addChild(this.hudBg);
-    this.hudBg.zIndex = 9998;
-    this.app.stage.addChild(this.hudText);
-    this.hudText.zIndex = 9999;
-    // commentary ticker (DOM — crisp text, fixed bottom-left)
+    this.app.stage.sortableChildren = true;
+    // scoreboard — full-width DOM strip along the top (teams + score + BIG clock + shots/poss);
+    // styled from styles.css (.watch-hud). Replaces the old in-canvas hudText/hudBg.
+    this.buildHud();
+    // commentary ticker (DOM — crisp text, fixed bottom-left; styled from styles.css like the other panels)
     this.tickerEl = document.createElement('div');
-    Object.assign(this.tickerEl.style, {
-      position: 'fixed', left: '14px', bottom: '14px', zIndex: '20',
-      fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.55',
-      color: '#e8edf2', background: 'rgba(8,12,20,0.72)', padding: '8px 12px',
-      borderRadius: '6px', pointerEvents: 'none', whiteSpace: 'pre-wrap',
-      minWidth: '210px', maxWidth: '360px',
-    } as Partial<CSSStyleDeclaration>);
+    this.tickerEl.className = 'watch-feed';
     this.tickerEl.textContent = '— match feed —';
     document.body.appendChild(this.tickerEl);
-    // ── PRESSURE panel ── top-left gutter (the one free quadrant: HUD owns top-centre, tactics
-    // owns bottom-centre, the feed owns bottom-left). A 2×2 stat micro-grid over a momentum bar.
+    // ── PRESSURE panel ── built detached; screenWatch docks it into the right column via dockStats()
+    // (it used to float top-left over the scoreboard + timeline).
     this.buildStatPanel();
     // goal banner (center) and half/full-time stats panel
     this.bannerEl = document.createElement('div');
@@ -304,8 +303,9 @@ export class MatchRenderer {
     try { this.resizeObs?.disconnect(); } catch { /* */ } this.resizeObs = null;
     try { window.removeEventListener('resize', this.onResize); } catch { /* */ }
     try { delete (window as unknown as { __app?: Application }).__app; } catch { /* */ }
+    try { this.hudEl?.remove(); } catch { /* */ }
     try { this.tickerEl?.remove(); } catch { /* */ }
-    try { this.statPanelEl?.remove(); } catch { /* */ }
+    try { this.statPanelEl?.remove(); } catch { /* */ }   // may be docked inside the tactics panel — remove() is safe either way
     try { this.bannerEl?.remove(); } catch { /* */ }
     try { this.panelEl?.remove(); } catch { /* */ }
     // Free the WebGL context. Browsers cap live contexts (~16) and Pixi's destroy() leaves it for the
@@ -340,6 +340,25 @@ export class MatchRenderer {
     if (!this.destroyed && this.app.renderer) this.calcTransform();
   }
 
+  // Resize the reserved top strip (scoreboard + control bar). screenWatch drives this from the
+  // bar's measured bottom edge so a wrapped bar (narrow viewport) never overlaps the pitch.
+  setReservedTop(px: number): void {
+    const v = Math.max(0, Math.round(px));
+    if (v === this.reservedTop) return;
+    this.reservedTop = v;
+    if (!this.destroyed && this.app.renderer) this.calcTransform();
+  }
+
+  // The DOM scoreboard strip — screenWatch measures it (together with its own control bar) to
+  // reserve the top of the canvas. Null until init().
+  get hudElement(): HTMLElement | null { return this.hudEl; }
+
+  // Dock the live-stats block (ON-TGT/xG/BIG-CH/CORNERS + PRESSURE) into a host container —
+  // screenWatch puts it at the top of the right column instead of floating it over the timeline.
+  dockStats(host: HTMLElement): void {
+    if (this.statPanelEl && !this.destroyed) host.appendChild(this.statPanelEl);
+  }
+
   // Enter/leave goal-replay mode. While on, a persistent "⚽ GOAL REPLAY" overlay marks the rewound
   // clip as a replay (so the score winding back to 0-0 doesn't read as the LIVE match resetting), and
   // the live goal banner is suppressed (updateMoments) so the rewind/replay doesn't mis-fire "GOAL!".
@@ -369,19 +388,47 @@ export class MatchRenderer {
     // Reserve a strip on the right (the docked tactics panel) so the pitch uses the left region at
     // FULL height; the bottom strip stays small (just ticker clearance) when the panel is docked right.
     const sw = this.app.screen.width - this.reservedRight;
-    const reserveTop = 8;
+    const reserveTop = this.reservedTop;   // scoreboard + control bar own the top of the screen
     const reserveBottom = this.reservedBottom;
     const sh = this.app.screen.height - reserveTop - reserveBottom;
     // clamp to a small positive min: on a very short viewport (tall panel) sh can go <=0, which would
     // flip/vanish the pitch — keep it drawable.
     this.scale = Math.max(0.05, Math.min(sw / (PITCH_W + GOAL_DEPTH * 2), sh / (PITCH_H + 40)) * 0.92);
     this.offsetX = (sw - PITCH_W * this.scale) / 2;
-    this.offsetY = reserveTop + (sh - PITCH_H * this.scale) / 2 + 10;
+    this.offsetY = reserveTop + (sh - PITCH_H * this.scale) / 2;
     this.pitchContainer.scale.set(this.scale);
     this.pitchContainer.position.set(this.offsetX, this.offsetY);
-    this.hudText.position.set(sw / 2, 52);   // below the top-left controls (Back/speed/Pause) so the scoreboard isn't occluded
-    this.hudText.anchor.set(0.5, 0);
     this.drawPitch();
+  }
+
+  // Build the DOM scoreboard: [teams + score] · [BIG clock, centred — the visual anchor] · [shots/poss]
+  // with a thin possession split strip along the bottom edge. Values update per sync (dirty-checked).
+  private buildHud(): void {
+    const el = document.createElement('div');
+    el.className = 'watch-hud';
+    const mk = (cls: string, parent: HTMLElement, text = ''): HTMLElement => {
+      const s = document.createElement('span'); s.className = cls; s.textContent = text; parent.appendChild(s); return s;
+    };
+    const teams = document.createElement('div'); teams.className = 'wh-teams';
+    const home = mk('wh-name home', teams, 'HOME');
+    const score = mk('wh-score', teams, '0–0');
+    const away = mk('wh-name away', teams, 'AWAY');
+    const clock = document.createElement('div'); clock.className = 'wh-clock';
+    const half = mk('wh-half', clock, 'H1');
+    const time = mk('wh-time', clock, '00:00');
+    const added = mk('wh-added', clock); added.style.display = 'none';
+    const meta = document.createElement('div'); meta.className = 'wh-meta';
+    const shots = mk('wh-shots', meta, 'Shots 0–0');
+    const poss = mk('wh-poss', meta, 'Poss 50%');
+    const state = mk('wh-state', meta); state.style.display = 'none';
+    const possbar = document.createElement('div'); possbar.className = 'wh-possbar';
+    const ph = document.createElement('div'); ph.className = 'ph'; ph.style.width = '50%';
+    const pa = document.createElement('div'); pa.className = 'pa';
+    possbar.appendChild(ph); possbar.appendChild(pa);
+    el.appendChild(teams); el.appendChild(clock); el.appendChild(meta); el.appendChild(possbar);
+    document.body.appendChild(el);
+    this.hudEl = el;
+    this.hudRefs = { home, score, away, half, time, added, shots, poss, state, possHome: ph };
   }
 
   private drawPitch(): void {
@@ -1107,32 +1154,37 @@ export class MatchRenderer {
     // accumulate the last free kick's ring draw so a single later eval can confirm it fired (FKs are sporadic)
     if (restart?.type === 'free_kick') (window as unknown as { __lastFK?: unknown }).__lastFK = { cx: restart.spotX, cy: restart.spotY, r: 91, atMs: state.clockMs };
 
-    // ── HUD ──
-    const halfMs = (state.half ?? 1) === 1 ? state.clockMs : state.clockMs - 45 * 60 * 1000;
-    const min = String(Math.floor(halfMs / 60000)).padStart(2, '0');
-    const sec = String(Math.floor((halfMs % 60000) / 1000)).padStart(2, '0');
-    const sl = (state.speed ?? 1) >= 1 ? `${state.speed ?? 1}x` : `${(state.speed ?? 1).toFixed(1)}x`;
-    const pct = (state.possessionPct ?? 50).toFixed(0);
-    const restartHud = state.setPieceState
-      ? `    ${this.restartLabel(state.setPieceState.reason ?? state.setPieceState.type)} ${(state.setPieceState.team ?? '').toUpperCase()}`
-      : '';
-    const addedTag = state.addedTime && state.addedTimeAnnouncedMin ? ` +${state.addedTimeAnnouncedMin}` : '';
-    const hn = this.clipName(state.homeName, 'HOME');
-    const an = this.clipName(state.awayName, 'AWAY');
-    // matchState is suppressed while simply "running" (redundant + widened the line off-screen); the
-    // meaningful transitions (kick-off / half-time / full-time …) still show.
-    const stateTag = state.matchState && state.matchState !== 'running' ? `    ${state.matchState}` : '';
-    this.hudText.text = `${hn} ${state.homeScore ?? 0}-${state.awayScore ?? 0} ${an}    H${state.half ?? 1} ${min}:${sec}${addedTag} [${sl}]    Shots ${state.homeShots ?? 0}-${state.awayShots ?? 0}    Poss ${pct}%${stateTag}${restartHud}`;
-    this.hudText.visible = true;
-    this.hudBg.clear();
-    const hudW = this.hudText.width;
-    this.hudBg.roundRect(this.hudText.position.x - hudW / 2 - 14, this.hudText.position.y - 4, hudW + 28, this.hudText.height + 10, 8);
-    this.hudBg.fill({ color: 0x0a0f17, alpha: 0.78 });
-    // possession bar — a thin top-edge strip splitting home (left) vs away (right) by possession share
-    const sw = this.app.screen.width;
-    const homeW = Math.max(0, Math.min(1, (state.possessionPct ?? 50) / 100)) * sw;
-    this.hudBg.rect(0, 0, homeW, 5); this.hudBg.fill({ color: HOME_COLOR, alpha: 0.92 });
-    this.hudBg.rect(homeW, 0, sw - homeW, 5); this.hudBg.fill({ color: AWAY_COLOR, alpha: 0.92 });
+    // ── HUD (DOM scoreboard) ── all writes dirty-checked so nothing re-lays-out at 30-37Hz.
+    if (this.hudRefs) {
+      const r = this.hudRefs;
+      const put = (key: string, node: HTMLElement, txt: string): void => {
+        if (this.prevHud[key] !== txt) { this.prevHud[key] = txt; node.textContent = txt; }
+      };
+      const halfMs = (state.half ?? 1) === 1 ? state.clockMs : state.clockMs - 45 * 60 * 1000;
+      const min = String(Math.floor(halfMs / 60000)).padStart(2, '0');
+      const sec = String(Math.floor((halfMs % 60000) / 1000)).padStart(2, '0');
+      put('home', r.home, state.homeName ?? 'HOME');
+      put('away', r.away, state.awayName ?? 'AWAY');
+      put('score', r.score, `${state.homeScore ?? 0} – ${state.awayScore ?? 0}`);
+      put('half', r.half, `H${state.half ?? 1}`);
+      put('time', r.time, `${min}:${sec}`);
+      const added = state.addedTime && state.addedTimeAnnouncedMin ? `+${state.addedTimeAnnouncedMin}` : '';
+      if (this.prevHud.added !== added) { this.prevHud.added = added; r.added.textContent = added; r.added.style.display = added ? '' : 'none'; }
+      const pct = Math.round(state.possessionPct ?? 50);
+      put('shots', r.shots, `Shots ${state.homeShots ?? 0}–${state.awayShots ?? 0}`);
+      put('poss', r.poss, `Poss ${pct}%`);
+      // matchState is suppressed while simply "running"; the meaningful transitions (kick-off /
+      // half-time / full-time) + the current restart (FREE KICK HOME…) show as a gold tag.
+      const stateTag = state.matchState && state.matchState !== 'running' ? String(state.matchState).replace(/_/g, ' ').toUpperCase() : '';
+      const restartTag = state.setPieceState
+        ? `${this.restartLabel(state.setPieceState.reason ?? state.setPieceState.type)} ${(state.setPieceState.team ?? '').toUpperCase()}`
+        : '';
+      const tag = [stateTag, restartTag].filter(Boolean).join(' · ');
+      if (this.prevHud.tag !== tag) { this.prevHud.tag = tag; r.state.textContent = tag; r.state.style.display = tag ? '' : 'none'; }
+      // possession split — the thin strip along the scoreboard's bottom edge (home left, away right)
+      const pw = `${pct}%`;
+      if (this.prevHud.possW !== pw) { this.prevHud.possW = pw; r.possHome.style.width = pw; }
+    }
 
     this.updateTicker(state);
     this.updateMomentum(state);   // PRESSURE: integrate after the ticker folds in event impulses
@@ -1358,14 +1410,15 @@ export class MatchRenderer {
   }
 
   // ── PRESSURE panel: build, accumulate, animate ──────────────────────────────
+  // Built DETACHED and docked into the right column by screenWatch (dockStats) — it used to float
+  // fixed at top-left, where it overlapped the scoreboard and the timeline slider.
   private buildStatPanel(): void {
     const HOME_CSS = '#e63946', AWAY_CSS = '#457b9d';   // = HOME_COLOR / AWAY_COLOR
     const panel = document.createElement('div');
     Object.assign(panel.style, {
-      position: 'fixed', top: '72px', left: '14px', zIndex: '20', width: '230px',
-      padding: '8px 10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '12px',
-      lineHeight: '1.5', color: '#e8edf2', background: 'rgba(8,12,20,0.72)', borderRadius: '6px',
-      pointerEvents: 'none',
+      width: '100%', padding: '8px 10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '12px',
+      lineHeight: '1.5', color: '#e8edf2', background: 'rgba(255,255,255,0.035)', borderRadius: '8px',
+      border: '1px solid rgba(255,255,255,0.06)', pointerEvents: 'none',
     } as Partial<CSSStyleDeclaration>);
     const grid = document.createElement('div');
     Object.assign(grid.style, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 10px', marginBottom: '6px' } as Partial<CSSStyleDeclaration>);
@@ -1400,7 +1453,7 @@ export class MatchRenderer {
     panel.appendChild(wrap);
     this.statBarHome = home; this.statBarAway = away; this.statBarWrap = wrap;
     this.statPanelEl = panel;
-    document.body.appendChild(panel);
+    // NOT appended here — screenWatch docks it (dockStats) into the right column after init.
   }
 
   // Tally one NEW (de-duped) notable event into the stat counters + momentum. Called from
@@ -1486,11 +1539,11 @@ export class MatchRenderer {
     set('xg', this.statCells.xg, `${this.xgH.toFixed(1)}-${this.xgA.toFixed(1)}`);
     set('big', this.statCells.big, `${this.bigH}-${this.bigA}`);
     set('cor', this.statCells.cor, `${this.corH}-${this.corA}`);
-    const HALF = 105;                                  // panel inner width 210 → half 105
     const m = Math.max(-100, Math.min(100, this.displayMomentum));
-    const w = Math.abs(m) / 100 * HALF;
-    if (this.statBarHome) this.statBarHome.style.width = `${m > 0 ? w : 0}px`;
-    if (this.statBarAway) this.statBarAway.style.width = `${m < 0 ? w : 0}px`;
+    // % of the wrap (the panel is container-width now that it docks into the right column)
+    const w = `${(Math.abs(m) / 100 * 50).toFixed(1)}%`;
+    if (this.statBarHome) this.statBarHome.style.width = m > 0 ? w : '0%';
+    if (this.statBarAway) this.statBarAway.style.width = m < 0 ? w : '0%';
     if (this.statBarWrap) {
       const flash = performance.now() < this.goalFlashUntil;
       this.statBarWrap.style.height = flash ? '16px' : '12px';

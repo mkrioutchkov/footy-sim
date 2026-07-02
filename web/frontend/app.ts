@@ -1271,8 +1271,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   const refreshDirOverlay = (): void => { activeRenderer?.setDirectives(buildDirMap(watchIsHome)); };
 
   root.replaceChildren();
-  // ── SIMPLIFIED control bar (user: "too many controls — just a slider, speed, rewind/FF") ──
-  // Core: pause · speed · ⏪10s/10s⏩ · the slider (with clickable moment markers) · ● LIVE when rewound.
+  // ── control strip ── one full-width rounded bar directly UNDER the DOM scoreboard (the renderer
+  // owns that): Back · Pause · speed · ⏪10s · 10s⏩ · slider (flexes to fill, markers on top) ·
+  // time/duration · ● LIVE · ⋯ · weather/recorded chips. Nothing floats over anything any more.
   // Everything secondary (tactics overlay, highlights tour, goal replay) lives behind one ⋯ menu.
   // ● LIVE — shown only while rewound; jumps back to the live edge (▶ Resume on a re-sim).
   const goLiveBtn = h('button', { class: 'primary small', style: 'display:none', 'aria-label': 'Resume live', title: 'Jump back to the live edge', onclick: () => resumeLive() }, '● LIVE') as HTMLButtonElement;
@@ -1284,14 +1285,18 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   let scrubMinMs = 0;                     // live watches raise this to the oldest BUFFERED frame (the rewind window)
   let scrubbing = false;
   let currentMs = 0;                      // the live playhead (each frame's clockMs) — drives ⏪/⏩
+  let knownDurationMs: number | null = null;   // a recording's real length → the label reads "cur / total"
   const fmtClock = (ms: number): string => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-  const scrubLabel = h('span', { class: 'muted', style: "display:none;font-size:12px;min-width:38px;font-variant-numeric:tabular-nums" }, '0:00');
+  const scrubLabel = h('span', { class: 'muted', style: "display:none;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap" }, '0:00');
+  const paintScrubLabel = (ms: number): void => {
+    scrubLabel.textContent = knownDurationMs !== null ? `${fmtClock(ms)} / ${fmtClock(knownDurationMs)}` : fmtClock(ms);
+  };
   const scrubEl = h('input', { type: 'range', min: '0', max: String(SCRUB_MAX_MS), step: '1000', value: '0',
     style: 'width:100%;accent-color:var(--accent)', 'aria-label': 'Scrub through the match — drag to jump to any point' }) as HTMLInputElement;
   // ⚽ moment markers float over the scrub track (report timeline upfront on recorded; indexed live otherwise).
   const goalMarkers = h('div', { style: 'position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none' });
-  const scrubWrap = h('div', { class: 'scrub-wrap', style: 'display:none;position:relative;align-items:center;flex:1 1 170px;min-width:130px;max-width:360px;height:18px' }, scrubEl, goalMarkers) as HTMLElement;
-  scrubEl.addEventListener('input', () => { scrubbing = true; scrubLabel.textContent = fmtClock(+scrubEl.value); });
+  const scrubWrap = h('div', { class: 'scrub-wrap', style: 'display:none;position:relative;align-items:center;flex:1 1 240px;min-width:150px;height:22px' }, scrubEl, goalMarkers) as HTMLElement;
+  scrubEl.addEventListener('input', () => { scrubbing = true; paintScrubLabel(+scrubEl.value); });
   scrubEl.addEventListener('change', () => { seekTo(+scrubEl.value); scrubbing = false; });
   // A drag released back at its STARTING value fires no 'change' → `scrubbing` stuck true → the playhead
   // stopped tracking forever. Commit on release too (deferred a tick so a real 'change' wins; idempotent).
@@ -1321,7 +1326,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
       const pct = Math.min(99.5, Math.max(0, ((e.clockMs - scrubMinMs) / Math.max(1, scrubMaxMs - scrubMinMs)) * 100));
       goalMarkers.append(h('span', {
         title: `${Math.floor(e.clockMs / 60000)}' — ${e.name} · click to jump`,
-        style: `position:absolute;left:${pct}%;top:-3px;transform:translateX(-50%);font-size:12px;line-height:1;cursor:pointer;pointer-events:auto`,
+        style: `position:absolute;left:${pct}%;top:-2px;transform:translateX(-50%);font-size:13px;line-height:1;cursor:pointer;pointer-events:auto`,
         onclick: () => seekTo(Math.max(0, e.clockMs - 4000)),
       }, MARKER_ICON[e.kind] ?? '•'));
     }
@@ -1346,12 +1351,12 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   // 🎞 Highlights — tours every goal + red card (jumps to ~5s before each, ~11s apart). Shown once the
   // moment index is known (recorded from the report timeline; live from the indexed events). Reuses seekTo.
   const highlightBtn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Play the highlights', title: 'Tour the highlights — goals, red cards, penalties, woodwork' }, '🎞 Highlights') as HTMLButtonElement;
-  // §weather: the match's actual condition, set from the first frame that carries it (clear → blank).
-  const weatherEl = h('span', { style: 'margin-left:auto;font-size:13px;color:#9ec5ff' });
+  // §weather: the match's actual condition, set from the first frame that carries it (clear → hidden).
+  const weatherEl = h('span', { class: 'chip', style: 'display:none' });
   // 📹 Recorded vs ⚙ Re-simulated: a recorded replay is faithful to the stored result; a non-recorded
   // fixture falls back to a fresh engine re-sim whose scoreline can differ from the league table. Set on
   // the first frame so the divergence is honest (this is the 4-1-here-vs-0-2-in-the-table confusion).
-  const recBadge = h('span', { style: 'font-size:12px;color:#9ec5ff' });
+  const recBadge = h('span', { class: 'chip', style: 'display:none' });
   // speed — ONE compact select (was five buttons). The value tracks each frame's ACTUAL state.speed, so it
   // always shows the real playback rate; curSpeed also paces the client-side buffer playback when rewound.
   const SPEEDS = [0.5, 1, 2, 4, 8];   // 0.5× slow-mo for detail (backend clamps [0.25,60]); 8× to skip ahead
@@ -1359,7 +1364,8 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   let curSpeed = 1;                   // last speed reported by a frame — the one true playback rate
   const speedSel = h('select', {
     'aria-label': 'Playback speed', title: 'Playback speed',
-    style: 'padding:3px 6px;font-size:12px;background:rgba(12,19,32,.85);color:inherit;border:1px solid var(--line);border-radius:6px;cursor:pointer',
+    // width:auto — the global `select { width:100% }` would otherwise stretch it to a full bar row
+    style: 'width:auto;padding:3px 6px;font-size:12px;background:rgba(12,19,32,.85);color:inherit;border:1px solid var(--line);border-radius:6px;cursor:pointer',
   }, ...SPEEDS.map(v => h('option', { value: String(v) }, `${v}×`))) as HTMLSelectElement;
   speedSel.value = '1';
   speedSel.addEventListener('change', () => activeWs?.send(JSON.stringify({ type: 'speed', value: +speedSel.value })));
@@ -1405,6 +1411,8 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     moreBtn.classList.toggle('primary', open); moreBtn.classList.toggle('ghost', !open);
   });
   const moreWrap = h('div', { style: 'position:relative' }, moreBtn, morePop);
+  // status chips (weather + recorded/live) pinned to the bar's right edge even while the slider is hidden
+  const chipGroup = h('div', { style: 'margin-left:auto;display:flex;gap:8px;align-items:center' }, weatherEl, recBadge);
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
     pauseBtn,
@@ -1415,8 +1423,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     scrubLabel,
     goLiveBtn,
     moreWrap,
-    weatherEl,
-    recBadge,
+    chipGroup,
   );
   document.body.appendChild(bar);
   watchBar = bar;
@@ -1495,17 +1502,25 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   // Shouts apply ON THE TICK — only a LIVE match (⚡ Play LIVE / the resident coordinator) honours them.
   // A replay, a re-sim (?shouts=1) or a quick-watch is finished/deterministic playback, so an editable
   // shout box there is meaningless (and misleading). Live → the full interactive panel; otherwise a
-  // read-only note that points to where tactics DO take effect (G2 — was editable on past/replayed matches).
+  // compact column holding the match stats + a dismissible one-line tip (G2 — was editable on past matches).
+  // The right column's top slot hosts the renderer's stats block (ON-TGT/xG/BIG-CH/CORNERS + PRESSURE) —
+  // it used to float over the scoreboard and the timeline at top-left.
+  const statsHost = h('div', { class: 'watch-stats' });
+  const TIP_KEY = 'footy:watch-tip-dismissed';
+  let tipDismissed = false;
+  try { tipDismissed = localStorage.getItem(TIP_KEY) === '1'; } catch { /* storage unavailable → just show it */ }
+  const tipRow = h('div', { class: 'watch-tip' },
+    h('span', { style: 'flex:1 1 auto;min-width:0' }, '💡 Shouts are live-only — use ⚡ Play LIVE to steer a match in real time.'),
+    h('button', { class: 'ghost small', 'aria-label': 'Dismiss this tip', title: 'Dismiss',
+      onclick: () => { tipRow.remove(); try { localStorage.setItem(TIP_KEY, '1'); } catch { /* */ } } }, '×'));
   const panel = live
     ? h('div', { class: 'tactics-panel' },
+        statsHost,
         planEl,
         h('div', { class: 'tactics-row' }, ta, h('button', { class: 'primary small', title: 'Apply your shout (Ctrl+Enter)', onclick: applyPlan }, 'Apply')),
         receiptEl,
       )
-    : h('div', { class: 'tactics-panel' },
-        h('div', { class: 'tactics-receipt', style: 'max-height:none' },
-          h('div', { class: 'muted', style: 'font-size:12px;line-height:1.5' },
-            '💡 Shouts are live-only — to steer a match in real time, use ⚡ Play LIVE. Your standing plan (Dashboard → Tactics) is already applied and seeds your next match.')));
+    : h('div', { class: 'tactics-panel compact' }, statsHost, ...(tipDismissed ? [] : [tipRow]));
   document.body.appendChild(panel);
   watchPanel = panel;
 
@@ -1532,19 +1547,33 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   // If the user navigated away (or to another match) during the async init, this screen is stale:
   // teardownWatch already ran — destroy this orphan renderer and stop before opening a socket.
   if (myEpoch !== watchEpoch) { renderer.destroy(); return; }
+  // Dock the renderer's live-stats block into the right column's top slot (it renders detached until then).
+  renderer.dockStats(statsHost);
 
-  // Keep the pitch above the floating panel: reserve exactly the panel's height (+margins),
-  // so a tall standing plan doesn't overlap the pitch and a hidden panel (replay) frees the space.
-  // Wide screens dock the panel RIGHT (reserve width → the pitch keeps full height); narrow screens
-  // (≤860px, matching the CSS media query) keep the bottom bar (reserve height). Hidden (replay) → free both.
+  // Keep the pitch clear of every panel: reserve the TOP for the scoreboard + control bar (measured —
+  // the bar wraps on narrow viewports), and the panel's height/width at bottom/right. Wide screens dock
+  // the panel RIGHT (reserve width → the pitch keeps full height); narrow screens (≤860px, matching the
+  // CSS media query that bottom-docks it) reserve its height. Hidden (replay) → free both. The pitch
+  // always claims the remaining space, so it can no longer collapse to a thumbnail behind full-size panels.
   const syncReserve = () => {
+    const hudBottom = renderer.hudElement?.getBoundingClientRect().bottom ?? 0;
+    const barBottom = bar.getBoundingClientRect().bottom;
+    renderer.setReservedTop(Math.max(hudBottom, barBottom) + 6);
     const visible = panel.style.display !== 'none' && panel.offsetWidth > 0;
-    if (!visible) { renderer.setReservedRight(0); renderer.setReservedBottom(8); return; }
-    if (window.innerWidth > 860) { renderer.setReservedRight(panel.offsetWidth + 24); renderer.setReservedBottom(8); }
-    else { renderer.setReservedRight(0); renderer.setReservedBottom(panel.offsetHeight + 24); }
+    if (!visible) { renderer.setReservedRight(0); renderer.setReservedBottom(8); panel.style.top = ''; return; }
+    if (window.innerWidth > 860) {
+      panel.style.top = `${Math.round(barBottom) + 8}px`;   // the right column starts under the control bar
+      renderer.setReservedRight(panel.offsetWidth + 24);
+      renderer.setReservedBottom(8);
+    } else {
+      panel.style.top = '';                                  // CSS bottom-docks it ≤860px
+      renderer.setReservedRight(0);
+      renderer.setReservedBottom(panel.offsetHeight + 24);
+    }
   };
   watchPanelObs = new ResizeObserver(syncReserve);
   watchPanelObs.observe(panel);
+  watchPanelObs.observe(bar);   // the bar wraps/unwraps with viewport width → re-measure the top reserve
   syncReserve();
 
   // Connecting overlay — the canvas is otherwise a blank dark void until the first frame
@@ -1600,7 +1629,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     if (activeRenderer && liveBuffer.length) {
       const f = liveBuffer[liveBuffer.length - 1];
       activeRenderer.sync(f);
-      if (typeof f.clockMs === 'number') { currentMs = f.clockMs; if (!scrubbing) { scrubEl.value = String(f.clockMs); scrubLabel.textContent = fmtClock(f.clockMs); } }
+      if (typeof f.clockMs === 'number') { currentMs = f.clockMs; if (!scrubbing) { scrubEl.value = String(f.clockMs); paintScrubLabel(f.clockMs); } }
     }
   };
   const startBufferPlayback = (startIdx: number): void => {
@@ -1632,7 +1661,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
       if (i >= clip.length - 1) { resumeLive(); return; }  // played the snapshot out → follow live from the current edge
       const f = clip[i];
       activeRenderer.sync(f);
-      if (typeof f.clockMs === 'number' && !scrubbing) { currentMs = f.clockMs; scrubEl.value = String(f.clockMs); scrubLabel.textContent = fmtClock(f.clockMs); }
+      if (typeof f.clockMs === 'number' && !scrubbing) { currentMs = f.clockMs; scrubEl.value = String(f.clockMs); paintScrubLabel(f.clockMs); }
       const cur = f.clockMs ?? 0, nxt = clip[i + 1]?.clockMs ?? cur + 250;
       i++;
       // paced by the frame deltas SCALED by the chosen speed (was: real-time only — the speed control
@@ -1697,12 +1726,12 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
         replaying = false;
         activeRenderer?.setReplay(false);   // drop the overlay + resume live goal banners
         resetClipButton();
-        if (activeRenderer && liveBuffer.length) { const lf = liveBuffer[liveBuffer.length - 1]; activeRenderer.sync(lf); if (typeof lf.clockMs === 'number' && !scrubbing) { currentMs = lf.clockMs; scrubEl.value = String(lf.clockMs); scrubLabel.textContent = fmtClock(lf.clockMs); } }   // snap back to live
+        if (activeRenderer && liveBuffer.length) { const lf = liveBuffer[liveBuffer.length - 1]; activeRenderer.sync(lf); if (typeof lf.clockMs === 'number' && !scrubbing) { currentMs = lf.clockMs; scrubEl.value = String(lf.clockMs); paintScrubLabel(lf.clockMs); } }   // snap back to live
         return;
       }
       const cf = clip[i];
       activeRenderer.sync(cf);   // the score/clock rewinds through the clip, then snaps forward to live
-      if (typeof cf.clockMs === 'number' && !scrubbing) { currentMs = cf.clockMs; scrubEl.value = String(cf.clockMs); scrubLabel.textContent = fmtClock(cf.clockMs); }   // keep the scrub tracking during the clip
+      if (typeof cf.clockMs === 'number' && !scrubbing) { currentMs = cf.clockMs; scrubEl.value = String(cf.clockMs); paintScrubLabel(cf.clockMs); }   // keep the scrub tracking during the clip
       i++;
     }, 45);
   };
@@ -1744,13 +1773,14 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
         // deep-link (#/watch/id?t=ms — e.g. a report-timeline click): jump straight to the moment once seekable
         if (startMs > 0) { seekTo(Math.max(0, startMs)); startMs = 0; }
       }
-      // a recording knows its real length → the slider spans the actual match, not a fixed 96'
-      if (typeof msg.durationMs === 'number') setScrubMax(msg.durationMs + 1000);
+      // a recording knows its real length → the slider spans the actual match, not a fixed 96',
+      // and the time label can read "current / total"
+      if (typeof msg.durationMs === 'number') { knownDurationMs = msg.durationMs; setScrubMax(msg.durationMs + 1000); }
       // Track the playhead while FOLLOWING (a recorded replay, or a live watch at the edge) — but not while
       // dragging, and not while rewound (`replaying`: the buffer-playback loop owns the playhead then).
       if ((replayUiApplied || liveSeek) && !replaying && typeof msg.clockMs === 'number') {
         currentMs = msg.clockMs;
-        if (!scrubbing) { scrubEl.value = String(msg.clockMs); scrubLabel.textContent = fmtClock(msg.clockMs); }
+        if (!scrubbing) { scrubEl.value = String(msg.clockMs); paintScrubLabel(msg.clockMs); }
       }
       if (msg.tacticsReceipt) { showReceipt(msg.tacticsReceipt); return; }
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
@@ -1760,11 +1790,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
         else if (shouts) { recBadge.textContent = '⚙ Re-sim'; recBadge.title = 'Re-simulated from your shouts.'; }
         else if (msg.replay) { recBadge.textContent = '📹 Recorded'; recBadge.title = 'A faithful recording of how this match was played.'; }
         else { recBadge.textContent = '⚙ Re-simulated'; recBadge.title = 'Not recorded — re-simulated on the latest engine, so the scoreline may differ from the league table.'; }
+        recBadge.style.display = '';   // hidden until it has something to say (an empty chip renders as a stray pill)
       }
-      // §weather: show the match's condition once (clear stays blank — only the notable conditions show)
+      // §weather: show the match's condition once (clear stays hidden — only the notable conditions show)
       if (msg.weather && msg.weather !== 'clear' && !weatherEl.textContent) {
         weatherEl.textContent = msg.weather === 'rain' ? '🌧 Rain' : '🌬 Wind';
         weatherEl.title = msg.weather === 'rain' ? 'Wet pitch — the ball skids further' : 'Windy — long balls and crosses drift';
+        weatherEl.style.display = '';
       }
       // felt-tactics: live possession in the active-plan strip (YOUR share — flip it when you're the away side)
       if (typeof msg.possessionPct === 'number' && myTeam && msg.homeName) {
