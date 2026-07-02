@@ -247,6 +247,14 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         sc += cutbackTarget ? 0.54 : 0.18;
         if (cutbackTarget && (t.role == Role::CM || t.role == Role::WM)) sc += 0.12;
         if (cutbackTarget && receiverPressure == 0 && bl == 0) sc += 0.12;
+        // Spot-band preference (ADDITIVE — the deep lay-back fallback stays, see
+        // the rejected 245->190 gate note above): when a box-burst runner has
+        // actually arrived in the penalty-spot band, HE gets the ball — the
+        // pull-back to an arriving runner is the chance, the 24m lay-back is
+        // just recycling. This is what converts burst runs into close shots
+        // via the first-time-finish path.
+        if (cutbackTarget && boxTargetGoalDist < 165.0
+            && std::abs(t.y - PITCH_H / 2.0) < 120.0) sc += 0.22;
         if (cutbackTarget) sc += engine.directiveBias[p.id].cutbackBias;   // "pull it back" directive
     }
 
