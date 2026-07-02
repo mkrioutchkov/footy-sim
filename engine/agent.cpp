@@ -392,6 +392,7 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
             released = engine.passBallTo(p, *a.target, a.purpose == ActionPurpose::Through, false, &audit);
         }
         if (released) {
+            engine.stats.recordPassDwell(holdTicks);
             lastPassTargetId = a.target->id;
             recentPassTarget = a.target->id;
             recentPassTime = engine.state.clockMs;

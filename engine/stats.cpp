@@ -107,6 +107,10 @@ std::string StatsCollector::summaryJSON() const {
     j["crossesAttempted"] = crossesAttempted;
     j["openPlayCrossesAttempted"] = openPlayCrossesAttempted;
     j["cutbacksAttempted"] = cutbacksAttempted;
+    j["passDwell"] = {
+        {"u250ms", dwellPassU250ms}, {"u1s", dwellPassU1s}, {"u1800ms", dwellPassU1800ms},
+        {"u2800ms", dwellPassU2800ms}, {"longer", dwellPassLong}
+    };
     j["homeCrossesAttempted"] = homeCrossesAttempted;
     j["awayCrossesAttempted"] = awayCrossesAttempted;
     j["crossesCompleted"] = crossesCompleted;

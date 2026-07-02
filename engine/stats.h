@@ -58,6 +58,17 @@ public:
     // (aerial-cross completion 18-25% ≠ cutback completion).
     void recordOpenPlayCross() { openPlayCrossesAttempted++; }
     void recordCutbackAttempt() { cutbacksAttempted++; }
+    // Dwell histogram (2026-07-02 audit, tempo Stage 1): how long did the carrier
+    // hold before a deliberate pass released? Real football ~2x slower than the
+    // engine (1787 passes/match vs ~900) — before any dwell-gate tuning, this
+    // splits decision tempo from micro-touch inflation. Ticks are 16.667ms.
+    void recordPassDwell(int ticks) {
+        if      (ticks <= 15)  dwellPassU250ms++;
+        else if (ticks <= 60)  dwellPassU1s++;
+        else if (ticks <= 110) dwellPassU1800ms++;
+        else if (ticks <= 170) dwellPassU2800ms++;
+        else                   dwellPassLong++;
+    }
     void recordHeader(double incomingZ, double deliveryDist, double speed, bool unrealistic) {
         headers++;
         headerZTotal += incomingZ;
@@ -193,6 +204,7 @@ private:
     int throughBallsAttempted=0, throughBallsCompleted=0;
     int crossesAttempted=0, crossesCompleted=0, headers=0, headedShots=0;
     int openPlayCrossesAttempted=0, cutbacksAttempted=0;
+    int dwellPassU250ms=0, dwellPassU1s=0, dwellPassU1800ms=0, dwellPassU2800ms=0, dwellPassLong=0;
     int homeCrossesAttempted=0, awayCrossesAttempted=0;   // per-team (the combined total is possession-confounded for benchmarks)
     int headerClearances=0, headerLayoffs=0, headerControls=0;
     int unrealisticHeaders=0;
