@@ -223,6 +223,14 @@ Action PlayerAI::scoreChase(const Perception& per) {
         && ballSpeed < SELF_LOOSE_TOUCH_SPEED && per.ballDist < SELF_LOOSE_TOUCH_DIST;
 
     bool canContest = engine.canContestBall(player);
+    // An ARMED restart's dead ball belongs to the taker ALONE. Without this,
+    // the nearest man chased the placed ball and STOOD ON IT (same-team men
+    // aren't moved by enforceRestartDistance at all), physically blocking the
+    // taker's 15px arrival until the 3.5s walkMs backstop teleported control —
+    // t101 5:30: ~10s frozen with a CM parked on the goal-kick spot. Score 0
+    // so arbitration falls back to shape/marking (the restart choreography).
+    if (engine.setPiece.armed && b.controllerId < 0 && player.id != engine.setPiece.takerId)
+        return Action{ActionType::Chase, 0.0};
     double toPlayerDist = std::max(per.ballDist, 1.0);
     double approachDot = ballSpeed > 1.0
         ? (b.vx * (player.x - b.x) + b.vy * (player.y - b.y)) / (ballSpeed * toPlayerDist)

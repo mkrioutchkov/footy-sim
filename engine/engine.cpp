@@ -756,7 +756,11 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
                 state.ball.lastToucherId = taker->id;
-                phase.actionTimer = actionTimerFor(setPiece.type);
+                // Goal kick: the 6s award budget (awardSetPiece: "6s total") keeps
+                // counting through the keeper's walk — re-arming on arrival stacked
+                // another full hold on top (observed 10-13s frozen restarts).
+                if (setPiece.type != SetPiece::GoalKick)
+                    phase.actionTimer = actionTimerFor(setPiece.type);
             }
         }
     }
@@ -815,7 +819,10 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 taker->targetY = state.ball.y;
                 setPiece.takerArrived = true;
                 setPiece.walkMs = 0;
-                phase.actionTimer = actionTimerFor(setPiece.type);
+                // Same GoalKick exclusion as the honest-arrival path: the budget
+                // already ran out (plus the 3.5s walk backstop) — kick it now.
+                if (setPiece.type != SetPiece::GoalKick)
+                    phase.actionTimer = actionTimerFor(setPiece.type);
             }
         }
     }
