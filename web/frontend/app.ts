@@ -527,6 +527,10 @@ const contractStyle = (yrs: number | undefined): string =>
   (yrs ?? 9) <= 1 ? 'color:var(--danger);font-weight:600' : (yrs ?? 9) <= 2 ? 'color:#ffb84d' : '';
 
 // ── dashboard ──
+// The advance-matchday digest: everything the last Advance produced, shown as ONE persistent card at the
+// top of the dashboard until dismissed (replaces the old ~15-toast pile that vanished in 2.6s each).
+type DigestItem = { icon: string; text: string; hash?: string };
+let matchdayDigest: { round: number | null; headline: string; items: DigestItem[] } | null = null;
 async function screenDashboard() {
   const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
@@ -616,68 +620,72 @@ async function screenDashboard() {
     advanceBtn.setAttribute('disabled', 'true'); advanceBtn.textContent = 'Simulating…';
     try {
       const r = await api.advance();
+      // ── matchday DIGEST: everything the matchday produced, collected into ONE persistent, dismissable
+      // card on the dashboard (was ~15 stacked 2.6-second toasts — a busy matchday was unreadable and
+      // gone before you'd read half). Module-level so it survives the re-render; errors still toast.
+      const d: DigestItem[] = [];
+      let headline = '';
       if (r.myResult) {
-        // show the result from YOUR perspective (W/D/L + your goals first), not a bare home–away score
+        // the result from YOUR perspective (W/D/L + your goals first), not a bare home–away score
         const fx = league.fixtures.find(f => f.id === r.myFixtureId);
         const home = fx ? fx.homeTeamId === team.id : true;
         const gf = home ? r.myResult.homeScore : r.myResult.awayScore;
         const ga = home ? r.myResult.awayScore : r.myResult.homeScore;
-        toast(`Your match: ${gf > ga ? 'Won' : gf < ga ? 'Lost' : 'Drew'} ${gf}–${ga}`);
+        headline = `${gf > ga ? '✅ Won' : gf < ga ? '❌ Lost' : '➖ Drew'} ${gf}–${ga}${fx ? ` vs ${home ? fx.away : fx.home}` : ''}`;
+        if (r.myFixtureId) d.push({ icon: '📄', text: 'Read the match report', hash: `#/report/${r.myFixtureId}` });
       }
+      if (r.income) d.push({ icon: '💷', text: `Gate & TV income: ${fmtMoney(r.income)}` });
+      for (const i of (r.injuries ?? []).filter(i => i.teamId === team.id)) d.push({ icon: '🤕', text: `${i.player} out ${i.matches} match${i.matches > 1 ? 'es' : ''}`, hash: '#/squad' });
       if (r.transfers?.length) {
         const t = r.transfers[0];
         const verb = t.type === 'buy_listed' ? 'bought' : 'signed';
-        toast(r.transfers.length === 1
-          ? `Transfer: ${t.teamName} ${verb} ${t.player} (${fmtMoney(t.fee)})`
-          : `${r.transfers.length} transfers around the league`);
+        d.push({ icon: '🔁', text: r.transfers.length === 1 ? `${t.teamName} ${verb} ${t.player} (${fmtMoney(t.fee)})` : `${r.transfers.length} transfers around the league`, hash: '#/news' });
       }
-      const myInj = (r.injuries ?? []).filter(i => i.teamId === team.id);
-      if (myInj.length) toast(`🤕 ${myInj.map(i => `${i.player} out ${i.matches} match${i.matches > 1 ? 'es' : ''}`).join(' · ')}`);
-      // §P2: matchday gate & TV income credited to the club
-      if (r.income) toast(`💷 Gate & TV income: ${fmtMoney(r.income)}`);
       // §2.1: other clubs bidding for your listed players — resolve them in the Market
-      for (const b of r.incomingBids ?? []) toast(`📥 ${b.from} bid ${fmtMoney(b.fee)} for ${b.player} — accept or reject in the Market`);
+      for (const b of r.incomingBids ?? []) d.push({ icon: '📥', text: `${b.from} bid ${fmtMoney(b.fee)} for ${b.player} — accept or reject`, hash: '#/market' });
       // §2.1: how the matchday's free-agent offers were answered
       for (const f of r.faOffers ?? []) {
-        if (f.type === 'fa_signed') toast(`✍️ ${f.player} accepted your offer — signed (${fmtMoney(f.wage)}/yr × ${f.years}y)`);
-        else if (f.type === 'fa_rejected') toast(`✖ ${f.player} turned down your offer`);
-        else if (f.type === 'fa_gone') toast(`🏃 ${f.player} signed for another club before answering your offer`);
-        else if (f.type === 'fa_expired') toast(`⏳ ${f.player} never answered your offer — it lapsed`);
+        if (f.type === 'fa_signed') d.push({ icon: '✍️', text: `${f.player} accepted your offer — signed (${fmtMoney(f.wage)}/yr × ${f.years}y)`, hash: '#/squad' });
+        else if (f.type === 'fa_rejected') d.push({ icon: '✖', text: `${f.player} turned down your offer` });
+        else if (f.type === 'fa_gone') d.push({ icon: '🏃', text: `${f.player} signed for another club before answering your offer` });
+        else if (f.type === 'fa_expired') d.push({ icon: '⏳', text: `${f.player} never answered your offer — it lapsed` });
       }
       // §2.4: listings that lapsed unsold at the window deadline
-      for (const l of r.listingsExpired ?? []) toast(`⌛ ${l.player}'s listing expired unsold — the window closed`);
+      for (const l of r.listingsExpired ?? []) d.push({ icon: '⌛', text: `${l.player}'s listing expired unsold — the window closed` });
       // §2.2: how the matchday's contract talks resolved
       for (const c of r.contractOffers ?? []) {
-        if (c.result === 'accepted') toast(`✍️ ${c.player} signed a new ${c.years}-year deal (${fmtMoney(c.wage)}/yr)`);
-        else if (c.result === 'countered') toast(`↩ ${c.player}'s agent wants ${fmtMoney(c.counterWage ?? c.wage)}/yr — open his profile to respond`);
-        else if (c.result === 'rejected') toast(`✖ ${c.player} turned down the contract offer`);
-        else if (c.result === 'expired') toast(`⏱️ ${c.player}'s contract talks lapsed — he never answered`);
+        if (c.result === 'accepted') d.push({ icon: '✍️', text: `${c.player} signed a new ${c.years}-year deal (${fmtMoney(c.wage)}/yr)` });
+        else if (c.result === 'countered') d.push({ icon: '↩', text: `${c.player}'s agent wants ${fmtMoney(c.counterWage ?? c.wage)}/yr — respond on his profile`, hash: '#/squad' });
+        else if (c.result === 'rejected') d.push({ icon: '✖', text: `${c.player} turned down the contract offer` });
+        else if (c.result === 'expired') d.push({ icon: '⏱️', text: `${c.player}'s contract talks lapsed — he never answered` });
       }
       const wonCup = r.cup?.champion != null && r.cup.champion === team.id;
       if (r.cup?.myTie && !wonCup) {
         const c = r.cup.myTie;
         const pens = c.homeScore === c.awayScore ? ' (on pens)' : '';
-        toast(`Cup: ${c.won ? 'beat' : 'lost to'} ${c.opponent} ${c.homeScore}–${c.awayScore}${pens}${c.won ? ' — through' : ' — knocked out'}`);
+        d.push({ icon: '🏆', text: `Cup: ${c.won ? 'beat' : 'lost to'} ${c.opponent} ${c.homeScore}–${c.awayScore}${pens}${c.won ? ' — through' : ' — knocked out'}`, hash: '#/cup' });
       }
-      if (wonCup) toast('🏆 You won the Cup!');
+      if (wonCup) d.push({ icon: '🏆', text: 'You won the Cup!', hash: '#/cup' });
       if (r.rollover) {
         const ro = r.rollover;
         const up = ro.promoted.find(p => p.teamId === team.id);
         const down = ro.relegated.find(p => p.teamId === team.id);
         const mine = ro.prizeMoney.find(p => p.teamId === team.id);
         const verdict = up ? `🎉 PROMOTED to Division ${up.toTier}!` : down ? `Relegated to Division ${down.toTier}.` : 'Season complete.';
+        d.push({ icon: '🔚', text: `${verdict}${mine ? ` Prize money: ${fmtMoney(mine.amount)}.` : ''} Season ${ro.season} begins.` });
         const released = (ro.contracts ?? []).filter(c => c.teamId === team.id && c.type === 'released');
-        toast(`${verdict}${mine ? ` Prize money: ${fmtMoney(mine.amount)}.` : ''} Season ${ro.season} begins.`);
-        if (released.length) toast(`${released.length} player(s) left on a free transfer — re-sign from the market, or renew deals earlier next season.`);
+        if (released.length) d.push({ icon: '🚪', text: `${released.length} player(s) left on a free transfer — re-sign from the market, or renew deals earlier next season`, hash: '#/market' });
         const myYouth = (ro.youth ?? []).filter(y => y.teamId === team.id);
         const retired = myYouth.filter(y => y.type === 'retired'), intake = myYouth.filter(y => y.type === 'intake');
-        if (retired.length || intake.length) toast(`Academy: ${intake.length} new prospect(s) in the youth setup${retired.length ? `, ${retired.length} veteran(s) retired` : ''}.`);
+        if (retired.length || intake.length) d.push({ icon: '🎓', text: `Academy: ${intake.length} new prospect(s) in the youth setup${retired.length ? `, ${retired.length} veteran(s) retired` : ''}`, hash: '#/academy' });
         for (const a of (ro.awards ?? []).filter(a => a.teamId === team.id)) {
-          toast(`${a.type === 'pots' ? '🏆' : '🌟'} ${a.player} — your ${a.type === 'pots' ? 'Player' : 'Young Player'} of the Season!`);
+          d.push({ icon: a.type === 'pots' ? '🏆' : '🌟', text: `${a.player} — your ${a.type === 'pots' ? 'Player' : 'Young Player'} of the Season!` });
         }
         const board = (ro.board ?? []).find(b => b.teamId === team.id);
-        if (board) toast(`📋 Board: ${board.message}`);
+        if (board) d.push({ icon: '📋', text: `Board: ${board.message}` });
       }
+      matchdayDigest = (headline || d.length) ? { round: pendingRound, headline, items: d } : null;
+      if (!matchdayDigest) toast('Matchday advanced.');
       screenDashboard();
     } catch (e: any) { toast(e.message); screenDashboard(); }
   });
@@ -716,6 +724,16 @@ async function screenDashboard() {
       : h('span', { class: 'muted' }, '—');
   };
   const formCell = (teamId: number): HTMLElement => h('td', { class: 'num' }, formDots(teamId));
+  // ── the matchday digest card (see matchdayDigest above) — dismiss ✕ clears it ──
+  const digestCard = matchdayDigest ? h('div', { class: 'card', style: 'padding:14px 16px;border-left:3px solid var(--accent)' },
+    h('div', { class: 'between' },
+      h('div', { class: 'section-title', style: 'margin:0' }, `📰 Matchday${matchdayDigest.round != null ? ` ${matchdayDigest.round}` : ''} digest`),
+      h('button', { class: 'ghost small', 'aria-label': 'Dismiss the matchday digest', onclick: () => { matchdayDigest = null; screenDashboard(); } }, '✕')),
+    matchdayDigest.headline ? h('div', { style: 'font-size:17px;font-weight:700;margin-top:6px' }, matchdayDigest.headline) : '',
+    ...matchdayDigest.items.map(it => it.hash
+      ? h('div', { style: 'font-size:13px;padding:3px 0;cursor:pointer', title: 'Open', ...clickable(() => (location.hash = it.hash!)) }, `${it.icon} ${it.text} →`)
+      : h('div', { style: 'font-size:13px;padding:3px 0' }, `${it.icon} ${it.text}`))) : '';
+
   // ── next-match hero: WHO you play, their position + form vs yours, venue + weather, and every
   //    match action (LIVE / sim / talk / scout) in ONE place — was scattered across the header row +
   //    the fixtures list. Only when there IS an upcoming match; the header keeps Advance (+ replay-last).
@@ -950,6 +968,7 @@ async function screenDashboard() {
         !myNext && canAdvance ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' },
           'You’ve played all your matches this season — keep advancing to finish the season, then play your next fixtures live.') : ''),
     ),
+    digestCard,
     nextMatchCard,
     h('div', { class: 'card', style: 'padding:14px' },
       h('div', { class: 'nav-grid' },
