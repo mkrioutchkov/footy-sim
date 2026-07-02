@@ -427,6 +427,12 @@ public:
     void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false, bool isCutback = false);
     bool resolvePendingPass(Player& receiver);
     void auditStuckCarrier(double sdt);
+    // FOOTY_BLOBDEBUG=1: stderr-log each 6+-players-in-50px knot with every
+    // member's chosen action/purpose — the attribution the crowding ticket
+    // needs (blob probe showed balanced 3v3 knots; WHY each man is there is
+    // invisible in traces). Env-gated; default off = byte-identical.
+    void auditBlobPurposes();
+    double blobLogNextMs = 0;
     void updateTeamAssignments();
     void assignDefensiveRoles(Team team, Player& carrier);
     // Wake the in-possession team's off-ball runners: designate up to 3 attacking

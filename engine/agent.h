@@ -269,4 +269,7 @@ public:
     virtual void          setPiecePositioning(SetPiece spType, Team spTeam);
     void                  stunLock(int ticks) { stunLockTicks = std::max(stunLockTicks, ticks); }
     bool                  setPieceHold = false;
+    // Read-only peek for the FOOTY_BLOBDEBUG knot logger (engine.cpp auditBlobPurposes).
+    ActionType            lastAction() const { return lastActionType; }
+    ActionPurpose         lastActionPurpose() const { return lastPurpose; }
 };
