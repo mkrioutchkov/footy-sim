@@ -100,12 +100,24 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
         // indiscriminate crossing is why the engine sat at ~76 crosses (real
         // 30-40) with every attack looking identical.
         if (bestRunner) {
-            int boxDefenders = 0;
+            int boxDefenders = 0, boxAttackers = 0;
             for (auto& o : engine.state.players) {
-                if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
-                if (std::abs(o.x - goalX) < 200.0 && std::abs(o.y - PITCH_H / 2.0) < 170.0) boxDefenders++;
+                if (o.role == Role::GK || o.sentOff || o.id == p.id) continue;
+                bool inZone = std::abs(o.x - goalX) < 200.0 && std::abs(o.y - PITCH_H / 2.0) < 170.0;
+                if (!inZone) continue;
+                if (o.team == p.team) boxAttackers++; else boxDefenders++;
             }
             bestScore -= std::max(0, boxDefenders - 2) * 0.13;
+            // Populated-box gate: you don't whip it in for ONE runner vs a set
+            // defense — real wing play waits for bodies. This is the structural
+            // volume cut the score threshold couldn't deliver (per-tick
+            // re-evaluation saturates any probability gate; the box-occupancy
+            // condition instead stays false until the burst runners actually
+            // arrive — and then the cross is GOOD). The earlier hard removal of
+            // this override collapsed the attack (1.05 goals); with the
+            // box-burst runs + breakaway + cutback channels now live, the
+            // populated-box moments carry the load.
+            if (boxAttackers < 2) bestRunner = nullptr;
         }
         // Threshold calibrated by attribution test: this override produced ~50 of
         // the ~72 crosses/match (helper ~21 + corners ~11 are the rest). The score
