@@ -57,6 +57,7 @@ export class MatchRenderer {
   private hudBg: Graphics;
   private tickerEl: HTMLDivElement | null = null;
   private tickerLines: string[] = [];
+  private prevTickerText = '';   // dirty-check — don't rewrite the feed's text node on every sync
   private seenEventKeys: Set<string> = new Set();
   private lastGoalScorer = '';   // most recent goal-event scorer name — fed to the goal banner
   private commentaryNth = 0;     // advances per rotated commentary line so same-minute events don't repeat phrasing
@@ -116,6 +117,7 @@ export class MatchRenderer {
   private lastIngest = 0;      // performance.now() of the previous ingest (to measure segDur)
   private lastTickMs = 0;      // performance.now() of the previous renderFrame tick (for animTime dt)
   private interpReady = false; // a frame has been ingested → renderFrame may tween/draw
+  private syncNeedsImmediateDraw = false; // this sync created shapes (first frame / new player) → paint now, not next tick
   private lastState: EngineState | null = null;   // latest frame — renderFrame reads it for ball/ring/jockey
   private lastControllerId: number | null = null;
   private prevControllerId: number | null = null;
@@ -584,6 +586,7 @@ export class MatchRenderer {
     this.lastIngest = nowMs;
     this.segStart = nowMs;
     this.lastState = state;
+    if (!this.interpReady) this.syncNeedsImmediateDraw = true;   // first ingest → paint now, don't wait a tick
     this.interpReady = true;
     // Headless self-verify hook (SysArch later21): expose the latest frame so match-view render data
     // (setPieceState, ball, players) is eval-inspectable under any box load — no screenshot needed.
@@ -753,6 +756,7 @@ export class MatchRenderer {
           armDrawn: false, armAngle: 0, armCtrlX: 0, armCtrlY: 0, armHasBall: false, armHeading: false, armKnock: false,
         };
         this.playerEntries.set(p.id, entry);
+        this.syncNeedsImmediateDraw = true;   // position the just-created shapes this sync (else they'd flash at the origin)
       }
 
       const color = p.role === 'GK'
@@ -1127,9 +1131,11 @@ export class MatchRenderer {
     this.updateMomentum(state);   // PRESSURE: integrate after the ticker folds in event impulses
     this.renderStatPanel();
     this.updateMoments(state);
-    // Draw the positional layer once immediately (at t≈0) so the just-created shapes don't sit at the
-    // origin for a frame before the ticker's first renderFrame — then the 60fps ticker takes over.
-    this.renderFrame();
+    // Draw the positional layer immediately ONLY when something new exists (first ingest / a just-created
+    // player shape would sit at the origin for a frame otherwise). Every other sync leaves the draw to the
+    // 60fps ticker (≤16ms away) — the unconditional call ran the full positional pass an extra ~35×/sec on
+    // a live watch, on top of the ticker's 60.
+    if (this.syncNeedsImmediateDraw) { this.syncNeedsImmediateDraw = false; this.renderFrame(); }
   }
 
   // Clip a team name to the HUD width, falling back to a default — shared by the HUD + the
@@ -1259,7 +1265,10 @@ export class MatchRenderer {
     }
     if (this.tickerLines.length > 5) this.tickerLines.length = 5;
     if (this.seenEventKeys.size > 400) this.seenEventKeys.clear();
-    this.tickerEl.textContent = this.tickerLines.length ? this.tickerLines.join('\n') : '— match feed —';
+    // dirty-checked like the stat panel — this rewrote the pre-wrap feed's text node (a DOM replace +
+    // style/layout) on EVERY sync (~30-37Hz live) even when no new event had arrived.
+    const feed = this.tickerLines.length ? this.tickerLines.join('\n') : '— match feed —';
+    if (feed !== this.prevTickerText) { this.prevTickerText = feed; this.tickerEl.textContent = feed; }
   }
 
   private restartLabel(type: string): string {
@@ -1628,7 +1637,7 @@ export class MatchRenderer {
     // ~22 Graphics rebuilds/rAF for a still, same-facing pitch (e.g. any pause/stoppage). Carrier + turning
     // players still redraw (their angle / ball-vector move each tick).
     if (entry.armDrawn
-      && Math.abs(angle - entry.armAngle) < 0.01
+      && Math.abs(angle - entry.armAngle) < 0.035   // ~2° — sub-pixel at PLAYER_R scale; 0.01 was below the per-tick lerp delta, so the skip never engaged during play
       && hasBall === entry.armHasBall && heading === entry.armHeading && knockDribble === entry.armKnock
       && Math.abs(controlDx - entry.armCtrlX) < 0.5 && Math.abs(controlDy - entry.armCtrlY) < 0.5) return;
     entry.armDrawn = true; entry.armAngle = angle; entry.armHasBall = hasBall;

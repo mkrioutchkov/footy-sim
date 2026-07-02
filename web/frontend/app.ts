@@ -1245,6 +1245,11 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   const scrubWrap = h('div', { class: 'scrub-wrap', style: 'display:none;position:relative;align-items:center;flex:1 1 170px;min-width:130px;max-width:360px;height:18px' }, scrubEl, goalMarkers) as HTMLElement;
   scrubEl.addEventListener('input', () => { scrubbing = true; scrubLabel.textContent = fmtClock(+scrubEl.value); });
   scrubEl.addEventListener('change', () => { seekTo(+scrubEl.value); scrubbing = false; });
+  // A drag released back at its STARTING value fires no 'change' → `scrubbing` stuck true → the playhead
+  // stopped tracking forever. Commit on release too (deferred a tick so a real 'change' wins; idempotent).
+  const commitScrub = (): void => { setTimeout(() => { if (scrubbing) { scrubbing = false; seekTo(+scrubEl.value); } }, 0); };
+  scrubEl.addEventListener('pointerup', commitScrub);
+  scrubEl.addEventListener('keyup', commitScrub);
   // ⏪ / ⏩ — the ONLY step buttons (the slider + ←/→ cover the rest). Revealed with the scrub.
   const back10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds (←)', onclick: () => seekTo(Math.max(0, currentMs - 10000)) }, '⏪ 10s') as HTMLButtonElement;
   const fwd10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Forward 10 seconds', title: 'Forward 10 seconds (→)', onclick: () => seekTo(currentMs + 10000) }, '10s ⏩') as HTMLButtonElement;
@@ -1453,7 +1458,11 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       if (myEpoch !== watchEpoch) return;
       const events = (rep.facts?.timeline ?? [])
         .filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red' || e.type === 'penalty' || e.type === 'woodwork')
-        .map(e => ({ clockMs: (e.minute ?? 0) * 60000, name: e.name, kind: e.type }));
+        // EXACT event clock when the report carries it. The display minute is floor(ms/60000)+1, so the old
+        // minute*60000 mapping overshot by up to 60s — every recorded jump-to-goal landed AFTER the goal
+        // (you saw the celebration, never the shot). Old cached reports (no clockMs) fall back to the START
+        // of the display minute, so the −4s pre-roll can never land past the moment.
+        .map(e => ({ clockMs: typeof e.clockMs === 'number' ? e.clockMs : Math.max(0, ((e.minute ?? 1) - 1) * 60000), name: e.name, kind: e.type }));
       if (events.length) { buildMarkers(events); hasReportMarkers = true; }   // full upfront set → suppress the incremental live-marks (which reassign wholesale)
     }).catch(() => { /* no report (re-sim / another club) → scrub without markers (falls back to live-marks) */ });
   }
@@ -1517,10 +1526,15 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   // live-frame render in onmessage (frames keep buffering while you're rewound).
   let liveSeek = false;   // a live watch has buffered enough → route the scrub/rewind to the buffer
   let playbackGen = 0;    // bumped per buffer-playback start → invalidates any prior step() chain (re-entrant safety)
+  // A goal clip's ⚽ button reset used to live ONLY in the clip's own completion branch — any seek/resume that
+  // cleared the shared timer externally stranded it disabled on "⏵ Replaying…" forever. Idempotent, so every
+  // supersession path (seek → startBufferPlayback, ● LIVE → resumeLive) just calls it.
+  const resetClipButton = (): void => { replayBtn.disabled = false; replayBtn.textContent = '⚽ Replay goal'; };
   const resumeLive = (): void => {
     if (myEpoch !== watchEpoch) return;   // a stale callback must not touch the new watch's renderer/controls
     replaying = false;
     if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }
+    resetClipButton();
     activeRenderer?.setReplay(false);
     goLiveBtn.style.display = 'none';
     if (activeRenderer && liveBuffer.length) {
@@ -1533,6 +1547,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     if (!activeRenderer || !liveBuffer.length) return;
     const myGen = ++playbackGen;            // a fresh re-scrub invalidates any in-flight step() chain
     replaying = true;                       // gate the live-frame render (onmessage keeps buffering)
+    resetClipButton();                      // a seek supersedes a goal clip — never leave ⚽ stuck on "⏵ Replaying…"
     // Suppress the live GOAL / HALF-TIME banner while replaying buffered frames FORWARD across a rewind —
     // else crossing a goal during the rewind re-pops "GOAL!" though none was scored. setReplay only sets the
     // suppression flag; the "⚽ GOAL REPLAY" overlay is playClip's separate doing, so a PLAIN rewind still
@@ -1543,16 +1558,22 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
     goLiveBtn.textContent = live ? '● LIVE' : '▶ Resume';
     goLiveBtn.title = live ? 'Jump back to the live edge' : 'Resume to the latest point';
     goLiveBtn.style.display = '';
-    let i = Math.max(0, Math.min(startIdx, liveBuffer.length - 1));
+    // SNAPSHOT the playback range. onmessage keeps push+shift()ing liveBuffer while we play (at the 7200-frame
+    // cap — i.e. past ~12 buffered minutes — every arriving frame evicts the head), so indexing the LIVE array
+    // slid frames under the cursor: rewound playback ran ~2× with every other frame skipped and slammed back
+    // into the live edge early. The slice shares frame references (no copy of the frames themselves); when it's
+    // exhausted, resumeLive() syncs to the TRUE current live edge anyway.
+    const clip = liveBuffer.slice(Math.max(0, Math.min(startIdx, liveBuffer.length - 1)));
+    let i = 0;
     if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }
     const step = (): void => {
       if (myEpoch !== watchEpoch || !activeRenderer || !replaying || myGen !== playbackGen) return;   // navigated / torn down / resumed / superseded
       if (paused) { activeReplayTimer = setTimeout(step, 150); return; }   // ⏸ freezes the buffer playback too (was: button said paused, pitch kept moving)
-      if (i >= liveBuffer.length - 1) { resumeLive(); return; }  // caught up to the live edge → follow live
-      const f = liveBuffer[i];
+      if (i >= clip.length - 1) { resumeLive(); return; }  // played the snapshot out → follow live from the current edge
+      const f = clip[i];
       activeRenderer.sync(f);
       if (typeof f.clockMs === 'number' && !scrubbing) { currentMs = f.clockMs; scrubEl.value = String(f.clockMs); scrubLabel.textContent = fmtClock(f.clockMs); }
-      const cur = f.clockMs ?? 0, nxt = liveBuffer[i + 1]?.clockMs ?? cur + 250;
+      const cur = f.clockMs ?? 0, nxt = clip[i + 1]?.clockMs ?? cur + 250;
       i++;
       // paced by the frame deltas SCALED by the chosen speed (was: real-time only — the speed control
       // silently did nothing while rewound). curSpeed tracks the last frame's actual state.speed.
@@ -1599,6 +1620,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
   highlightBtn.onclick = () => { if (activeHighlightTimer) stopHighlights(); else playHighlights(); };
   const playClip = () => {
     if (myEpoch !== watchEpoch || replaying || !goalClip || !goalClip.length || !activeRenderer) return;
+    stopHighlights();   // the tour and a goal clip are mutually exclusive — don't let an 11s tour-step seek mid-clip
     replaying = true;
     activeRenderer.setReplay(true);   // GOAL-REPLAY banner — ONLY here (an actual goal replay), not plain rewind
     replayBtn.disabled = true; replayBtn.textContent = '⏵ Replaying…';
@@ -1611,7 +1633,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         if (activeReplayTimer) { clearInterval(activeReplayTimer); activeReplayTimer = null; }
         replaying = false;
         activeRenderer?.setReplay(false);   // drop the overlay + resume live goal banners
-        replayBtn.disabled = false; replayBtn.textContent = '⚽ Replay goal';
+        resetClipButton();
         if (activeRenderer && liveBuffer.length) { const lf = liveBuffer[liveBuffer.length - 1]; activeRenderer.sync(lf); if (typeof lf.clockMs === 'number' && !scrubbing) { currentMs = lf.clockMs; scrubEl.value = String(lf.clockMs); scrubLabel.textContent = fmtClock(lf.clockMs); } }   // snap back to live
         return;
       }
@@ -1672,7 +1694,11 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
         }
         // ⚽ Replay-goal (with its GOAL-REPLAY banner) is a TRUE-live-only control — on a re-sim it'd raise
         // the banner inappropriately; re-sim users jump to goals via the markers instead. (P0 bug-fix #6.)
-        if (goalFrame) { goalClip = liveBuffer.slice(-GOAL_CLIP); if (live) replayBtn.style.display = ''; }
+        if (goalFrame) {
+          goalClip = liveBuffer.slice(-GOAL_CLIP);
+          // the ⚽ Replay item lives in the ⋯ menu now — light the ⋯ up so a fresh goal replay is discoverable
+          if (live) { replayBtn.style.display = ''; if (morePop.style.display === 'none') { moreBtn.classList.add('primary'); moreBtn.classList.remove('ghost'); } }
+        }
         // live goal/card markers — a stream with NO upfront report (a true live match; a re-sim of a
         // report-less fixture) indexes events as they happen so the scrub shows ⚽/🟨/🟥 + jump + , / . +
         // highlights mid-game. SKIP when the report already supplied the full timeline (recorded, and now the
