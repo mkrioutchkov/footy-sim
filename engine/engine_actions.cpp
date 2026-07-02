@@ -439,7 +439,8 @@ void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
     {
         double clrLine=ownGoalXFor(f.team);
         if(std::abs(f.x-clrLine)<PENALTY_AREA_W && rng.random()<0.18){
-            emitEvent("clearance", f.x, f.y, f.id);
+            // (clearance event now emitted at the Clear release site in agent.cpp
+            // for EVERY clearance — emitting here too double-labeled this branch)
             awardCorner(f.team==Team::Home?Team::Away:Team::Home, f.team==Team::Home, f.y);
             return;
         }

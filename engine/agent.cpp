@@ -263,6 +263,13 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                 // the carrier scans/carries (Dribble always scores, no deadlock).
                 // Killer balls, line-break outlets and any tight press remain
                 // exempt via the conditions above.
+                // Notch-2 NOTE: extending the zone 0.42→0.55·W was A/B'd at 48
+                // paired seeds and FAILED — passes only 1664→1649 (−0.9%) while
+                // goals broke the guard (+0.40 paired, 2.67→3.06). The midfield
+                // band's holds are mostly pressed or already past the floor, so
+                // the wider zone only perturbed. 0.42 is the sweet spot; the next
+                // tempo lever should be receiver-side (first-touch redirects),
+                // not this gate.
                 if (holdTicks < 80 && progress < PITCH_W * 0.42)
                     x.score -= 2.0;
             }
@@ -400,6 +407,12 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
         bool released;
         if (a.purpose == ActionPurpose::Clear) {
             engine.forcePassTo(p, *a.target, &audit);
+            engine.stats.recordClearance();
+            // Label EVERY clearance for the viewer/census — the event used to
+            // fire only from forcePassTo's in-box slice-out-for-a-corner branch
+            // (18% sub-case), so a match showed "1 clearance" while the engine
+            // actually hoofed ~96 (2026-07-02 counter baseline, 48 seeds).
+            engine.emitEvent("clearance", p.x, p.y, p.id);
             released = true;
         } else {
             released = engine.passBallTo(p, *a.target, a.purpose == ActionPurpose::Through, false, &audit);
