@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT, type TimelineEventT } from './api';
 import { MatchRenderer } from './renderer';
 import type { EngineState } from './types';
 
@@ -1191,7 +1191,7 @@ function describeDirective(d: any): string {
   return `${who}: ${d.kind}${cond}`;
 }
 
-async function screenWatch(fixtureId: number, shouts = false, live = false) {
+async function screenWatch(fixtureId: number, shouts = false, live = false, startMs = 0) {
   teardownWatch();
   const myEpoch = watchEpoch;   // if another teardown/navigation bumps this during init, we bail below
   // Ensure the result is recorded (idempotent, deterministic, same as the stream). NOT for a LIVE
@@ -1694,7 +1694,11 @@ async function screenWatch(fixtureId: number, shouts = false, live = false) {
       }
       // A replayed recording is finished playback: reveal the rewind/scrub/back-10s controls. The shout
       // box is already gone (the panel is the read-only live-only note when !live), so keep the note visible.
-      if (msg.replay && !replayUiApplied) { replayUiApplied = true; back10Btn.style.display = ''; fwd10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
+      if (msg.replay && !replayUiApplied) {
+        replayUiApplied = true; back10Btn.style.display = ''; fwd10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve();
+        // deep-link (#/watch/id?t=ms — e.g. a report-timeline click): jump straight to the moment once seekable
+        if (startMs > 0) { seekTo(Math.max(0, startMs)); startMs = 0; }
+      }
       // a recording knows its real length → the slider spans the actual match, not a fixed 96'
       if (typeof msg.durationMs === 'number') setScrubMax(msg.durationMs + 1000);
       // Track the playhead while FOLLOWING (a recorded replay, or a live watch at the edge) — but not while
@@ -2619,14 +2623,60 @@ async function screenReport(fixtureId: number) {
   }
   const tac = await tacP;
 
-  const icon = (t: string) => t === 'goal' ? '⚽' : t === 'red' ? '🟥' : '🟨';
+  const icon = (t: string) => t === 'goal' ? '⚽' : t === 'red' ? '🟥' : t === 'penalty' ? '🎯' : t === 'woodwork' ? '🪵' : '🟨';
+  const evClock = (e: TimelineEventT): number => typeof e.clockMs === 'number' ? e.clockMs : Math.max(0, ((e.minute ?? 1) - 1) * 60000);
+  const HOME_C = '#ff8a8a', AWAY_C = '#9ecbff';   // the renderer's banner colours — home/away read the same everywhere
+
+  // ── scoreboard: the result at a glance, scorers + reds under each side (the prose stays below) ──
+  const sideEvents = (team: 'home' | 'away') => rep.facts.timeline
+    .filter(e => e.team === team && (e.type === 'goal' || e.type === 'red'))
+    .map(e => h('div', { class: 'muted', style: 'font-size:12px;padding:1px 0' }, `${icon(e.type)} ${e.name} ${e.minute}'`));
+  const scoreboard = h('div', { class: 'card' },
+    h('div', { style: 'display:flex;align-items:baseline;justify-content:center;gap:18px;flex-wrap:wrap' },
+      h('div', { style: `flex:1;min-width:120px;text-align:right;font-weight:700;color:${HOME_C}` }, rep.homeName),
+      h('div', { style: 'font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:1px' }, `${rep.facts.homeScore} — ${rep.facts.awayScore}`),
+      h('div', { style: `flex:1;min-width:120px;font-weight:700;color:${AWAY_C}` }, rep.awayName)),
+    h('div', { style: 'display:flex;gap:18px;margin-top:6px' },
+      h('div', { style: 'flex:1;text-align:right' }, ...sideEvents('home')),
+      h('div', { style: 'width:60px' }),
+      h('div', { style: 'flex:1' }, ...sideEvents('away'))));
+
+  // ── the match on one strip: every moment positioned at its REAL clock, home above / away below the
+  //    spine. Click any marker → the replay AT that moment (#/watch/id?t=). ──
+  const lastClock = rep.facts.timeline.reduce((m, e) => Math.max(m, evClock(e)), 0);
+  const stripDur = Math.max(90 * 60000, lastClock + 90000);
+  const stripMark = (e: TimelineEventT) => {
+    const pct = Math.min(99, Math.max(1, (evClock(e) / stripDur) * 100));
+    return h('button', {
+      class: 'ghost', title: `${e.minute}' ${e.name} — watch this moment`,
+      style: `position:absolute;left:${pct}%;${e.team === 'home' ? 'bottom:52%' : 'top:52%'};transform:translateX(-50%);border:none;background:none;padding:1px 2px;font-size:15px;line-height:1;cursor:pointer`,
+      onclick: () => (location.hash = `#/watch/${fixtureId}?t=${Math.max(0, evClock(e) - 5000)}`),
+    }, icon(e.type));
+  };
+  const stripTick = (pct: number, lab: string) => [
+    h('span', { style: `position:absolute;left:${pct}%;top:46%;bottom:46%;width:1px;background:var(--line)` }),
+    h('span', { class: 'muted', style: `position:absolute;left:${pct}%;top:100%;transform:translate(-50%,-14px);font-size:10px` }, lab)];
   const timeline = rep.facts.timeline.length
     ? h('div', { class: 'card', style: 'margin-top:10px' },
-        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Timeline'),
-        ...rep.facts.timeline.map(e => h('div', { class: 'between', style: 'font-size:13px;padding:2px 0' },
-          h('span', {}, `${icon(e.type)} ${e.name}`),
-          h('span', { class: 'muted' }, `${e.minute}'${e.team === 'home' ? ` · ${rep.homeName}` : ` · ${rep.awayName}`}`))))
+        h('div', { class: 'between', style: 'margin-bottom:2px' },
+          h('div', { class: 'section-title', style: 'margin:0' }, 'Timeline'),
+          h('span', { class: 'muted', style: 'font-size:11px' }, `${rep.homeName} above · ${rep.awayName} below · click a moment to watch it`)),
+        h('div', { style: 'position:relative;height:64px' },
+          h('div', { style: 'position:absolute;left:0;right:0;top:50%;height:2px;background:var(--line)' }),
+          ...stripTick(0.5, "0'"), ...stripTick((45 * 60000 / stripDur) * 100, 'HT'), ...stripTick((90 * 60000 / stripDur) * 100, 'FT'),
+          ...rep.facts.timeline.map(stripMark)))
     : '';
+
+  // ── head-to-head bars: the split stats, mirrored around the centre ──
+  const statBar = (label: string, hv: number, av: number, fmt = (n: number) => String(n)) => {
+    const total = Math.max(1, hv + av);
+    return h('div', { style: 'margin:7px 0' },
+      h('div', { style: 'display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px' },
+        h('span', { style: 'font-variant-numeric:tabular-nums;font-weight:600' }, fmt(hv)), h('span', { class: 'muted' }, label), h('span', { style: 'font-variant-numeric:tabular-nums;font-weight:600' }, fmt(av))),
+      h('div', { style: 'display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--line)' },
+        h('div', { style: `width:${(hv / total) * 100}%;background:${HOME_C}` }),
+        h('div', { style: `width:${(av / total) * 100}%;background:${AWAY_C}` })));
+  };
 
   // ratings, one column per side, best first
   const ratingsCol = (team: 'home' | 'away', label: string) => {
@@ -2635,12 +2685,13 @@ async function screenReport(fixtureId: number) {
       h('div', { class: 'section-title', style: 'margin-top:0' }, label),
       ...rep.ratings.filter(r => r.team === team).sort((a, b) => b.rating - a.rating).map(r => {
         const tag = (n: number, s: string, title: string) => n > 0 ? h('span', { class: 'pill', title, style: 'margin-left:4px' }, `${n}${s}`) : '';
-        const hot = r.rating >= 7.5 ? 'color:var(--accent,#4ea1ff);font-weight:700;' : r.rating < 5 ? 'opacity:.6;' : '';
+        // heat: 4.0 red → 9.0 green (same hsl ramp as the squad attribute heat) — the whole column reads at a glance
+        const hue = Math.max(0, Math.min(120, Math.round(((r.rating - 4) / 5) * 120)));
         const cs = (cleanSheet && r.role === 'GK') ? h('span', { class: 'pill', title: 'Clean sheet', style: 'margin-left:4px' }, '🧤') : '';
         return h('div', { class: 'between', style: 'font-size:13px;padding:2px 0' },
           h('span', {}, `${r.name} `, h('span', { class: 'muted', style: 'font-size:11px' }, r.role),
             tag(r.goals, '⚽', 'Goals'), tag(r.assists, '🅰', 'Assists'), tag(r.shots, '🎯', 'Shots'), tag(r.tackles, '🛡', 'Tackles'), cs),
-          h('span', { style: hot }, r.rating.toFixed(1)));
+          h('span', { style: `font-weight:700;font-variant-numeric:tabular-nums;color:hsl(${hue},70%,62%)` }, r.rating.toFixed(1)));
       }));
   };
 
@@ -2653,11 +2704,17 @@ async function screenReport(fixtureId: number) {
       h('div', { class: 'row' },
         h('button', { class: 'ghost', title: 'Watch this match back — rewind and scrub to any moment', onclick: () => (location.hash = `#/watch/${fixtureId}`) }, '▶ Watch replay'),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'))),
-    h('div', { class: 'card' },
-      h('div', { style: 'white-space:pre-wrap;line-height:1.5' }, rep.body),
-      h('div', { class: 'muted', style: 'margin-top:10px;font-size:12px' },
-        `Possession ${f.possessionHome}%–${100 - f.possessionHome}% · Shots ${f.shots.home}–${f.shots.away} (${f.shotsOnTarget} on target) · ${f.saves} saves · ${f.corners} corners`)),
+    scoreboard,
     timeline,
+    h('div', { class: 'grid cols-2', style: 'align-items:start;margin-top:10px' },
+      h('div', { class: 'card' },
+        h('div', { style: 'white-space:pre-wrap;line-height:1.5' }, rep.body)),
+      h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Head to head'),
+        statBar('Possession', f.possessionHome, 100 - f.possessionHome, n => `${n}%`),
+        statBar('Shots', f.shots.home, f.shots.away),
+        h('div', { class: 'muted', style: 'margin-top:8px;font-size:12px' },
+          `${f.shotsOnTarget} on target · ${f.saves} saves · ${f.corners} corners`))),
     h('div', { class: 'card', style: 'margin-top:10px' },
       h('div', { class: 'section-title', style: 'margin-top:0' }, 'Player ratings'),
       h('div', { style: 'display:flex;gap:24px;flex-wrap:wrap' }, ratingsCol('home', rep.homeName), ratingsCol('away', rep.awayName))),
@@ -3353,7 +3410,7 @@ function route() {
   routeGen++;   // invalidate any in-flight screen's pending mount (see screenGuard) — the new route owns the DOM now
   if (!user) { screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
-  if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash)); }
+  if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash), Number(hash.match(/[?&]t=(\d+)/)?.[1] ?? 0)); }
   else if (hash === '#/matches') screenMyMatches();
   else if (hash === '#/league') screenLeagueMatches();
   else if (hash === '#/tactics') screenTactics();
