@@ -145,6 +145,10 @@ public:
         double spotX = 0, spotY = 0;
         bool takerArrived = false;
         double walkMs = 0;   // time spent trying to reach the ball — backstop against a never-arriving taker
+        // Out-ball glide: for corner/throw/goal-kick awards the ball keeps
+        // ROLLING out under friction until this clock, then snaps to the spot —
+        // it used to teleport mid-flight ("goal kicks look weird"). 0 = placed.
+        double placeBallAtMs = 0;
         std::string reason;
     } setPiece;
 

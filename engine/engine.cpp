@@ -586,6 +586,26 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     phase.actionTimer -= sdt;
     Team spTeam = setPiece.team;
 
+    // Out-ball glide: an awarded corner/throw/goal-kick ball keeps ROLLING
+    // beyond the line under friction instead of teleporting to the restart
+    // spot the tick it crossed ("goal kicks look weird" — the ball vanished
+    // mid-flight and reappeared dead in the keeper's hands). Nobody can play
+    // it (armed chase gate; no collection runs in this phase) and the taker
+    // walks to the SPOT; when the window closes — or the ball dies — place it.
+    if (setPiece.placeBallAtMs > 0.0) {
+        auto& gb = state.ball;
+        bool alive = std::hypot(gb.vx, gb.vy) > 20.0 || gb.z > 0.5;
+        if (state.clockMs < setPiece.placeBallAtMs && alive && gb.controllerId < 0) {
+            applyBallPhysics(sec);
+            clampBallPosition();
+        } else {
+            gb.x = setPiece.spotX;
+            gb.y = setPiece.spotY;
+            gb.vx = gb.vy = gb.z = gb.vz = 0;
+            setPiece.placeBallAtMs = 0.0;
+        }
+    }
+
     // ── Populate throw-in support targets in blackboard (once per set piece) ──
     if (setPiece.type == SetPiece::ThrowIn) {
         auto& bb = blackboards[teamIndex(spTeam)];
@@ -747,6 +767,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         setPiece.armed = false;
         setPiece.type = SetPiece::None;
         setPiece.reason.clear();
+        setPiece.placeBallAtMs = 0.0;
         return;
     }
     if (setPiece.type == SetPiece::GoalKick && phase.actionTimer <= 0 && state.ball.controllerId >= 0) {
@@ -768,12 +789,16 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         }
     }
 
+    // While the out-ball is still gliding, the taker walks to the SPOT (not
+    // the rolling ball — chasing it would drag him off the pitch).
+    double takerTX = setPiece.placeBallAtMs > 0.0 ? setPiece.spotX : state.ball.x;
+    double takerTY = setPiece.placeBallAtMs > 0.0 ? setPiece.spotY : state.ball.y;
     if (setPiece.takerId >= 0 && !setPiece.takerArrived) {
         setPiece.walkMs += sdt;
         Player* taker = playerById(setPiece.takerId);
         if (taker) {
-            double dx = state.ball.x - taker->x;
-            double dy = state.ball.y - taker->y;
+            double dx = takerTX - taker->x;
+            double dy = takerTY - taker->y;
             double d = std::hypot(dx, dy);
             if (d > 1.0) {
                 double speed = attrFactor(taker->attrs.speed) * SPEED_SPRINT;
@@ -782,16 +807,24 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 taker->y += (dy / d) * step;
                 taker->facing = std::atan2(dy, dx);
             }
-            taker->targetX = state.ball.x;
-            taker->targetY = state.ball.y;
+            taker->targetX = takerTX;
+            taker->targetY = takerTY;
         }
     }
 
     if (setPiece.takerId >= 0 && !setPiece.takerArrived) {
         Player* taker = playerById(setPiece.takerId);
         if (taker) {
-            double d = dist(taker->x, taker->y, state.ball.x, state.ball.y);
+            double d = dist(taker->x, taker->y, takerTX, takerTY);
             if (d < 15.0) {
+                // Taker reached the spot while the ball is still gliding —
+                // finish the placement now so he takes control of a real ball.
+                if (setPiece.placeBallAtMs > 0.0) {
+                    state.ball.x = setPiece.spotX;
+                    state.ball.y = setPiece.spotY;
+                    state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
+                    setPiece.placeBallAtMs = 0.0;
+                }
                 setPiece.takerArrived = true;
                 setPiece.walkMs = 0;
                 state.ball.controllerId = taker->id;
@@ -851,6 +884,14 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 return;
             }
             if (taker) {
+                // Backstop force-control: make sure a still-gliding ball is
+                // placed first — he must not "control" a ball rolling off-pitch.
+                if (setPiece.placeBallAtMs > 0.0) {
+                    state.ball.x = setPiece.spotX;
+                    state.ball.y = setPiece.spotY;
+                    state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
+                    setPiece.placeBallAtMs = 0.0;
+                }
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
                 state.ball.lastToucherId = taker->id;

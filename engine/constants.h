@@ -26,9 +26,22 @@ inline constexpr double SPEED_SPRINT  = 68.0;
 inline constexpr double MAX_PLAYER_SPEED = 50.0;
 
 // ── Ball speed / physics ──
+// 2026-07-02 audit ("passes look weird"): base 136/slope 0.105 makes launch
+// speed near-UNIFORM — an 18px tap leaves the boot at 96% the speed of a
+// 200px ball, so short passes zip and arrive hot (0.03-0.4s flights). A real
+// gradient (92 + d*0.28, long-pass-anchored) was A/B'd at 48 paired seeds and
+// HARD-FAILED: pass% 83.7->77.9, intercepts +43% — the completion calibration
+// (lane-intercept reach `perp < 16+55t`, slow-collect gates) is anchored to
+// THIS speed profile; slower rolls live too long under those radii. Fixing
+// the zip needs a COUPLED re-anchor of speed + intercept/collect geometry —
+// don't touch these two alone.
 inline constexpr double PASS_SPEED_BASE = 136.0;
 inline constexpr double PASS_SPEED_DIST = 0.105;
 inline constexpr double SHOT_SPEED_BASE = 285.0;
+// Out-of-bounds restarts: the ball keeps rolling out for up to this long
+// before being placed at the spot (corner arc / touchline / goal-kick spot) —
+// it used to teleport mid-flight the tick it crossed the line.
+inline constexpr double OUT_BALL_GLIDE_MS = 700.0;
 inline constexpr double BALL_FRICTION  = 0.70;
 inline constexpr double GRAVITY        = 500.0;
 // §weather v2 WIND: a seed-derived per-match wind vector accelerates AIRBORNE balls laterally.

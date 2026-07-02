@@ -649,24 +649,29 @@ void GameEngine::releaseCornerKick(Player& holder){
 void GameEngine::awardThrowIn(Team lastTouchTeam, double y) {
     auto& b = state.ball;
     Team atTeam = (lastTouchTeam == Team::Home) ? Team::Away : Team::Home;
-    b.x = clamp(b.x, 10., PITCH_W - 10);
-    b.y = clamp(y, 3.0, PITCH_H - 3.0);
-    b.vx = b.vy = b.z = b.vz = 0;
+    // Spot from where it crossed; the BALL itself keeps rolling out (glide)
+    // instead of teleporting to the line — updateSetPiecePhase places it.
+    double sx = clamp(b.x, 10., PITCH_W - 10);
+    double sy = clamp(y, 3.0, PITCH_H - 3.0);
     b.controllerId = -1;
+    b.intendedReceiverId = -1;
     setPiece.type = SetPiece::ThrowIn;
     setPiece.team = atTeam;
     setPiece.armed = true;
     setPiece.reason = "throw_in";
     phase.actionTimer = 5000;
-    setPiece.spotX = b.x;
-    setPiece.spotY = b.y;
+    setPiece.spotX = sx;
+    setPiece.spotY = sy;
     setPiece.takerArrived = false;
-    Player* best = findNearestOutfieldPlayer(atTeam, b.x, b.y);
+    setPiece.placeBallAtMs = state.clockMs + OUT_BALL_GLIDE_MS;
+    Player* best = findNearestOutfieldPlayer(atTeam, sx, sy);
     setPiece.takerId = best ? best->id : -1;
 }
 
 void GameEngine::awardSetPiece(SetPiece t, Team tm) {
     auto& b = state.ball;
+    // Goal kicks restore these for the out-ball glide; fouls/pens stay dead.
+    double keepVx = b.vx, keepVy = b.vy, keepZ = b.z, keepVz = b.vz;
     b.vx = b.vy = b.z = b.vz = 0;
     b.controllerId = -1;
     setPiece.type = t;
@@ -690,14 +695,17 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
             if (p.team == tmTeam && p.role == Role::GK) {
                 double fd = fdFor(tmTeam);
                 double side = b.y < PITCH_H / 2.0 ? -1.0 : 1.0;
-                b.x = ownGoalXFor(tmTeam) + fd * (58.0 + CONTROL_DIST);
-                b.y = clamp(PITCH_H / 2.0 + side * 78.0, 120.0, PITCH_H - 120.0);
-                setPiece.spotX = b.x;
-                setPiece.spotY = b.y;
+                setPiece.spotX = ownGoalXFor(tmTeam) + fd * (58.0 + CONTROL_DIST);
+                setPiece.spotY = clamp(PITCH_H / 2.0 + side * 78.0, 120.0, PITCH_H - 120.0);
                 setPiece.takerId = p.id;
                 break;
             }
         }
+        // The out-ball GLIDES (it used to vanish mid-flight at the line and
+        // reappear dead at the spot); restore its flight and let
+        // updateSetPiecePhase place it when the glide window closes.
+        b.vx = keepVx; b.vy = keepVy; b.z = keepZ; b.vz = keepVz;
+        setPiece.placeBallAtMs = state.clockMs + OUT_BALL_GLIDE_MS;
         return;
     }
 
@@ -731,8 +739,8 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
 void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
     stats.recordCorner();
     auto& b=state.ball;
-    b.vx=b.vy=b.z=b.vz=0;
     b.controllerId=-1;
+    b.intendedReceiverId=-1;
     setPiece.type=SetPiece::Corner;
     setPiece.team = attackingTeam;
     setPiece.armed=true;
@@ -743,8 +751,10 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
     // Corner taken from the corner ARC, not 1.8m inside the field of play.
     double ix=atHomeEnd?6.0:PITCH_W-6.0;
     double iy=cy==0.0?6.0:PITCH_H-6.0;
-    b.x=ix; b.y=iy;
+    // Ball GLIDES out (no mid-flight teleport); placed at the arc by
+    // updateSetPiecePhase when the glide window closes.
     setPiece.spotX=ix; setPiece.spotY=iy;
+    setPiece.placeBallAtMs=state.clockMs+OUT_BALL_GLIDE_MS;
     Player* taker=nullptr;
     double best=1e9;
     for(auto& p:state.players){
