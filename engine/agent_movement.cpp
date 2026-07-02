@@ -314,6 +314,15 @@ void PlayerAI::applyMovement(double sdt) {
     bool offBallFacing = engine.state.ball.controllerId != p.id;
     if (offBallFacing && requestedFacingDelta * prevFacingDeltaSigned < -1e-6)
         requestedFacingDelta *= 0.15;   // SysArch 2026-06-28: tightened 0.30→0.15 — the overlap/counter-press off-ball churn re-raised SPIN 16→38; stronger reversal-damp (Boris's suggested lever). Measure-gated.
+    // Sustained-pirouette damp (2026-07-02 audit): the reversal-damp above kills
+    // flip-flop, but a facing target that rotates CONTINUOUSLY (orbiting a near
+    // ball, circling a carrier) is same-sign and sails through — 540°+/1.5s
+    // pirouettes, 4-11 per 15min. Once this 2s window has already accumulated a
+    // full turn, further off-ball rotation damps hard until the window rolls.
+    // Normal scanning never accumulates 360°/window, and maxFacingTurn is
+    // untouched — perception gating (the turn-cap deadlock) stays intact.
+    if (offBallFacing && dizzyRotationAccum > 360.0)
+        requestedFacingDelta *= 0.2;
     prevFacingDeltaSigned = requestedFacingDelta;
     double turnSpeedBlend = clamp((spdAfter - 12.0) / 58.0, 0.0, 1.0);
     double maxFacingTurn = lerp(0.24, 0.055, turnSpeedBlend);

@@ -946,7 +946,9 @@ void GameEngine::tickAgents(double sdt, bool ic) {
         if (a->player.sentOff) continue;
         if (id == state.ball.controllerId && !ic) continue;
         a->tick(sdt);
-        if (a->dizzyRotationAccum > 1080.0) {
+        // 720°/2s == the trace auditor's 540°/1.5s pirouette rate — at 1080 the
+        // flag was blind (1 firing per 16 matches vs 4-11 visible spins/15min).
+        if (a->dizzyRotationAccum > 720.0) {
             dizzySpins++;
             stats.recordDizzySpin();
             a->dizzyRotationAccum = 0;
