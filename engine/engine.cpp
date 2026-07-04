@@ -320,11 +320,13 @@ void GameEngine::updatePossessionTracking(double sdt) {
             carrierTracker.carryLastY = c->y;
             carrierTracker.carryPathDistance = 0;
             carrierTracker.carryStartMs = state.clockMs;
+            carrierTracker.carryStartX = c->x;
             carrierTracker.carryRevsY = 0;
             carrierTracker.carryLastDirY = 0;
             carrierTracker.carryPivotY = c->y;
             carrierTracker.marathonRecorded = false;
             carrierTracker.shuttleRecorded = false;
+            carrierTracker.marathonReleased = false;
         } else {
             double step = dist(c->x, c->y, carrierTracker.carryLastX, carrierTracker.carryLastY);
             if (step < 45.0) carrierTracker.carryPathDistance += step;
@@ -397,6 +399,43 @@ void GameEngine::updatePossessionTracking(double sdt) {
                     c->dribbleType = 2;
                     c->targetX = clamp(c->x + fd * 70.0, 35.0, PITCH_W - 35.0);
                     c->targetY = clamp(c->y + side * 42.0, 35.0, PITCH_H - 35.0);
+                }
+            }
+        }
+        // ── Moving-marathon release ── Score-nudging the carrier's Dribble does
+        // NOT end these carries (A/B: marathonCarries went UP, goals down) — the
+        // carrier holds precisely because no pass out-scored dribbling. So when an
+        // uninterrupted outfield carry has run long WITHOUT net forward progress
+        // (the "dribbled non stop from one side to the other" shuttle), physically
+        // hand it to the best OPEN supporting teammate. Guarded: fires only when
+        // such an open, in-range option exists, so we never gift possession into a
+        // covered pass — if the carrier is truly boxed in, the carry stands.
+        if (!setPiece.armed && !phase.kickoffPhase && c->role != Role::GK
+            && !carrierTracker.marathonReleased) {
+            double carryDurMs = state.clockMs - carrierTracker.carryStartMs;
+            double carryFwd = (c->x - carrierTracker.carryStartX) * fd;
+            // Spare final-third carries: shots are built there, and forcing a
+            // release cost ~22% of shots. The shuttle we're killing is the
+            // midfield/own-half "side to side" hold, not the final ball.
+            double distToOppGoal = std::abs(c->x - goalXFor(c->team));
+            if (carryDurMs >= 7000.0 && carryFwd < 80.0 && distToOppGoal > 340.0) {
+                Player* best = nullptr;
+                double bestScore = -1e9;
+                for (auto& o : state.players) {
+                    if (o.team != c->team || o.id == c->id || o.role == Role::GK || o.sentOff) continue;
+                    double d = dist(c->x, c->y, o.x, o.y);
+                    if (d < 90.0 || d > 380.0) continue;                 // realistic pass range
+                    double oppD = 1e9;                                   // receiver's nearest marker
+                    for (auto& q : state.players)
+                        if (q.team != c->team && q.role != Role::GK && !q.sentOff)
+                            oppD = std::min(oppD, dist(o.x, o.y, q.x, q.y));
+                    if (oppD < 55.0) continue;                           // covered — not a safe release
+                    double score = (o.x - c->x) * fd + oppD * 0.5;       // prefer forward + open
+                    if (score > bestScore) { bestScore = score; best = &o; }
+                }
+                if (best) {
+                    forcePassTo(*c, *best, nullptr);
+                    carrierTracker.marathonReleased = true;
                 }
             }
         }

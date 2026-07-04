@@ -53,9 +53,11 @@ public:
         // detection — carryPivotY is the y-extreme of the current committed
         // swing direction), and one-shot markers.
         double carryStartMs = 0;
+        double carryStartX = 0;   // x at carry start — net forward-progress gate for the moving-marathon release
         int carryRevsY = 0, carryLastDirY = 0;
         double carryPivotY = 0;
         bool marathonRecorded = false, shuttleRecorded = false;
+        bool marathonReleased = false;   // one-shot: forced-release of a stuck long carry already fired
 
         int stationaryHoldCarrierId = -1;
         double stationaryHoldMs = 0;
