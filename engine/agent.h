@@ -166,6 +166,12 @@ public:
     virtual double  defensiveLineOffsetX(bool danger, double lineProgress) const { (void)danger; return lineProgress; }
     virtual double  defensiveLineTargetY(double homeY, double pitchCenterY, double carrierY) const { (void)carrierY; return lerp(homeY, pitchCenterY, 0.08); }
     virtual DefensiveTask defensiveLineRoleTask() const { return DefensiveTask::DefensiveLine; }
+    // A loose/live ball far away AND outside this role's zone of responsibility
+    // isn't worth chasing — hold shape instead (the caller returns Chase 0.0).
+    // Each role defines its own trigger distance + zone; GK and the plain base
+    // never bail here, so the default keeps its previous "always evaluate the
+    // chase" behaviour.
+    virtual bool    abandonsDistantChase(const Perception& per, const Ball& b) const { (void)per; (void)b; return false; }
     virtual double  penaltyTakerBonus() const { return 0.0; }
     virtual double  catchThreshold() const { return 0.22; }
     virtual double  rushAggression() const { return 0.0; }

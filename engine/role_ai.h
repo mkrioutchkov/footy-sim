@@ -24,6 +24,10 @@ public:
     double boxGuardCost() const override { return 28.0; }
     double penaltyTakerBonus() const override { return 90.0; }
     bool   isOffensiveThreat(double depth, bool danger, double) const override { return depth < (danger ? 340.0 : 270.0); }
+    bool   abandonsDistantChase(const Perception& per, const Ball& b) const override {
+        if (per.ballDist <= 80.0) return false;
+        return std::abs(b.x - goalXFor(player.team)) >= 200.0;   // ball not near the opp goal
+    }
     double markerRoleBonus(const PlayerAI& defender, bool danger) const override {
         if (defender.isCenterBack()) return -35.0;
         if (danger && defender.isDefenderLike() && !defender.isDefenderRole()) return -53.0;
@@ -56,6 +60,11 @@ public:
     double crossLaneCost() const override { return 18.0; }
     double penaltyTakerBonus() const override { return 25.0; }
     bool   isOffensiveThreat(double depth, bool danger, double yDistFromCenter) const override { return depth < (danger ? 285.0 : 220.0) && yDistFromCenter < (danger ? 245.0 : 200.0); }
+    bool   abandonsDistantChase(const Perception& per, const Ball& b) const override {
+        if (per.ballDist <= 80.0) return false;
+        bool onMyFlank = (player.homeY < PITCH_H / 2.0) ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
+        return !onMyFlank;
+    }
     double markerRoleBonus(const PlayerAI& defender, bool danger) const override {
         (void)danger;
         if (defender.isFullBack()) return -35.0;
@@ -92,6 +101,11 @@ public:
     double cutbackGuardCost() const override { return 0.0; }
     double penaltyTakerBonus() const override { return 45.0; }
     bool   isOffensiveThreat(double depth, bool danger, double) const override { return depth < (danger ? 230.0 : 190.0); }
+    bool   abandonsDistantChase(const Perception& per, const Ball& b) const override {
+        if (per.ballDist <= 100.0) return false;
+        bool ballInMiddle = b.x > PITCH_W * 0.25 && b.x < PITCH_W * 0.75;
+        return !ballInMiddle;
+    }
     double markerRoleBonus(const PlayerAI& defender, bool danger) const override {
         if (danger && defender.isDefenderLike() && !defender.isDefenderRole()) return -35.0;
         if (defender.isCenterBack() || defender.isFullBack()) return 0.0;
@@ -118,6 +132,11 @@ public:
     double boxGuardCost() const override { return 0.0; }
     double cutbackGuardCost() const override { return 32.0; }
     double defensiveLineOffsetX(bool danger, double lineProgress) const override { return danger ? 92.0 : lineProgress; }
+    bool   abandonsDistantChase(const Perception& per, const Ball& b) const override {
+        if (per.ballDist <= 120.0) return false;
+        bool ballInOwnHalf = (player.team == Team::Home) ? b.x < PITCH_W * 0.6 : b.x > PITCH_W * 0.4;
+        return !ballInOwnHalf;
+    }
 };
 
 class FBPlayerAI : public PlayerAI {
@@ -152,6 +171,11 @@ public:
     // marker). Detect him (wide by definition, no lateral gate) and let our own
     // FB track him, with a CM/CB as fallback.
     bool   isOffensiveThreat(double depth, bool danger, double) const override { return depth < (danger ? 250.0 : 200.0); }
+    bool   abandonsDistantChase(const Perception& per, const Ball& b) const override {
+        if (per.ballDist <= 100.0) return false;
+        bool onMyFlank = (player.homeY < PITCH_H / 2.0) ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
+        return !onMyFlank;
+    }
     double markerRoleBonus(const PlayerAI& defender, bool danger) const override {
         (void)danger;
         if (defender.isFullBack()) return -35.0;

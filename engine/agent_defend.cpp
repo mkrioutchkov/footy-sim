@@ -433,35 +433,11 @@ Action PlayerAI::scoreChase(const Perception& per) {
     }
 
     bool isDef = isDefenderRole();
-    if (isDef) {
-        if (isFullBack()) {
-            bool onMyFlank = (player.homeY < PITCH_H / 2.0)
-                ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
-            if (per.ballDist > 100.0 && !onMyFlank) return Action{ActionType::Chase, 0.0};
-        }
-        if (isCenterBack()) {
-            bool ballInOwnHalf = (player.team == Team::Home)
-                ? b.x < PITCH_W * 0.6 : b.x > PITCH_W * 0.4;
-            if (per.ballDist > 120.0 && !ballInOwnHalf) return Action{ActionType::Chase, 0.0};
-        }
-    }
-
-    if (isCentralMidfielder() && per.ballDist > 100.0) {
-        bool ballInMiddle = b.x > PITCH_W * 0.25 && b.x < PITCH_W * 0.75;
-        if (!ballInMiddle) return Action{ActionType::Chase, 0.0};
-    }
-
-    if (isWideMidfielder() && per.ballDist > 80.0) {
-        bool onMyFlank = (player.homeY < PITCH_H / 2.0)
-            ? b.y < PITCH_H * 0.55 : b.y > PITCH_H * 0.45;
-        if (!onMyFlank) return Action{ActionType::Chase, 0.0};
-    }
-
-    if (isCenterForward() && per.ballDist > 80.0) {
-        double oppGx = goalXFor(player.team);
-        bool ballNearOppGoal = std::abs(b.x - oppGx) < 200.0;
-        if (!ballNearOppGoal) return Action{ActionType::Chase, 0.0};
-    }
+    // Hold shape rather than chase a distant ball outside this role's zone. The
+    // per-role trigger distance + zone geometry (CB own-half >120px, FB/WM own
+    // flank >100/80px, CM middle third >100px, CF near opp goal >80px) now lives
+    // as abandonsDistantChase() overrides on the role classes.
+    if (abandonsDistantChase(per, b)) return Action{ActionType::Chase, 0.0};
 
     double sc = per.ballDist < 50.0 ? 0.90 : per.ballDist < 100.0 ? 0.75 : 0.55;
     sc -= per.ballDist / 180.0 * 0.3;
