@@ -93,6 +93,20 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
             double d2 = std::sqrt((targetX - o->x) * (targetX - o->x) + (targetY - o->y) * (targetY - o->y));
             if (d2 < 50.0) sf -= (50.0 - d2) / 50.0;
         }
+        // ── Teammate-crowding term (crowding ticket, 2026-07-04) ── The score
+        // penalized opponents at the target but teammates were FREE, so
+        // offer/space/keep candidates happily landed on top of each other —
+        // fresh FOOTY_BLOBDEBUG attribution puts intentional attacking-support
+        // members at ~1/3 of six-player-knot bodies (offer 102 + space 81 +
+        // keep 69 of 768), exactly the "space the intentional members" lever
+        // the 55px-notch rejection note designated. Full-roster scan, not the
+        // perception cone: a teammate BEHIND me still crowds the spot.
+        double tf = 0;
+        for (auto& q : engine.state.players) {
+            if (q.team != p.team || q.id == p.id || q.sentOff) continue;
+            double d2 = std::hypot(targetX - q.x, targetY - q.y);
+            if (d2 < 50.0) tf -= (50.0 - d2) / 50.0;
+        }
         // Runs into the box are SUPPOSED to enter defended space — the
         // opponent-proximity penalty otherwise repels every box run and
         // crosses arrive to an empty box (measured 0.1 teammates in the box
@@ -110,8 +124,11 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         // Graded throttle (was a blanket ×0.06 that repelled every box run): keep
         // runs entering defended space, but let the penalty-spot/cutback band fill
         // rather than everyone clustering on the keeper at the 6-yard line.
-        if (my && (attackingRunPur || assignedArrival) && boxTarget)
-            sf *= (std::abs(targetX - oppGx) < 95.0 ? 0.12 : 0.35);
+        if (my && (attackingRunPur || assignedArrival) && boxTarget) {
+            double runThrottle = std::abs(targetX - oppGx) < 95.0 ? 0.12 : 0.35;
+            sf *= runThrottle;
+            tf *= runThrottle;   // box arrivals legitimately congregate — same waiver
+        }
         bool counterOutlet = cn.pur == ActionPurpose::CounterOutlet || cn.pur == ActionPurpose::RestForward;
         double tac = my ? (targetX - p.homeX) * fd / PITCH_W * 0.5 : counterOutlet ? 0.0 : -(targetX - p.homeX) * fd / PITCH_W * 0.25;
         double og2 = ownGoalXFor(p.team);
@@ -170,7 +187,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
 
         options.push_back(Action{
             ActionType::Position,
-            clamp(0.15 + sf * 0.3 + tac - bp2 + db + ob + onsideScoreAdjust, 0.0, 1.0),
+            clamp(0.15 + sf * 0.3 + tf * 0.25 + tac - bp2 + db + ob + onsideScoreAdjust, 0.0, 1.0),
             nullptr,
             clamp(targetX + jx, 40.0, PITCH_W - 40.0),
             clamp(targetY + jy, 40.0, PITCH_H - 40.0),

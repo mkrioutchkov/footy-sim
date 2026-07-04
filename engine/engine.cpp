@@ -514,9 +514,13 @@ void GameEngine::auditBlobPurposes() {
         for (auto& q : state.players) {
             if (q.sentOff || dist(q.x, q.y, seed.x, seed.y) >= 50.0) continue;
             PlayerAI* a = agentFor(q);
-            std::fprintf(stderr, " #%d[%s%s act=%d pur=%s tgt=(%.0f,%.0f)]",
+            // pur=task alone can't be acted on — append WHICH DefensiveTask
+            // (press/screen/cover/...) so the attribution names a lever.
+            const auto* asn = assignmentFor(q.id);
+            std::fprintf(stderr, " #%d[%s%s act=%d pur=%s%s%s tgt=(%.0f,%.0f)]",
                          q.id, std::string(to_string(q.role)).c_str(), q.team == Team::Home ? "H" : "A",
                          static_cast<int>(a->lastAction()), std::string(to_string(a->lastActionPurpose())).c_str(),
+                         asn ? ":" : "", asn ? std::string(to_string(asn->role)).c_str() : "",
                          q.targetX, q.targetY);
         }
         std::fprintf(stderr, "\n");
