@@ -34,6 +34,19 @@ void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, dou
             tx = clamp(other.targetX + ddx / d * 40.0, 35.0, PITCH_W - 35.0);
             ty = clamp(other.targetY + ddy / d * 40.0, 35.0, PITCH_H - 35.0);
         }
+        // Depth-shading NOTE (2026-07-04, rejected): crowd-aware slide of
+        // ShotLane/Cover/MidfieldScreen targets 45px toward own goal when >=3
+        // bodies stood within 45px of the spot. 48-seed paired (two independent
+        // 24-batches): blobs −12.5 ± 15.4 @2SE — consistent point estimate
+        // (−12.9/−12.1) but UNRESOLVED, guards clean. Fire-rate instrument
+        // showed WHY the ceiling is low: ~25k fires/match (screen lives in a
+        // permanent midfield crowd) yet ~−3% blobs — most knot members (57%
+        // per FOOTY_BLOBDEBUG) already have targets OUTSIDE the knot and are
+        // merely in transit. Target-placement levers only reach the other 43%
+        // and are near exhausted (this 40px spacing −5.5%, the positioning
+        // teammate-crowding term −5.7%, depth shading −2.9% n.s.). Next lever
+        // class is movement-side (crowd-exit urgency) or assignment-count
+        // (send fewer bodies to the same contest) — not target geometry.
     }
     assignmentByPlayer[player.id] = {role, opponentId, tx, ty};
 }
