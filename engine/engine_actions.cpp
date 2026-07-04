@@ -429,14 +429,17 @@ bool GameEngine::passBallTo(Player& f,Player& t,bool throughBall,bool lob,const 
     return true;
 }
 
-void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit*) {
+void GameEngine::forcePassTo(Player&f,Player&t,const PassSelectionAudit* audit) {
     double dx=t.x-f.x,dy=t.y-f.y,rawDist=std::hypot(dx,dy);
     if(rawDist<1)return;
-    // Kicked-clearance behind: forcePassTo IS the desperate-clearance path (only Clear-purpose
-    // passes reach it, agent.cpp:341). A clearance hacked away near the own goal line sometimes
-    // slices/hooks OUT for a corner — the engine had no kicked-clearance corner source, so corners
-    // capped ~5 vs real 9-11. Gated low + in-box only (genuinely last-ditch).
-    {
+    // Kicked-clearance behind: the slice/hook-out-for-a-corner sub-case is ONLY for the
+    // desperate Clear-purpose path (agent.cpp — the sole caller that passes an audit).
+    // The engine-internal outlet releases (stationary-hold, moving-marathon, freeze and
+    // stuck-carrier recovery) also route through forcePassTo but are CALM passes — before
+    // this gate they had an 18% chance of silently becoming a conceded corner whenever the
+    // carrier stood within 165px of his own goal line (a phantom corner from nothing).
+    // Gated low + in-box only (genuinely last-ditch).
+    if(audit){
         double clrLine=ownGoalXFor(f.team);
         if(std::abs(f.x-clrLine)<PENALTY_AREA_W && rng.random()<0.18){
             // (clearance event now emitted at the Clear release site in agent.cpp

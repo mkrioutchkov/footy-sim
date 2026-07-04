@@ -272,6 +272,14 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                 // not this gate.
                 if (holdTicks < 80 && progress < PITCH_W * 0.42)
                     x.score -= 2.0;
+                // Return-pass damper NOTE (2026-07-04 audit: PINGPONG A<->B x5
+                // in 5s): a −0.22 penalty for returning the ball to
+                // lastReceiveFrom[me] within 2.5s (unpressed, non-killer,
+                // non-forward) was A/B'd and came back INERT on both counters —
+                // teammatePingPongs 67→70 (6x90min) and decision-level A-B-A
+                // pass chains 39→37 (3x10min traces). Same lesson as Stage-2:
+                // this arbitration out-bids flat penalties; the ping-pong lever
+                // is receiver-side (first-touch redirects), not carrier-side.
             }
         }
 
