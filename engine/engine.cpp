@@ -1437,8 +1437,8 @@ void GameEngine::initWithSeed(int seed) {
             return Config{40 + rng.random() * 40, 30 + rng.random() * 40, 25 + rng.random() * 60,
                           30 + rng.random() * 55, 25 + rng.random() * 55};
         };
-        homeConfig = manager();
-        awayConfig = manager();
+        baseConfig[0] = manager();
+        baseConfig[1] = manager();
     }
     // The 23-random advances vary the legends' ±4 form between sides; a
     // data-driven roster has exact attrs (no form roll), so skip them there.

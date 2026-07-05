@@ -190,8 +190,8 @@ int main(int argc, char* argv[]) {
             if (w == "wind") engine.weather = 2;
             else if (w == "rain" || w == "wet") engine.weather = 1;
         }
-        loadTeam(spec["home"], engine.homeRoster, engine.homeConfig);
-        loadTeam(spec["away"], engine.awayRoster, engine.awayConfig);
+        loadTeam(spec["home"], engine.homeRoster, engine.baseConfig[0]);
+        loadTeam(spec["away"], engine.awayRoster, engine.baseConfig[1]);
         if (spec.contains("directives") && spec["directives"].is_array())
             parseDirectives(spec["directives"], engine.directives);
         // Timed plan changes (P2): [{atMs, directives:[...]}], applied when the

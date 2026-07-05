@@ -332,7 +332,7 @@ public:
         double aggression=50, passingDirectness=50, overlapFrequency=50;
         double midfieldFreedom=50, defensiveLineHeight=50;
     };
-    Config homeConfig, awayConfig;
+    std::array<Config, 2> baseConfig;   // [0]=home, [1]=away base tactic dials (from the roster/manager)
     // Runtime dial deltas set by team-wide directives ("park the bus", "all out
     // attack", "high press" ...). [0]=home, [1]=away. Rebuilt every tick by
     // applyDirectives (pure clock+score function, no rng), added on top of the
@@ -355,7 +355,7 @@ public:
     };
     std::array<TeamTactics, 2> teamTactics{};
     [[nodiscard]] Config configFor(Team team) const {
-        Config c = team==Team::Home ? homeConfig : awayConfig;
+        Config c = baseConfig[teamIndex(team)];
         const ConfigDelta& dv = dialOverride[team==Team::Home ? 0 : 1];
         c.aggression += dv.aggression; c.passingDirectness += dv.passingDirectness;
         c.overlapFrequency += dv.overlapFrequency; c.midfieldFreedom += dv.midfieldFreedom;
