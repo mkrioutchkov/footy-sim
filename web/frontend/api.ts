@@ -101,6 +101,7 @@ export interface MarketPlayerT { slot: number; name: string; role: string; age: 
 export interface TransferWindowT { open: boolean; window: 'summer' | 'winter' | null; current: number; total: number; label: string; deadline: number | null; closesIn: number; deadlineDay: boolean; }
 export interface TransferTargetT { id: number; name: string; club: string; clubTeamId: number; role: string; age: number; overall: number; potential: number | null; value: number; askPrice: number | null; releaseClause: number | null; wage: number; }
 export interface MarketT { budget: number; wageBudget: number; wageBill: number; squadMax: number; squadMin: number; window: TransferWindowT; freeAgents: FreeAgentT[]; squad: MarketPlayerT[]; transferTargets: TransferTargetT[]; backing?: string | null; }
+export interface ShortlistRowT { id: number; name: string; club: string; role: string; age: number; overall: number; value: number; listed: boolean; releaseClause: number | null; mine: boolean; onLoan: boolean; }
 export interface OfferT { id: number; playerId: number; playerName: string; club: string; fee: number; status: string; counterFee: number | null; }
 export interface IncomingOfferT { id: number; club: string; playerSlot: number | null; playerName: string; fee: number; status: string; }
 export interface FreeAgentOfferT { id: number; agentId: number; name: string; role: string; wage: number; years: number; demand: number; status: string; }
@@ -217,6 +218,8 @@ export const api = {
   bid: (playerId: number, fee: number) => req<{ ok: boolean; status: 'pending' | 'accepted' | 'countered' | 'rejected'; counterFee?: number; player?: string; club?: string; fee?: number; placed?: 'xi' | 'bench'; error?: string; market: MarketT }>('POST', '/transfer/bid', { playerId, fee }),
   loan: (playerId: number) => req<{ ok: boolean; player?: string; from?: string; market: MarketT }>('POST', '/transfer/loan', { playerId }),
   loanOut: (slot: number, clubId?: number) => req<{ ok: boolean; player?: string; from?: string; market: MarketT }>('POST', '/transfer/loan-out', { slot, clubId }),
+  shortlist: () => req<{ shortlist: ShortlistRowT[]; ids: number[] }>('GET', '/shortlist'),
+  toggleShortlist: (playerId: number, add: boolean) => req<{ ok: boolean; shortlisted: boolean; shortlist: ShortlistRowT[]; ids: number[] }>('POST', '/shortlist', { playerId, add }),
   endLoan: (slot: number) => req<{ ok: boolean; player?: string; from?: string; market: MarketT }>('POST', '/transfer/loan/end', { slot }),
   offers: () => req<{ offers: OfferT[] }>('GET', '/offers'),
   withdrawOffer: (id: number) => req<{ ok: boolean; offers: OfferT[] }>('POST', `/offer/${id}/withdraw`),

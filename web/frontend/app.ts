@@ -1989,6 +1989,15 @@ async function screenMarket() {
   // §2.1 (free-agent half): the manager's free-agent offers still being considered.
   let faOffers: FreeAgentOfferT[] = [];
   try { faOffers = (await api.freeAgentOffers()).offers; } catch { /* none / pre-feature */ }
+  // §shortlist: the transfer watchlist (resolved rows) + the tracked id set for the ★ toggle state.
+  let shortlist: import('./api').ShortlistRowT[] = [];
+  let shortIds = new Set<number>();
+  try { const s = await api.shortlist(); shortlist = s.shortlist; shortIds = new Set(s.ids); } catch { /* none / pre-feature */ }
+  const toggleStar = async (playerId: number) => {
+    const add = !shortIds.has(playerId);
+    try { const s = await api.toggleShortlist(playerId, add); shortlist = s.shortlist; shortIds = new Set(s.ids); toast(add ? '★ Added to your shortlist' : 'Removed from shortlist'); render(); }
+    catch (e: any) { toast(e.message); }
+  };
 
   function render() {
     // Preserve scroll across the full re-render each action triggers (signing/listing/bidding
@@ -2154,8 +2163,10 @@ async function screenMarket() {
         }));
       }
       const tPot = t.potential != null && t.potential > t.overall;
+      const star = h('span', { role: 'button', tabindex: '0', title: shortIds.has(t.id) ? 'On your shortlist — click to remove' : 'Add to your shortlist',
+        style: `cursor:pointer;margin-right:5px;${shortIds.has(t.id) ? 'color:var(--gold,#e8b53a)' : 'opacity:.3'}`, ...clickable(() => toggleStar(t.id)) }, '★');
       tgtBody.append(h('tr', {},
-        h('td', {}, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + t.club),
+        h('td', {}, star, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + t.club),
           t.releaseClause != null ? h('span', { class: 'pill', title: 'Release clause — instantly buyable at this fee', style: 'margin-left:6px;background:rgba(230,57,70,.18);color:#f2a1a8' }, `⚡ ${fmtMoney(t.releaseClause)}`) : ''),
         h('td', {}, h('span', { class: 'pill' }, t.role)),
         h('td', { class: 'num' }, String(t.age)),
@@ -2164,6 +2175,26 @@ async function screenMarket() {
         moneyCell(t.askPrice ?? t.value, t.wage),
         h('td', { class: 'num' }, h('span', { style: 'display:inline-flex;flex-wrap:wrap;justify-content:flex-end' }, ...acts))));
     }
+
+    // §shortlist: the transfer watchlist — tracked players with their live status + a bid shortcut.
+    const shortlistCard = shortlist.length ? h('div', { class: 'card' },
+      h('div', { class: 'section-title', style: 'margin-top:0' }, `★ Your shortlist (${shortlist.length})`),
+      h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, 'Players you’re tracking across the world — status updates as the market moves. ★ a target below to add one.'),
+      ...shortlist.map(s => h('div', { class: 'between', style: 'font-size:13px;padding:4px 0;border-top:1px solid var(--line)' },
+        h('span', {},
+          h('span', { role: 'button', tabindex: '0', title: 'Remove from shortlist', style: 'cursor:pointer;color:var(--gold,#e8b53a);margin-right:6px', ...clickable(() => toggleStar(s.id)) }, '★'),
+          h('span', { style: 'font-weight:600' }, s.name),
+          h('span', { class: 'muted', style: 'font-size:11px' }, ` ${s.role} · ${s.age}y · ${s.club}`),
+          s.mine ? h('span', { class: 'pill', style: 'margin-left:6px' }, 'in your squad') : '',
+          s.onLoan ? h('span', { class: 'pill', style: 'margin-left:6px' }, 'on loan') : '',
+          s.listed ? h('span', { class: 'pill', style: 'margin-left:6px;background:rgba(67,211,158,.15);color:var(--accent)' }, 'listed') : '',
+          s.releaseClause != null ? h('span', { class: 'pill', title: 'Release clause', style: 'margin-left:6px;background:rgba(230,57,70,.18);color:#f2a1a8' }, `⚡ ${fmtMoney(s.releaseClause)}`) : ''),
+        h('span', { class: 'row', style: 'gap:10px;align-items:center' },
+          h('span', { class: 'muted', style: 'font-size:12px' }, `OVR ${s.overall} · ${fmtMoney(s.value)}`),
+          (win.open && !s.mine && !s.onLoan)
+            ? (() => { const b = h('button', { class: 'ghost small' }, 'Bid'); b.addEventListener('click', () => doBid({ id: s.id, name: s.name, club: s.club, clubTeamId: 0, role: s.role, age: s.age, overall: s.overall, potential: null, value: s.value, askPrice: null, releaseClause: s.releaseClause, wage: 0 })); return b; })()
+            : ''))))
+      : '';
 
     const wagePct = market.wageBudget > 0 ? Math.round((market.wageBill / market.wageBudget) * 100) : 0;
 
@@ -2256,6 +2287,7 @@ async function screenMarket() {
           win.open ? '' : h('span', { class: 'pill', style: 'margin-left:8px;text-transform:none;letter-spacing:0;background:#3a2a1f;color:#ffce9a' }, '🔒 window shut')),
         h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, win.open ? 'Bid for a listed player — the club may accept, counter, or reject.' : 'Bidding opens during a transfer window.'),
         h('div', { style: 'max-height:420px;overflow:auto', 'data-scroll': 'targets' }, h('table', {}, headRow('Player'), tgtBody))),
+      shortlistCard,
     ));
 
     // Restore the captured scroll positions onto the freshly-mounted panes.

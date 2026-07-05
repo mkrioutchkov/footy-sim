@@ -167,6 +167,9 @@ ensureColumn('players', 'contract_years', 'contract_years INTEGER NOT NULL DEFAU
 // completes at once, bypassing the selling club's verdict. Seeded on AI clubs' best players; NULL = none, so
 // existing saves are unaffected (a player with no clause negotiates as before).
 ensureColumn('players', 'release_clause', 'release_clause INTEGER');
+// §shortlist: the manager's transfer watchlist — a JSON array of player ids he's tracking. NULL/[] = none,
+// so existing saves are unaffected. Ids that no longer resolve (a player left the game) are pruned on read.
+ensureColumn('teams', 'shortlist', 'shortlist TEXT');
 // §2.3-depth: the matchday-count marker for the last time the manager talked an unsettled player round
 // (the reassure cooldown — one heart-to-heart per match, so morale can't be farmed). NULL = never.
 ensureColumn('players', 'last_settled_round', 'last_settled_round INTEGER');

@@ -29,6 +29,7 @@ import { previewRenewal, proposeRenewal, processContractOffers, contractOffersFo
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
 import { interactWithPlayer, isInteractTone } from './interaction.ts';
 import { leagueLeaders } from './leaders.ts';
+import { getShortlist, shortlistIds, toggleShortlist } from './shortlist.ts';
 import { getConcerns, resolveConcern, type ConcernAction } from './concerns.ts';
 import { getBoardMeeting, requestBoardBacking, type BoardRequestKind } from './board.ts';
 import { getManagerCareer, managerReputation } from './career.ts';
@@ -619,6 +620,24 @@ app.post('/api/press', async (req: any, reply) => {
   } finally {
     pressInFlight.delete(teamId);
   }
+});
+
+// §shortlist: the manager's transfer watchlist (resolved to live rows) + the tracked id set for the ★ toggle.
+app.get('/api/shortlist', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  return { shortlist: getShortlist(teamId), ids: shortlistIds(teamId) };
+});
+app.post('/api/shortlist', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const playerId = Number(req.body?.playerId);
+  if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
+  const add = req.body?.add !== false;   // default to add unless explicitly false
+  const r = toggleShortlist(teamId, playerId, add);
+  return { ...r, shortlist: getShortlist(teamId), ids: shortlistIds(teamId) };
 });
 
 // §stat-leaders: the current division's top scorers + top assisters this season.
