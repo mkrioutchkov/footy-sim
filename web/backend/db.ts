@@ -255,6 +255,9 @@ ensureColumn('players', 'season_assists', 'season_assists INTEGER NOT NULL DEFAU
 // One-shot guard so a fixture's per-player goals are tallied into the season leaderboard exactly once
 // (a watch-then-advance can call playFixture's path more than once). Default 0; set when tallied.
 ensureColumn('fixtures', 'stats_tallied', 'stats_tallied INTEGER NOT NULL DEFAULT 0');
+// One-shot guard for the DIVISION-WIDE rating tally (AI clubs' players — the user's club is tallied by
+// processMatchAftermath, incl live matches). Additive: enables the average-rating leaderboard. Default 0.
+ensureColumn('fixtures', 'rating_tallied', 'rating_tallied INTEGER NOT NULL DEFAULT 0');
 
 // ── Cup competition (core stream) ───────────────────────────────────────────
 // A single-elimination knockout of all the world's clubs, run alongside the league each

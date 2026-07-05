@@ -41,7 +41,7 @@ import { getConfidence, boardMood, recruitmentBacking, boardMessages } from './c
 import { getStaffView, hireStaff, fireStaff, saveCoachAssignment } from './staff.ts';
 import { getFinances, payMatchdayIncome } from './finances.ts';
 import { getSquadHarmony } from './harmony.ts';
-import { processMatchAftermath, recentNews } from './news.ts';
+import { processMatchAftermath, recentNews, tallyDivisionRatings } from './news.ts';
 import { fitnessTick } from './fitness.ts';
 import { moraleTick } from './morale.ts';
 
@@ -1076,6 +1076,9 @@ app.post('/api/advance', async (req: any, reply) => {
   const toPlay = pendingMatchday(team.leagueId);
   if (!toPlay.length) return reply.code(404).send({ error: 'season complete' });
   const results = await mapPool(toPlay, id => playFixture(id));   // core-capped: a matchday sims the whole world
+  // §division-ratings: tally AI clubs' player ratings into the season leaderboard (the user's club is tallied
+  // by processMatchAftermath below). Additive + guarded; best-effort, never blocks the matchday.
+  for (const r of results) { if (r && r.players) { try { tallyDivisionRatings(r.fixtureId, r.players); } catch { /* ambient */ } } }
   // the user's match this matchday (null if they'd already played/watched it ahead)
   const myFx = userRound == null ? null
     : db.prepare('SELECT id FROM fixtures WHERE league_id = ? AND round = ? AND (home_team_id = ? OR away_team_id = ?) LIMIT 1').get(team.leagueId, userRound, teamId, teamId) as { id: number } | undefined;

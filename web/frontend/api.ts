@@ -122,7 +122,7 @@ export interface TacticsReviewT { side?: 'home' | 'away'; scores?: { home: numbe
 export interface NewsItemT { player: string; type: 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury' | 'pots' | 'young_pots' | 'press'; headline: string; season: number; slot: number; }
 
 export interface LeaderRowT { name: string; club: string; role: string; value: number; isMine: boolean; }
-export interface LeadersT { division: string; scorers: LeaderRowT[]; assists: LeaderRowT[]; }
+export interface LeadersT { division: string; scorers: LeaderRowT[]; assists: LeaderRowT[]; ratings: LeaderRowT[]; teamOfSeason: LeaderRowT[]; }
 
 export interface ScoutAttrT { key: string; lo: number; hi: number; }
 export interface ScoutPlayerT { name: string; role: string; age: number; overall: number; potential: number | null; danger: boolean; attrs: ScoutAttrT[] | null; }

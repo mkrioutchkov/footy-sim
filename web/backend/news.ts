@@ -135,6 +135,36 @@ export async function processMatchAftermath(teamId: number, fixtureId: number, i
   return headlines;
 }
 
+// §division-ratings: tally a fixture's per-player match ratings into the SEASON tally for the players whose
+// club is NOT a human's — the human club is already tallied by processMatchAftermath (incl live matches), so
+// skipping it here avoids a double count. Additive: fills AI clubs' season_rating_sum/apps so the division
+// average-rating leaderboard is complete. Guarded per-fixture by rating_tallied (fixtures reset at rollover).
+// Called from the advance handler over every played fixture's --summary players.
+export function tallyDivisionRatings(fixtureId: number, players: SummaryPlayer[]): void {
+  const fx = db.prepare(`SELECT f.home_team_id, f.away_team_id, f.home_score, f.away_score, f.rating_tallied,
+      (SELECT user_id FROM teams WHERE id = f.home_team_id) AS home_user,
+      (SELECT user_id FROM teams WHERE id = f.away_team_id) AS away_user
+    FROM fixtures f WHERE f.id = ?`)
+    .get(fixtureId) as { home_team_id: number; away_team_id: number; home_score: number | null; away_score: number | null; rating_tallied: number; home_user: number | null; away_user: number | null } | undefined;
+  if (!fx || fx.rating_tallied || !players.length) return;
+  const uniqueNameMap = (teamId: number): Map<string, number> => {
+    const rows = db.prepare('SELECT id, name FROM players WHERE team_id = ?').all(teamId) as { id: number; name: string }[];
+    const cnt = new Map<string, number>();
+    for (const r of rows) cnt.set(r.name, (cnt.get(r.name) ?? 0) + 1);
+    return new Map(rows.filter(r => cnt.get(r.name) === 1).map(r => [r.name, r.id] as const));
+  };
+  const homeMap = uniqueNameMap(fx.home_team_id), awayMap = uniqueNameMap(fx.away_team_id);
+  const ratings = ratePlayers(players, fx.home_score ?? 0, fx.away_score ?? 0);   // index-aligned with players
+  const upd = db.prepare('UPDATE players SET season_rating_sum = season_rating_sum + ?, season_apps = season_apps + 1 WHERE id = ?');
+  players.forEach((p, i) => {
+    const isHome = p.team === 'home';
+    if (isHome ? fx.home_user != null : fx.away_user != null) return;   // human club → owned by processMatchAftermath
+    const id = (isHome ? homeMap : awayMap).get(p.name);
+    if (id != null) upd.run(ratings[i].rating, id);
+  });
+  db.prepare('UPDATE fixtures SET rating_tallied = 1 WHERE id = ?').run(fixtureId);
+}
+
 const MIN_AWARD_APPS = 3;   // games played to be eligible for a season award
 
 // Crown the club's Player + Young Player of the Season from the accumulated rating tally, as news

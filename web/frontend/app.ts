@@ -2697,6 +2697,15 @@ async function screenLeaders() {
           h('td', { class: 'muted', style: 'font-size:12px' }, r.club),
           h('td', { class: 'num', style: 'font-weight:700' }, String(r.value))))))
       : h('div', { class: 'muted', style: 'font-size:13px' }, `No ${unit} yet — the table fills as the season plays out.`));
+  // Team of the Season — the division's best-rated XI (a role band per row), your players highlighted.
+  const totCard = d.teamOfSeason.length ? h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, '🌟 Team of the Season'),
+    h('div', { class: 'muted', style: 'margin:-4px 0 8px;font-size:12px' }, `${d.division}'s best-rated XI by average match rating this season.`),
+    h('table', {}, h('tbody', {}, ...d.teamOfSeason.map(r => h('tr', { class: r.isMine ? 'me' : '' },
+      h('td', { style: 'width:38px' }, h('span', { class: 'pill' }, r.role)),
+      h('td', {}, r.name, r.isMine ? h('span', { class: 'pill', style: 'margin-left:6px' }, 'you') : ''),
+      h('td', { class: 'muted', style: 'font-size:12px' }, r.club),
+      h('td', { class: 'num', style: 'font-weight:700' }, r.value.toFixed(1))))))) : '';
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
@@ -2704,7 +2713,10 @@ async function screenLeaders() {
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       board('🥇 Top scorers', 'goals', d.scorers),
-      board('🅰️ Top assists', 'assists', d.assists))));
+      board('🅰️ Top assists', 'assists', d.assists)),
+    h('div', { class: 'grid cols-2', style: 'align-items:start' },
+      board('⭐ Best average rating', 'ratings', d.ratings),
+      totCard)));
 }
 
 // ── player profile (personality + the story↔traits coupling) ──
