@@ -406,11 +406,48 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool wideOutletTarget = targetWide && fp > 20.0 && d < 500.0;
     double runnerForwardSpeed = t.vx * fd;
     bool targetAttacker = roles::isAttacker(t.role);
+
+    // ── Killer-ball projection ── passBallTo(through=true) LEADS the runner
+    // (velocity x 1.32 over the flight, plus 90-210px straight forward), but
+    // every through-ball gate below judged his CURRENT spot — so the obvious
+    // slide-in ball kept failing on margins. Watched replay: 1:15, WM on the
+    // ball, CF at full tilt into the CB channel — pass never rated (fp 26 vs
+    // gate 30, goalDist 372 vs 255, marker counted that he was outrunning);
+    // 5:37, the led lane to the sprinting winger was clean but the engine saw
+    // only the covered straight lane and threw it into the interceptor. For a
+    // MOVING runner, judge pressure/blockers/range at the projected receive
+    // point, with the defenders projected too. Offside stays judged at the
+    // CURRENT position — that is the law, and the executed ball is released
+    // this tick.
+    double fpEff = fp;
+    double goalDistEff = targetGoalDist;
+    int rpEff = receiverPressure;
+    int blEff = bl;
+    if ((targetAttacker || t.role == Role::CM) && runnerForwardSpeed > 15.0) {
+        double lead = clamp(d / 300.0 + 0.3, 0.4, 1.1);
+        double px2 = clamp(t.x + t.vx * lead, 12.0, PITCH_W - 12.0);
+        double py2 = clamp(t.y + t.vy * lead, 12.0, PITCH_H - 12.0);
+        fpEff = pitch::forwardGain(p.x, px2, p.team);
+        goalDistEff = pitch::distToOppGoal(px2, p.team);
+        rpEff = 0;
+        blEff = 0;
+        double dx2 = px2 - p.x, dy2 = py2 - p.y, ls2 = dx2 * dx2 + dy2 * dy2;
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team || o.sentOff) continue;
+            double ox = o.x + o.vx * lead, oy = o.y + o.vy * lead;
+            if (o.role != Role::GK && dist(ox, oy, px2, py2) < PASS_RECEIVER_PRESS_MAX) rpEff++;
+            if (ls2 > 1.0 && o.role != Role::GK) {
+                double t3 = clamp(((ox - p.x) * dx2 + (oy - p.y) * dy2) / ls2, 0.0, 1.0);
+                double perp = std::hypot(ox - p.x - t3 * dx2, oy - p.y - t3 * dy2);
+                if (perp < PASS_BLOCKER_PERP) blEff++;
+            }
+        }
+    }
     // USERWATCH A3 (Leon Kovac ~4:33 missed it): a teammate CLEAR & ONSIDE in behind with an
     // open lane is a through-ball target even BEFORE he sprints — the obvious killer pass a
     // human expects. Strict gates (unmarked, lane fully clear, genuine range) so it never spams.
-    bool clearOnsideAttacker = targetAttacker && receiverPressure == 0 && bl == 0
-                            && onsideGap > 3.0 && onsideGap < 170.0 && targetGoalDist < 430.0;
+    bool clearOnsideAttacker = targetAttacker && rpEff == 0 && blEff == 0
+                            && onsideGap > 3.0 && onsideGap < 170.0 && goalDistEff < 430.0;
     bool runnerIntent =
         (assignment && (assignment->role == DefensiveTask::RunAhead
                      || assignment->role == DefensiveTask::InsideRun
@@ -420,12 +457,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         || clearOnsideAttacker;
     bool goodThroughWindow = targetAttacker
                           && runnerIntent
-                          && fp > 30.0
+                          && fpEff > 30.0
                           && onsideGap > -12.0
-                          && onsideGap < 130.0
-                          && bl <= 1
-                          && receiverPressure <= 1
-                          && targetGoalDist < 255.0;   // was 480 (nearly half-pitch); a real in-behind ball, not a hopeful diagonal — pulls through-balls toward ~15-30/match
+                          && onsideGap < 170.0        // was 130; the 1:15 channel runner sat at 133
+                          && blEff <= 1
+                          && rpEff <= 1
+                          && goalDistEff < 300.0;   // was 480 (nearly half-pitch), then 255 judged at the CURRENT spot; 300 at the PROJECTED receive point is the same real-ball philosophy
     bool releasedRunner = (assignment && (assignment->role == DefensiveTask::RunAhead
                                        || assignment->role == DefensiveTask::InsideRun
                                        || (assignment->role == DefensiveTask::CrossLane && t.role == Role::WM)))
@@ -448,10 +485,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // ball; byte-identical in any tick where no CM holds AdvanceMidfield.
     bool cmKillerBall = !isWideDelivery && t.role == Role::CM
                      && assignment && assignment->role == DefensiveTask::AdvanceMidfield
-                     && receiverPressure == 0 && bl == 0
+                     && rpEff == 0 && blEff == 0
                      && onsideGap > 3.0 && onsideGap < 170.0
                      && pitch::lateralFromCenter(t.y) < 150.0
-                     && targetGoalDist < 245.0 && fp > 20.0;
+                     && goalDistEff < 245.0 && fpEff > 20.0;
     if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall) {
         pur = ActionPurpose::Through;
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
