@@ -1,0 +1,22 @@
+# Engine C++ style — matches the README guide (spaced formatting).
+# ColumnLimit 0 keeps clang-format from reflowing the long comment/expression
+# lines: it fixes spacing/indentation/brace attachment only, so the diff is the
+# de-compression we want, not a whole-file rewrite.
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 0
+SpaceBeforeParens: ControlStatements
+SpacesInParentheses: false
+SpaceAfterCStyleCast: true
+PointerAlignment: Left
+BreakBeforeBraces: Attach
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+SortIncludes: false

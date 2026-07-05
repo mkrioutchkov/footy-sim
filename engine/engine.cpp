@@ -13,13 +13,13 @@
 // same switch copy-pasted in two places).
 static std::unique_ptr<PlayerAI> makeAgentFor(Player& p, GameEngine& e) {
     switch (p.role) {
-        case Role::GK: return std::make_unique<GKPlayerAI>(p, e);
-        case Role::CF: return std::make_unique<CFPlayerAI>(p, e);
-        case Role::WM: return std::make_unique<WMPlayerAI>(p, e);
-        case Role::CM: return std::make_unique<CMPlayerAI>(p, e);
-        case Role::CB: return std::make_unique<CBPlayerAI>(p, e);
-        case Role::FB: return std::make_unique<FBPlayerAI>(p, e);
-        default:       return std::make_unique<PlayerAI>(p, e);
+    case Role::GK: return std::make_unique<GKPlayerAI>(p, e);
+    case Role::CF: return std::make_unique<CFPlayerAI>(p, e);
+    case Role::WM: return std::make_unique<WMPlayerAI>(p, e);
+    case Role::CM: return std::make_unique<CMPlayerAI>(p, e);
+    case Role::CB: return std::make_unique<CBPlayerAI>(p, e);
+    case Role::FB: return std::make_unique<FBPlayerAI>(p, e);
+    default: return std::make_unique<PlayerAI>(p, e);
     }
 }
 
@@ -28,31 +28,36 @@ static std::unique_ptr<PlayerAI> makeAgentFor(Player& p, GameEngine& e) {
 // ══════════════════════════════════════════════════════════════
 
 Player* GameEngine::playerById(int id) {
-    if(id>=0&&id<22&&playerLookup[id])return playerLookup[id];
-    for(auto&p:state.players)if(p.id==id)return &p;
+    if (id >= 0 && id < 22 && playerLookup[id]) return playerLookup[id];
+    for (auto& p : state.players)
+        if (p.id == id) return &p;
     return nullptr;
 }
 
 const Player* GameEngine::playerById(int id) const {
-    if(id>=0&&id<22&&playerLookup[id])return playerLookup[id];
-    for(auto&p:state.players)if(p.id==id)return &p;
+    if (id >= 0 && id < 22 && playerLookup[id]) return playerLookup[id];
+    for (auto& p : state.players)
+        if (p.id == id) return &p;
     return nullptr;
 }
 
 SmallVector<Player*, 11> GameEngine::nearPlayers(Player& p, double range) {
     SmallVector<Player*, 11> r;
-    for(auto& o:state.players) if(&o!=&p && dist(p.x,p.y,o.x,o.y)<range) r.push_back(&o);
+    for (auto& o : state.players)
+        if (&o != &p && dist(p.x, p.y, o.x, o.y) < range) r.push_back(&o);
     return r;
 }
 
-
 Player* GameEngine::findNearestOutfieldPlayer(Team team, double x, double y) {
     Player* best = nullptr;
-    double   bestDist = 1e9;
+    double bestDist = 1e9;
     for (auto& p : state.players) {
         if (p.team != team || p.role == Role::GK || p.sentOff) continue;
         double d = dist(p.x, p.y, x, y);
-        if (d < bestDist) { bestDist = d; best = &p; }
+        if (d < bestDist) {
+            bestDist = d;
+            best = &p;
+        }
     }
     return best;
 }
@@ -80,14 +85,11 @@ const Player* GameEngine::findGK(Team team) const {
 }
 
 bool GameEngine::canContestBall(Player& player) {
-    if(player.sentOff)return false;
-    if(setPiece.armed&&state.ball.controllerId<0)return false;
-    if(activeKnockAhead.active&&activeKnockAhead.playerId==player.id)return true;
-    if(state.ball.controllerId<0
-        && state.ball.intendedReceiverId==player.id
-        && state.ball.lastTouchTeam==player.team
-        && state.ball.lastToucherId!=player.id)return true;
-    if(contestBlockedUntil[player.id] > state.clockMs) return false;
+    if (player.sentOff) return false;
+    if (setPiece.armed && state.ball.controllerId < 0) return false;
+    if (activeKnockAhead.active && activeKnockAhead.playerId == player.id) return true;
+    if (state.ball.controllerId < 0 && state.ball.intendedReceiverId == player.id && state.ball.lastTouchTeam == player.team && state.ball.lastToucherId != player.id) return true;
+    if (contestBlockedUntil[player.id] > state.clockMs) return false;
     contestBlockedUntil[player.id] = 0;
     return true;
 }
@@ -104,48 +106,63 @@ void GameEngine::startMatch() {
     kickoff(Team::Home);
 }
 
-void GameEngine::kickoff(Team t, double holdMs){
-    phase.nextKickoffTeam=(t==Team::Home)?Team::Away:Team::Home;
+void GameEngine::kickoff(Team t, double holdMs) {
+    phase.nextKickoffTeam = (t == Team::Home) ? Team::Away : Team::Home;
     contestBlockedUntil.fill(0);
-    receiverShieldUntil=0; receiverShieldedPlayerId=-1; receiverShieldTargetId=-1;
-    pendingPass.active=false;
-    activeKnockAhead.active=false;
+    receiverShieldUntil = 0;
+    receiverShieldedPlayerId = -1;
+    receiverShieldTargetId = -1;
+    pendingPass.active = false;
+    activeKnockAhead.active = false;
     knockAheadCooldownUntil.fill(0);
-    shot.tracked=false;
-    shot.preventable=false;
-    shot.header=false;
-    shot.penalty=false;
-    shot.dribble20m=false;
-    pendingSave.active=false;   // no stale dive carried across a restart
-    advantage.active=false;     // a goal/half-time supersedes any pending advantage
+    shot.tracked = false;
+    shot.preventable = false;
+    shot.header = false;
+    shot.penalty = false;
+    shot.dribble20m = false;
+    pendingSave.active = false; // no stale dive carried across a restart
+    advantage.active = false;   // a goal/half-time supersedes any pending advantage
     lastLooseOrigin = LooseOrigin::None;
-    for(auto&p:state.players){
-        if(p.sentOff){p.x=clamp(p.homeX,30.0,PITCH_W-30.0);p.y=-40.0;p.targetX=p.x;p.targetY=p.y;p.vx=p.vy=0;continue;}
-        double margin=(p.team==t)?30.0:45.0;
-        p.x=p.team==Team::Home
-            ? clamp(p.homeX,25.0,HALF_X-margin)
-            : clamp(p.homeX,HALF_X+margin,PITCH_W-25.0);
-        p.y=p.homeY;
-        p.targetX=p.x; p.targetY=p.y;
-        p.vx=p.vy=0;
+    for (auto& p : state.players) {
+        if (p.sentOff) {
+            p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
+            p.y = -40.0;
+            p.targetX = p.x;
+            p.targetY = p.y;
+            p.vx = p.vy = 0;
+            continue;
+        }
+        double margin = (p.team == t) ? 30.0 : 45.0;
+        p.x = p.team == Team::Home
+                  ? clamp(p.homeX, 25.0, HALF_X - margin)
+                  : clamp(p.homeX, HALF_X + margin, PITCH_W - 25.0);
+        p.y = p.homeY;
+        p.targetX = p.x;
+        p.targetY = p.y;
+        p.vx = p.vy = 0;
     }
-    auto&b=state.ball;
-    b.x=HALF_X; b.y=PITCH_H/2;
-    b.vx=b.vy=b.z=b.vz=0;
-    b.controllerId=-1; b.intendedReceiverId=-1;
-    for(auto&p:state.players){
-        if(p.team==t&&p.role==Role::CF&&!p.sentOff){
-            p.x=HALF_X; p.y=PITCH_H/2;
-            p.targetX=p.x; p.targetY=p.y;
-            b.controllerId=p.id;
-            b.lastTouchTeam=t; b.lastToucherId=p.id;
+    auto& b = state.ball;
+    b.x = HALF_X;
+    b.y = PITCH_H / 2;
+    b.vx = b.vy = b.z = b.vz = 0;
+    b.controllerId = -1;
+    b.intendedReceiverId = -1;
+    for (auto& p : state.players) {
+        if (p.team == t && p.role == Role::CF && !p.sentOff) {
+            p.x = HALF_X;
+            p.y = PITCH_H / 2;
+            p.targetX = p.x;
+            p.targetY = p.y;
+            b.controllerId = p.id;
+            b.lastTouchTeam = t;
+            b.lastToucherId = p.id;
             break;
         }
     }
-    phase.kickoffPhase=true;
-    phase.actionTimer=holdMs;
-    phase.lastKickoffMs=state.clockMs;
-    setPiece.armed=false;
+    phase.kickoffPhase = true;
+    phase.actionTimer = holdMs;
+    phase.lastKickoffMs = state.clockMs;
+    setPiece.armed = false;
     setPiece.reason.clear();
     // Record the restart so trace inspectors can tell a legitimate kickoff (ball
     // to centre + 22-player reset + possession to the other team) from a bug.
@@ -199,9 +216,16 @@ void GameEngine::fixedUpdate(double sdt) {
     // single guarantee that backstops every per-system exclusion.
     for (auto& p : state.players) {
         if (!p.sentOff) continue;
-        if (state.ball.controllerId == p.id) { state.ball.controllerId = -1; state.ball.intendedReceiverId = -1; lastLooseOrigin = LooseOrigin::None; }
-        p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0); p.y = -40.0;
-        p.targetX = p.x; p.targetY = p.y; p.vx = p.vy = 0;
+        if (state.ball.controllerId == p.id) {
+            state.ball.controllerId = -1;
+            state.ball.intendedReceiverId = -1;
+            lastLooseOrigin = LooseOrigin::None;
+        }
+        p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
+        p.y = -40.0;
+        p.targetX = p.x;
+        p.targetY = p.y;
+        p.vx = p.vy = 0;
     }
     // Played-advantage recall: the ref waved a foul on. If, within ~4s, the fouled
     // side LOSES the ball to an outfield opponent (a clean turnover — not a keeper
@@ -210,14 +234,16 @@ void GameEngine::fixedUpdate(double sdt) {
     if (advantage.active) {
         Player* ctrl = playerById(state.ball.controllerId);
         if (state.clockMs - advantage.grantMs > 4000.0) {
-            advantage.active = false;                          // it ran its course — stands
+            advantage.active = false; // it ran its course — stands
         } else if (!setPiece.armed && ctrl && ctrl->team != advantage.team && ctrl->role != Role::GK) {
             auto& b = state.ball;
             b.x = clamp(advantage.foulX, 20.0, PITCH_W - 20.0);
             b.y = clamp(advantage.foulY, 20.0, PITCH_H - 20.0);
-            b.lastTouchTeam = advantage.team; b.lastToucherId = -1; b.intendedReceiverId = -1;
+            b.lastTouchTeam = advantage.team;
+            b.lastToucherId = -1;
+            b.intendedReceiverId = -1;
             lastLooseOrigin = LooseOrigin::None;
-            awardSetPiece(SetPiece::FreeKick, advantage.team);  // zeroes vel+control, sets spot+armed
+            awardSetPiece(SetPiece::FreeKick, advantage.team); // zeroes vel+control, sets spot+armed
             advantage.active = false;
         }
     }
@@ -251,7 +277,7 @@ void GameEngine::fixedUpdate(double sdt) {
             phase.announcedAddedMs = 0;
             if (phase.half == 1) {
                 phase.half = 2;
-                phase.halfTimePause = 5000;   // a visible break, not a real 15min
+                phase.halfTimePause = 5000; // a visible break, not a real 15min
                 // Law: the team that did NOT kick off the match starts H2.
                 phase.nextKickoffTeam = phase.matchKickoffTeam == Team::Home ? Team::Away : Team::Home;
             } else {
@@ -298,14 +324,20 @@ void GameEngine::fixedUpdate(double sdt) {
     }
     detectSimulationFreeze(sdt);
 
-    if (setPiece.armed) { updateSetPiecePhase(sdt, sec); return; }
-    if (phase.kickoffPhase)   { updateKickoffPhase(sdt); return; }
+    if (setPiece.armed) {
+        updateSetPiecePhase(sdt, sec);
+        return;
+    }
+    if (phase.kickoffPhase) {
+        updateKickoffPhase(sdt);
+        return;
+    }
 
     updateOpenPlayPhase(sdt, sec);
 }
 void GameEngine::updatePlayerAnimations(double sdt) {
     for (auto& p : state.players) {
-        p.wall = false;   // render-hint: cleared each tick; setPiecePositioning (runs after this) re-sets it for the FK wall
+        p.wall = false; // render-hint: cleared each tick; setPiecePositioning (runs after this) re-sets it for the FK wall
         if (p.tackleAnim > 0) p.tackleAnim = std::max(0., p.tackleAnim - sdt);
         if (p.headingAnim > 0) p.headingAnim = std::max(0., p.headingAnim - sdt);
         if (p.diveAnim > 0) p.diveAnim = std::max(0., p.diveAnim - sdt);
@@ -326,8 +358,10 @@ void GameEngine::updatePossessionTracking(double sdt) {
         transitionHadCtrl = true;
     }
     if (c) {
-        if (c->team == Team::Home) metrics.possessionHome += sdt;
-        else metrics.possessionAway += sdt;
+        if (c->team == Team::Home)
+            metrics.possessionHome += sdt;
+        else
+            metrics.possessionAway += sdt;
         double fd = fdFor(c->team);
         if (c->id != carrierTracker.carryTrackerId) {
             carrierTracker.carryTrackerId = c->id;
@@ -356,14 +390,29 @@ void GameEngine::updatePossessionTracking(double sdt) {
             int dir = carrierTracker.carryLastDirY;
             double& pivot = carrierTracker.carryPivotY;
             if (dir > 0) {
-                if (y > pivot) pivot = y;
-                else if (pivot - y >= SHUTTLE_AMP) { carrierTracker.carryRevsY++; dir = -1; pivot = y; }
+                if (y > pivot)
+                    pivot = y;
+                else if (pivot - y >= SHUTTLE_AMP) {
+                    carrierTracker.carryRevsY++;
+                    dir = -1;
+                    pivot = y;
+                }
             } else if (dir < 0) {
-                if (y < pivot) pivot = y;
-                else if (y - pivot >= SHUTTLE_AMP) { carrierTracker.carryRevsY++; dir = 1; pivot = y; }
+                if (y < pivot)
+                    pivot = y;
+                else if (y - pivot >= SHUTTLE_AMP) {
+                    carrierTracker.carryRevsY++;
+                    dir = 1;
+                    pivot = y;
+                }
             } else {
-                if (y - pivot >= SHUTTLE_AMP) { dir = 1; pivot = y; }
-                else if (pivot - y >= SHUTTLE_AMP) { dir = -1; pivot = y; }
+                if (y - pivot >= SHUTTLE_AMP) {
+                    dir = 1;
+                    pivot = y;
+                } else if (pivot - y >= SHUTTLE_AMP) {
+                    dir = -1;
+                    pivot = y;
+                }
             }
             carrierTracker.carryLastDirY = dir;
             carrierTracker.carryLastX = c->x;
@@ -373,8 +422,7 @@ void GameEngine::updatePossessionTracking(double sdt) {
                 carrierTracker.marathonRecorded = true;
                 stats.recordMarathonCarry();
             }
-            if (!carrierTracker.shuttleRecorded && carryMs >= 6000.0
-                && carrierTracker.carryRevsY >= 3 && c->role != Role::GK) {
+            if (!carrierTracker.shuttleRecorded && carryMs >= 6000.0 && carrierTracker.carryRevsY >= 3 && c->role != Role::GK) {
                 carrierTracker.shuttleRecorded = true;
                 stats.recordShuttleCarry();
             }
@@ -390,8 +438,7 @@ void GameEngine::updatePossessionTracking(double sdt) {
         }
         double carrierSpeed = std::hypot(c->vx, c->vy);
         double targetDistance = dist(c->x, c->y, c->targetX, c->targetY);
-        bool stationaryOutfieldHold = !setPiece.armed && !phase.kickoffPhase && c->role != Role::GK
-            && carrierSpeed < 8.0 && (targetDistance < 8.0 || c->dribbleType == 0);
+        bool stationaryOutfieldHold = !setPiece.armed && !phase.kickoffPhase && c->role != Role::GK && carrierSpeed < 8.0 && (targetDistance < 8.0 || c->dribbleType == 0);
         if (c->id != carrierTracker.stationaryHoldCarrierId || !stationaryOutfieldHold) {
             carrierTracker.stationaryHoldCarrierId = stationaryOutfieldHold ? c->id : -1;
             carrierTracker.stationaryHoldMs = 0;
@@ -405,7 +452,10 @@ void GameEngine::updatePossessionTracking(double sdt) {
                 for (auto& p : state.players) {
                     if (p.team != c->team || p.id == c->id || p.role == Role::GK) continue;
                     double d = dist(c->x, c->y, p.x, p.y);
-                    if (d < bestD) { bestD = d; best = &p; }
+                    if (d < bestD) {
+                        bestD = d;
+                        best = &p;
+                    }
                 }
                 if (best && bestD < 360.0) {
                     forcePassTo(*c, *best, nullptr);
@@ -425,8 +475,7 @@ void GameEngine::updatePossessionTracking(double sdt) {
         // hand it to the best OPEN supporting teammate. Guarded: fires only when
         // such an open, in-range option exists, so we never gift possession into a
         // covered pass — if the carrier is truly boxed in, the carry stands.
-        if (!setPiece.armed && !phase.kickoffPhase && c->role != Role::GK
-            && !carrierTracker.marathonReleased) {
+        if (!setPiece.armed && !phase.kickoffPhase && c->role != Role::GK && !carrierTracker.marathonReleased) {
             double carryDurMs = state.clockMs - carrierTracker.carryStartMs;
             double carryFwd = (c->x - carrierTracker.carryStartX) * fd;
             // Spare final-third carries: shots are built there, and forcing a
@@ -439,14 +488,17 @@ void GameEngine::updatePossessionTracking(double sdt) {
                 for (auto& o : state.players) {
                     if (o.team != c->team || o.id == c->id || o.role == Role::GK || o.sentOff) continue;
                     double d = dist(c->x, c->y, o.x, o.y);
-                    if (d < 90.0 || d > 380.0) continue;                 // realistic pass range
-                    double oppD = 1e9;                                   // receiver's nearest marker
+                    if (d < 90.0 || d > 380.0) continue; // realistic pass range
+                    double oppD = 1e9;                   // receiver's nearest marker
                     for (auto& q : state.players)
                         if (q.team != c->team && q.role != Role::GK && !q.sentOff)
                             oppD = std::min(oppD, dist(o.x, o.y, q.x, q.y));
-                    if (oppD < 55.0) continue;                           // covered — not a safe release
-                    double score = (o.x - c->x) * fd + oppD * 0.5;       // prefer forward + open
-                    if (score > bestScore) { bestScore = score; best = &o; }
+                    if (oppD < 55.0) continue;                     // covered — not a safe release
+                    double score = (o.x - c->x) * fd + oppD * 0.5; // prefer forward + open
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = &o;
+                    }
                 }
                 if (best) {
                     forcePassTo(*c, *best, nullptr);
@@ -496,8 +548,10 @@ void GameEngine::updatePossessionTracking(double sdt) {
             if (pitch::distToOwnGoal(state.ball.x, team) < 450.0) continue;
             bool threatDeep = false;
             for (auto& p : state.players)
-                if (p.team != team && p.role != Role::GK && !p.sentOff
-                    && pitch::distToOwnGoal(p.x, team) < line + 60.0) { threatDeep = true; break; }
+                if (p.team != team && p.role != Role::GK && !p.sentOff && pitch::distToOwnGoal(p.x, team) < line + 60.0) {
+                    threatDeep = true;
+                    break;
+                }
             if (!threatDeep) stats.recordLineTooDeep();
         }
     }
@@ -571,15 +625,18 @@ void GameEngine::detectSimulationFreeze(double sdt) {
         // LOOSE_BALL_STALL_MS, give it to the nearest player so play restarts.
         double bs = std::hypot(fb.vx, fb.vy);
         // Nearest player to the loose ball right now (deterministic: min dist, tie -> lower id).
-        Player* best = nullptr; double bestD = 1e9;
+        Player* best = nullptr;
+        double bestD = 1e9;
         for (auto& p : state.players) {
             if (p.sentOff) continue;
             double d = dist(fb.x, fb.y, p.x, p.y);
-            if (d < bestD) { bestD = d; best = &p; }
+            if (d < bestD) {
+                bestD = d;
+                best = &p;
+            }
         }
-        bool wasLoose = freezeDetector.freezeLastController == -1;   // loose last tick too
-        bool travelling = bs >= LOOSE_BALL_STALL_SPEED
-            || dist(fb.x, fb.y, freezeDetector.freezeBallX, freezeDetector.freezeBallY) >= 5.0;
+        bool wasLoose = freezeDetector.freezeLastController == -1; // loose last tick too
+        bool travelling = bs >= LOOSE_BALL_STALL_SPEED || dist(fb.x, fb.y, freezeDetector.freezeBallX, freezeDetector.freezeBallY) >= 5.0;
         // A ball a player is CLOSING IN ON is not stuck — it's about to be collected.
         // Only a ball nobody has moved toward for the whole window is genuinely
         // abandoned. Re-arm whenever the nearest player gets >5px closer than the
@@ -592,11 +649,12 @@ void GameEngine::detectSimulationFreeze(double sdt) {
             freezeDetector.looseNearestD = bestD;
         } else {
             freezeDetector.freezeWatchMs += sdt;
-            if (freezeDetector.freezeWatchMs > LOOSE_BALL_STALL_MS && best
-                    && state.clockMs - freezeDetector.lastFreezeAlertMs > 5000) {
+            if (freezeDetector.freezeWatchMs > LOOSE_BALL_STALL_MS && best && state.clockMs - freezeDetector.lastFreezeAlertMs > 5000) {
                 stats.recordSimulationFreeze();
-                fb.controllerId = best->id;               // updateControlledBall snaps it to him next tick
-                fb.vx = fb.vy = fb.vz = 0.0; fb.z = 0.0; fb.curl = 0.0;
+                fb.controllerId = best->id; // updateControlledBall snaps it to him next tick
+                fb.vx = fb.vy = fb.vz = 0.0;
+                fb.z = 0.0;
+                fb.curl = 0.0;
                 fb.lastTouchTeam = best->team;
                 fb.lastToucherId = best->id;
                 fb.intendedReceiverId = -1;
@@ -613,8 +671,8 @@ void GameEngine::detectSimulationFreeze(double sdt) {
         freezeDetector.freezeLastController = cid;
     } else {
         freezeDetector.freezeWatchMs += sdt;
-        Player* movingCarrier=playerById(cid);
-        if(movingCarrier&&std::hypot(movingCarrier->vx,movingCarrier->vy)>12.0){
+        Player* movingCarrier = playerById(cid);
+        if (movingCarrier && std::hypot(movingCarrier->vx, movingCarrier->vy) > 12.0) {
             freezeDetector.freezeWatchMs = 0;
             freezeDetector.freezeBallX = fb.x;
             freezeDetector.freezeBallY = fb.y;
@@ -625,24 +683,28 @@ void GameEngine::detectSimulationFreeze(double sdt) {
             freezeDetector.freezeBallX = fb.x;
             freezeDetector.freezeBallY = fb.y;
         } else if (freezeDetector.freezeWatchMs > 1500 && state.clockMs - freezeDetector.lastFreezeAlertMs > 5000) {
-            Player* frozen=playerById(cid);
-            Player* best=nullptr; double bestD=1e9;
-            if(frozen&&frozen->role!=Role::GK){
-                for(auto&p:state.players){
-                    if(p.team!=frozen->team||p.id==frozen->id||p.role==Role::GK)continue;
-                    double d=dist(frozen->x,frozen->y,p.x,p.y);
-                    if(d<bestD){bestD=d;best=&p;}
+            Player* frozen = playerById(cid);
+            Player* best = nullptr;
+            double bestD = 1e9;
+            if (frozen && frozen->role != Role::GK) {
+                for (auto& p : state.players) {
+                    if (p.team != frozen->team || p.id == frozen->id || p.role == Role::GK) continue;
+                    double d = dist(frozen->x, frozen->y, p.x, p.y);
+                    if (d < bestD) {
+                        bestD = d;
+                        best = &p;
+                    }
                 }
             }
-            if(frozen&&best){
+            if (frozen && best) {
                 stats.recordSimulationFreeze();
-                forcePassTo(*frozen,*best,nullptr);
-            }else if(frozen){
+                forcePassTo(*frozen, *best, nullptr);
+            } else if (frozen) {
                 stats.recordSimulationFreeze();
-                double fd=fdFor(frozen->team);
-                frozen->targetX=clamp(frozen->x+fd*90.0,35.0,PITCH_W-35.0);
-                frozen->targetY=clamp(frozen->y+(frozen->y<PITCH_H/2?-45.0:45.0),35.0,PITCH_H-35.0);
-            }else{
+                double fd = fdFor(frozen->team);
+                frozen->targetX = clamp(frozen->x + fd * 90.0, 35.0, PITCH_W - 35.0);
+                frozen->targetY = clamp(frozen->y + (frozen->y < PITCH_H / 2 ? -45.0 : 45.0), 35.0, PITCH_H - 35.0);
+            } else {
                 freezeDetector.simulationFreezes++;
                 stats.recordSimulationFreeze();
             }
@@ -677,7 +739,7 @@ static double minDistFor(SetPiece sp) {
 static double actionTimerFor(SetPiece sp) {
     if (sp == SetPiece::ThrowIn) return 4000.0;
     if (sp == SetPiece::Penalty) return 9000.0;
-    return 7000.0;   // corner / free kick
+    return 7000.0; // corner / free kick
 }
 
 // Gaylord seam (16:48): the engine id of the team's designated taker for this set-piece type
@@ -685,11 +747,11 @@ static double actionTimerFor(SetPiece sp) {
 int GameEngine::designatedTakerFor(SetPiece type, Team team) {
     DirectiveKind want;
     switch (type) {
-        case SetPiece::FreeKick: want = DirectiveKind::FkTaker;        break;
-        case SetPiece::Corner:   want = DirectiveKind::CornerTaker;    break;
-        case SetPiece::Penalty:  want = DirectiveKind::PenTaker;       break;
-        case SetPiece::ThrowIn:  want = DirectiveKind::LongThrowTaker; break;
-        default: return -1;
+    case SetPiece::FreeKick: want = DirectiveKind::FkTaker; break;
+    case SetPiece::Corner: want = DirectiveKind::CornerTaker; break;
+    case SetPiece::Penalty: want = DirectiveKind::PenTaker; break;
+    case SetPiece::ThrowIn: want = DirectiveKind::LongThrowTaker; break;
+    default: return -1;
     }
     for (const auto& d : directives) {
         if (d.kind != want) continue;
@@ -784,14 +846,20 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             double dx = px - taker.x, dy = py - taker.y;
             double d = std::hypot(dx, dy);
             double step = std::min(SPEED_SPRINT * 2.0 * (sdt / 1000.0), d);
-            if (d > 0.5) { taker.x += dx / d * step; taker.y += dy / d * step; }
+            if (d > 0.5) {
+                taker.x += dx / d * step;
+                taker.y += dy / d * step;
+            }
         } else {
             // Steer to the stand-back point; snapping every tick made the taker
             // vibrate against moveBallCarrier walking him toward the spot.
             double dx = px - taker.x, dy = py - taker.y;
             double d = std::hypot(dx, dy);
             double step = std::min(SPEED_SPRINT * (sdt / 1000.0), d);
-            if (d > 0.5) { taker.x += dx / d * step; taker.y += dy / d * step; }
+            if (d > 0.5) {
+                taker.x += dx / d * step;
+                taker.y += dy / d * step;
+            }
         }
         taker.targetX = px;
         taker.targetY = py;
@@ -816,7 +884,10 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 double mx = lineX - dgk->x, my = PITCH_H / 2.0 - dgk->y;
                 double md = std::hypot(mx, my);
                 double step = std::min(SPEED_SPRINT * 1.5 * (sdt / 1000.0), md);
-                if (md > 0.5) { dgk->x += mx / md * step; dgk->y += my / md * step; }
+                if (md > 0.5) {
+                    dgk->x += mx / md * step;
+                    dgk->y += my / md * step;
+                }
             }
         }
         for (auto& p : state.players) {
@@ -834,7 +905,8 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             if (d >= minDist && !goalSide) continue;
             if (d < 1.0) {
                 double fd = fdFor(p.team);
-                dx = -fd; dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
+                dx = -fd;
+                dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
                 d = std::hypot(dx, dy);
             }
             double tx = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
@@ -879,8 +951,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
 
     // Watchdog: a malformed arm (no taker, no controller) must never freeze
     // the match — disarm and let open play resume.
-    if (setPiece.armed && setPiece.takerId < 0 && state.ball.controllerId < 0
-        && setPiece.type != SetPiece::GoalKick && phase.actionTimer <= 0) {
+    if (setPiece.armed && setPiece.takerId < 0 && state.ball.controllerId < 0 && setPiece.type != SetPiece::GoalKick && phase.actionTimer <= 0) {
         setPiece.armed = false;
         setPiece.type = SetPiece::None;
         setPiece.reason.clear();
@@ -958,13 +1029,12 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
 
     // Gate release on rough compliance: extend in 250ms steps (max ~1.2s)
     // while opponents are well inside the restraint distance.
-    if (setPiece.takerArrived && phase.actionTimer <= 0 && phase.actionTimer > -1200.0
-        && setPiece.type != SetPiece::ThrowIn) {
+    if (setPiece.takerArrived && phase.actionTimer <= 0 && phase.actionTimer > -1200.0 && setPiece.type != SetPiece::ThrowIn) {
         double minDist = minDistFor(setPiece.type);
         for (auto& p : state.players) {
             if (p.team == setPiece.team || p.role == Role::GK) continue;
             if (dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < minDist * 0.72) {
-                phase.actionTimer -= sdt;   // keep counting the cap down
+                phase.actionTimer -= sdt; // keep counting the cap down
                 cacheBallState();
                 return;
             }
@@ -972,7 +1042,10 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     }
     if (setPiece.takerArrived && phase.actionTimer <= 0) {
         for (auto& a : agents) {
-            if (a->player.id == setPiece.takerId) { a->setPieceHold = false; break; }
+            if (a->player.id == setPiece.takerId) {
+                a->setPieceHold = false;
+                break;
+            }
         }
         Player* taker = playerById(setPiece.takerId);
         if (taker) placeTakerForRestart(*taker, true);
@@ -994,8 +1067,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             // its own -2500 gate forever, so a taker shoved out of the 15px
             // arrival radius by crowding teammates froze the match. The walkMs
             // backstop force-teleports after 3.5s no matter what.
-            if (taker && dist(taker->x, taker->y, state.ball.x, state.ball.y) < 90.0
-                && setPiece.walkMs < 3500.0) {
+            if (taker && dist(taker->x, taker->y, state.ball.x, state.ball.y) < 90.0 && setPiece.walkMs < 3500.0) {
                 phase.actionTimer = 200.0;
                 cacheBallState();
                 return;
@@ -1038,30 +1110,46 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
 
 void GameEngine::updateKickoffPhase(double sdt) {
     phase.actionTimer -= sdt;
-    if (phase.actionTimer <= 0) { phase.kickoffPhase = false; kickoffTap(); }
+    if (phase.actionTimer <= 0) {
+        phase.kickoffPhase = false;
+        kickoffTap();
+    }
     cacheBallState();
 }
 
 void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     updateSubstitutions();
     sampleVelocityOrigins();
-    auto& b = state.ball;        if (b.controllerId >= 0) contestBlockedUntil[b.controllerId] = 0;
+    auto& b = state.ball;
+    if (b.controllerId >= 0) contestBlockedUntil[b.controllerId] = 0;
     if (b.controllerId < 0) {
         applyBallPhysics(sec);
         clampBallPosition();
         tryGKSave();
-        if (checkWoodwork()) { cacheBallState(); return; }
-        if (checkGoal()) { cacheBallState(); return; }
-        if (checkOutOfPlay()) { cacheBallState(); return; }
+        if (checkWoodwork()) {
+            cacheBallState();
+            return;
+        }
+        if (checkGoal()) {
+            cacheBallState();
+            return;
+        }
+        if (checkOutOfPlay()) {
+            cacheBallState();
+            return;
+        }
         checkBallPlayerCollision(sec);
     }
     // Marking conflicts are re-decided every tick, so the arbitration array
     // must be rebuilt every tick — leaving it stale pinned each opponent to
     // his first marker for the rest of the match, degrading coordination.
-    for (auto& bb : blackboards) { bb.pressingPlayerId = bb.pressingPlayerId2 = -1; bb.markedOpponents.fill(-1); }
+    for (auto& bb : blackboards) {
+        bb.pressingPlayerId = bb.pressingPlayerId2 = -1;
+        bb.markedOpponents.fill(-1);
+    }
     updateTeamAssignments();
-    applyDirectives();   // §1.3b: applyLiveCommands now runs INSIDE applyDirectives (after the timeline
-                         // loop, before the dials) so live-inject ≡ timeline-replay — no 1-tick offset.
+    applyDirectives(); // §1.3b: applyLiveCommands now runs INSIDE applyDirectives (after the timeline
+                       // loop, before the dials) so live-inject ≡ timeline-replay — no 1-tick offset.
     tickAgents(sdt, true);
     if (goalKickMonitor.distributeTimer > 0) {
         goalKickMonitor.distributeTimer -= sdt;
@@ -1099,7 +1187,7 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     moveBallCarrier(sdt);
     updateGK(sdt);
     separateTeammates(sdt);
-    finalizeVelocities(sec);   // authoritative velocity from this tick's true displacement
+    finalizeVelocities(sec); // authoritative velocity from this tick's true displacement
     // Render-only facing smoothing (display copy; logic uses raw Player::facing).
     // Exponential low-pass of facing: a high-frequency ~30deg left-right shimmer
     // averages toward its centre (smooth), while a genuine sustained turn still
@@ -1117,10 +1205,10 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     updateControlledBall(sec);
     updateGoalKickMonitor();
     tryGKSave();
-    if(state.ball.controllerId<0){
-        double speed=std::hypot(state.ball.vx,state.ball.vy);
-        metrics.peakBallSpeed=std::max(metrics.peakBallSpeed,speed);
-        metrics.looseBallSpeedTotal+=speed;
+    if (state.ball.controllerId < 0) {
+        double speed = std::hypot(state.ball.vx, state.ball.vy);
+        metrics.peakBallSpeed = std::max(metrics.peakBallSpeed, speed);
+        metrics.looseBallSpeedTotal += speed;
         metrics.looseBallSpeedSamples++;
         stats.recordBallSpeedSample(speed);
     }
@@ -1128,11 +1216,9 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     double jumpDy = state.ball.y - prevBallY;
     double jumpDist = std::hypot(jumpDx, jumpDy);
     double expectedSpeed = std::max(std::hypot(prevBallVx, prevBallVy), std::hypot(state.ball.vx, state.ball.vy));
-    double expectedMax = expectedSpeed * sec + 20.0
-        + (activeKnockAhead.active ? DRIBBLE_KNOCK_OFFSET : 0.0);
+    double expectedMax = expectedSpeed * sec + 20.0 + (activeKnockAhead.active ? DRIBBLE_KNOCK_OFFSET : 0.0);
     bool recentImpulse = ballImpulseGraceTicks > 0;
-    if (jumpDist > expectedMax && jumpDist > 25.0 && !recentImpulse && !setPiece.armed && !phase.kickoffPhase
-        && state.ball.controllerId < 0) {
+    if (jumpDist > expectedMax && jumpDist > 25.0 && !recentImpulse && !setPiece.armed && !phase.kickoffPhase && state.ball.controllerId < 0) {
         stats.recordBallJump();
     }
     if (ballImpulseGraceTicks > 0) ballImpulseGraceTicks--;
@@ -1156,72 +1242,93 @@ void GameEngine::tickAgents(double sdt, bool ic) {
     }
 }
 
-void GameEngine::auditStuckCarrier(double sdt){
+void GameEngine::auditStuckCarrier(double sdt) {
     // A held restart is SUPPOSED to be stationary — the taker stands at the spot
     // for the whole set-piece/kickoff hold (now seconds long under the restart-
     // pacing pass). Watching him here force-passed every corner/free-kick taker
     // ~2.7s into his hold (~50 false stuck-alerts per match). Same guard the
     // freeze detector has always had.
-    if(setPiece.armed || phase.kickoffPhase || phase.halfTimePause > 0){
-        carrierTracker.watchedCarrierId=-1;
-        carrierTracker.watchedCarrierMs=0;
+    if (setPiece.armed || phase.kickoffPhase || phase.halfTimePause > 0) {
+        carrierTracker.watchedCarrierId = -1;
+        carrierTracker.watchedCarrierMs = 0;
         return;
     }
-    Player* carrier=playerById(state.ball.controllerId);
+    Player* carrier = playerById(state.ball.controllerId);
     // A keeper standing on the ball is NOT a stuck carrier — holding for
     // distribution is legitimate (legal up to 6s) and is now self-capped by the
     // GK distribution logic (initial delay + GK_MAX_HOLD_MS, then a forced punt).
     // Watching him here only produced a false-positive force-pass ~2.7s in, which
     // raced — and beat — his own hold cap. This watchdog is for OUTFIELD carriers
     // who genuinely wedge; leave the keeper to his distribution logic.
-    if(carrier && carrier->role==Role::GK){
-        carrierTracker.watchedCarrierId=-1;
-        carrierTracker.watchedCarrierMs=0;
+    if (carrier && carrier->role == Role::GK) {
+        carrierTracker.watchedCarrierId = -1;
+        carrierTracker.watchedCarrierMs = 0;
         return;
     }
-    if(!carrier){
-        carrierTracker.watchedCarrierId=-1;
-        carrierTracker.watchedCarrierMs=0;
+    if (!carrier) {
+        carrierTracker.watchedCarrierId = -1;
+        carrierTracker.watchedCarrierMs = 0;
         return;
     }
-    if(carrier->id!=carrierTracker.watchedCarrierId){
-        carrierTracker.watchedCarrierId=carrier->id;
-        carrierTracker.watchedCarrierX=carrier->x; carrierTracker.watchedCarrierY=carrier->y;
-        carrierTracker.watchedCarrierMs=0;
+    if (carrier->id != carrierTracker.watchedCarrierId) {
+        carrierTracker.watchedCarrierId = carrier->id;
+        carrierTracker.watchedCarrierX = carrier->x;
+        carrierTracker.watchedCarrierY = carrier->y;
+        carrierTracker.watchedCarrierMs = 0;
         return;
     }
-    carrierTracker.watchedCarrierMs+=sdt;
-    double moved=dist(carrier->x,carrier->y,carrierTracker.watchedCarrierX,carrierTracker.watchedCarrierY);
-    double carrierSpeed=std::hypot(carrier->vx,carrier->vy);
-    if(carrierSpeed>12.0){
-        carrierTracker.watchedCarrierX=carrier->x; carrierTracker.watchedCarrierY=carrier->y;
-        carrierTracker.watchedCarrierMs=0;
+    carrierTracker.watchedCarrierMs += sdt;
+    double moved = dist(carrier->x, carrier->y, carrierTracker.watchedCarrierX, carrierTracker.watchedCarrierY);
+    double carrierSpeed = std::hypot(carrier->vx, carrier->vy);
+    if (carrierSpeed > 12.0) {
+        carrierTracker.watchedCarrierX = carrier->x;
+        carrierTracker.watchedCarrierY = carrier->y;
+        carrierTracker.watchedCarrierMs = 0;
         return;
     }
-    if(moved>STUCK_CARRIER_MOVE_THRESHOLD){
-        carrierTracker.watchedCarrierX=carrier->x; carrierTracker.watchedCarrierY=carrier->y;
-        carrierTracker.watchedCarrierMs=0;
+    if (moved > STUCK_CARRIER_MOVE_THRESHOLD) {
+        carrierTracker.watchedCarrierX = carrier->x;
+        carrierTracker.watchedCarrierY = carrier->y;
+        carrierTracker.watchedCarrierMs = 0;
         return;
     }
-    double fd=fdFor(carrier->team);
-    double forwardProgress=(carrier->x-carrierTracker.watchedCarrierX)*fd;
-    if(forwardProgress>30.0){
-        carrierTracker.watchedCarrierX=carrier->x; carrierTracker.watchedCarrierY=carrier->y;
-        carrierTracker.watchedCarrierMs=0;
+    double fd = fdFor(carrier->team);
+    double forwardProgress = (carrier->x - carrierTracker.watchedCarrierX) * fd;
+    if (forwardProgress > 30.0) {
+        carrierTracker.watchedCarrierX = carrier->x;
+        carrierTracker.watchedCarrierY = carrier->y;
+        carrierTracker.watchedCarrierMs = 0;
         return;
     }
-    if(carrierTracker.watchedCarrierMs>STUCK_CARRIER_TIMEOUT_MS*0.65){
+    if (carrierTracker.watchedCarrierMs > STUCK_CARRIER_TIMEOUT_MS * 0.65) {
         stats.recordStuckCarrier();
-        Player* best=nullptr; double bestD=1e9;
-        for(auto&p:state.players){
-            if(p.team!=carrier->team||p.id==carrier->id||p.role==Role::GK)continue;
-            double d=dist(carrier->x,carrier->y,p.x,p.y);
-            if(d<bestD){bestD=d; best=&p;}
+        Player* best = nullptr;
+        double bestD = 1e9;
+        for (auto& p : state.players) {
+            if (p.team != carrier->team || p.id == carrier->id || p.role == Role::GK) continue;
+            double d = dist(carrier->x, carrier->y, p.x, p.y);
+            if (d < bestD) {
+                bestD = d;
+                best = &p;
+            }
         }
-        if(best)forcePassTo(*carrier,*best,nullptr);
-        else{auto&b=state.ball;b.controllerId=-1;b.vx=carrier->team==Team::Home?300:-300;b.vy=0;b.vz=80;b.z=0;}
-        setPiece.armed=false;setPiece.type = SetPiece::None;setPiece.team = Team::Home;setPiece.reason.clear();
-        carrierTracker.watchedCarrierMs=0;carrierTracker.watchedCarrierX=carrier->x;carrierTracker.watchedCarrierY=carrier->y;
+        if (best)
+            forcePassTo(*carrier, *best, nullptr);
+        else {
+            auto& b = state.ball;
+            b.controllerId = -1;
+            b.vx = carrier->team == Team::Home ? 300 : -300;
+            b.vy = 0;
+            b.vz = 80;
+            b.z = 0;
+        }
+        setPiece.armed = false;
+        setPiece.type = SetPiece::None;
+        setPiece.team = Team::Home;
+        setPiece.reason.clear();
+        carrierTracker.watchedCarrierMs = 0;
+        carrierTracker.watchedCarrierX = carrier->x;
+        carrierTracker.watchedCarrierY = carrier->y;
     }
 }
 
@@ -1229,7 +1336,9 @@ void GameEngine::auditStuckCarrier(double sdt){
 // JSON serialization
 // ══════════════════════════════════════════════════════════════
 
-std::string GameEngine::getSummaryJSON() const { return stats.summaryJSON(); }
+std::string GameEngine::getSummaryJSON() const {
+    return stats.summaryJSON();
+}
 
 std::string GameEngine::getJSON() const {
     auto& b = state.ball;
@@ -1245,31 +1354,11 @@ std::string GameEngine::getJSON() const {
     j["awayScore"] = state.awayScore;
 
     j["ball"] = {
-        {"x", std::round(b.x * 10) / 10}, {"y", std::round(b.y * 10) / 10},
-        {"vx", std::round(b.vx * 10) / 10}, {"vy", std::round(b.vy * 10) / 10},
-        {"z", std::round(b.z * 10) / 10}, {"curl", std::round(b.curl * 1000) / 1000}, {"cutback", pendingPass.active && pendingPass.isCutback},
-        {"controllerId", b.controllerId >= 0 ? nlohmann::json(b.controllerId) : nlohmann::json(nullptr)},
-        {"intendedReceiverId", b.intendedReceiverId >= 0 ? nlohmann::json(b.intendedReceiverId) : nlohmann::json(nullptr)},
-        {"lastTouchTeam", std::string(to_string(b.lastTouchTeam))},
-        {"lastToucherId", b.lastToucherId >= 0 ? nlohmann::json(b.lastToucherId) : nlohmann::json(nullptr)}
-    };
+        {"x", std::round(b.x * 10) / 10}, {"y", std::round(b.y * 10) / 10}, {"vx", std::round(b.vx * 10) / 10}, {"vy", std::round(b.vy * 10) / 10}, {"z", std::round(b.z * 10) / 10}, {"curl", std::round(b.curl * 1000) / 1000}, {"cutback", pendingPass.active && pendingPass.isCutback}, {"controllerId", b.controllerId >= 0 ? nlohmann::json(b.controllerId) : nlohmann::json(nullptr)}, {"intendedReceiverId", b.intendedReceiverId >= 0 ? nlohmann::json(b.intendedReceiverId) : nlohmann::json(nullptr)}, {"lastTouchTeam", std::string(to_string(b.lastTouchTeam))}, {"lastToucherId", b.lastToucherId >= 0 ? nlohmann::json(b.lastToucherId) : nlohmann::json(nullptr)}};
 
     j["players"] = nlohmann::json::array();
     for (auto& p : state.players) {
-        j["players"].push_back({
-            {"id", p.id}, {"name", p.name}, {"team", std::string(to_string(p.team))}, {"role", std::string(to_string(p.role))},
-            {"x", std::round(p.x * 10) / 10}, {"y", std::round(p.y * 10) / 10},
-            {"vx", std::round(p.vx * 10) / 10}, {"vy", std::round(p.vy * 10) / 10},
-            {"targetX", std::round(p.targetX * 10) / 10}, {"targetY", std::round(p.targetY * 10) / 10},
-            {"stamina", std::round(p.stamina)}, {"facing", std::round(renderFacing[p.id] * 1000) / 1000},
-            {"dribbleType", p.dribbleType},
-            {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)},
-            {"diveAnim", std::round(p.diveAnim)}, {"wall", p.wall}, {"slide", p.tackleAnim > 400.0},
-            {"goals", pGoals[p.id]}, {"assists", pAssists[p.id]}, {"shots", pShots[p.id]},
-            {"tackles", pTackles[p.id]}, {"yellow", yellowCards[p.id]},
-            {"passes", pPasses[p.id]}, {"passesCompleted", pPassesCompleted[p.id]},
-            {"injured", p.injurySeverity > 0.05}, {"sentOff", p.sentOff}
-        });
+        j["players"].push_back({{"id", p.id}, {"name", p.name}, {"team", std::string(to_string(p.team))}, {"role", std::string(to_string(p.role))}, {"x", std::round(p.x * 10) / 10}, {"y", std::round(p.y * 10) / 10}, {"vx", std::round(p.vx * 10) / 10}, {"vy", std::round(p.vy * 10) / 10}, {"targetX", std::round(p.targetX * 10) / 10}, {"targetY", std::round(p.targetY * 10) / 10}, {"stamina", std::round(p.stamina)}, {"facing", std::round(renderFacing[p.id] * 1000) / 1000}, {"dribbleType", p.dribbleType}, {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)}, {"diveAnim", std::round(p.diveAnim)}, {"wall", p.wall}, {"slide", p.tackleAnim > 400.0}, {"goals", pGoals[p.id]}, {"assists", pAssists[p.id]}, {"shots", pShots[p.id]}, {"tackles", pTackles[p.id]}, {"yellow", yellowCards[p.id]}, {"passes", pPasses[p.id]}, {"passesCompleted", pPassesCompleted[p.id]}, {"injured", p.injurySeverity > 0.05}, {"sentOff", p.sentOff}});
     }
 
     // Forward every stats summary metric verbatim. getJSON builds its own
@@ -1285,17 +1374,15 @@ std::string GameEngine::getJSON() const {
     j["penaltyGoals"] = summary["setPieces"]["penaltiesScored"];
 
     j["events"] = nlohmann::json::array();
-    for(const auto& ev:visualEvents){
-        double age=state.clockMs-ev.clockMs;
-        if(age>2600.0)continue;
-        j["events"].push_back({
-            {"type", ev.type},
-            {"x", std::round(ev.x*10)/10},
-            {"y", std::round(ev.y*10)/10},
-            {"age", std::round(age)},
-            {"playerId", ev.playerId>=0?nlohmann::json(ev.playerId):nlohmann::json(nullptr)},
-            {"targetId", ev.targetId>=0?nlohmann::json(ev.targetId):nlohmann::json(nullptr)}
-        });
+    for (const auto& ev : visualEvents) {
+        double age = state.clockMs - ev.clockMs;
+        if (age > 2600.0) continue;
+        j["events"].push_back({{"type", ev.type},
+                               {"x", std::round(ev.x * 10) / 10},
+                               {"y", std::round(ev.y * 10) / 10},
+                               {"age", std::round(age)},
+                               {"playerId", ev.playerId >= 0 ? nlohmann::json(ev.playerId) : nlohmann::json(nullptr)},
+                               {"targetId", ev.targetId >= 0 ? nlohmann::json(ev.targetId) : nlohmann::json(nullptr)}});
     }
     j["possessionPct"] = summary["possessionPct"];
 
@@ -1308,8 +1395,7 @@ std::string GameEngine::getJSON() const {
             {"takerArrived", setPiece.takerArrived},
             {"spotX", setPiece.spotX},
             {"spotY", setPiece.spotY},
-            {"timerMs", phase.actionTimer}
-        };
+            {"timerMs", phase.actionTimer}};
     }
 
     return j.dump();
@@ -1322,7 +1408,8 @@ std::string GameEngine::getJSON() const {
 GameEngine::~GameEngine() = default;
 
 GameEngine::GameEngine() {
-    blackboards[0] = TeamBlackboard(); blackboards[1] = TeamBlackboard();
+    blackboards[0] = TeamBlackboard();
+    blackboards[1] = TeamBlackboard();
 }
 
 void GameEngine::initWithSeed(int seed) {
@@ -1334,25 +1421,27 @@ void GameEngine::initWithSeed(int seed) {
     rng.setSeed(seed);
     if (!configOverride) {
         // No tactics supplied: random "manager" personalities (legend exhibition).
-        auto manager=[&](){
-            return Config{40+rng.random()*40,30+rng.random()*40,25+rng.random()*60,
-                          30+rng.random()*55,25+rng.random()*55};
+        auto manager = [&]() {
+            return Config{40 + rng.random() * 40, 30 + rng.random() * 40, 25 + rng.random() * 60,
+                          30 + rng.random() * 55, 25 + rng.random() * 55};
         };
-        homeConfig=manager();
-        awayConfig=manager();
+        homeConfig = manager();
+        awayConfig = manager();
     }
     // The 23-random advances vary the legends' ±4 form between sides; a
     // data-driven roster has exact attrs (no form roll), so skip them there.
-    if(!homeRoster.active) for(int i=0;i<23;i++) rng.random();
+    if (!homeRoster.active)
+        for (int i = 0; i < 23; i++) rng.random();
     createHomeTeam();
-    if(!awayRoster.active) for(int i=0;i<23;i++) rng.random();
+    if (!awayRoster.active)
+        for (int i = 0; i < 23; i++) rng.random();
     createAwayTeam();
-    for(auto&p:state.players){
-        if(p.id>=0&&p.id<22)playerLookup[p.id]=&p;
+    for (auto& p : state.players) {
+        if (p.id >= 0 && p.id < 22) playerLookup[p.id] = &p;
     }
     initBench();
     lastReceiveFrom.fill(-1);
-    for(auto&p:state.players) {
+    for (auto& p : state.players) {
         agents.push_back(makeAgentFor(p, *this));
     }
     // §weather v2 WIND: derive the per-match wind vector from a SEPARATE seed-stream so the MAIN rng
@@ -1363,8 +1452,9 @@ void GameEngine::initWithSeed(int seed) {
     // a FUTURE live mid-match weather->wind flip must re-derive it (else windX/windY stay 0 = a silent
     // no-op wind). There is no such command today — weather is init-only. [adversarial-review flag]
     if (weather == 2) {
-        SeededRNG wrng; wrng.setSeed(static_cast<uint32_t>(seed) ^ 0x57494e44u);  // "WIND"
-        double ang = wrng.random() * 6.283185307179586;            // 0..2pi
+        SeededRNG wrng;
+        wrng.setSeed(static_cast<uint32_t>(seed) ^ 0x57494e44u); // "WIND"
+        double ang = wrng.random() * 6.283185307179586;          // 0..2pi
         double mag = WIND_ACCEL_BASE + wrng.random() * WIND_ACCEL_RANGE;
         windX = std::cos(ang) * mag;
         windY = std::sin(ang) * mag;
@@ -1376,8 +1466,7 @@ void GameEngine::creditGoal(int scorerId) {
     pGoals[scorerId]++;
     // Assist: the teammate who last fed the scorer, within ~12s of the goal.
     int passer = lastReceiveFrom[scorerId];
-    if (passer >= 0 && passer < 22 && passer != scorerId
-        && state.clockMs - lastReceiveMs[scorerId] < 12000.0) {
+    if (passer >= 0 && passer < 22 && passer != scorerId && state.clockMs - lastReceiveMs[scorerId] < 12000.0) {
         Player* sc = playerById(scorerId);
         Player* as = playerById(passer);
         if (sc && as && sc->team == as->team) {
@@ -1390,15 +1479,19 @@ void GameEngine::creditGoal(int scorerId) {
 void GameEngine::initBench() {
     // Reserve names per side — flavour only; attrs are a notch below the
     // starters (subs are squad players, not the legends they replace).
-    static const char* homeRes[] = {"Pirlo","Casillas","Maldini","Zidane","Carlos","Puyol","Kaka","Villa"};
-    static const char* awayRes[] = {"Cannavaro","Vidic","Pirlo","Toure","Sneijder","Silva","Aguero","Ferdinand"};
+    static const char* homeRes[] = {"Pirlo", "Casillas", "Maldini", "Zidane", "Carlos", "Puyol", "Kaka", "Villa"};
+    static const char* awayRes[] = {"Cannavaro", "Vidic", "Pirlo", "Toure", "Sneijder", "Silva", "Aguero", "Ferdinand"};
     for (int t = 0; t < 2; ++t) {
         bench[t].clear();
         for (int i = 0; i < 7; ++i) {
             PlayerAttributes a;
             auto roll = [&](double lo, double hi) { return lo + rng.random() * (hi - lo); };
-            a.speed = roll(60, 84); a.passing = roll(58, 84); a.creativity = roll(55, 82);
-            a.shooting = roll(50, 82); a.tackling = roll(55, 86); a.positioning = roll(60, 86);
+            a.speed = roll(60, 84);
+            a.passing = roll(58, 84);
+            a.creativity = roll(55, 82);
+            a.shooting = roll(50, 82);
+            a.tackling = roll(55, 86);
+            a.positioning = roll(60, 86);
             a.stamina = roll(74, 90);
             const char* nm = t == 0 ? homeRes[i % 8] : awayRes[i % 8];
             bench[t].push_back({nm, a, false});
@@ -1413,10 +1506,15 @@ void GameEngine::sendOff(Player& p) {
     stats.recordRedCard();
     // Park him off the pitch by his own touchline — the slot stays in the
     // array (lookups depend on it) but he's out of play and out of the way.
-    if (state.ball.controllerId == p.id) { state.ball.controllerId = -1; state.ball.intendedReceiverId = -1; lastLooseOrigin = LooseOrigin::None; }
+    if (state.ball.controllerId == p.id) {
+        state.ball.controllerId = -1;
+        state.ball.intendedReceiverId = -1;
+        lastLooseOrigin = LooseOrigin::None;
+    }
     p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
     p.y = -40.0;
-    p.targetX = p.x; p.targetY = p.y;
+    p.targetX = p.x;
+    p.targetY = p.y;
     p.vx = p.vy = 0;
     p.injurySeverity = 0.0;
     assignmentByPlayer[p.id] = {};
@@ -1427,7 +1525,7 @@ void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
     char prefix = slot.team == Team::Home ? 'H' : 'A';
     slot.name = std::format("{}{} {}", prefix, slot.id, in.name);
     slot.attrs = in.attrs;
-    slot.stamina = 100.0;          // fresh legs
+    slot.stamina = 100.0; // fresh legs
     slot.injurySeverity = 0.0;
     slot.sentOff = false;
     yellowCards[slot.id] = 0;
@@ -1450,14 +1548,18 @@ void GameEngine::updateSubstitutions() {
         bool injuredFound = false;
         for (auto& p : state.players) {
             if (p.team != team || p.role == Role::GK || p.sentOff) continue;
-            if (p.id == state.ball.controllerId) continue;   // never swap a man mid-carry
+            if (p.id == state.ball.controllerId) continue; // never swap a man mid-carry
             bool injured = p.injurySeverity > 0.18;
             // Spent: low stamina, and only once the game is worth burning a
             // sub on (after the hour, or any time if badly hurt).
             bool spent = p.stamina < 32.0 && minute > 58.0;
             if (!injured && !spent) continue;
             double score = (injured ? 100.0 + p.injurySeverity * 100.0 : 0.0) + (100.0 - p.stamina);
-            if (score > worstScore) { worstScore = score; worst = &p; injuredFound = injured; }
+            if (score > worstScore) {
+                worstScore = score;
+                worst = &p;
+                injuredFound = injured;
+            }
         }
         if (!worst) continue;
         // Pick the freshest unused bench player.
@@ -1466,7 +1568,10 @@ void GameEngine::updateSubstitutions() {
         for (auto& b : bench[t]) {
             if (b.used) continue;
             double r = b.attrs.speed + b.attrs.passing + b.attrs.tackling + b.attrs.positioning;
-            if (r > bestRating) { bestRating = r; best = &b; }
+            if (r > bestRating) {
+                bestRating = r;
+                best = &b;
+            }
         }
         if (!best) continue;
         // A tired-but-not-injured swap only fires sometimes per window, so
@@ -1486,7 +1591,7 @@ void GameEngine::equalizeAttributes(int val) {
         p.attrs.positioning = val;
         p.attrs.creativity = val;
         p.attrs.stamina = val;
-        p.attrs.handling = val;   // (mkPlayer derives these from positioning; equalize must set all 9)
+        p.attrs.handling = val; // (mkPlayer derives these from positioning; equalize must set all 9)
         p.attrs.height = val;
     }
 }
@@ -1534,26 +1639,28 @@ PlayerAttributes legendAttrsFor(int id) {
     // goals 4.5 (the high-attr shot/save curve is steep here); 0.28 is the TOP of the stable below-cliff zone. Do
     // NOT raise further. Golden-safe: the golden=fixture-1=SPEC roster, cz-independent (legendAttrsFor bypassed).
     auto cz = [](double v) { return clamp(63.0 + (v - 63.0) * 0.28, 38.0, 80.0); };
-    a.speed = cz(a.speed); a.passing = cz(a.passing); a.creativity = cz(a.creativity);
-    a.shooting = cz(a.shooting); a.tackling = cz(a.tackling);
-    a.positioning = cz(a.positioning); a.stamina = cz(a.stamina);
+    a.speed = cz(a.speed);
+    a.passing = cz(a.passing);
+    a.creativity = cz(a.creativity);
+    a.shooting = cz(a.shooting);
+    a.tackling = cz(a.tackling);
+    a.positioning = cz(a.positioning);
+    a.stamina = cz(a.stamina);
     return a;
 }
 
 std::string legendNameFor(int id, Team team) {
     static const char* homeNames[] = {
         "Buffon", "Dani Alves", "Ramos", "Pique", "Marcelo", "Iniesta",
-        "Xavi", "Modric", "Neymar", "Messi", "Ronaldinho"
-    };
+        "Xavi", "Modric", "Neymar", "Messi", "Ronaldinho"};
     static const char* awayNames[] = {
         "Neuer", "Lahm", "Van Dijk", "Chiellini", "Alba", "Kroos",
-        "De Bruyne", "Busquets", "Robben", "Ronaldo", "Bale"
-    };
+        "De Bruyne", "Busquets", "Robben", "Ronaldo", "Bale"};
     if (team == Team::Home && id >= 0 && id < 11) return std::format("H{} {}", id, homeNames[id]);
     if (team == Team::Away && id >= 11 && id < 22) return std::format("A{} {}", id, awayNames[id - 11]);
     return std::format("{}{}", to_string(team), id);
 }
-}
+} // namespace
 
 Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
     const RosterOverride& ro = (t == Team::Home) ? homeRoster : awayRoster;
@@ -1561,16 +1668,20 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
     if (ro.active && slot >= 0 && slot < 11) {
         // Data-driven: exact attrs + name from the user's team (no form roll).
         return Player{id, ro.names[slot], t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
-            ro.attrs[slot], t == Team::Home ? 0.0 : PI};
+                      ro.attrs[slot], t == Team::Home ? 0.0 : PI};
     }
     // Legend profile with small per-match form variance (±4) so the same
     // names play recognizably while no two matches are identical.
     PlayerAttributes a = legendAttrsFor(id);
     auto form = [&](double v) { return clamp(v + rng.randomInt(-4, 4), 25.0, 99.0); };
-    a.speed = form(a.speed); a.passing = form(a.passing); a.creativity = form(a.creativity);
-    a.shooting = form(a.shooting); a.tackling = form(a.tackling); a.positioning = form(a.positioning);
+    a.speed = form(a.speed);
+    a.passing = form(a.passing);
+    a.creativity = form(a.creativity);
+    a.shooting = form(a.shooting);
+    a.tackling = form(a.tackling);
+    a.positioning = form(a.positioning);
     a.stamina = form(a.stamina);
-    a.handling = a.positioning;   // legend keepers: handling = positioning (no extra rng roll — preserves the stream)
+    a.handling = a.positioning; // legend keepers: handling = positioning (no extra rng roll — preserves the stream)
     // Distinct per-legend aerial height (0-100) so the EXISTING height-weighted aerial duel
     // (engine_physics.cpp:395, 0.5 positioning + 0.5 height) actually bites: tall CBs / target-men
     // win headers vs small playmakers, instead of a flat positioning-only ~50/50. NOT cz-compressed
@@ -1578,14 +1689,32 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
     // stream is preserved). Legend-only — spec/golden teams return above with their own attrs, so
     // the golden stays byte-identical.
     static const double legendHeight[22] = {
-        /*0 Buffon*/65, /*1 D.Alves*/52, /*2 Ramos*/85, /*3 Pique*/86, /*4 Marcelo*/55,
-        /*5 Iniesta*/48, /*6 Xavi*/46, /*7 Modric*/50, /*8 Neymar*/54, /*9 Messi*/45, /*10 Ronaldinho*/62,
-        /*11 Neuer*/68, /*12 Lahm*/46, /*13 VanDijk*/92, /*14 Chiellini*/84, /*15 Alba*/46,
-        /*16 Kroos*/62, /*17 DeBruyne*/60, /*18 Busquets*/74, /*19 Robben*/56, /*20 Ronaldo*/88, /*21 Bale*/78,
+        /*0 Buffon*/ 65,
+        /*1 D.Alves*/ 52,
+        /*2 Ramos*/ 85,
+        /*3 Pique*/ 86,
+        /*4 Marcelo*/ 55,
+        /*5 Iniesta*/ 48,
+        /*6 Xavi*/ 46,
+        /*7 Modric*/ 50,
+        /*8 Neymar*/ 54,
+        /*9 Messi*/ 45,
+        /*10 Ronaldinho*/ 62,
+        /*11 Neuer*/ 68,
+        /*12 Lahm*/ 46,
+        /*13 VanDijk*/ 92,
+        /*14 Chiellini*/ 84,
+        /*15 Alba*/ 46,
+        /*16 Kroos*/ 62,
+        /*17 DeBruyne*/ 60,
+        /*18 Busquets*/ 74,
+        /*19 Robben*/ 56,
+        /*20 Ronaldo*/ 88,
+        /*21 Bale*/ 78,
     };
     a.height = (id >= 0 && id < 22) ? legendHeight[id] : a.positioning;
     return Player{id, legendNameFor(id, t), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
-        a, t == Team::Home ? 0.0 : PI};
+                  a, t == Team::Home ? 0.0 : PI};
 }
 
 // Default 4-3-3 slot roles + home anchors (engine frame). When a spec carries a
@@ -1594,31 +1723,35 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
 // no-layout / default match stays byte-identical). Slot 0 is ALWAYS the GK on
 // the goal line — a bad spec can't field a keeperless side.
 namespace {
-constexpr Role   DEF_ROLES[11] = {Role::GK,Role::FB,Role::CB,Role::CB,Role::FB,Role::CM,Role::CM,Role::CM,Role::WM,Role::CF,Role::WM};
-constexpr double DEF_HX_HOME[11] = {31.5,157.5,189,189,157.5,420,420,420,441,756,441};
-constexpr double DEF_HX_AWAY[11] = {1018.5,892.5,861,861,892.5,630,630,630,609,294,609};
-constexpr double DEF_HY[11]      = {340,81.6,226.6667,453.3333,598.4,170,340,510,81.6,340,598.4};
-}
+constexpr Role DEF_ROLES[11] = {Role::GK, Role::FB, Role::CB, Role::CB, Role::FB, Role::CM, Role::CM, Role::CM, Role::WM, Role::CF, Role::WM};
+constexpr double DEF_HX_HOME[11] = {31.5, 157.5, 189, 189, 157.5, 420, 420, 420, 441, 756, 441};
+constexpr double DEF_HX_AWAY[11] = {1018.5, 892.5, 861, 861, 892.5, 630, 630, 630, 609, 294, 609};
+constexpr double DEF_HY[11] = {340, 81.6, 226.6667, 453.3333, 598.4, 170, 340, 510, 81.6, 340, 598.4};
+} // namespace
 void GameEngine::buildTeam(Team team, const RosterOverride& ro, const double* defHX) {
     int off = team == Team::Home ? 0 : 11;
     bool L = ro.hasLayout;
     for (int i = 0; i < 11; ++i) {
         // slot 0 forced to GK on its default line; others read the layout when present
-        Role r   = (L && i > 0) ? ro.roles[i] : DEF_ROLES[i];
+        Role r = (L && i > 0) ? ro.roles[i] : DEF_ROLES[i];
         double hx = (L && i > 0 && ro.homeX[i] > 0.0) ? ro.homeX[i] : defHX[i];
         double hy = (L && i > 0 && ro.homeY[i] > 0.0) ? ro.homeY[i] : DEF_HY[i];
         state.players.push_back(mkPlayer(off + i, team, r, hx, hy));
-        state.players.back().moraleBoost = ro.moraleBoost[i];   // 0 by default => no effect
+        state.players.back().moraleBoost = ro.moraleBoost[i]; // 0 by default => no effect
     }
 }
-void GameEngine::createHomeTeam() { buildTeam(Team::Home, homeRoster, DEF_HX_HOME); }
-void GameEngine::createAwayTeam() { buildTeam(Team::Away, awayRoster, DEF_HX_AWAY); }
+void GameEngine::createHomeTeam() {
+    buildTeam(Team::Home, homeRoster, DEF_HX_HOME);
+}
+void GameEngine::createAwayTeam() {
+    buildTeam(Team::Away, awayRoster, DEF_HX_AWAY);
+}
 
 // Mid-match role change (a formation shout): set the player's role and swap in a
 // fresh role-AI for the new role. Same factory as the kickoff setup; the engine
 // re-fetches agents[id] every tick (never caches), so the swap is safe in-tick.
 void GameEngine::reassignAgent(Player& p, Role r) {
-    if (p.id < 0 || p.id >= (int)agents.size()) return;
+    if (p.id < 0 || p.id >= (int) agents.size()) return;
     p.role = r;
     agents[p.id] = makeAgentFor(p, *this);
 }
