@@ -347,17 +347,10 @@ void GameEngine::updatePlayerAnimations(double sdt) {
     }
 }
 
-void GameEngine::updatePossessionTracking(double sdt) {
-    auto* c = playerById(state.ball.controllerId);
-    // Detect a live turnover (control flips teams in open play) -> open the
-    // quick-transition window. Suppressed during set-piece restarts.
-    if (c && !setPiece.armed) {
-        if (transitionHadCtrl && c->team != transitionLastCtrlTeam)
-            transitionUntilMs = state.clockMs + 400.0;
-        transitionLastCtrlTeam = c->team;
-        transitionHadCtrl = true;
-    }
-    if (c) {
+// Per-tick ball-carrier diagnostics for the current controller: possession clock,
+// stuck / backward-carry / carry-distance / marathon-shuttle / stationary-hold
+// trackers. Feeds quality stats; does not steer play.
+void GameEngine::trackCarrierPossession(Player* c, double sdt) {
         if (c->team == Team::Home)
             metrics.possessionHome += sdt;
         else
@@ -506,7 +499,20 @@ void GameEngine::updatePossessionTracking(double sdt) {
                 }
             }
         }
-    } else {
+}
+
+void GameEngine::updatePossessionTracking(double sdt) {
+    auto* c = playerById(state.ball.controllerId);
+    // Detect a live turnover (control flips teams in open play) -> open the
+    // quick-transition window. Suppressed during set-piece restarts.
+    if (c && !setPiece.armed) {
+        if (transitionHadCtrl && c->team != transitionLastCtrlTeam)
+            transitionUntilMs = state.clockMs + 400.0;
+        transitionLastCtrlTeam = c->team;
+        transitionHadCtrl = true;
+    }
+    if (c) trackCarrierPossession(c, sdt);
+    else {
         if (activeKnockAhead.active && activeKnockAhead.playerId >= 0) {
             Player* runner = playerById(activeKnockAhead.playerId);
             if (runner) {

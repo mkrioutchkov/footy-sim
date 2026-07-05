@@ -646,6 +646,7 @@ private:
     void cacheBallState();
     void updatePlayerAnimations(double sdt);
     void updatePossessionTracking(double sdt);
+    void trackCarrierPossession(Player* c, double sdt);
     void detectSimulationFreeze(double sdt);
     void updateSetPiecePhase(double sdt, double sec);
     void populateThrowInSupport(Team spTeam);
