@@ -65,7 +65,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     if (ctrl->dribbleType == 0 && d < TACKLE_ZONE_MAX) sc += 0.18;
 
     double ownGoalX = ownGoalXFor(player.team);
-    bool emergencyBoxChallenge = std::abs(ctrl->x - ownGoalX) < EMERGENCY_BOX_DIST
+    bool emergencyBoxChallenge = pitch::distToOwnGoal(ctrl->x, player.team) < EMERGENCY_BOX_DIST
         && std::abs(ctrl->y - PITCH_H / 2.0) < 210.0
         && d < TACKLE_RANGE + 18.0
         && isDefenderLike();
@@ -103,7 +103,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     // jockey and force the shot instead. (The soft -0.30 version of this
     // still conceded 2.8 pens/match once the low block crowded the area.)
     {
-        bool inOurBox = std::abs(ctrl->x - ownGoalX) < PENALTY_AREA_W
+        bool inOurBox = pitch::distToOwnGoal(ctrl->x, player.team) < PENALTY_AREA_W
             && std::abs(ctrl->y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
         double fd = fdFor(player.team);
         bool goalSide = (player.x - ctrl->x) * fd < -2.0;
@@ -113,14 +113,14 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         if (inOurBox && !emergencyBoxChallenge) sc -= 0.12;
     }
 
-    if (std::abs(ctrl->x - ownGoalX) < NEAR_GOAL_DIST) sc += 0.18;
-    if (std::abs(ctrl->x - ownGoalX) < CLOSE_GOAL_DIST) sc += 0.12;
+    if (pitch::distToOwnGoal(ctrl->x, player.team) < NEAR_GOAL_DIST) sc += 0.18;
+    if (pitch::distToOwnGoal(ctrl->x, player.team) < CLOSE_GOAL_DIST) sc += 0.12;
 
     int oppsClose = 0;
     for (auto* o : per.nearbyOpponents) {
         if (dist(o->x, o->y, ctrl->x, ctrl->y) < 60.0) oppsClose++;
     }
-    if (std::abs(ctrl->x - ownGoalX) < 300.0 && oppsClose < 2) sc += 0.08;
+    if (pitch::distToOwnGoal(ctrl->x, player.team) < 300.0 && oppsClose < 2) sc += 0.08;
     if (d < TACKLE_RANGE + 4.0 && oppsClose >= 2) sc += 0.18;
     if (d < TACKLE_RANGE) sc += 0.14;
 
@@ -140,7 +140,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     double goalDy = PITCH_H / 2.0 - ctrl->y;
     double goalDist = std::max(1.0, std::hypot(goalDx, goalDy));
     double drivingAtGoal = (forwardX * goalDx + forwardY * goalDy) / goalDist;
-    if (drivingAtGoal > 0.38 && d < TACKLE_RANGE + 24.0 && std::abs(ctrl->x - ownGoalX) < 300.0) sc += 0.14;
+    if (drivingAtGoal > 0.38 && d < TACKLE_RANGE + 24.0 && pitch::distToOwnGoal(ctrl->x, player.team) < 300.0) sc += 0.14;
     if (drivingAtGoal < -0.25 && !emergencyBoxChallenge) sc -= 0.06;
 
     // aggression: an aggressive side hunts the ball (higher tackle desire);
@@ -475,9 +475,8 @@ Action PlayerAI::scoreChase(const Perception& per) {
     }
 
     if (isDef) {
-        double ownGoalX = ownGoalXFor(player.team);
-        if (std::abs(b.x - ownGoalX) < WIDE_DANGER_DIST) sc += 0.20;
-        if (std::abs(b.x - ownGoalX) < PERIMETER_GOAL_DIST) sc += 0.15;
+        if (pitch::distToOwnGoal(b.x, player.team) < WIDE_DANGER_DIST) sc += 0.20;
+        if (pitch::distToOwnGoal(b.x, player.team) < PERIMETER_GOAL_DIST) sc += 0.15;
     }
 
     // Added time: chase harder when ball in defending final third
