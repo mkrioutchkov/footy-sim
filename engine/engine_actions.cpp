@@ -791,7 +791,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     double accuracy = attrFactor(s.attrs.shooting) * staminaFrac(s.stamina);
     double goalCenterY = PITCH_H / 2.0;
     double shotDistance = std::hypot(gx - s.x, goalCenterY - s.y);
-    double freshCrossMax = s.role == Role::CF ? 285.0 : (s.role == Role::WM ? 270.0 : 250.0);
+    double freshCrossMax = agentFor(s)->freshCrossMaxDistance();
     bool freshCross = s.crossCollected > 0.0 && shotDistance < freshCrossMax;
     if (freshCross) stats.recordHeadedShot();
     stats.recordShotDistance(shotDistance);
