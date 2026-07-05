@@ -10,6 +10,7 @@ interface Summary {
   unknownLooseGoals: number;
   passSelection?: { pressuredReceptions: number };
   marking?: { finalThirdSamples: number };
+  qualityFlags?: Record<string, number>;
 }
 
 const executable = path.resolve(process.cwd(), 'build', 'live.exe');
@@ -36,6 +37,7 @@ for (const seed of [102, 103]) {
   assert(state.slideTackleDistanceAlerts === 0, `seed ${seed} generated tackle launches`);
   assert(state.ownPassGoals === 0, `seed ${seed} generated an own-pass goal`);
   assert(state.unknownLooseGoals === 0, `seed ${seed} generated an unknown loose-ball goal`);
+  assert((state.qualityFlags?.restart_law_violation ?? 0) === 0, `seed ${seed} released a restart with players standing illegally (Law 14/16)`);
   assert(state.passSelection?.pressuredReceptions !== undefined, `seed ${seed} lacks pass selection telemetry`);
   assert((state.marking?.finalThirdSamples ?? 0) > 0, `seed ${seed} lacks marking telemetry`);
 }

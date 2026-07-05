@@ -347,3 +347,34 @@ committing to all six.
    (`npm run batch` / `npm run scenarios`).
 6. "What makes an X behave in area Y?" is answerable by reading `role_traits.h` +
    the role's block + `pitch_zones.h` — no cross-file grep hunt.
+
+
+---
+
+## 2026-07-05 — Deliberate behaviour round (post-refactor)
+
+The first *intentional* behaviour change since the golden harness landed; the
+golden was re-baselined (now `25f5ef85`) and every step was A/B'd at 40 seeds.
+Driven by the owner watching a replay (seed 128 @8min) and calling five moments:
+
+| Complaint | Root cause | Fix |
+|---|---|---|
+| Players inside the box during a penalty | Restart enforcement was radial-only (96px) — never "outside the area" | `penaltyLegalStandback()` D-arc positioning + Law 14 box backstop in `enforceRestartDistance` |
+| Suicidal short keeper ball into a swarm | Receiver openness judged at RELEASE (40px floor), pressers not projected | Distribution judges openness at BALL ARRIVAL; floor 58 (85 when keeper pressed) |
+| Receiver freezing on the ball in his own box | The −2.0 hard dwell gate applied to Clear-purpose passes; panic trigger needed static pc≥2 | Clear exempt from the dwell brake; emergency clearance fires on CLOSING pressure, goes long+wide |
+| Missed killer through balls (1:15, 5:37) | Gates judged the runner's CURRENT spot while execution leads him 1.32×flight+90-210px | Through-ball gates evaluate the projected receive point (defenders projected too); onside stays current (the law) |
+| CB strolling across a presser; presser not engaging (1:22) | No tackle reward for the high steal; CB had no tight-press risk aversion | Counter-press prize in `scoreTackle`; CB Dribble −0.22 / Pass +0.05 under ≤34px press in own half |
+
+Compensating defense (no stat buffs): threat identification and marking
+anticipate runs via the same projection idea (0.9s / 0.55s).
+
+Net (40 seeds @10min): goals 0.45 → 0.38, shots 2.73 → 2.90, on-target ~flat,
+clearances 10 → ~14, passes/possession unchanged.
+
+Bug found by the scenario suite along the way: `LooseOrigin::ShotBlock` was set
+at the block site but never consumed by the goal classifier — a block ricochet
+rolling in fell to `LooseUnclassified`. Now `GoalSource::ShotDeflection`.
+
+Durable guard: `qualityFlags.restart_law_violation` counts players standing
+illegally AT the penalty strike / goal-kick release; `native-scenarios.ts`
+asserts it stays 0.

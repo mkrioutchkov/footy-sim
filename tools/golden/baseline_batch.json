@@ -167,6 +167,7 @@
             "questionable_backpass": 15,
             "questionable_press_assignment": 196,
             "questionable_shot_choice": 29,
+            "restart_law_violation": 0,
             "risky_pass_choice": 5599,
             "simulation_freeze": 0,
             "slide_tackle_distance": 0,

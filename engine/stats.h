@@ -228,6 +228,10 @@ class StatsCollector {
     void recordWhyPlayerRunningDir() { whyPlayerRunningDir++; }
     void recordStationaryHold500ms() { stationaryHold500ms++; }
     void recordUnknownQualityFlag() { unknownQualityFlags++; }
+    // Restart-law audit (Law 14/16): a player standing illegally (inside the
+    // box / arc at a penalty kick, opponent inside the box at a goal kick) AT
+    // THE MOMENT of release. Guarded to 0 by the scenario suite.
+    void recordRestartLawViolation() { restartLawViolations++; }
     void recordQualityFlag(QualityFlag flag);
     void recordDecisionMoment() { decisionMoments++; }
     void recordPlayerDecision() { playerDecisions++; }
@@ -346,6 +350,7 @@ class StatsCollector {
     int timeWastingDribbles = 0, backwardDribbles = 0, whyPlayerRunningDir = 0;
     int stationaryHold500ms = 0;
     int unknownQualityFlags = 0;
+    int restartLawViolations = 0;
     int decisionMoments = 0, playerDecisions = 0, staleGrabs = 0, skillMoves = 0, shotsBlocked = 0;
     int taskSelectionsTotal = 0, taskSelectionsPrimary = 0, taskSelectionsSecondary = 0;
     int taskSelectionsCover = 0, taskSelectionsLine = 0, taskSelectionsScreen = 0;

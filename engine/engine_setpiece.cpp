@@ -196,6 +196,16 @@ void GameEngine::releaseSetPiece() {
         return;
     }
     if (setPiece.type == SetPiece::Penalty) {
+        // Law 14 audit at the actual strike: anyone but the taker and the
+        // keepers inside the area or the arc is a violation (scenario-guarded
+        // to 0 — this is how the ten-men-in-the-box replay bug stays dead).
+        for (auto& p : state.players) {
+            if (p.id == holder->id || p.role == Role::GK || p.sentOff) continue;
+            bool inBox = std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0
+                      && std::abs(p.x - goalXFor(setPiece.team)) < PENALTY_AREA_W;
+            bool inArc = dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < 88.0;
+            if (inBox || inArc) stats.recordRestartLawViolation();
+        }
         stats.recordPenaltyTaken();
         shot.penalty = true;
         shootBall(*holder, nullptr);
@@ -328,6 +338,14 @@ void GameEngine::releaseGoalKick(Player& holder) {
     if (holder.role != Role::GK) return;
     double fd = fdFor(holder.team);
     double ownGoalX = ownGoalXFor(holder.team);
+    // Law 16 audit at release: opponents must be outside the area when a goal
+    // kick is played (scenario-guarded to 0).
+    for (auto& p : state.players) {
+        if (p.team == holder.team || p.sentOff) continue;
+        if ((p.x - ownGoalX) * fd < PENALTY_AREA_W
+            && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0)
+            stats.recordRestartLawViolation();
+    }
     // Modern short goal kick: if a defender is open with a clean lane, roll it to
     // him (secure — fast, accurate) instead of hoofing it 50/50. The 2019 rule
     // lets the ball be received inside the area. Falls through to the long kick
