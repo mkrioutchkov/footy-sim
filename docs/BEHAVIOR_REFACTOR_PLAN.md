@@ -1,5 +1,30 @@
 # Behaviour-by-position / behaviour-by-location refactor — plan
 
+> ## Status — shipped (byte-identical, verified)
+>
+> The backbone is landed on `claude/behavior-position-analysis-pb4niv`. Every
+> commit is proven behaviour-preserving by `tools/golden/verify.sh`: **40/40
+> seeds byte-identical**, scenarios pass, and the aggregate benchmark is
+> **69/69 metrics identical (100%)** — comfortably past the "stay ~95%" bar.
+>
+> **Done:**
+> - `tools/golden/` — frozen determinism baseline + `verify.sh` (the acceptance test).
+> - `role_traits.h` (`namespace roles`) + `pitch_zones.h` (`namespace pitch`) — the
+>   two shared vocabularies. The 10 `PlayerAI` role-predicate hooks now delegate to
+>   `roles::`; the redundant per-role overrides are gone.
+> - `makeAgentFor()` — the copy-pasted role→AI factory de-duplicated.
+> - Dead `PitchArea` enum + `currentPitchArea()` removed.
+> - ~85 call sites routed: `lateralFromCenter` ×46, `distToOwn/OppGoal` ×11,
+>   `isAttacker`/`isDefenderRole`/`isWide`/`isGoalkeeper` role folds ×13,
+>   `inDangerZone` ×4, `inOwnHalf` ×3, `inOwnDefensiveThird`/`inFinalThird` ×8.
+>
+> **Mapped but not yet routed** (a discovery pass catalogued **376 sites — 321
+> EXACT_SAFE**; the tail is lower-value single-role `== Role::X` checks and a few
+> boundary-sensitive scalar folds like `ballAdvance`). The vocabulary + harness are
+> in place, so continuing is mechanical: fold a cluster, run `verify.sh`, commit.
+> Value-unification (Phase 4 below) remains deliberately untouched — that's a
+> *balance* change, not this pure refactor.
+
 **Scope: `engine/` only.** No web/TS changes, no `spec.json`/summary/wire-format
 changes (`docs/CONTRACT.md` stays frozen). Everything here is an *internal*
 refactor.
