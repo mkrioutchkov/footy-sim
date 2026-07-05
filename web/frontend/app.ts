@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT, type TimelineEventT, type LeadersT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT, type TimelineEventT, type LeadersT, type PlayerSeasonStatT } from './api';
 import { MatchRenderer } from './renderer';
 import { PITCH_W, PITCH_H } from './constants';
 import type { EngineState } from './types';
@@ -2883,6 +2883,40 @@ async function screenPlayer(slot: number) {
       h('label', { class: 'row', style: 'gap:5px;align-items:center;font-size:12px' }, h('span', { class: 'muted' }, 'Intensity'), piSel),
       h('label', { class: 'row', style: 'gap:5px;align-items:center;font-size:12px' }, h('span', { class: 'muted' }, 'Retrain'), rtSel)));
 
+  // §player-stats: this season's contribution (goals/assists/apps/avg-rating, tallied from every fixture's
+  // --summary in leaders.ts) + a career table archived per season. The season figures live on the player
+  // payload now; the career rows load async (empty until his first season completes at rollover).
+  const seasonAvg = (p.seasonApps ?? 0) > 0 ? (p.seasonRatingSum ?? 0) / (p.seasonApps ?? 1) : null;
+  const statTile = (label: string, val: string, big = false) => h('div', { style: 'min-width:64px;text-align:center' },
+    h('div', { style: `font-size:${big ? 22 : 20}px;font-weight:800;font-variant-numeric:tabular-nums` }, val),
+    h('div', { class: 'muted', style: 'font-size:11px' }, label));
+  const careerBody = h('div', { class: 'muted', style: 'font-size:12px' }, 'Loading career…');
+  const statsCard = h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'This season'),
+    h('div', { class: 'row', style: 'gap:20px;flex-wrap:wrap' },
+      statTile('Apps', String(p.seasonApps ?? 0)),
+      statTile('Goals', String(p.seasonGoals ?? 0)),
+      statTile('Assists', String(p.seasonAssists ?? 0)),
+      statTile('Avg rating', seasonAvg != null ? seasonAvg.toFixed(1) : '—', true)),
+    h('div', { class: 'section-title' }, 'Career'),
+    careerBody);
+  // load the career table into its placeholder (kept out of the initial mount so the profile paints fast)
+  api.playerCareer(slot).then(r => {
+    if (!alive()) return;
+    if (!r.career.length) { careerBody.replaceChildren(h('div', { class: 'muted', style: 'font-size:12px' }, 'No completed seasons yet — his career table fills in at the end of each season.')); return; }
+    const th = (t: string, left = false) => h('th', { style: `text-align:${left ? 'left' : 'right'};padding:3px 8px;font-size:11px;font-weight:600;color:var(--muted)` }, t);
+    const td = (v: string, left = false, style = '') => h('td', { style: `text-align:${left ? 'left' : 'right'};padding:3px 8px;font-size:13px;font-variant-numeric:tabular-nums;${style}` }, v);
+    // career totals across the archived seasons (weighted average rating by apps)
+    const tot = r.career.reduce((a, s) => ({ apps: a.apps + s.apps, goals: a.goals + s.goals, assists: a.assists + s.assists, ratedApps: a.ratedApps + (s.avgRating > 0 ? s.apps : 0), ratingSum: a.ratingSum + s.avgRating * s.apps }), { apps: 0, goals: 0, assists: 0, ratedApps: 0, ratingSum: 0 });
+    const totAvg = tot.ratedApps > 0 ? (tot.ratingSum / tot.ratedApps).toFixed(1) : '—';
+    careerBody.replaceChildren(h('div', { style: 'overflow-x:auto' }, h('table', { style: 'width:100%;border-collapse:collapse' },
+      h('thead', {}, h('tr', { style: 'border-bottom:1px solid var(--line)' }, th('Season', true), th('Club', true), th('Apps'), th('Goals'), th('Assists'), th('Avg'))),
+      h('tbody', {},
+        ...r.career.map((s: PlayerSeasonStatT) => h('tr', { style: 'border-bottom:1px solid var(--line)' },
+          td(`S${s.season}`, true), td(s.club, true, 'color:var(--muted)'), td(String(s.apps)), td(String(s.goals)), td(String(s.assists)), td(s.avgRating > 0 ? s.avgRating.toFixed(1) : '—'))),
+        r.career.length > 1 ? h('tr', { style: 'font-weight:700' }, td('Total', true), td('', true), td(String(tot.apps)), td(String(tot.goals)), td(String(tot.assists)), td(totAvg)) : ''))));
+  }).catch(() => { if (alive()) careerBody.replaceChildren(h('div', { class: 'muted', style: 'font-size:12px' }, 'Career history unavailable.')); });
+
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
@@ -2921,6 +2955,7 @@ async function screenPlayer(slot: number) {
           })),
       ),
       interactCard),
+    statsCard,
     devCard,
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Personality dials'), traitsEl),

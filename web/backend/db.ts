@@ -351,6 +351,26 @@ CREATE TABLE IF NOT EXISTS season_history (
   created_at  INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_history_team_season ON season_history(team_id, season);
+
+-- Per-player season stat archive (career history on the player profile). Written at rollover for
+-- human-club players BEFORE the live season_* columns reset (season.ts). Keyed by the STABLE
+-- players.id + season so a player's line follows him across seasons at the same club; name/club/role
+-- are snapshots (a club rename / retrain won't rewrite old rows). rating_sum + apps → average rating.
+CREATE TABLE IF NOT EXISTS player_season_stats (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id   INTEGER NOT NULL,           -- stable players.id
+  team_id     INTEGER NOT NULL,           -- club the season was played for
+  season      INTEGER NOT NULL,           -- the campaign that just finished
+  name        TEXT NOT NULL,              -- name snapshot
+  club        TEXT NOT NULL,              -- club-name snapshot
+  role        TEXT NOT NULL,              -- role snapshot
+  goals       INTEGER NOT NULL,
+  assists     INTEGER NOT NULL,
+  apps        INTEGER NOT NULL,
+  rating_sum  REAL NOT NULL,              -- sum of match ratings; avg = rating_sum / apps
+  created_at  INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pss_player_season ON player_season_stats(player_id, season);
 `);
 
 // ── Board objectives (season expectation) ───────────────────────────────────

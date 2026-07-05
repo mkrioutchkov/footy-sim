@@ -15,7 +15,7 @@ import { purgeRecordings } from './match.ts';
 import { purgeReports } from './report.ts';
 import { returnLoans } from './market.ts';
 import { recordSeasonAwards, type SeasonAward } from './news.ts';
-import { recordSeasonHistory } from './history.ts';
+import { recordSeasonHistory, recordSeasonPlayerStats } from './history.ts';
 import { getObjective, setSeasonObjective, deriveObjective, objectiveMet } from './objectives.ts';
 import { settleConfidenceAtRollover, boardVerdictAtRollover, type BoardTone } from './confidence.ts';
 import { recordFinance } from './finances.ts';
@@ -110,6 +110,9 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
     const lph = leagues.map(() => '?').join(',');
     const humanTeams = db.prepare(`SELECT id FROM teams WHERE league_id IN (${lph}) AND user_id IS NOT NULL`).all(...leagues.map(l => l.id)) as { id: number }[];
     for (const t of humanTeams) out.awards.push(...recordSeasonAwards(t.id, endSeason));
+    // archive each human club's per-player season stats for the profile's career table — BEFORE the
+    // per-league loop below zeroes season_goals/assists/apps/rating_sum (same window as the awards).
+    for (const t of humanTeams) recordSeasonPlayerStats(t.id, endSeason);
 
     // 1. prize money by final position
     for (const { league, table } of finals) {

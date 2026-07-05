@@ -87,3 +87,31 @@ export function getHistory(teamId: number): SeasonHistoryRow[] {
     board: r.board_tone != null ? { tone: r.board_tone, message: r.board_message ?? '', confidence: r.board_confidence ?? 0 } : null,
   }));
 }
+
+// ── Per-player career archive (see player_season_stats in db.ts) ─────────────
+export interface PlayerSeasonStat { season: number; club: string; role: string; goals: number; assists: number; apps: number; avgRating: number }
+
+// Archive one club's players' just-finished season stats, called inside the rollover tx BEFORE the
+// live season_* columns reset (season.ts). Only players who actually appeared (apps > 0) get a row —
+// a squad filler who never played leaves no career line. Idempotent per (player, season) via
+// INSERT OR IGNORE + the unique index, so a double rollover can't duplicate.
+export function recordSeasonPlayerStats(teamId: number, season: number): void {
+  const club = (db.prepare('SELECT name FROM teams WHERE id = ?').get(teamId) as { name: string } | undefined)?.name ?? 'Club';
+  const rows = db.prepare(
+    'SELECT id, name, role, season_goals, season_assists, season_apps, season_rating_sum FROM players WHERE team_id = ? AND season_apps > 0',
+  ).all(teamId) as { id: number; name: string; role: string; season_goals: number; season_assists: number; season_apps: number; season_rating_sum: number }[];
+  const ins = db.prepare(
+    `INSERT OR IGNORE INTO player_season_stats
+       (player_id, team_id, season, name, club, role, goals, assists, apps, rating_sum, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  const now = Date.now();
+  for (const p of rows) ins.run(p.id, teamId, season, p.name, club, p.role, p.season_goals ?? 0, p.season_assists ?? 0, p.season_apps ?? 0, p.season_rating_sum ?? 0, now);
+}
+
+// A player's archived seasons, newest first (avg rating rounded to 1dp; guarded against apps=0).
+export function getPlayerCareer(playerId: number): PlayerSeasonStat[] {
+  const rows = db.prepare('SELECT season, club, role, goals, assists, apps, rating_sum FROM player_season_stats WHERE player_id = ? ORDER BY season DESC')
+    .all(playerId) as { season: number; club: string; role: string; goals: number; assists: number; apps: number; rating_sum: number }[];
+  return rows.map(r => ({ season: r.season, club: r.club, role: r.role, goals: r.goals, assists: r.assists, apps: r.apps, avgRating: r.apps > 0 ? Math.round((r.rating_sum / r.apps) * 10) / 10 : 0 }));
+}

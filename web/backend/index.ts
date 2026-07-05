@@ -35,7 +35,7 @@ import { getBoardMeeting, requestBoardBacking, type BoardRequestKind } from './b
 import { getManagerCareer, managerReputation } from './career.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
-import { getHistory, getClubRecords } from './history.ts';
+import { getHistory, getClubRecords, getPlayerCareer } from './history.ts';
 import { getObjective } from './objectives.ts';
 import { getConfidence, boardMood, recruitmentBacking, boardMessages } from './confidence.ts';
 import { getStaffView, hireStaff, fireStaff, saveCoachAssignment } from './staff.ts';
@@ -689,6 +689,19 @@ app.post('/api/player/:slot/interact', async (req: any, reply) => {
   const r = interactWithPlayer(teamId, slot, req.body.tone);
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return r;
+});
+
+// A squad player's archived career — one row per finished season (goals/assists/apps/avg-rating),
+// resolved slot → stable players.id within the user's own club (career only for players you manage).
+app.get('/api/player/:slot/career', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.params?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+  const row = db.prepare('SELECT id FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as { id: number } | undefined;
+  if (!row) return reply.code(404).send({ error: 'no such player in your squad' });
+  return { career: getPlayerCareer(row.id) };
 });
 
 // Unsettled players (§2.3 depth) — the dressing-room concerns the manager can act on, + resolving one.
