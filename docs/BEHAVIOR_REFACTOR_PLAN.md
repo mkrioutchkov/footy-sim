@@ -38,16 +38,25 @@
 >   `freshCrossMaxDistance()` hook it duplicated; more goal-distance / progress /
 >   shot-distance scalars routed through `pitch::` (`distToGoalMouth`,
 >   `forwardProgress`, `forwardGain`).
-> - **Giant-function decomposition** — `checkBallPlayerCollision` **464 → 15 lines**:
->   a clean 5-phase orchestrator (`tryCutbackFirstTimeFinish`, `tryKeeperLooseGather`,
->   `tryIntendedReceiverMeet`, `tryKeeperCrossClaim`, `resolveBallContact`).
->   `attemptTackle` → `resolveTackleFoul` (the failed-tackle branch; narrow
->   `fromBehind/cynical/boxFoulScale` interface). `updateSetPiecePhase` →
->   `populateThrowInSupport` (single `spTeam` input). Where a function is a *linear*
->   numeric pipeline (`shootBall`, `scorePassToTarget`, `applyMovement`) or already
->   decomposed (`scorePositioning`'s `pos*` helpers), it was **deliberately left** —
->   extracting a sub-stage there needs a 7–15-field struct/param interface that
->   reads worse than the inline block.
+> - **Giant-function decomposition** —
+>   `checkBallPlayerCollision` **464 → 15 lines**: a 5-phase orchestrator
+>   (`tryCutbackFirstTimeFinish`, `tryKeeperLooseGather`, `tryIntendedReceiverMeet`,
+>   `tryKeeperCrossClaim`) + `findBallContact` (swept-path finding) →
+>   `resolveBallContact` (collision outcome).
+>   `updatePossessionTracking` **211 → 63**: carrier-diagnostics branch →
+>   `trackCarrierPossession`.
+>   `attemptTackle` → `resolveTackleFoul` (failed-tackle branch, narrow
+>   `fromBehind/cynical/boxFoulScale` interface).
+>   `updateSetPiecePhase` → `populateThrowInSupport` (single `spTeam` input).
+>   Where a function is a *linear* numeric pipeline (`shootBall`,
+>   `scorePassToTarget`, `applyMovement`), decision-soup over shared perception
+>   locals (`scoreDribble`, `scoreChase`), already decomposed (`scorePositioning`'s
+>   `pos*` helpers), or gated behind a local lambda (`releaseSetPiece`), it was
+>   **deliberately left** — extracting there needs a 7–15-field struct/param
+>   interface that reads worse than the inline block.
+>   (Note: the brace-matcher used for slicing must ignore `{`/`}` inside comments
+>   *and* string literals — a naive count mis-split an `if/else` once; the build
+>   caught it, and reading the real structure fixed it.)
 > - **Cleanups** — cryptic locals renamed (`mr`→`maxShootRange`, `bdg`→`ballGoalDist`,
 >   `sp`→`step`); unused vocabulary helpers removed (self-review found the same
 >   "built and abandoned" smell as the dead `PitchArea`).
