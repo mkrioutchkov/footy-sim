@@ -36,6 +36,7 @@ import { getManagerCareer, managerReputation } from './career.ts';
 import { buildMatchReport } from './report.ts';
 import { buildScoutReport } from './scout.ts';
 import { getHistory, getClubRecords, getPlayerCareer } from './history.ts';
+import { assembleInboxItems, matchdayHeadline, recordMatchdayInbox, getInbox, countUnread, markInboxRead } from './inbox.ts';
 import { getObjective } from './objectives.ts';
 import { getConfidence, boardMood, recruitmentBacking, boardMessages } from './confidence.ts';
 import { getStaffView, hireStaff, fireStaff, saveCoachAssignment } from './staff.ts';
@@ -1024,6 +1025,23 @@ app.get('/api/news', async (req: any, reply) => {
   return { news: recentNews(teamId, limit) };
 });
 
+// §inbox: the persistent matchday feed (results/transfers/injuries/contracts/cup/board/awards), newest
+// first + the unread count. Written server-side at /api/advance; survives rollover, grouped by season.
+app.get('/api/inbox', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const limit = Math.min(200, Math.max(1, Number((req.query as any)?.limit) || 50));
+  return { inbox: getInbox(teamId, limit), unread: countUnread(teamId) };
+});
+app.post('/api/inbox/read', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  markInboxRead(teamId, { id: req.body?.id != null ? Number(req.body.id) : undefined, all: !!req.body?.all });
+  return { ok: true, unread: countUnread(teamId) };
+});
+
 // Backroom staff: the club's coaches/physios/scouts + the world's hire pool + current effects.
 app.get('/api/staff', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
@@ -1128,6 +1146,11 @@ app.post('/api/advance', async (req: any, reply) => {
   try {
   const team = getTeamWithPlayers(teamId)!;
   const leagues = worldLeagues(team.leagueId);
+  // Inbox key: the season + WORLD round (min unplayed across the world's leagues) captured BEFORE playing.
+  // World round (not userRound) because userRound is null once the user's division is done but the world
+  // isn't — and it's always non-null + increments once per advance, so it can't collide two matchdays.
+  const inboxSeason = (db.prepare('SELECT season FROM leagues WHERE id = ?').get(team.leagueId) as { season: number } | undefined)?.season ?? 1;
+  const inboxRound = (db.prepare(`SELECT MIN(round) AS r FROM fixtures WHERE league_id IN (${leagues.map(() => '?').join(',')}) AND played = 0`).get(...leagues.map(l => l.id)) as { r: number | null }).r ?? 0;
   // the round number the user's own division is completing this matchday (for the UI)
   const userRound = (db.prepare('SELECT MIN(round) AS r FROM fixtures WHERE league_id = ? AND played = 0').get(team.leagueId) as { r: number | null }).r;
   const toPlay = pendingMatchday(team.leagueId);
@@ -1185,14 +1208,26 @@ app.post('/api/advance', async (req: any, reply) => {
   // the background (best-effort; never blocks the response, never touches established players).
   if (rollover) void fillMissingPersonalities(teamId).catch(() => { /* regens stay neutral on failure */ });
   const nowLeagueId = getTeamWithPlayers(teamId)!.leagueId;
+  // §inbox: assemble this matchday's items ONCE, server-side, from the same locals the response carries;
+  // persist them (idempotent by team+season+world-round) and return them so the dashboard digest renders
+  // from the identical array — no frontend/backend drift.
+  const myContractOffers = contractEvents.filter(e => e.teamId === teamId);
+  const inboxBag = {
+    teamId, myResult, myFixtureId: myFx?.id ?? null, income, developed, injuries, transfers,
+    incomingBids, faOffers, listingsExpired, contractOffers: myContractOffers, cup, rollover,
+  };
+  const inboxItems = assembleInboxItems(inboxBag);
+  const digestHeadline = matchdayHeadline(inboxBag);
+  try { recordMatchdayInbox(teamId, inboxSeason, inboxRound, inboxItems); } catch { /* archive is best-effort — never fail the matchday */ }
   return {
     round: userRound, myFixtureId: myFx?.id ?? null, myResult, results,
     transfers, development: { players: developed }, injuries, cup, rollover,
-    contractOffers: contractEvents.filter(e => e.teamId === teamId),   // §2.2: my renewal verdicts this matchday
+    contractOffers: myContractOffers,   // §2.2: my renewal verdicts this matchday
     listingsExpired,   // §2.4: my listings that lapsed unsold
     incomingBids,      // §2.1: other clubs bidding for my listed players
     faOffers,          // §2.1: free agents answering my contract offers
     income,            // §P2: matchday gate & TV income credited this tick
+    inbox: inboxItems, digestHeadline,   // §inbox: the persisted digest items + headline (dashboard renders these)
     standings: standings(nowLeagueId),
   };
   } finally { advancing.delete(user.id); }

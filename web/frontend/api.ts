@@ -123,6 +123,8 @@ export interface ShoutReviewT { minute: number; text: string; directives: number
 export interface TacticsReviewT { side?: 'home' | 'away'; scores?: { home: number; away: number }; shouts: ShoutReviewT[]; }
 
 export interface NewsItemT { player: string; type: 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury' | 'pots' | 'young_pots' | 'press'; headline: string; season: number; slot: number; }
+export interface InboxItemT { category?: string; icon: string; text: string; hash?: string | null; }
+export interface InboxRowT extends InboxItemT { id: number; season: number; round: number; read: boolean; }
 
 export interface LeaderRowT { name: string; club: string; role: string; value: number; isMine: boolean; }
 export interface LeadersT { division: string; scorers: LeaderRowT[]; assists: LeaderRowT[]; ratings: LeaderRowT[]; teamOfSeason: LeaderRowT[]; }
@@ -211,7 +213,7 @@ export const api = {
   league: () => req<LeagueT>('GET', '/league'),
   playFixture: (id: number) => req<{ result: { homeScore: number; awayScore: number; alreadyPlayed: boolean }; standings: StandingT[] }>('POST', `/fixtures/${id}/play`),
   playNext: () => req<{ fixtureId: number; result: { homeScore: number; awayScore: number }; standings: StandingT[] }>('POST', '/play-next'),
-  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; injuries?: { teamId: number; player: string; matches: number }[]; cup?: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null; rollover?: RolloverT | null; contractOffers?: ContractOfferEventT[]; listingsExpired?: { teamId: number; teamName: string; player: string; role: string }[]; incomingBids?: { player: string; fee: number; from: string }[]; faOffers?: { player: string; role: string; wage: number; years: number; type: 'fa_signed' | 'fa_rejected' | 'fa_expired' | 'fa_gone' }[]; income?: number; standings: StandingT[] }>('POST', '/advance'),
+  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; injuries?: { teamId: number; player: string; matches: number }[]; cup?: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null; rollover?: RolloverT | null; contractOffers?: ContractOfferEventT[]; listingsExpired?: { teamId: number; teamName: string; player: string; role: string }[]; incomingBids?: { player: string; fee: number; from: string }[]; faOffers?: { player: string; role: string; wage: number; years: number; type: 'fa_signed' | 'fa_rejected' | 'fa_expired' | 'fa_gone' }[]; income?: number; inbox: InboxItemT[]; digestHeadline: string; standings: StandingT[] }>('POST', '/advance'),
   cup: () => req<CupT>('GET', '/cup'),
   market: () => req<MarketT>('GET', '/market'),
   buyAgent: (agentId: number) => req<{ ok: boolean; placed: 'xi' | 'bench'; value: number; name: string; market: MarketT }>('POST', '/market/buy', { agentId }),
@@ -277,6 +279,8 @@ export const api = {
   tactics: (fixtureId: number) => req<TacticsReviewT>('GET', `/tactics?fixture=${fixtureId}`),
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: (limit?: number) => req<{ news: NewsItemT[] }>('GET', limit ? `/news?limit=${limit}` : '/news'),
+  inbox: (limit?: number) => req<{ inbox: InboxRowT[]; unread: number }>('GET', limit ? `/inbox?limit=${limit}` : '/inbox'),
+  markInboxRead: (opts: { id?: number; all?: boolean }) => req<{ ok: boolean; unread: number }>('POST', '/inbox/read', opts),
   leaders: () => req<LeadersT>('GET', '/leaders'),
   history: () => req<{ history: SeasonHistoryT[]; records: ClubRecordsT }>('GET', '/history'),
   staff: () => req<StaffViewT>('GET', '/staff'),

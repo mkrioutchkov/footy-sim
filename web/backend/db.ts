@@ -236,6 +236,24 @@ CREATE TABLE IF NOT EXISTS player_news (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_news_team ON player_news(team_id, id);
+
+-- Persistent matchday inbox (the FM home-screen feed). One row per digest item, written server-side at
+-- the /api/advance chokepoint (inbox.ts) — results, transfers, injuries, contracts, cup, board, awards.
+-- Sibling of player_news: same team-scoped, season-grouped, append-only lifecycle (NOT reset at rollover;
+-- the season column groups the screen). id is the ordering + idempotency key (no Date.now reliance).
+CREATE TABLE IF NOT EXISTS inbox (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_id    INTEGER NOT NULL,                  -- world-scoped via the user's club
+  season     INTEGER NOT NULL,                  -- season that produced the item (screen grouping)
+  round      INTEGER NOT NULL,                  -- world matchday round (ordering + idempotency)
+  category   TEXT NOT NULL,                     -- result|finance|development|injury|transfer|bid|contract|cup|season|youth|award|board
+  icon       TEXT NOT NULL,
+  text       TEXT NOT NULL,
+  hash       TEXT,                              -- deep-link e.g. '#/report/123'; NULL = no link
+  read       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_inbox_team ON inbox(team_id, id);
 `);
 
 // ── Ratings → morale + season awards (core/LLM stream) ──────────────────────
