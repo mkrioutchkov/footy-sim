@@ -200,6 +200,33 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
         int pc = per.pressureCount;
         double fd = fdFor(player.team);
         double progress = (player.x - ownGoalXFor(player.team)) * fd;
+
+        // ── Back-pressure layoff ── A rider on the carrier's BACK (behind his
+        // line of travel, touch-tight) means: shield it and give it simple —
+        // the short lay-back to a supporting teammate beats carrying on blind
+        // (watched replay 0:12-0:17: a chased carrier ran four seconds without
+        // once considering the free layoff behind him).
+        {
+            double spd = std::hypot(player.vx, player.vy);
+            if (pc >= 1 && spd > 12.0 && per.nearestOpponentDist < 42.0) {
+                double fx = player.vx / spd, fy = player.vy / spd;
+                double bnx = 0, bny = 0, bd2 = 1e9;
+                for (auto& o : engine.state.players) {
+                    if (!isActiveOpponent(o, player.team)) continue;
+                    double d2 = dist(o.x, o.y, player.x, player.y);
+                    if (d2 < bd2) { bd2 = d2; bnx = o.x - player.x; bny = o.y - player.y; }
+                }
+                double bl = std::hypot(bnx, bny);
+                if (bl > 0.5 && (bnx * fx + bny * fy) / bl < -0.25) {
+                    for (auto& x : a) {
+                        if (x.type == ActionType::Pass && x.audit.distance < 190.0
+                            && x.audit.forwardProgress < 40.0 && x.audit.expectedCompletion > 0.70)
+                            x.score += 0.14;
+                        if (x.type == ActionType::Dribble) x.score -= 0.06;
+                    }
+                }
+            }
+        }
         bool carryLaunchZone = progress > PITCH_W * 0.42 && progress < PITCH_W * 0.78;
         bool hasGrassToCarry = per.nearestOpponentDist > 90.0 && pc == 0;
         for (auto& x : a) {
@@ -478,8 +505,21 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
                 stunLockTicks = 16;
             }
         } else {
-            p.targetX = a.target ? a.target->x : p.x;
-            p.targetY = a.target ? a.target->y : p.y;
+            // Approach at an INTERCEPT point, not the carrier's heels: chasing
+            // his current spot pins the pursuer just outside tackle range
+            // forever (watched replay 0:12-0:17: two defenders trailing a
+            // lateral carrier at 24px for four seconds). Lead along his
+            // velocity so the challenge arrives in his PATH and forces the
+            // turn.
+            if (a.target) {
+                double td = dist(p.x, p.y, a.target->x, a.target->y);
+                double lead = clamp(td / 90.0, 0.25, 0.8);
+                p.targetX = clamp(a.target->x + a.target->vx * lead, 8.0, PITCH_W - 8.0);
+                p.targetY = clamp(a.target->y + a.target->vy * lead, 8.0, PITCH_H - 8.0);
+            } else {
+                p.targetX = p.x;
+                p.targetY = p.y;
+            }
         }
     }
     else if (a.type == ActionType::Mark && a.target) {

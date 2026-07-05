@@ -215,7 +215,14 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         double rushTargetY = clamp(lerp(gk.y, state.ball.y, 0.7), PITCH_H * 0.12, PITCH_H * 0.88);
         gk.targetX = rushTargetX;
         gk.targetY = rushTargetY;
-    } else if (!ballLoose || !ballInOurHalf) {
+    } else if (!ballInOurHalf || (!ballLoose && carrier && carrier->team == gk.team)) {
+        // Only the far-half / our-possession cases belong here. This branch used
+        // to also claim "opponent carrier in our half" (condition was
+        // !ballLoose || !ballInOurHalf) — clobbering the angle-play target the
+        // chain above had just computed with a dead-central homeY stand
+        // (watched replay 0:50: winger bearing down from a wide angle, keeper
+        // planted at goal centre 65px off the shot line; only a near-central
+        // finish saved him).
         bool ownTeamHasBall = carrier && carrier->team == gk.team;
         // Sweep high when play is in the far half — standing 2m off the line
         // 80m from the ball reads as a statue, and the space behind the

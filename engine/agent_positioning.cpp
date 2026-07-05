@@ -14,9 +14,22 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
     {
         int myIdx = teamIndex(p.team);
         if (!my && engine.teamTactics[myIdx].defenseHoldingShape && (isCenterForward() || isWideMidfielder())) {
-            double dropX = clamp(HALF_X + fd * 40.0, 60.0, PITCH_W - 60.0);
-            double dropY = clamp(p.homeY, 40.0, PITCH_H - 40.0);
-            return { Action{ActionType::Position, 0.95, nullptr, dropX, dropY, ActionPurpose::Observe} };
+            // "Only the primary container engages" — but this early-return
+            // swallowed even HIS duty: the assigned presser's drop (0.95)
+            // outbid his own press task (0.86), so his target flip-flopped
+            // between pressing and the halfway drop on every re-rank (watched
+            // replay 0:21: the striker jogging away from the keeper
+            // mid-backpass). A press/close-down assignee falls through to
+            // normal candidate generation, where his task candidate lives.
+            auto* myTask = engine.assignmentFor(p.id);
+            bool pressDuty = myTask && (myTask->role == DefensiveTask::PrimaryPress
+                                     || myTask->role == DefensiveTask::SecondaryPress
+                                     || myTask->role == DefensiveTask::CloseDown);
+            if (!pressDuty) {
+                double dropX = clamp(HALF_X + fd * 40.0, 60.0, PITCH_W - 60.0);
+                double dropY = clamp(p.homeY, 40.0, PITCH_H - 40.0);
+                return { Action{ActionType::Position, 0.95, nullptr, dropX, dropY, ActionPurpose::Observe} };
+            }
         }
     }
     double ba = (fd == 1.0) ? b.x / PITCH_W : 1.0 - b.x / PITCH_W;

@@ -453,6 +453,18 @@ Action PlayerAI::scoreChase(const Perception& per) {
     double sc = per.ballDist < 50.0 ? 0.90 : per.ballDist < 100.0 ? 0.75 : 0.55;
     sc -= per.ballDist / 180.0 * 0.3;
 
+    // Press the backpass: a ball rolling to the OPPOSING KEEPER deep in his
+    // territory is a pressing trigger, not a hold-shape moment — the nearest
+    // forward hunts the reception to force the rushed clearance (watched
+    // replay 0:21: the striker jogged away mid-roll because the hold-shape
+    // drop kept outbidding this chase, flip-flopping his target every tick).
+    if (Player* rcvGk = engine.playerById(b.intendedReceiverId)) {
+        if (rcvGk->team != player.team && rcvGk->role == Role::GK
+            && pitch::forwardProgress(rcvGk->x, rcvGk->team) < 220.0
+            && per.ballDist < 280.0 && per.amClosestToBall)
+            sc += 0.30;
+    }
+
     if (per.amClosestToBall) sc += 0.12;
     if (per.anyOpponentCloserToBall) {
         double ms = attrFactor(player.attrs.speed) * SPEED_SPRINT;

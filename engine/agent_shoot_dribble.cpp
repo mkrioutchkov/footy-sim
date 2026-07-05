@@ -81,10 +81,23 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         if (o.team != p.team && o.role == Role::GK) { gk = &o; break; }
     }
     if (gk) {
-        double gkOffCenter = std::abs(p.y - gk->y);
-        if (gkOffCenter > 60.0)      sc += 0.12;
-        else if (gkOffCenter < 25.0) sc -= 0.08;
-        if (std::abs(gk->x - gx) > 50.0) sc += 0.08;
+        // Judge the KEEPER'S coverage of this shot, not raw y-difference: his
+        // perpendicular offset from the shot line (shooter -> goal centre) at
+        // his own depth, normalised by the shot cone's half-width there.
+        // openness 0 = plumb on the line, 1 = a post effectively open (watched
+        // replay 0:50: keeper planted at goal centre against a wide-angle
+        // carrier — the old |p.y - gk.y| test barely noticed; this sees the
+        // gaping near post).
+        double span = std::abs(gx - p.x);
+        if (span > 8.0) {
+            double frac = clamp((gk->x - p.x) / (gx - p.x), 0.0, 1.0);
+            double yLine = p.y + frac * (PITCH_H / 2.0 - p.y);
+            double hw = GOAL_W / 2.0 * frac;
+            double openness = clamp((std::abs(gk->y - yLine) - 6.0) / std::max(hw, 10.0), 0.0, 1.2);
+            sc += openness * 0.16;
+            if (openness < 0.12 && shotDistance > 120.0) sc -= 0.08; // set keeper, long shot: the old damper
+        }
+        if (std::abs(gk->x - gx) > 50.0) sc += 0.08; // well off his line: chip/beat him
     }
 
     if (shotDistance < 100.0) sc += 0.14;
