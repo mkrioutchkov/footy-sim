@@ -335,33 +335,21 @@ public:
     // base config in configFor and clamped. All-zero = no override.
     struct ConfigDelta { double aggression=0, passingDirectness=0, overlapFrequency=0, midfieldFreedom=0, defensiveLineHeight=0; };
     std::array<ConfigDelta, 2> dialOverride{};
-    // play_it_long: a direct per-team pass-scorer hook (NOT a dial) — the dial's
-    // passingDirectness already varies by score-state in the default match, so
-    // coupling the long-ball gamble to it would change default play. This stays
-    // 0 unless the directive sets it, keeping the no-directive match identical.
-    std::array<double, 2> longBallBias{};
-    // slow_it_down: per-team safe-pass bias (NOT a dial — the dial deltas got
-    // swamped by the score-state tactics + clamp, so the kind was WEAK). Read in
-    // scorePassToTarget to prefer safe/recycle balls and shun risk. 0 by default.
-    std::array<double, 2> slowTempo{};
-    // counter_attack: per-team amplifier on the quick-transition through-ball +
-    // off-ball-run bonuses (0 => no-directive match identical). offside_trap:
-    // per-team flag that holds the line high in the danger zone. Both reset every
-    // tick in applyDirectives (pure clock/score functions, no rng).
-    std::array<double, 2> counterAttackBonus{};
-    std::array<bool, 2> offsideTrapActive{};
-    // shoot_from_distance / work_it_into_box: signed px added to each shooter's max shoot range (mr). 0 = default.
-    std::array<double, 2> shootDistBias{};
-    // all_out_attack: commit the overlap FB + a CM forward even on central /
-    // slightly-earlier carries (throw bodies forward), read by assignAttackingRoles.
-    // One-tick lagged (updateTeamAssignments precedes applyDirectives) — fine for a
-    // match-long order; deterministic. 0/false by default => no-directive identical.
-    std::array<bool, 2> allOutActive{};
-    // Defensive-shape redesign: this team is holding a MID-BLOCK this tick (the
-    // carrier is building up in his own half). Set in assignDefensiveRoles; read by
-    // agent_positioning to DROP this team's forwards out of the opponent's build-up
-    // zone (so the opponent can circulate — the §8 build-up-completion lever).
-    std::array<bool, 2> defenseHoldingShape{};
+    // Per-team directive hooks — extra tactical state set each tick by
+    // applyDirectives, layered on top of the 5 base dials in Config. [0]=home,
+    // [1]=away. All-zero = no directive, so the no-directive match is byte-
+    // identical. Adding a plain-English directive is now ONE field here (+ its
+    // set in applyDirectives and read at the relevant scorer).
+    struct TeamTactics {
+        double longBallBias = 0;        // play_it_long: long-ball gamble bias (pass scorer, NOT a dial)
+        double slowTempo = 0;           // slow_it_down: safe-pass / anti-risk bias in scorePassToTarget
+        double counterAttackBonus = 0;  // counter_attack: quick-transition through-ball + off-ball-run amplifier
+        double shootDistBias = 0;       // shoot_from_distance / work_it_into_box: ± px on each shooter's max range
+        bool   offsideTrapActive = false;   // offside_trap: hold the line high in the danger zone
+        bool   allOutActive = false;        // all_out_attack: commit the overlap FB + a CM forward
+        bool   defenseHoldingShape = false; // mid-block this tick — drop this team's forwards out of the build-up zone
+    };
+    std::array<TeamTactics, 2> teamTactics{};
     [[nodiscard]] Config configFor(Team team) const {
         Config c = team==Team::Home ? homeConfig : awayConfig;
         const ConfigDelta& dv = dialOverride[team==Team::Home ? 0 : 1];

@@ -13,7 +13,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
     // possession (more build-up, less constant scrappy pressing). Goals will spike.
     {
         int myIdx = teamIndex(p.team);
-        if (!my && engine.defenseHoldingShape[myIdx] && (isCenterForward() || isWideMidfielder())) {
+        if (!my && engine.teamTactics[myIdx].defenseHoldingShape && (isCenterForward() || isWideMidfielder())) {
             double dropX = clamp(HALF_X + fd * 40.0, 60.0, PITCH_W - 60.0);
             double dropY = clamp(p.homeY, 40.0, PITCH_H - 40.0);
             return { Action{ActionType::Position, 0.95, nullptr, dropX, dropY, ActionPurpose::Observe} };
@@ -152,13 +152,13 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
             // Quick transition: sprint in behind while the defence is unset (counters).
             // counter_attack amplifies it symmetrically with the through-ball bonus.
             if (engine.state.clockMs < engine.transitionUntilMs)
-                ob += 0.20 * (1.0 + engine.counterAttackBonus[teamIndex(p.team)])
+                ob += 0.20 * (1.0 + engine.teamTactics[teamIndex(p.team)].counterAttackBonus)
                            * clamp((engine.transitionUntilMs - engine.state.clockMs) / 400.0, 0.0, 1.0);
             // play_it_long: the forwards gamble on the over-the-top run so the long
             // ball has a TARGET — the dial hit it long but had no runner, so it was
             // committing to nothing. Gated on longBallBias (0 => no-directive match
             // unchanged); CF/WM, RunAhead purpose only.
-            double longB = engine.longBallBias[teamIndex(p.team)];
+            double longB = engine.teamTactics[teamIndex(p.team)].longBallBias;
             if (longB > 0.0 && cn.pur == ActionPurpose::RunAhead && (isCenterForward() || isWideMidfielder()))
                 ob += longB * 0.30;
         }

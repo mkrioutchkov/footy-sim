@@ -339,7 +339,7 @@ void GameEngine::releaseGoalKick(Player& holder) {
     // lets the ball be received inside the area. Falls through to the long kick
     // below when no safe short option exists. A play-it-long team skips this and
     // launches it (distribution tactic).
-    double gkLongBias = longBallBias[teamIndex(holder.team)];
+    double gkLongBias = teamTactics[teamIndex(holder.team)].longBallBias;
     if (!(gkLongBias > 0.0 && rng.random() < gkLongBias)) {
         Player* sp = nullptr;
         double bestSafe = -1e9;
@@ -514,7 +514,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
     // Distribution tactic: a team told to play it long sends its keeper long too
     // (probabilistic by the bias). Possession sides (bias 0 — the default) skip
     // this entirely and play out short-safe below.
-    double gkLongBias = longBallBias[teamIndex(holder.team)];
+    double gkLongBias = teamTactics[teamIndex(holder.team)].longBallBias;
     if (gkLongBias > 0.0 && rng.random() < gkLongBias) {
         puntLong();
         return;

@@ -105,12 +105,12 @@ void GameEngine::applyLiveCommands() {
 void GameEngine::applyDirectives() {
     directiveBias.fill({});
     dialOverride = {};      // reset team-wide dial deltas each tick (clock-driven)
-    longBallBias = {};      // reset play_it_long pass-scorer hook each tick
-    slowTempo = {};         // reset slow_it_down safe-pass hook each tick
-    counterAttackBonus = {};   // reset counter_attack transition amplifier each tick
-    offsideTrapActive = {};    // reset offside_trap line-hold flag each tick
-    shootDistBias = {};        // reset shoot_from_distance/work_it_into_box shoot-range bias each tick
-    allOutActive = {};         // reset all_out_attack runner-commit flag each tick
+    // Reset the per-tick directive hooks (defenseHoldingShape is NOT reset here —
+    // it's set for both teams in assignDefensiveRoles each tick).
+    for (auto& t : teamTactics) {
+        t.longBallBias = 0; t.slowTempo = 0; t.counterAttackBonus = 0;
+        t.offsideTrapActive = false; t.shootDistBias = 0; t.allOutActive = false;
+    }
     // Snapshot the kickoff formation anchors the first time through, then reset
     // every player's homeX/homeY to base — a directive that lapsed (time window
     // passed, plan replaced) must spring back to its original station.
@@ -175,12 +175,12 @@ void GameEngine::applyDirectives() {
             ConfigDelta& dv = dialOverride[d.teamScope];
             double k = d.intensity;
             switch (d.kind) {
-                case DirectiveKind::AllOutAttack:   dv.aggression+=30*k; dv.defensiveLineHeight+=25*k; dv.overlapFrequency+=25*k; dv.midfieldFreedom+=20*k; allOutActive[d.teamScope]=true; break;
+                case DirectiveKind::AllOutAttack:   dv.aggression+=30*k; dv.defensiveLineHeight+=25*k; dv.overlapFrequency+=25*k; dv.midfieldFreedom+=20*k; teamTactics[d.teamScope].allOutActive=true; break;
                 case DirectiveKind::ParkTheBus:     dv.aggression-=28*k; dv.defensiveLineHeight-=32*k; dv.overlapFrequency-=25*k; dv.midfieldFreedom-=15*k; break;
                 case DirectiveKind::HighPress:      dv.aggression+=35*k; dv.defensiveLineHeight+=22*k; dv.midfieldFreedom+=6*k;  break;
                 case DirectiveKind::DropOff:        dv.aggression-=32*k; dv.defensiveLineHeight-=40*k; break;
-                case DirectiveKind::PlayItLong:     dv.passingDirectness+=58*k; dv.midfieldFreedom-=14*k; dv.overlapFrequency-=5*k; longBallBias[d.teamScope]+=k; break;
-                case DirectiveKind::CounterAttack:  counterAttackBonus[d.teamScope]+=k; break;
+                case DirectiveKind::PlayItLong:     dv.passingDirectness+=58*k; dv.midfieldFreedom-=14*k; dv.overlapFrequency-=5*k; teamTactics[d.teamScope].longBallBias+=k; break;
+                case DirectiveKind::CounterAttack:  teamTactics[d.teamScope].counterAttackBonus+=k; break;
                 case DirectiveKind::KeepItOnGround: dv.passingDirectness-=30*k; dv.midfieldFreedom+=10*k; break;
                 case DirectiveKind::GetItWide:
                     // overlapFrequency only pushes FBs FORWARD (widthPush adds to homeX),
@@ -199,10 +199,10 @@ void GameEngine::applyDirectives() {
                             wp2.homeY = lerp(baseHomeY[wp2.id], PITCH_H / 2.0, 0.35 * k);
                     break;
                 case DirectiveKind::PushUp:         dv.defensiveLineHeight+=30*k; dv.aggression+=10*k; break;
-                case DirectiveKind::OffsideTrap:    dv.defensiveLineHeight+=45*k; dv.aggression+=15*k; offsideTrapActive[d.teamScope]=true; break;
-                case DirectiveKind::ShootFromDistance: shootDistBias[d.teamScope] += 70.0 * k; break;   // shoot from further out
-                case DirectiveKind::WorkItIntoBox:     shootDistBias[d.teamScope] -= 60.0 * k; break;   // hold for a closer shot
-                case DirectiveKind::SlowItDown:     dv.passingDirectness-=34*k; dv.aggression-=22*k; dv.overlapFrequency-=12*k; slowTempo[d.teamScope]+=k; break;
+                case DirectiveKind::OffsideTrap:    dv.defensiveLineHeight+=45*k; dv.aggression+=15*k; teamTactics[d.teamScope].offsideTrapActive=true; break;
+                case DirectiveKind::ShootFromDistance: teamTactics[d.teamScope].shootDistBias += 70.0 * k; break;   // shoot from further out
+                case DirectiveKind::WorkItIntoBox:     teamTactics[d.teamScope].shootDistBias -= 60.0 * k; break;   // hold for a closer shot
+                case DirectiveKind::SlowItDown:     dv.passingDirectness-=34*k; dv.aggression-=22*k; dv.overlapFrequency-=12*k; teamTactics[d.teamScope].slowTempo+=k; break;
                 // tactical-depth (Gaylord seam): press_intensity 0-1 (0=contain/no-chase, 0.5=neutral,
                 // 1=high press) — exposes the aggression/chase knob as a slider + compresses the block
                 // up when pressing high. Generalizes high_press. (mentality / line_height to follow.)
@@ -371,7 +371,7 @@ void GameEngine::assignAttackingRoles(Team team, Player& carrier) {
     // 3) Overlap + cutback CM — normally only on a wide, advanced carry (the
     //    over-commit guard). all_out_attack relaxes it: throw the FB + a CM
     //    forward on central carries and a touch earlier too.
-    bool allOut = allOutActive[teamIndex(team)];
+    bool allOut = teamTactics[teamIndex(team)].allOutActive;
     // USER FEEDBACK #1 ("lack of overlapping runs"): the FB only bombed forward on a
     // WIDE + advanced (>0.40) carry, so overlaps were rare (audit: FB ~1.8% attacking-
     // third). Trigger earlier (>0.32) AND on the classic case — the ball-side WINGER
@@ -436,8 +436,8 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     bool holdShape = carrierGoalDist > PITCH_W * 0.52 && !danger && !highPress;
     {
         int tIdx = teamIndex(team);
-        defenseHoldingShape[tIdx] = holdShape;
-        defenseHoldingShape[1 - tIdx] = false;   // the side in possession isn't holding shape
+        teamTactics[tIdx].defenseHoldingShape = holdShape;
+        teamTactics[1 - tIdx].defenseHoldingShape = false;   // the side in possession isn't holding shape
     }
     // defensiveLineHeight: high line steps right up (compresses space, presses
     // higher, leaves room behind); deep line sits in. Strengthened from 0.9 so
@@ -447,7 +447,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     // safety drop — the high line (driven by the +45 dial above) springs late
     // runners offside. The deepest-runner clamp below still keeps it goal-side of
     // the most advanced attacker, so it traps mistimed runs, not every ball.
-    bool holdLine = offsideTrapActive[teamIndex(team)];
+    bool holdLine = teamTactics[teamIndex(team)].offsideTrapActive;
     double lineProgress = (danger && !holdLine)
         ? 92.0
         : ((lerp(team == Team::Home ? 245.0 : PITCH_W - 245.0, carrier.x - fd * 108.0, 0.38) - ownGoalX) * fd) + linePush;

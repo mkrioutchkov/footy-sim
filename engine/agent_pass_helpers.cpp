@@ -76,7 +76,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         0.08, 0.98);
     // play_it_long: direct sides gamble on lower-completion (longer) balls. 0 by
     // default => floor stays 0.44 => the no-directive match is unchanged.
-    double longBall = engine.longBallBias[teamIndex(p.team)];
+    double longBall = engine.teamTactics[teamIndex(p.team)].longBallBias;
     if (completion < 0.44 - longBall * 0.24) return std::nullopt;   // play_it_long: allow riskier long balls
 
     // ── G1 BUILD-UP LOOK (user 2026-06-27: "still prototype, make it look better") ──
@@ -115,7 +115,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // slow_it_down (team-wide): keep the ball, take no risks — reward the safe
     // option and shun low-completion balls so the side knocks it around. Dedicated
     // hook because the dial deltas were swamped by the clamp. 0 => no effect.
-    double slowT = engine.slowTempo[teamIndex(p.team)];
+    double slowT = engine.teamTactics[teamIndex(p.team)].slowTempo;
     if (slowT > 0.0) {
         if (safeConnector || recyclePass) sc += slowT * 0.16;
         sc -= slowT * (1.0 - completion) * 0.40;
@@ -461,7 +461,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // Quick transition: hit the runner FAST while the defence is unset.
         // counter_attack amplifies this (and the matching off-ball-run bonus).
         if (engine.state.clockMs < engine.transitionUntilMs)
-            sc += 0.18 * (1.0 + engine.counterAttackBonus[teamIndex(p.team)])
+            sc += 0.18 * (1.0 + engine.teamTactics[teamIndex(p.team)].counterAttackBonus)
                        * clamp((engine.transitionUntilMs - engine.state.clockMs) / 400.0, 0.0, 1.0);
         if (runnerForwardSpeed > 10.0) sc += 0.07;
         if (onsideGap > 8.0 && onsideGap < 70.0) sc += 0.08;

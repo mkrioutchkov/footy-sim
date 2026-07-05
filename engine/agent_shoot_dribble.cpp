@@ -29,7 +29,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (!freshCross && !freshThrough && shotDistance > 285.0 && angleDeg < SHOT_ACUTE_HARD_THRESH)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    double hardMax = shotMaxDistance() + engine.shootDistBias[teamIndex(p.team)];   // shoot_from_distance extends the HARD cap too (line-36 gate); 0 = default
+    double hardMax = shotMaxDistance() + engine.teamTactics[teamIndex(p.team)].shootDistBias;   // shoot_from_distance extends the HARD cap too (line-36 gate); 0 = default
     if (freshCross) hardMax = std::max(hardMax, freshCrossMax);
     if (shootOnSight) hardMax = std::max(hardMax, 330.0);
     if (shotDistance > hardMax)
@@ -40,7 +40,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double maxShootRange = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
-    maxShootRange += engine.shootDistBias[teamIndex(p.team)];   // shoot_from_distance (+) / work_it_into_box (-); 0 = default
+    maxShootRange += engine.teamTactics[teamIndex(p.team)].shootDistBias;   // shoot_from_distance (+) / work_it_into_box (-); 0 = default
     // Clear sight of goal extends range: unpressured with a real opening,
     // a strike from just outside the usual band beats recycling sideways.
     double clearSightBoost = (per.pressureCount == 0 && angleDeg > 9.0) ? 24.0 : 0.0;
