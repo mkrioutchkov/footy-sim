@@ -44,6 +44,12 @@ inline double forwardProgress(double x, Team team) {
 }
 inline double forwardProgress(const Player& p) { return forwardProgress(p.x, p.team); }
 
+// Signed up-pitch gain from one x to another, in `team`'s attacking direction —
+// the `(toX - fromX) * fd` behind every pass "forward progress" (fp) scalar.
+inline double forwardGain(double fromX, double toX, Team team) {
+    return (toX - fromX) * fdFor(team);
+}
+
 // ── Distance to a goal line (unsigned "depth") ──
 inline double distToOwnGoal(double x, Team team) { return std::abs(x - ownGoalXFor(team)); }
 inline double distToOwnGoal(const Player& p) { return distToOwnGoal(p.x, p.team); }

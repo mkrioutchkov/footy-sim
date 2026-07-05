@@ -59,7 +59,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     }
     if (bl >= 3 || (pointBlank > 0 && per.pressureCount < 2)) return std::nullopt;
 
-    double fp = (t.x - p.x) * fd;
+    double fp = pitch::forwardGain(p.x, t.x, p.team);
     double rs = attrFactor(p.attrs.passing);
     double rr = attrFactor(t.attrs.positioning);
 

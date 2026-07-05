@@ -19,7 +19,7 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
             if (engine.isOffsideTargetPerceived(p, t)) continue;
             double d = dist(p.x, p.y, t.x, t.y);
             if (d < PASS_MIN_DISTANCE || d > 360.0) continue;
-            double fp = (t.x - p.x) * fd;
+            double fp = pitch::forwardGain(p.x, t.x, p.team);
             if (fp < -80.0) continue;
             double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
             if (ls < 1.0) continue;
@@ -127,7 +127,7 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
         // the organic helper crosses.
         if (bestRunner && bestScore > (crossEarly ? 0.15 : 1.05)) {
             double d = dist(p.x, p.y, bestRunner->x, bestRunner->y);
-            double fp = (bestRunner->x - p.x) * fd;
+            double fp = pitch::forwardGain(p.x, bestRunner->x, p.team);
             r.push_back(Action{ActionType::Pass, clamp(0.55 + bestScore * 0.25, 0.0, 0.90), bestRunner, 0, 0,
                                ActionPurpose::Cross, ActionAudit{d, fp, 0.72, 0, 0, 0, 0}});
         }
