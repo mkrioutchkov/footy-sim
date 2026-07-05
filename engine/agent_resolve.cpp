@@ -281,7 +281,7 @@ Action* PlayerAI::tryClearPathOverride(SmallVector<Action, 24>& a, Action& best,
     double nearestOppDist = 1e9;
     int blockersInPath = 0;
     for (auto& o : engine.state.players) {
-        if (o.team == player.team || o.role == Role::GK || o.sentOff) continue;
+        if (!isActiveOpponent(o, player.team)) continue;
         double odx = o.x - player.x, ody = o.y - player.y;
         double od = std::hypot(odx, ody);
         double along = odx * dx + ody * dy;

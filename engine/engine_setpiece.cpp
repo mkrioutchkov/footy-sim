@@ -125,7 +125,7 @@ void GameEngine::kickoffTap() {
         double nearOpp = 1e9;
         bool laneBlocked = false;
         for (auto& o : state.players) {
-            if (o.team == holder->team || o.role == Role::GK || o.sentOff) continue;
+            if (!isActiveOpponent(o, holder->team)) continue;
             nearOpp = std::min(nearOpp, dist(o.x, o.y, t.x, t.y));
             double tt = clamp(((o.x - holder->x) * dx + (o.y - holder->y) * dy) / ls, 0.0, 1.0);
             double perp = std::hypot(o.x - holder->x - tt * dx, o.y - holder->y - tt * dy);
@@ -354,7 +354,7 @@ void GameEngine::releaseGoalKick(Player& holder) {
             if (d < 42.0 || d > 320.0) continue;
             double nearestOpp = 1e9;
             for (auto& o : state.players) {
-                if (o.team == holder.team || o.role == Role::GK || o.sentOff) continue;
+                if (!isActiveOpponent(o, holder.team)) continue;
                 nearestOpp = std::min(nearestOpp, dist(o.x, o.y, p.x, p.y));
             }
             if (nearestOpp <= 42.0) continue;
@@ -392,7 +392,7 @@ void GameEngine::releaseGoalKick(Player& holder) {
                                                                            : 0.0;
         double pressurePenalty = 0.0;
         for (auto& o : state.players) {
-            if (o.team == holder.team || o.role == Role::GK || o.sentOff) continue;
+            if (!isActiveOpponent(o, holder.team)) continue;
             double od = dist(o.x, o.y, p.x, p.y);
             if (od < 90.0) pressurePenalty += (90.0 - od) * 0.65;
         }
@@ -459,7 +459,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
     int closeKeeperPressure = 0;
     Player* nearestPress = nullptr;
     for (auto& o : state.players) {
-        if (o.team == holder.team || o.role == Role::GK || o.sentOff) continue;
+        if (!isActiveOpponent(o, holder.team)) continue;
         double od = dist(holder.x, holder.y, o.x, o.y);
         if (od < nearestKeeperPressure) {
             nearestKeeperPressure = od;
@@ -541,7 +541,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         if (progress < -30.0) continue; // never play it back across your own line
         double nearestOpp = 1e9;
         for (auto& o : state.players) {
-            if (o.team == holder.team || o.role == Role::GK || o.sentOff) continue;
+            if (!isActiveOpponent(o, holder.team)) continue;
             nearestOpp = std::min(nearestOpp, dist(o.x, o.y, p.x, p.y));
         }
         int laneBlockers = countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_GK_DIST, 0.12, 0.92);
@@ -660,7 +660,7 @@ void GameEngine::releaseThrowIn(Player& holder) {
         if (d < 30.0 || d > 400.0) continue;
         double nearestOpp = 1e9;
         for (auto& o : state.players) {
-            if (o.team == holder.team || o.role == Role::GK || o.sentOff) continue;
+            if (!isActiveOpponent(o, holder.team)) continue;
             nearestOpp = std::min(nearestOpp, dist(o.x, o.y, p.x, p.y));
         }
         int laneBlockers = countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_THROWIN, 0.12, 0.92);

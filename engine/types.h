@@ -210,6 +210,13 @@ struct Player {
     bool sentOff = false;
 };
 
+// A player worth considering as an opposing outfielder: on the other team, not
+// the keeper, still on the pitch. Folds the pervasive skip-guard
+// `if (o.team == myTeam || o.role == Role::GK || o.sentOff) continue;`.
+inline bool isActiveOpponent(const Player& o, Team myTeam) {
+    return o.team != myTeam && o.role != Role::GK && !o.sentOff;
+}
+
 struct Ball {
     double x = 525.0, y = 340.0;
     double vx = 0.0, vy = 0.0, z = 0.0, vz = 0.0;

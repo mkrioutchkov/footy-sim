@@ -802,7 +802,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     double dxGoal = gx - s.x, dyGoal = goalCenterY - s.y, laneLenSq = dxGoal * dxGoal + dyGoal * dyGoal;
     if (laneLenSq > 1.0) {
         for (auto& o : state.players) {
-            if (o.team == s.team || o.role == Role::GK || o.sentOff) continue;
+            if (!isActiveOpponent(o, s.team)) continue;
             double along = ((o.x - s.x) * dxGoal + (o.y - s.y) * dyGoal) / laneLenSq;
             if (along <= 0.06 || along >= 0.92) continue;
             double perp = std::hypot(o.x - s.x - along * dxGoal, o.y - s.y - along * dyGoal);
@@ -1027,7 +1027,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     if (!penaltyKick) {
         double ndx = dx / d, ndy = dy / d;
         for (auto& o : state.players) {
-            if (o.team == s.team || o.role == Role::GK || o.sentOff) continue;
+            if (!isActiveOpponent(o, s.team)) continue;
             double ox = o.x - s.x, oy = o.y - s.y;
             double along = ox * ndx + oy * ndy;
             if (along < 14.0 || along > d * 0.94) continue;
@@ -1063,7 +1063,7 @@ bool GameEngine::knockBallAhead(Player& carrier, double targetX, double targetY)
     int nearestId = -1;
     double nearestDist = 1e9;
     for (auto& opponent : state.players) {
-        if (opponent.team == carrier.team || opponent.role == Role::GK || opponent.sentOff) continue;
+        if (!isActiveOpponent(opponent, carrier.team)) continue;
         double d = dist(opponent.x, opponent.y, carrier.x, carrier.y);
         if (d < nearestDist) {
             nearestDist = d;

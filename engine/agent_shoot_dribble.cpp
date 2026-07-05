@@ -268,7 +268,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         int defendersAhead = 0;
         double lx = gx - p.x, ly = PITCH_H / 2.0 - p.y, ll = std::hypot(lx, ly);
         for (auto& o : engine.state.players) {
-            if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+            if (!isActiveOpponent(o, p.team)) continue;
             if ((o.x - p.x) * fd <= -10.0) continue;               // chasing from behind
             double t = ll > 1.0 ? clamp(((o.x - p.x) * lx + (o.y - p.y) * ly) / (ll * ll), 0.0, 1.0) : 0.0;
             double lane = dist(o.x, o.y, p.x + lx * t, p.y + ly * t);

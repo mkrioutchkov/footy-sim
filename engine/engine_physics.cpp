@@ -521,7 +521,7 @@ void GameEngine::checkBallPlayerCollision(double sec) {
                     double frontPress = 0.0;
                     int tightMarkers = 0;
                     for (auto& opponent : state.players) {
-                        if (opponent.team == intended->team || opponent.role == Role::GK || opponent.sentOff) continue;
+                        if (!isActiveOpponent(opponent, intended->team)) continue;
                         double od = dist(opponent.x, opponent.y, intended->x, intended->y);
                         if (od < 32.0) tightMarkers++; // sandwiched count
                         if (od < nearOppD) {

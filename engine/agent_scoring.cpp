@@ -9,7 +9,7 @@ CarrierPressure assessCarrierPressure(GameEngine& engine, const Player& p) {
     double ballUx = ballD > 0.1 ? ballDx / ballD : std::cos(p.facing);
     double ballUy = ballD > 0.1 ? ballDy / ballD : std::sin(p.facing);
     for (auto& o : engine.state.players) {
-        if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+        if (!isActiveOpponent(o, p.team)) continue;
         double dx = o.x - p.x, dy = o.y - p.y;
         double d = std::hypot(dx, dy);
         if (d > CARRIER_PRESSURE_RANGE) continue;

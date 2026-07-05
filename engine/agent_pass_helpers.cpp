@@ -36,7 +36,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     int pointBlank = 0;
     for (auto& o : engine.state.players) {
-        if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+        if (!isActiveOpponent(o, p.team)) continue;
         double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
         double perp = std::sqrt((o.x - p.x - t2 * dx) * (o.x - p.x - t2 * dx)
                               + (o.y - p.y - t2 * dy) * (o.y - p.y - t2 * dy));
@@ -228,7 +228,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
             double gxc = goalXFor(p.team);
             int boxDefenders = 0;
             for (auto& o : engine.state.players) {
-                if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+                if (!isActiveOpponent(o, p.team)) continue;
                 if (std::abs(o.x - gxc) < 200.0 && pitch::lateralFromCenter(o.y) < 170.0) boxDefenders++;
             }
             sc -= std::max(0, boxDefenders - 2) * 0.10;
