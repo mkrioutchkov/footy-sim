@@ -3054,7 +3054,7 @@ async function screenPlayer(slot: number) {
       const px = (i: number) => pad + (i / (snaps.length - 1)) * (CW - 2 * pad);
       const py = (v: number) => (CH - pad) - ((v - lo) / Math.max(1, hi - lo)) * (CH - 2 * pad);
       const pts = vals.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
-      const svg = svgEl('svg', { viewBox: `0 0 ${CW} ${CH}`, width: '100%', style: 'display:block;overflow:visible' },
+      const svg = svgEl('svg', { viewBox: `0 0 ${CW} ${CH}`, width: '100%', style: 'display:block;overflow:visible;max-width:620px;margin:0 auto' },
         svgEl('polyline', { points: pts, fill: 'none', stroke: 'var(--accent,#4ea1ff)', 'stroke-width': 2, 'stroke-linejoin': 'round' }),
         svgEl('circle', { cx: String(px(snaps.length - 1)), cy: String(py(vals[vals.length - 1])), r: '3', fill: 'var(--accent,#4ea1ff)' }));
       const delta = vals[vals.length - 1] - vals[0];

@@ -1179,7 +1179,8 @@ app.post('/api/advance', async (req: any, reply) => {
   const injuries: any[] = [];
   const contractEvents: any[] = [];
   let income = 0;                       // §P2: the user's matchday gate & TV income this tick
-  let developed = 0;
+  let developed = 0;                    // world-wide players trained (kept for the API field)
+  let myDeveloped = 0;                  // just the user's players who actually improved (for the digest)
   for (const l of leagues) {
     income += payMatchdayIncome(l.id).filter(e => e.teamId === teamId).reduce((s, e) => s + e.amount, 0);
     injuries.push(...fitnessTick(l.id)); moraleTick(l.id);
@@ -1188,7 +1189,8 @@ app.post('/api/advance', async (req: any, reply) => {
     listingsExpired.push(...mkt.filter(e => e.type === 'listing_expired' && e.teamId === teamId));
     incomingBids.push(...mkt.filter(e => e.type === 'incoming_bid' && e.teamId === teamId));
     faOffers.push(...resolveFreeAgentOffers(l.id).filter(e => e.teamId === teamId));   // §2.1: free agents answer
-    contractEvents.push(...processContractOffers(l.id)); aiManagerTick(l.id); developed += developmentTick(l.id).players;
+    contractEvents.push(...processContractOffers(l.id)); aiManagerTick(l.id);
+    const dt = developmentTick(l.id); developed += dt.players; myDeveloped += dt.improved;
   }
   // The cup is spread across the season — round R plays once the league reaches matchday R*3,
   // so it concludes (the final at matchday 12) before the season rolls over.
@@ -1219,7 +1221,7 @@ app.post('/api/advance', async (req: any, reply) => {
   // from the identical array — no frontend/backend drift.
   const myContractOffers = contractEvents.filter(e => e.teamId === teamId);
   const inboxBag = {
-    teamId, myResult, myFixtureId: myFx?.id ?? null, myHome, myOpponent, income, developed, injuries, transfers,
+    teamId, myResult, myFixtureId: myFx?.id ?? null, myHome, myOpponent, income, developed: myDeveloped, injuries, transfers,
     incomingBids, faOffers, listingsExpired, contractOffers: myContractOffers, cup, rollover,
   };
   const inboxItems = assembleInboxItems(inboxBag);
