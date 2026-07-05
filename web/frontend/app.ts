@@ -2061,6 +2061,19 @@ async function screenMarket() {
           } catch (e: any) { toast(e.message); render(); }
         });
       }
+      // §loan-out: an owned (not loaned-in) player can be sent out on loan for the season while a window is
+      // open + you can spare him — the outbound mirror of the inbound loan on the targets table below.
+      let loanOutBtn: HTMLElement | string = '';
+      if (!p.onLoan && market.window.open && canSell) {
+        const lo = h('button', { class: 'ghost small', title: 'Loan him out to a club that needs him for the season — frees his wages; he returns at season end' }, 'Loan out');
+        lo.addEventListener('click', async () => {
+          if (!await confirmModal('Loan out', `Send ${p.name} out on loan for the season? A club short in his position takes him on — you free his wages and he returns at the end of the campaign.`, 'Loan out')) return;
+          lo.setAttribute('disabled', 'true'); lo.textContent = '…';
+          try { const r = await api.loanOut(p.slot); market = r.market; toast(`${r.player} joins ${r.from} on loan`); render(); }
+          catch (e: any) { toast(e.message); render(); }
+        });
+        loanOutBtn = lo;
+      }
       const sqPot = p.potential != null && p.potential > p.overall;
       sqBody.append(h('tr', {},
         h('td', {}, p.name, p.onLoan ? h('span', { class: 'pill', style: 'margin-left:6px', title: `on loan from ${p.loanFrom ?? 'another club'}${p.loanUntil != null ? ` until end of S${p.loanUntil}` : ''}` }, `loan: ${p.loanFrom ?? '?'}`) : (p.starter ? '' : h('span', { class: 'muted', style: 'font-size:11px' }, ' · bench')),
@@ -2070,7 +2083,7 @@ async function screenMarket() {
         h('td', { class: 'num' }, String(p.overall)),
         h('td', { class: 'num' }, sqPot ? h('span', { class: 'a' }, String(p.potential)) : (p.potential != null ? String(p.potential) : '—')),
         moneyCell(p.value, p.wage),
-        h('td', { class: 'num' }, btn)));
+        h('td', { class: 'num' }, h('div', { style: 'display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap' }, btn, loanOutBtn))));
     }
 
     const headRow = (label: string) => h('thead', {}, h('tr', {},

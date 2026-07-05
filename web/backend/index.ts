@@ -17,7 +17,7 @@ import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
-import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers } from './market.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, loanOut, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers } from './market.ts';
 import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, setTeamTrainingIntensity, applyTrainingPreset, TRAINING_PRESETS, setPlayerRetrain, RETRAIN_ROLES, getTrainingReport, TRAINABLE, VALID_FOCUS, VALID_INTENSITY, VALID_TEAM_INTENSITY } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
@@ -394,6 +394,20 @@ app.get('/api/freeagent/offers', async (req: any, reply) => {
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   return { offers: freeAgentOffersForTeam(teamId) };
+});
+
+// §loan-out: send one of your own players out on loan to a world club for the season (frees his wage; he
+// returns at rollover). Optional clubId picks the destination; otherwise a club short in his role is chosen.
+app.post('/api/transfer/loan-out', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.body?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
+  const clubId = req.body?.clubId != null ? Number(req.body.clubId) : undefined;
+  const r = loanOut(teamId, slot, Number.isInteger(clubId) ? clubId : undefined);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return { ...r, market: getMarket(teamId) };
 });
 
 // §2.12: send a loaned-in player back to his parent club early (frees the slot + wage).

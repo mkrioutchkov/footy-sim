@@ -520,6 +520,43 @@ export function endLoan(borrowerTeamId: number, slot: number): LoanResult {
   });
 }
 
+// §loan-out: send one of YOUR OWN players out on loan to another world club for the season (the mirror
+// of loanIn). No fee, window-gated; you must keep a legal squad; the destination needs room + wage headroom
+// (it carries his wage while he's there). Parent = you, so returnLoans brings him home at rollover. Without
+// an explicit destTeamId, pick an AI club that is shortest in his role (then smallest squad) among those
+// with room — so the loan reads as "a club that needs him". `from` in the result = the club he joins.
+export function loanOut(ownerTeamId: number, slot: number, destTeamId?: number): LoanResult {
+  return tx(() => {
+    const owner = teamRow(ownerTeamId);
+    if (!owner) return { ok: false, error: 'team not found' };
+    if (!transferWindow(owner.league_id).open) return { ok: false, error: 'the transfer window is shut' };
+    const p = db.prepare('SELECT id, name, role, wage, parent_team_id FROM players WHERE team_id = ? AND slot = ?')
+      .get(ownerTeamId, slot) as { id: number; name: string; role: string; wage: number | null; parent_team_id: number | null } | undefined;
+    if (!p) return { ok: false, error: 'no such player' };
+    if (p.parent_team_id != null) return { ok: false, error: `${p.name} is a loanee — you can't loan him out` };
+    if (teamPlayers(ownerTeamId).length <= SQUAD_MIN) return { ok: false, error: `you can't drop below ${SQUAD_MIN} players — sign cover first` };
+    const wage = p.wage ?? 0;
+    const worldIds = worldLeagueIds(owner.league_id);
+    const ph = worldIds.map(() => '?').join(',');
+    // candidate AI clubs in the world with room + wage headroom; prefer the one shortest in his role.
+    const cands = db.prepare(`SELECT t.id, t.name, t.wage_budget,
+        (SELECT COUNT(*) FROM players px WHERE px.team_id = t.id) AS cnt,
+        (SELECT COUNT(*) FROM players px WHERE px.team_id = t.id AND px.role = ?) AS role_cnt,
+        (SELECT COALESCE(SUM(px.wage), 0) FROM players px WHERE px.team_id = t.id) AS bill
+      FROM teams t WHERE t.user_id IS NULL AND t.id != ? AND t.league_id IN (${ph})`)
+      .all(p.role, ownerTeamId, ...worldIds) as { id: number; name: string; wage_budget: number; cnt: number; role_cnt: number; bill: number }[];
+    const eligible = cands.filter(c => c.cnt < SQUAD_MAX && c.bill + wage <= c.wage_budget);
+    if (destTeamId != null && !eligible.some(c => c.id === destTeamId)) return { ok: false, error: 'that club can’t take him on loan' };
+    const dest = destTeamId != null
+      ? eligible.find(c => c.id === destTeamId)!
+      : eligible.sort((a, b) => a.role_cnt - b.role_cnt || a.cnt - b.cnt)[0];
+    if (!dest) return { ok: false, error: 'no club can take him on loan right now' };
+    const season = (db.prepare('SELECT season FROM leagues WHERE id = ?').get(owner.league_id) as { season: number }).season;
+    relocatePlayer(p.id, ownerTeamId, dest.id, ownerTeamId, season);   // parent = you; returns at rollover
+    return { ok: true, player: p.name, from: dest.name };
+  });
+}
+
 // Return every loaned-in player (sitting at a club in the given leagues) to his parent club.
 // Loans are season-long, so rollover ends them all. Scoped to the rolling-over WORLD's leagues so
 // a second world's still-active loans aren't yanked back mid-season. NO tx of its own — call
