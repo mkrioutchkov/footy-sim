@@ -663,6 +663,8 @@ public:
     bool checkGoal();
     bool checkWoodwork();
     bool checkOutOfPlay();
+    bool tryCutbackFirstTimeFinish(double bs);
+    bool tryKeeperLooseGather(double bs);
     void checkBallPlayerCollision(double);
     void collectBall(Player& c);
     void updateControlledBall(double secs);
