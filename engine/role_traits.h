@@ -42,7 +42,6 @@ constexpr bool isDefenderLike(Role r) { return r == Role::CB || r == Role::FB ||
 
 // ── Channel: does this role live in a wide channel (winger / full-back)? ──
 constexpr bool isWide(Role r)         { return r == Role::WM || r == Role::FB; }
-constexpr bool isCentralRole(Role r)  { return r == Role::CB || r == Role::CM || r == Role::CF; }
 
 // ── Exact-role predicates (mirror the per-role isXxx() hooks) ──
 constexpr bool isGoalkeeper(Role r)      { return r == Role::GK; }
@@ -51,19 +50,5 @@ constexpr bool isFullBack(Role r)        { return r == Role::FB; }
 constexpr bool isCentralMidfielder(Role r) { return r == Role::CM; }
 constexpr bool isWideMidfielder(Role r)  { return r == Role::WM; }
 constexpr bool isCenterForward(Role r)   { return r == Role::CF; }
-
-// ── Coarse buckets (handy vocabulary for zone/positioning code) ──
-enum class Channel : uint8_t { Central, Wide };
-enum class Line    : uint8_t { Back, Middle, Front };
-
-constexpr Channel channelOf(Role r) { return isWide(r) ? Channel::Wide : Channel::Central; }
-constexpr Line    lineOf(Role r) {
-    switch (r) {
-        case Role::GK: case Role::CB: case Role::FB: return Line::Back;
-        case Role::CM:                                return Line::Middle;
-        case Role::WM: case Role::CF:                return Line::Front;
-    }
-    return Line::Middle;
-}
 
 } // namespace roles

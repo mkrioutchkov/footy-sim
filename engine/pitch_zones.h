@@ -32,9 +32,6 @@ namespace pitch {
 // The scalar behind every `std::abs(y - PITCH_H / 2.0) <>` "how wide is he" test.
 inline double lateralFromCenter(double y) { return std::abs(y - PITCH_H / 2.0); }
 inline double lateralFromCenter(const Player& p) { return lateralFromCenter(p.y); }
-// Which touchline half he's in (drives left/right channel picks).
-inline bool   leftOfCenter(double y) { return y < PITCH_H / 2.0; }
-inline bool   leftOfCenter(const Player& p) { return leftOfCenter(p.y); }
 
 // ── Up-pitch progress (attack-direction aware) ──
 // Signed distance advanced from own goal toward the opponent goal: 0 at own goal
@@ -70,26 +67,13 @@ inline double distToGoalMouth(const Player& p) { return distToGoalMouth(p.x, p.y
 // DANGER_ZONE_DIST, …) remain visible per-site instead of being silently unified.
 inline bool inOwnGoalBand(double x, Team team, double band) { return distToOwnGoal(x, team) < band; }
 inline bool inOwnGoalBand(const Player& p, double band) { return distToOwnGoal(p) < band; }
-inline bool inOppGoalBand(double x, Team team, double band) { return distToOppGoal(x, team) < band; }
-inline bool inOppGoalBand(const Player& p, double band) { return distToOppGoal(p) < band; }
-
-// ── Thirds (attack-relative, using the named THIRD_1/THIRD_2 = PITCH_W/3, 2·/3) ──
-enum class Third : uint8_t { Defensive, Middle, Final };
-inline Third thirdOf(double x, Team team) {
-    double prog = forwardProgress(x, team);
-    if (prog < THIRD_1) return Third::Defensive;
-    if (prog < THIRD_2) return Third::Middle;
-    return Third::Final;
-}
-inline Third thirdOf(const Player& p) { return thirdOf(p.x, p.team); }
 
 // ── Attack-relative half / third membership (boolean, mirrored per team) ──
 // Written as each call site writes it — Home uses `<`/`>` against the near
 // boundary, Away the mirror against the far one. IMPORTANT: do NOT derive the
 // Away branch by flipping the Home inequality through forwardProgress; the strict
 // comparator would move at the exact boundary (x == HALF_X / THIRD_1 / THIRD_2).
-// These are distinct predicates on purpose — inFinalThird is a STRICT `> THIRD_2`
-// and is NOT the same as `thirdOf(...) == Third::Final` (half-open at THIRD_2).
+// inFinalThird is a STRICT `> THIRD_2` (open band) — keep it that way.
 inline bool inOwnHalf(double x, Team team) { return team == Team::Home ? x < HALF_X : x > HALF_X; }
 inline bool inOwnHalf(const Player& p) { return inOwnHalf(p.x, p.team); }
 inline bool inOwnDefensiveThird(double x, Team team) { return team == Team::Home ? x < THIRD_1 : x > THIRD_2; }
