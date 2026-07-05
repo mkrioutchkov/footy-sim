@@ -166,6 +166,9 @@ ensureColumn('players', 'contract_years', 'contract_years INTEGER NOT NULL DEFAU
 // §2.3-depth: the matchday-count marker for the last time the manager talked an unsettled player round
 // (the reassure cooldown — one heart-to-heart per match, so morale can't be farmed). NULL = never.
 ensureColumn('players', 'last_settled_round', 'last_settled_round INTEGER');
+// §player-interaction: the played-match count at the last 1-to-1 praise/criticise chat (the cooldown — one
+// individual word per player per matchday, so morale can't be farmed). NULL = never. Reset at rollover.
+ensureColumn('players', 'last_interact_round', 'last_interact_round INTEGER');
 
 // ── Transfer offers (pillar 5.2c / audit §2.1: signing drama) ───────────────
 // Club-to-club bids are no longer instant: a bid creates a PENDING offer the selling club resolves

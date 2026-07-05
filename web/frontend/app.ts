@@ -2702,6 +2702,39 @@ async function screenPlayer(slot: number) {
     finally { save.removeAttribute('disabled'); save.textContent = 'Save story & re-derive traits'; }
   });
 
+  // §player-interaction: a private 1-to-1 word that moves morale by his personality dials (one per matchday).
+  const talkReact = h('div', { style: 'font-size:13px;min-height:18px;margin-top:8px', 'aria-live': 'polite' });
+  const talkBtns: HTMLButtonElement[] = [];
+  const INTERACT_TONES: { tone: string; label: string; title: string }[] = [
+    { tone: 'praise', label: '👏 Praise', title: 'Single him out for his form — lifts most, especially praise-hungry players and big egos.' },
+    { tone: 'encourage', label: '💬 Encourage', title: 'A quiet word of belief — a gentle lift for most.' },
+    { tone: 'warn', label: '☝️ Have a word', title: 'A measured warning about his standards — mild; the thick-skinned take it well.' },
+    { tone: 'criticise', label: '🔥 Criticise', title: 'Tear a strip off him — fires up the thick-skinned, wounds the sensitive and hot-heads.' },
+  ];
+  const doTalk = async (tone: string, btn: HTMLButtonElement) => {
+    talkBtns.forEach(b => b.setAttribute('disabled', 'true'));
+    const t0 = btn.textContent; btn.textContent = '…';
+    try {
+      const r = await api.interactPlayer(slot, tone);
+      p.morale = r.morale;   // keep the local copy in step (the header already painted the old value)
+      talkReact.replaceChildren(h('span', { class: r.delta > 0 ? 'ok' : r.delta < 0 ? 'warn' : 'muted' },
+        `${r.delta > 0 ? '▲ +' + r.delta : r.delta < 0 ? '▼ ' + r.delta : 'no change'} morale · now ${r.morale} — “${r.reaction}”`));
+      // one chat per matchday — leave the buttons disabled after a successful word
+    } catch (e: any) {
+      talkReact.replaceChildren(h('span', { class: 'muted' }, e.message));
+      if (!/already had a word/.test(e.message)) talkBtns.forEach(b => b.removeAttribute('disabled'));   // a failed call didn't consume the cooldown
+    } finally { btn.textContent = t0; }
+  };
+  const interactCard = h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Have a word'),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'A private word moves his morale — how it lands depends on his personality. One chat per player per matchday.'),
+    h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, ...INTERACT_TONES.map(it => {
+      const b = h('button', { class: 'ghost small', title: it.title }, it.label) as HTMLButtonElement;
+      b.addEventListener('click', () => doTalk(it.tone, b));
+      talkBtns.push(b); return b;
+    })),
+    talkReact);
+
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
@@ -2722,11 +2755,13 @@ async function screenPlayer(slot: number) {
           h('span', { class: 'pill', title: 'Running down his contract and unsettled — likely to push for a move', style: 'background:var(--danger);color:#fff;font-size:9px' }, 'seeking a move')) : ''),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
-    h('div', { class: 'card' },
-      h('div', { class: 'section-title', style: 'margin-top:0' }, 'Attributes'),
-      h('div', { class: 'grid cols-2', style: 'gap:0 22px' },
-        ...ATTR_LABELS.map(a => traitBar(a.label, p.attrs[a.key] ?? 0, attrTierColor(p.attrs[a.key] ?? 0)))),
-    ),
+    h('div', { class: 'grid cols-2', style: 'align-items:start' },
+      h('div', { class: 'card' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Attributes'),
+        h('div', { class: 'grid cols-2', style: 'gap:0 22px' },
+          ...ATTR_LABELS.map(a => traitBar(a.label, p.attrs[a.key] ?? 0, attrTierColor(p.attrs[a.key] ?? 0)))),
+      ),
+      interactCard),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Personality dials'), traitsEl),
       h('div', { class: 'card' },

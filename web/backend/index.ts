@@ -27,6 +27,7 @@ import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldSta
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
+import { interactWithPlayer, isInteractTone } from './interaction.ts';
 import { getConcerns, resolveConcern, type ConcernAction } from './concerns.ts';
 import { getBoardMeeting, requestBoardBacking, type BoardRequestKind } from './board.ts';
 import { getManagerCareer, managerReputation } from './career.ts';
@@ -616,6 +617,20 @@ app.post('/api/press', async (req: any, reply) => {
   } finally {
     pressInFlight.delete(teamId);
   }
+});
+
+// §player-interaction: a private 1-to-1 word with one player (praise/encourage/warn/criticise) that moves
+// his morale via his personality dials. One chat per player per matchday (cooldown enforced in the module).
+app.post('/api/player/:slot/interact', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const slot = Number(req.params?.slot);
+  if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+  if (!isInteractTone(req.body?.tone)) return reply.code(400).send({ error: 'unknown tone' });
+  const r = interactWithPlayer(teamId, slot, req.body.tone);
+  if (!r.ok) return reply.code(400).send({ error: r.error });
+  return r;
 });
 
 // Unsettled players (§2.3 depth) — the dressing-room concerns the manager can act on, + resolving one.

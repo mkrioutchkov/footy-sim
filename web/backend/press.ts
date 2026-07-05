@@ -22,8 +22,10 @@ function toneOf(text: string): number {
   const score = PRAISE.filter(k => t.includes(k)).length + CONFIDENT.filter(k => t.includes(k)).length * 0.5 - CRIT.filter(k => t.includes(k)).length;
   return Math.max(-1, Math.min(1, score / 2));
 }
-// A player's morale shift from a tone, via their dials.
-function deterministicDelta(tone: number, d: Dials): number {
+// A player's morale shift from a tone, via their dials. Exported so the 1-to-1 player-interaction
+// feature (interaction.ts) shares the exact personality-gated math (praise lifts the praise-hungry +
+// egos; criticism lifts the responsive, dents the sensitive + hot-heads).
+export function deterministicDelta(tone: number, d: Dials): number {
   const pr = d.praiseResponse / 100, cr = d.criticismResponse / 100, ego = d.ego / 100, temp = d.temperament / 100;
   if (tone >= 0) return clampDelta(tone * (5 + pr * 10 + ego * 3));          // praise lifts the praise-hungry + egos
   return clampDelta((-tone) * (cr * 14 - (1 - cr) * 9 - temp * 4));          // criticism: lifts the responsive, dents the sensitive + hotheads
