@@ -69,18 +69,17 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
     // the attack entirely — 1.05 goals/match, 9-of-20 matches 0-0 — because
     // central penetration/cutback chance creation doesn't yet exist to replace
     // it. Until that exists (chance-mix rebuild), this stays as the offense.
-    double goalX = goalXFor(p.team);
     bool crossEarly = engine.directiveBias[p.id].crossEarly;
     bool crossingCarrier = isWidePlayer()
         && pitch::lateralFromCenter(p.y) > (crossEarly ? 120.0 : 150.0)
-        && std::abs(p.x - goalX) < (crossEarly ? 360.0 : 250.0);
+        && pitch::distToOppGoal(p.x, p.team) < (crossEarly ? 360.0 : 250.0);
     if (crossingCarrier) {
         Player* bestRunner = nullptr;
         double bestScore = -1e9;
         for (auto& t : engine.state.players) {
             if (t.team != p.team || t.id == p.id || t.role == Role::GK || t.sentOff) continue;
             if (engine.isOffsideTargetPerceived(p, t)) continue;
-            double targetGoalDist = std::abs(t.x - goalX);
+            double targetGoalDist = pitch::distToOppGoal(t.x, p.team);
             if (targetGoalDist > 430.0 || pitch::lateralFromCenter(t.y) > 255.0) continue;
             double d = dist(p.x, p.y, t.x, t.y);
             if (d < 65.0 || d > 520.0) continue;
@@ -103,7 +102,7 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
             int boxDefenders = 0, boxAttackers = 0;
             for (auto& o : engine.state.players) {
                 if (o.role == Role::GK || o.sentOff || o.id == p.id) continue;
-                bool inZone = std::abs(o.x - goalX) < 200.0 && pitch::lateralFromCenter(o.y) < 170.0;
+                bool inZone = pitch::distToOppGoal(o.x, p.team) < 200.0 && pitch::lateralFromCenter(o.y) < 170.0;
                 if (!inZone) continue;
                 if (o.team == p.team) boxAttackers++; else boxDefenders++;
             }

@@ -101,7 +101,6 @@ void PlayerAI::applyMovement(double sdt) {
 
     double bdx = engine.state.ball.x - p.x, bdy = engine.state.ball.y - p.y;
     double bd  = std::sqrt(bdx * bdx + bdy * bdy);
-    double ownGoalX = ownGoalXFor(p.team);
 
     bool carrierCornered = (engine.state.ball.x < 80.0 || engine.state.ball.x > PITCH_W - 80.0)
                         && (engine.state.ball.y < 80.0 || engine.state.ball.y > PITCH_H - 80.0);
@@ -126,7 +125,7 @@ void PlayerAI::applyMovement(double sdt) {
             || task->role == DefensiveTask::WideCover)) {
             Player* carrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
             double tdist = dist(p.x, p.y, task->targetX, task->targetY);
-            if (carrier && carrier->team != p.team && std::abs(carrier->x - ownGoalX) < PITCH_W * 0.45 && tdist > 32.0) {
+            if (carrier && carrier->team != p.team && pitch::distToOwnGoal(carrier->x, p.team) < PITCH_W * 0.45 && tdist > 32.0) {
                 defendSprint = true;
             }
         }
@@ -172,7 +171,7 @@ void PlayerAI::applyMovement(double sdt) {
     // near a goal — an attacking chance to pounce on, or a defensive emergency to beat the striker
     // to. Midfield 50/50s stay at normal pursuit pace (this isn't a blanket sprint-everywhere).
     bool looseBallHighValue = pitch::distToOppGoal(engine.state.ball.x, p.team) < 300.0
-                           || std::abs(engine.state.ball.x - ownGoalX) < 300.0;
+                           || pitch::distToOwnGoal(engine.state.ball.x, p.team) < 300.0;
     bool pursuingLooseBall = engine.state.ball.controllerId < 0 && looseBallHighValue
         && bd < 230.0 && (dx * bdx + dy * bdy) > 0.0;
     // Attacking the delivery (mirror of E1's sprint-back): a runner whose chosen

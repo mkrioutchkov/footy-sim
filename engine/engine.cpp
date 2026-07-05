@@ -488,17 +488,16 @@ void GameEngine::updatePossessionTracking(double sdt) {
         lineDepthNextMs = state.clockMs + 1000.0;
         for (int t = 0; t < 2; t++) {
             Team team = t == 0 ? Team::Home : Team::Away;
-            double goalX = ownGoalXFor(team);
             double line = 1e9;
             for (auto& p : state.players)
                 if (p.team == team && !p.sentOff && roles::isDefenderRole(p.role))
-                    line = std::min(line, std::abs(p.x - goalX));
+                    line = std::min(line, pitch::distToOwnGoal(p.x, team));
             if (line > 110.0) continue;
-            if (std::abs(state.ball.x - goalX) < 450.0) continue;
+            if (pitch::distToOwnGoal(state.ball.x, team) < 450.0) continue;
             bool threatDeep = false;
             for (auto& p : state.players)
                 if (p.team != team && p.role != Role::GK && !p.sentOff
-                    && std::abs(p.x - goalX) < line + 60.0) { threatDeep = true; break; }
+                    && pitch::distToOwnGoal(p.x, team) < line + 60.0) { threatDeep = true; break; }
             if (!threatDeep) stats.recordLineTooDeep();
         }
     }
