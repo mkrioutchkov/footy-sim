@@ -761,31 +761,9 @@ int GameEngine::designatedTakerFor(SetPiece type, Team team) {
     return -1;
 }
 
-void GameEngine::updateSetPiecePhase(double sdt, double sec) {
-    phase.actionTimer -= sdt;
-    Team spTeam = setPiece.team;
-
-    // Out-ball glide: an awarded corner/throw/goal-kick ball keeps ROLLING
-    // beyond the line under friction instead of teleporting to the restart
-    // spot the tick it crossed ("goal kicks look weird" — the ball vanished
-    // mid-flight and reappeared dead in the keeper's hands). Nobody can play
-    // it (armed chase gate; no collection runs in this phase) and the taker
-    // walks to the SPOT; when the window closes — or the ball dies — place it.
-    if (setPiece.placeBallAtMs > 0.0) {
-        auto& gb = state.ball;
-        bool alive = std::hypot(gb.vx, gb.vy) > 20.0 || gb.z > 0.5;
-        if (state.clockMs < setPiece.placeBallAtMs && alive && gb.controllerId < 0) {
-            applyBallPhysics(sec);
-            clampBallPosition();
-        } else {
-            gb.x = setPiece.spotX;
-            gb.y = setPiece.spotY;
-            gb.vx = gb.vy = gb.z = gb.vz = 0;
-            setPiece.placeBallAtMs = 0.0;
-        }
-    }
-
-    // ── Populate throw-in support targets in blackboard (once per set piece) ──
+// Pre-compute each teammate's throw-in support target into the blackboard,
+// once per set piece (role-shaped: CF stretches long, WM offers short/wide, etc.).
+void GameEngine::populateThrowInSupport(Team spTeam) {
     if (setPiece.type == SetPiece::ThrowIn) {
         auto& bb = blackboards[teamIndex(spTeam)];
         if (!bb.throwInSupport.active) {
@@ -827,6 +805,34 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             }
         }
     }
+}
+
+void GameEngine::updateSetPiecePhase(double sdt, double sec) {
+    phase.actionTimer -= sdt;
+    Team spTeam = setPiece.team;
+
+    // Out-ball glide: an awarded corner/throw/goal-kick ball keeps ROLLING
+    // beyond the line under friction instead of teleporting to the restart
+    // spot the tick it crossed ("goal kicks look weird" — the ball vanished
+    // mid-flight and reappeared dead in the keeper's hands). Nobody can play
+    // it (armed chase gate; no collection runs in this phase) and the taker
+    // walks to the SPOT; when the window closes — or the ball dies — place it.
+    if (setPiece.placeBallAtMs > 0.0) {
+        auto& gb = state.ball;
+        bool alive = std::hypot(gb.vx, gb.vy) > 20.0 || gb.z > 0.5;
+        if (state.clockMs < setPiece.placeBallAtMs && alive && gb.controllerId < 0) {
+            applyBallPhysics(sec);
+            clampBallPosition();
+        } else {
+            gb.x = setPiece.spotX;
+            gb.y = setPiece.spotY;
+            gb.vx = gb.vy = gb.z = gb.vz = 0;
+            setPiece.placeBallAtMs = 0.0;
+        }
+    }
+
+    // Populate throw-in support targets once per set piece.
+    populateThrowInSupport(spTeam);
 
     for (auto& a : agents) {
         a->setPiecePositioning(setPiece.type, spTeam);

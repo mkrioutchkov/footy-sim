@@ -648,6 +648,7 @@ private:
     void updatePossessionTracking(double sdt);
     void detectSimulationFreeze(double sdt);
     void updateSetPiecePhase(double sdt, double sec);
+    void populateThrowInSupport(Team spTeam);
     void updateKickoffPhase(double sdt);
     void updateOpenPlayPhase(double sdt, double sec);
 public:
