@@ -55,12 +55,6 @@ enum class QualityFlag : uint8_t {
     StationaryHold500ms
 };
 
-// ── Pitch area for position-aware behavior ──  
-enum class PitchArea : uint8_t {
-    OwnBox, OwnThird, MidThird, FinalThird, OppBox,
-    WideLeft, WideRight, Central
-};
-
 inline constexpr std::string_view to_string(Team t) { return t == Team::Home ? "home" : "away"; }
 inline constexpr std::string_view to_string(Role r) {
     switch (r) {

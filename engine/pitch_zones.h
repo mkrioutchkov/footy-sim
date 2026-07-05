@@ -6,7 +6,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 // Pitch-location vocabulary — "where on the pitch is this, in football terms?"
 //
-// This is what the dead PitchArea enum was meant to be. The engine hand-rolls the
+// This is what the old (dead, since removed) PitchArea enum was meant to be. The engine hand-rolls the
 // same handful of location scalars everywhere — attack-direction progress up the
 // pitch, distance from a goal, how far off-centre — each recomputed inline with a
 // slightly different literal. These helpers name the *computation* once so a call

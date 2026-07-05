@@ -6,26 +6,6 @@
 // tick()
 // ══════════════════════════════════════════════════════════════════════════════
 
-PitchArea PlayerAI::currentPitchArea() const {
-    double ownGoalX = ownGoalXFor(player.team);
-    double oppGoalX = goalXFor(player.team);
-    double fd = fdFor(player.team);
-    double progress = (player.x - ownGoalX) * fd;
-    double halfPitch = PITCH_W * 0.5;
-    double centralDist = std::abs(player.y - PITCH_H / 2.0);
-    bool wide = centralDist > 140.0;
-    
-    if (std::abs(player.x - ownGoalX) < PENALTY_AREA_W && centralDist < PENALTY_AREA_H / 2.0)
-        return PitchArea::OwnBox;
-    if (progress < halfPitch * 0.33)
-        return wide ? (player.y < PITCH_H / 2.0 ? PitchArea::WideLeft : PitchArea::WideRight) : PitchArea::OwnThird;
-    if (progress < halfPitch * 0.66)
-        return wide ? (player.y < PITCH_H / 2.0 ? PitchArea::WideLeft : PitchArea::WideRight) : PitchArea::MidThird;
-    if (std::abs(player.x - oppGoalX) < PENALTY_AREA_W && centralDist < PENALTY_AREA_H / 2.0)
-        return PitchArea::OppBox;
-    return wide ? (player.y < PITCH_H / 2.0 ? PitchArea::WideLeft : PitchArea::WideRight) : PitchArea::FinalThird;
-}
-
 void PlayerAI::tick(double sdt) {
     if (isGoalkeeper()) return;
     facing = player.facing;

@@ -186,7 +186,6 @@ public:
     virtual double  rushOutSpeed() const { return 0.0; }
     virtual bool    isOffensiveThreat(double depth, bool danger, double yDistFromCenter) const { (void)depth; (void)danger; (void)yDistFromCenter; return false; }
     virtual double  markerRoleBonus(const PlayerAI& defender, bool danger) const { (void)defender; (void)danger; return 1e9; }
-    virtual PitchArea currentPitchArea() const;
     double dizzyRotationAccum = 0;
     double dizzyWindowStartMs = 0;
 
