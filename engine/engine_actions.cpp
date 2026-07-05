@@ -498,6 +498,106 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     beginTrackedPass(f, t);
 }
 
+// Resolve a committed tackle that missed the ball (rng >= chance): foul odds,
+// cards, injury, advantage, and the free-kick/penalty award. Mutates match state;
+// on advantage it returns early (play waved on).
+void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBehind, bool cynical, double boxFoulScale) {
+    auto& b = state.ball;
+        // Per-failure foul odds must be low because duel volume is high —
+        double foulChance = (fromBehind ? TACKLE_FOUL_FROM_BEHIND : TACKLE_FOUL_NORMAL) * boxFoulScale * (1.0 + directiveBias[tackler.id].tackleAggression * 0.35) // tackle_hard: more reckless
+                            * (1.0 - directiveBias[tackler.id].stayOnFeet * 0.45)                                                                                  // stay_on_feet: cleaner
+                            * (1.0 + (1.0 - staminaFrac(tackler.stamina)) * 0.6);                                                                                  // tired legs mistime the tackle (+60% at empty; no-op fresh)
+        // A deliberate cynical foul IS the foul — he means to bring the man down.
+        if (cynical) foulChance = CYNICAL_FOUL_PROB;
+        // A booked player plays it safe — fewer reckless AND cynical fouls, so second
+        // yellows (and the resulting reds) drop toward real rates. A booked last man
+        // knows a second foul = off, so he's far more careful even when tempted to
+        // cynically pull the man down. (SysArch 2026-06-30: reds measured ~0.60/match
+        // ≈ 2.4× real ~0.25 — the booked-CYNICAL path was bypassing this damping.)
+        if (yellowCards[tackler.id] >= 1) foulChance *= 0.38; // booked → VERY careful (now incl. cynical: trims second-yellow reds)
+        if (rng.random() < foulChance) {
+            stats.recordTackleFoul();
+            if (cynical) stats.recordTacticalFoul();
+            double foulX = carrier.x;
+            double foulY = carrier.y;
+            emitEvent("foul", foulX, foulY, tackler.id, carrier.id);
+            // Bookings: reckless (from-behind) fouls risk a card. A second
+            // yellow — or a straight red for a wild challenge — sends him off.
+            // Tuned for ~3-4 yellows and ~0.25 reds per match (real-world).
+            // Card-per-foul was ~32% (≈2× real ~17%): a foul fired a card far too
+            // often, so raising fouls toward real exploded yellows/reds. Lowered to
+            // calibrate cards to the higher foul volume (cynical fouls stay bookable).
+            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.20 : 0.055); // SysArch 2026-06-30: yellows measured ~5.5/match (≈1.5× real 3-4) → trim 0.28/0.075 → 0.20/0.055
+            // A booked player's borderline SECOND foul: a real ref usually warns
+            // rather than firing the automatic second yellow. Second-yellow reds were
+            // measured ~0.62/match (≈2.5× real ~0.25), piled up in chippy high-yellow
+            // games — trimming the average never tamed that tail; this does. (A cynical
+            // second foul stays bookable — he meant it.)
+            if (yellowCards[tackler.id] >= 1 && !cynical) cardChance *= 0.45;
+            bool straightRed = fromBehind && rng.random() < 0.0032; // reds measured ~0.60 ≈ 2.4× real → 0.005->0.0032
+            if (straightRed || rng.random() < cardChance) {
+                if (!straightRed) {
+                    yellowCards[tackler.id]++;
+                    stats.recordYellowCard();
+                    emitEvent("yellow", foulX, foulY, tackler.id, carrier.id);
+                }
+                if (straightRed || yellowCards[tackler.id] >= 2) {
+                    sendOff(tackler);
+                    emitEvent("red", foulX, foulY, tackler.id, carrier.id);
+                }
+            }
+            // A hard (from-behind) foul can leave the fouled player hurt — a
+            // knock that scales down his pace until it fades, and makes him a
+            // substitution candidate.
+            // Injuries ran ~1.8/match (real ~0.3-0.6); trimmed to land mid-band ~0.4.
+            double injChance = fromBehind ? 0.030 : 0.009;
+            if (rng.random() < injChance) {
+                carrier.injurySeverity = std::max(carrier.injurySeverity, 0.30 + rng.random() * 0.45);
+                stats.recordInjury();
+                emitEvent("injury", carrier.x, carrier.y, carrier.id);
+            }
+            // Advantage: if the fouled team is going forward in open play and
+            // the carrier kept his feet, wave play on — the foul and any card
+            // still count (shown now; banked till the next stoppage in reality).
+            double attFd = fdFor(carrier.team);
+            bool inAttackingHalf = attFd > 0 ? carrier.x > HALF_X : carrier.x < HALF_X;
+            double defGoalX0 = ownGoalXFor(tackler.team);
+            bool nearOppBox = std::abs(carrier.x - defGoalX0) < PENALTY_AREA_W * 1.4;
+            if (inAttackingHalf && !nearOppBox && carrier.injurySeverity < 0.18 && rng.random() < 0.35) {
+                emitEvent("advantage", foulX, foulY, carrier.id, tackler.id);
+                advantage = {true, carrier.team, foulX, foulY, state.clockMs}; // recall if it fizzles
+                blockReboundFor(tackler.id, 500);                              // fouler can't re-lunge instantly
+                return;                                                  // carrier plays on
+            }
+            b.vx = b.vy = b.z = b.vz = 0;
+            b.controllerId = -1;
+            b.intendedReceiverId = -1;
+            b.lastTouchTeam = carrier.team;
+            b.lastToucherId = carrier.id;
+            lastLooseOrigin = LooseOrigin::None;
+            blockReboundFor(tackler.id, 650);
+            double defendingGoalX = ownGoalXFor(tackler.team);
+            double defendingFd = fdFor(tackler.team);
+            bool foulInBox = std::abs(foulX - defendingGoalX) < PENALTY_AREA_W && std::abs(foulY - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+            if (foulInBox) {
+                b.x = defendingGoalX + defendingFd * PENALTY_SPOT_FROM_GOAL;
+                b.y = PITCH_H / 2.0;
+                stats.recordPenaltyAwarded();
+                emitEvent("penalty", b.x, b.y, carrier.id);
+                awardSetPiece(SetPiece::Penalty, carrier.team);
+                setPiece.reason = "penalty";
+            } else {
+                b.x = clamp(foulX, 20.0, PITCH_W - 20.0);
+                b.y = clamp(foulY, 20.0, PITCH_H - 20.0);
+                awardSetPiece(SetPiece::FreeKick, carrier.team);
+            }
+            setPiece.spotX = b.x;
+            setPiece.spotY = b.y;
+        } else {
+            blockReboundFor(tackler.id, 650);
+        }
+}
+
 bool GameEngine::attemptTackle(Player& tackler, Player& carrier) {
     double contactDist = dist(tackler.x, tackler.y, carrier.x, carrier.y);
     auto& b = state.ball;
@@ -608,99 +708,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier) {
     double boxFoulScale = inPenaltyBox ? 0.54 : 1.0; // 0.5 -> 0.54: penalties ~0.14 -> ~0.3/match (still careful in the box)
     stats.recordTackleAttempt();
     if (rng.random() >= chance) {
-        // Per-failure foul odds must be low because duel volume is high —
-        double foulChance = (fromBehind ? TACKLE_FOUL_FROM_BEHIND : TACKLE_FOUL_NORMAL) * boxFoulScale * (1.0 + directiveBias[tackler.id].tackleAggression * 0.35) // tackle_hard: more reckless
-                            * (1.0 - directiveBias[tackler.id].stayOnFeet * 0.45)                                                                                  // stay_on_feet: cleaner
-                            * (1.0 + (1.0 - staminaFrac(tackler.stamina)) * 0.6);                                                                                  // tired legs mistime the tackle (+60% at empty; no-op fresh)
-        // A deliberate cynical foul IS the foul — he means to bring the man down.
-        if (cynical) foulChance = CYNICAL_FOUL_PROB;
-        // A booked player plays it safe — fewer reckless AND cynical fouls, so second
-        // yellows (and the resulting reds) drop toward real rates. A booked last man
-        // knows a second foul = off, so he's far more careful even when tempted to
-        // cynically pull the man down. (SysArch 2026-06-30: reds measured ~0.60/match
-        // ≈ 2.4× real ~0.25 — the booked-CYNICAL path was bypassing this damping.)
-        if (yellowCards[tackler.id] >= 1) foulChance *= 0.38; // booked → VERY careful (now incl. cynical: trims second-yellow reds)
-        if (rng.random() < foulChance) {
-            stats.recordTackleFoul();
-            if (cynical) stats.recordTacticalFoul();
-            double foulX = carrier.x;
-            double foulY = carrier.y;
-            emitEvent("foul", foulX, foulY, tackler.id, carrier.id);
-            // Bookings: reckless (from-behind) fouls risk a card. A second
-            // yellow — or a straight red for a wild challenge — sends him off.
-            // Tuned for ~3-4 yellows and ~0.25 reds per match (real-world).
-            // Card-per-foul was ~32% (≈2× real ~17%): a foul fired a card far too
-            // often, so raising fouls toward real exploded yellows/reds. Lowered to
-            // calibrate cards to the higher foul volume (cynical fouls stay bookable).
-            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.20 : 0.055); // SysArch 2026-06-30: yellows measured ~5.5/match (≈1.5× real 3-4) → trim 0.28/0.075 → 0.20/0.055
-            // A booked player's borderline SECOND foul: a real ref usually warns
-            // rather than firing the automatic second yellow. Second-yellow reds were
-            // measured ~0.62/match (≈2.5× real ~0.25), piled up in chippy high-yellow
-            // games — trimming the average never tamed that tail; this does. (A cynical
-            // second foul stays bookable — he meant it.)
-            if (yellowCards[tackler.id] >= 1 && !cynical) cardChance *= 0.45;
-            bool straightRed = fromBehind && rng.random() < 0.0032; // reds measured ~0.60 ≈ 2.4× real → 0.005->0.0032
-            if (straightRed || rng.random() < cardChance) {
-                if (!straightRed) {
-                    yellowCards[tackler.id]++;
-                    stats.recordYellowCard();
-                    emitEvent("yellow", foulX, foulY, tackler.id, carrier.id);
-                }
-                if (straightRed || yellowCards[tackler.id] >= 2) {
-                    sendOff(tackler);
-                    emitEvent("red", foulX, foulY, tackler.id, carrier.id);
-                }
-            }
-            // A hard (from-behind) foul can leave the fouled player hurt — a
-            // knock that scales down his pace until it fades, and makes him a
-            // substitution candidate.
-            // Injuries ran ~1.8/match (real ~0.3-0.6); trimmed to land mid-band ~0.4.
-            double injChance = fromBehind ? 0.030 : 0.009;
-            if (rng.random() < injChance) {
-                carrier.injurySeverity = std::max(carrier.injurySeverity, 0.30 + rng.random() * 0.45);
-                stats.recordInjury();
-                emitEvent("injury", carrier.x, carrier.y, carrier.id);
-            }
-            // Advantage: if the fouled team is going forward in open play and
-            // the carrier kept his feet, wave play on — the foul and any card
-            // still count (shown now; banked till the next stoppage in reality).
-            double attFd = fdFor(carrier.team);
-            bool inAttackingHalf = attFd > 0 ? carrier.x > HALF_X : carrier.x < HALF_X;
-            double defGoalX0 = ownGoalXFor(tackler.team);
-            bool nearOppBox = std::abs(carrier.x - defGoalX0) < PENALTY_AREA_W * 1.4;
-            if (inAttackingHalf && !nearOppBox && carrier.injurySeverity < 0.18 && rng.random() < 0.35) {
-                emitEvent("advantage", foulX, foulY, carrier.id, tackler.id);
-                advantage = {true, carrier.team, foulX, foulY, state.clockMs}; // recall if it fizzles
-                blockReboundFor(tackler.id, 500);                              // fouler can't re-lunge instantly
-                return false;                                                  // carrier plays on
-            }
-            b.vx = b.vy = b.z = b.vz = 0;
-            b.controllerId = -1;
-            b.intendedReceiverId = -1;
-            b.lastTouchTeam = carrier.team;
-            b.lastToucherId = carrier.id;
-            lastLooseOrigin = LooseOrigin::None;
-            blockReboundFor(tackler.id, 650);
-            double defendingGoalX = ownGoalXFor(tackler.team);
-            double defendingFd = fdFor(tackler.team);
-            bool foulInBox = std::abs(foulX - defendingGoalX) < PENALTY_AREA_W && std::abs(foulY - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
-            if (foulInBox) {
-                b.x = defendingGoalX + defendingFd * PENALTY_SPOT_FROM_GOAL;
-                b.y = PITCH_H / 2.0;
-                stats.recordPenaltyAwarded();
-                emitEvent("penalty", b.x, b.y, carrier.id);
-                awardSetPiece(SetPiece::Penalty, carrier.team);
-                setPiece.reason = "penalty";
-            } else {
-                b.x = clamp(foulX, 20.0, PITCH_W - 20.0);
-                b.y = clamp(foulY, 20.0, PITCH_H - 20.0);
-                awardSetPiece(SetPiece::FreeKick, carrier.team);
-            }
-            setPiece.spotX = b.x;
-            setPiece.spotY = b.y;
-        } else {
-            blockReboundFor(tackler.id, 650);
-        }
+        resolveTackleFoul(tackler, carrier, fromBehind, cynical, boxFoulScale);
         return false;
     }
     pendingPass.active = false;
