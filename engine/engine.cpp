@@ -8,6 +8,21 @@
 #include <cmath>
 #include <numbers>
 
+// Role → role-AI factory. Single source of truth for the role-to-subclass map,
+// used by both the kickoff build and the mid-match reassignAgent() swap (was the
+// same switch copy-pasted in two places).
+static std::unique_ptr<PlayerAI> makeAgentFor(Player& p, GameEngine& e) {
+    switch (p.role) {
+        case Role::GK: return std::make_unique<GKPlayerAI>(p, e);
+        case Role::CF: return std::make_unique<CFPlayerAI>(p, e);
+        case Role::WM: return std::make_unique<WMPlayerAI>(p, e);
+        case Role::CM: return std::make_unique<CMPlayerAI>(p, e);
+        case Role::CB: return std::make_unique<CBPlayerAI>(p, e);
+        case Role::FB: return std::make_unique<FBPlayerAI>(p, e);
+        default:       return std::make_unique<PlayerAI>(p, e);
+    }
+}
+
 // ══════════════════════════════════════════════════════════════
 // Player lookups
 // ══════════════════════════════════════════════════════════════
@@ -1339,15 +1354,7 @@ void GameEngine::initWithSeed(int seed) {
     initBench();
     lastReceiveFrom.fill(-1);
     for(auto&p:state.players) {
-        switch (p.role) {
-            case Role::GK: agents.push_back(std::make_unique<GKPlayerAI>(p, *this)); break;
-            case Role::CF: agents.push_back(std::make_unique<CFPlayerAI>(p, *this)); break;
-            case Role::WM: agents.push_back(std::make_unique<WMPlayerAI>(p, *this)); break;
-            case Role::CM: agents.push_back(std::make_unique<CMPlayerAI>(p, *this)); break;
-            case Role::CB: agents.push_back(std::make_unique<CBPlayerAI>(p, *this)); break;
-            case Role::FB: agents.push_back(std::make_unique<FBPlayerAI>(p, *this)); break;
-            default:       agents.push_back(std::make_unique<PlayerAI>(p, *this));  break;
-        }
+        agents.push_back(makeAgentFor(p, *this));
     }
     // §weather v2 WIND: derive the per-match wind vector from a SEPARATE seed-stream so the MAIN rng
     // (hence the whole clear-vs-wind in-match sim) stays byte-identical — only the airborne drift
@@ -1614,13 +1621,5 @@ void GameEngine::createAwayTeam() { buildTeam(Team::Away, awayRoster, DEF_HX_AWA
 void GameEngine::reassignAgent(Player& p, Role r) {
     if (p.id < 0 || p.id >= (int)agents.size()) return;
     p.role = r;
-    switch (r) {
-        case Role::GK: agents[p.id] = std::make_unique<GKPlayerAI>(p, *this); break;
-        case Role::CF: agents[p.id] = std::make_unique<CFPlayerAI>(p, *this); break;
-        case Role::WM: agents[p.id] = std::make_unique<WMPlayerAI>(p, *this); break;
-        case Role::CM: agents[p.id] = std::make_unique<CMPlayerAI>(p, *this); break;
-        case Role::CB: agents[p.id] = std::make_unique<CBPlayerAI>(p, *this); break;
-        case Role::FB: agents[p.id] = std::make_unique<FBPlayerAI>(p, *this); break;
-        default:       agents[p.id] = std::make_unique<PlayerAI>(p, *this); break;
-    }
+    agents[p.id] = makeAgentFor(p, *this);
 }
