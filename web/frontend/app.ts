@@ -1135,6 +1135,7 @@ let activeReplayTimer: ReturnType<typeof setInterval> | null = null;   // live g
 let activeHighlightTimer: ReturnType<typeof setTimeout> | null = null;   // 🎞 highlights-reel tour step (survives teardown otherwise)
 let watchStatsPanel: HTMLElement | null = null;   // 📊 on-demand match-analysis overlay (ratings + shot map + xG)
 let watchStatsTimer: ReturnType<typeof setInterval> | null = null;   // refreshes the stats overlay while it's open
+let watchLineupsPanel: HTMLElement | null = null;   // 👥 on-demand line-ups overlay (home/away columns)
 let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
 function teardownWatch() {
   watchEpoch++;
@@ -1142,6 +1143,7 @@ function teardownWatch() {
   if (activeHighlightTimer) { clearTimeout(activeHighlightTimer); activeHighlightTimer = null; }   // stop a highlights tour scheduled but not yet fired
   if (watchStatsTimer) { clearInterval(watchStatsTimer); watchStatsTimer = null; }   // stop the 📊 stats refresh loop
   watchStatsPanel?.remove(); watchStatsPanel = null;
+  watchLineupsPanel?.remove(); watchLineupsPanel = null;
   try { watchPanelObs?.disconnect(); } catch { /* */ } watchPanelObs = null;
   if (watchKeyHandler) { window.removeEventListener('keydown', watchKeyHandler); watchKeyHandler = null; }
   if (watchVisHandler) { document.removeEventListener('visibilitychange', watchVisHandler); watchVisHandler = null; }
@@ -1280,9 +1282,20 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   const commitScrub = (): void => { setTimeout(() => { if (scrubbing) { scrubbing = false; seekTo(+scrubEl.value); } }, 0); };
   scrubEl.addEventListener('pointerup', commitScrub);
   scrubEl.addEventListener('keyup', commitScrub);
-  // ⏪ / ⏩ — the ONLY step buttons (the slider + ←/→ cover the rest). Revealed with the scrub.
-  const back10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Back 10 seconds', title: 'Back 10 seconds (←)', onclick: () => seekTo(Math.max(0, currentMs - 10000)) }, '⏪ 10s') as HTMLButtonElement;
-  const fwd10Btn = h('button', { class: 'ghost small', style: 'display:none', 'aria-label': 'Forward 10 seconds', title: 'Forward 10 seconds (→)', onclick: () => seekTo(currentMs + 10000) }, '10s ⏩') as HTMLButtonElement;
+  // ⏪ / ⏩ compact jump stepper — REWIND −10/−5/−3/−2/−1s · FAST-FORWARD +1/+2/+3/+5/+10s. Each rides the
+  // unified seekTo (recorded → backend random access; live → the client rewind buffer), so a rewind lands in
+  // buffered history and a forward jump catches back up to the live edge. Revealed with the scrub.
+  const STEP_BACK = [10, 5, 3, 2, 1];   // seconds (rewind)
+  const STEP_FWD = [1, 2, 3, 5, 10];    // seconds (fast-forward)
+  const mkStep = (sec: number, dir: -1 | 1): HTMLButtonElement => h('button', {
+    class: 'ghost small step-btn', 'aria-label': `${dir < 0 ? 'Rewind' : 'Forward'} ${sec} seconds`,
+    title: `${dir < 0 ? '−' : '+'}${sec}s`, onclick: () => seekTo(Math.max(0, currentMs + dir * sec * 1000)),
+  }, `${dir < 0 ? '−' : '+'}${sec}s`) as HTMLButtonElement;
+  const stepGroup = h('div', { class: 'step-group', style: 'display:none', role: 'group', 'aria-label': 'Rewind and fast-forward' },
+    ...STEP_BACK.map(s => mkStep(s, -1)),
+    h('span', { class: 'step-sep', 'aria-hidden': 'true' }),
+    ...STEP_FWD.map(s => mkStep(s, 1)),
+  ) as HTMLElement;
   // The moments the 🎞 reel + the , / . keys tour: the drama — goals, red cards, penalties, woodwork. A
   // goalless-but-eventful match (a sending-off, a saved penalty, a 0-0 that rattled the bar) now gets a
   // highlights tour, not nothing. Yellows stay as clickable scrub markers only (a 5-yellow game shouldn't
@@ -1334,18 +1347,27 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   // fixture falls back to a fresh engine re-sim whose scoreline can differ from the league table. Set on
   // the first frame so the divergence is honest (this is the 4-1-here-vs-0-2-in-the-table confusion).
   const recBadge = h('span', { class: 'chip', style: 'display:none' });
-  // speed — ONE compact select (was five buttons). The value tracks each frame's ACTUAL state.speed, so it
-  // always shows the real playback rate; curSpeed also paces the client-side buffer playback when rewound.
+  // speed — a pill GROUP (was a select) where EVERY preset actually bites: a click sends the rate to the
+  // backend AND applies it locally at once (curSpeed), so it re-paces the client-side buffer playback the
+  // instant you change it even while rewound (the old select only mailed the backend → invisible mid-rewind).
+  // The active pill also tracks each frame's real state.speed via paintBar → paintSpeed, so it never lies.
   const SPEEDS = [0.5, 1, 2, 4, 8];   // 0.5× slow-mo for detail (backend clamps [0.25,60]); 8× to skip ahead
   let paused = false;
   let curSpeed = 1;                   // last speed reported by a frame — the one true playback rate
-  const speedSel = h('select', {
-    'aria-label': 'Playback speed', title: 'Playback speed',
-    // width:auto — the global `select { width:100% }` would otherwise stretch it to a full bar row
-    style: 'width:auto;padding:3px 6px;font-size:12px;background:rgba(12,19,32,.85);color:inherit;border:1px solid var(--line);border-radius:6px;cursor:pointer',
-  }, ...SPEEDS.map(v => h('option', { value: String(v) }, `${v}×`))) as HTMLSelectElement;
-  speedSel.value = '1';
-  speedSel.addEventListener('change', () => activeWs?.send(JSON.stringify({ type: 'speed', value: +speedSel.value })));
+  const speedPills = SPEEDS.map(v => h('button', {
+    class: 'spd-pill small' + (v === 1 ? ' on' : ''), 'data-s': String(v),
+    'aria-label': `${v}× speed`, 'aria-pressed': String(v === 1), title: `${v}× playback`,
+  }, `${v}×`) as HTMLButtonElement);
+  const paintSpeed = (v: number): void => {
+    speedPills.forEach((btn, i) => { const on = SPEEDS[i] === v; btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', String(on)); });
+  };
+  const setSpeed = (v: number): void => {
+    curSpeed = v;   // apply immediately — re-paces the buffer playback even while rewound (replaying)
+    activeWs?.send(JSON.stringify({ type: 'speed', value: v }));
+    paintSpeed(v);
+  };
+  speedPills.forEach((btn, i) => btn.addEventListener('click', () => setSpeed(SPEEDS[i])));
+  const speedGroup = h('div', { class: 'spd-pills', role: 'group', 'aria-label': 'Playback speed' }, ...speedPills);
   // Pause ↔ Resume — distinct pause/resume commands (every stream handles 'resume' now, so no more
   // per-mode toggle protocol). Pausing also freezes the client-side buffer playback when rewound
   // (step() holds while paused). The local state is RECONCILED from each frame's matchState (below),
@@ -1361,7 +1383,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   const paintBar = (s?: number): void => {
     if (typeof s === 'number' && SPEEDS.includes(s)) {
       curSpeed = s;
-      if (speedSel.value !== String(s)) speedSel.value = String(s);   // don't churn the control while it matches
+      paintSpeed(s);   // reflect the frame's real playback rate on the pills (don't churn if already matching)
     }
     pauseBtn.classList.toggle('primary', paused); pauseBtn.classList.toggle('ghost', !paused); pauseBtn.setAttribute('aria-pressed', String(paused));
   };
@@ -1454,10 +1476,44 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     renderStatsPanel();
     watchStatsTimer = setInterval(() => { if (myEpoch !== watchEpoch) { closeStats(); return; } renderStatsPanel(); }, 1500);
   });
-  // ⋯ — everything secondary in ONE place (tactics overlay, match stats, highlights tour, live goal replay), so
-  // the bar itself stays: pause · speed · ⏪/⏩ · slider · ● LIVE. The items keep their own show/hide logic inside.
+  // 👥 Line-ups — a two-column (home/away) roster overlay: shirt number, short name, role tag, team dot.
+  // Sourced from the renderer's per-frame roster (getRatings gives id/name/team/role; shirt = id%11+1 to
+  // match the on-pitch labels). Built on open (rosters are stable within a match); torn down centrally.
+  const lineupsBtn = h('button', { class: 'ghost small', 'aria-label': 'Toggle line-ups', 'aria-pressed': 'false', title: 'Match line-ups (both teams)' }, '👥 Line-ups') as HTMLButtonElement;
+  const closeLineups = (): void => {
+    watchLineupsPanel?.remove(); watchLineupsPanel = null;
+    lineupsBtn.classList.remove('primary'); lineupsBtn.classList.add('ghost'); lineupsBtn.setAttribute('aria-pressed', 'false');
+  };
+  const openLineups = (): void => {
+    if (!activeRenderer) return;
+    const names = activeRenderer.getTeamNames();
+    const roster = activeRenderer.getRatings();
+    const sideCol = (teamName: string, side: 'home' | 'away', dot: string) => {
+      const list = roster.filter(r => r.team === side).sort((a, b) => (a.id % 11) - (b.id % 11));
+      return h('div', { class: 'lu-side' },
+        h('div', { class: 'lu-head' }, h('span', { class: 'lu-dot', style: `background:${dot}` }), h('span', { class: 'lu-team' }, teamName || (side === 'home' ? 'Home' : 'Away'))),
+        ...(list.length ? list.map(r => h('div', { class: 'lu-row' },
+          h('span', { class: 'lu-no' }, String((r.id % 11) + 1)),
+          h('span', { class: 'lu-nm' }, shortName(r.name)),
+          h('span', { class: 'lu-rl' }, r.role))) : [h('div', { class: 'muted', style: 'font-size:11px' }, 'Awaiting kick-off…')]));
+    };
+    const panel = h('div', { role: 'region', 'aria-label': 'Line-ups', class: 'watch-lineups' },
+      h('div', { class: 'between', style: 'margin-bottom:8px' },
+        h('span', { style: 'font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)' }, '👥 Line-ups'),
+        h('button', { class: 'ghost small', 'aria-label': 'Close line-ups', onclick: closeLineups }, '×')),
+      h('div', { class: 'lu-cols' }, sideCol(names.home, 'home', '#e63946'), sideCol(names.away, 'away', '#4b93c9')));
+    document.body.appendChild(panel);
+    watchLineupsPanel = panel;
+  };
+  lineupsBtn.addEventListener('click', () => {
+    if (watchLineupsPanel) { closeLineups(); return; }
+    openLineups();
+    lineupsBtn.classList.add('primary'); lineupsBtn.classList.remove('ghost'); lineupsBtn.setAttribute('aria-pressed', 'true');
+  });
+  // ⋯ — everything secondary in ONE place (tactics overlay, match stats, line-ups, highlights tour, live goal
+  // replay), so the bar itself stays: pause · speed · ⏪/⏩ · slider · ● LIVE. Items keep their own show/hide logic.
   const morePop = h('div', { style: 'display:none;position:absolute;top:100%;right:0;margin-top:6px;z-index:41;background:rgba(12,19,32,.96);border:1px solid var(--line);border-radius:8px;padding:6px;flex-direction:column;gap:6px;min-width:160px' },
-    dirBtn, statsBtn, highlightBtn, replayBtn) as HTMLElement;
+    dirBtn, statsBtn, lineupsBtn, highlightBtn, replayBtn) as HTMLElement;
   const moreBtn = h('button', { class: 'ghost small', 'aria-label': 'More controls', 'aria-haspopup': 'true', 'aria-expanded': 'false', title: 'More — tactics overlay, highlights, goal replay' }, '⋯') as HTMLButtonElement;
   moreBtn.addEventListener('click', () => {
     const open = morePop.style.display === 'none';
@@ -1471,9 +1527,8 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   const bar = h('div', { class: 'watch-bar' },
     h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
     pauseBtn,
-    speedSel,
-    back10Btn,
-    fwd10Btn,
+    speedGroup,
+    stepGroup,
     scrubWrap,
     scrubLabel,
     goLiveBtn,
@@ -1825,7 +1880,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
       // A replayed recording is finished playback: reveal the rewind/scrub/back-10s controls. The shout
       // box is already gone (the panel is the read-only live-only note when !live), so keep the note visible.
       if (msg.replay && !replayUiApplied) {
-        replayUiApplied = true; back10Btn.style.display = ''; fwd10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve();
+        replayUiApplied = true; stepGroup.style.display = 'flex'; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve();
         // deep-link (#/watch/id?t=ms — e.g. a report-timeline click): jump straight to the moment once seekable
         if (startMs > 0) { seekTo(Math.max(0, startMs)); startMs = 0; }
       }
@@ -1900,7 +1955,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
           if (added) buildMarkers(liveMarks);
         }
         // reveal the rewind/scrub controls for a LIVE watch once there's enough buffered to seek within
-        if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; back10Btn.style.display = ''; fwd10Btn.style.display = ''; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
+        if (!liveSeek && liveBuffer.length >= 8) { liveSeek = true; stepGroup.style.display = 'flex'; scrubWrap.style.display = 'inline-flex'; scrubLabel.style.display = ''; syncReserve(); }
         // the live slider spans the actual rewind WINDOW (oldest buffered → the live edge) — the whole track
         // is reachable, instead of a fixed 96' where only the last ~12 buffered minutes meant anything.
         // setScrubRange dirty-checks (1.5s) + never moves the range mid-drag, so this is cheap per push.
