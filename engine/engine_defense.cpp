@@ -371,7 +371,7 @@ void GameEngine::assignAttackingRoles(Team team, Player& carrier) {
     // 3) Overlap + cutback CM — normally only on a wide, advanced carry (the
     //    over-commit guard). all_out_attack relaxes it: throw the FB + a CM
     //    forward on central carries and a touch earlier too.
-    bool allOut = allOutActive[team == Team::Home ? 0 : 1];
+    bool allOut = allOutActive[teamIndex(team)];
     // USER FEEDBACK #1 ("lack of overlapping runs"): the FB only bombed forward on a
     // WIDE + advanced (>0.40) carry, so overlaps were rare (audit: FB ~1.8% attacking-
     // third). Trigger earlier (>0.32) AND on the classic case — the ball-side WINGER
@@ -435,7 +435,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     bool highPress = tactics.defensiveLineHeight > 62.0 || tactics.aggression > 66.0;
     bool holdShape = carrierGoalDist > PITCH_W * 0.52 && !danger && !highPress;
     {
-        int tIdx = team == Team::Home ? 0 : 1;
+        int tIdx = teamIndex(team);
         defenseHoldingShape[tIdx] = holdShape;
         defenseHoldingShape[1 - tIdx] = false;   // the side in possession isn't holding shape
     }
@@ -447,7 +447,7 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     // safety drop — the high line (driven by the +45 dial above) springs late
     // runners offside. The deepest-runner clamp below still keeps it goal-side of
     // the most advanced attacker, so it traps mistimed runs, not every ball.
-    bool holdLine = offsideTrapActive[team == Team::Home ? 0 : 1];
+    bool holdLine = offsideTrapActive[teamIndex(team)];
     double lineProgress = (danger && !holdLine)
         ? 92.0
         : ((lerp(team == Team::Home ? 245.0 : PITCH_W - 245.0, carrier.x - fd * 108.0, 0.38) - ownGoalX) * fd) + linePush;
