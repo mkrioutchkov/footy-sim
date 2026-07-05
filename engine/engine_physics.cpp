@@ -598,7 +598,10 @@ bool GameEngine::tryIntendedReceiverMeet(double bs) {
 // Resolve the actual ball-vs-player contact this tick: intended-receiver trap,
 // the nearest-contact pick, and the collect/collision/deflection outcome. The
 // swept-path setup lives here because only this phase uses prevX/prevY + radii.
-void GameEngine::resolveBallContact(double sec) {
+// Find the player (if any) whose body the ball contacts this tick — swept-path for
+// fast balls, point test for slow. Sets contactRadius (for the caller's post-
+// collision ball placement); returns nullptr if nothing is in contact.
+Player* GameEngine::findBallContact(double sec, double& contactRadius) {
     auto& b = state.ball;
     double bs = std::hypot(b.vx, b.vy);
     const double collectRadius = COLLECT_DIST;
@@ -611,7 +614,7 @@ void GameEngine::resolveBallContact(double sec) {
     // just applied (b.x += b.vx*sec). Live shots stay protected by the shot-in-flight gate below.
     double prevX = b.x - b.vx * sec, prevY = b.y - b.vy * sec;
     Player* contact = nullptr;
-    double contactRadius = collectRadius;
+    contactRadius = collectRadius;
     double bestContactScore = 1e9;
     bool intendedNearby = false;
     if (pendingPass.active && b.intendedReceiverId >= 0) {
@@ -714,6 +717,14 @@ void GameEngine::resolveBallContact(double sec) {
         }
     }
 
+    return contact;
+}
+
+void GameEngine::resolveBallContact(double sec) {
+    auto& b = state.ball;
+    double bs = std::hypot(b.vx, b.vy);
+    double contactRadius = COLLECT_DIST;
+    Player* contact = findBallContact(sec, contactRadius);
     if (!contact) return;
     if (pendingPass.active && pendingPass.isCross && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT) {
         // Cutting out a whipped delivery is a duel, not a given — the old

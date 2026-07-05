@@ -668,6 +668,7 @@ public:
     bool tryCutbackFirstTimeFinish(double bs);
     bool tryKeeperLooseGather(double bs);
     bool tryKeeperCrossClaim();
+    Player* findBallContact(double sec, double& contactRadius);
     void resolveBallContact(double sec);
     bool tryIntendedReceiverMeet(double bs);
     void checkBallPlayerCollision(double);
