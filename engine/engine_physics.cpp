@@ -316,7 +316,21 @@ bool GameEngine::checkOutOfPlay() {
     return false;
 }
 
-// Cutback/low-cross swept in FIRST-TIME by an arriving box runner (see below).
+// ── First-time finish ── A driven LOW cross/cutback reaching an attacking
+// runner in the box is swept in FIRST-TIME rather than trapped: it is too
+// quick to control (it would skid through, or the keeper would gather it),
+// but a finisher meeting it goal-side can strike it clean. We route through
+// shootBall so it is a genuine tracked shot, and stamp throughCollected for
+// the clean first-touch error model (a FOOT finish, not a header). This sits
+// ahead of the keeper-gather so the striker who is first to the ball wins —
+// but only when he is actually closer to it than any keeper.
+// Cutbacks now finish first-time too (isCutback was a render-only hint): the
+// pulled-back ball to an arriving runner at the spot is real football's
+// signature close chance, but its reception was a normal trap — take a touch
+// at 12m with defenders closing, recycle. Sweeping it first-time is what
+// converts the engine's existing cutback volume into genuine box chances
+// (shot mix sat at close 2% / medium 68%; real ~20/40). Lower speed gate
+// than the driven cross — a cutback is a measured pull-back, not a whip.
 // Returns true when it fired a shot (caller returns); false = fall through.
 bool GameEngine::tryCutbackFirstTimeFinish(double bs) {
     auto& b = state.ball;
@@ -367,7 +381,9 @@ bool GameEngine::tryCutbackFirstTimeFinish(double bs) {
     return false;
 }
 
-// A keeper gathering a beaten-but-reachable loose shot in his own area.
+// A shot the keeper has already won the reflex roll on belongs to the
+// deferred-save resolver (parry/punch/tip/catch) — don't let the generic
+// keeper-gather scoop it first and flatten every save into a clean pickup.
 // Returns true if he collected it (caller returns).
 bool GameEngine::tryKeeperLooseGather(double bs) {
     auto& b = state.ball;
@@ -592,26 +608,10 @@ void GameEngine::checkBallPlayerCollision(double sec) {
     // just applied (b.x += b.vx*sec). Live shots stay protected by the shot-in-flight gate below.
     double prevX = b.x - b.vx * sec, prevY = b.y - b.vy * sec;
 
-    // ── First-time finish ── A driven LOW cross/cutback reaching an attacking
-    // runner in the box is swept in FIRST-TIME rather than trapped: it is too
-    // quick to control (it would skid through, or the keeper would gather it),
-    // but a finisher meeting it goal-side can strike it clean. We route through
-    // shootBall so it is a genuine tracked shot, and stamp throughCollected for
-    // the clean first-touch error model (a FOOT finish, not a header). This sits
-    // ahead of the keeper-gather so the striker who is first to the ball wins —
-    // but only when he is actually closer to it than any keeper.
-    // Cutbacks now finish first-time too (isCutback was a render-only hint): the
-    // pulled-back ball to an arriving runner at the spot is real football's
-    // signature close chance, but its reception was a normal trap — take a touch
-    // at 12m with defenders closing, recycle. Sweeping it first-time is what
-    // converts the engine's existing cutback volume into genuine box chances
-    // (shot mix sat at close 2% / medium 68%; real ~20/40). Lower speed gate
-    // than the driven cross — a cutback is a measured pull-back, not a whip.
+    // Phase 1 — first-time finish (cutback/low cross swept in by a box runner).
     if (tryCutbackFirstTimeFinish(bs)) return;
 
-    // A shot the keeper has already won the reflex roll on belongs to the
-    // deferred-save resolver (parry/punch/tip/catch) — don't let the generic
-    // keeper-gather scoop it first and flatten every save into a clean pickup.
+    // Phase 2 — keeper gathers a beaten-but-reachable loose shot in his area.
     if (tryKeeperLooseGather(bs)) return;
 
     if (tryIntendedReceiverMeet(bs)) return;
