@@ -178,7 +178,7 @@ void GameEngine::assignMidfieldScreen(DefenseContext& ctx, Player& carrier) {
     double bestDepth = 1e9;
     for (auto& opp : state.players) {
         if (opp.team == ctx.team || opp.role == Role::GK || opp.id == carrier.id) continue;
-        if (std::abs(opp.y - PITCH_H / 2.0) > 190.0) continue;
+        if (pitch::lateralFromCenter(opp.y) > 190.0) continue;
         double depth = std::abs(opp.x - ctx.ownGoalX);
         if (depth < bestDepth) { bestDepth = depth; laneThreat = &opp; }
     }
@@ -245,7 +245,7 @@ SmallVector<GameEngine::DefenseContext::Threat, 12> GameEngine::identifyThreats(
     for (auto& attacker : state.players) {
         if (attacker.team == ctx.team || attacker.role == Role::GK || attacker.id == carrier.id) continue;
         double depth = std::abs(attacker.x - ctx.ownGoalX);
-        double yDist = std::abs(attacker.y - PITCH_H / 2.0);
+        double yDist = pitch::lateralFromCenter(attacker.y);
         bool threatens = agentFor(attacker)->isOffensiveThreat(depth, ctx.danger, yDist);
         if (threatens) threats.push_back({&attacker, depth});
     }
@@ -365,7 +365,7 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
         }
     }
     // Post guards (danger only, wide carrier)
-    if (ctx.danger && std::abs(carrier.y - PITCH_H / 2.0) > 125.0) {
+    if (ctx.danger && pitch::lateralFromCenter(carrier.y) > 125.0) {
         double farY = carrier.y < PITCH_H / 2.0 ? PITCH_H * 0.66 : PITCH_H * 0.34;
         double nearY = carrier.y < PITCH_H / 2.0 ? PITCH_H * 0.34 : PITCH_H * 0.66;
         Player* farGuard = nullptr;

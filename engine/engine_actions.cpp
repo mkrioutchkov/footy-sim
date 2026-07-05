@@ -172,7 +172,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
                 if (d < 28.0 || d > 285.0) continue;
                 double progress = (t.x - receiver.x) * fd;
                 double targetGoalDist = std::abs(t.x - gx);
-                bool central = std::abs(t.y - PITCH_H / 2.0) < 180.0;
+                bool central = pitch::lateralFromCenter(t.y) < 180.0;
                 double score = progress * 0.28 - std::abs(t.y - receiver.y) * 0.12 - d * 0.06;
                 if (t.role == Role::CF || t.role == Role::WM) score += 28.0;
                 if (t.role == Role::CM && central && targetGoalDist < 260.0) score += 34.0;
@@ -537,7 +537,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     // attempt or a wild swing.
     double carrierGoalDist = std::abs(carrier.x - ownGoalXFor(tackler.team));
     bool inPenaltyBox = carrierGoalDist < PENALTY_AREA_W
-        && std::abs(carrier.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+        && pitch::lateralFromCenter(carrier.y) < PENALTY_AREA_H / 2.0;
     // Emergency lunges are forced only in the APPROACH band (box edge to
     // EMERGENCY_BOX_DIST) — NOT inside the box itself. A defender who dives in
     // the box gives a penalty; real defenders jockey and force the shot. Inside
@@ -545,7 +545,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     // a clearly exposed loose touch. This was the engine's penalty factory:
     // forced low-% box lunges fouled ~2-3x/match (~10x real).
     bool boxEmergency = carrierGoalDist < EMERGENCY_BOX_DIST - directiveBias[tackler.id].stayOnFeet * 60.0 && !inPenaltyBox
-        && std::abs(carrier.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+        && pitch::lateralFromCenter(carrier.y) < PENALTY_AREA_H / 2.0;
     bool ballPushedAhead = carrier.dribbleType == 2 || carrier.dribbleType == 3;
     // aggression lowers the commit bar: a high-press side dives in on lower-%
     // challenges (wins it back higher, but is beaten more); a contain side

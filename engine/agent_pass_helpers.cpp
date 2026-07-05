@@ -160,9 +160,9 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     double dgW = dg2;
     bool isWideDelivery = isWidePlayer()
         && dgW < 430.0
-        && std::abs(p.y - PITCH_H / 2.0) > 75.0
+        && pitch::lateralFromCenter(p.y) > 75.0
         && std::abs(t.x - (goalXFor(p.team))) < 310.0
-        && std::abs(t.y - PITCH_H / 2.0) < 210.0
+        && pitch::lateralFromCenter(t.y) < 210.0
         && fp > -120.0;
 
     double boxTargetGoalDist = std::abs(t.x - goalXFor(p.team));
@@ -180,16 +180,16 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // decision time despite box-burst SPEED. Stage 2 must make the runner's
     // POSITION TARGET sit in the 80-140 band earlier in the move (positioning
     // candidates + arbitration weight), then re-test this gate.
-    bool centralBoxTarget = std::abs(t.y - PITCH_H / 2.0) < (deepCarrier ? 215.0 : 185.0)
+    bool centralBoxTarget = pitch::lateralFromCenter(t.y) < (deepCarrier ? 215.0 : 185.0)
         && boxTargetGoalDist > (deepCarrier ? 45.0 : 75.0) && boxTargetGoalDist < 245.0;
     bool aerialTarget = isWideDelivery
         && t.role == Role::CF
-        && std::abs(t.y - PITCH_H / 2.0) < 150.0
+        && pitch::lateralFromCenter(t.y) < 150.0
         && boxTargetGoalDist > 95.0 && boxTargetGoalDist < 210.0
         && fp > -15.0
         && receiverPressure <= 1;
     bool cutbackTarget = isWideDelivery
-        && std::abs(p.y - PITCH_H / 2.0) > 110.0
+        && pitch::lateralFromCenter(p.y) > 110.0
         && !aerialTarget
         && centralBoxTarget
         && (t.role == Role::CF || t.role == Role::CM || t.role == Role::WM)
@@ -200,11 +200,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // §C byline-carry: an UNPRESSED wide carrier still far out should carry to the BYLINE (the dribble
     // byline-seek) rather than crossing early -> shrink the cross window so the deeper carry + onside
     // cutback wins. Pressed / crossEarly-directive carriers still whip it in early (unchanged).
-    if (isWideDelivery && per.pressureCount == 0 && std::abs(p.y - PITCH_H / 2.0) > 120.0
+    if (isWideDelivery && per.pressureCount == 0 && pitch::lateralFromCenter(p.y) > 120.0
         && dgW > 110.0 && !engine.directiveBias[p.id].crossEarly)
         crossRange = 215.0;
     bool isCross   = isWideDelivery && !cutbackTarget && dgW < crossRange
-        && std::abs(p.y - PITCH_H / 2.0) > 120.0 && (fp > -45.0 || aerialTarget);
+        && pitch::lateralFromCenter(p.y) > 120.0 && (fp > -45.0 || aerialTarget);
     bool isCutback = isWideDelivery && !isCross;
 
     // BP1 (backward-pass audit, user "180-degree unrealistic passes"): the scorer never read facing,
@@ -229,7 +229,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
             int boxDefenders = 0;
             for (auto& o : engine.state.players) {
                 if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
-                if (std::abs(o.x - gxc) < 200.0 && std::abs(o.y - PITCH_H / 2.0) < 170.0) boxDefenders++;
+                if (std::abs(o.x - gxc) < 200.0 && pitch::lateralFromCenter(o.y) < 170.0) boxDefenders++;
             }
             sc -= std::max(0, boxDefenders - 2) * 0.10;
         }
@@ -238,12 +238,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         else if (t.role == Role::WM) sc += 0.10;
         else if (t.role == Role::CM) sc -= 0.34;
         bool headerZone = boxTargetGoalDist > 85.0 && boxTargetGoalDist < 205.0
-            && std::abs(t.y - PITCH_H / 2.0) < 165.0;
+            && pitch::lateralFromCenter(t.y) < 165.0;
         if (headerZone && t.role == Role::CF && receiverPressure <= 1) sc += 0.24;
         if (headerZone && t.role == Role::WM && receiverPressure == 0) sc += 0.10;
         if (aerialTarget) sc += 0.24;
         if (boxTargetGoalDist > 245.0) sc -= 0.22;
-        if (std::abs(t.y - PITCH_H / 2.0) > 185.0) sc -= 0.12;
+        if (pitch::lateralFromCenter(t.y) > 185.0) sc -= 0.12;
     }
     if (isCutback) {
         // The cutback is the wingers' assist to arriving mids — the main route
@@ -258,7 +258,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // just recycling. This is what converts burst runs into close shots
         // via the first-time-finish path.
         if (cutbackTarget && boxTargetGoalDist < 165.0
-            && std::abs(t.y - PITCH_H / 2.0) < 120.0) sc += 0.22;
+            && pitch::lateralFromCenter(t.y) < 120.0) sc += 0.22;
         if (cutbackTarget) sc += engine.directiveBias[p.id].cutbackBias;   // "pull it back" directive
     }
 
@@ -278,11 +278,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (carrierFinalThird && boxTargetGoalDist < 150.0 && receiverPressure <= 1 && bl <= 1) {
         if (t.role == Role::CF) sc += 0.16;
         else if (t.role == Role::WM) sc += 0.12;
-        else if (t.role == Role::CM && std::abs(t.y - PITCH_H / 2.0) < 150.0) sc += 0.06;
+        else if (t.role == Role::CM && pitch::lateralFromCenter(t.y) < 150.0) sc += 0.06;
     }
     if ((p.role == Role::CM || p.role == Role::WM || p.role == Role::FB)
         && t.role == Role::CF
-        && std::abs(t.y - PITCH_H / 2.0) < 175.0
+        && pitch::lateralFromCenter(t.y) < 175.0
         && boxTargetGoalDist < 245.0
         && fp > -35.0
         && bl <= 1
@@ -290,13 +290,13 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         sc += carrierFinalThird ? 0.30 : 0.20;
     }
     if (isCutback && receiverPressure <= 1 && bl <= 1) sc += 0.08;   // was cross+cutback; the cutback is the one to reward
-    if (isWideMidfielder() && dgW < 450.0 && t.role == Role::CF && std::abs(t.y - PITCH_H / 2.0) < 230.0) sc += 0.24;
-    if (isWideMidfielder() && fp > 10.0 && std::abs(p.y - PITCH_H / 2.0) > 100.0 && bl <= 2) sc += 0.26;   // wide-funnel sugar trimmed 0.32
-    if (isFullBack() && fp > 0.0 && std::abs(p.y - PITCH_H / 2.0) > 75.0 && dgW < 430.0) sc += 0.24;       // trimmed 0.30
-    bool targetWide = (t.role == Role::WM || t.role == Role::FB) && std::abs(t.y - PITCH_H / 2.0) > 125.0;
+    if (isWideMidfielder() && dgW < 450.0 && t.role == Role::CF && pitch::lateralFromCenter(t.y) < 230.0) sc += 0.24;
+    if (isWideMidfielder() && fp > 10.0 && pitch::lateralFromCenter(p.y) > 100.0 && bl <= 2) sc += 0.26;   // wide-funnel sugar trimmed 0.32
+    if (isFullBack() && fp > 0.0 && pitch::lateralFromCenter(p.y) > 75.0 && dgW < 430.0) sc += 0.24;       // trimmed 0.30
+    bool targetWide = (t.role == Role::WM || t.role == Role::FB) && pitch::lateralFromCenter(t.y) > 125.0;
     bool passerCanFindWide = isDefenderLike();
     if (passerCanFindWide && targetWide && fp > 20.0 && d < 460.0 && bl <= 1 && receiverPressure <= 1) {
-        double centralPasserBonus = std::abs(p.y - PITCH_H / 2.0) < 170.0 ? 0.10 : 0.0;
+        double centralPasserBonus = pitch::lateralFromCenter(p.y) < 170.0 ? 0.10 : 0.0;
         double advancedBonus = carrierFinalThird ? 0.08 : 0.0;
         sc += 0.16 + centralPasserBonus + advancedBonus;
     }
@@ -384,7 +384,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     double targetGoalDist = std::abs(t.x - goalXFor(p.team));
     if (passerFinalThird && targetGoalDist < 230.0) {
         if (t.role == Role::CF) sc += 0.24;
-        else if (t.role == Role::WM && std::abs(t.y - PITCH_H / 2.0) < 210.0) sc += 0.10;
+        else if (t.role == Role::WM && pitch::lateralFromCenter(t.y) < 210.0) sc += 0.10;
         else if (t.role == Role::CM) sc -= 0.16;
     }
 
@@ -393,7 +393,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (assignment) {
         if (assignment->role == DefensiveTask::RunAhead)        sc += 0.12;
         if ((assignment->role == DefensiveTask::CrossLane || assignment->role == DefensiveTask::HoldWidth)
-            && (t.role == Role::WM || t.role == Role::FB) && std::abs(t.y - PITCH_H / 2.0) > 120.0) sc += 0.08;
+            && (t.role == Role::WM || t.role == Role::FB) && pitch::lateralFromCenter(t.y) > 120.0) sc += 0.08;
         if (assignment->role == DefensiveTask::Overlap && !isCenterBack()) sc += 0.11;
         if (assignment->role == DefensiveTask::AdvanceMidfield) sc += 0.09;
         if (assignment->role == DefensiveTask::HoldWidth && std::abs(t.y - p.y) > 120.0) sc += 0.08;
@@ -450,7 +450,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                      && assignment && assignment->role == DefensiveTask::AdvanceMidfield
                      && receiverPressure == 0 && bl == 0
                      && onsideGap > 3.0 && onsideGap < 170.0
-                     && std::abs(t.y - PITCH_H / 2.0) < 150.0
+                     && pitch::lateralFromCenter(t.y) < 150.0
                      && targetGoalDist < 245.0 && fp > 20.0;
     if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall) {
         pur = ActionPurpose::Through;

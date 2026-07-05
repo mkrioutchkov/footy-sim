@@ -2,6 +2,8 @@
 #include "rng.h"
 #include "constants.h"
 #include "types.h"
+#include "pitch_zones.h"
+#include "role_traits.h"
 #include "stats.h"
 #include "small_vector.h"
 #include <algorithm>

@@ -72,7 +72,7 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
     double goalX = goalXFor(p.team);
     bool crossEarly = engine.directiveBias[p.id].crossEarly;
     bool crossingCarrier = isWidePlayer()
-        && std::abs(p.y - PITCH_H / 2.0) > (crossEarly ? 120.0 : 150.0)
+        && pitch::lateralFromCenter(p.y) > (crossEarly ? 120.0 : 150.0)
         && std::abs(p.x - goalX) < (crossEarly ? 360.0 : 250.0);
     if (crossingCarrier) {
         Player* bestRunner = nullptr;
@@ -81,14 +81,14 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
             if (t.team != p.team || t.id == p.id || t.role == Role::GK || t.sentOff) continue;
             if (engine.isOffsideTargetPerceived(p, t)) continue;
             double targetGoalDist = std::abs(t.x - goalX);
-            if (targetGoalDist > 430.0 || std::abs(t.y - PITCH_H / 2.0) > 255.0) continue;
+            if (targetGoalDist > 430.0 || pitch::lateralFromCenter(t.y) > 255.0) continue;
             double d = dist(p.x, p.y, t.x, t.y);
             if (d < 65.0 || d > 520.0) continue;
             int pressure = 0;
             for (auto& o : engine.state.players) {
                 if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, t.x, t.y) < 48.0) pressure++;
             }
-            double central = 1.0 - std::abs(t.y - PITCH_H / 2.0) / 230.0;
+            double central = 1.0 - pitch::lateralFromCenter(t.y) / 230.0;
             double roleBonus = 0.0;
             for (auto& a : engine.agents) { if (a->player.id == t.id) { roleBonus = a->roleBonusForPassTarget(); break; } }
             double goalThreat = targetGoalDist < 150.0 ? 0.34 : targetGoalDist < 210.0 ? 0.20 : targetGoalDist < 260.0 ? 0.06 : -0.08;
@@ -103,7 +103,7 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
             int boxDefenders = 0, boxAttackers = 0;
             for (auto& o : engine.state.players) {
                 if (o.role == Role::GK || o.sentOff || o.id == p.id) continue;
-                bool inZone = std::abs(o.x - goalX) < 200.0 && std::abs(o.y - PITCH_H / 2.0) < 170.0;
+                bool inZone = std::abs(o.x - goalX) < 200.0 && pitch::lateralFromCenter(o.y) < 170.0;
                 if (!inZone) continue;
                 if (o.team == p.team) boxAttackers++; else boxDefenders++;
             }

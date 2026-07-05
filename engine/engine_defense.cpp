@@ -424,8 +424,8 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     // so a ball played in behind pulls the line back even before it's collected.
     double carrierGoalDist = std::min(std::abs(carrier.x - ownGoalX), std::abs(state.ball.x - ownGoalX));
     danger = danger || carrierGoalDist < DANGER_ZONE_DIST;
-    bool shootingRange = carrierGoalDist < 310.0 && std::abs(carrier.y - PITCH_H / 2.0) < 235.0;
-    bool wideDanger = carrierGoalDist < 360.0 && std::abs(carrier.y - PITCH_H / 2.0) > 135.0;
+    bool shootingRange = carrierGoalDist < 310.0 && pitch::lateralFromCenter(carrier.y) < 235.0;
+    bool wideDanger = carrierGoalDist < 360.0 && pitch::lateralFromCenter(carrier.y) > 135.0;
     // DEFENSIVE-SHAPE REDESIGN (docs/DEFENSIVE_SHAPE_REDESIGN.md): a MID-BLOCK. While
     // the carrier builds up in his OWN half (far from our goal) we HOLD SHAPE — only
     // the primary container engages; the second presser / lanes / cover / screen /

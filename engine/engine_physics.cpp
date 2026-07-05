@@ -379,7 +379,7 @@ void GameEngine::checkBallPlayerCollision(double sec){
             if (lastLooseOrigin == LooseOrigin::Shot && bs > 140.0 && p.team != shot.team && !shot.scoopAllowed) continue;
             double goalX = ownGoalXFor(p.team);
             bool ballInOwnArea = std::abs(b.x - goalX) < PENALTY_AREA_W
-                && std::abs(b.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
+                && pitch::lateralFromCenter(b.y) < PENALTY_AREA_H / 2.0;
             if (!ballInOwnArea) continue;
             double d = dist(p.x, p.y, b.x, b.y);
             bool dyingShot = lastLooseOrigin == LooseOrigin::Shot && bs < 140.0;
@@ -552,7 +552,7 @@ void GameEngine::checkBallPlayerCollision(double sec){
             double goalX = ownGoalXFor(gk->team);
             double bdg   = std::abs(b.x - goalX);
             bool inZone  = bdg < GK_CLAIM_DEPTH
-                        && std::abs(b.y - PITCH_H / 2.0) < GK_CLAIM_HALF_W;
+                        && pitch::lateralFromCenter(b.y) < GK_CLAIM_HALF_W;
             double dz     = std::max(0.0, b.z - GK_CLAIM_REACH_Z);
             double claimD = std::hypot(dist(gk->x, gk->y, b.x, b.y), dz);
             if (inZone && claimD <= GK_CLAIM_RADIUS) {

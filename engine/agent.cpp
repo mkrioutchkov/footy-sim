@@ -694,7 +694,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     }
 
     // Flank bonus: knock-aheads on the flank are safer (less central traffic)
-    bool onFlank = std::abs(p.y - PITCH_H / 2.0) > 120.0;
+    bool onFlank = pitch::lateralFromCenter(p.y) > 120.0;
     bool finalThird = (fd > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
     bool finalThirdBurst = finalThird && distToTarget > 110.0 && nearestOppDist > 180.0 && clearPath;
 

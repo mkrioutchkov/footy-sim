@@ -99,7 +99,7 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     // goalkeeping. Pure positioning, no rng.
     {
         double cbdg = std::abs(state.ball.x - goalX);
-        double cdy  = std::abs(state.ball.y - PITCH_H / 2.0);
+        double cdy  = pitch::lateralFromCenter(state.ball.y);
         bool crossComing = pendingSave.active == false
             && pendingPass.active && pendingPass.isCross && state.ball.controllerId < 0
             && state.ball.z > 12.0                        // a genuine aerial ball

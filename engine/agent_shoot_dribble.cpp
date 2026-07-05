@@ -17,7 +17,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     bool freshCross = p.crossCollected > 0.0 && shotDistance < freshCrossMax;
     bool freshThrough = p.throughCollected > 0.0 && shotDistance < 245.0;
 
-    bool outsideGoalLane = std::abs(p.y - PITCH_H / 2.0) > GOAL_W / 2.0 - BALL_R + 20.0;
+    bool outsideGoalLane = pitch::lateralFromCenter(p.y) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < SHOT_ANGLE_ACUTE_THRESH && shotDistance > 150.0;
 
     if (!freshCross && !freshThrough && angleDeg < SHOT_ACUTE_SOFT_THRESH && shotDistance > 120.0)
@@ -36,7 +36,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (!shootOnSight && isCentralMidfielder() && shotDistance > 225.0 && (angleDeg < 9.0 || per.pressureCount > 1))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    if (!shootOnSight && isWideMidfielder() && std::abs(p.y - PITCH_H / 2.0) > 180.0 && shotDistance > 155.0)
+    if (!shootOnSight && isWideMidfielder() && pitch::lateralFromCenter(p.y) > 180.0 && shotDistance > 155.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double mr = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
@@ -92,8 +92,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     sc += shotScoreBonus();
     if (shootOnSight) sc += 0.55;   // directive: bias toward pulling the trigger
     sc += shotDistancePenalty(shotDistance);
-    if (std::abs(p.y - PITCH_H / 2.0) < 140.0) sc += centralShootBonus();
-    if (std::abs(p.y - PITCH_H / 2.0) > 100.0) sc -= wideShootPenalty();
+    if (pitch::lateralFromCenter(p.y) < 140.0) sc += centralShootBonus();
+    if (pitch::lateralFromCenter(p.y) > 100.0) sc -= wideShootPenalty();
     sc -= std::min(0.42, per.pressureCount * 0.16);
     sc -= clamp(cp.score - 0.55, 0.0, 0.75) * 0.18;
     if (cp.exposed > 0.45 && shotDistance > 85.0) sc -= 0.12;
@@ -235,10 +235,10 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     // INSTEAD of the byline — the inverted-winger shot threat. Gated on the directive (0 => unchanged).
     bool cutInside = engine.directiveBias[p.id].cutInsideBias > 0.0
         && isWidePlayer() && finalThird && distToGoal < 360.0
-        && std::abs(p.y - PITCH_H / 2.0) > 90.0
+        && pitch::lateralFromCenter(p.y) > 90.0
         && !nearGoal;
     bool bylineSeek = !cutInside && isWidePlayer() && finalThird && distToGoal < 340.0
-        && std::abs(p.y - PITCH_H / 2.0) > 120.0
+        && pitch::lateralFromCenter(p.y) > 120.0
         && per.nearestOpponentDist > 55.0
         && !nearGoal;
     if (bylineSeek) {
@@ -381,7 +381,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     // Role-specific
     if (canUseWideDribble()) {
-        bool inWide = std::abs(p.y - PITCH_H / 2.0) > 140.0;
+        bool inWide = pitch::lateralFromCenter(p.y) > 140.0;
         bool nearOppBox = distToGoal < 350.0;
         if (inWide) {
             sc += 0.15;

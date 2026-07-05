@@ -26,7 +26,7 @@ double GKPlayerAI::sweepDepth() const {
 bool GKPlayerAI::canUseHands() const {
     double goalX = ownGoalXFor(player.team);
     if (std::abs(player.x - goalX) >= PENALTY_AREA_W
-        || std::abs(player.y - PITCH_H / 2.0) >= PENALTY_AREA_H / 2.0)
+        || pitch::lateralFromCenter(player.y) >= PENALTY_AREA_H / 2.0)
         return false;
     // Law 12: a keeper may NOT handle a ball deliberately KICKED back to him by a teammate — he
     // must play it with his FEET (which makes the back-pass PRESSABLE: the modern high-press loop).
