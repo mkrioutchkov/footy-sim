@@ -9,6 +9,9 @@
 import { db } from './db.ts';
 import { overall, playerValue, playerWage, ROLE_SLOTS, type Role } from './game.ts';
 import { recordFinance } from './finances.ts';
+import { scoutDepth } from './staff.ts';
+import { fogAttrs, scoutWidthForDepth, type ScoutAttr } from './scout.ts';
+import { shortlistIds } from './shortlist.ts';
 
 export const SQUAD_MAX = 24;
 export const SQUAD_MIN = 11;
@@ -203,6 +206,64 @@ export function transferTargets(teamId: number): TransferTarget[] {
     const attrs = JSON.parse(r.attrs);
     return { id: r.id, name: r.name, club: r.club, clubTeamId: r.club_team_id, role: r.role, age: r.age, overall: overall(attrs), potential: r.potential, value: playerValue(attrs, r.age, parseJSON(r.personality)), askPrice: r.ask_price, releaseClause: r.release_clause, wage: r.wage ?? 0 };
   });
+}
+
+// ── Scouting Centre: search the whole player population of the buyer's world ──────────────────────
+// FM's recruitment hub: hunt targets by role/age/overall/value/name across every club in the world,
+// not just the handful currently transfer-listed. Attributes come back FOGGED to the club's scout
+// depth (reusing the opponent-report fog), so better scouting means a sharper read. `buyable` marks the
+// players you can actually bid for right now (listed or with a release clause) — the rest are viewable
+// and shortlistable but "not for sale", exactly as FM lets you scout anyone. Loaned-in players and the
+// buyer's own squad are excluded. Capped and ordered by overall.
+export interface PlayerSearchFilters { role?: string; maxAge?: number; minOverall?: number; maxValue?: number; name?: string; onlyShortlisted?: boolean; limit?: number }
+export interface ScoutedPlayer {
+  id: number; name: string; club: string; clubTeamId: number; role: string; age: number;
+  overall: number; potential: number | null; value: number; wage: number;
+  askPrice: number | null; releaseClause: number | null; buyable: boolean; shortlisted: boolean;
+  attrs: ScoutAttr[] | null;   // fogged to the club's scout depth (null = no picture at all)
+}
+export function searchPlayers(teamId: number, f: PlayerSearchFilters = {}): { depth: number; players: ScoutedPlayer[] } {
+  const team = teamRow(teamId); if (!team) return { depth: 0, players: [] };
+  const leagueIds = worldLeagueIds(team.league_id);
+  const ph = leagueIds.map(() => '?').join(',');
+  // SQL-level filters that are cheap + indexable (role/age/name); overall + value are computed from
+  // attrs in JS below (they're derived, not stored). Own club + loaned-in players excluded up front.
+  const conds: string[] = [`t.league_id IN (${ph})`, 'p.team_id != ?', 'p.parent_team_id IS NULL'];
+  const params: (string | number)[] = [...leagueIds, teamId];
+  const role = typeof f.role === 'string' && (ROLE_SLOTS as readonly string[]).includes(f.role) ? f.role : null;
+  if (role) { conds.push('p.role = ?'); params.push(role); }
+  if (Number.isFinite(f.maxAge)) { conds.push('p.age <= ?'); params.push(Math.round(f.maxAge!)); }
+  if (typeof f.name === 'string' && f.name.trim()) { conds.push('p.name LIKE ?'); params.push(`%${f.name.trim().replace(/[%_]/g, '')}%`); }
+  const rows = db.prepare(`SELECT p.id, p.name, p.role, p.attrs, p.age, p.potential, p.personality, p.listed, p.ask_price, p.release_clause, p.wage,
+      t.id AS club_team_id, t.name AS club
+    FROM players p JOIN teams t ON t.id = p.team_id
+    WHERE ${conds.join(' AND ')}`).all(...params) as unknown as
+    (PRow & { release_clause: number | null; club_team_id: number; club: string })[];
+  const shortlisted = new Set(shortlistIds(teamId));
+  const onlyShort = !!f.onlyShortlisted;
+  const minOverall = Number.isFinite(f.minOverall) ? Math.round(f.minOverall!) : null;
+  const maxValue = Number.isFinite(f.maxValue) ? f.maxValue! : null;
+  const width = scoutWidthForDepth(scoutDepth(teamId));
+  const limit = Math.min(80, Math.max(1, Math.round(f.limit ?? 40)));
+  const out: ScoutedPlayer[] = [];
+  for (const r of rows) {
+    if (onlyShort && !shortlisted.has(r.id)) continue;
+    const attrs = JSON.parse(r.attrs);
+    const ov = overall(attrs);
+    if (minOverall != null && ov < minOverall) continue;
+    const value = playerValue(attrs, r.age, parseJSON(r.personality));
+    if (maxValue != null && value > maxValue) continue;
+    out.push({
+      id: r.id, name: r.name, club: r.club, clubTeamId: r.club_team_id, role: r.role, age: r.age,
+      overall: ov, potential: r.potential, value, wage: r.wage ?? 0,
+      askPrice: r.ask_price, releaseClause: r.release_clause,
+      buyable: r.listed === 1 || r.release_clause != null, shortlisted: shortlisted.has(r.id),
+      attrs: fogAttrs(attrs, width),
+    });
+  }
+  // best players first; buyable ones tie-break up so actionable targets surface. Cap AFTER sorting.
+  out.sort((a, b) => b.overall - a.overall || Number(b.buyable) - Number(a.buyable) || a.value - b.value);
+  return { depth: scoutDepth(teamId), players: out.slice(0, limit) };
 }
 
 // §release-clause: give each AI club's BEST player (by overall, no clause yet) a release clause — a

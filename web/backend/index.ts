@@ -17,7 +17,7 @@ import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W, roleFit } from './formations.ts';
-import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, loanOut, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers, seedReleaseClauses } from './market.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, loanOut, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers, seedReleaseClauses, searchPlayers } from './market.ts';
 import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, setTeamTrainingIntensity, applyTrainingPreset, TRAINING_PRESETS, setPlayerRetrain, RETRAIN_ROLES, getTrainingReport, TRAINABLE, VALID_FOCUS, VALID_INTENSITY, VALID_TEAM_INTENSITY } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
@@ -665,6 +665,24 @@ app.post('/api/shortlist', async (req: any, reply) => {
   const add = req.body?.add !== false;   // default to add unless explicitly false
   const r = toggleShortlist(teamId, playerId, add);
   return { ...r, shortlist: getShortlist(teamId), ids: shortlistIds(teamId) };
+});
+
+// §scouting-centre: search the whole player population of the user's world by role/age/overall/value/
+// name, with attributes fogged to the club's scout depth. Filters come in as query params (all optional).
+app.get('/api/search', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const q = req.query ?? {};
+  const num = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) ? n : undefined; };
+  return searchPlayers(teamId, {
+    role: typeof q.role === 'string' && q.role ? q.role : undefined,
+    maxAge: num(q.maxAge),
+    minOverall: num(q.minOverall),
+    maxValue: num(q.maxValue),
+    name: typeof q.name === 'string' ? q.name : undefined,
+    onlyShortlisted: q.shortlisted === '1' || q.shortlisted === 'true',
+  });
 });
 
 // §stat-leaders: the current division's top scorers + top assisters this season.

@@ -25,8 +25,23 @@ export interface ScoutReport {
 }
 
 const SKILL_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
-function ovr(attrs: Record<string, number>): number {
+export function scoutOverall(attrs: Record<string, number>): number {
   return Math.round(SKILL_KEYS.reduce((s, k) => s + (attrs[k] ?? 0), 0) / SKILL_KEYS.length);
+}
+const ovr = scoutOverall;
+
+// The half-width of the attribute fog for a given scout depth (0..3): depth 3 = exact (0), then 4, 7,
+// and -1 = not scouted at all (no attribute picture). Shared by the opponent report and the scouting
+// search so both fog identically. fogAttrs turns raw attrs into lo/hi ranges (null when width < 0).
+export function scoutWidthForDepth(depth: number): number {
+  return depth >= 3 ? 0 : depth === 2 ? 4 : depth === 1 ? 7 : -1;
+}
+export function fogAttrs(attrs: Record<string, number>, width: number): ScoutAttr[] | null {
+  if (width < 0) return null;
+  return SKILL_KEYS.map(k => {
+    const v = attrs[k] ?? 0;
+    return { key: k, lo: Math.max(1, Math.round(v - width)), hi: Math.min(99, Math.round(v + width)) };
+  });
 }
 
 // Translate the opponent's dials into a few scouting phrases. Derived from dials (not their
@@ -92,12 +107,8 @@ export function buildScoutReport(fixtureId: number, userTeamId: number): ScoutRe
   const currentRound = (db.prepare('SELECT MIN(round) AS r FROM fixtures WHERE league_id = ? AND played = 0').get(fx.league_id) as { r: number | null }).r ?? fx.round;
   const roundsAway = Math.max(0, fx.round - currentRound);
   const imminent = roundsAway === 0;
-  const fogAt = (width: number) => (attrs: Record<string, number>): ScoutAttr[] | null =>
-    width < 0 ? null : SKILL_KEYS.map(k => {
-      const v = attrs[k] ?? 0;
-      return { key: k, lo: Math.max(1, Math.round(v - width)), hi: Math.min(99, Math.round(v + width)) };
-    });
-  const width = depth >= 3 ? 0 : depth === 2 ? 4 : depth === 1 ? 7 : -1;   // -1 = not scouted at all
+  const fogAt = (width: number) => (attrs: Record<string, number>): ScoutAttr[] | null => fogAttrs(attrs, width);
+  const width = scoutWidthForDepth(depth);   // -1 = not scouted at all
   const fog = fogAt(width);
   const keyPlayers = xi
     .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs), potential: p.potential, danger: false, attrs: fog(p.attrs) }))

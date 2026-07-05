@@ -103,6 +103,7 @@ export interface TransferWindowT { open: boolean; window: 'summer' | 'winter' | 
 export interface TransferTargetT { id: number; name: string; club: string; clubTeamId: number; role: string; age: number; overall: number; potential: number | null; value: number; askPrice: number | null; releaseClause: number | null; wage: number; }
 export interface MarketT { budget: number; wageBudget: number; wageBill: number; squadMax: number; squadMin: number; window: TransferWindowT; freeAgents: FreeAgentT[]; squad: MarketPlayerT[]; transferTargets: TransferTargetT[]; backing?: string | null; }
 export interface ShortlistRowT { id: number; name: string; club: string; role: string; age: number; overall: number; value: number; listed: boolean; releaseClause: number | null; mine: boolean; onLoan: boolean; }
+export interface ScoutedPlayerT { id: number; name: string; club: string; clubTeamId: number; role: string; age: number; overall: number; potential: number | null; value: number; wage: number; askPrice: number | null; releaseClause: number | null; buyable: boolean; shortlisted: boolean; attrs: { key: string; lo: number; hi: number }[] | null; }
 export interface OfferT { id: number; playerId: number; playerName: string; club: string; fee: number; status: string; counterFee: number | null; }
 export interface IncomingOfferT { id: number; club: string; playerSlot: number | null; playerName: string; fee: number; status: string; }
 export interface FreeAgentOfferT { id: number; agentId: number; name: string; role: string; wage: number; years: number; demand: number; status: string; }
@@ -222,6 +223,17 @@ export const api = {
   loanOut: (slot: number, clubId?: number) => req<{ ok: boolean; player?: string; from?: string; market: MarketT }>('POST', '/transfer/loan-out', { slot, clubId }),
   shortlist: () => req<{ shortlist: ShortlistRowT[]; ids: number[] }>('GET', '/shortlist'),
   toggleShortlist: (playerId: number, add: boolean) => req<{ ok: boolean; shortlisted: boolean; shortlist: ShortlistRowT[]; ids: number[] }>('POST', '/shortlist', { playerId, add }),
+  searchPlayers: (f: { role?: string; maxAge?: number; minOverall?: number; maxValue?: number; name?: string; shortlisted?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (f.role) qs.set('role', f.role);
+    if (f.maxAge != null) qs.set('maxAge', String(f.maxAge));
+    if (f.minOverall != null) qs.set('minOverall', String(f.minOverall));
+    if (f.maxValue != null) qs.set('maxValue', String(f.maxValue));
+    if (f.name) qs.set('name', f.name);
+    if (f.shortlisted) qs.set('shortlisted', '1');
+    const s = qs.toString();
+    return req<{ depth: number; players: ScoutedPlayerT[] }>('GET', `/search${s ? `?${s}` : ''}`);
+  },
   endLoan: (slot: number) => req<{ ok: boolean; player?: string; from?: string; market: MarketT }>('POST', '/transfer/loan/end', { slot }),
   offers: () => req<{ offers: OfferT[] }>('GET', '/offers'),
   withdrawOffer: (id: number) => req<{ ok: boolean; offers: OfferT[] }>('POST', `/offer/${id}/withdraw`),
