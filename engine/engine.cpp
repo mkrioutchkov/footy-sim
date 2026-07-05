@@ -1370,7 +1370,7 @@ std::string GameEngine::getJSON() const {
 
     j["players"] = nlohmann::json::array();
     for (auto& p : state.players) {
-        j["players"].push_back({{"id", p.id}, {"name", p.name}, {"team", std::string(to_string(p.team))}, {"role", std::string(to_string(p.role))}, {"x", std::round(p.x * 10) / 10}, {"y", std::round(p.y * 10) / 10}, {"vx", std::round(p.vx * 10) / 10}, {"vy", std::round(p.vy * 10) / 10}, {"targetX", std::round(p.targetX * 10) / 10}, {"targetY", std::round(p.targetY * 10) / 10}, {"stamina", std::round(p.stamina)}, {"facing", std::round(renderFacing[p.id] * 1000) / 1000}, {"dribbleType", p.dribbleType}, {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)}, {"diveAnim", std::round(p.diveAnim)}, {"wall", p.wall}, {"slide", p.tackleAnim > 400.0}, {"goals", pGoals[p.id]}, {"assists", pAssists[p.id]}, {"shots", pShots[p.id]}, {"tackles", pTackles[p.id]}, {"yellow", yellowCards[p.id]}, {"passes", pPasses[p.id]}, {"passesCompleted", pPassesCompleted[p.id]}, {"injured", p.injurySeverity > 0.05}, {"sentOff", p.sentOff}});
+        j["players"].push_back({{"id", p.id}, {"name", p.name}, {"team", std::string(to_string(p.team))}, {"role", std::string(to_string(p.role))}, {"x", std::round(p.x * 10) / 10}, {"y", std::round(p.y * 10) / 10}, {"vx", std::round(p.vx * 10) / 10}, {"vy", std::round(p.vy * 10) / 10}, {"targetX", std::round(p.targetX * 10) / 10}, {"targetY", std::round(p.targetY * 10) / 10}, {"stamina", std::round(p.stamina)}, {"facing", std::round(renderFacing[p.id] * 1000) / 1000}, {"dribbleType", p.dribbleType}, {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)}, {"diveAnim", std::round(p.diveAnim)}, {"wall", p.wall}, {"slide", p.tackleAnim > 400.0}, {"goals", pStats[p.id].goals}, {"assists", pStats[p.id].assists}, {"shots", pStats[p.id].shots}, {"tackles", pStats[p.id].tackles}, {"yellow", yellowCards[p.id]}, {"passes", pStats[p.id].passes}, {"passesCompleted", pStats[p.id].passesCompleted}, {"injured", p.injurySeverity > 0.05}, {"sentOff", p.sentOff}});
     }
 
     // Forward every stats summary metric verbatim. getJSON builds its own
@@ -1475,14 +1475,14 @@ void GameEngine::initWithSeed(int seed) {
 
 void GameEngine::creditGoal(int scorerId) {
     if (scorerId < 0 || scorerId >= 22) return;
-    pGoals[scorerId]++;
+    pStats[scorerId].goals++;
     // Assist: the teammate who last fed the scorer, within ~12s of the goal.
     int passer = lastReceiveFrom[scorerId];
     if (passer >= 0 && passer < 22 && passer != scorerId && state.clockMs - lastReceiveMs[scorerId] < 12000.0) {
         Player* sc = playerById(scorerId);
         Player* as = playerById(passer);
         if (sc && as && sc->team == as->team) {
-            pAssists[passer]++;
+            pStats[passer].assists++;
             emitEvent("assist", as->x, as->y, passer, scorerId);
         }
     }

@@ -39,7 +39,7 @@ void GameEngine::emitEvent(const std::string& type, double x, double y, int play
 
 void GameEngine::beginTrackedPass(Player& from, Player& to, bool isCross, bool isThrough, bool isCutback) {
     stats.recordPassAttempt();
-    if (from.id >= 0 && from.id < 22) pPasses[from.id]++; // per-player rating input
+    if (from.id >= 0 && from.id < 22) pStats[from.id].passes++; // per-player rating input
     if (isThrough) stats.recordThroughBallAttempt();
     lastLooseOrigin = LooseOrigin::None;
     double speed = std::hypot(state.ball.vx, state.ball.vy);
@@ -135,7 +135,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         }
         if (receiver.team == pendingPass.team) {
             stats.recordPassComplete();
-            if (pendingPass.fromId >= 0 && pendingPass.fromId < 22) pPassesCompleted[pendingPass.fromId]++;
+            if (pendingPass.fromId >= 0 && pendingPass.fromId < 22) pStats[pendingPass.fromId].passesCompleted++;
             if (receiver.id == pendingPass.toId)
                 stats.recordPassIntendedReceived();
             else
@@ -215,7 +215,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             lastReceiveMs[receiver.id] = state.clockMs;
         }
         stats.recordPassComplete();
-        if (pendingPass.fromId >= 0 && pendingPass.fromId < 22) pPassesCompleted[pendingPass.fromId]++;
+        if (pendingPass.fromId >= 0 && pendingPass.fromId < 22) pStats[pendingPass.fromId].passesCompleted++;
         if (pendingPass.isThrough) stats.recordThroughBallComplete();
         if (receiver.id == pendingPass.toId)
             stats.recordPassIntendedReceived();
@@ -721,7 +721,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier) {
     double controlChance = clamp(0.28 + tackleSkill * 0.35 - carrierControl * 0.18 - (fromBehind ? 0.20 : 0) + (approachDot > 0.15 ? 0.12 : 0) - (carrier.dribbleType == 3 ? 0.08 : 0) + (exposedToFacingTackler ? 0.04 : 0), 0.12, 0.74);
     if (outcomeRoll < controlChance) {
         stats.recordTackleWin(true);
-        if (tackler.id >= 0 && tackler.id < 22) pTackles[tackler.id]++;
+        if (tackler.id >= 0 && tackler.id < 22) pStats[tackler.id].tackles++;
         emitEvent("tackle_won", (tackler.x + carrier.x) / 2.0, (tackler.y + carrier.y) / 2.0, tackler.id, carrier.id);
         b.controllerId = tackler.id;
         b.vx = b.vy = b.z = b.vz = 0;
@@ -749,7 +749,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier) {
         return false;
     }
     stats.recordTackleWin(false);
-    if (tackler.id >= 0 && tackler.id < 22) pTackles[tackler.id]++; // a loose-deflection win is still a tackle won by this player (mirrors the clean-win branch); was omitted, under-counting per-player tackles ~46%
+    if (tackler.id >= 0 && tackler.id < 22) pStats[tackler.id].tackles++; // a loose-deflection win is still a tackle won by this player (mirrors the clean-win branch); was omitted, under-counting per-player tackles ~46%
     emitEvent("tackle_loose", (tackler.x + carrier.x) / 2.0, (tackler.y + carrier.y) / 2.0, tackler.id, carrier.id);
     b.controllerId = -1;
     // A poke-away travels a few meters, not 12+ — high speeds here sent every
@@ -784,7 +784,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier) {
 
 void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) {
     emitEvent("shot", s.x, s.y, s.id);
-    if (s.id >= 0 && s.id < 22) pShots[s.id]++;
+    if (s.id >= 0 && s.id < 22) pStats[s.id].shots++;
     if (goalKickMonitor.active && s.team != goalKickMonitor.team) {
         stats.recordGoalKickTrappedShot();
         goalKickMonitor.active = false;

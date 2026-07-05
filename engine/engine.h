@@ -138,13 +138,17 @@ public:
 
     // Per-player match tallies for the report (scorers, assists). Indexed by
     // slot id; a substitution inherits the slot's running tally, which is fine
-    // for a match report keyed on the shirt.
-    std::array<int, 22> pGoals = {};
-    std::array<int, 22> pAssists = {};
-    std::array<int, 22> pShots = {};
-    std::array<int, 22> pTackles = {};
-    std::array<int, 22> pPasses = {};            // per-player pass attempts (match-rating input via --summary)
-    std::array<int, 22> pPassesCompleted = {};   // ...and completions (credited to pendingPass.fromId)
+    // for a match report keyed on the shirt. One struct per player (was six
+    // parallel arrays) — add a per-player stat by adding ONE field here.
+    struct PlayerTally {
+        int goals = 0;
+        int assists = 0;
+        int shots = 0;
+        int tackles = 0;
+        int passes = 0;           // pass attempts (match-rating input via --summary)
+        int passesCompleted = 0;  // ...and completions (credited to pendingPass.fromId)
+    };
+    std::array<PlayerTally, 22> pStats = {};
     // Assist chain: who last fed this slot a completed pass, and when.
     std::array<int, 22> lastReceiveFrom = {};
     std::array<double, 22> lastReceiveMs = {};
