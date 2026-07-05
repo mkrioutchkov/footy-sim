@@ -413,7 +413,7 @@ void GameEngine::auditCredibleShotWindow(const Player& player, double distance, 
 void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     double fd = fdFor(team);
     double ownGoalX = ownGoalXFor(team);
-    bool danger = std::abs(carrier.x - ownGoalX) < DANGER_ZONE_DIST;
+    bool danger = pitch::inDangerZone(carrier.x, team);
     Config tactics = configFor(team);
 
     // Phase 1: Rank defenders
@@ -538,7 +538,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
     Team defending = carrier.team == Team::Home ? Team::Away : Team::Home;
     double ownGoalX = ownGoalXFor(defending);
     double fd = fdFor(defending);
-    bool danger = std::abs(carrier.x - ownGoalX) < DANGER_ZONE_DIST;
+    bool danger = pitch::inDangerZone(carrier.x, defending);
     Player* primary = nullptr;
     for (int id = 0; id < 22; id++) {
         if (assignmentByPlayer[id].role == DefensiveTask::PrimaryPress) { primary = playerById(id); break; }

@@ -46,9 +46,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     bool isDef = isDefenderRole();
     if (isDef) {
         if (isCenterBack()) {
-            double fd = (player.team == Team::Home) ? 1.0 : -1.0;
-            bool inOwnHalf = (fd == 1.0) ? ctrl->x < PITCH_W * 0.5 : ctrl->x > PITCH_W * 0.5;
-            if (!inOwnHalf) return Action{ActionType::Tackle, 0.0};
+            if (!pitch::inOwnHalf(ctrl->x, player.team)) return Action{ActionType::Tackle, 0.0};
         }
         if (isFullBack()) {
             bool onMyFlank = std::abs(ctrl->y - player.homeY) < 250.0;

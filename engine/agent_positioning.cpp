@@ -236,7 +236,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
     if (!my && carrier && carrier->team != p.team && !roles::isGoalkeeper(carrier->role)) {
         double carrierDist = dist(p.x, p.y, carrier->x, carrier->y);
         double ownGx = ownGoalXFor(p.team);
-        bool inOwnHalf = (p.team == Team::Home) ? carrier->x < HALF_X : carrier->x > HALF_X;
+        bool inOwnHalf = pitch::inOwnHalf(carrier->x, p.team);
         bool inOwnThird = std::abs(carrier->x - ownGx) < PITCH_W * 0.36;
         auto* existingTask = engine.assignmentFor(p.id);
         bool mustHoldShape = existingTask

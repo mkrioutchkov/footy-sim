@@ -107,7 +107,7 @@ void PlayerAI::applyMovement(double sdt) {
                         && (engine.state.ball.y < 80.0 || engine.state.ball.y > PITCH_H - 80.0);
     bool predatorial = (pressTask || secondaryPress) && carrierCornered;
 
-    bool committedPress = (pressTask && bd > 45.0 && (bd < PRESS_COMMIT_MAX_DIST || std::abs(engine.state.ball.x - ownGoalX) < DANGER_ZONE_DIST))
+    bool committedPress = (pressTask && bd > 45.0 && (bd < PRESS_COMMIT_MAX_DIST || pitch::inDangerZone(engine.state.ball.x, p.team)))
                         || predatorial;
 
     bool isObserving = !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5;

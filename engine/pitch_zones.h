@@ -69,4 +69,24 @@ inline Third thirdOf(double x, Team team) {
 }
 inline Third thirdOf(const Player& p) { return thirdOf(p.x, p.team); }
 
+// ── Attack-relative half / third membership (boolean, mirrored per team) ──
+// Written as each call site writes it — Home uses `<`/`>` against the near
+// boundary, Away the mirror against the far one. IMPORTANT: do NOT derive the
+// Away branch by flipping the Home inequality through forwardProgress; the strict
+// comparator would move at the exact boundary (x == HALF_X / THIRD_1 / THIRD_2).
+// These are distinct predicates on purpose — inFinalThird is a STRICT `> THIRD_2`
+// and is NOT the same as `thirdOf(...) == Third::Final` (half-open at THIRD_2).
+inline bool inOwnHalf(double x, Team team) { return team == Team::Home ? x < HALF_X : x > HALF_X; }
+inline bool inOwnHalf(const Player& p) { return inOwnHalf(p.x, p.team); }
+inline bool inOwnDefensiveThird(double x, Team team) { return team == Team::Home ? x < THIRD_1 : x > THIRD_2; }
+inline bool inOwnDefensiveThird(const Player& p) { return inOwnDefensiveThird(p.x, p.team); }
+inline bool inFinalThird(double x, Team team) { return team == Team::Home ? x > THIRD_2 : x < THIRD_1; }
+inline bool inFinalThird(const Player& p) { return inFinalThird(p.x, p.team); }
+
+// The one own-goal band every site spells with the SAME literal (DANGER_ZONE_DIST),
+// so a boolean is allowed here (unlike the parameterised inOwnGoalBand). Does not
+// cover sites that compare a min()/blended distance to the band — only a single x.
+inline bool inDangerZone(double x, Team team) { return inOwnGoalBand(x, team, DANGER_ZONE_DIST); }
+inline bool inDangerZone(const Player& p) { return inDangerZone(p.x, p.team); }
+
 } // namespace pitch

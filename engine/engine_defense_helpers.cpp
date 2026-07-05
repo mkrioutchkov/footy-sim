@@ -12,7 +12,7 @@
 
 SmallVector<GameEngine::DefenseContext::Rated, 12> GameEngine::rankDefenders(Team team, Player& carrier) {
     SmallVector<DefenseContext::Rated, 12> ranked;
-    bool danger = pitch::distToOwnGoal(carrier.x, team) < DANGER_ZONE_DIST;
+    bool danger = pitch::inDangerZone(carrier.x, team);
     for (auto& p : state.players) {
         if (p.team != team || p.role == Role::GK || p.sentOff) continue;
         double distance = dist(p.x, p.y, carrier.x, carrier.y);
@@ -218,7 +218,7 @@ void GameEngine::assignMidfieldScreen(DefenseContext& ctx, Player& carrier) {
 
 void GameEngine::assignCloseDown(DefenseContext& ctx, Player& carrier) {
     if (ctx.danger) return;
-    bool carrierInHalf = (ctx.fd == 1.0) ? carrier.x < HALF_X : carrier.x > HALF_X;
+    bool carrierInHalf = pitch::inOwnHalf(carrier.x, ctx.team);
     if (!carrierInHalf) return;
     Player* closeCb = nullptr;
     double closeCbDist = 1e9;
