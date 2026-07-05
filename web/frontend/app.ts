@@ -2845,6 +2845,26 @@ async function screenPlayer(slot: number) {
     })),
     talkReact);
 
+  // §individual-training: shape this player's development from his own page (reuses the training endpoints).
+  const pfSel = h('select', { style: 'width:auto;font-size:12px;padding:3px 6px', 'aria-label': 'Training focus' }) as HTMLSelectElement;
+  pfSel.append(h('option', { value: '' }, 'Follow club focus'));
+  for (const f of TRAINING_FOCI) { const o = h('option', { value: f }, focusLabel(f)) as HTMLOptionElement; if (f === (p.trainFocus ?? '')) o.selected = true; pfSel.append(o); }
+  pfSel.addEventListener('change', async () => { try { const r = await api.setPlayerTraining(slot, pfSel.value); p.trainFocus = r.focus ?? undefined; toast(r.focus ? `Focus: ${focusLabel(r.focus)}` : 'Follows the club focus'); } catch (e: any) { toast(e.message); } });
+  const piSel = h('select', { style: 'width:auto;font-size:12px;padding:3px 6px', 'aria-label': 'Training intensity', title: 'Higher intensity grows faster but raises injury risk; rest recovers' }) as HTMLSelectElement;
+  for (const [iv, lbl] of [['normal', 'Normal'], ['double', 'Double ↑'], ['half', 'Light'], ['rest', 'Rest']]) { const o = h('option', { value: iv }, lbl) as HTMLOptionElement; if (iv === (p.trainIntensity ?? 'normal')) o.selected = true; piSel.append(o); }
+  piSel.addEventListener('change', async () => { try { const r = await api.setPlayerIntensity(slot, piSel.value); p.trainIntensity = r.intensity ?? undefined; toast(`Intensity: ${r.intensity ?? 'normal'}`); } catch (e: any) { toast(e.message); } });
+  const rtSel = h('select', { style: 'width:auto;font-size:12px;padding:3px 6px', 'aria-label': 'Retrain position', title: 'Retrain him into a new position — he settles in over several matchdays, developing a little slower until comfortable.' }) as HTMLSelectElement;
+  rtSel.append(h('option', { value: '' }, `No (stay ${p.role})`));
+  for (const role of ['GK', 'FB', 'CB', 'CM', 'WM', 'CF']) { if (role === p.role) continue; const o = h('option', { value: role }, `→ ${role}`) as HTMLOptionElement; if (role === (p.retrainRole ?? '')) o.selected = true; rtSel.append(o); }
+  rtSel.addEventListener('change', async () => { try { const r = await api.setPlayerRetrain(slot, rtSel.value || 'clear'); toast(r.retrainRole ? `Retraining → ${r.retrainRole}` : `Settled at ${p.role}`); screenPlayer(slot); } catch (e: any) { toast(e.message); } });
+  const devCard = h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Development'),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'His individual training — a focus grows one area faster, intensity trades growth for injury risk, and you can retrain him into a new position.'),
+    h('div', { class: 'row', style: 'gap:14px;flex-wrap:wrap;align-items:center' },
+      h('label', { class: 'row', style: 'gap:5px;align-items:center;font-size:12px' }, h('span', { class: 'muted' }, 'Focus'), pfSel),
+      h('label', { class: 'row', style: 'gap:5px;align-items:center;font-size:12px' }, h('span', { class: 'muted' }, 'Intensity'), piSel),
+      h('label', { class: 'row', style: 'gap:5px;align-items:center;font-size:12px' }, h('span', { class: 'muted' }, 'Retrain'), rtSel)));
+
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
@@ -2883,6 +2903,7 @@ async function screenPlayer(slot: number) {
           })),
       ),
       interactCard),
+    devCard,
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Personality dials'), traitsEl),
       h('div', { class: 'card' },
