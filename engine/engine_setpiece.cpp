@@ -1,6 +1,7 @@
 #include "engine.h"
 #include "agent.h"
 #include "agent_helpers.h"
+#include "setpiece_weights.h"
 #include <cmath>
 #include <numbers>
 
@@ -298,19 +299,12 @@ void GameEngine::releaseSetPiece() {
                                                                                         : -0.18;
                 // In shooting range, recycling backward wastes the set piece.
                 if (holderShotDist < 320.0 && resetBonus > 0.0) resetBonus *= 0.25;
-                double roleBonus = p->role == Role::CM ? 0.24 : p->role == Role::FB ? 0.20
-                                                            : p->role == Role::CB   ? 0.16
-                                                            : p->role == Role::WM   ? 0.06
-                                                            : p->role == Role::CF   ? -0.16
-                                                                                    : 0.0;
+                double roleBonus = sp::weight(sp::FK_RECYCLE, p->role);
                 double centerSupport = 1.0 - std::abs(p->y - PITCH_H / 2.0) / PITCH_H;
                 return distanceFit + pressureScore + resetBonus + roleBonus + centerSupport * 0.22 - laneBlockers * 0.70;
             }
             double distanceFit = 1.0 - std::abs(d - 210.0) / 260.0;
-            double roleBonus = p->role == Role::WM ? 0.22 : p->role == Role::CF ? 0.16
-                                                        : p->role == Role::CM   ? 0.08
-                                                        : p->role == Role::FB   ? 0.04
-                                                                                : -0.08;
+            double roleBonus = sp::weight(sp::FK_FORWARD, p->role);
             return distanceFit + clamp(progress / 260.0, -0.25, 0.42) + width / 520.0 + roleBonus - laneBlockers * 0.30;
         };
         return scoreTarget(a) > scoreTarget(b);
@@ -363,8 +357,7 @@ void GameEngine::releaseGoalKick(Player& holder) {
             // GK DISTRIBUTION POLISH: among the safe short options, prefer the MOST OPEN man (most
             // space around him), not just the most advanced — a keeper rolls it to the defender in
             // acres, not the one with a forward breathing on him. Picks the genuinely-safe ball.
-            double score = progress * 0.30 - d * 0.20 + (p.role == Role::FB ? 40.0 : p.role == Role::CB ? 22.0
-                                                                                                        : 0.0) +
+            double score = progress * 0.30 - d * 0.20 + sp::weight(sp::GK_SHORT, p.role) +
                            (std::min(nearestOpp, 160.0) - 42.0) * 0.45;
             if (score > bestSafe) {
                 bestSafe = score;
@@ -387,9 +380,7 @@ void GameEngine::releaseGoalKick(Player& holder) {
         double progress = (p.x - ownGoalX) * fd;
         if (progress < 430.0) continue;
         double lane = std::abs(p.y - PITCH_H / 2.0);
-        double roleBonus = p.role == Role::CF ? 150.0 : p.role == Role::WM ? 125.0
-                                                    : p.role == Role::FB   ? 25.0
-                                                                           : 0.0;
+        double roleBonus = sp::weight(sp::GK_LONG, p.role);
         double pressurePenalty = 0.0;
         for (auto& o : state.players) {
             if (!isActiveOpponent(o, holder.team)) continue;
@@ -406,8 +397,7 @@ void GameEngine::releaseGoalKick(Player& holder) {
         for (auto& p : state.players) {
             if (p.team != holder.team || p.id == holder.id || p.role == Role::GK || p.sentOff) continue;
             double progress = (p.x - ownGoalX) * fd;
-            double score = progress + (p.role == Role::CF ? 100.0 : p.role == Role::WM ? 80.0
-                                                                                       : 0.0);
+            double score = progress + sp::weight(sp::GK_BOXRUN, p.role);
             if (score > best) {
                 best = score;
                 outlet = &p;
@@ -475,9 +465,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
             if (p.team != holder.team || p.id == holder.id || p.role == Role::GK || p.sentOff) continue;
             double progress = (p.x - ownGoalX) * fd;
             double wide = std::abs(p.y - PITCH_H / 2.0);
-            double roleBonus = p.role == Role::WM ? 85.0 : p.role == Role::CF ? 70.0
-                                                       : p.role == Role::FB   ? 35.0
-                                                                              : 0.0;
+            double roleBonus = sp::weight(sp::DIST_OUTLET, p.role);
             double score = progress + wide * 0.28 + roleBonus;
             if (score > best) {
                 best = score;
@@ -551,10 +539,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         // otherwise HOLDS (he can't be tackled — attemptTackle bails on a GK
         // carrier — so waiting for a lane costs nothing and never gifts it).
         bool safe = clearLane && nearestOpp > 40.0 && d < 320.0;
-        double roleBonus = p.role == Role::FB ? 0.30 : p.role == Role::WM ? 0.20
-                                                   : p.role == Role::CM   ? 0.16
-                                                   : p.role == Role::CB   ? 0.10
-                                                                          : 0.0;
+        double roleBonus = sp::weight(sp::DIST_SAFE, p.role);
         double openness = clamp(nearestOpp / 90.0, 0.0, 1.0);
         double prox = 1.0 - clamp(d / 520.0, 0.0, 1.0); // shorter = safer
         double score = (clearLane ? 1.5 : 0.0) + openness * 0.9 + prox * 0.5 + roleBonus + progress / 900.0 * 0.3;
@@ -750,10 +735,7 @@ void GameEngine::releaseCornerKick(Player& holder) {
         if (p.team != holder.team || p.id == holder.id || p.role == Role::GK || p.sentOff) continue;
         double goalDist = std::abs(p.x - goalX);
         double central = std::abs(p.y - PITCH_H / 2.0);
-        double roleBonus = p.role == Role::CF ? 0.35 : p.role == Role::CM ? 0.18
-                                                   : p.role == Role::WM   ? 0.10
-                                                   : p.role == Role::CB   ? 0.06
-                                                                          : -0.05;
+        double roleBonus = sp::weight(sp::CORNER_TARGET, p.role);
         double score = (260.0 - goalDist) / 260.0 * 0.45 + (180.0 - central) / 180.0 * 0.35 + roleBonus;
         targets.push_back({&p, score});
     }
@@ -907,9 +889,7 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
     double best = 1e9;
     for (auto& p : state.players) {
         if (p.team != attackingTeam || p.role == Role::GK || p.sentOff) continue;
-        double roleCost = (p.role == Role::WM ? 0.0 : p.role == Role::FB ? 20.0
-                                                  : p.role == Role::CM   ? 55.0
-                                                                         : 120.0);
+        double roleCost = sp::weight(sp::CORNER_TAKER, p.role);
         double d = dist(p.x, p.y, ix, iy) + roleCost;
         if (d < best) {
             best = d;
