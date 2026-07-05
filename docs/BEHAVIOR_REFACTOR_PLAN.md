@@ -25,6 +25,34 @@
 > Value-unification (Phase 4 below) remains deliberately untouched — that's a
 > *balance* change, not this pure refactor.
 
+> ## Follow-up — general clarity pass (also shipped, byte-identical, on `master`)
+>
+> After the vocabulary work, a broader engine-wide clarity pass (all verified
+> against `tools/golden`, all still fingerprint `77ab1fd1`):
+> - **Whitespace to the style guide** — `.clang-format` (`ColumnLimit 0`, no reflow)
+>   applied to the 6 densest files (`engine_setpiece/actions/physics/engine.cpp`,
+>   `stats.h/.cpp`) that violated the README's `if (x == y) { … }` rule.
+> - **Reuse of existing helpers** — 13 inline `team==Home?0:1` → `teamIndex()`;
+>   `isActiveOpponent()` extracted for the 15× `team||GK||sentOff` opponent-loop
+>   guard; the `role==CF?285:(WM?270:250)` fresh-cross ternary → the existing
+>   `freshCrossMaxDistance()` hook it duplicated; more goal-distance / progress /
+>   shot-distance scalars routed through `pitch::` (`distToGoalMouth`,
+>   `forwardProgress`, `forwardGain`).
+> - **Giant-function decomposition** — `checkBallPlayerCollision` (464 lines) split
+>   into a clean 5-phase orchestrator + `tryCutbackFirstTimeFinish`,
+>   `tryKeeperLooseGather`, `tryIntendedReceiverMeet`, `tryKeeperCrossClaim`. The
+>   other giants (`attemptTackle`, `shootBall` — linear computations;
+>   `updateSetPiecePhase` — a stateful sequence) have no clean phase seams, so they
+>   were **deliberately left** rather than forced into struct-returning helpers.
+> - **Cleanups** — cryptic locals renamed (`mr`→`maxShootRange`, `bdg`→`ballGoalDist`,
+>   `sp`→`step`); unused vocabulary helpers removed (self-review found the same
+>   "built and abandoned" smell as the dead `PitchArea`).
+>
+> Judgment calls made (and why): folding stopped where a local was the right idiom
+> (`engine_gk`/`engine_physics` use a local `goalX` ~18× for keeper/ball geometry);
+> single-role `== Role::X` checks were **not** folded (`roles::isCenterBack(r)` is
+> just a longer `r == Role::CB` — no clarity gain).
+
 **Scope: `engine/` only.** No web/TS changes, no `spec.json`/summary/wire-format
 changes (`docs/CONTRACT.md` stays frozen). Everything here is an *internal*
 refactor.
