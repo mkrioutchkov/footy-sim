@@ -14,6 +14,15 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     double d = dist(player.x, player.y, ctrl->x, ctrl->y);
     if (d > TACKLE_ZONE_MAX) return Action{ActionType::Tackle, 0.0};
 
+    // First-touch grace: a player who won the ball THIS instant gets his
+    // controlling touch before anyone may challenge (watched replay 0:45:
+    // interception -> foul 100ms later read as scripted). Box emergencies are
+    // exempt — a striker taking a touch six yards out still gets closed down.
+    if (engine.carrierTracker.carryTrackerId == ctrl->id
+        && engine.state.clockMs - engine.carrierTracker.carryStartMs < 280.0
+        && !(pitch::distToOwnGoal(ctrl->x, player.team) < EMERGENCY_BOX_DIST))
+        return Action{ActionType::Tackle, 0.0};
+
     // Carrier kinematics: where is he going, and am I in his running lane?
     double carrierSpeed = std::hypot(ctrl->vx, ctrl->vy);
     double forwardX = carrierSpeed > 8.0 ? ctrl->vx / carrierSpeed : std::cos(ctrl->facing);
@@ -420,7 +429,12 @@ Action PlayerAI::scoreChase(const Perception& per) {
 
     if (urgentLooseBallRun) {
         double lead = incomingLooseBall ? std::min(arrivalTime * 0.35, 0.22) : 0.0;
-        return Action{ActionType::Chase, 1.0, nullptr,
+        // A loose ball rolling within ONE STRIDE is taken, full stop — at a
+        // flat 1.0 this chase kept coin-flipping against shape candidates
+        // that reach ~1.0 with bonuses (watched replay 1:26: a defender stood
+        // 17px off a 2-second rolling ball and let it pass).
+        double urgency = incomingLooseBall && per.ballDist < 70.0 ? 1.15 : 1.0;
+        return Action{ActionType::Chase, urgency, nullptr,
                       clamp(b.x + b.vx * lead, 10.0, PITCH_W - 10.0),
                       clamp(b.y + b.vy * lead, 10.0, PITCH_H - 10.0),
                       incomingLooseBall ? ActionPurpose::MeetIncoming : ActionPurpose::RecoverLoose};

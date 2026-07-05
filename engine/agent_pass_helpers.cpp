@@ -538,6 +538,16 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         sc += 0.12 + attrFactor(p.attrs.creativity) * 0.08;
     }
 
+    // ── Release ball (1:12) — ATTEMPTED AND REVERTED ── a class rewarding
+    // the ball in behind a beaten flank marker at midfield range was A/B'd
+    // twice (broad, then flank-only + tight onside window): both cuts pushed
+    // through-ball volume +20-45% while GOALS FELL (0.47 -> 0.28-0.33) and
+    // completion dropped — the selection finds the ball but the conversion
+    // chain (collect -> next decision -> finish) doesn't cash it, so each
+    // extra Through is a possession lottery at negative EV. Same verdict as
+    // the directed-panic-outlet experiment. Fix CONVERSION first (fresh-
+    // through finishing / 1-on-1 balance), then revisit selection.
+
     // ── Assist-awareness ── a receiver who will have a CLEAR SHOT when the
     // ball arrives outranks any neutral connector: shooting range, unmarked
     // at the receive point, a real opening angle, and no bodies on his shot
