@@ -202,6 +202,7 @@ export const api = {
   teamPlan: (text: string) => req<{ planText: string; plan: PlanT; setPieceTakers: TeamT['setPieceTakers']; note: string; error: string | null }>('POST', '/team/plan', { text }),
   quickTactics: (preset: string) => req<{ planText: string; plan: PlanT }>('POST', '/team/quick-tactics', { preset }),
   setLineup: (text: string) => req<LineupResultT>('PUT', '/lineup', { text }),
+  autoLineup: () => req<{ formation: string; lineup: number[] | null; note: string }>('POST', '/lineup/auto'),
   formations: () => req<FormationsT>('GET', '/formations'),
   generatePersonalities: () => req<TeamT>('POST', '/personalities', {}),   // send a body so Fastify can't 415 on a bodyless POST
   league: () => req<LeagueT>('GET', '/league'),

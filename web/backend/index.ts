@@ -16,7 +16,7 @@ import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStre
 import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
-import { FORMATIONS, PITCH_W } from './formations.ts';
+import { FORMATIONS, PITCH_W, roleFit } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, loanOut, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers, seedReleaseClauses } from './market.ts';
 import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, setTeamTrainingIntensity, applyTrainingPreset, TRAINING_PRESETS, setPlayerRetrain, RETRAIN_ROLES, getTrainingReport, TRAINABLE, VALID_FOCUS, VALID_INTENSITY, VALID_TEAM_INTENSITY } from './training.ts';
@@ -303,6 +303,33 @@ app.put('/api/lineup', async (req: any, reply) => {
   db.prepare('UPDATE teams SET formation = ?, lineup = ? WHERE id = ?')
     .run(r.formation, isDefault ? null : JSON.stringify(lineup), teamId);
   return { formation: r.formation, lineup: isDefault ? null : lineup, slots: r.slots, note: r.note };
+});
+
+// §auto-XI: field the strongest role-correct XI for the CURRENT formation — the same role-fit model the
+// lineup compiler uses (best fit per slot; injured players deprioritised; the keeper anchored to slot 0).
+app.post('/api/lineup/auto', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const team = getTeamWithPlayers(teamId)!;
+  const formation = team.formation ?? '4-3-3';
+  const slots = FORMATIONS[formation] ?? FORMATIONS['4-3-3'];
+  const players = team.players.slice().sort((a, b) => a.slot - b.slot);
+  if (players.length < 11) return reply.code(400).send({ error: 'not enough players for an XI' });
+  const used = new Set<number>();
+  const lineup: number[] = [];
+  for (let i = 0; i < slots.length; i++) {
+    const role = slots[i].role;
+    // best role-fit among the unused; injured heavily deprioritised (only picked if no fit cover, like the
+    // fit-first match draw); the keeper is anchored to slot 0.
+    const score = (p: typeof players[number]) => roleFit(p.attrs, role) + ((p.injuredMatches ?? 0) > 0 ? -1000 : 0) + (i === 0 && p.role === 'GK' ? 500 : 0);
+    const cand = players.filter(p => !used.has(p.slot));
+    const pick = cand.reduce((best, p) => (score(p) > score(best) ? p : best), cand[0]);
+    used.add(pick.slot); lineup.push(pick.slot);
+  }
+  const isDefault = formation === '4-3-3' && lineup.every((v, i) => v === i);
+  db.prepare('UPDATE teams SET lineup = ? WHERE id = ?').run(isDefault ? null : JSON.stringify(lineup), teamId);
+  return { formation, lineup: isDefault ? null : lineup, note: `Fielded your strongest XI in a ${formation}.` };
 });
 
 // The formation registry (per-slot role + pitch coordinates) for the visual tactics pitch.

@@ -507,13 +507,26 @@ function formationPanel(team: TeamT, reg: FormationsT | null): HTMLElement {
   const applyInput = () => { const t = input.value.trim(); if (t) { apply(t); input.value = ''; } };
   setBtn.addEventListener('click', applyInput);
   input.addEventListener('keydown', (ev: any) => { if (ev.key === 'Enter') applyInput(); });
+  // §auto-XI: one-click strongest role-correct XI in the current shape (best role-fit per slot, injured last).
+  const autoBtn = h('button', { class: 'ghost small', title: 'Field your strongest role-correct XI in the current shape' }, '⚡ Strongest XI') as HTMLButtonElement;
+  autoBtn.addEventListener('click', async () => {
+    autoBtn.setAttribute('disabled', 'true'); const t0 = autoBtn.textContent; autoBtn.textContent = '…';
+    try {
+      const r = await api.autoLineup();
+      fmt = r.formation; lineup = r.lineup; badge.textContent = r.formation;
+      drawPitch(tokensFromReg());
+      out.textContent = r.note;
+      toast('Strongest XI selected');
+    } catch (e: any) { out.textContent = e.message; }
+    finally { autoBtn.removeAttribute('disabled'); autoBtn.textContent = t0; }
+  });
 
   return h('div', { class: 'card' },
-    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Formation', badge),
+    h('div', { class: 'between' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Formation', badge), autoBtn),
     pitchBox,
     warn,
     h('div', { class: 'tactics-row', style: 'margin-top:10px' }, input, setBtn),
-    h('div', { class: 'muted', style: 'font-size:11px;margin-top:5px' }, 'Your shape is set in the plan — just say it in words (“play a 4-2-3-1”, “switch to 3-5-2”). The badge above shows your current shape.'),
+    h('div', { class: 'muted', style: 'font-size:11px;margin-top:5px' }, 'Your shape is set in the plan — just say it in words (“play a 4-2-3-1”, “switch to 3-5-2”), or ⚡ auto-pick your strongest XI. The badge above shows your current shape.'),
     out,
   );
 }
