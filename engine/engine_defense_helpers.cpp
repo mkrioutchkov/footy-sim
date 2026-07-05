@@ -245,6 +245,12 @@ SmallVector<GameEngine::DefenseContext::Threat, 12> GameEngine::identifyThreats(
     for (auto& attacker : state.players) {
         if (attacker.team == ctx.team || attacker.role == Role::GK || attacker.id == carrier.id) continue;
         double depth = std::abs(attacker.x - ctx.ownGoalX);
+        // Anticipate the RUN, not the spot: a sprinter bursting in behind is
+        // judged (and ranked) at his projected position, so his marker gets
+        // assigned while the ball is still on the passer's foot — the mirror
+        // of the attack's killer-ball projection.
+        double projDepth = std::abs(attacker.x + attacker.vx * 0.9 - ctx.ownGoalX);
+        depth = std::min(depth, projDepth);
         double yDist = pitch::lateralFromCenter(attacker.y);
         bool threatens = agentFor(attacker)->isOffensiveThreat(depth, ctx.danger, yDist);
         if (threatens) threats.push_back({&attacker, depth});
@@ -298,7 +304,14 @@ void GameEngine::assignThreatMarking(DefenseContext& ctx, Player& carrier) {
             // delivery into a contested duel instead of a free meet.
             if (receiverThreat) sag = 0.0;
             double towardGoal = receiverThreat ? 0.10 : lerp(ctx.danger ? 0.18 : 0.20, 0.48, sag);
-            double targetX = lerp(threat.player->x, ctx.ownGoalX + ctx.fd * 36.0, towardGoal);
+            // Track the RUN: mark a sprinter goal-side of where he's GOING,
+            // not where he was — chasing the spot he left is how the channel
+            // runner got in behind untouched.
+            double threatX = threat.player->x;
+            if ((threat.player->x + threat.player->vx * 0.55 - ctx.ownGoalX) * ctx.fd
+                < (threatX - ctx.ownGoalX) * ctx.fd)
+                threatX = threat.player->x + threat.player->vx * 0.55;
+            double targetX = lerp(threatX, ctx.ownGoalX + ctx.fd * 36.0, towardGoal);
             double threatDistanceToGoal = std::abs(threat.player->x - ctx.ownGoalX);
             if (ctx.danger && agentFor(*marker)->isCenterBack() && threat.player->role == Role::CF) {
                 targetX = ctx.ownGoalX + ctx.fd * clamp((targetX - ctx.ownGoalX) * ctx.fd, 58.0, 116.0);
