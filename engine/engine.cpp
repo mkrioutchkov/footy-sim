@@ -998,6 +998,20 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     separateTeammates(sdt);
     enforceRestartDistance();
 
+    // Keepers are NOT statues during restarts: fixedUpdate's armed
+    // early-return skips updateGK entirely, so a keeper stood wherever the
+    // previous phase left him through every corner/FK hold (watched replay
+    // 0:34-0:36: 80px off his line, below the post, for six seconds — the
+    // agent's setPiecePositioning early-returns for GKs too). Position each
+    // keeper normally, except the taker (the restart walk owns him) and the
+    // defending keeper at a penalty (the Law 14 walk owns him).
+    for (Team tm : {Team::Home, Team::Away}) {
+        Player* k = findGK(tm);
+        if (!k || k->sentOff || k->id == setPiece.takerId) continue;
+        if (setPiece.type == SetPiece::Penalty && tm != setPiece.team) continue;
+        updateOneGK(*k, sec);
+    }
+
     // Watchdog: a malformed arm (no taker, no controller) must never freeze
     // the match — disarm and let open play resume.
     if (setPiece.armed && setPiece.takerId < 0 && state.ball.controllerId < 0 && setPiece.type != SetPiece::GoalKick && phase.actionTimer <= 0) {
