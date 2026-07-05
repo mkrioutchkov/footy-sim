@@ -405,7 +405,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     bool wideOutletTarget = targetWide && fp > 20.0 && d < 500.0;
     double runnerForwardSpeed = t.vx * fd;
-    bool targetAttacker = t.role == Role::CF || t.role == Role::WM;
+    bool targetAttacker = roles::isAttacker(t.role);
     // USERWATCH A3 (Leon Kovac ~4:33 missed it): a teammate CLEAR & ONSIDE in behind with an
     // open lane is a through-ball target even BEFORE he sprints — the obvious killer pass a
     // human expects. Strict gates (unmarked, lane fully clear, genuine range) so it never spams.

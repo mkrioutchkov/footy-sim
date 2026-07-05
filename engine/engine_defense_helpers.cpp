@@ -96,7 +96,7 @@ void GameEngine::assignShotLane(DefenseContext& ctx, Player& carrier) {
     double laneX = lerp(carrier.x, ctx.ownGoalX + ctx.fd * 24.0, ctx.danger ? 0.34 : 0.26);
     double laneY = lerp(carrier.y, PITCH_H / 2.0, ctx.danger ? 0.34 : 0.24);
     for (auto& p : state.players) {
-        if (p.team != ctx.team || ctx.used(&p) || p.role == Role::GK || p.role == Role::CF || p.role == Role::WM) continue;
+        if (p.team != ctx.team || ctx.used(&p) || p.role == Role::GK || roles::isAttacker(p.role)) continue;
         double roleCost = agentFor(p)->shotLaneCost();
         double score = dist(p.x, p.y, laneX, laneY) + roleCost;
         if (score < bestLane) { bestLane = score; lane = &p; }
@@ -113,7 +113,7 @@ void GameEngine::assignShotLane(DefenseContext& ctx, Player& carrier) {
     double lane2X = lerp(carrier.x, ctx.ownGoalX + ctx.fd * 24.0, ctx.danger ? 0.55 : 0.46);
     double lane2Y = lerp(carrier.y, PITCH_H / 2.0, ctx.danger ? 0.50 : 0.40);
     for (auto& p : state.players) {
-        if (p.team != ctx.team || ctx.used(&p) || p.role == Role::GK || p.role == Role::CF || p.role == Role::WM) continue;
+        if (p.team != ctx.team || ctx.used(&p) || p.role == Role::GK || roles::isAttacker(p.role)) continue;
         double score = dist(p.x, p.y, lane2X, lane2Y) + agentFor(p)->shotLaneCost();
         if (score < bestLane2) { bestLane2 = score; lane2 = &p; }
     }

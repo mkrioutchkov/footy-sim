@@ -174,7 +174,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
                 double targetGoalDist = std::abs(t.x - gx);
                 bool central = pitch::lateralFromCenter(t.y) < 180.0;
                 double score = progress * 0.28 - std::abs(t.y - receiver.y) * 0.12 - d * 0.06;
-                if (t.role == Role::CF || t.role == Role::WM) score += 28.0;
+                if (roles::isAttacker(t.role)) score += 28.0;
                 if (t.role == Role::CM && central && targetGoalDist < 260.0) score += 34.0;
                 if (targetGoalDist < shotDistance + 25.0 && central) score += 22.0;
                 if (pressure >= 2 && progress < -15.0) score += 18.0;
