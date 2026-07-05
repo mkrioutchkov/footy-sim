@@ -319,7 +319,7 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
         Player* carrier = engine.playerById(engine.state.ball.controllerId);
         if (carrier && carrier->team == p.team && (engine.agentFor(*carrier)->isCentralMidfielder() || engine.agentFor(*carrier)->isCenterBack())
             && std::abs(carrier->y - PITCH_H / 2.0) < 215.0
-            && std::abs(carrier->x - goalXFor(p.team)) > 260.0) {
+            && pitch::distToOppGoal(carrier->x, p.team) > 260.0) {
             c.push_back({ clampRange(carrier->x + pc.fd * 210.0, p.homeX + pc.fd * 120.0, goalXFor(p.team) - pc.fd * 65.0),
                           flankY, ActionPurpose::HoldWidth });
             c.push_back({ clampRange(carrier->x + pc.fd * 255.0, p.homeX + pc.fd * 150.0, goalXFor(p.team) - pc.fd * 45.0),

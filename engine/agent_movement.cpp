@@ -171,7 +171,7 @@ void PlayerAI::applyMovement(double sdt) {
     // High-value ONLY (USERWATCH: "winnable AND high-value — a clear chance"): the loose ball is
     // near a goal — an attacking chance to pounce on, or a defensive emergency to beat the striker
     // to. Midfield 50/50s stay at normal pursuit pace (this isn't a blanket sprint-everywhere).
-    bool looseBallHighValue = std::abs(engine.state.ball.x - goalXFor(p.team)) < 300.0
+    bool looseBallHighValue = pitch::distToOppGoal(engine.state.ball.x, p.team) < 300.0
                            || std::abs(engine.state.ball.x - ownGoalX) < 300.0;
     bool pursuingLooseBall = engine.state.ball.controllerId < 0 && looseBallHighValue
         && bd < 230.0 && (dx * bdx + dy * bdy) > 0.0;

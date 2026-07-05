@@ -165,7 +165,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         && pitch::lateralFromCenter(t.y) < 210.0
         && fp > -120.0;
 
-    double boxTargetGoalDist = std::abs(t.x - goalXFor(p.team));
+    double boxTargetGoalDist = pitch::distToOppGoal(t.x, p.team);
     // §C Stage 2: a DEEP (byline) carrier can cut back to a now-onside CLOSE runner — once b.x is deep
     // the near-post runner is legally onside-close (max(line,b.x)=b.x), so widen the cutback target zone
     // (goalDist>45, y<215) for a deep carrier to let that 6-yard tap-in route qualify for the +0.54 cutback.
@@ -381,7 +381,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     // ── Final third target bonuses ──
     bool passerFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
-    double targetGoalDist = std::abs(t.x - goalXFor(p.team));
+    double targetGoalDist = pitch::distToOppGoal(t.x, p.team);
     if (passerFinalThird && targetGoalDist < 230.0) {
         if (t.role == Role::CF) sc += 0.24;
         else if (t.role == Role::WM && pitch::lateralFromCenter(t.y) < 210.0) sc += 0.10;

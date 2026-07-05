@@ -212,7 +212,7 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             // carrier's side too (runner-side fix: agent_movement.cpp boxBurst).
             bool spotBandCutback = x.purpose == ActionPurpose::Cutback
                 && x.target
-                && std::abs(x.target->x - goalXFor(player.team)) < 165.0
+                && pitch::distToOppGoal(x.target->x, player.team) < 165.0
                 && std::abs(x.target->y - PITCH_H / 2.0) < 120.0;
             bool killerBall = x.purpose == ActionPurpose::Through || spotBandCutback;
             bool lineBreakOutlet = x.type == ActionType::Pass
@@ -713,7 +713,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     // Breakaway: corridor to goal is clear and the nearest opponent is a chaser,
     // not a blocker — burst at sprint pace instead of letting recovery runners
     // (who move ~50% faster than a close dribble) reel the carrier in.
-    double distToGoalX = std::abs(p.x - goalXFor(p.team));
+    double distToGoalX = pitch::distToOppGoal(p.x, p.team);
     bool targetForward = (fd > 0.0 && p.targetX > p.x + 30.0) || (fd < 0.0 && p.targetX < p.x - 30.0);
     bool breakawayBurst = clearPath && advancedEnough && distToGoalX < 480.0
         && nearestOppDist > 40.0 && distToTarget > 90.0 && targetForward;

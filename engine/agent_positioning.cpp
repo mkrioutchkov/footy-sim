@@ -51,7 +51,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
     if (my && !per.iAmController) {
         Player* carrierNow = engine.playerById(per.ballControllerId);
         if (carrierNow && carrierNow->team == p.team) {
-            double cgd = std::abs(carrierNow->x - goalXFor(p.team));
+            double cgd = pitch::distToOppGoal(carrierNow->x, p.team);
             deliveryImminent = cgd < 330.0 && std::abs(carrierNow->y - PITCH_H / 2.0) > 140.0;
         }
     }

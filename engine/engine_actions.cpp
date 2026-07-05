@@ -535,7 +535,7 @@ bool GameEngine::attemptTackle(Player& tackler,Player& carrier){
     // flood of low-percentage lunges-and-misses (~70% of all challenges) into
     // the contain-first defending real players actually do, without a recorded
     // attempt or a wild swing.
-    double carrierGoalDist = std::abs(carrier.x - ownGoalXFor(tackler.team));
+    double carrierGoalDist = pitch::distToOwnGoal(carrier.x, tackler.team);
     bool inPenaltyBox = carrierGoalDist < PENALTY_AREA_W
         && pitch::lateralFromCenter(carrier.y) < PENALTY_AREA_H / 2.0;
     // Emergency lunges are forced only in the APPROACH band (box edge to

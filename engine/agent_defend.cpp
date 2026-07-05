@@ -328,7 +328,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
     bool parryRebound = per.ballIsLoose && b.z <= AERIAL_HEIGHT
         && engine.lastLooseOrigin == LooseOrigin::GoalkeeperParry
         && canContest && per.ballDist < 230.0
-        && std::abs(player.x - goalXFor(player.team)) < 360.0
+        && pitch::distToOppGoal(player.x, player.team) < 360.0
         && b.lastTouchTeam != player.team;
     if (parryRebound) {
         double lead = ballSpeed > 30.0 ? std::min(ballSpeed / 260.0, 0.30) : 0.0;

@@ -432,7 +432,7 @@ void GameEngine::updatePossessionTracking(double sdt) {
             // Spare final-third carries: shots are built there, and forcing a
             // release cost ~22% of shots. The shuttle we're killing is the
             // midfield/own-half "side to side" hold, not the final ball.
-            double distToOppGoal = std::abs(c->x - goalXFor(c->team));
+            double distToOppGoal = pitch::distToOppGoal(c->x, c->team);
             if (carryDurMs >= 7000.0 && carryFwd < 80.0 && distToOppGoal > 340.0) {
                 Player* best = nullptr;
                 double bestScore = -1e9;
