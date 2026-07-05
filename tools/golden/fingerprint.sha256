@@ -1,1 +1,1 @@
-77ab1fd1817152e66ec354f4f2f60e15c9432eabf87dccb044ce1be0ea80bd96  seeds 101-140 @10min, g++ -O2 -std=c++20 (canonical: `for s in 101..140; do live.exe $s 10 --summary --no-debug | tail -1; done`)
+1fb3705f370879dad9cea497ab169119e4d2bca332956b19469c85cf04559b61  seeds 101-140 @10min, g++ -O2 -std=c++20

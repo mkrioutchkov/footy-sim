@@ -1,5 +1,11 @@
 # Golden baseline — engine determinism reference
 
+> **Baseline generation:** 2026-07-05, after the deliberate behaviour round
+> (restart law compliance, press-aware keeper distribution, panic clearance,
+> killer-ball projection, run-anticipating defense). Measured vs the previous
+> baseline: goals/10min 0.45 → 0.42, shots 2.73 → 3.38, on-target 1.15 → 1.18,
+> clearances 10.1 → 16.9, passes/possession unchanged.
+
 Frozen reference for verifying that an engine refactor is **behaviour-preserving**.
 The engine is deterministic (same seed + spec + binary ⇒ byte-identical output),
 so a *pure* refactor must reproduce this baseline **byte-for-byte**. See
