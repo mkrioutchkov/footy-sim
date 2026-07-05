@@ -1,6 +1,7 @@
 import './styles.css';
 import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT, type TimelineEventT } from './api';
 import { MatchRenderer } from './renderer';
+import { PITCH_W, PITCH_H } from './constants';
 import type { EngineState } from './types';
 
 // ── live-watch socket envelope ── the web backend wraps each engine frame with team names +
@@ -1178,11 +1179,15 @@ let watchKeyHandler: ((e: KeyboardEvent) => void) | null = null;   // P3 viewer 
 let watchVisHandler: (() => void) | null = null;   // background-tab handling (skip draw work while hidden; snap current on return)
 let activeReplayTimer: ReturnType<typeof setInterval> | null = null;   // live goal-replay playback loop
 let activeHighlightTimer: ReturnType<typeof setTimeout> | null = null;   // 🎞 highlights-reel tour step (survives teardown otherwise)
+let watchStatsPanel: HTMLElement | null = null;   // 📊 on-demand match-analysis overlay (ratings + shot map + xG)
+let watchStatsTimer: ReturnType<typeof setInterval> | null = null;   // refreshes the stats overlay while it's open
 let watchEpoch = 0;   // bumped on every teardown so an in-flight screenWatch can detect it was superseded
 function teardownWatch() {
   watchEpoch++;
   if (activeReplayTimer) { clearTimeout(activeReplayTimer); clearInterval(activeReplayTimer); activeReplayTimer = null; }   // a live-rewind timer is a setTimeout — clear BOTH kinds
   if (activeHighlightTimer) { clearTimeout(activeHighlightTimer); activeHighlightTimer = null; }   // stop a highlights tour scheduled but not yet fired
+  if (watchStatsTimer) { clearInterval(watchStatsTimer); watchStatsTimer = null; }   // stop the 📊 stats refresh loop
+  watchStatsPanel?.remove(); watchStatsPanel = null;
   try { watchPanelObs?.disconnect(); } catch { /* */ } watchPanelObs = null;
   if (watchKeyHandler) { window.removeEventListener('keydown', watchKeyHandler); watchKeyHandler = null; }
   if (watchVisHandler) { document.removeEventListener('visibilitychange', watchVisHandler); watchVisHandler = null; }
@@ -1412,10 +1417,88 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     dirBtn.classList.toggle('ghost', !dirOn);
     dirBtn.setAttribute('aria-pressed', String(dirOn));
   });
-  // ⋯ — everything secondary in ONE place (tactics overlay, highlights tour, live goal replay), so the bar
-  // itself stays: pause · speed · ⏪/⏩ · slider · ● LIVE. The items keep their own show/hide logic inside.
+  // 📊 Match-stats overlay — FM-style live analysis (sorted player ratings + a shot map + an xG race),
+  // on-demand from ⋯, refreshed ~1.5s while open, body-appended + torn down centrally (teardownWatch).
+  const statsBtn = h('button', { class: 'ghost small', 'aria-label': 'Toggle match stats', 'aria-pressed': 'false', title: 'Live player ratings, shot map & xG race' }, '📊 Stats') as HTMLButtonElement;
+  let statsContent: HTMLElement | null = null;
+  const closeStats = (): void => {
+    if (watchStatsTimer) { clearInterval(watchStatsTimer); watchStatsTimer = null; }
+    watchStatsPanel?.remove(); watchStatsPanel = null; statsContent = null;
+    statsBtn.classList.remove('primary'); statsBtn.classList.add('ghost'); statsBtn.setAttribute('aria-pressed', 'false');
+  };
+  const ratTint = (r: number): string => r >= 7.5 ? '#57e08a' : r >= 6.5 ? '#e8edf2' : r >= 5.5 ? '#cdd6df' : '#f3b06b';
+  const renderStatsPanel = (): void => {
+    if (!statsContent || !activeRenderer) return;
+    const names = activeRenderer.getTeamNames();
+    const ratings = activeRenderer.getRatings();
+    const shots = activeRenderer.getShots();
+    const series = activeRenderer.getXgSeries();
+    // ── live ratings, two columns, best first ──
+    const ratCol = (name: string, list: typeof ratings, col: string) => h('div', { style: 'flex:1;min-width:0' },
+      h('div', { style: `font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:${col};margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap` }, name),
+      ...[...list].sort((a, b) => b.rating - a.rating).map(r => h('div', { class: 'between', style: 'font-size:11px;padding:1px 0;gap:6px' },
+        h('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0' }, h('span', { class: 'muted', style: 'font-size:9px;margin-right:3px' }, r.role), shortName(r.name)),
+        h('span', { style: `font-weight:700;flex:0 0 auto;color:${ratTint(r.rating)}` }, r.rating.toFixed(1)))));
+    const ratingsBlock = h('div', { class: 'row', style: 'gap:12px;align-items:start;margin-bottom:8px' },
+      ratCol(names.home, ratings.filter(r => r.team === 'home'), '#e77'),
+      ratCol(names.away, ratings.filter(r => r.team === 'away'), '#8ab6d9'));
+    // ── shot map: dots on a mini pitch, radius ∝ xG, filled = goal ──
+    const sm = svgEl('svg', { viewBox: `0 0 ${PITCH_W} ${PITCH_H}`, width: '100%', style: 'display:block;background:#16331f;border-radius:6px' });
+    const smStroke = { fill: 'none', stroke: '#ffffff', 'stroke-opacity': 0.18, 'stroke-width': 3 };
+    sm.append(
+      svgEl('rect', { x: 3, y: 3, width: PITCH_W - 6, height: PITCH_H - 6, ...smStroke }),
+      svgEl('line', { x1: PITCH_W / 2, y1: 3, x2: PITCH_W / 2, y2: PITCH_H - 3, ...smStroke }),
+      svgEl('circle', { cx: PITCH_W / 2, cy: PITCH_H / 2, r: 80, ...smStroke }));
+    for (const sh of shots) {
+      const col = sh.side > 0 ? '#e63946' : '#457b9d';
+      sm.append(svgEl('circle', { cx: sh.x, cy: sh.y, r: 7 + sh.xg * 26, fill: sh.goal ? col : 'none', 'fill-opacity': sh.goal ? 0.85 : 0, stroke: col, 'stroke-width': 3.5, 'stroke-opacity': 0.9 }));
+    }
+    const shotBlock = h('div', {},
+      h('div', { class: 'muted', style: 'font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin:4px 0 3px' }, `Shot map · ${shots.length} shot${shots.length === 1 ? '' : 's'} (○ shot · ● goal · size = xG)`),
+      shots.length ? sm : h('div', { class: 'muted', style: 'font-size:11px' }, 'No shots yet.'));
+    // ── xG race line (cumulative per side) ──
+    const lastS = series[series.length - 1];
+    const xgMax = Math.max(0.5, lastS?.h ?? 0, lastS?.a ?? 0);
+    const tMax = Math.max(60000, lastS?.t ?? 0);
+    const CW = 300, CH = 60, pad = 4;
+    const px = (t: number) => pad + (t / tMax) * (CW - 2 * pad);
+    const py = (v: number) => (CH - pad) - (v / xgMax) * (CH - 2 * pad);
+    const xgLine = (key: 'h' | 'a', col: string) => {
+      if (!series.length) return svgEl('g', {});
+      // step line: cumulative xG holds flat between shots, then jumps — the honest shape
+      const pts: string[] = [`${px(0).toFixed(1)},${py(0).toFixed(1)}`];
+      let prev = 0;
+      for (const s of series) { pts.push(`${px(s.t).toFixed(1)},${py(prev).toFixed(1)}`, `${px(s.t).toFixed(1)},${py(s[key]).toFixed(1)}`); prev = s[key]; }
+      pts.push(`${px(tMax).toFixed(1)},${py(prev).toFixed(1)}`);
+      return svgEl('polyline', { points: pts.join(' '), fill: 'none', stroke: col, 'stroke-width': 2 });
+    };
+    const xgSvg = svgEl('svg', { viewBox: `0 0 ${CW} ${CH}`, width: '100%', style: 'display:block' },
+      svgEl('line', { x1: pad, y1: CH - pad, x2: CW - pad, y2: CH - pad, stroke: '#ffffff', 'stroke-opacity': 0.15, 'stroke-width': 1 }),
+      xgLine('a', '#457b9d'), xgLine('h', '#e63946'));
+    const xgBlock = h('div', {},
+      h('div', { class: 'muted', style: 'font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin:6px 0 3px' },
+        `xG race · ${(lastS?.h ?? 0).toFixed(2)} `, h('span', { style: 'color:#e77' }, names.home), ' – ', h('span', { style: 'color:#8ab6d9' }, names.away), ` ${(lastS?.a ?? 0).toFixed(2)}`),
+      series.length ? xgSvg : h('div', { class: 'muted', style: 'font-size:11px' }, 'No shots yet.'));
+    statsContent.replaceChildren(ratingsBlock, shotBlock, xgBlock);
+  };
+  statsBtn.addEventListener('click', () => {
+    if (watchStatsPanel) { closeStats(); return; }
+    statsBtn.classList.add('primary'); statsBtn.classList.remove('ghost'); statsBtn.setAttribute('aria-pressed', 'true');
+    statsContent = h('div', {});
+    watchStatsPanel = h('div', { role: 'region', 'aria-label': 'Match statistics',
+      style: 'position:fixed;left:12px;bottom:74px;width:min(330px,54vw);max-height:62vh;overflow:auto;z-index:40;background:rgba(12,19,32,.97);border:1px solid var(--line);border-radius:10px;padding:10px;box-shadow:0 6px 24px rgba(0,0,0,.45)' },
+      h('div', { class: 'between', style: 'margin-bottom:6px' },
+        h('span', { style: 'font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)' }, '📊 Match stats'),
+        h('button', { class: 'ghost small', 'aria-label': 'Close match stats', onclick: closeStats }, '×')),
+      statsContent);
+    document.body.appendChild(watchStatsPanel);
+    renderStatsPanel();
+    watchStatsTimer = setInterval(() => { if (myEpoch !== watchEpoch) { closeStats(); return; } renderStatsPanel(); }, 1500);
+  });
+  // ⋯ — everything secondary in ONE place (tactics overlay, match stats, highlights tour, live goal replay), so
+  // the bar itself stays: pause · speed · ⏪/⏩ · slider · ● LIVE. The items keep their own show/hide logic inside.
   const morePop = h('div', { style: 'display:none;position:absolute;top:100%;right:0;margin-top:6px;z-index:41;background:rgba(12,19,32,.96);border:1px solid var(--line);border-radius:8px;padding:6px;flex-direction:column;gap:6px;min-width:160px' },
-    dirBtn, highlightBtn, replayBtn) as HTMLElement;
+    dirBtn, statsBtn, highlightBtn, replayBtn) as HTMLElement;
   const moreBtn = h('button', { class: 'ghost small', 'aria-label': 'More controls', 'aria-haspopup': 'true', 'aria-expanded': 'false', title: 'More — tactics overlay, highlights, goal replay' }, '⋯') as HTMLButtonElement;
   moreBtn.addEventListener('click', () => {
     const open = morePop.style.display === 'none';

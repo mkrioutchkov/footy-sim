@@ -81,6 +81,10 @@ export class MatchRenderer {
   private corH = 0; private corA = 0;     // corners (from set-piece transitions)
   private foulH = 0; private foulA = 0;   // fouls committed
   private offH = 0; private offA = 0;     // offsides called
+  // Shot map + xG timeline data (for the 📊 Stats panel). Each shot: pitch xy + its xG + side + goal flag;
+  // the series samples cumulative xG per side at each shot's clock. Bounded naturally (~30 shots/match).
+  private shots: { x: number; y: number; xg: number; side: number; goal: boolean }[] = [];
+  private xgSeries: { t: number; h: number; a: number }[] = [];
   private momentum = 0;                   // signed pressure, [-100 home .. +0 .. neutral], +home
   private displayMomentum = 0;            // eased toward `momentum` for a gliding bar
   private ballXEma = PITCH_W / 2;         // smoothed ball x for the territory term
@@ -1321,7 +1325,7 @@ export class MatchRenderer {
       const key = `${ev.type}:${ev.playerId}:${Math.round(evClock / 400)}`;
       if (this.seenEventKeys.has(key)) continue;
       this.seenEventKeys.add(key);
-      this.accStatEvent(ev);   // PRESSURE panel: same de-dup → counts match the feed exactly
+      this.accStatEvent(ev, evClock);   // PRESSURE panel: same de-dup → counts match the feed exactly
       const half = state.half ?? 1;
       const halfMs = half === 1 ? evClock : evClock - 45 * 60 * 1000;
       const minute = Math.max(0, Math.floor(halfMs / 60000)) + (half === 2 ? 45 : 0);
@@ -1467,7 +1471,7 @@ export class MatchRenderer {
 
   // Tally one NEW (de-duped) notable event into the stat counters + momentum. Called from
   // updateTicker inside the seenEventKeys guard, so each event lands exactly once.
-  private accStatEvent(ev: EngineState['events'][number]): void {
+  private accStatEvent(ev: EngineState['events'][number], evClock = 0): void {
     const sideOf = (id: number | null | undefined): number => {
       const t = id != null ? this.playerById.get(id)?.team : undefined;
       return t === 'home' ? 1 : t === 'away' ? -1 : 0;
@@ -1482,6 +1486,8 @@ export class MatchRenderer {
       const s = sideOf(ev.playerId);   // shot/goal playerId = the shooter
       if (s > 0) { this.xgH += xg; if (xg >= 0.30) this.bigH++; }
       else if (s < 0) { this.xgA += xg; if (xg >= 0.30) this.bigA++; }
+      // record the shot (shot map) + a cumulative-xG timeline sample (after the tallies update)
+      if (s !== 0) { this.shots.push({ x: ev.x, y: ev.y, xg, side: s, goal: type === 'goal' }); this.xgSeries.push({ t: evClock, h: this.xgH, a: this.xgA }); }
     }
     // on-target: goal → scorer side; save/tip/punch/claim → keeper side, so credit the OTHER team
     if (type === 'goal') { const s = sideOf(ev.playerId); if (s > 0) this.otH++; else if (s < 0) this.otA++; }
@@ -1566,6 +1572,7 @@ export class MatchRenderer {
   private resetMatchStats(clockMs: number): void {
     this.otH = this.otA = this.xgH = this.xgA = this.bigH = this.bigA = this.corH = this.corA = 0;
     this.foulH = this.foulA = this.offH = this.offA = 0;
+    this.shots = []; this.xgSeries = [];
     this.momentum = 0; this.displayMomentum = 0; this.ballXEma = PITCH_W / 2;
     this.momPrevClock = clockMs; this.homeAttacksX = null; this.goalFlashUntil = 0;
     this.lastSetPieceType = null; this.prevStatStr = {};
@@ -1594,6 +1601,23 @@ export class MatchRenderer {
   // Tint a player label by its rating band — green for a strong game, amber for a poor one.
   private ratingTint(r: number): number {
     return r >= 7.5 ? 0x57e08a : r >= 6.5 ? 0xffffff : r >= 5.5 ? 0xcdd6df : 0xf3b06b;
+  }
+
+  // ── Live analysis getters (read by the app's 📊 Stats panel) ──────────────────────────
+  // Every-player live rating off the latest ingested frame (same model as the on-pitch tags).
+  getRatings(): { id: number; name: string; team: 'home' | 'away'; role: string; rating: number }[] {
+    const s = this.lastState;
+    if (!s) return [];
+    return s.players.map(p => ({ id: p.id, name: p.name, team: p.team, role: p.role, rating: this.liveRating(p, s.homeScore ?? 0, s.awayScore ?? 0) }));
+  }
+  // The accumulated shot list (pitch xy + xG + side + goal) and the cumulative-xG timeline. Read-only
+  // views — the panel renders a shot map + an xG race line from them; both reset with the match.
+  getShots(): ReadonlyArray<{ x: number; y: number; xg: number; side: number; goal: boolean }> { return this.shots; }
+  getXgSeries(): ReadonlyArray<{ t: number; h: number; a: number }> { return this.xgSeries; }
+  // Latest team names (for the panel's home/away column headers) — off the frame, blank until known.
+  getTeamNames(): { home: string; away: string } {
+    const s = this.lastState as (EngineState & { homeName?: string; awayName?: string }) | null;
+    return { home: s?.homeName ?? 'Home', away: s?.awayName ?? 'Away' };
   }
 
   private eventColor(type: string): number {
