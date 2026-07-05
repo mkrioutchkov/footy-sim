@@ -32,6 +32,7 @@ type PlayerEntry = {
   wasSprinting: boolean;
   name: string;          // the label's base (short) name — the live rating is appended to it
   ratingShown: number;   // last rating written to the label (dirty-check; -1 = none yet)
+  statusShown: string;   // last condition marker (🟥/🤕/🟨) written to the label (dirty-check)
   // ── boot-arrow dirty-check (the arrow redraws in the 60fps ticker; skip it when its inputs are unchanged) ──
   armDrawn: boolean;     // has the arrow been drawn at least once
   armAngle: number;      // last facing angle drawn
@@ -69,7 +70,7 @@ export class MatchRenderer {
   // ── live stats + momentum ("PRESSURE" panel) ── per-team tallies accumulated off the SAME
   // de-duped event loop as the feed (so a goal counts once), plus a signed momentum scalar.
   private statPanelEl: HTMLDivElement | null = null;
-  private statCells: Record<'ot' | 'xg' | 'big' | 'cor', HTMLSpanElement | null> = { ot: null, xg: null, big: null, cor: null };
+  private statCells: Record<'ot' | 'xg' | 'big' | 'cor' | 'foul' | 'off', HTMLSpanElement | null> = { ot: null, xg: null, big: null, cor: null, foul: null, off: null };
   private statBarHome: HTMLDivElement | null = null;   // grows right from centre (home leading)
   private statBarAway: HTMLDivElement | null = null;   // grows left from centre (away leading)
   private statBarWrap: HTMLDivElement | null = null;    // pulsed on a goal
@@ -78,6 +79,8 @@ export class MatchRenderer {
   private xgH = 0; private xgA = 0;       // expected-goals proxy
   private bigH = 0; private bigA = 0;     // big chances (xg >= .30)
   private corH = 0; private corA = 0;     // corners (from set-piece transitions)
+  private foulH = 0; private foulA = 0;   // fouls committed
+  private offH = 0; private offA = 0;     // offsides called
   private momentum = 0;                   // signed pressure, [-100 home .. +0 .. neutral], +home
   private displayMomentum = 0;            // eased toward `momentum` for a gliding bar
   private ballXEma = PITCH_W / 2;         // smoothed ball x for the territory term
@@ -799,6 +802,7 @@ export class MatchRenderer {
           dirShown: '',
           name: labelName,
           ratingShown: -1,
+          statusShown: '',
           drawn: false,
           wasSliding: false,
           wasDiving: false,
@@ -957,10 +961,14 @@ export class MatchRenderer {
       // live rating ticks beside the name (dirty-checked — the value only moves on a stat/score change).
       // label + dirTag are positioned in renderFrame (they ride the tweened player position).
       const rt = this.liveRating(p, state.homeScore ?? 0, state.awayScore ?? 0);
-      if (rt !== entry.ratingShown) {
-        entry.ratingShown = rt;
-        entry.label.text = `${entry.name} ${rt.toFixed(1)}`;
-        entry.label.tint = this.ratingTint(rt);
+      // Condition marker on the name label — sent-off / injured / booked. All three ride on the frame
+      // (types.ts Player) but were previously invisible on the pitch (they only nudged the rating). A
+      // sent-off man's label also reds. Priority red > injury > yellow; folded into the label dirty-check.
+      const status = p.sentOff ? '🟥 ' : p.injured ? '🤕 ' : (p.yellow ?? 0) > 0 ? '🟨 ' : '';
+      if (rt !== entry.ratingShown || status !== entry.statusShown) {
+        entry.ratingShown = rt; entry.statusShown = status;
+        entry.label.text = `${status}${entry.name} ${rt.toFixed(1)}`;
+        entry.label.tint = p.sentOff ? 0xff6b6b : this.ratingTint(rt);
       }
       // directive overlay: the player's active tactical instruction below his name (toggleable)
       const dir = this.showDirectives ? (this.directiveMap.get(p.id) ?? '') : '';
@@ -1422,7 +1430,7 @@ export class MatchRenderer {
     } as Partial<CSSStyleDeclaration>);
     const grid = document.createElement('div');
     Object.assign(grid.style, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 10px', marginBottom: '6px' } as Partial<CSSStyleDeclaration>);
-    const cell = (label: string, key: 'ot' | 'xg' | 'big' | 'cor'): HTMLDivElement => {
+    const cell = (label: string, key: 'ot' | 'xg' | 'big' | 'cor' | 'foul' | 'off'): HTMLDivElement => {
       const c = document.createElement('div');
       const l = document.createElement('span');
       l.textContent = label;
@@ -1436,6 +1444,7 @@ export class MatchRenderer {
     };
     grid.appendChild(cell('ON-TGT', 'ot')); grid.appendChild(cell('xG', 'xg'));
     grid.appendChild(cell('BIG-CH', 'big')); grid.appendChild(cell('CORNERS', 'cor'));
+    grid.appendChild(cell('FOULS', 'foul')); grid.appendChild(cell('OFFSIDE', 'off'));
     panel.appendChild(grid);
     const cap = document.createElement('div');
     cap.textContent = 'PRESSURE';
@@ -1492,9 +1501,9 @@ export class MatchRenderer {
       case 'nutmeg': case 'skill': case 'dragback': add(s, 4); break;      // attacker flair
       case 'yellow':   add(-s, 7); break;                                  // toward the carded player's opponent
       case 'red':      add(-s, 22); break;
-      case 'foul':     add(-s, 4); break;                                  // playerId = fouler → favour the fouled side
-      case 'handball': add(-s, 4); break;                                  // offender penalised → favours the other side
-      case 'offside':  add(-s, 5); break;                                  // against the offside attacker
+      case 'foul':     add(-s, 4); if (s > 0) this.foulH++; else if (s < 0) this.foulA++; break;   // playerId = fouler → favour the fouled side
+      case 'handball': add(-s, 4); if (s > 0) this.foulH++; else if (s < 0) this.foulA++; break;   // offender penalised → favours the other side
+      case 'offside':  add(-s, 5); if (s > 0) this.offH++; else if (s < 0) this.offA++; break;     // against the offside attacker
       default:         break;                                              // header/assist/sub/injury/advantage → neutral
     }
   }
@@ -1539,6 +1548,8 @@ export class MatchRenderer {
     set('xg', this.statCells.xg, `${this.xgH.toFixed(1)}-${this.xgA.toFixed(1)}`);
     set('big', this.statCells.big, `${this.bigH}-${this.bigA}`);
     set('cor', this.statCells.cor, `${this.corH}-${this.corA}`);
+    set('foul', this.statCells.foul, `${this.foulH}-${this.foulA}`);
+    set('off', this.statCells.off, `${this.offH}-${this.offA}`);
     const m = Math.max(-100, Math.min(100, this.displayMomentum));
     // % of the wrap (the panel is container-width now that it docks into the right column)
     const w = `${(Math.abs(m) / 100 * 50).toFixed(1)}%`;
@@ -1554,6 +1565,7 @@ export class MatchRenderer {
   // Zero everything on a match restart / replay so a fresh match starts clean.
   private resetMatchStats(clockMs: number): void {
     this.otH = this.otA = this.xgH = this.xgA = this.bigH = this.bigA = this.corH = this.corA = 0;
+    this.foulH = this.foulA = this.offH = this.offA = 0;
     this.momentum = 0; this.displayMomentum = 0; this.ballXEma = PITCH_W / 2;
     this.momPrevClock = clockMs; this.homeAttacksX = null; this.goalFlashUntil = 0;
     this.lastSetPieceType = null; this.prevStatStr = {};

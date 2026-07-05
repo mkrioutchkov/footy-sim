@@ -525,6 +525,17 @@ const seekingMove = (p: PlayerT): boolean =>
 // Contract-years cell style: red at ≤1y (walks next summer), amber at ≤2y.
 const contractStyle = (yrs: number | undefined): string =>
   (yrs ?? 9) <= 1 ? 'color:var(--danger);font-weight:600' : (yrs ?? 9) <= 2 ? 'color:#ffb84d' : '';
+const capWord = (s: string): string => s ? s[0].toUpperCase() + s.slice(1) : s;
+// A player's individual DEVELOPMENT state (focus / intensity / retraining) in plain English — all four
+// fields ride on PlayerT already but only surface on the Training screen; the profile ignored them.
+// Returns null when the player is on the club default with nothing individual set (nothing worth a line).
+function trainingSummary(p: PlayerT): string | null {
+  const bits: string[] = [];
+  if (p.trainFocus && p.trainFocus !== 'balanced') bits.push(`${capWord(p.trainFocus)} focus`);
+  if (p.trainIntensity && p.trainIntensity !== 'normal') bits.push(`${capWord(p.trainIntensity)} intensity`);
+  if (p.retrainRole) bits.push(`retraining → ${p.retrainRole}${p.roleFamiliarity != null ? ` (settling ${Math.round(p.roleFamiliarity)}%)` : ''}`);
+  return bits.length ? bits.join(' · ') : null;
+}
 
 // ── dashboard ──
 // The advance-matchday digest: everything the last Advance produced, shown as ONE persistent card at the
@@ -635,6 +646,8 @@ async function screenDashboard() {
         if (r.myFixtureId) d.push({ icon: '📄', text: 'Read the match report', hash: `#/report/${r.myFixtureId}` });
       }
       if (r.income) d.push({ icon: '💷', text: `Gate & TV income: ${fmtMoney(r.income)}` });
+      // The matchday development tick already reports how many players improved — it was returned but never shown.
+      if (r.development?.players) d.push({ icon: '📈', text: `${r.development.players} player${r.development.players > 1 ? 's' : ''} developed in training`, hash: '#/training' });
       for (const i of (r.injuries ?? []).filter(i => i.teamId === team.id)) d.push({ icon: '🤕', text: `${i.player} out ${i.matches} match${i.matches > 1 ? 'es' : ''}`, hash: '#/squad' });
       if (r.transfers?.length) {
         const t = r.transfers[0];
@@ -2605,7 +2618,12 @@ async function screenPlayer(slot: number) {
           contractControl) : '',
         (p.injuredMatches ?? 0) > 0
           ? h('div', { style: 'font-size:12px;color:#e8896b' }, `🤕 Injured — out ${p.injuredMatches} match${(p.injuredMatches ?? 0) > 1 ? 'es' : ''}${p.morale != null ? ` · Morale ${p.morale}` : ''}`)
-          : h('div', { class: 'muted', style: 'font-size:12px' }, `Match fitness ${p.fitness ?? 100}%${p.morale != null ? ` · Morale ${p.morale}` : ''}`)),
+          : h('div', { class: 'muted', style: 'font-size:12px' }, `Match fitness ${p.fitness ?? 100}%${p.morale != null ? ` · Morale ${p.morale}` : ''}`),
+        // Development state (focus / intensity / retraining) + a "seeking a move" flag — both were only
+        // visible on other screens; the profile is where a manager reads a single player, so surface them here.
+        trainingSummary(p) ? h('div', { class: 'muted', style: 'font-size:12px' }, `🎯 ${trainingSummary(p)}`) : '',
+        seekingMove(p) ? h('div', { style: 'font-size:12px;margin-top:2px' },
+          h('span', { class: 'pill', title: 'Running down his contract and unsettled — likely to push for a move', style: 'background:var(--danger);color:#fff;font-size:9px' }, 'seeking a move')) : ''),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
     h('div', { class: 'card' },
@@ -3036,6 +3054,30 @@ async function screenScout(fixtureId: number) {
   const scoutHint = s.keyPlayers.length && !s.keyPlayers[0].attrs
     ? h('div', { class: 'muted', style: 'margin:-4px 0 8px;font-size:11px' }, 'Hire scouts (Staff) to reveal their players’ attributes + scout deeper into the squad.')
     : '';
+  // Turn the read-only scout into an ACTION: compose an opposition instruction (man-marking the flagged
+  // danger men) and append it to the standing plain-English plan. Matches the plan-as-source-of-truth design
+  // (the compiler assigns a marker); confirmed first because it recompiles the plan.
+  const dangerNames = s.keyPlayers.filter(p => p.danger).map(p => p.name);
+  const markBtn = dangerNames.length
+    ? h('button', { class: 'ghost small', title: 'Add a man-marking instruction for the danger man to your tactical plan' },
+        dangerNames.length > 1 ? '🎯 Man-mark them' : `🎯 Man-mark ${dangerNames[0].split(' ').slice(-1)[0]}`) as HTMLButtonElement
+    : '';
+  if (markBtn instanceof HTMLButtonElement) {
+    markBtn.addEventListener('click', async () => {
+      const sentence = dangerNames.length === 1
+        ? `keep their danger man ${dangerNames[0]} quiet — man-mark him tightly`
+        : `man-mark their danger men (${dangerNames.join(', ')}) tightly`;
+      if (!await confirmModal('Add to your standing plan?', `This appends an opposition instruction to your tactical plan and recompiles it:\n\n“${sentence}”`, 'Add to plan')) return;
+      markBtn.setAttribute('disabled', 'true'); const label = markBtn.textContent; markBtn.textContent = 'Updating plan…';
+      try {
+        const team = await api.team();
+        const base = (team.planText ?? '').trim().replace(/[.\s]*$/, '');
+        const r = await api.teamPlan(base ? `${base}. ${sentence}` : sentence);
+        toast(r.error ? 'Saved, but couldn’t compile it — refine on the Tactics screen.' : '✓ Added to your plan');
+      } catch (e: any) { toast(e.message); }
+      finally { markBtn.removeAttribute('disabled'); markBtn.textContent = label; }
+    });
+  }
   // §2.8 bench tier — the squad behind the XI, a fuzzier read; only present once you have some intel.
   const benchCard = s.bench.length
     ? h('div', { class: 'card' },
@@ -3061,7 +3103,9 @@ async function screenScout(fixtureId: number) {
         h('ul', { style: 'margin:0;padding-left:18px;line-height:1.7' }, ...s.approach.map(a => h('li', {}, a)))),
       h('div', { class: 'grid', style: 'gap:14px;align-items:start' },
         h('div', { class: 'card' },
-          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Danger men'),
+          h('div', { class: 'between', style: 'align-items:center' },
+            h('div', { class: 'section-title', style: 'margin-top:0' }, 'Danger men'),
+            markBtn),
           h('div', { class: 'muted', style: 'margin:-4px 0 8px;font-size:12px' }, 'Their highest-rated players in the likely XI.'),
           scoutHint,
           ...players),
@@ -3113,7 +3157,9 @@ async function screenCareer() {
           stat('Seasons', c.seasons, c.clubs > 1 ? `${c.clubs} clubs` : undefined),
           stat('Record', `${c.won}-${c.drawn}-${c.lost}`, `${c.played} games`),
           stat('Win rate', `${c.winPct}%`),
-          stat('Points', c.points)),
+          stat('Points', c.points),
+          // GF/GA were returned by /api/career but never shown — a manager's goals-for/against + difference.
+          stat('Goals', `${c.gf}-${c.ga}`, `${c.gf - c.ga >= 0 ? '+' : ''}${c.gf - c.ga} GD`)),
         h('div', { class: 'card', style: 'margin-bottom:14px' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Honours'),
           h('div', { class: 'row', style: 'gap:18px;flex-wrap:wrap' },
@@ -3317,9 +3363,15 @@ async function screenSquad() {
     // depth by position (● starter / ○ bench)
     const ROLE_ORDER = ['GK', 'CB', 'FB', 'CM', 'WM', 'CF'];
     const byRole = ROLE_ORDER.map(role => ({ role, ps: players.filter(p => p.role === role).sort((a, b) => a.slot - b.slot) })).filter(g => g.ps.length);
-    const depth = h('div', { class: 'row', style: 'gap:16px;flex-wrap:wrap;align-items:start' }, ...byRole.map(g => h('div', { style: 'min-width:120px' },
-      h('div', { class: 'muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px' }, `${g.role} · ${g.ps.length}`),
-      ...g.ps.map(p => h('div', { style: 'font-size:12px;padding:1px 0;' + (p.slot < 11 ? '' : 'opacity:.55'), }, `${p.slot < 11 ? '●' : '○'} ${p.name} ${skillOvr(p.attrs)}`)))));
+    // Thin-position flag: a role with no FIT bench cover has no like-for-like replacement for an injury/suspension
+    // there — the exact squad-planning signal FM surfaces. Amber ⚠ on the heading + a hint (data already in hand).
+    const depth = h('div', { class: 'row', style: 'gap:16px;flex-wrap:wrap;align-items:start' }, ...byRole.map(g => {
+      const cover = g.ps.filter(p => p.slot >= 11 && (p.injuredMatches ?? 0) === 0).length;
+      const thin = cover === 0;
+      return h('div', { style: 'min-width:120px' },
+        h('div', { class: 'muted', style: `font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px${thin ? ';color:#ffb84d' : ''}`, title: thin ? 'No fit backup in this position — an injury or suspension here leaves no like-for-like cover' : '' }, `${g.role} · ${g.ps.length}${thin ? ' ⚠' : ''}`),
+        ...g.ps.map(p => h('div', { style: 'font-size:12px;padding:1px 0;' + (p.slot < 11 ? '' : 'opacity:.55'), }, `${p.slot < 11 ? '●' : '○'} ${p.name} ${skillOvr(p.attrs)}`)));
+    }));
     // compare
     const opt = (sel: number) => [h('option', { value: '-1' }, '— pick —'), ...players.map(p => { const o = h('option', { value: String(p.slot) }, `${p.name} (${p.role})`) as HTMLOptionElement; if (p.slot === sel) o.selected = true; return o; })];
     const selA = h('select', { 'aria-label': 'Compare — first player' }, ...opt(cmpA)) as HTMLSelectElement;
@@ -3327,11 +3379,30 @@ async function screenSquad() {
     selA.addEventListener('change', () => { cmpA = Number(selA.value); squadView.cmpA = cmpA; render(); });
     selB.addEventListener('change', () => { cmpB = Number(selB.value); squadView.cmpB = cmpB; render(); });
     const pa = players.find(p => p.slot === cmpA), pb = players.find(p => p.slot === cmpB);
+    // A headline metric row (OVR/POT/age/wage/morale/fit) — greens the better value where higher-is-better;
+    // age/wage aren't "better/worse" so they stay uncoloured. Turns a bare attr diff into a real like-for-like.
+    const cmpSummary = (label: string, va: number, vb: number, fmt: (n: number) => string, colour = true) => {
+      const ga = colour && va !== vb && va > vb ? 'color:var(--accent);font-weight:700' : '';
+      const gb = colour && va !== vb && vb > va ? 'color:var(--accent);font-weight:700' : '';
+      return h('div', { class: 'row', style: 'gap:10px;align-items:center;font-size:12px;margin:3px 0;justify-content:center' },
+        h('span', { class: 'num', style: 'width:56px;text-align:right;' + ga }, fmt(va)),
+        h('span', { class: 'muted', style: 'width:44px;text-align:center' }, label),
+        h('span', { class: 'num', style: 'width:56px;' + gb }, fmt(vb)));
+    };
+    const cmpFit = (p: PlayerT) => (p.injuredMatches ?? 0) > 0 ? -1 : (p.fitness ?? 100);
     const cmp = pa && pb
-      ? h('div', {}, ...SQUAD_ATTRS.map(([a, lab]) => h('div', { class: 'row', style: 'gap:10px;align-items:center;font-size:12px;margin:3px 0;justify-content:center' },
-          h('span', { class: 'num', style: 'width:34px;text-align:right;' + attrHeat(pa.attrs[a] ?? 0) }, String(Math.round(pa.attrs[a] ?? 0))),
-          h('span', { class: 'muted', style: 'width:44px;text-align:center' }, lab),
-          h('span', { class: 'num', style: 'width:34px;' + attrHeat(pb.attrs[a] ?? 0) }, String(Math.round(pb.attrs[a] ?? 0))))))
+      ? h('div', {},
+          cmpSummary('OVR', skillOvr(pa.attrs), skillOvr(pb.attrs), n => String(n)),
+          cmpSummary('POT', pa.potential ?? skillOvr(pa.attrs), pb.potential ?? skillOvr(pb.attrs), n => String(n)),
+          cmpSummary('Age', pa.age ?? 0, pb.age ?? 0, n => n ? `${n}y` : '—', false),
+          cmpSummary('Wage', pa.wage ?? 0, pb.wage ?? 0, n => n ? fmtMoney(n) : '—', false),
+          cmpSummary('Morale', pa.morale ?? 0, pb.morale ?? 0, n => String(n)),
+          cmpSummary('Fit', cmpFit(pa), cmpFit(pb), n => n < 0 ? '🤕' : `${n}%`),
+          h('div', { style: 'border-top:1px solid var(--line);margin:7px 0' }),
+          ...SQUAD_ATTRS.map(([a, lab]) => h('div', { class: 'row', style: 'gap:10px;align-items:center;font-size:12px;margin:3px 0;justify-content:center' },
+            h('span', { class: 'num', style: 'width:56px;text-align:right;' + attrHeat(pa.attrs[a] ?? 0) }, String(Math.round(pa.attrs[a] ?? 0))),
+            h('span', { class: 'muted', style: 'width:44px;text-align:center' }, lab),
+            h('span', { class: 'num', style: 'width:56px;' + attrHeat(pb.attrs[a] ?? 0) }, String(Math.round(pb.attrs[a] ?? 0))))))
       : h('div', { class: 'muted', style: 'font-size:12px' }, 'Pick two players to compare their attributes.');
 
     // §2.10 rotation guidance: a "rest X for Y" panel with one-click apply, driven by fitness/injury.
