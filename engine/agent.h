@@ -116,16 +116,16 @@ public:
     // ── Role/Area virtual hooks ──
     // Pure-constant knobs read from the role's RoleProfile row (role_profile.h);
     // the data lives in that one table, not in six subclass overrides.
-    virtual double  roleBonusForPassTarget() const { return 0.0; }
+    virtual double  roleBonusForPassTarget() const { return profileFor(player.role).roleBonusForPassTarget; }
     virtual double  shotMaxDistance() const { return profileFor(player.role).shotMaxDistance; }
     virtual double  freshCrossMaxDistance() const { return profileFor(player.role).freshCrossMaxDistance; }
-    virtual double  tackleBaseScore() const { return 0.60; }
-    virtual double  tackleRoleAdjust() const { return 0.0; }
+    virtual double  tackleBaseScore() const { return profileFor(player.role).tackleBaseScore; }
+    virtual double  tackleRoleAdjust() const { return profileFor(player.role).tackleRoleAdjust; }
     // Distance/skill weights in the tackle score (scoreTackle). Defenders commit on
     // a flatter distance curve and full-backs/centre-backs weight tackling skill
     // differently — was a role if/else that recomputed the whole score.
-    virtual double  tackleDistCoeff() const { return 0.40; }
-    virtual double  tackleSkillCoeff() const { return 0.20; }
+    virtual double  tackleDistCoeff() const { return profileFor(player.role).tackleDistCoeff; }
+    virtual double  tackleSkillCoeff() const { return profileFor(player.role).tackleSkillCoeff; }
     virtual double  shotScoreBonus() const { return profileFor(player.role).shotScoreBonus; }
     virtual double  shotDistancePenalty(double shotDistance) const { (void)shotDistance; return 0.0; }
     // Per-role placement-error offset added to the open-play shot spread — was a
@@ -134,12 +134,12 @@ public:
     virtual double  freshCrossShotBonus() const { return profileFor(player.role).freshCrossShotBonus; }
     virtual double  finalThirdShotMaxDistance() const { return profileFor(player.role).finalThirdShotMaxDistance; }
     virtual double  finalThirdShotMinAngle() const { return profileFor(player.role).finalThirdShotMinAngle; }
-    virtual double  dribbleOwnHalfExtraPenalty() const { return -0.02; }
+    virtual double  dribbleOwnHalfExtraPenalty() const { return profileFor(player.role).dribbleOwnHalfExtraPenalty; }
     virtual double  openSpaceDribbleBonus(double nearestOppDist) const { (void)nearestOppDist; return 0.0; }
     virtual double  nearGoalDribbleBonus(bool nearGoal, double distToGoal) const { (void)nearGoal; (void)distToGoal; return 0.0; }
     // Bonus for a dribble-into-space carry from the launch zone — was a role ternary
     // in scoreActions (WM/CM most, FB next, rest least). Role-arch migration.
-    virtual double  spaceCarryRoleBonus() const { return 0.08; }
+    virtual double  spaceCarryRoleBonus() const { return profileFor(player.role).spaceCarryRoleBonus; }
     // Shoot-scorer per-role scalars (were role branches in scoreShoot). Role-arch.
     virtual double  centralShootBonus() const { return profileFor(player.role).centralShootBonus; }
     virtual double  wideShootPenalty() const { return profileFor(player.role).wideShootPenalty; }
@@ -156,30 +156,30 @@ public:
     virtual bool    isWideMidfielder() const { return roles::isWideMidfielder(player.role); }
     virtual bool    isCenterForward() const { return roles::isCenterForward(player.role); }
     virtual double  nearGoalShotBiasMargin() const { return profileFor(player.role).nearGoalShotBiasMargin; }
-    virtual bool    canUseFlankTargets() const { return false; }
-    virtual bool    canUseOpenLane() const { return false; }
-    virtual double  openLaneDribbleBonus() const { return 0.0; }
-    virtual double  openLaneDribbleDistance() const { return 0.0; }
-    virtual bool    canUseWideDribble() const { return false; }
-    virtual bool    shouldSearchForPassOverShot() const { return false; }
+    virtual bool    canUseFlankTargets() const { return profileFor(player.role).canUseFlankTargets; }
+    virtual bool    canUseOpenLane() const { return profileFor(player.role).canUseOpenLane; }
+    virtual double  openLaneDribbleBonus() const { return profileFor(player.role).openLaneDribbleBonus; }
+    virtual double  openLaneDribbleDistance() const { return profileFor(player.role).openLaneDribbleDistance; }
+    virtual bool    canUseWideDribble() const { return profileFor(player.role).canUseWideDribble; }
+    virtual bool    shouldSearchForPassOverShot() const { return profileFor(player.role).shouldSearchForPassOverShot; }
     virtual bool    isDefenderRole() const { return roles::isDefenderRole(player.role); }
     virtual bool    isDefenderLike() const { return roles::isDefenderLike(player.role); }
-    virtual double  observingCruiseMul() const { return 0.50; }
-    virtual double  defensivePressCost(bool danger) const { (void)danger; return 14.0; }
-    virtual double  shotLaneCost() const { return 34.0; }
-    virtual double  crossLaneCost() const { return 38.0; }
-    virtual double  boxGuardCost() const { return 28.0; }
-    virtual double  cutbackGuardCost() const { return 32.0; }
+    virtual double  observingCruiseMul() const { return profileFor(player.role).observingCruiseMul; }
+    virtual double  defensivePressCost(bool danger) const { return danger ? profileFor(player.role).pressCostDanger : profileFor(player.role).pressCostSafe; }
+    virtual double  shotLaneCost() const { return profileFor(player.role).shotLaneCost; }
+    virtual double  crossLaneCost() const { return profileFor(player.role).crossLaneCost; }
+    virtual double  boxGuardCost() const { return profileFor(player.role).boxGuardCost; }
+    virtual double  cutbackGuardCost() const { return profileFor(player.role).cutbackGuardCost; }
     virtual double  defensiveLineOffsetX(bool danger, double lineProgress) const { (void)danger; return lineProgress; }
     virtual double  defensiveLineTargetY(double homeY, double pitchCenterY, double carrierY) const { (void)carrierY; return lerp(homeY, pitchCenterY, 0.08); }
-    virtual DefensiveTask defensiveLineRoleTask() const { return DefensiveTask::DefensiveLine; }
+    virtual DefensiveTask defensiveLineRoleTask() const { return profileFor(player.role).defensiveLineRoleTask; }
     // A loose/live ball far away AND outside this role's zone of responsibility
     // isn't worth chasing — hold shape instead (the caller returns Chase 0.0).
     // Each role defines its own trigger distance + zone; GK and the plain base
     // never bail here, so the default keeps its previous "always evaluate the
     // chase" behaviour.
     virtual bool    abandonsDistantChase(const Perception& per, const Ball& b) const { (void)per; (void)b; return false; }
-    virtual double  penaltyTakerBonus() const { return 0.0; }
+    virtual double  penaltyTakerBonus() const { return profileFor(player.role).penaltyTakerBonus; }
     virtual double  catchThreshold() const { return 0.22; }
     virtual double  rushAggression() const { return 0.0; }
     virtual double  sweepDepth() const { return 0.0; }
