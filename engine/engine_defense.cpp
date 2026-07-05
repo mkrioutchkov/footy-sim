@@ -187,7 +187,7 @@ void GameEngine::applyDirectives() {
                     // so "get it wide" must actually widen the wide players' lateral anchor.
                     dv.overlapFrequency+=20*k;
                     for (auto& wp2 : state.players)
-                        if ((wp2.team == Team::Home) == (d.teamScope == 0) && (wp2.role == Role::WM || wp2.role == Role::FB)) {
+                        if ((wp2.team == Team::Home) == (d.teamScope == 0) && roles::isWide(wp2.role)) {
                             double sgn = baseHomeY[wp2.id] < PITCH_H / 2.0 ? -1.0 : 1.0;
                             wp2.homeY = clamp(baseHomeY[wp2.id] + sgn * 75.0 * k, 24.0, PITCH_H - 24.0);
                         }
@@ -195,7 +195,7 @@ void GameEngine::applyDirectives() {
                 case DirectiveKind::PlayNarrow:
                     dv.overlapFrequency-=20*k; dv.midfieldFreedom+=15*k;
                     for (auto& wp2 : state.players)
-                        if ((wp2.team == Team::Home) == (d.teamScope == 0) && (wp2.role == Role::WM || wp2.role == Role::FB))
+                        if ((wp2.team == Team::Home) == (d.teamScope == 0) && roles::isWide(wp2.role))
                             wp2.homeY = lerp(baseHomeY[wp2.id], PITCH_H / 2.0, 0.35 * k);
                     break;
                 case DirectiveKind::PushUp:         dv.defensiveLineHeight+=30*k; dv.aggression+=10*k; break;

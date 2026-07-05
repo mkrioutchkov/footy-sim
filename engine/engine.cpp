@@ -491,7 +491,7 @@ void GameEngine::updatePossessionTracking(double sdt) {
             double goalX = ownGoalXFor(team);
             double line = 1e9;
             for (auto& p : state.players)
-                if (p.team == team && !p.sentOff && (p.role == Role::CB || p.role == Role::FB))
+                if (p.team == team && !p.sentOff && roles::isDefenderRole(p.role))
                     line = std::min(line, std::abs(p.x - goalX));
             if (line > 110.0) continue;
             if (std::abs(state.ball.x - goalX) < 450.0) continue;

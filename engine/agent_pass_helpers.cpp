@@ -293,7 +293,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (isWideMidfielder() && dgW < 450.0 && t.role == Role::CF && pitch::lateralFromCenter(t.y) < 230.0) sc += 0.24;
     if (isWideMidfielder() && fp > 10.0 && pitch::lateralFromCenter(p.y) > 100.0 && bl <= 2) sc += 0.26;   // wide-funnel sugar trimmed 0.32
     if (isFullBack() && fp > 0.0 && pitch::lateralFromCenter(p.y) > 75.0 && dgW < 430.0) sc += 0.24;       // trimmed 0.30
-    bool targetWide = (t.role == Role::WM || t.role == Role::FB) && pitch::lateralFromCenter(t.y) > 125.0;
+    bool targetWide = roles::isWide(t.role) && pitch::lateralFromCenter(t.y) > 125.0;
     bool passerCanFindWide = isDefenderLike();
     if (passerCanFindWide && targetWide && fp > 20.0 && d < 460.0 && bl <= 1 && receiverPressure <= 1) {
         double centralPasserBonus = pitch::lateralFromCenter(p.y) < 170.0 ? 0.10 : 0.0;
@@ -393,7 +393,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (assignment) {
         if (assignment->role == DefensiveTask::RunAhead)        sc += 0.12;
         if ((assignment->role == DefensiveTask::CrossLane || assignment->role == DefensiveTask::HoldWidth)
-            && (t.role == Role::WM || t.role == Role::FB) && pitch::lateralFromCenter(t.y) > 120.0) sc += 0.08;
+            && roles::isWide(t.role) && pitch::lateralFromCenter(t.y) > 120.0) sc += 0.08;
         if (assignment->role == DefensiveTask::Overlap && !isCenterBack()) sc += 0.11;
         if (assignment->role == DefensiveTask::AdvanceMidfield) sc += 0.09;
         if (assignment->role == DefensiveTask::HoldWidth && std::abs(t.y - p.y) > 120.0) sc += 0.08;
