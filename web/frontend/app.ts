@@ -2663,9 +2663,9 @@ const TRAIT_LABELS: { key: string; label: string }[] = [
   { key: 'temperament', label: 'Temperament (fiery)' }, { key: 'ego', label: 'Ego' },
   { key: 'criticismResponse', label: 'Responds to criticism' }, { key: 'praiseResponse', label: 'Responds to praise' },
 ];
-function traitBar(label: string, v: number, color = 'var(--accent,#4ea1ff)'): HTMLElement {
+function traitBar(label: string, v: number, color = 'var(--accent,#4ea1ff)', note?: Node | string): HTMLElement {
   return h('div', { style: 'margin-bottom:7px' },
-    h('div', { class: 'between', style: 'font-size:12px;margin-bottom:2px' }, h('span', { class: 'muted' }, label), h('span', {}, String(v))),
+    h('div', { class: 'between', style: 'font-size:12px;margin-bottom:2px' }, h('span', { class: 'muted' }, label), h('span', {}, String(v), note ?? '')),
     h('div', { style: 'height:6px;background:var(--panel2,#161f30);border-radius:3px;overflow:hidden' },
       h('div', { style: `height:100%;width:${Math.max(0, Math.min(100, v))}%;background:${color}` })));
 }
@@ -2684,6 +2684,9 @@ async function screenPlayer(slot: number) {
   const p = team.players.find(x => x.slot === slot);
   if (!p) { location.hash = '#/'; return; }
   const ovr = skillOvr(p.attrs);
+  // squad role-average, for the per-attribute delta on the profile ("how good a CB is he for MY squad?")
+  const sameRole = team.players.filter(x => x.role === p.role);
+  const roleAvg = (k: string): number => sameRole.length ? sameRole.reduce((s, x) => s + (x.attrs[k] ?? 0), 0) / sameRole.length : 0;
 
   // §2.2 contract negotiation: this player's live renewal talks (pending / countered), best-effort.
   let myOffer: ContractOfferT | null = null;
@@ -2802,9 +2805,19 @@ async function screenPlayer(slot: number) {
     ),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' },
-        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Attributes'),
+        h('div', { class: 'between', style: 'align-items:baseline' },
+          h('div', { class: 'section-title', style: 'margin-top:0' }, 'Attributes'),
+          sameRole.length > 1 ? h('span', { class: 'muted', style: 'font-size:11px' }, `± vs your ${sameRole.length} ${p.role}s` ) : ''),
         h('div', { class: 'grid cols-2', style: 'gap:0 22px' },
-          ...ATTR_LABELS.map(a => traitBar(a.label, p.attrs[a.key] ?? 0, attrTierColor(p.attrs[a.key] ?? 0)))),
+          ...ATTR_LABELS.map(a => {
+            const v = p.attrs[a.key] ?? 0;
+            // delta vs the squad average for this position — "is he a strong CB for MY squad?" (FM's role context)
+            const dRaw = sameRole.length > 1 ? Math.round(v - roleAvg(a.key)) : null;
+            const note = dRaw != null
+              ? h('span', { style: `font-size:10px;margin-left:6px;color:${dRaw > 0 ? 'var(--accent)' : dRaw < 0 ? '#e8896b' : 'var(--muted)'}` }, `${dRaw > 0 ? '+' : ''}${dRaw}`)
+              : undefined;
+            return traitBar(a.label, v, attrTierColor(v), note);
+          })),
       ),
       interactCard),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
@@ -3438,7 +3451,7 @@ async function screenHistory() {
 
 // Persisted squad-table view state so a captain/rotation action (which reloads the whole screen) — or a
 // return visit — keeps the user's chosen sort column/direction and the two compare picks. See screenSquad.
-const squadView: { sortKey: string; sortDir: 1 | -1; cmpA: number; cmpB: number } = { sortKey: 'slot', sortDir: 1, cmpA: -1, cmpB: -1 };
+const squadView: { sortKey: string; sortDir: 1 | -1; cmpA: number; cmpB: number; q: string; roleF: string; attn: boolean } = { sortKey: 'slot', sortDir: 1, cmpA: -1, cmpB: -1, q: '', roleF: '', attn: false };
 // ── squad spine screen: sortable attribute table + heat + depth chart + compare ──
 async function screenSquad() {
   const alive = screenGuard();
@@ -3506,8 +3519,14 @@ async function screenSquad() {
       }, c.label + (sortKey === c.key ? (sortDir === 1 ? ' ▲' : ' ▼') : ''));
       return th;
     })));
+    // Position + "needs attention" filters apply at build time (so the rows in the DOM are the role/attn set);
+    // the free-text search filters those rows IN PLACE (applyText below), so typing never remounts / loses focus.
+    const needsAttention = (p: PlayerT): boolean =>
+      (p.injuredMatches ?? 0) > 0 || (p.morale ?? 100) < 40 || seekingMove(p) || (p.contractYears ?? 9) <= 1;
+    const matchesRoleAttn = (p: PlayerT): boolean =>
+      (!squadView.roleF || p.role === squadView.roleF) && (!squadView.attn || needsAttention(p));
     const tbody = h('tbody');
-    for (const p of sorted) {
+    for (const p of sorted.filter(matchesRoleAttn)) {
       const ovr = skillOvr(p.attrs);
       const isCap = captainSlot === p.slot;
       // §2.11: a clickable armband — the captain shows 🧭, others a faint one; clicking names/clears the captain.
@@ -3521,7 +3540,7 @@ async function screenSquad() {
         style: `cursor:pointer;margin-right:4px;${isCap ? '' : 'opacity:.25'}`,
         ...clickable(setCap),
       }, '🧭');
-      tbody.append(h('tr', { class: p.slot < 11 ? 'me' : '' },
+      tbody.append(h('tr', { class: p.slot < 11 ? 'me' : '', 'data-search': `${p.name} ${p.role}`.toLowerCase() },
         h('td', { style: 'white-space:nowrap' }, capArm,
           h('span', { style: 'cursor:pointer', ...clickable(() => (location.hash = `#/player/${p.slot}`)) }, p.name),
           p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:10px' }, ' · bench') : '',
@@ -3536,6 +3555,34 @@ async function screenSquad() {
         h('td', { class: 'num', style: p.morale != null ? (p.morale >= 75 ? 'color:var(--accent)' : p.morale <= 40 ? 'color:var(--danger)' : '') : '' }, String(p.morale ?? '—')),
         fitCell(p)));
     }
+    // ── filter bar: free-text search (in-place, focus-preserving) + position + "needs attention" ──
+    const countLabel = h('span', { class: 'muted', style: 'font-size:12px' });
+    const applyText = () => {
+      const q = squadView.q.trim().toLowerCase();
+      let shown = 0;
+      for (const tr of Array.from(tbody.children) as HTMLElement[]) {
+        const hit = !q || (tr.getAttribute('data-search') ?? '').includes(q);
+        tr.style.display = hit ? '' : 'none';
+        if (hit) shown++;
+      }
+      countLabel.textContent = shown === players.length ? `${players.length} players` : `${shown} of ${players.length}`;
+    };
+    const qInput = h('input', { placeholder: 'Search name…', value: squadView.q, 'aria-label': 'Search squad by name', style: 'max-width:170px' }) as HTMLInputElement;
+    qInput.addEventListener('input', () => { squadView.q = qInput.value; applyText(); });
+    const roleSel = h('select', { 'aria-label': 'Filter by position', style: 'width:auto' },
+      h('option', { value: '' }, 'All positions'),
+      ...['GK', 'CB', 'FB', 'CM', 'WM', 'CF'].map(r => { const o = h('option', { value: r }, r) as HTMLOptionElement; if (squadView.roleF === r) o.selected = true; return o; })) as HTMLSelectElement;
+    roleSel.addEventListener('change', () => { squadView.roleF = roleSel.value; render(); });
+    const attnCb = h('input', { type: 'checkbox', 'aria-label': 'Show only players needing attention' }) as HTMLInputElement;
+    attnCb.checked = squadView.attn;
+    attnCb.addEventListener('change', () => { squadView.attn = attnCb.checked; render(); });
+    const clearBtn = h('button', { class: 'ghost small', title: 'Clear filters' }, 'Clear');
+    clearBtn.addEventListener('click', () => { squadView.q = ''; squadView.roleF = ''; squadView.attn = false; render(); });
+    const filterBar = h('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px' },
+      qInput, roleSel,
+      h('label', { class: 'row', style: 'gap:5px;align-items:center;font-size:12px;cursor:pointer' }, attnCb, '🚨 Needs attention'),
+      (squadView.q || squadView.roleF || squadView.attn) ? clearBtn : '', countLabel);
+    applyText();   // apply the current text filter to the freshly-built rows
     // depth by position (● starter / ○ bench)
     const ROLE_ORDER = ['GK', 'CB', 'FB', 'CM', 'WM', 'CF'];
     const byRole = ROLE_ORDER.map(role => ({ role, ps: players.filter(p => p.role === role).sort((a, b) => a.slot - b.slot) })).filter(g => g.ps.length);
@@ -3646,7 +3693,7 @@ async function screenSquad() {
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain (click the armband to set — a strong leader steadies squad morale) · click a header to sort`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
-      h('div', { class: 'card scroll-x' }, h('table', {}, thead, tbody)),
+      h('div', { class: 'card' }, filterBar, h('div', { class: 'scroll-x' }, h('table', {}, thead, tbody))),
       h('div', { class: 'grid cols-2', style: 'align-items:start' }, conditionCard, rotationCard || h('div')),
       h('div', { class: 'grid cols-2', style: 'align-items:start' },
         h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Depth by position'), depth),
@@ -3700,11 +3747,37 @@ async function screenMyMatches() {
   if (!league) return;
   const mine = league.fixtures.filter(f => f.involvesMe && f.played).sort((a, b) => b.round - a.round);
   const rankOf = rankLookup(league);
+  // ── upcoming fixtures with an opponent-difficulty read (from the live table) — FM's fixture planner ──
+  const myId = league.myTeamId;
+  const posById = new Map(league.standings.map((s, i) => [s.teamId, i + 1]));
+  const nStand = Math.max(1, league.standings.length);
+  const upcoming = league.fixtures.filter(f => f.involvesMe && !f.played).sort((a, b) => a.round - b.round).slice(0, 6);
+  const diffPill = (oppPos?: number) => {
+    if (!oppPos) return h('span', { class: 'muted', style: 'font-size:11px' }, '—');
+    const frac = (oppPos - 1) / Math.max(1, nStand - 1);   // 0 = top of the table, 1 = bottom
+    const [label, col] = frac < 0.25 ? ['Very tough', 'var(--danger)'] : frac < 0.45 ? ['Tough', '#ffb84d'] : frac < 0.7 ? ['Even', '#7fb2ff'] : ['Winnable', 'var(--accent)'];
+    return h('span', { class: 'pill', title: `Opponent is ${ordinal(oppPos)} in the table`, style: `background:transparent;border:1px solid ${col};color:${col};font-size:10px` }, label);
+  };
+  const upcomingCard = upcoming.length ? h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Upcoming fixtures'),
+    ...upcoming.map(f => {
+      const home = f.homeTeamId === myId;
+      const opp = home ? f.away : f.home;
+      const oppPos = posById.get(home ? f.awayTeamId : f.homeTeamId);
+      return h('div', { class: 'between', style: 'font-size:13px;padding:5px 0;border-top:1px solid var(--line)' },
+        h('span', {}, h('span', { class: 'muted', style: 'font-size:11px;margin-right:6px' }, `R${f.round}`),
+          h('span', { style: 'font-weight:600' }, home ? 'vs ' : '@ ', opp), oppPos ? h('span', { class: 'muted', style: 'font-size:10px;margin-left:4px' }, `#${oppPos}`) : ''),
+        h('span', { class: 'row', style: 'gap:8px;align-items:center' },
+          f.weather && f.weather !== 'clear' ? h('span', { class: 'muted', style: 'font-size:11px', title: f.weather === 'rain' ? 'Wet pitch' : 'Windy' }, f.weather === 'rain' ? '🌧' : '🌬') : '',
+          diffPill(oppPos),
+          h('button', { class: 'ghost small', title: 'Scout this opponent', onclick: () => (location.hash = `#/scout/${f.id}`) }, '🔍')));
+    })) : '';
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('h2', {}, '📅 My Matches'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    upcomingCard,
     mine.length
-      ? h('div', { class: 'card' }, ...mine.map(f => matchRow(f, true, rankOf)))
+      ? h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Played'), ...mine.map(f => matchRow(f, true, rankOf)))
       : h('div', { class: 'card muted' }, 'No matches played yet — play or advance a matchday, then watch them back here.')));
 }
 
