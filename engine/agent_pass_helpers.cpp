@@ -142,7 +142,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (recentPassTarget == t.id && engine.state.clockMs - recentPassTime < 3000.0) sc -= 0.10;
 
     if (bl == 0 && fp > 80.0) sc += completion > 0.70 ? 0.06 : 0.02;
-    bool carrierFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+    bool carrierFinalThird = pitch::inFinalThird(p.x, p.team);
     // USERWATCH A1 (~3:23: carrier stripped with a safe backpass on): under HEAVY pressure a
     // SECURE outlet (unmarked teammate + clear lane) beats getting dispossessed — waive the
     // backward-pass penalty + add a retention bonus so the carrier plays safe instead of forcing it.
@@ -353,7 +353,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (pur == ActionPurpose::Clear)           sc -= cr * 0.10;
 
     if (engine.phase.addedTimeActive && engine.phase.half == 2) {   // 2nd-half stoppage only
-        bool inDefThird = (p.team == Team::Home) ? p.x < THIRD_1 : p.x > THIRD_2;
+        bool inDefThird = pitch::inOwnDefensiveThird(p.x, p.team);
         if (inDefThird) {
             bool targetExitsThird = (p.team == Team::Home) ? t.x > THIRD_1 : t.x < THIRD_2;
             if (targetExitsThird) sc += 0.30;
@@ -380,7 +380,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (isDefenderRole() && (t.role == Role::CM || t.role == Role::WM) && fp > 0.0) sc += 0.08;
 
     // ── Final third target bonuses ──
-    bool passerFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+    bool passerFinalThird = pitch::inFinalThird(p.x, p.team);
     double targetGoalDist = pitch::distToOppGoal(t.x, p.team);
     if (passerFinalThird && targetGoalDist < 230.0) {
         if (t.role == Role::CF) sc += 0.24;

@@ -573,7 +573,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
         }
         stats.recordBackLineSample(gap, singleDrop, laneBlock);
     }
-    bool finalThird = carrier.team == Team::Home ? carrier.x > PITCH_W * 2.0 / 3.0 : carrier.x < PITCH_W / 3.0;
+    bool finalThird = pitch::inFinalThird(carrier.x, carrier.team);
     if (!finalThird) return;
     double nearestCb = 1e9, nearestDefender = 1e9;
     for (auto& defender : state.players) {

@@ -150,7 +150,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 
     // Added time: press harder in defending final third
     if (engine.phase.addedTimeActive && engine.phase.half == 2) {   // 2nd-half stoppage only
-        bool inDefThird = (player.team == Team::Home) ? player.x < THIRD_1 : player.x > THIRD_2;
+        bool inDefThird = pitch::inOwnDefensiveThird(player.x, player.team);
         if (inDefThird) sc += 0.12;
     }
 
@@ -482,7 +482,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
 
     // Added time: chase harder when ball in defending final third
     if (engine.phase.addedTimeActive && engine.phase.half == 2) {   // 2nd-half stoppage only
-        bool inDefThird = (player.team == Team::Home) ? b.x < THIRD_1 : b.x > THIRD_2;
+        bool inDefThird = pitch::inOwnDefensiveThird(b.x, player.team);
         if (inDefThird) sc += 0.12;
     }
 

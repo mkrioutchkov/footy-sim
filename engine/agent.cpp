@@ -577,13 +577,13 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     // ── Skill move: pressed 1v1, try to beat the man with a sharp cut ──
     // Success scales with creativity; the beaten defender is briefly frozen
     // and locked out of an immediate tackle.
-    bool ownDefensiveThird = (fdFor(p.team) > 0.0) ? p.x < PITCH_W / 3.0 : p.x > PITCH_W * 2.0 / 3.0;
+    bool ownDefensiveThird = pitch::inOwnDefensiveThird(p.x, p.team);
     if (skillMoveCooldown == 0 && cp.nearestPlayer && nearbyOpps <= 2 && !ownDefensiveThird
         && cp.score > 0.72 && nearestOppDist > 18.0 && nearestOppDist < 58.0) {
         double skillChance = 0.013 + attrFactor(p.attrs.creativity) * 0.050;   // G3 razzle: trimmed ~0.6x (was 0.022+0.085) toward real ~20-30/match; goal-safe (skill-moves don't score)
         // Take-ons live in the final third — that's where beating a man is
         // worth the risk.
-        bool inFinalThirdAtk = (fdFor(p.team) > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+        bool inFinalThirdAtk = pitch::inFinalThird(p.x, p.team);
         if (inFinalThirdAtk) skillChance *= 1.3;   // BORIS_WATCH G3: trim the final-third take-on spike (1.6->1.3); skill-moves don't score -> goal-safe
         if (engine.rng.random() < skillChance) {
             Player* def = cp.nearestPlayer;
