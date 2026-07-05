@@ -112,7 +112,7 @@ input[type=range] { accent-color: var(--accent); }
 .watch-hud { position: fixed; top: 0; left: 0; right: 0; height: var(--watch-hud-h); z-index: 38;
   display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 0 16px 3px;
   background: rgba(9,14,23,.9); border-bottom: 1px solid var(--line); backdrop-filter: blur(8px);
-  font-variant-numeric: tabular-nums; }
+  font-variant-numeric: tabular-nums; transition: opacity .2s ease; }
 .watch-hud .wh-teams { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .watch-hud .wh-name { font-weight: 700; letter-spacing: .4px; text-transform: uppercase; font-size: 15px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 15vw; }
@@ -137,11 +137,52 @@ input[type=range] { accent-color: var(--accent); }
   background: rgba(10,15,24,.85); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(8px); }
 .watch-bar .chip { font-size: 12px; color: #9ec5ff; padding: 3px 10px; border: 1px solid var(--line-soft);
   border-radius: 999px; background: rgba(255,255,255,.04); white-space: nowrap; }
-/* commentary feed — bottom-left lower-third, styled like the rest of the viewer chrome */
-.watch-feed { position: fixed; left: 12px; bottom: 12px; z-index: 20; min-width: 220px; max-width: min(400px, 46vw);
-  font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.55; color: var(--text);
-  background: rgba(10,15,24,.85); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px;
-  pointer-events: none; white-space: pre-wrap; backdrop-filter: blur(6px); }
+/* speed pills — a segmented group; the active preset is filled amber (broadcast-viewer look) */
+.watch-bar .spd-pills { display: inline-flex; gap: 2px; background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 8px; padding: 2px; }
+.watch-bar .spd-pill { padding: 4px 9px; font-size: 12px; font-variant-numeric: tabular-nums; border-radius: 6px;
+  background: transparent; color: var(--muted); border: none; box-shadow: none; }
+.watch-bar .spd-pill:hover { color: var(--text); background: rgba(255,255,255,.05); transform: none; box-shadow: none; filter: none; }
+.watch-bar .spd-pill.on { background: var(--gold); color: #20170a; font-weight: 800; }
+.watch-bar .spd-pill.on:hover { background: var(--gold); color: #20170a; }
+/* fine jump stepper — compact −/+ second buttons flanking a thin divider */
+.watch-bar .step-group { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.watch-bar .step-btn { padding: 4px 6px; font-size: 11px; font-variant-numeric: tabular-nums; min-width: 30px; }
+.watch-bar .step-sep { width: 1px; align-self: stretch; min-height: 16px; background: var(--line); margin: 0 4px; }
+/* line-ups overlay — two team columns (number · name · role) with team-dot headers */
+.watch-lineups { position: fixed; left: 12px; bottom: 74px; z-index: 41; width: min(420px, 82vw);
+  max-height: 66vh; overflow: auto; background: rgba(12,19,32,.97); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.45); }
+.watch-lineups .lu-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+.watch-lineups .lu-side { min-width: 0; }
+.watch-lineups .lu-head { display: flex; align-items: center; gap: 7px; padding-bottom: 6px; margin-bottom: 5px;
+  border-bottom: 1px solid var(--line); }
+.watch-lineups .lu-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.watch-lineups .lu-team { font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-lineups .lu-row { display: flex; align-items: baseline; gap: 8px; font-size: 12px; padding: 2px; }
+.watch-lineups .lu-no { color: var(--muted); min-width: 16px; text-align: right; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.watch-lineups .lu-nm { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
+.watch-lineups .lu-rl { color: var(--muted); font-size: 10px; letter-spacing: .06em; flex: 0 0 auto; }
+/* match feed — bottom-left lower-third: a chronological event list (newest on top) with minute stamps,
+   team-coloured dots and amber-highlighted goals. Styled like the rest of the viewer chrome. */
+.watch-feed { position: fixed; left: 12px; bottom: 12px; z-index: 20; width: min(380px, 46vw);
+  font-family: ui-monospace, Consolas, monospace; color: var(--text);
+  background: rgba(10,15,24,.85); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+  pointer-events: none; backdrop-filter: blur(6px); }
+.watch-feed .wf-head { font-size: 10px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+  color: var(--muted); margin: 0 2px 6px; }
+.watch-feed .wf-rows { display: flex; flex-direction: column; gap: 1px; max-height: 30vh; overflow: hidden; }
+.watch-feed .wf-ev { display: flex; align-items: baseline; gap: 8px; font-size: 12px; line-height: 1.5;
+  padding: 2px 4px; border-radius: 6px; }
+.watch-feed .wf-ev .wf-t { color: var(--muted); font-size: 11px; min-width: 26px; text-align: right;
+  font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.watch-feed .wf-ev .wf-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+  align-self: center; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.watch-feed .wf-ev .wf-tx { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-feed .wf-ev.wf-goal { background: rgba(255,207,92,.13); }
+.watch-feed .wf-ev.wf-goal .wf-tx { color: var(--gold); font-weight: 700; }
+.watch-feed .wf-empty { color: var(--muted); font-size: 12px; padding: 2px 4px; }
 /* right-column slot for the renderer's live-stats block (docked via dockStats) */
 .watch-stats { flex: 0 0 auto; }
 .watch-stats:empty { display: none; }
@@ -259,7 +300,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .watch-bar { gap: 5px; padding: 5px 8px; }
   /* the slider takes its own full-width row below the buttons */
   .watch-bar .scrub-wrap { flex-basis: 100% !important; order: 99; }
-  .watch-feed { max-width: 62vw; font-size: 11px; }
+  .watch-feed { width: 62vw; }
+  .watch-feed .wf-ev { font-size: 11px; }
+  .watch-feed .wf-rows { max-height: 22vh; }
 }
 @media (max-width: 560px) {
   body { font-size: 14px; }
