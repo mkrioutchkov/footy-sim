@@ -919,6 +919,19 @@ app.get('/api/report', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
+  // §cup-report: a cup tie's report (the recording exists for the user's ties). Same builder, kind='cup'.
+  if (req.query?.cup != null) {
+    const tie = db.prepare('SELECT * FROM cup_ties WHERE id = ?').get(Number(req.query.cup)) as { id: number; world_id: number; home_team_id: number | null; away_team_id: number | null; played: number } | undefined;
+    if (!tie || !tie.played || tie.home_team_id == null || tie.away_team_id == null) return reply.code(404).send({ error: 'cup tie not found' });
+    const lg = db.prepare('SELECT id, world_id FROM leagues WHERE id = (SELECT league_id FROM teams WHERE id = ?)').get(teamId) as { id: number; world_id: number | null };
+    if (tie.world_id !== (lg.world_id ?? lg.id)) return reply.code(403).send({ error: 'not your world' });
+    const cnm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(tie.home_team_id, tie.away_team_id) as { id: number; name: string }[];
+    const chome = cnm.find(t => t.id === tie.home_team_id)?.name ?? 'Home';
+    const caway = cnm.find(t => t.id === tie.away_team_id)?.name ?? 'Away';
+    const crep = await buildMatchReport('cup', tie.id, chome, caway);
+    if (!crep) return reply.code(404).send({ error: 'no recording for this tie' });
+    return { homeName: chome, awayName: caway, ...crep };
+  }
   const fx = getFixture(Number(req.query?.fixture));
   if (!fx) return reply.code(404).send({ error: 'fixture not found' });
   const team = getTeamWithPlayers(teamId)!;
@@ -1174,6 +1187,27 @@ const wss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url ?? '', `http://${request.headers.host}`);
   if (url.pathname !== '/ws/match') { socket.destroy(); return; }
+  // §cup-watch: replay a recorded cup tie (?cup=TIE_ID). The user's own ties are recorded (human stake);
+  // a cup tie with no recording (AI-vs-AI) sends an error frame rather than a blank pitch. Replay-only —
+  // cup ties aren't shout-driven, so no live re-sim / coordinator path.
+  if (url.searchParams.get('cup')) {
+    const tieId = Number(url.searchParams.get('cup'));
+    const tie = db.prepare('SELECT id, home_team_id, away_team_id, seed, played FROM cup_ties WHERE id = ?').get(tieId) as { id: number; home_team_id: number | null; away_team_id: number | null; seed: number; played: number } | undefined;
+    if (!tie || !tie.played || tie.home_team_id == null || tie.away_team_id == null) { socket.destroy(); return; }
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      try {
+        const cnm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(tie.home_team_id, tie.away_team_id) as { id: number; name: string }[];
+        const chome = cnm.find(t => t.id === tie.home_team_id)?.name ?? 'HOME';
+        const caway = cnm.find(t => t.id === tie.away_team_id)?.name ?? 'AWAY';
+        const rec = recordingFor('cup', tieId);
+        const frames = rec ? loadRecording(rec) : [];
+        if (frames.length) { new ReplayStream(ws as any, frames, tie.seed, chome, caway); return; }
+        ws.send(JSON.stringify({ error: 'This cup tie wasn’t recorded — only ties your club played can be watched back.' }));
+        ws.close();
+      } catch { try { ws.close(); } catch { /* */ } }
+    });
+    return;
+  }
   const fixtureId = Number(url.searchParams.get('fixture'));
   const fx = getFixture(fixtureId);
   if (!fx) { socket.destroy(); return; }

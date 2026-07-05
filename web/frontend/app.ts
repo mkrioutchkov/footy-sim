@@ -1268,13 +1268,18 @@ function describeDirective(d: any): string {
   return `${who}: ${d.kind}${cond}`;
 }
 
-async function screenWatch(fixtureId: number, shouts = false, live = false, startMs = 0) {
+async function screenWatch(fixtureId: number, shouts = false, live = false, startMs = 0, cup = false) {
   teardownWatch();
   const myEpoch = watchEpoch;   // if another teardown/navigation bumps this during init, we bail below
+  // A cup tie is a recorded, spectator-only replay (no coordinator, no shout log keyed by tie id), so
+  // its watch is always plain playback — force off the live/shout paths regardless of the hash.
+  if (cup) { live = false; shouts = false; }
   // Ensure the result is recorded (idempotent, deterministic, same as the stream). NOT for a LIVE
   // match — that must reach full-time UNPLAYED so the coordinator persists the live (shout-driven)
-  // result; a pre-sim here would mark it played and the live persist would (correctly) skip.
-  if (!live) api.playFixture(fixtureId).catch(() => { /* may already be played */ });
+  // result; a pre-sim here would mark it played and the live persist would (correctly) skip. NOT for a
+  // cup tie either — it's already played (only played ties have a recording) and there's no playFixture
+  // for cup ties (the engine plays them at draw/advance time).
+  if (!live && !cup) api.playFixture(fixtureId).catch(() => { /* may already be played */ });
   // Felt-tactics overlay (BACKLOG2 #1): surface the ACTIVE composite plan persistently in the viewer, seeded
   // from the team's standing plan so it's visible from kickoff (not just after a shout) — shouts update it live.
   const myTeam = await api.team().catch(() => null);
@@ -1638,7 +1643,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   // jump to one before playback reaches it. Best-effort: another club's match has no report → no markers,
   // the scrub still works. The markers only show once the scrub is revealed (a recorded replay).
   if (!live) {
-    api.report(fixtureId).then(rep => {
+    api.report(fixtureId, cup).then(rep => {
       if (myEpoch !== watchEpoch) return;
       const events = (rep.facts?.timeline ?? [])
         .filter(e => e.type === 'goal' || e.type === 'yellow' || e.type === 'red' || e.type === 'penalty' || e.type === 'woodwork')
@@ -1705,7 +1710,8 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   };
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws/match?fixture=${fixtureId}${shouts ? '&shouts=1' : ''}${live ? '&live=1' : ''}`);
+  const wsQuery = cup ? `cup=${fixtureId}` : `fixture=${fixtureId}${shouts ? '&shouts=1' : ''}${live ? '&live=1' : ''}`;
+  const ws = new WebSocket(`${proto}://${location.host}/ws/match?${wsQuery}`);
   activeWs = ws;
   let replayUiApplied = false;
   let gotFrame = false;
@@ -2945,9 +2951,16 @@ async function screenCup() {
       h('span', {}, name ?? 'TBD'), h('span', {}, score != null ? String(score) : ''));
   const cols = cup.rounds.map(rd => h('div', { style: 'min-width:170px' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, rd.name),
-    ...rd.ties.map(t => h('div', { class: 'card', style: 'padding:8px;margin-bottom:8px' },
-      teamRow(t.home, t.homeScore, t.winnerTeamId != null && t.winnerTeamId === t.homeTeamId, t.homeTeamId === cup.myTeamId),
-      teamRow(t.away, t.awayScore, t.winnerTeamId != null && t.winnerTeamId === t.awayTeamId, t.awayTeamId === cup.myTeamId)))));
+    ...rd.ties.map(t => {
+      // Only YOUR ties carry a recording (human stake), so Watch/Report show on played ties you were in.
+      const mine = t.homeTeamId === cup.myTeamId || t.awayTeamId === cup.myTeamId;
+      return h('div', { class: 'card', style: 'padding:8px;margin-bottom:8px' },
+        teamRow(t.home, t.homeScore, t.winnerTeamId != null && t.winnerTeamId === t.homeTeamId, t.homeTeamId === cup.myTeamId),
+        teamRow(t.away, t.awayScore, t.winnerTeamId != null && t.winnerTeamId === t.awayTeamId, t.awayTeamId === cup.myTeamId),
+        mine && t.played ? h('div', { class: 'row', style: 'gap:6px;margin-top:6px' },
+          h('button', { class: 'ghost small', title: 'Watch this cup tie back', onclick: () => (location.hash = `#/watch/${t.id}?cup=1`) }, '▶ Watch'),
+          h('button', { class: 'ghost small', title: 'Read the match report', onclick: () => (location.hash = `#/report/${t.id}?cup=1`) }, 'Report')) : '');
+    })));
 
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
@@ -2982,14 +2995,16 @@ function shoutReviewCard(tac: TacticsReviewT, fixtureId: number): HTMLElement | 
       h('div', { class: 'muted', style: 'font-size:11px;margin-top:2px' }, changed(s)))));
 }
 
-async function screenReport(fixtureId: number) {
+async function screenReport(fixtureId: number, cup = false) {
   const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Reading the match…')));
-  // The shout review is independent of the frame recording — fetch it alongside, and show it even
-  // when the match wasn't recorded (a shout-driven watch leaves a tactics log but maybe no replay).
-  const tacP = api.tactics(fixtureId).catch((): TacticsReviewT => ({ shouts: [] }));
+  // A cup tie's replay is spectator-only (no shout log / tactics endpoint keyed by tie id), so the
+  // shout review is a league-fixture concept — skip it (and its fetch) for cup reports.
+  const watchSuffix = cup ? '?cup=1' : '';
+  const tacP = cup ? Promise.resolve<TacticsReviewT>({ shouts: [] })
+    : api.tactics(fixtureId).catch((): TacticsReviewT => ({ shouts: [] }));
   let rep: ReportT;
-  try { rep = await api.report(fixtureId); }
+  try { rep = await api.report(fixtureId, cup); }
   catch (e: any) {
     const tac = await tacP;
     const msg = String(e.message).includes('no recording')
@@ -2999,7 +3014,7 @@ async function screenReport(fixtureId: number) {
     return mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' }, h('h2', {}, 'Match report'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
       h('div', { class: 'card muted' }, msg),
-      shoutReviewCard(tac, fixtureId)));
+      cup ? '' : shoutReviewCard(tac, fixtureId)));
   }
   const tac = await tacP;
 
@@ -3030,7 +3045,7 @@ async function screenReport(fixtureId: number) {
     return h('button', {
       class: 'ghost', title: `${e.minute}' ${e.name} — watch this moment`,
       style: `position:absolute;left:${pct}%;${e.team === 'home' ? 'bottom:52%' : 'top:52%'};transform:translateX(-50%);border:none;background:none;padding:1px 2px;font-size:15px;line-height:1;cursor:pointer`,
-      onclick: () => (location.hash = `#/watch/${fixtureId}?t=${Math.max(0, evClock(e) - 5000)}`),
+      onclick: () => (location.hash = `#/watch/${fixtureId}?t=${Math.max(0, evClock(e) - 5000)}${cup ? '&cup=1' : ''}`),
     }, icon(e.type));
   };
   const stripTick = (pct: number, lab: string) => [
@@ -3084,8 +3099,8 @@ async function screenReport(fixtureId: number) {
       // From the report you can jump straight into the replay (now with rewind/scrub) — no hunting for
       // the fixture back on the dashboard.
       h('div', { class: 'row' },
-        h('button', { class: 'ghost', title: 'Watch this match back — rewind and scrub to any moment', onclick: () => (location.hash = `#/watch/${fixtureId}`) }, '▶ Watch replay'),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'))),
+        h('button', { class: 'ghost', title: 'Watch this match back — rewind and scrub to any moment', onclick: () => (location.hash = `#/watch/${fixtureId}${watchSuffix}`) }, '▶ Watch replay'),
+        h('button', { class: 'ghost', onclick: () => (location.hash = cup ? '#/cup' : '#/') }, '← Back'))),
     scoreboard,
     timeline,
     h('div', { class: 'grid cols-2', style: 'align-items:start;margin-top:10px' },
@@ -3102,7 +3117,7 @@ async function screenReport(fixtureId: number) {
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Player ratings'),
         motm ? h('span', { class: 'pill', title: 'Highest match rating', style: 'background:var(--gold,#e8b53a);color:#1a1205;font-weight:700' }, `⭐ Man of the Match — ${motm.name} (${motm.team === 'home' ? rep.homeName : rep.awayName}) ${motm.rating.toFixed(1)}`) : ''),
       h('div', { style: 'display:flex;gap:24px;flex-wrap:wrap' }, ratingsCol('home', rep.homeName), ratingsCol('away', rep.awayName))),
-    shoutReviewCard(tac, fixtureId),
+    cup ? '' : shoutReviewCard(tac, fixtureId),
   ));
 }
 
@@ -3922,7 +3937,7 @@ function route() {
   routeGen++;   // invalidate any in-flight screen's pending mount (see screenGuard) — the new route owns the DOM now
   if (!user) { screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
-  if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash), Number(hash.match(/[?&]t=(\d+)/)?.[1] ?? 0)); }
+  if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash), Number(hash.match(/[?&]t=(\d+)/)?.[1] ?? 0), /[?&]cup=1\b/.test(hash)); }
   else if (hash === '#/matches') screenMyMatches();
   else if (hash === '#/league') screenLeagueMatches();
   else if (hash === '#/tactics') screenTactics();
@@ -3938,7 +3953,7 @@ function route() {
   else if (hash === '#/cup') screenCup();
   else if (hash === '#/history') screenHistory();
   else if (hash === '#/career') screenCareer();
-  else if (hash.startsWith('#/report/')) screenReport(Number(hash.split('/')[2]));
+  else if (hash.startsWith('#/report/')) { const seg = hash.split('/')[2] ?? ''; screenReport(Number(seg.split('?')[0]), /[?&]cup=1\b/.test(hash)); }
   else if (hash.startsWith('#/scout/')) screenScout(Number(hash.split('/')[2]));
   else if (hash.startsWith('#/player/')) screenPlayer(Number(hash.split('/')[2]));
   else screenDashboard();

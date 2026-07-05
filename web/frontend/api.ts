@@ -257,7 +257,7 @@ export const api = {
   contractOffers: () => req<{ offers: ContractOfferT[] }>('GET', '/contract-offers'),
   matchContractOffer: (id: number) => req<{ ok: boolean; player?: string; wage?: number; years?: number; offers: ContractOfferT[] }>('POST', `/contract-offer/${id}/match`),
   withdrawContractOffer: (id: number) => req<{ ok: boolean; offers: ContractOfferT[] }>('POST', `/contract-offer/${id}/withdraw`),
-  report: (fixtureId: number) => req<ReportT>('GET', `/report?fixture=${fixtureId}`),
+  report: (id: number, cup = false) => req<ReportT>('GET', `/report?${cup ? 'cup' : 'fixture'}=${id}`),
   tactics: (fixtureId: number) => req<TacticsReviewT>('GET', `/tactics?fixture=${fixtureId}`),
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: (limit?: number) => req<{ news: NewsItemT[] }>('GET', limit ? `/news?limit=${limit}` : '/news'),
