@@ -595,7 +595,10 @@ bool GameEngine::tryIntendedReceiverMeet(double bs) {
     return false;
 }
 
-void GameEngine::checkBallPlayerCollision(double sec) {
+// Resolve the actual ball-vs-player contact this tick: intended-receiver trap,
+// the nearest-contact pick, and the collect/collision/deflection outcome. The
+// swept-path setup lives here because only this phase uses prevX/prevY + radii.
+void GameEngine::resolveBallContact(double sec) {
     auto& b = state.ball;
     double bs = std::hypot(b.vx, b.vy);
     const double collectRadius = COLLECT_DIST;
@@ -607,17 +610,6 @@ void GameEngine::checkBallPlayerCollision(double sec) {
     // endpoint; slow balls keep the point test (byte-identical). prev = undo the step applyBallPhysics
     // just applied (b.x += b.vx*sec). Live shots stay protected by the shot-in-flight gate below.
     double prevX = b.x - b.vx * sec, prevY = b.y - b.vy * sec;
-
-    // Phase 1 — first-time finish (cutback/low cross swept in by a box runner).
-    if (tryCutbackFirstTimeFinish(bs)) return;
-
-    // Phase 2 — keeper gathers a beaten-but-reachable loose shot in his area.
-    if (tryKeeperLooseGather(bs)) return;
-
-    if (tryIntendedReceiverMeet(bs)) return;
-
-    if (tryKeeperCrossClaim()) return;
-
     Player* contact = nullptr;
     double contactRadius = collectRadius;
     double bestContactScore = 1e9;
@@ -824,6 +816,23 @@ void GameEngine::checkBallPlayerCollision(double sec) {
             }
         }
     }
+}
+
+void GameEngine::checkBallPlayerCollision(double sec) {
+    auto& b = state.ball;
+    double bs = std::hypot(b.vx, b.vy);
+
+    // Phase 1 — first-time finish (cutback/low cross swept in by a box runner).
+    if (tryCutbackFirstTimeFinish(bs)) return;
+
+    // Phase 2 — keeper gathers a beaten-but-reachable loose shot in his area.
+    if (tryKeeperLooseGather(bs)) return;
+
+    if (tryIntendedReceiverMeet(bs)) return;
+
+    if (tryKeeperCrossClaim()) return;
+    // Phase 5 — resolve the actual ball/player contact.
+    resolveBallContact(sec);
 }
 
 void GameEngine::collectBall(Player& c) {
