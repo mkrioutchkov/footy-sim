@@ -38,12 +38,16 @@
 >   `freshCrossMaxDistance()` hook it duplicated; more goal-distance / progress /
 >   shot-distance scalars routed through `pitch::` (`distToGoalMouth`,
 >   `forwardProgress`, `forwardGain`).
-> - **Giant-function decomposition** — `checkBallPlayerCollision` (464 lines) split
->   into a clean 5-phase orchestrator + `tryCutbackFirstTimeFinish`,
->   `tryKeeperLooseGather`, `tryIntendedReceiverMeet`, `tryKeeperCrossClaim`. The
->   other giants (`attemptTackle`, `shootBall` — linear computations;
->   `updateSetPiecePhase` — a stateful sequence) have no clean phase seams, so they
->   were **deliberately left** rather than forced into struct-returning helpers.
+> - **Giant-function decomposition** — `checkBallPlayerCollision` **464 → 15 lines**:
+>   a clean 5-phase orchestrator (`tryCutbackFirstTimeFinish`, `tryKeeperLooseGather`,
+>   `tryIntendedReceiverMeet`, `tryKeeperCrossClaim`, `resolveBallContact`).
+>   `attemptTackle` → `resolveTackleFoul` (the failed-tackle branch; narrow
+>   `fromBehind/cynical/boxFoulScale` interface). `updateSetPiecePhase` →
+>   `populateThrowInSupport` (single `spTeam` input). Where a function is a *linear*
+>   numeric pipeline (`shootBall`, `scorePassToTarget`, `applyMovement`) or already
+>   decomposed (`scorePositioning`'s `pos*` helpers), it was **deliberately left** —
+>   extracting a sub-stage there needs a 7–15-field struct/param interface that
+>   reads worse than the inline block.
 > - **Cleanups** — cryptic locals renamed (`mr`→`maxShootRange`, `bdg`→`ballGoalDist`,
 >   `sp`→`step`); unused vocabulary helpers removed (self-review found the same
 >   "built and abandoned" smell as the dead `PitchArea`).
