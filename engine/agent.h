@@ -2,6 +2,7 @@
 
 #include "types.h"
 #include "constants.h"
+#include "role_traits.h"
 #include "rng.h"
 #include <vector>
 #include "small_vector.h"
@@ -140,14 +141,17 @@ public:
     virtual double  centralShootBonus() const { return 0.0; }    // bonus for shooting from a central position
     virtual double  wideShootPenalty() const { return 0.08; }    // penalty for shooting from wide (less for wide players)
     virtual double  closeRangeShootBonus() const { return 0.0; }  // bonus for a close-range central-ish chance
-    virtual bool    isAttackerRole() const { return false; }
-    virtual bool    isCenterBack() const { return false; }
-    virtual bool    isFullBack() const { return false; }
-    virtual bool    isWidePlayer() const { return false; }   // winger or full-back (wide-channel)
-    virtual bool    isGoalkeeper() const { return false; }
-    virtual bool    isCentralMidfielder() const { return false; }
-    virtual bool    isWideMidfielder() const { return false; }
-    virtual bool    isCenterForward() const { return false; }
+    // Role predicates delegate to the role_traits.h taxonomy keyed on player.role,
+    // so the role→trait map has ONE definition (see role_traits.h). Kept virtual for
+    // the interface; the per-role subclasses no longer need to override these.
+    virtual bool    isAttackerRole() const { return roles::isAttacker(player.role); }
+    virtual bool    isCenterBack() const { return roles::isCenterBack(player.role); }
+    virtual bool    isFullBack() const { return roles::isFullBack(player.role); }
+    virtual bool    isWidePlayer() const { return roles::isWide(player.role); }   // winger or full-back (wide-channel)
+    virtual bool    isGoalkeeper() const { return roles::isGoalkeeper(player.role); }
+    virtual bool    isCentralMidfielder() const { return roles::isCentralMidfielder(player.role); }
+    virtual bool    isWideMidfielder() const { return roles::isWideMidfielder(player.role); }
+    virtual bool    isCenterForward() const { return roles::isCenterForward(player.role); }
     virtual double  nearGoalShotBiasMargin() const { return -1.0; }
     virtual bool    canUseFlankTargets() const { return false; }
     virtual bool    canUseOpenLane() const { return false; }
@@ -155,8 +159,8 @@ public:
     virtual double  openLaneDribbleDistance() const { return 0.0; }
     virtual bool    canUseWideDribble() const { return false; }
     virtual bool    shouldSearchForPassOverShot() const { return false; }
-    virtual bool    isDefenderRole() const { return false; }
-    virtual bool    isDefenderLike() const { return false; }
+    virtual bool    isDefenderRole() const { return roles::isDefenderRole(player.role); }
+    virtual bool    isDefenderLike() const { return roles::isDefenderLike(player.role); }
     virtual double  observingCruiseMul() const { return 0.50; }
     virtual double  defensivePressCost(bool danger) const { (void)danger; return 14.0; }
     virtual double  shotLaneCost() const { return 34.0; }

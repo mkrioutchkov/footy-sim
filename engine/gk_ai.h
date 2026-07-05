@@ -5,7 +5,8 @@ class GKPlayerAI : public PlayerAI {
 public:
     GKPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
     void tick(double sdt) override;
-    bool isGoalkeeper() const override { return true; }
+    // isGoalkeeper() is inherited: the base delegates to roles::isGoalkeeper(role),
+    // and a GKPlayerAI always wraps a GK-role player (see makeAgentFor).
 
     // ── GK-specific virtual hooks ──
     virtual double rushAggression() const;

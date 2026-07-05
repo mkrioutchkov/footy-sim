@@ -16,8 +16,6 @@ public:
     double freshCrossShotBonus() const override { return 0.62; }
     double finalThirdShotMaxDistance() const override { return 210.0; }
     double nearGoalDribbleBonus(bool nearGoal, double distToGoal) const override { return nearGoal ? (distToGoal < 120.0 ? 0.12 : 0.18) : 0.0; }
-    bool   isAttackerRole() const override { return true; }
-    bool   isCenterForward() const override { return true; }
     double nearGoalShotBiasMargin() const override { return 0.22; }
     double observingCruiseMul() const override { return 0.45; }
     double defensivePressCost(bool danger) const override { (void)danger; return 28.0; }
@@ -51,9 +49,6 @@ public:
     double tackleRoleAdjust() const override { return -0.04; }
     double finalThirdShotMaxDistance() const override { return 175.0; }
     double dribbleOwnHalfExtraPenalty() const override { return 0.0; }
-    bool   isAttackerRole() const override { return true; }
-    bool   isWideMidfielder() const override { return true; }
-    bool   isWidePlayer() const override { return true; }
     bool   canUseWideDribble() const override { return true; }
     double observingCruiseMul() const override { return 0.55; }
     double defensivePressCost(bool danger) const override { (void)danger; return 6.0; }
@@ -91,8 +86,6 @@ public:
     double openLaneDribbleBonus() const override { return 0.18; }
     double openLaneDribbleDistance() const override { return 165.0; }
     bool   shouldSearchForPassOverShot() const override { return true; }
-    bool   isDefenderLike() const override { return true; }
-    bool   isCentralMidfielder() const override { return true; }
     double observingCruiseMul() const override { return 0.50; }
     double defensivePressCost(bool danger) const override { (void)danger; return 0.0; }
     double shotLaneCost() const override { return 0.0; }
@@ -122,9 +115,6 @@ public:
     double tackleRoleAdjust() const override { return 0.0; }
     double tackleDistCoeff() const override { return 0.35; }
     double tackleSkillCoeff() const override { return 0.22; }
-    bool   isDefenderRole() const override { return true; }
-    bool   isDefenderLike() const override { return true; }
-    bool   isCenterBack() const override { return true; }
     double observingCruiseMul() const override { return 0.65; }
     double defensivePressCost(bool danger) const override { return danger ? 8.0 : 120.0; }
     double shotLaneCost() const override { return 34.0; }
@@ -153,10 +143,6 @@ public:
     bool   canUseOpenLane() const override { return true; }
     double openLaneDribbleBonus() const override { return 0.12; }
     double openLaneDribbleDistance() const override { return 135.0; }
-    bool   isDefenderRole() const override { return true; }
-    bool   isDefenderLike() const override { return true; }
-    bool   isFullBack() const override { return true; }
-    bool   isWidePlayer() const override { return true; }
     double observingCruiseMul() const override { return 0.65; }
     double defensivePressCost(bool danger) const override { return danger ? 14.0 : 58.0; }
     double shotLaneCost() const override { return 12.0; }
