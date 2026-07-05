@@ -58,6 +58,12 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     // can legitimately be side-on), but still refuse a TRUE back-to-goal shot (>120 deg off
     // the goal) — that looked broken. Rear tolerance for glancing headers is preserved.
     if ((freshCross || freshThrough) && facingDot < -0.5 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    // OUTSIDE the box the side-on tolerance shrinks: a first-time finish from
+    // 20m while barely facing the goal read as a no-look backheel bomb
+    // (watched replay 8:45: scorer collected and struck in 200ms, body still
+    // square to the arriving pass). Box-range volleys and flicks keep the
+    // wide tolerance above.
+    if ((freshCross || freshThrough) && facingDot < 0.15 && shotDistance > 150.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (!freshCross && !freshThrough && facingDot < 0.35 && shotDistance > 135.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (!freshCross && cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)

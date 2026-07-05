@@ -826,7 +826,19 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     if (setPiece.placeBallAtMs > 0.0) {
         auto& gb = state.ball;
         bool alive = std::hypot(gb.vx, gb.vy) > 20.0 || gb.z > 0.5;
-        if (state.clockMs < setPiece.placeBallAtMs && alive && gb.controllerId < 0) {
+        // A deflection ruled "going behind" can be awarded while the ball is
+        // still WELL INSIDE the pitch — the fixed window then expired
+        // mid-flight and snapped it to the arc from 80px in-field (watched
+        // replay 0:24, 0:37). While it is alive, un-crossed and still heading
+        // out, extend the glide (hard cap +1400ms so a freak swerve that
+        // stays in can't stall the restart forever).
+        bool inField = gb.x > -6.0 && gb.x < PITCH_W + 6.0 && gb.y > -6.0 && gb.y < PITCH_H + 6.0;
+        bool headingOut = (setPiece.spotX < HALF_X ? gb.vx < -15.0 : gb.vx > 15.0)
+                       || gb.y < -6.0 || gb.y > PITCH_H + 6.0;
+        bool extend = (setPiece.type == SetPiece::Corner || setPiece.type == SetPiece::GoalKick)
+                   && alive && inField && headingOut
+                   && state.clockMs < setPiece.placeBallAtMs + 1400.0;
+        if ((state.clockMs < setPiece.placeBallAtMs || extend) && alive && gb.controllerId < 0) {
             applyBallPhysics(sec);
             clampBallPosition();
         } else {

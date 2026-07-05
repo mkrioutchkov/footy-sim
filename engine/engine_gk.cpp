@@ -64,6 +64,19 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     double fd = fdFor(gk.team);
     double ballGoalDist = std::abs(state.ball.x - goalX);
     double rushFactor = agentFor(gk)->rushAggression();
+    // Armed corner against us: stand ON the line, centre of goal with a small
+    // ball-side shade, and wait — the generic positioning chains read the dead
+    // ball at the flag as a "loose ball near goal" and walked the keeper 80px
+    // off his line BELOW the post (watched replay 0:34-0:36).
+    if (setPiece.armed && setPiece.type == SetPiece::Corner && setPiece.team != gk.team) {
+        gk.targetX = goalX + fd * 8.0;
+        gk.targetY = PITCH_H / 2.0 + (state.ball.y > PITCH_H / 2.0 ? 10.0 : -10.0);
+        double mvx = gk.targetX - gk.x, mvy = gk.targetY - gk.y, md = std::hypot(mvx, mvy);
+        double sp = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.9;
+        if (md > 1.0) { double st = std::min(sp * secs, md); gk.x += mvx / md * st; gk.y += mvy / md * st; }
+        gk.facing = std::atan2(state.ball.y - gk.y, state.ball.x - gk.x);
+        return;
+    }
     // A live shot is bearing on goal: set the feet, get on the line, track the
     // ball's lateral line — do NOT sweep upfield into the shot's path (a
     // failed reflex roll used to drop the keeper to a 43px/s positional walk

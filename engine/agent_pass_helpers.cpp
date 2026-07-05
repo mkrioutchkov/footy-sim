@@ -1,4 +1,5 @@
 #include "agent.h"
+#include "agent_helpers.h"
 #include "engine.h"
 #include <optional>
 #include <unordered_map>
@@ -423,10 +424,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     double goalDistEff = targetGoalDist;
     int rpEff = receiverPressure;
     int blEff = bl;
+    double rxEff = t.x, ryEff = t.y;   // projected receive point (falls back to the current spot)
     if ((targetAttacker || t.role == Role::CM) && runnerForwardSpeed > 15.0) {
         double lead = clamp(d / 300.0 + 0.3, 0.4, 1.1);
         double px2 = clamp(t.x + t.vx * lead, 12.0, PITCH_W - 12.0);
         double py2 = clamp(t.y + t.vy * lead, 12.0, PITCH_H - 12.0);
+        rxEff = px2; ryEff = py2;
         fpEff = pitch::forwardGain(p.x, px2, p.team);
         goalDistEff = pitch::distToOppGoal(px2, p.team);
         rpEff = 0;
@@ -510,6 +513,21 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (wideOutletTarget && !isWideDelivery && onsideGap > 10.0 && bl <= 1 && receiverPressure <= 1) {
         pur = std::abs(t.y - p.y) > 120.0 ? ActionPurpose::Switch : ActionPurpose::Build;
         sc += 0.12 + attrFactor(p.attrs.creativity) * 0.08;
+    }
+
+    // ── Assist-awareness ── a receiver who will have a CLEAR SHOT when the
+    // ball arrives outranks any neutral connector: shooting range, unmarked
+    // at the receive point, a real opening angle, and no bodies on his shot
+    // line. The missing "set him up for the first-time finish" (watched
+    // replay 0:49: carrier facing a teammate with a clean look at goal chose
+    // a sideways ball instead; owner: raising goals this way is welcome).
+    if (goalDistEff < 215.0 && rpEff == 0 && blEff <= 1 && fp > -25.0) {
+        double shotAngle = engine.goalOpeningAngleDeg(rxEff, ryEff, goalXFor(p.team));
+        if (shotAngle > 9.0
+            && countLaneBlockers(engine.state.players, rxEff, ryEff,
+                                 goalXFor(p.team), PITCH_H / 2.0, p.team,
+                                 BLOCKER_PERP_FREEKICK * 0.75, 0.05, 0.94) == 0)
+            sc += 0.20;
     }
 
     // ── Final adjustments ──

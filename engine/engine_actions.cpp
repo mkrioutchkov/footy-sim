@@ -946,6 +946,9 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     blockReboundFor(s.id, 850);
     b.vx = dx / d * speed;
     b.vy = dy / d * speed;
+    // A striker PIVOTS into his shot — leave the stale pre-shot facing and a
+    // first-time finish reads as a no-look backheel (watched replay 8:45).
+    s.facing = std::atan2(dy, dx);
     // Elevation. A clean chance is struck down and flat; a rushed, long, or
     // poorly-hit one leans back and rises — sometimes onto the bar, sometimes
     // sailing over. Clean credible finishes stay essentially on the deck.

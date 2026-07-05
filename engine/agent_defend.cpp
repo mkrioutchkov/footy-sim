@@ -396,6 +396,13 @@ Action PlayerAI::scoreChase(const Perception& per) {
     int closerMates = 0;
     for (auto& o : engine.state.players) {
         if (o.team != player.team || o.id == player.id || o.role == Role::GK) continue;
+        // Only teammates who can actually TAKE the ball count toward the
+        // pile-on cap — after a scramble the closer men are often all
+        // contest-blocked, and counting them made the one eligible player
+        // hold shape while nobody collected (watched replay 0:17: the best-
+        // placed man stood 38px from where the ball stopped and let an
+        // ineligible teammate shepherd it out).
+        if (!engine.canContestBall(o)) continue;
         if (dist(o.x, o.y, b.x, b.y) < per.ballDist - 2.0) closerMates++;
     }
     bool tooManyClosing = closerMates >= 3 && !isIntendedReceiver && !urgentLooseBallRun && !needsRecovery;

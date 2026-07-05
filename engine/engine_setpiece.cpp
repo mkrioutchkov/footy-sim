@@ -558,14 +558,23 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         // arrived with the ball, tackle -> foul -> penalty conceded.
         double eta = d / 300.0 + 1.0;
         double nearestOpp = 1e9;
+        int escapePressure = 0;
         for (auto& o : state.players) {
             if (!isActiveOpponent(o, holder.team)) continue;
             double now = dist(o.x, o.y, p.x, p.y);
             double soon = dist(o.x + o.vx * eta * 0.85, o.y + o.vy * eta * 0.85, p.x, p.y);
             nearestOpp = std::min(nearestOpp, std::max(std::min(now, soon), now * 0.35));
+            if (std::min(now, soon) < 115.0) escapePressure++;
         }
         int laneBlockers = countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_GK_DIST, 0.12, 0.92);
         bool clearLane = laneBlockers == 0;
+        // SAFE-BUT-TRAPPED (watched replay 0:45-0:47: the claim was rolled
+        // short to a man who was open ON ARRIVAL but boxed in deep; two
+        // passes later the opponent had the ball in the danger zone): a deep
+        // short outlet must also have somewhere to GO. Two-plus opponents in
+        // his escape bubble means the ball comes straight back under
+        // pressure — that's not a safe outlet, punt instead.
+        bool trapped = progress < 260.0 && escapePressure >= 2;
         // "Safe" = near-certain to complete AND playable on arrival: a clean
         // lane, a receiver still open when the ball gets there, a short-to-mid
         // ball. The keeper releases only on these and otherwise HOLDS (he can't
@@ -574,7 +583,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         // rises: a marginal short ball into a packed box is how the 3'16
         // penalty happened.
         double openNeed = closeKeeperPressure >= 2 ? 85.0 : 58.0;
-        bool safe = clearLane && nearestOpp > openNeed && d < 320.0;
+        bool safe = clearLane && nearestOpp > openNeed && d < 320.0 && !trapped;
         double roleBonus = sp::weight(sp::DIST_SAFE, p.role);
         double openness = clamp(nearestOpp / 90.0, 0.0, 1.0);
         double prox = 1.0 - clamp(d / 520.0, 0.0, 1.0); // shorter = safer
@@ -912,7 +921,16 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
     setPiece.reason = "corner";
     phase.actionTimer = 5000;
     setPiece.takerArrived = false;
-    double cy = y < PITCH_H / 2.0 ? 0.0 : PITCH_H;
+    // Corner SIDE from the ball's actual TRAJECTORY: several award sites fire
+    // while the deflection is still in flight (block/header ricochets ruled
+    // "going behind" early), and the passed-in y is the ball's CURRENT y — a
+    // ball arcing toward the top corner got placed at the bottom flag
+    // (watched replay 0:24). Project where it will cross the goal line.
+    double lineX = atHomeEnd ? 0.0 : PITCH_W;
+    double yProj = y;
+    if (std::abs(b.vx) > 20.0 && (lineX - b.x) * b.vx > 0.0)
+        yProj = b.y + b.vy * ((lineX - b.x) / b.vx);
+    double cy = yProj < PITCH_H / 2.0 ? 0.0 : PITCH_H;
     // Corner taken from the corner ARC, not 1.8m inside the field of play.
     double ix = atHomeEnd ? 6.0 : PITCH_W - 6.0;
     double iy = cy == 0.0 ? 6.0 : PITCH_H - 6.0;
