@@ -37,3 +37,4 @@ _*
 /out_*.txt
 /err_*.txt
 /s88.json
+.claude/worktrees/
