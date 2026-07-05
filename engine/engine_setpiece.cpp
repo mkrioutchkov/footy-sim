@@ -247,7 +247,7 @@ void GameEngine::releaseSetPiece(){
             }
             int laneBlockers = countLaneBlockers(state.players, holder->x, holder->y, p->x, p->y, holder->team, PASS_BLOCKER_PERP_OUTLET, 0.12, 0.92);
             if(setPiece.type == SetPiece::FreeKick){
-                double holderShotDist=std::hypot(goalXFor(holder->team)-holder->x,PITCH_H/2.0-holder->y);
+                double holderShotDist=pitch::distToGoalMouth(holder->x,holder->y,holder->team);
                 double distanceFit=1.0-std::abs(d-145.0)/210.0;
                 double pressureScore=clamp((closestOpp-35.0)/95.0,-0.60,0.75);
                 double resetBonus=progress<-25.0?0.55:std::abs(progress)<45.0?0.30:-0.18;

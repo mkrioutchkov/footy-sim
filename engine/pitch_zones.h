@@ -56,6 +56,14 @@ inline double distToOwnGoal(const Player& p) { return distToOwnGoal(p.x, p.team)
 inline double distToOppGoal(double x, Team team) { return std::abs(x - goalXFor(team)); }
 inline double distToOppGoal(const Player& p) { return distToOppGoal(p.x, p.team); }
 
+// Straight-line distance to the centre of the opponent goal mouth — i.e. shot
+// distance. std::hypot squares both args, so it is sign-invariant: sites that
+// spell the subtraction either way (x-gx or gx-x) fold to the same value.
+inline double distToGoalMouth(double x, double y, Team team) {
+    return std::hypot(x - goalXFor(team), y - PITCH_H / 2.0);
+}
+inline double distToGoalMouth(const Player& p) { return distToGoalMouth(p.x, p.y, p.team); }
+
 // ── Goal-proximity bands (parameterised — the band stays the caller's choice) ──
 // Replaces the scattered `std::abs(x - ownGoalX) < <band>` "in a dangerous area"
 // checks. The threshold is an explicit argument so differing literals (240, 300,

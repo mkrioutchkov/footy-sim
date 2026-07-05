@@ -107,7 +107,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         emitEvent("header", receiver.x, receiver.y, receiver.id, pendingPass.fromId);
         double fd = fdFor(receiver.team);
         double gx = goalXFor(receiver.team);
-        double shotDistance = std::hypot(receiver.x - gx, receiver.y - PITCH_H / 2.0);
+        double shotDistance = pitch::distToGoalMouth(receiver.x, receiver.y, receiver.team);
         if (receiver.team != pendingPass.team) {
             stats.recordHeaderClearance();
             stats.recordPassIntercepted();   // the cross was cut out — close the pass ledger

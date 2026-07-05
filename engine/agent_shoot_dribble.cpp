@@ -5,7 +5,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
     bool shootOnSight = engine.directiveBias[p.id].shootOnSight;   // directive: shoot from range
     double gx = goalXFor(p.team);
-    double shotDistance = std::hypot(p.x - gx, p.y - PITCH_H / 2.0);
+    double shotDistance = pitch::distToGoalMouth(p.x, p.y, p.team);
     double angleDeg = engine.goalOpeningAngleDeg(p.x, p.y, gx);
 
     ActionAudit audit;

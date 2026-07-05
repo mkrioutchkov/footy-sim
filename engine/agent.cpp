@@ -81,7 +81,7 @@ void PlayerAI::tick(double sdt) {
                                          [](const Action& x) { return x.type == ActionType::Shoot; });
             if (shootOpt != aff.end() && shootOpt->score > 0.20) {
                 double distance = shootOpt->audit.distance;
-                if (distance == 0.0) distance = std::hypot(player.x - gx, player.y - PITCH_H / 2.0);
+                if (distance == 0.0) distance = pitch::distToGoalMouth(player.x, player.y, player.team);
                 double angleDeg = shootOpt->audit.angleDeg;
                 if (angleDeg == 0.0) angleDeg = engine.goalOpeningAngleDeg(player.x, player.y, gx);
                 engine.logQualityFlag(QualityFlag::WhyNoShoot, player.id, player.role,
