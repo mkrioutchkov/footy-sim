@@ -116,6 +116,19 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     if (pitch::distToOwnGoal(ctrl->x, player.team) < NEAR_GOAL_DIST) sc += 0.18;
     if (pitch::distToOwnGoal(ctrl->x, player.team) < CLOSE_GOAL_DIST) sc += 0.12;
 
+    // The counter-press prize: a DEFENDER showing the ball in HIS OWN half is
+    // the best turnover in football — win it there and the goal is close with
+    // the shape broken. All the urgency bonuses above are defensive (near OUR
+    // goal); nothing rewarded the steal high up, so the presser rode a carrying
+    // CB at touching distance and never engaged (watched replay 1:22).
+    if (roles::isDefenderRole(ctrl->role)
+        && pitch::inOwnHalf(ctrl->x, ctrl->team)
+        && d < TACKLE_RANGE + 10.0
+        && ballShownDot > 0.15) {
+        double carrierGoalDist = pitch::distToOwnGoal(ctrl->x, ctrl->team);
+        sc += 0.18 + clamp(1.0 - carrierGoalDist / (PITCH_W * 0.5), 0.0, 1.0) * 0.14;
+    }
+
     int oppsClose = 0;
     for (auto* o : per.nearbyOpponents) {
         if (dist(o->x, o->y, ctrl->x, ctrl->y) < 60.0) oppsClose++;

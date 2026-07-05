@@ -148,6 +148,12 @@ bool GameEngine::checkGoal() {
                 lastGoal.source = GoalSource::GoalkeeperParry;
             } else if (lastLooseOrigin == LooseOrigin::Shot) {
                 lastGoal.source = GoalSource::ShotStateLost;
+            } else if (lastLooseOrigin == LooseOrigin::ShotBlock) {
+                // A blocked shot whose ricochet rolls in (usually off the
+                // blocker, an own-goal deflection). The block site sets
+                // ShotBlock, but no branch here consumed it — the goal fell
+                // through to LooseUnclassified and tripped the scenario guard.
+                lastGoal.source = GoalSource::ShotDeflection;
             } else if (lastLooseOrigin == LooseOrigin::KnockAhead) {
                 resolveKnockAhead(nullptr, "goal");
                 lastGoal.source = GoalSource::KnockAhead;

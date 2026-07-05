@@ -42,6 +42,23 @@ void CBPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isCon
     for (auto& a : actions) {
         if (a.type == ActionType::Tackle) a.score += 0.05;
     }
+    // A centre-back never invites the duel (watched replay 1:22: a CB carried
+    // ACROSS the presser at touching distance near the centre circle, showing
+    // him the ball). Pressed tight in his own half, he releases NOW — carrying
+    // is off the menu, the quick ball out is on.
+    if (isController && pitch::inOwnHalf(player.x, player.team)) {
+        double oppNear = 1e9;
+        for (auto& o : engine.state.players) {
+            if (o.team == player.team || o.role == Role::GK || o.sentOff) continue;
+            oppNear = std::min(oppNear, dist(o.x, o.y, player.x, player.y));
+        }
+        if (oppNear < 34.0) {
+            for (auto& a : actions) {
+                if (a.type == ActionType::Dribble) a.score -= 0.22;
+                if (a.type == ActionType::Pass)    a.score += 0.05;
+            }
+        }
+    }
 }
 
 void FBPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
