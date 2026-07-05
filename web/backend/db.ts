@@ -240,6 +240,14 @@ CREATE INDEX IF NOT EXISTS idx_news_team ON player_news(team_id, id);
 ensureColumn('fixtures', 'aftermath_done', 'aftermath_done INTEGER NOT NULL DEFAULT 0');
 ensureColumn('players', 'season_rating_sum', 'season_rating_sum REAL NOT NULL DEFAULT 0');
 ensureColumn('players', 'season_apps', 'season_apps INTEGER NOT NULL DEFAULT 0');
+// §stat-leaders: per-player season goals/assists tally, accumulated for BOTH clubs at play time
+// (leaders.ts tallyFixtureStats, guarded by fixtures.stats_tallied) and reset at rollover — powers the
+// division leaderboards. Default 0 = existing saves start empty (no leaderboard until matches are played).
+ensureColumn('players', 'season_goals', 'season_goals INTEGER NOT NULL DEFAULT 0');
+ensureColumn('players', 'season_assists', 'season_assists INTEGER NOT NULL DEFAULT 0');
+// One-shot guard so a fixture's per-player goals are tallied into the season leaderboard exactly once
+// (a watch-then-advance can call playFixture's path more than once). Default 0; set when tallied.
+ensureColumn('fixtures', 'stats_tallied', 'stats_tallied INTEGER NOT NULL DEFAULT 0');
 
 // ── Cup competition (core stream) ───────────────────────────────────────────
 // A single-elimination knockout of all the world's clubs, run alongside the league each

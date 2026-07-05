@@ -1,5 +1,5 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT, type TimelineEventT } from './api';
+import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT, type TimelineEventT, type LeadersT } from './api';
 import { MatchRenderer } from './renderer';
 import { PITCH_W, PITCH_H } from './constants';
 import type { EngineState } from './types';
@@ -988,6 +988,7 @@ async function screenDashboard() {
       h('div', { class: 'nav-grid' },
         navItem('📅', 'My Matches', '#/matches'),
         navItem('⚽', 'Results', '#/league'),
+        navItem('📊', 'Stat leaders', '#/leaders'),
         navItem('👥', 'Squad', '#/squad'),
         navItem('💸', 'Market', '#/market'),
         navItem('🏃', 'Training', '#/training'),
@@ -2611,6 +2612,37 @@ async function screenNews() {
   ));
 }
 
+// ── league stat leaders (§stat-leaders): the division's top scorers + assisters this season ──
+async function screenLeaders() {
+  const alive = screenGuard();
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading the leaderboards…')));
+  let d: LeadersT;
+  try { d = await api.leaders(); }
+  catch (e: any) {
+    if (String(e.message).includes('no team')) return screenCreateTeam();
+    if (!alive()) return;
+    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message),
+      h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenLeaders() }, '↻ Retry')));
+  }
+  const board = (title: string, unit: string, rows: LeadersT['scorers']) => h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, title),
+    rows.length
+      ? h('table', {}, h('tbody', {}, ...rows.map((r, i) => h('tr', { class: r.isMine ? 'me' : '' },
+          h('td', { class: 'num', style: 'width:26px' }, String(i + 1)),
+          h('td', {}, r.name, h('span', { class: 'muted', style: 'font-size:11px' }, ` ${r.role}`), r.isMine ? h('span', { class: 'pill', style: 'margin-left:6px' }, 'you') : ''),
+          h('td', { class: 'muted', style: 'font-size:12px' }, r.club),
+          h('td', { class: 'num', style: 'font-weight:700' }, String(r.value))))))
+      : h('div', { class: 'muted', style: 'font-size:13px' }, `No ${unit} yet — the table fills as the season plays out.`));
+  if (!alive()) return;
+  mount(header(), h('div', { class: 'wrap grid' },
+    h('div', { class: 'between' },
+      h('div', {}, h('h2', {}, 'Stat leaders'), h('div', { class: 'muted' }, `${d.division} · this season`)),
+      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    h('div', { class: 'grid cols-2', style: 'align-items:start' },
+      board('🥇 Top scorers', 'goals', d.scorers),
+      board('🅰️ Top assists', 'assists', d.assists))));
+}
+
 // ── player profile (personality + the story↔traits coupling) ──
 const TRAIT_LABELS: { key: string; label: string }[] = [
   { key: 'professionalism', label: 'Professionalism' }, { key: 'consistency', label: 'Consistency' },
@@ -3698,6 +3730,7 @@ function route() {
   else if (hash === '#/academy') screenAcademy();
   else if (hash.startsWith('#/teamtalk/')) screenTeamTalk(Number(hash.split('/')[2]));
   else if (hash === '#/news') screenNews();
+  else if (hash === '#/leaders') screenLeaders();
   else if (hash === '#/squad') screenSquad();
   else if (hash === '#/staff') screenStaff();
   else if (hash === '#/finances') screenFinances();

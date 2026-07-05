@@ -28,6 +28,7 @@ import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
 import { interactWithPlayer, isInteractTone } from './interaction.ts';
+import { leagueLeaders } from './leaders.ts';
 import { getConcerns, resolveConcern, type ConcernAction } from './concerns.ts';
 import { getBoardMeeting, requestBoardBacking, type BoardRequestKind } from './board.ts';
 import { getManagerCareer, managerReputation } from './career.ts';
@@ -617,6 +618,16 @@ app.post('/api/press', async (req: any, reply) => {
   } finally {
     pressInFlight.delete(teamId);
   }
+});
+
+// §stat-leaders: the current division's top scorers + top assisters this season.
+app.get('/api/leaders', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const l = leagueLeaders(teamId);
+  if (!l) return reply.code(404).send({ error: 'no team' });
+  return l;
 });
 
 // §player-interaction: a private 1-to-1 word with one player (praise/encourage/warn/criticise) that moves

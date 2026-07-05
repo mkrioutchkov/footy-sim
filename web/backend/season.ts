@@ -196,7 +196,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       resetFitness(l.id);                              // pre-season: everyone reports back fit
       resetMorale(l.id);                               // and morale resets to fresh optimism
       db.prepare('UPDATE teams SET last_press_round = NULL, last_press_tone = NULL WHERE league_id = ?').run(l.id);   // press cadence + pending press-arc tone reset with the fixtures (§2.14, §P2#8)
-      db.prepare('UPDATE players SET season_rating_sum = 0, season_apps = 0, last_interact_round = NULL WHERE team_id IN (SELECT id FROM teams WHERE league_id = ?)').run(l.id);   // fresh rating tally + reset the 1-to-1 interaction cooldown
+      db.prepare('UPDATE players SET season_rating_sum = 0, season_apps = 0, season_goals = 0, season_assists = 0, last_interact_round = NULL WHERE team_id IN (SELECT id FROM teams WHERE league_id = ?)').run(l.id);   // fresh rating + goal/assist tally + reset the 1-to-1 interaction cooldown
       // the old fixtures are about to vanish — drop their recordings + cached reports too, so
       // those tables don't accumulate rows (and gzip files) keyed to dead fixture ids.
       const oldFixtures = (db.prepare('SELECT id FROM fixtures WHERE league_id = ?').all(l.id) as { id: number }[]).map(r => r.id);

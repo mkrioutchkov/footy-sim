@@ -10,6 +10,7 @@ import { db } from './db.ts';
 import { getTeamWithPlayers, fieldedXIIndices, ROLE_SLOTS, DEFAULT_TACTICS, type SetPieceTakers } from './game.ts';
 import { compilePlanEdit, EMPTY_PLAN, type Plan, type SquadPlayer } from './plan.ts';
 import { getTeamTalkDeltas, consumeTeamTalk } from './teamtalk.ts';
+import { tallyFixtureStats } from './leaders.ts';
 import type { Directive } from './tactics.ts';
 import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation, engineRole } from './formations.ts';
 
@@ -540,6 +541,7 @@ export function playFixture(fixtureId: number): Promise<PlayResult> {
   return runEngineSummary(specPath).then(({ homeScore, awayScore, players }) => {
     db.prepare('UPDATE fixtures SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, fixtureId);
     consumeTeamTalk(fixtureId);   // §2.13: a pre-match talk is a one-off — spent once the match is played
+    tallyFixtureStats(fixtureId, players);   // §stat-leaders: both clubs' goals/assists → the division leaderboard (once)
     return { fixtureId, homeScore, awayScore, alreadyPlayed: false, players };
   });
 }

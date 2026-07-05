@@ -46,7 +46,7 @@ function ratePlayer(p: { role: string; goals: number; assists: number; shots: nu
   return Math.max(1, Math.min(10, Math.round(r * 10) / 10));
 }
 
-export interface RatedPlayer { id: number; name: string; team: 'home' | 'away'; role: string; rating: number; goals: number; sentOff: boolean }
+export interface RatedPlayer { id: number; name: string; team: 'home' | 'away'; role: string; rating: number; goals: number; assists: number; sentOff: boolean }
 // Ratings straight off a --summary run's per-player stats — the cheap path the aftermath uses instead of
 // scanning the frame recording (same ratePlayer model + the same inputs the final frame would carry), so
 // ratings/news/morale never depend on a (slow, opt-in) recording.
@@ -56,7 +56,7 @@ export function ratePlayers(players: SummaryPlayer[], homeScore: number, awaySco
     const lost = p.team === 'home' ? homeScore < awayScore : awayScore < homeScore;
     const conceded = p.team === 'home' ? awayScore : homeScore;
     return {
-      id: p.id, name: p.name, team: p.team, role: p.role, goals: p.goals, sentOff: p.sentOff,
+      id: p.id, name: p.name, team: p.team, role: p.role, goals: p.goals, assists: p.assists, sentOff: p.sentOff,
       rating: ratePlayer({ role: p.role, goals: p.goals, assists: p.assists, shots: p.shots, tackles: p.tackles, passes: p.passes, passesCompleted: p.passesCompleted, yellow: p.yellow, sentOff: p.sentOff }, won, lost, conceded),
     };
   });

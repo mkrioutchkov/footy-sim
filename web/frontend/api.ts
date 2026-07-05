@@ -120,6 +120,9 @@ export interface TacticsReviewT { side?: 'home' | 'away'; scores?: { home: numbe
 
 export interface NewsItemT { player: string; type: 'hat_trick' | 'brace' | 'red_card' | 'star' | 'long_injury' | 'pots' | 'young_pots' | 'press'; headline: string; season: number; slot: number; }
 
+export interface LeaderRowT { name: string; club: string; role: string; value: number; isMine: boolean; }
+export interface LeadersT { division: string; scorers: LeaderRowT[]; assists: LeaderRowT[]; }
+
 export interface ScoutAttrT { key: string; lo: number; hi: number; }
 export interface ScoutPlayerT { name: string; role: string; age: number; overall: number; potential: number | null; danger: boolean; attrs: ScoutAttrT[] | null; }
 export interface ScoutFormT { round: number; opponent: string; venue: 'H' | 'A'; gf: number; ga: number; result: 'W' | 'D' | 'L'; }
@@ -254,6 +257,7 @@ export const api = {
   tactics: (fixtureId: number) => req<TacticsReviewT>('GET', `/tactics?fixture=${fixtureId}`),
   scout: (fixtureId: number) => req<ScoutT>('GET', `/scout?fixture=${fixtureId}`),
   news: (limit?: number) => req<{ news: NewsItemT[] }>('GET', limit ? `/news?limit=${limit}` : '/news'),
+  leaders: () => req<LeadersT>('GET', '/leaders'),
   history: () => req<{ history: SeasonHistoryT[]; records: ClubRecordsT }>('GET', '/history'),
   staff: () => req<StaffViewT>('GET', '/staff'),
   hireStaff: (staffId: number) => req<StaffViewT & { name?: string }>('POST', '/staff/hire', { staffId }),
