@@ -346,12 +346,18 @@ void GameEngine::releaseGoalKick(Player& holder) {
             // openness (nearestOpp>42) + clean-lane gates below are UNCHANGED, so it only plays out
             // to a SAFE option — no added risk, just fewer needless punts.
             if (d < 42.0 || d > 320.0) continue;
+            // Press-aware openness (same as releaseGoalkeeperDistribution): the
+            // receiver must still be open when the ball ARRIVES, not just now —
+            // opponents are projected along their velocity over the flight.
+            double eta = d / 300.0 + 1.0;
             double nearestOpp = 1e9;
             for (auto& o : state.players) {
                 if (!isActiveOpponent(o, holder.team)) continue;
-                nearestOpp = std::min(nearestOpp, dist(o.x, o.y, p.x, p.y));
+                double now = dist(o.x, o.y, p.x, p.y);
+                double soon = dist(o.x + o.vx * eta * 0.85, o.y + o.vy * eta * 0.85, p.x, p.y);
+                nearestOpp = std::min(nearestOpp, std::max(std::min(now, soon), now * 0.35));
             }
-            if (nearestOpp <= 42.0) continue;
+            if (nearestOpp <= 58.0) continue;
             if (countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_GK_DIST, 0.12, 0.92) != 0) continue;
             double progress = (p.x - ownGoalX) * fd;
             // GK DISTRIBUTION POLISH: among the safe short options, prefer the MOST OPEN man (most
@@ -527,18 +533,30 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         if (d < 60.0 || d > 520.0) continue;
         double progress = (p.x - ownGoalX) * fd;
         if (progress < -30.0) continue; // never play it back across your own line
+        // Press-aware openness: judge the receiver at BALL ARRIVAL, projecting
+        // each opponent along his velocity over the flight + first-touch window.
+        // "Open now" means nothing under a committed press — watched replay
+        // 3'16: a short ball to a full-back read as open at release, the swarm
+        // arrived with the ball, tackle -> foul -> penalty conceded.
+        double eta = d / 300.0 + 1.0;
         double nearestOpp = 1e9;
         for (auto& o : state.players) {
             if (!isActiveOpponent(o, holder.team)) continue;
-            nearestOpp = std::min(nearestOpp, dist(o.x, o.y, p.x, p.y));
+            double now = dist(o.x, o.y, p.x, p.y);
+            double soon = dist(o.x + o.vx * eta * 0.85, o.y + o.vy * eta * 0.85, p.x, p.y);
+            nearestOpp = std::min(nearestOpp, std::max(std::min(now, soon), now * 0.35));
         }
         int laneBlockers = countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_GK_DIST, 0.12, 0.92);
         bool clearLane = laneBlockers == 0;
-        // "Safe" = near-certain to complete: a clean lane, a reasonably open
-        // receiver, a short-to-mid ball. The keeper releases only on these and
-        // otherwise HOLDS (he can't be tackled — attemptTackle bails on a GK
-        // carrier — so waiting for a lane costs nothing and never gifts it).
-        bool safe = clearLane && nearestOpp > 40.0 && d < 320.0;
+        // "Safe" = near-certain to complete AND playable on arrival: a clean
+        // lane, a receiver still open when the ball gets there, a short-to-mid
+        // ball. The keeper releases only on these and otherwise HOLDS (he can't
+        // be tackled — attemptTackle bails on a GK carrier — so waiting for a
+        // lane costs nothing and never gifts it). Under a real swarm the bar
+        // rises: a marginal short ball into a packed box is how the 3'16
+        // penalty happened.
+        double openNeed = closeKeeperPressure >= 2 ? 85.0 : 58.0;
+        bool safe = clearLane && nearestOpp > openNeed && d < 320.0;
         double roleBonus = sp::weight(sp::DIST_SAFE, p.role);
         double openness = clamp(nearestOpp / 90.0, 0.0, 1.0);
         double prox = 1.0 - clamp(d / 520.0, 0.0, 1.0); // shorter = safer

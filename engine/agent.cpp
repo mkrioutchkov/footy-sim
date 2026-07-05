@@ -146,21 +146,41 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             a.push_back(cdv);
         }
 
-        // ── Hoof under pressure ── A deep player swarmed with no safe outlet
-        // boots it long upfield rather than gifting possession in a dangerous
-        // area. Routed through Clear (scattered forcePassTo) so it's an honest
-        // 50/50 clearance toward the forwards, not a measured pass.
+        // ── Hoof under pressure / panic clearance ── A deep player with the
+        // press ARRIVING (projected along the pressers' velocities, not just
+        // standing near) and no safe outlet boots it long rather than gifting
+        // possession in a dangerous area. Routed through Clear (scattered
+        // forcePassTo) so it's an honest 50/50 clearance toward the forwards,
+        // not a measured pass. Watched replay 3'16-3'18: a full-back received
+        // deep in his own box with the swarm converging, stood on the ball
+        // (static pressureCount hadn't ticked to 2 yet), was tackled — penalty
+        // conceded. The emergency case fires on CLOSING pressure and outbids
+        // everything except a genuinely clean pass out.
         {
             double prog = pitch::forwardProgress(player.x, player.team);
-            if (prog < PITCH_W * 0.30 && per.pressureCount >= 2) {
+            double oppSoon = 1e9;
+            if (prog < PITCH_W * 0.30) {
+                for (auto& o : engine.state.players) {
+                    if (!isActiveOpponent(o, player.team)) continue;
+                    double now = dist(o.x, o.y, player.x, player.y);
+                    double soon = dist(o.x + o.vx * 0.8, o.y + o.vy * 0.8, player.x, player.y);
+                    oppSoon = std::min(oppSoon, std::min(now, soon));
+                }
+            }
+            bool emergency = prog < 200.0 && oppSoon < 48.0 && per.nearestOpponentDist < 78.0;
+            bool swarmed = prog < PITCH_W * 0.30 && per.pressureCount >= 2;
+            if (emergency || swarmed) {
                 double bestSafe = 0.0;
                 for (auto& x : a)
                     if (x.type == ActionType::Pass) bestSafe = std::max(bestSafe, x.audit.expectedCompletion);
-                if (bestSafe < 0.60) {
+                if (bestSafe < (emergency ? 0.70 : 0.60)) {
                     Player* tgt = nullptr; double bestFx = -1e9;
                     for (auto& t : engine.state.players) {
                         if (t.team != player.team || t.id == player.id || t.role == Role::GK) continue;
-                        double fx = pitch::forwardProgress(t.x, player.team);
+                        // The panic ball goes long AND wide — up the channel,
+                        // not through the middle where losing it is fatal.
+                        double fx = pitch::forwardProgress(t.x, player.team)
+                                  + pitch::lateralFromCenter(t.y) * 0.35;
                         if (fx > bestFx) { bestFx = fx; tgt = &t; }
                     }
                     if (tgt) {
@@ -168,7 +188,9 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                         au.distance = dist(player.x, player.y, tgt->x, tgt->y);
                         au.forwardProgress = (tgt->x - player.x) * fdFor(player.team);
                         au.expectedCompletion = 0.4;
-                        a.push_back(Action{ActionType::Pass, 0.74 + (per.pressureCount - 2) * 0.05,
+                        double sc = emergency ? 1.05 + per.pressureCount * 0.05
+                                              : 0.74 + std::max(0, per.pressureCount - 2) * 0.05;
+                        a.push_back(Action{ActionType::Pass, sc,
                                            tgt, 0, 0, ActionPurpose::Clear, au});
                     }
                 }
@@ -227,7 +249,12 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             // (pc counts opponents within 60px = 6m, which made the brake a no-op
             // once the assigned presser arrived — i.e. always.)
             bool tightPress = per.nearestOpponentDist < 30.0 || pc >= 2;
-            if (!tightPress && x.type == ActionType::Pass && !killerBall && !lineBreakOutlet) {
+            // A panic Clear is never "composing" — braking it (esp. the −2.0
+            // hard gate below: Clear is a Pass, deep zone, fresh touch — all
+            // three conditions of a panic situation) left the swarmed deep
+            // receiver standing on the ball until the tackle arrived.
+            bool panicClear = x.purpose == ActionPurpose::Clear;
+            if (!tightPress && x.type == ActionType::Pass && !killerBall && !lineBreakOutlet && !panicClear) {
                 if      (holdTicks < 60)  x.score -= 0.26;   // <1.0s: just took the touch
                 else if (holdTicks < 110) x.score -= 0.16;   // <1.8s: still composing
                 else if (holdTicks < 170) x.score -= 0.07;   // <2.8s: about ready
