@@ -3036,6 +3036,46 @@ async function screenPlayer(slot: number) {
         r.career.length > 1 ? h('tr', { style: 'font-weight:700' }, td('Total', true), td('', true), td(String(tot.apps)), td(String(tot.goals)), td(String(tot.assists)), td(totAvg)) : ''))));
   }).catch(() => { if (alive()) careerBody.replaceChildren(h('div', { class: 'muted', style: 'font-size:12px' }, 'Career history unavailable.')); });
 
+  // §attr-progression: the Development graph — an attribute (or overall) plotted over every matchday the
+  // squad trained (attr_snapshots, one point per developed matchday). Loads async; needs ≥2 points to draw.
+  const progBody = h('div', { class: 'muted', style: 'font-size:12px' }, 'Loading development…');
+  const progressionCard = h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Development graph'), progBody);
+  api.playerProgression(slot).then(r => {
+    if (!alive()) return;
+    const snaps = r.progression;
+    if (snaps.length < 2) { progBody.replaceChildren(h('div', { class: 'muted', style: 'font-size:12px' }, 'Not enough history yet — his line fills in as the squad trains each matchday.')); return; }
+    const series = [{ key: 'ovr', label: 'Overall' }, ...SQUAD_ATTRS.map(([k, abbr]) => ({ key: k, label: abbr }))];
+    const sel = h('select', { style: 'width:auto;font-size:12px;padding:3px 6px', 'aria-label': 'Attribute to graph' }, ...series.map(s => h('option', { value: s.key }, s.label))) as HTMLSelectElement;
+    const chartHost = h('div', {});
+    const valAt = (snap: typeof snaps[number], key: string): number => key === 'ovr' ? snap.ovr : Math.round(snap.attrs[key] ?? 0);
+    const drawChart = () => {
+      const key = sel.value, label = series.find(s => s.key === key)?.label ?? key;
+      const vals = snaps.map(s => valAt(s, key));
+      const lo = Math.max(0, Math.min(...vals) - 2), hi = Math.min(99, Math.max(...vals) + 2);
+      const CW = 320, CH = 90, pad = 8;
+      const px = (i: number) => pad + (i / (snaps.length - 1)) * (CW - 2 * pad);
+      const py = (v: number) => (CH - pad) - ((v - lo) / Math.max(1, hi - lo)) * (CH - 2 * pad);
+      const pts = vals.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
+      const svg = svgEl('svg', { viewBox: `0 0 ${CW} ${CH}`, width: '100%', style: 'display:block;overflow:visible' },
+        svgEl('polyline', { points: pts, fill: 'none', stroke: 'var(--accent,#4ea1ff)', 'stroke-width': 2, 'stroke-linejoin': 'round' }),
+        svgEl('circle', { cx: String(px(snaps.length - 1)), cy: String(py(vals[vals.length - 1])), r: '3', fill: 'var(--accent,#4ea1ff)' }));
+      const delta = vals[vals.length - 1] - vals[0];
+      chartHost.replaceChildren(
+        h('div', { style: 'display:flex;justify-content:space-between;align-items:baseline;font-size:11px;margin-bottom:3px' },
+          h('span', { class: 'muted' }, `S${snaps[0].season} R${snaps[0].round}`),
+          h('span', { style: `font-weight:700;color:${delta > 0 ? 'var(--accent)' : delta < 0 ? '#e8896b' : 'var(--muted)'}` }, `${label} ${vals[vals.length - 1]}${delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : ''}`),
+          h('span', { class: 'muted' }, `S${snaps[snaps.length - 1].season} R${snaps[snaps.length - 1].round}`)),
+        svg);
+    };
+    sel.addEventListener('change', drawChart);
+    progBody.replaceChildren(
+      h('div', { class: 'row', style: 'gap:8px;align-items:center;margin-bottom:6px' }, h('span', { class: 'muted', style: 'font-size:12px' }, 'Track'), sel,
+        h('span', { class: 'muted', style: 'font-size:11px' }, `· ${snaps.length} matchdays`)),
+      chartHost);
+    drawChart();
+  }).catch(() => { if (alive()) progBody.replaceChildren(h('div', { class: 'muted', style: 'font-size:12px' }, 'Development history unavailable.')); });
+
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
@@ -3075,6 +3115,7 @@ async function screenPlayer(slot: number) {
       ),
       interactCard),
     statsCard,
+    progressionCard,
     devCard,
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Personality dials'), traitsEl),

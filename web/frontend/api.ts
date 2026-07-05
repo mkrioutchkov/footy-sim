@@ -56,6 +56,7 @@ export interface PersonalityT {
 }
 export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; fitness?: number; injuredMatches?: number; morale?: number; trainFocus?: string | null; trainIntensity?: string | null; retrainRole?: string | null; roleFamiliarity?: number; seasonGoals?: number; seasonAssists?: number; seasonApps?: number; seasonRatingSum?: number; }
 export interface PlayerSeasonStatT { season: number; club: string; role: string; goals: number; assists: number; apps: number; avgRating: number; }
+export interface AttrSnapshotT { season: number; round: number; ovr: number; attrs: Record<string, number>; }
 export interface TeamT {
   id: number; name: string; manager: string; leagueId: number;
   userId: number | null; tactics: Tactics; players: PlayerT[];
@@ -256,6 +257,7 @@ export const api = {
   press: (text: string, tone?: string) => req<{ reactions: { slot: number; name: string; delta: number; quote?: string }[]; lifted: number; unsettled: number; boardDelta?: number; confidence?: { value: number; status: string } | null; team: TeamT }>('POST', '/press', { text, tone }),
   interactPlayer: (slot: number, tone: string) => req<{ ok: boolean; delta: number; morale: number; reaction: string; name: string }>('POST', `/player/${slot}/interact`, { tone }),
   playerCareer: (slot: number) => req<{ career: PlayerSeasonStatT[] }>('GET', `/player/${slot}/career`),
+  playerProgression: (slot: number) => req<{ progression: AttrSnapshotT[] }>('GET', `/player/${slot}/progression`),
   concerns: () => req<{ concerns: ConcernT[] }>('GET', '/concerns'),
   resolveConcern: (slot: number, action: 'reassure' | 'accept' | 'reject') =>
     req<{ ok: boolean; action: string; moraleDelta?: number; morale?: number; listed?: boolean; askPrice?: number; message: string; concerns: ConcernT[]; team: TeamT }>('POST', `/concerns/${slot}`, { action }),

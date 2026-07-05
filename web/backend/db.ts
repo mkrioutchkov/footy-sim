@@ -464,6 +464,24 @@ CREATE TABLE IF NOT EXISTS training_reports (
   created_at     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_training_reports_team ON training_reports(team_id, id);
+
+-- Append-only attribute-progression history (Development Centre graph on the player profile). Unlike
+-- training_reports (latest-only), this keeps one snapshot per human-club player per developed matchday
+-- so a player's growth curve can be drawn over a career. Written inside developmentTick for user clubs
+-- only (~20 rows/matchday), keyed by stable players.id + season + round. Survives rollover (append-only
+-- history), so DON'T reset it in season.ts. avg/overall stored so the graph needs no client recompute.
+CREATE TABLE IF NOT EXISTS attr_snapshots (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id  INTEGER NOT NULL,   -- stable players.id (follows the player across seasons/clubs)
+  team_id    INTEGER NOT NULL,   -- club at snapshot time (snapshot; not a FK)
+  season     INTEGER NOT NULL,
+  round      INTEGER NOT NULL,   -- the matchday just developed
+  ovr        INTEGER NOT NULL,   -- overall(after)
+  attrs      TEXT NOT NULL,      -- json, same shape as players.attrs
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attr_snap_player_round ON attr_snapshots(player_id, season, round);
+CREATE INDEX IF NOT EXISTS idx_attr_snap_player ON attr_snapshots(player_id, id);
 `);
 
 // Training & Coaches columns on staff + training_reports (added here, after their CREATE TABLE above —

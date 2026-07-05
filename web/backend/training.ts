@@ -319,8 +319,9 @@ export function developmentTick(leagueId: number): { players: number } {
     if (v === undefined) { v = categoryCoachFactor(tid, assignment, cat); catFactorCache.set(key, v); }
     return v;
   };
-  // Collect report lines per human-managed team as we develop their players.
-  const reports = new Map<number, { focus: string; lines: TrainLine[] }>();
+  // Collect report lines per human-managed team as we develop their players (+ the post-tick attribute
+  // vectors, for the append-only progression history — attr_snapshots).
+  const reports = new Map<number, { focus: string; lines: TrainLine[]; snaps: { playerId: number; ovr: number; attrs: Record<string, number> }[] }>();
   let n = 0;
   for (const r of rows) {
     if (r.potential == null) continue;
@@ -352,16 +353,37 @@ export function developmentTick(leagueId: number): { players: number } {
     n++;
     if (r.user_id != null) {
       let rep = reports.get(r.team_id);
-      if (!rep) { rep = { focus: clubFocus, lines: [] }; reports.set(r.team_id, rep); }
+      if (!rep) { rep = { focus: clubFocus, lines: [], snaps: [] }; reports.set(r.team_id, rep); }
       rep.lines.push(explainTraining(before, after, r, r.age, traits, focus, r.player_focus != null, r.morale, coachF, harmonyF, dampen));
+      rep.snaps.push({ playerId: r.id, ovr: overall(after), attrs: after });
     }
   }
   if (reports.size) {
     const round = (db.prepare('SELECT MAX(round) AS r FROM fixtures WHERE league_id = ? AND played = 1').get(leagueId) as { r: number | null }).r ?? 0;
     const season = (db.prepare('SELECT season FROM leagues WHERE id = ?').get(leagueId) as { season: number } | undefined)?.season ?? 1;
-    for (const [teamId, rep] of reports) recordTrainingReport(teamId, season, round, rep.focus, rep.lines, coachOf(teamId), harmonyOf(teamId), categoryBoard(teamId));
+    for (const [teamId, rep] of reports) {
+      recordTrainingReport(teamId, season, round, rep.focus, rep.lines, coachOf(teamId), harmonyOf(teamId), categoryBoard(teamId));
+      recordAttrSnapshots(teamId, season, round, rep.snaps);
+    }
   }
   return { players: n };
+}
+
+// One attribute snapshot per developed player this matchday (append-only progression history). Idempotent
+// per (player, season, round) via INSERT OR IGNORE + the unique index, so a watch-then-advance replay of
+// the same matchday can't double-write. Human clubs only (the caller only stashes snaps for user teams).
+export interface AttrSnapshot { season: number; round: number; ovr: number; attrs: Record<string, number> }
+function recordAttrSnapshots(teamId: number, season: number, round: number, snaps: { playerId: number; ovr: number; attrs: Record<string, number> }[]): void {
+  const ins = db.prepare('INSERT OR IGNORE INTO attr_snapshots (player_id, team_id, season, round, ovr, attrs, created_at) VALUES (?,?,?,?,?,?,?)');
+  const now = Date.now();
+  for (const s of snaps) ins.run(s.playerId, teamId, season, round, s.ovr, JSON.stringify(s.attrs), now);
+}
+
+// A player's full attribute-progression series, oldest first (for the profile's development graph).
+export function getAttrProgression(playerId: number): AttrSnapshot[] {
+  const rows = db.prepare('SELECT season, round, ovr, attrs FROM attr_snapshots WHERE player_id = ? ORDER BY season, round')
+    .all(playerId) as { season: number; round: number; ovr: number; attrs: string }[];
+  return rows.map(r => ({ season: r.season, round: r.round, ovr: r.ovr, attrs: (() => { try { return JSON.parse(r.attrs) as Record<string, number>; } catch { return {}; } })() }));
 }
 
 // Persist (and prune to) the latest training report for a club. Latest-only keeps the table tiny
