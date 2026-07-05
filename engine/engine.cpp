@@ -914,7 +914,22 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             // spot, not just 96px away — radial spacing let defenders stand
             // on the goal line and wall up the shot.
             bool goalSide = pen && (p.x - setPiece.spotX) * fdAtt > -12.0;
-            if (d >= minDist && !goalSide) continue;
+            // Law 14 backstop: OUTSIDE the area too — the radial test alone let
+            // the crowd camp in the 55px strip between the box edge and the
+            // mark (watched replay: ten players inside the area at the kick).
+            double boxEdgeBack = PENALTY_AREA_W - PENALTY_SPOT_FROM_GOAL; // 55
+            bool penBoxIntruder = pen && !goalSide
+                && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 8.0
+                && (p.x - (setPiece.spotX - fdAtt * boxEdgeBack)) * fdAtt > -6.0;
+            // Law 16 (2019): opponents stay OUT of the area until a goal kick
+            // is played — they pressed from inside the box before the kick.
+            bool gkBoxIntruder = false;
+            if (setPiece.type == SetPiece::GoalKick && p.team != restartTeam) {
+                double og = ownGoalXFor(restartTeam);
+                gkBoxIntruder = (p.x - og) * fdAtt < PENALTY_AREA_W + 6.0
+                             && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 10.0;
+            }
+            if (d >= minDist && !goalSide && !penBoxIntruder && !gkBoxIntruder) continue;
             if (d < 1.0) {
                 double fd = fdFor(p.team);
                 dx = -fd;
@@ -924,9 +939,19 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             double tx = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
             double ty = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
             if (goalSide) {
-                tx = clamp(setPiece.spotX - fdAtt * 40.0, 5.0, PITCH_W - 5.0);
+                // Behind the box EDGE in one move, not just behind the mark —
+                // re-resolving a goal-side player to 40px back still left him
+                // standing inside the area.
+                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
                 double sideOff = p.y >= setPiece.spotY ? 1.0 : -1.0;
                 ty = clamp(setPiece.spotY + sideOff * std::max(std::abs(p.y - setPiece.spotY), 90.0), 5.0, PITCH_H - 5.0);
+            } else if (penBoxIntruder) {
+                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
+                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
+            } else if (gkBoxIntruder) {
+                double og = ownGoalXFor(restartTeam);
+                tx = clamp(og + fdAtt * (PENALTY_AREA_W + 16.0), 5.0, PITCH_W - 5.0);
+                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
             }
             // Jog out of the restart radius rather than teleporting there.
             // Urgent pace: at walking speed the agents' own pull toward the

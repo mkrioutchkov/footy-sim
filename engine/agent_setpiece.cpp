@@ -1,6 +1,20 @@
 #include "engine.h"
 #include "agent.h"
 
+// Law 14 stand-back: how far behind the penalty MARK a player must stand, for a
+// given lateral offset from the mark, to be legal — outside the 9.15m arc AND
+// outside the area (the box edge sits PENALTY_AREA_W - PENALTY_SPOT_FROM_GOAL =
+// 55 beyond the mark, so the radial test alone parks players inside the box).
+static double penaltyLegalStandback(double dyOff) {
+    double arcNeed = 0.0;
+    double r2 = 96.0 * 96.0 - dyOff * dyOff;
+    if (r2 > 0.0) arcNeed = std::sqrt(r2);
+    double boxNeed = std::abs(dyOff) < PENALTY_AREA_H / 2.0 + 14.0
+                         ? (PENALTY_AREA_W - PENALTY_SPOT_FROM_GOAL) + 14.0
+                         : 22.0;
+    return std::max(arcNeed + 8.0, boxNeed);
+}
+
 void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
     auto& p = player;
     if (isGoalkeeper()) return;
@@ -38,9 +52,12 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.3);
             }
         } else if (spType == SetPiece::Penalty) {
+            // Law 14 (watched replay: ten players INSIDE the area at the kick):
+            // rebound-hunters line the edge of the D, everyone legal.
             if (isCenterForward() || isCentralMidfielder()) {
-                p.targetX = engine.state.ball.x - fd * (45.0 + std::abs(slotA) * 55.0);
-                p.targetY = PITCH_H / 2.0 + slotB * 110.0;
+                double dyOff = slotB * 150.0;
+                p.targetX = engine.state.ball.x - fd * penaltyLegalStandback(dyOff);
+                p.targetY = PITCH_H / 2.0 + dyOff;
             } else {
                 p.targetX = engine.state.ball.x - fd * (90.0 + std::abs(slotA) * 80.0);
                 p.targetY = p.homeY;
@@ -121,15 +138,18 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                 p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.25);
             }
         } else if (spType == SetPiece::Penalty) {
-            if (isGoalkeeper()) {
-                p.targetX = ownGoalX;
-                p.targetY = PITCH_H / 2.0;
-            } else if (isDefenderRole()) {
-                p.targetX = engine.state.ball.x + fd * (45.0 + std::abs(slotA) * 55.0);
-                p.targetY = PITCH_H / 2.0 + slotB * 120.0;
+            // Law 14, defending side: back line rings the D to sweep the
+            // rebound; midfield/front stagger just outside it as the outlet.
+            // (The old GK case here was dead — isGoalkeeper() returns at the
+            // top; enforceRestartDistance walks the keeper to his line.)
+            if (isDefenderRole()) {
+                double dyOff = slotB * 170.0;
+                p.targetX = engine.state.ball.x + fd * (penaltyLegalStandback(dyOff) + 4.0);
+                p.targetY = PITCH_H / 2.0 + dyOff;
             } else {
-                p.targetX = engine.state.ball.x + fd * (75.0 + std::abs(slotA) * 75.0);
-                p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.35);
+                double dyOff = (p.homeY - PITCH_H / 2.0) * 0.65;
+                p.targetX = engine.state.ball.x + fd * (penaltyLegalStandback(dyOff) + 30.0 + std::abs(slotA) * 60.0);
+                p.targetY = PITCH_H / 2.0 + dyOff;
             }
         } else if (spType == SetPiece::FreeKick) {
             double bx = engine.state.ball.x;
