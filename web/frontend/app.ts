@@ -2693,6 +2693,17 @@ async function screenPlayer(slot: number) {
   // squad role-average, for the per-attribute delta on the profile ("how good a CB is he for MY squad?")
   const sameRole = team.players.filter(x => x.role === p.role);
   const roleAvg = (k: string): number => sameRole.length ? sameRole.reduce((s, x) => s + (x.attrs[k] ?? 0), 0) / sameRole.length : 0;
+  // development outlook — reads age vs headroom-to-potential the same way the dev tick does (grow young /
+  // plateau / decline past ~30), so a manager sees whether a player is still a project or on the slide.
+  const headroom = (p.potential ?? ovr) - ovr;
+  const devOutlook: { icon: string; text: string; color: string } | null = (() => {
+    const age = p.age ?? 24;
+    if (age <= 23 && headroom >= 3) return { icon: '🌱', text: `Developing — ${headroom} OVR of headroom to his ${p.potential} ceiling`, color: 'var(--accent)' };
+    if (age <= 29 && headroom >= 2) return { icon: '↗', text: `Still improving — ${headroom} to his ${p.potential} ceiling`, color: '#7fb2ff' };
+    if (age >= 31) return { icon: '↘', text: 'Past his peak — likely to decline as he ages', color: '#e8896b' };
+    if (headroom <= 1 && age >= 24) return { icon: '◎', text: 'At his ceiling — settled at this level', color: 'var(--muted)' };
+    return null;
+  })();
 
   // §2.2 contract negotiation: this player's live renewal talks (pending / countered), best-effort.
   let myOffer: ContractOfferT | null = null;
@@ -2805,6 +2816,7 @@ async function screenPlayer(slot: number) {
         // Development state (focus / intensity / retraining) + a "seeking a move" flag — both were only
         // visible on other screens; the profile is where a manager reads a single player, so surface them here.
         trainingSummary(p) ? h('div', { class: 'muted', style: 'font-size:12px' }, `🎯 ${trainingSummary(p)}`) : '',
+        devOutlook ? h('div', { class: 'muted', style: `font-size:12px;color:${devOutlook.color}` }, `${devOutlook.icon} ${devOutlook.text}`) : '',
         seekingMove(p) ? h('div', { style: 'font-size:12px;margin-top:2px' },
           h('span', { class: 'pill', title: 'Running down his contract and unsettled — likely to push for a move', style: 'background:var(--danger);color:#fff;font-size:9px' }, 'seeking a move')) : ''),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
@@ -3535,6 +3547,20 @@ async function screenSquad() {
       (p.injuredMatches ?? 0) > 0 || (p.morale ?? 100) < 40 || seekingMove(p) || (p.contractYears ?? 9) <= 1;
     const matchesRoleAttn = (p: PlayerT): boolean =>
       (!squadView.roleF || p.role === squadView.roleF) && (!squadView.attn || needsAttention(p));
+    // squad-strength summary (filter-independent — squad-wide read)
+    const xi = players.filter(p => p.slot < 11);
+    const xiOvr = xi.length ? Math.round(xi.reduce((s, p) => s + skillOvr(p.attrs), 0) / xi.length) : 0;
+    const avgAge = players.length ? Math.round(players.reduce((s, p) => s + (p.age ?? 0), 0) / players.length) : 0;
+    const attnCount = players.filter(needsAttention).length;
+    const statChip = (label: string, val: string, color = '') => h('div', { style: 'min-width:84px' },
+      h('div', { style: `font-size:20px;font-weight:700${color ? `;color:${color}` : ''}` }, val),
+      h('div', { class: 'muted', style: 'font-size:11px' }, label));
+    const strengthCard = h('div', { class: 'card', style: 'display:flex;gap:20px;flex-wrap:wrap;align-items:center' },
+      statChip('XI avg OVR', String(xiOvr)),
+      statChip('Squad avg age', `${avgAge}y`),
+      statChip('Need attention', String(attnCount), attnCount ? '#ffb84d' : ''),
+      (team.wageBill != null && team.wageBudget != null)
+        ? statChip('Wage bill', `${fmtMoney(team.wageBill)}`, team.wageBill > team.wageBudget ? 'var(--danger)' : '') : '');
     const tbody = h('tbody');
     for (const p of sorted.filter(matchesRoleAttn)) {
       const ovr = skillOvr(p.attrs);
@@ -3703,6 +3729,7 @@ async function screenSquad() {
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain (click the armband to set — a strong leader steadies squad morale) · click a header to sort`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+      strengthCard,
       h('div', { class: 'card' }, filterBar, h('div', { class: 'scroll-x' }, h('table', {}, thead, tbody))),
       h('div', { class: 'grid cols-2', style: 'align-items:start' }, conditionCard, rotationCard || h('div')),
       h('div', { class: 'grid cols-2', style: 'align-items:start' },
