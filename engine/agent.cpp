@@ -179,6 +179,11 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                         if (t.team != player.team || t.id == player.id || t.role == Role::GK) continue;
                         // The panic ball goes long AND wide — up the channel,
                         // not through the middle where losing it is fatal.
+                        // (A "directed outlet into a breakaway runner's path"
+                        // variant was A/B'd here and REVERTED: even gated to
+                        // 130px-ahead sprinters projected 70px free, it
+                        // re-tagged ~5 hoofs/match as through balls and
+                        // halved conversion — the lever needs its own pass.)
                         double fx = pitch::forwardProgress(t.x, player.team)
                                   + pitch::lateralFromCenter(t.y) * 0.35;
                         if (fx > bestFx) { bestFx = fx; tgt = &t; }

@@ -852,9 +852,6 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     // Populate throw-in support targets once per set piece.
     populateThrowInSupport(spTeam);
 
-    for (auto& a : agents) {
-        a->setPiecePositioning(setPiece.type, spTeam);
-    }
     auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
         double fd = fdFor(taker.team);
         double standBack = standBackFor(setPiece.type);
@@ -994,6 +991,16 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     }
 
     tickAgents(sdt, false);
+    // Restart choreography is AUTHORITATIVE: run it after tickAgents so the
+    // corner/FK/throw shape targets stand. It used to run before — each
+    // player's own shape decision then overwrote his set-piece target on
+    // every decision tick, a tug-of-war that left the box crowd walking in
+    // circles and never arriving (watched replay 0:27: ONE attacker in the
+    // box after nine seconds of an armed corner, everyone else stuck 150px
+    // short with the right targets).
+    for (auto& a : agents) {
+        a->setPiecePositioning(setPiece.type, spTeam);
+    }
     moveBallCarrier(sdt);
     separateTeammates(sdt);
     enforceRestartDistance();

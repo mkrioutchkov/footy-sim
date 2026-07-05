@@ -462,10 +462,31 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     // Gated low + in-box only (genuinely last-ditch).
     if (audit) {
         double clrLine = ownGoalXFor(f.team);
-        if (std::abs(f.x - clrLine) < PENALTY_AREA_W && rng.random() < 0.18) {
-            // (clearance event now emitted at the Clear release site in agent.cpp
-            // for EVERY clearance — emitting here too double-labeled this branch)
-            awardCorner(f.team == Team::Home ? Team::Away : Team::Home, f.team == Team::Home, f.y);
+        if (std::abs(f.x - clrLine) < PENALTY_AREA_W && rng.random() < 0.08) {
+            // (0.18 -> 0.08: the panic-clearance diet grew this session, and
+            // 18% of every deep hoof flying backward off the boot became a
+            // shank factory — corners more than halved once they were real.)
+            // Sliced! Send the REAL ball shanking toward the byline and let
+            // out-of-bounds detection award the corner when it actually
+            // crosses. The old code armed the corner silently and returned —
+            // the physical ball kept rolling INFIELD, then teleported to the
+            // flag (watched replay 0:14: a phantom corner from a clearance
+            // that visibly ran upfield).
+            auto& sb = state.ball;
+            double fdc = fdFor(f.team);
+            double sliceSide = f.y < PITCH_H / 2.0 ? -1.0 : 1.0; // shank toward the nearer corner
+            double svx = -fdc * (130.0 + rng.random() * 80.0);  // toward OWN byline
+            double svy = sliceSide * (70.0 + rng.random() * 90.0);
+            sb.controllerId = -1;
+            placeBallForRelease(f, svx, svy);
+            sb.lastTouchTeam = f.team;
+            sb.lastToucherId = f.id;
+            sb.vx = svx;
+            sb.vy = svy;
+            sb.z = 4.0;
+            sb.vz = 90.0 + rng.random() * 70.0; // scuffed up and spinning
+            sb.intendedReceiverId = -1;
+            blockReboundFor(f.id, 700);
             return;
         }
     }

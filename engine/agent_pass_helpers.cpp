@@ -71,8 +71,15 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (receiverPressure >= 3) return std::nullopt;
 
     // ── Base scoring ──
+    // Chip-aware blocker pricing: passBallTo already LOFTS a blocked lane at
+    // range (blockers>0 && d>120 => elevation), so bodies on a longer lane
+    // cost less than the flat-ball price said — the lofted diagonal over the
+    // line was "quite likely at this level" (watched replay 0:50) yet scored
+    // as if it would be cut on the ground. Short passes keep the full price
+    // (no room to get it up and over).
+    double blCost = bl * (d > 170.0 ? 0.18 : 0.23);
     double completion = clamp(
-        0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - bl * 0.23
+        0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - blCost
             - std::min(laneRisk, 2.2) * 0.10 - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),
         0.08, 0.98);
     // play_it_long: direct sides gamble on lower-completion (longer) balls. 0 by
@@ -310,7 +317,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (per.pressureCount == 0 && completion < 0.64) sc -= (0.64 - completion) * 0.55;
     if (fp > 110.0 && completion < 0.70) sc -= 0.10;
     if (fp > 180.0 && completion < 0.76) sc -= 0.08;
-    sc -= bl * 0.12;
+    sc -= bl * (d > 170.0 ? 0.09 : 0.12);   // chippable range: the lofted ball goes over (see blCost note)
     sc -= std::min(laneRisk, 2.2) * 0.075;   // steer away from lanes a defender can step into (see pass audit)
     if (fp > 0.0) {
         sc += 0.08 + (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.20;
@@ -405,7 +412,23 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     double onsideGap = std::isnan(offsideLine) ? 1e9 : (offsideLine - t.x) * fd;
 
     bool wideOutletTarget = targetWide && fp > 20.0 && d < 500.0;
+    // Runner intent = speed TOWARD THE GOAL, not raw x-speed: a winger's
+    // diagonal cut between the centre-backs (watched replay 0:46 — full-tilt
+    // run, near-zero vx) never counted as a run under the old t.vx * fd, so
+    // the first-time-shot through ball was never even rated.
     double runnerForwardSpeed = t.vx * fd;
+    {
+        // Only a genuine SPRINT that is mostly goalward counts — crediting any
+        // radial drift flooded the match with hopeful through balls (first cut
+        // of this change: 4.6 -> 14.9 attempts per 10min, completion -2.6pts).
+        double tgx = goalXFor(p.team) - t.x, tgy = PITCH_H / 2.0 - t.y;
+        double tgl = std::hypot(tgx, tgy);
+        double spd = std::hypot(t.vx, t.vy);
+        if (tgl > 1.0 && tgl < 320.0 && spd > 34.0) {
+            double radial = (t.vx * tgx + t.vy * tgy) / tgl;
+            if (radial > spd * 0.55) runnerForwardSpeed = std::max(runnerForwardSpeed, radial);
+        }
+    }
     bool targetAttacker = roles::isAttacker(t.role);
 
     // ── Killer-ball projection ── passBallTo(through=true) LEADS the runner
