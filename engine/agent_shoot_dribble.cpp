@@ -39,13 +39,13 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (!shootOnSight && isWideMidfielder() && pitch::lateralFromCenter(p.y) > 180.0 && shotDistance > 155.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    double mr = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
-    mr += engine.shootDistBias[teamIndex(p.team)];   // shoot_from_distance (+) / work_it_into_box (-); 0 = default
+    double maxShootRange = SHOOT_MIN_DIST + attrFactor(p.attrs.shooting) * (SHOOT_MAX_DIST - SHOOT_MIN_DIST);
+    maxShootRange += engine.shootDistBias[teamIndex(p.team)];   // shoot_from_distance (+) / work_it_into_box (-); 0 = default
     // Clear sight of goal extends range: unpressured with a real opening,
     // a strike from just outside the usual band beats recycling sideways.
     double clearSightBoost = (per.pressureCount == 0 && angleDeg > 9.0) ? 24.0 : 0.0;
     if (shootOnSight) clearSightBoost += 60.0;
-    if (shotDistance > std::min(mr + 18.0 + clearSightBoost, hardMax + 12.0 + clearSightBoost))
+    if (shotDistance > std::min(maxShootRange + 18.0 + clearSightBoost, hardMax + 12.0 + clearSightBoost))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double toGoalX = gx - p.x;
@@ -69,7 +69,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (!freshCross && !freshThrough && !shootOnSight && shotDistance > 195.0 && per.pressureCount >= 2)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / mr) * 0.55;
+    double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / maxShootRange) * 0.55;
     if (shotDistance < 140.0 && per.pressureCount == 0 && angleDeg > 10.0) sc = std::max(sc, 0.38);
     if (shotDistance < 120.0 && per.pressureCount == 0) sc = std::max(sc, 0.30);
     if (shotDistance < 90.0 && per.pressureCount == 0)  sc = std::max(sc, 0.45);

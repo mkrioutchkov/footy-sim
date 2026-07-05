@@ -210,9 +210,9 @@ void PlayerAI::applyMovement(double sdt) {
 
     double px = p.x, py = p.y;
     if (d > 1.0) {
-        double sp = std::min(ms * secs, d);
-        p.x += (dx / d) * sp;
-        p.y += (dy / d) * sp;
+        double step = std::min(ms * secs, d);
+        p.x += (dx / d) * step;
+        p.y += (dy / d) * step;
     }
 
     if (secs > 0.001) {

@@ -62,7 +62,7 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     }
     double goalX = ownGoalXFor(gk.team);
     double fd = fdFor(gk.team);
-    double bdg = std::abs(state.ball.x - goalX);
+    double ballGoalDist = std::abs(state.ball.x - goalX);
     double rushFactor = agentFor(gk)->rushAggression();
     // A live shot is bearing on goal: set the feet, get on the line, track the
     // ball's lateral line — do NOT sweep upfield into the shot's path (a
@@ -72,10 +72,10 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         double bspd = std::hypot(state.ball.vx, state.ball.vy);
         bool shotToGoal = lastLooseOrigin == LooseOrigin::Shot && bspd > 150.0
             && (gk.team == Team::Home ? state.ball.vx < 0 : state.ball.vx > 0)
-            && bdg < 320.0;
+            && ballGoalDist < 320.0;
         if (shotToGoal) {
             double toLine = std::max(std::abs(state.ball.vx), 1.0);
-            double projY = state.ball.y + state.ball.vy * (bdg / toLine);
+            double projY = state.ball.y + state.ball.vy * (ballGoalDist / toLine);
             gk.targetX = goalX + fd * 10.0;
             gk.targetY = clamp(projY, PITCH_H / 2.0 - GOAL_W / 2.0 - 8.0, PITCH_H / 2.0 + GOAL_W / 2.0 + 8.0);
             double mvx = gk.targetX - gk.x, mvy = gk.targetY - gk.y, md = std::hypot(mvx, mvy);
@@ -120,7 +120,7 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     double ballSpeed = std::hypot(state.ball.vx, state.ball.vy);
     bool throughBall = state.ball.intendedReceiverId >= 0 && state.ball.controllerId < 0
         && (fd == 1.0 ? state.ball.vx < 0 : state.ball.vx > 0);
-    bool inArea = bdg < PENALTY_AREA_W && std::abs(state.ball.y - gk.homeY) < PENALTY_AREA_H / 2;
+    bool inArea = ballGoalDist < PENALTY_AREA_W && std::abs(state.ball.y - gk.homeY) < PENALTY_AREA_H / 2;
     Player* carrier = playerById(state.ball.controllerId);
     bool opponentCarrier = carrier && carrier->team != gk.team;
     bool ballLoose = state.ball.controllerId < 0;
@@ -128,7 +128,7 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     bool teammateOutfieldRecovery = ballLoose && intendedReceiver && intendedReceiver->team == gk.team
         && intendedReceiver->role != Role::GK;
     bool keeperEmergency = inArea && (towardGoal || ballSpeed > 160.0)
-        && bdg < 115.0 && std::abs(state.ball.y - gk.homeY) < 145.0;
+        && ballGoalDist < 115.0 && std::abs(state.ball.y - gk.homeY) < 145.0;
     bool deferToTeammate = teammateOutfieldRecovery && !keeperEmergency;
 
     // Sweeper-keeper: an opponent has broken clean through — carrying the ball
@@ -169,28 +169,28 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         gk.targetX = clampRange(meetX, goalX + fd * 6.0, goalX + fd * 175.0);
         gk.targetY = clamp(lerp(gk.y, state.ball.y, 0.6), PITCH_H * 0.10, PITCH_H * 0.90);
     } else if (deferToTeammate) {
-        double supportDepth = clamp(bdg * 0.24, 24.0, 76.0);
+        double supportDepth = clamp(ballGoalDist * 0.24, 24.0, 76.0);
         gk.targetX = goalX + fd * supportDepth;
         gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.16), gk.homeY - 120.0, gk.homeY + 120.0);
     } else if (inArea && ballLoose && (towardGoal || ballSpeed < 180)) {
         double projectedY = towardGoal
-            ? state.ball.y + state.ball.vy * (bdg / std::max(std::abs(state.ball.vx), 1.0))
+            ? state.ball.y + state.ball.vy * (ballGoalDist / std::max(std::abs(state.ball.vx), 1.0))
             : state.ball.y;
-        double stepOut = ballSpeed > 260 ? 28.0 : clamp(bdg * (0.45 + rushFactor * 0.25), 34.0, 145.0 + rushFactor * 35.0);
+        double stepOut = ballSpeed > 260 ? 28.0 : clamp(ballGoalDist * (0.45 + rushFactor * 0.25), 34.0, 145.0 + rushFactor * 35.0);
         gk.targetX = goalX + fd * stepOut;
         gk.targetY = clamp(lerp(state.ball.y, projectedY, 0.45), PITCH_H * 0.13, PITCH_H * 0.87);
     } else if (opponentCarrier && inArea) {
-        gk.targetX = goalX + fd * clamp(bdg * 0.52, 34.0, 135.0);
+        gk.targetX = goalX + fd * clamp(ballGoalDist * 0.52, 34.0, 135.0);
         gk.targetY = clamp(lerp(gk.y, state.ball.y, 0.55), PITCH_H * 0.14, PITCH_H * 0.86);
-    } else if (bdg < GK_RUSH_DIST && ballLoose) {
-        gk.targetX = goalX + fd * clamp(bdg * 0.55, 24.0, 155.0);
+    } else if (ballGoalDist < GK_RUSH_DIST && ballLoose) {
+        gk.targetX = goalX + fd * clamp(ballGoalDist * 0.55, 24.0, 155.0);
         gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);
     } else if (ballInOurHalf) {
         // Angle play: stand ON the ball-goal line, stepping out with threat —
         // narrowing the angle is most of goalkeeping. The old Y-lerp toward
         // the ball left near-post gaps off the line.
-        double standDepth = clamp(14.0 + (PITCH_W * 0.55 - bdg) * 0.10 + agentFor(gk)->rushAggression() * 16.0, 12.0, 64.0);
-        double lineT = clamp(standDepth / std::max(bdg, 1.0), 0.0, 1.0);
+        double standDepth = clamp(14.0 + (PITCH_W * 0.55 - ballGoalDist) * 0.10 + agentFor(gk)->rushAggression() * 16.0, 12.0, 64.0);
+        double lineT = clamp(standDepth / std::max(ballGoalDist, 1.0), 0.0, 1.0);
         gk.targetX = goalX + fd * standDepth;
         gk.targetY = clamp(gk.homeY + (state.ball.y - gk.homeY) * lineT,
                            gk.homeY - GOAL_W * 0.55, gk.homeY + GOAL_W * 0.55);
