@@ -3,6 +3,7 @@
 #include "types.h"
 #include "constants.h"
 #include "role_traits.h"
+#include "role_profile.h"
 #include "rng.h"
 #include <vector>
 #include "small_vector.h"
@@ -113,9 +114,11 @@ public:
     virtual void tick(double sdt);
 
     // ── Role/Area virtual hooks ──
+    // Pure-constant knobs read from the role's RoleProfile row (role_profile.h);
+    // the data lives in that one table, not in six subclass overrides.
     virtual double  roleBonusForPassTarget() const { return 0.0; }
-    virtual double  shotMaxDistance() const { return 225.0; }
-    virtual double  freshCrossMaxDistance() const { return 250.0; }
+    virtual double  shotMaxDistance() const { return profileFor(player.role).shotMaxDistance; }
+    virtual double  freshCrossMaxDistance() const { return profileFor(player.role).freshCrossMaxDistance; }
     virtual double  tackleBaseScore() const { return 0.60; }
     virtual double  tackleRoleAdjust() const { return 0.0; }
     // Distance/skill weights in the tackle score (scoreTackle). Defenders commit on
@@ -123,14 +126,14 @@ public:
     // differently — was a role if/else that recomputed the whole score.
     virtual double  tackleDistCoeff() const { return 0.40; }
     virtual double  tackleSkillCoeff() const { return 0.20; }
-    virtual double  shotScoreBonus() const { return 0.0; }
+    virtual double  shotScoreBonus() const { return profileFor(player.role).shotScoreBonus; }
     virtual double  shotDistancePenalty(double shotDistance) const { (void)shotDistance; return 0.0; }
     // Per-role placement-error offset added to the open-play shot spread — was a
     // role ternary in the shot path (CF tucks it tighter, CM sprays from range).
     virtual double  shotRoleError(bool freshCross, double shotDistance) const { (void)freshCross; (void)shotDistance; return 0.0; }
-    virtual double  freshCrossShotBonus() const { return 0.42; }
-    virtual double  finalThirdShotMaxDistance() const { return 165.0; }
-    virtual double  finalThirdShotMinAngle() const { return 8.0; }
+    virtual double  freshCrossShotBonus() const { return profileFor(player.role).freshCrossShotBonus; }
+    virtual double  finalThirdShotMaxDistance() const { return profileFor(player.role).finalThirdShotMaxDistance; }
+    virtual double  finalThirdShotMinAngle() const { return profileFor(player.role).finalThirdShotMinAngle; }
     virtual double  dribbleOwnHalfExtraPenalty() const { return -0.02; }
     virtual double  openSpaceDribbleBonus(double nearestOppDist) const { (void)nearestOppDist; return 0.0; }
     virtual double  nearGoalDribbleBonus(bool nearGoal, double distToGoal) const { (void)nearGoal; (void)distToGoal; return 0.0; }
@@ -138,9 +141,9 @@ public:
     // in scoreActions (WM/CM most, FB next, rest least). Role-arch migration.
     virtual double  spaceCarryRoleBonus() const { return 0.08; }
     // Shoot-scorer per-role scalars (were role branches in scoreShoot). Role-arch.
-    virtual double  centralShootBonus() const { return 0.0; }    // bonus for shooting from a central position
-    virtual double  wideShootPenalty() const { return 0.08; }    // penalty for shooting from wide (less for wide players)
-    virtual double  closeRangeShootBonus() const { return 0.0; }  // bonus for a close-range central-ish chance
+    virtual double  centralShootBonus() const { return profileFor(player.role).centralShootBonus; }
+    virtual double  wideShootPenalty() const { return profileFor(player.role).wideShootPenalty; }
+    virtual double  closeRangeShootBonus() const { return profileFor(player.role).closeRangeShootBonus; }
     // Role predicates delegate to the role_traits.h taxonomy keyed on player.role,
     // so the role→trait map has ONE definition (see role_traits.h). Kept virtual for
     // the interface; the per-role subclasses no longer need to override these.
@@ -152,7 +155,7 @@ public:
     virtual bool    isCentralMidfielder() const { return roles::isCentralMidfielder(player.role); }
     virtual bool    isWideMidfielder() const { return roles::isWideMidfielder(player.role); }
     virtual bool    isCenterForward() const { return roles::isCenterForward(player.role); }
-    virtual double  nearGoalShotBiasMargin() const { return -1.0; }
+    virtual double  nearGoalShotBiasMargin() const { return profileFor(player.role).nearGoalShotBiasMargin; }
     virtual bool    canUseFlankTargets() const { return false; }
     virtual bool    canUseOpenLane() const { return false; }
     virtual double  openLaneDribbleBonus() const { return 0.0; }

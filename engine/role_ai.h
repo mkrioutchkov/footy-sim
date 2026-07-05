@@ -6,17 +6,10 @@ public:
     CFPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
     void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
     double roleBonusForPassTarget() const override { return 0.72; }
-    double shotMaxDistance() const override { return 225.0; }
     double shotRoleError(bool, double) const override { return -42.0; }
-    double closeRangeShootBonus() const override { return 0.18; }
-    double freshCrossMaxDistance() const override { return 285.0; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return -0.15; }
-    double shotScoreBonus() const override { return 0.20; }
-    double freshCrossShotBonus() const override { return 0.62; }
-    double finalThirdShotMaxDistance() const override { return 210.0; }
     double nearGoalDribbleBonus(bool nearGoal, double distToGoal) const override { return nearGoal ? (distToGoal < 120.0 ? 0.12 : 0.18) : 0.0; }
-    double nearGoalShotBiasMargin() const override { return 0.22; }
     double observingCruiseMul() const override { return 0.45; }
     double defensivePressCost(bool danger) const override { (void)danger; return 28.0; }
     double boxGuardCost() const override { return 28.0; }
@@ -39,15 +32,10 @@ public:
     WMPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
     void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
     double roleBonusForPassTarget() const override { return 0.36; }
-    double shotMaxDistance() const override { return 215.0; }
     double shotRoleError(bool freshCross, double) const override { return freshCross ? -8.0 : 0.0; }
     double spaceCarryRoleBonus() const override { return 0.18; }
-    double centralShootBonus() const override { return 0.08; }
-    double wideShootPenalty() const override { return 0.04; }
-    double freshCrossMaxDistance() const override { return 270.0; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return -0.04; }
-    double finalThirdShotMaxDistance() const override { return 175.0; }
     double dribbleOwnHalfExtraPenalty() const override { return 0.0; }
     bool   canUseWideDribble() const override { return true; }
     double observingCruiseMul() const override { return 0.55; }
@@ -73,13 +61,11 @@ public:
     CMPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
     void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
     double roleBonusForPassTarget() const override { return 0.00; }
-    double shotMaxDistance() const override { return 220.0; }
     double shotRoleError(bool freshCross, double shotDistance) const override { return freshCross ? 58.0 : (shotDistance > 130.0 ? 30.0 : 0.0); }
     double spaceCarryRoleBonus() const override { return 0.18; }
     double tackleBaseScore() const override { return 0.60; }
     double tackleRoleAdjust() const override { return 0.06; }
     double shotDistancePenalty(double shotDistance) const override { return shotDistance > 110.0 ? -0.12 : -0.07; }
-    double finalThirdShotMinAngle() const override { return 10.0; }
     double openSpaceDribbleBonus(double nearestOppDist) const override { return nearestOppDist > 80.0 ? 0.08 : 0.0; }
     bool   canUseFlankTargets() const override { return true; }
     bool   canUseOpenLane() const override { return true; }
@@ -110,7 +96,6 @@ class CBPlayerAI : public PlayerAI {
 public:
     CBPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
     void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
-    double shotMaxDistance() const override { return 180.0; }
     double tackleBaseScore() const override { return 0.68; }
     double tackleRoleAdjust() const override { return 0.0; }
     double tackleDistCoeff() const override { return 0.35; }
@@ -133,7 +118,6 @@ class FBPlayerAI : public PlayerAI {
 public:
     FBPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
     void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
-    double shotMaxDistance() const override { return 205.0; }
     double spaceCarryRoleBonus() const override { return 0.12; }
     double tackleBaseScore() const override { return 0.50; }
     double tackleRoleAdjust() const override { return 0.0; }
