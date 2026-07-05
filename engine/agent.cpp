@@ -217,7 +217,7 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             bool killerBall = x.purpose == ActionPurpose::Through || spotBandCutback;
             bool lineBreakOutlet = x.type == ActionType::Pass
                 && x.target
-                && (x.target->role == Role::WM || x.target->role == Role::CF)
+                && roles::isAttacker(x.target->role)
                 && x.audit.forwardProgress > 60.0
                 && x.audit.expectedCompletion > 0.72
                 && x.audit.blockers <= 1

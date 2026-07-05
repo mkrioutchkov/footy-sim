@@ -410,7 +410,7 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
 void GameEngine::assignDefensiveLine(DefenseContext& ctx, Player& carrier) {
     for (auto& defender : state.players) {
         if (defender.team != ctx.team || ctx.used(&defender) || defender.sentOff
-            || (defender.role != Role::CB && defender.role != Role::FB)) continue;
+            || !roles::isDefenderRole(defender.role)) continue;
         double targetX = ctx.danger
             ? ctx.ownGoalX + ctx.fd * agentFor(defender)->defensiveLineOffsetX(true, ctx.lineProgress)
             : ctx.ownGoalX + ctx.fd * agentFor(defender)->defensiveLineOffsetX(false, ctx.lineProgress);

@@ -233,7 +233,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
 
     // ── Local close-down pressure ──
     Player* carrier = engine.playerById(per.ballControllerId);
-    if (!my && carrier && carrier->team != p.team && carrier->role != Role::GK) {
+    if (!my && carrier && carrier->team != p.team && !roles::isGoalkeeper(carrier->role)) {
         double carrierDist = dist(p.x, p.y, carrier->x, carrier->y);
         double ownGx = ownGoalXFor(p.team);
         bool inOwnHalf = (p.team == Team::Home) ? carrier->x < HALF_X : carrier->x > HALF_X;

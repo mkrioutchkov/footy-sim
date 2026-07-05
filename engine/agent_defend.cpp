@@ -168,7 +168,7 @@ Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
 
     if (per.ballIsLoose && per.intendedId >= 0) {
         Player* t = engine.playerById(per.intendedId);
-        if (t && t->team != player.team && (t->role == Role::CF || t->role == Role::WM)) {
+        if (t && t->team != player.team && roles::isAttacker(t->role)) {
             double d = dist(player.x, player.y, t->x, t->y);
             if (d < 340.0) return Action{ActionType::Mark, clamp(0.80 - (d / 340.0) * 0.25, 0.0, 1.0), t};
         }
