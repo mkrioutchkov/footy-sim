@@ -128,5 +128,9 @@ inline const RoleProfile& profileFor(Role r) {
             /*task*/     DefensiveTask::DefensiveLine,
         },
     };
+    // One row per Role (GK, CB, FB, CM, WM, CF). Add a Role enum value → this
+    // fails to compile until you add its row, so a new role can't silently index
+    // out of bounds.
+    static_assert(sizeof(TABLE) / sizeof(TABLE[0]) == 6, "RoleProfile TABLE must have one row per Role enum value");
     return TABLE[static_cast<int>(r)];
 }

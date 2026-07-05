@@ -66,6 +66,26 @@
 > single-role `== Role::X` checks were **not** folded (`roles::isCenterBack(r)` is
 > just a longer `r == Role::CB` — no clarity gain).
 
+> ## Extendability outcome — adding a role
+>
+> The point of the vocabulary + `RoleProfile` work: a role is no longer smeared
+> across ~40 virtual overrides in six classes. To add, say, a **DM** or a
+> **wing-back**:
+>
+> 1. Add the value to the `Role` enum + `to_string`/`roleFromStr` (`types.{h,cpp}`).
+> 2. Add **one `RoleProfile` row** in `role_profile.h` — all its tuning numbers in
+>    one readable block. (A `static_assert` makes the build fail until the row
+>    exists, so it can't silently index out of bounds.)
+> 3. Classify it in `role_traits.h` (attacker? wide? defender-like?) — the taxonomy
+>    the whole engine reads.
+> 4. *Only if it needs bespoke behaviour* (a scoring overlay or logic hook like
+>    `isOffensiveThreat`): add a subclass in `role_ai.h` + a `makeAgentFor` case.
+>    A data-only role needs none of this — it falls to the base `PlayerAI`, which
+>    reads its profile row.
+>
+> Steps 1–3 are data; behaviour is opt-in. That's the extendable core the earlier
+> hunt-across-150-sites version didn't have.
+
 **Scope: `engine/` only.** No web/TS changes, no `spec.json`/summary/wire-format
 changes (`docs/CONTRACT.md` stays frozen). Everything here is an *internal*
 refactor.
