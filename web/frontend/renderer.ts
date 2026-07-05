@@ -11,6 +11,11 @@ import {
 import type { EngineState } from './types';
 
 const TRAIL_LENGTH = 16;
+// Render-only player disc radius. Smaller than the physics PLAYER_R (12) so the pitch reads less
+// crowded, the ball stays legible against a pack, and there's room for the facing chevron drawn at
+// the disc edge. Every player-owned graphic (body, shadow, boots/head, chevron, carrier ring, label
+// offset) scales off this; transient effect rings (events, set-piece) stay on the physics PLAYER_R.
+const DISC_R = PLAYER_R * 0.78;
 // Gate the per-frame diagnostic logging (first-sync dump + facing-flicker warnings). Off in
 // normal play so the hot path doesn't do per-player bookkeeping or spam the console.
 const RENDER_DEBUG = false;
@@ -62,8 +67,11 @@ export class MatchRenderer {
     added: HTMLElement; shots: HTMLElement; poss: HTMLElement; state: HTMLElement; possHome: HTMLElement } | null = null;
   private prevHud: Record<string, string> = {};   // dirty-check — don't rewrite scoreboard text nodes every sync
   private tickerEl: HTMLDivElement | null = null;
-  private tickerLines: string[] = [];
-  private prevTickerText = '';   // dirty-check — don't rewrite the feed's text node on every sync
+  private feedRowsEl: HTMLDivElement | null = null;
+  // Structured match-feed rows (newest first): minute stamp, actor's team (→ coloured dot), commentary
+  // text, and a goal flag (amber-highlighted). Replaces the old plain-text last-5 blob.
+  private feedEntries: { minute: number; team: 'home' | 'away' | null; text: string; goal: boolean }[] = [];
+  private prevFeedKey = '';   // dirty-check — don't rebuild the feed rows on every sync
   private seenEventKeys: Set<string> = new Set();
   private lastGoalScorer = '';   // most recent goal-event scorer name — fed to the goal banner
   private commentaryNth = 0;     // advances per rotated commentary line so same-minute events don't repeat phrasing
@@ -124,6 +132,15 @@ export class MatchRenderer {
   private playerTargets: Map<number, { id: number; px: number; py: number; tx: number; ty: number }> = new Map();
   private ballPrev = { x: 0, y: 0, z: 0 };
   private ballTarget = { x: 0, y: 0, z: 0 };
+  // Ball velocity heading of the previous ingested frame — a sharp (>45°) swing between consecutive
+  // in-flight frames snaps the tween (prev=target) instead of smoothing through the corner, so a
+  // first-time pass / deflection reads as a crisp change of direction, not a fake orbiting arc.
+  private prevBallDir = 0;
+  private prevBallSpeedSq = 0;
+  // HUD-occlusion fade: cached scoreboard rect + current faded state, so the ball can never be hidden
+  // under the fixed DOM scorebug — when the ball's screen position enters the strip, it dims out of the way.
+  private hudRect: DOMRect | null = null;
+  private hudFaded = false;
   private segStart = 0;        // performance.now() when the latest frame was ingested
   private segDur = 250;        // measured ms between the last two frames (the tween window)
   private lastIngest = 0;      // performance.now() of the previous ingest (to measure segDur)
@@ -243,8 +260,12 @@ export class MatchRenderer {
     // commentary ticker (DOM — crisp text, fixed bottom-left; styled from styles.css like the other panels)
     this.tickerEl = document.createElement('div');
     this.tickerEl.className = 'watch-feed';
-    this.tickerEl.textContent = '— match feed —';
+    const feedHead = document.createElement('div'); feedHead.className = 'wf-head'; feedHead.textContent = 'Match Feed';
+    const feedRows = document.createElement('div'); feedRows.className = 'wf-rows';
+    feedRows.innerHTML = '<div class="wf-empty">— kick-off awaited —</div>';
+    this.tickerEl.appendChild(feedHead); this.tickerEl.appendChild(feedRows);
     document.body.appendChild(this.tickerEl);
+    this.feedRowsEl = feedRows;
     // ── PRESSURE panel ── built detached; screenWatch docks it into the right column via dockStats()
     // (it used to float top-left over the scoreboard + timeline).
     this.buildStatPanel();
@@ -405,6 +426,9 @@ export class MatchRenderer {
     this.offsetY = reserveTop + (sh - PITCH_H * this.scale) / 2;
     this.pitchContainer.scale.set(this.scale);
     this.pitchContainer.position.set(this.offsetX, this.offsetY);
+    // Cache the scoreboard's screen rect for the per-frame ball-occlusion fade (recomputed here so it
+    // tracks the CSS media-query height changes that fire on resize). Read once per layout, not per frame.
+    this.hudRect = this.hudEl ? this.hudEl.getBoundingClientRect() : null;
     this.drawPitch();
   }
 
@@ -450,12 +474,15 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.playerLayer);
     this.pitchContainer.addChild(this.jockeyGfx);
     this.pitchContainer.addChild(this.ringGfx);
-    this.pitchContainer.addChild(this.ballBody);
-    this.pitchContainer.addChild(this.ballGlow);
+    this.pitchContainer.addChild(this.ballGlow);   // the ball's ground shadow sits below the effect layers
     this.pitchContainer.addChild(this.eventGfx);
     for (const label of this.eventLabels) this.pitchContainer.addChild(label);
     this.pitchContainer.addChild(this.setPieceGfx);
     this.pitchContainer.addChild(this.setPieceText);
+    // BALL ALWAYS ON TOP — added LAST so no player, event effect, set-piece marker or overlay sprite can
+    // ever occlude it (owner bug: the ball vanished under other chrome). The HUD DOM strip is faded
+    // separately in renderFrame when the ball's screen position would slide under it.
+    this.pitchContainer.addChild(this.ballBody);
 
     const g = this.pitchGfx;   // reused (clear + redraw) so a resize/recalc doesn't leak a Graphics each time
     g.clear();
@@ -541,8 +568,8 @@ export class MatchRenderer {
       // F7: redraw the boot/head arrow at the LERPED facing every tick (was keyframe-rate → boots lagged turns).
       const pp = byId.get(id);
       if (pp) this.drawPlayerArrow(entry, pp, this.lerpAngle(this.facingPrev.get(id) ?? this.facingAngles.get(id) ?? 0, this.facingAngles.get(id) ?? 0, t), ix, iy, ibx, iby);
-      entry.label.position.set(ix, iy + PLAYER_R + 3);
-      if (entry.dirTag.visible) entry.dirTag.position.set(ix, iy + PLAYER_R + 17);
+      entry.label.position.set(ix, iy + DISC_R + 3);
+      if (entry.dirTag.visible) entry.dirTag.position.set(ix, iy + DISC_R + 16);
     }
 
     // ── carrier ring (rides the carrier's tweened pos + pulses on animTime) ──
@@ -554,8 +581,28 @@ export class MatchRenderer {
         const vc = this.visualPlayers.get(ctrl.id) ?? { x: ctrl.x, y: ctrl.y };
         const pulse = 0.25 + 0.35 * Math.sin(this.animTime * 0.08);
         const rc = ctrl.team === 'home' ? HOME_COLOR : AWAY_COLOR;
-        this.ringGfx.circle(vc.x, vc.y, PLAYER_R + (ctrl.dribbleType === 3 ? 10 : 7));
+        this.ringGfx.circle(vc.x, vc.y, DISC_R + (ctrl.dribbleType === 3 ? 9 : 6));
         this.ringGfx.stroke({ width: ctrl.dribbleType === 3 ? 4 : 3, color: rc, alpha: ctrl.dribbleType === 3 ? Math.min(0.85, pulse + 0.25) : pulse });
+        // ── GK ball-held cue ── a keeper holding the ball for distribution (he's the controller, the ball
+        // is dead at his feet: not thrown/rolled/kicked yet) gets a distinct glove-clasp marker so the hold
+        // reads clearly (owner ask: a GK-holding animation). Two glove pads cup the ball + a bright pulsing
+        // ring in the keeper's colour — visually separate from the ordinary carrier ring above.
+        if (ctrl.role === 'GK' && Math.hypot(b.vx, b.vy) < 8 && (b.z ?? 0) < 6) {
+          const gp = 0.5 + 0.5 * Math.sin(this.animTime * 0.11);   // slow clasp pulse
+          this.ringGfx.circle(vc.x, vc.y, DISC_R + 11 + gp * 2);
+          this.ringGfx.stroke({ width: 2.5, color: 0xffe27a, alpha: 0.55 + gp * 0.35 });
+          // glove pads flanking the held ball — perpendicular to the keeper's facing so they cup it
+          const ga = this.facingAngles.get(ctrl.id) ?? (ctrl.team === 'home' ? 0 : Math.PI);
+          const px = -Math.sin(ga), py = Math.cos(ga);
+          const bx = this.visualBall?.x ?? vc.x, by = this.visualBall?.y ?? vc.y;
+          for (const s of [1, -1]) {
+            this.ringGfx.circle(bx + px * s * (BALL_R + 2.6), by + py * s * (BALL_R + 2.6), 2.9);
+            this.ringGfx.fill({ color: 0xffe27a, alpha: 0.9 });
+            this.ringGfx.circle(bx + px * s * (BALL_R + 2.6), by + py * s * (BALL_R + 2.6), 2.9);
+            this.ringGfx.stroke({ width: 1, color: 0x33261c, alpha: 0.85 });
+          }
+          (window as unknown as { __gkHold?: unknown }).__gkHold = { id: ctrl.id, atMs: this.lastState?.clockMs };   // verify hook
+        }
         // byline-run cue: a WIDE carrier driving onto the ATTACKING byline gets a lime glow (the box-finish
         // build-up reads from the approach). Geometric (attacking goal-line + a wide channel).
         if (this.homeAttacksX !== null) {
@@ -601,6 +648,19 @@ export class MatchRenderer {
     }
     this.ballGlow.visible = ibz > 5;
 
+    // ── ball-under-scorebug fade ── the ball is z-topmost on the canvas, but the fixed DOM scoreboard
+    // strip lives above the canvas and could still cover a ball near the top touchline. When the ball's
+    // screen position slides under the strip, dim it (CSS transitions the opacity) so the ball is never
+    // hidden; restore it the instant the ball clears the strip. Rect is cached (calcTransform), cheap.
+    if (this.hudEl && this.hudRect) {
+      const sx = this.offsetX + (ibx + touchX) * this.scale;
+      const sy = this.offsetY + (iby + touchY - arcOffset) * this.scale;
+      const rad = (BALL_R + 5) * this.scale;
+      const hr = this.hudRect;
+      const over = sy - rad < hr.bottom && sy + rad > hr.top && sx + rad > hr.left && sx - rad < hr.right;
+      if (over !== this.hudFaded) { this.hudFaded = over; this.hudEl.style.opacity = over ? '0.2' : ''; }
+    }
+
     // ── jockey / containing posture: shield arcs on the closest 1-2 pressers glued to the carrier ──
     this.jockeyGfx.clear();
     if (b.controllerId != null) {
@@ -622,10 +682,10 @@ export class MatchRenderer {
           const cx = k === 0 ? b1x : b2x, cy = k === 0 ? b1y : b2y;
           if ((k === 0 ? b1d : b2d) === Infinity) continue;
           const ang = Math.atan2(vc.y - cy, vc.x - cx);
-          this.jockeyGfx.arc(cx, cy, PLAYER_R + 3, ang - 0.6, ang + 0.6);
+          this.jockeyGfx.arc(cx, cy, DISC_R + 3, ang - 0.6, ang + 0.6);
           this.jockeyGfx.stroke({ width: 2.5, color: 0xf2c14e, alpha: 0.75 });
-          this.jockeyGfx.moveTo(cx + Math.cos(ang) * (PLAYER_R + 1), cy + Math.sin(ang) * (PLAYER_R + 1));
-          this.jockeyGfx.lineTo(cx + Math.cos(ang) * (PLAYER_R + 5), cy + Math.sin(ang) * (PLAYER_R + 5));
+          this.jockeyGfx.moveTo(cx + Math.cos(ang) * (DISC_R + 1), cy + Math.sin(ang) * (DISC_R + 1));
+          this.jockeyGfx.lineTo(cx + Math.cos(ang) * (DISC_R + 5), cy + Math.sin(ang) * (DISC_R + 5));
           this.jockeyGfx.stroke({ width: 1.5, color: 0xf2c14e, alpha: 0.55 });
         }
       }
@@ -685,6 +745,19 @@ export class MatchRenderer {
     this.ballPrev = { x: vb.x, y: vb.y, z: vb.z };
     this.ballTarget = { x: b.x, y: b.y, z: b.z ?? 0 };
     if (Math.hypot(b.x - vb.x, b.y - vb.y) > 160) this.ballPrev = { ...this.ballTarget };
+    // ── sharp-direction snap ── a first-time pass, deflection or ricochet swings the ball's heading hard
+    // between two consecutive frames. Linear-tweening from the OLD trajectory's tail into the new one bows
+    // the path into a fake orbiting arc across the segment. If the ball is in flight and its velocity
+    // heading changed >45° (both frames moving meaningfully), snap to the new sample so the redirect reads
+    // as an instant, crisp change of direction. Uses the engine's own ball velocity (no positional guess).
+    const bSpeedSq = b.vx * b.vx + b.vy * b.vy;
+    if (b.controllerId === null && bSpeedSq > 400 && this.prevBallSpeedSq > 400) {
+      const dir = Math.atan2(b.vy, b.vx);
+      const dd = Math.abs(Math.atan2(Math.sin(dir - this.prevBallDir), Math.cos(dir - this.prevBallDir)));
+      if (dd > Math.PI / 4) this.ballPrev = { ...this.ballTarget };
+    }
+    if (bSpeedSq > 400) { this.prevBallDir = Math.atan2(b.vy, b.vx); this.prevBallSpeedSq = bSpeedSq; }
+    else this.prevBallSpeedSq = bSpeedSq;
 
     // ── trail ──
     if (b.controllerId === null && ballSpeed > 20) {
@@ -776,7 +849,7 @@ export class MatchRenderer {
         // a soft drop-shadow, drawn once (static) and only repositioned each frame: a squashed dark
         // ellipse offset down-right, so every player reads as a lit figure casting a shadow on the turf.
         const shadow = new Graphics();
-        shadow.ellipse(PLAYER_R * 0.28, PLAYER_R * 0.42, PLAYER_R * 1.02, PLAYER_R * 0.62);
+        shadow.ellipse(DISC_R * 0.28, DISC_R * 0.42, DISC_R * 1.02, DISC_R * 0.62);
         shadow.fill({ color: 0x000000, alpha: 0.22 });
         const body = new Graphics();
         const arrow = new Graphics();
@@ -825,7 +898,7 @@ export class MatchRenderer {
         ? (p.team === 'home' ? HOME_GK_COLOR : AWAY_GK_COLOR)
         : (p.team === 'home' ? HOME_COLOR : AWAY_COLOR);
       const hasBall = b.controllerId === p.id;
-      const r = PLAYER_R;
+      const r = DISC_R;
       // P0: store this player's prev→target for the 60fps tween (snap a teleport so we don't slide across
       // the pitch). vp = the CURRENT interpolated pos — renderFrame owns the actual position.set; vp is used
       // here only for shape references (dive reach, boot-toward-ball direction).
@@ -1309,10 +1382,10 @@ export class MatchRenderer {
 
   private lastClockMs = 0;
   private updateTicker(state: EngineState): void {
-    if (!this.tickerEl) return;
+    if (!this.feedRowsEl) return;
     if (state.clockMs < this.lastClockMs - 1000) {
       // match restarted
-      this.tickerLines = [];
+      this.feedEntries = [];
       this.seenEventKeys.clear();
       this.lastGoalScorer = '';
       this.resetMatchStats(state.clockMs);
@@ -1329,17 +1402,25 @@ export class MatchRenderer {
       const half = state.half ?? 1;
       const halfMs = half === 1 ? evClock : evClock - 45 * 60 * 1000;
       const minute = Math.max(0, Math.floor(halfMs / 60000)) + (half === 2 ? 45 : 0);
-      const who = (ev.playerId != null ? this.playerById.get(ev.playerId) : undefined)?.name ?? '';
+      const actor = ev.playerId != null ? this.playerById.get(ev.playerId) : undefined;
+      const who = actor?.name ?? '';
       const target = (ev.targetId != null ? this.playerById.get(ev.targetId) : undefined)?.name ?? '';
       if (ev.type === 'goal') this.lastGoalScorer = who;   // banner reads this (no fragile line-parsing)
-      this.tickerLines.unshift(`${String(minute).padStart(2)}' ${this.commentary(ev.type, who, target)}`);
+      // newest on top — a chronological feed row: minute stamp · team-coloured dot · commentary
+      this.feedEntries.unshift({ minute, team: actor?.team ?? null, text: this.commentary(ev.type, who, target), goal: ev.type === 'goal' });
     }
-    if (this.tickerLines.length > 5) this.tickerLines.length = 5;
+    if (this.feedEntries.length > 8) this.feedEntries.length = 8;
     if (this.seenEventKeys.size > 400) this.seenEventKeys.clear();
-    // dirty-checked like the stat panel — this rewrote the pre-wrap feed's text node (a DOM replace +
-    // style/layout) on EVERY sync (~30-37Hz live) even when no new event had arrived.
-    const feed = this.tickerLines.length ? this.tickerLines.join('\n') : '— match feed —';
-    if (feed !== this.prevTickerText) { this.prevTickerText = feed; this.tickerEl.textContent = feed; }
+    // dirty-checked (rebuilding the rows is a DOM replace + layout) — only when the newest event set moves.
+    const key = this.feedEntries.length ? this.feedEntries.map(e => e.minute + '|' + e.text).join('¦') : '';
+    if (key === this.prevFeedKey) return;
+    this.prevFeedKey = key;
+    if (!this.feedEntries.length) { this.feedRowsEl.innerHTML = '<div class="wf-empty">— kick-off awaited —</div>'; return; }
+    const esc = (s: string): string => s.replace(/[&<>]/g, c => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'));
+    this.feedRowsEl.innerHTML = this.feedEntries.map(e => {
+      const col = e.goal ? '#ffcf5c' : e.team === 'home' ? '#e63946' : e.team === 'away' ? '#4b93c9' : '#8aa0bd';
+      return `<div class="wf-ev${e.goal ? ' wf-goal' : ''}"><span class="wf-t">${e.minute}'</span><span class="wf-dot" style="background:${col}"></span><span class="wf-tx">${esc(e.text)}</span></div>`;
+    }).join('');
   }
 
   private restartLabel(type: string): string {
@@ -1721,7 +1802,7 @@ export class MatchRenderer {
   // keyframe rate in sync → boots lagged a turn by up to ~250ms). Local coords; the arrow Graphics is
   // positioned at the tweened player pos by renderFrame. vp/vb are the interpolated player + ball positions.
   private drawPlayerArrow(entry: PlayerEntry, p: EngineState['players'][number], angle: number, vpx: number, vpy: number, vbx: number, vby: number): void {
-    const r = PLAYER_R;
+    const r = DISC_R;
     const hasBall = this.lastState?.ball.controllerId === p.id;
     const heading = (p.headingAnim ?? 0) > 0;
     const knockDribble = p.dribbleType === 3;
@@ -1765,6 +1846,20 @@ export class MatchRenderer {
     a.fill({ color: 0xffdfbb });
     a.circle(0, 0, heading ? r * 0.47 : r * 0.41);
     a.stroke({ width: 1, color: 0x33261c });
+    // ── facing chevron ── a small filled arrowhead at the disc edge pointing along `facing`. Augments the
+    // boots/head so orientation stays legible at the smaller disc size (owner ask). Points along the facing
+    // angle (forwardX/Y), NOT the boot-aim (which swings toward the ball while carrying), so it always reads
+    // as "where the player is looking". Bright with a thin dark outline to pop against any shirt/turf.
+    {
+      const tipR = r + 3.6, baseR = r + 0.6, spread = 0.44;
+      const tX = forwardX * tipR, tY = forwardY * tipR;
+      const blX = Math.cos(angle + spread) * baseR, blY = Math.sin(angle + spread) * baseR;
+      const brX = Math.cos(angle - spread) * baseR, brY = Math.sin(angle - spread) * baseR;
+      a.moveTo(tX, tY); a.lineTo(blX, blY); a.lineTo(brX, brY); a.closePath();
+      a.fill({ color: 0xffffff, alpha: 0.95 });
+      a.moveTo(tX, tY); a.lineTo(blX, blY); a.lineTo(brX, brY); a.closePath();
+      a.stroke({ width: 0.8, color: 0x1a1a1a, alpha: 0.85 });
+    }
     if (heading) {
       a.circle(forwardX * r * 1.65, forwardY * r * 1.65, r * 0.82);
       a.stroke({ width: 2, color: 0xfff1a8, alpha: 0.75 });
