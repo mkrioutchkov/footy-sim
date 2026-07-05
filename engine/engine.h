@@ -666,6 +666,7 @@ public:
     bool tryCutbackFirstTimeFinish(double bs);
     bool tryKeeperLooseGather(double bs);
     bool tryKeeperCrossClaim();
+    bool tryIntendedReceiverMeet(double bs);
     void checkBallPlayerCollision(double);
     void collectBall(Player& c);
     void updateControlledBall(double secs);

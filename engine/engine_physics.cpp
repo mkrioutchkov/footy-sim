@@ -460,44 +460,11 @@ bool GameEngine::tryKeeperCrossClaim() {
     return false;
 }
 
-void GameEngine::checkBallPlayerCollision(double sec) {
-    auto& b = state.ball;
-    double bs = std::hypot(b.vx, b.vy);
-    const double collectRadius = COLLECT_DIST;
-    const double fastContactRadius = PLAYER_R + BALL_R - 3.0;
-    // Swept-contact origin (user feedback #2 "the ball just travels through the player"): a FAST loose
-    // ball moves up to ~15px/tick (bs~900px/s × FIXED_DT) against a ~13.5px contact radius, so a single
-    // end-of-tick POINT test lets it skip PAST a player between ticks (the closest approach falls mid-tick).
-    // For fast balls we test each player against the ball's PATH this tick (prev→cur), not just the
-    // endpoint; slow balls keep the point test (byte-identical). prev = undo the step applyBallPhysics
-    // just applied (b.x += b.vx*sec). Live shots stay protected by the shot-in-flight gate below.
-    double prevX = b.x - b.vx * sec, prevY = b.y - b.vy * sec;
-
-    // ── First-time finish ── A driven LOW cross/cutback reaching an attacking
-    // runner in the box is swept in FIRST-TIME rather than trapped: it is too
-    // quick to control (it would skid through, or the keeper would gather it),
-    // but a finisher meeting it goal-side can strike it clean. We route through
-    // shootBall so it is a genuine tracked shot, and stamp throughCollected for
-    // the clean first-touch error model (a FOOT finish, not a header). This sits
-    // ahead of the keeper-gather so the striker who is first to the ball wins —
-    // but only when he is actually closer to it than any keeper.
-    // Cutbacks now finish first-time too (isCutback was a render-only hint): the
-    // pulled-back ball to an arriving runner at the spot is real football's
-    // signature close chance, but its reception was a normal trap — take a touch
-    // at 12m with defenders closing, recycle. Sweeping it first-time is what
-    // converts the engine's existing cutback volume into genuine box chances
-    // (shot mix sat at close 2% / medium 68%; real ~20/40). Lower speed gate
-    // than the driven cross — a cutback is a measured pull-back, not a whip.
-    if (tryCutbackFirstTimeFinish(bs)) return;
-
-    // A shot the keeper has already won the reflex roll on belongs to the
-    // deferred-save resolver (parry/punch/tip/catch) — don't let the generic
-    // keeper-gather scoop it first and flatten every save into a clean pickup.
-    if (tryKeeperLooseGather(bs)) return;
-
     // Intended receiver gets priority with larger collection radius. A driven
     // cross arrives way over the 250 trap-speed limit — but it isn't trapped,
     // it's MET (header), so the band-height arrival bypasses the speed gate.
+bool GameEngine::tryIntendedReceiverMeet(double bs) {
+    auto& b = state.ball;
     bool crossArrival = pendingPass.active && pendingPass.isCross && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT;
     if (b.intendedReceiverId >= 0 && (bs < 250 || crossArrival)) {
         Player* intended = playerById(b.intendedReceiverId);
@@ -546,7 +513,7 @@ void GameEngine::checkBallPlayerCollision(double sec) {
                     if (rng.random() < duelChance) {
                         dueler->headingAnim = 520.0;
                         collectBall(*dueler); // routes to header clearance
-                        return;
+                        return true;
                     }
                     // One jump per cross — a beaten dueler doesn't get to
                     // re-roll every tick the ball hangs in his radius.
@@ -588,7 +555,7 @@ void GameEngine::checkBallPlayerCollision(double sec) {
                     if (tightMarkers >= 2) frontPress = std::max(frontPress, 0.55);
                     if (nearOppD >= 42.0) {
                         collectBall(*intended);
-                        return;
+                        return true;
                     }
                     // Control degrades with pace and, heavily, with front
                     // pressure. A striker fronted tight by a CB usually CAN'T
@@ -599,7 +566,7 @@ void GameEngine::checkBallPlayerCollision(double sec) {
                     if (rng.random() < trapChance) {
                         stats.recordPressuredReception(false);
                         collectBall(*intended);
-                        return;
+                        return true;
                     }
                     stats.recordPressuredReception(true);
                     b.intendedReceiverId = -1;
@@ -609,6 +576,45 @@ void GameEngine::checkBallPlayerCollision(double sec) {
             }
         }
     }
+    return false;
+}
+
+void GameEngine::checkBallPlayerCollision(double sec) {
+    auto& b = state.ball;
+    double bs = std::hypot(b.vx, b.vy);
+    const double collectRadius = COLLECT_DIST;
+    const double fastContactRadius = PLAYER_R + BALL_R - 3.0;
+    // Swept-contact origin (user feedback #2 "the ball just travels through the player"): a FAST loose
+    // ball moves up to ~15px/tick (bs~900px/s × FIXED_DT) against a ~13.5px contact radius, so a single
+    // end-of-tick POINT test lets it skip PAST a player between ticks (the closest approach falls mid-tick).
+    // For fast balls we test each player against the ball's PATH this tick (prev→cur), not just the
+    // endpoint; slow balls keep the point test (byte-identical). prev = undo the step applyBallPhysics
+    // just applied (b.x += b.vx*sec). Live shots stay protected by the shot-in-flight gate below.
+    double prevX = b.x - b.vx * sec, prevY = b.y - b.vy * sec;
+
+    // ── First-time finish ── A driven LOW cross/cutback reaching an attacking
+    // runner in the box is swept in FIRST-TIME rather than trapped: it is too
+    // quick to control (it would skid through, or the keeper would gather it),
+    // but a finisher meeting it goal-side can strike it clean. We route through
+    // shootBall so it is a genuine tracked shot, and stamp throughCollected for
+    // the clean first-touch error model (a FOOT finish, not a header). This sits
+    // ahead of the keeper-gather so the striker who is first to the ball wins —
+    // but only when he is actually closer to it than any keeper.
+    // Cutbacks now finish first-time too (isCutback was a render-only hint): the
+    // pulled-back ball to an arriving runner at the spot is real football's
+    // signature close chance, but its reception was a normal trap — take a touch
+    // at 12m with defenders closing, recycle. Sweeping it first-time is what
+    // converts the engine's existing cutback volume into genuine box chances
+    // (shot mix sat at close 2% / medium 68%; real ~20/40). Lower speed gate
+    // than the driven cross — a cutback is a measured pull-back, not a whip.
+    if (tryCutbackFirstTimeFinish(bs)) return;
+
+    // A shot the keeper has already won the reflex roll on belongs to the
+    // deferred-save resolver (parry/punch/tip/catch) — don't let the generic
+    // keeper-gather scoop it first and flatten every save into a clean pickup.
+    if (tryKeeperLooseGather(bs)) return;
+
+    if (tryIntendedReceiverMeet(bs)) return;
 
     if (tryKeeperCrossClaim()) return;
 
