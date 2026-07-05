@@ -94,9 +94,7 @@ Action* PlayerAI::tryLongCarryOverride(SmallVector<Action, 24>& a, Action& best,
     if (!ic || engine.carrierTracker.carryTrackerId != player.id) return nullptr;
 
     double carryDistance = engine.carrierTracker.carryPathDistance;
-    double fd = fdFor(player.team);
-    double ownGoalX = ownGoalXFor(player.team);
-    double progress = (player.x - ownGoalX) * fd;
+    double progress = pitch::forwardProgress(player.x, player.team);
     bool attackingHalf = progress > PITCH_W * 0.46;
     bool finalThirdCarry = progress > PITCH_W * 0.62;
     CarrierPressure cp = assessCarrierPressure(engine, player);

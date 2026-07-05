@@ -5,7 +5,7 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
     auto& p = player;
     if (isGoalkeeper()) return;
     bool attacking = (p.team == spTeam);
-    double fd = (p.team == Team::Home) ? 1.0 : -1.0;
+    double fd = fdFor(p.team);
     double ownGoalX = (p.team == Team::Home) ? 0.0 : PITCH_W;
     double oppGoalX = (p.team == Team::Home) ? PITCH_W : 0.0;
     double slotA = std::sin(p.id * 2.17);

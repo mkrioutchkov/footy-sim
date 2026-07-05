@@ -536,8 +536,6 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
     if (state.clockMs < nextTacticalAuditMs) return;
     nextTacticalAuditMs = state.clockMs + 500.0;
     Team defending = carrier.team == Team::Home ? Team::Away : Team::Home;
-    double ownGoalX = ownGoalXFor(defending);
-    double fd = fdFor(defending);
     bool danger = pitch::inDangerZone(carrier.x, defending);
     Player* primary = nullptr;
     for (int id = 0; id < 22; id++) {
@@ -560,7 +558,7 @@ void GameEngine::auditTacticalCoverage(Player& carrier) {
     for (const auto& defender : state.players) {
         if (defender.team != defending) continue;
         if (!agentFor(defender)->isCenterBack() && !agentFor(defender)->isFullBack()) continue;
-        line.push_back({&defender, (defender.x - ownGoalX) * fd});
+        line.push_back({&defender, pitch::forwardProgress(defender.x, defending)});
     }
     if (line.size() >= 3) {
         std::sort(line.begin(), line.end(), [](const LineMember& a, const LineMember& b) { return a.progress < b.progress; });

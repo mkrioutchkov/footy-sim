@@ -145,7 +145,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/) {
     const auto& p = player;
     double gx = goalXFor(p.team);
-    double fd = (p.team == Team::Home) ? 1.0 : -1.0;
+    double fd = fdFor(p.team);
     double tx = gx, ty = p.y;
     CarrierPressure cp = assessCarrierPressure(engine, p);
 

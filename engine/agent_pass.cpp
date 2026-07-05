@@ -9,9 +9,9 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
     // takes a touch (dribble/shield) or shoots a first-timer instead. Slow
     // receptions carry ~0 settle, so one-twos off a controlled ball survive.
     if (engine.inFirstTouch(p.id)) return r;
-    double fd = (p.team == Team::Home) ? 1.0 : -1.0;
+    double fd = fdFor(p.team);
     double ownGoalX = ownGoalXFor(p.team);
-    double ownProgress = (p.x - ownGoalX) * fd;
+    double ownProgress = pitch::forwardProgress(p.x, p.team);
 
     auto clearOutfieldOutletExists = [&]() {
         for (auto& t : engine.state.players) {
