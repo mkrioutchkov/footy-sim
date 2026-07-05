@@ -2131,6 +2131,10 @@ async function screenMarket() {
     for (const t of market.transferTargets) {
       const bid = h('button', { class: 'ghost small' }, 'Bid');
       const loan = h('button', { class: 'ghost small', style: 'margin-left:4px' }, 'Loan');
+      // §release-clause: an instant, binding buy at the player's clause — bypasses negotiation.
+      const clauseBtn = t.releaseClause != null
+        ? h('button', { class: 'primary small', style: 'margin-left:4px', title: `Trigger his release clause — an instant signing at ${fmtMoney(t.releaseClause)}` }, 'Buy now')
+        : '';
       // Disable the button for the whole action (modal + request) so an impatient re-click on a
       // slow network can't fire a second concurrent bid/loan for the same player — the same guard
       // Sign/List use. render() rebuilds fresh buttons on success; the finally re-enables on cancel.
@@ -2139,17 +2143,26 @@ async function screenMarket() {
         btn.setAttribute('disabled', 'true');
         try { await fn(); } finally { btn.removeAttribute('disabled'); }
       };
-      if (!win.open) { for (const b of [bid, loan]) { b.setAttribute('disabled', 'true'); b.setAttribute('title', 'Transfer window is shut'); } }
-      else { bid.addEventListener('click', guard(bid, () => doBid(t))); loan.addEventListener('click', guard(loan, () => doLoan(t))); }
+      const acts: HTMLElement[] = [bid, loan, ...(clauseBtn instanceof HTMLButtonElement ? [clauseBtn] : [])];
+      if (!win.open) { for (const b of acts) { b.setAttribute('disabled', 'true'); b.setAttribute('title', 'Transfer window is shut'); } }
+      else {
+        bid.addEventListener('click', guard(bid, () => doBid(t)));
+        loan.addEventListener('click', guard(loan, () => doLoan(t)));
+        if (clauseBtn instanceof HTMLButtonElement) clauseBtn.addEventListener('click', guard(clauseBtn, async () => {
+          if (!await confirmModal('Trigger release clause', `Sign ${t.name} from ${t.club} for his release clause of ${fmtMoney(t.releaseClause!)}? This is an instant, binding transfer.`, `Pay ${fmtMoney(t.releaseClause!)}`)) return;
+          await sendBid(t.id, t.releaseClause!);
+        }));
+      }
       const tPot = t.potential != null && t.potential > t.overall;
       tgtBody.append(h('tr', {},
-        h('td', {}, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + t.club)),
+        h('td', {}, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + t.club),
+          t.releaseClause != null ? h('span', { class: 'pill', title: 'Release clause — instantly buyable at this fee', style: 'margin-left:6px;background:rgba(230,57,70,.18);color:#f2a1a8' }, `⚡ ${fmtMoney(t.releaseClause)}`) : ''),
         h('td', {}, h('span', { class: 'pill' }, t.role)),
         h('td', { class: 'num' }, String(t.age)),
         h('td', { class: 'num' }, String(t.overall)),
         h('td', { class: 'num' }, tPot ? h('span', { class: 'a' }, String(t.potential)) : (t.potential != null ? String(t.potential) : '—')),
         moneyCell(t.askPrice ?? t.value, t.wage),
-        h('td', { class: 'num' }, h('span', { style: 'display:inline-flex' }, bid, loan))));
+        h('td', { class: 'num' }, h('span', { style: 'display:inline-flex;flex-wrap:wrap;justify-content:flex-end' }, ...acts))));
     }
 
     const wagePct = market.wageBudget > 0 ? Math.round((market.wageBill / market.wageBudget) * 100) : 0;

@@ -185,23 +185,47 @@ export function unlistPlayer(teamId: number, slot: number): { ok: boolean } {
   return { ok: true };
 }
 
-export interface TransferTarget { id: number; name: string; club: string; clubTeamId: number; role: string; age: number; overall: number; potential: number | null; value: number; askPrice: number | null; wage: number }
+export interface TransferTarget { id: number; name: string; club: string; clubTeamId: number; role: string; age: number; overall: number; potential: number | null; value: number; askPrice: number | null; releaseClause: number | null; wage: number }
 
-// Transfer-listed players at OTHER clubs in the buyer's world — the players the user can bid for.
+// Transfer-listed players at OTHER clubs in the buyer's world — PLUS any player with a release clause (a
+// clause makes an otherwise-unavailable star buyable). These are the players the user can bid for.
 export function transferTargets(teamId: number): TransferTarget[] {
   const team = teamRow(teamId); if (!team) return [];
   const leagueIds = worldLeagueIds(team.league_id);
   const ph = leagueIds.map(() => '?').join(',');
-  const rows = db.prepare(`SELECT p.id, p.name, p.role, p.attrs, p.age, p.potential, p.personality, p.ask_price, p.wage,
+  const rows = db.prepare(`SELECT p.id, p.name, p.role, p.attrs, p.age, p.potential, p.personality, p.ask_price, p.release_clause, p.wage,
       t.id AS club_team_id, t.name AS club
     FROM players p JOIN teams t ON t.id = p.team_id
-    WHERE t.league_id IN (${ph}) AND p.team_id != ? AND p.listed = 1 AND p.parent_team_id IS NULL
-    ORDER BY p.ask_price ASC`).all(...leagueIds, teamId) as unknown as
-    (PRow & { club_team_id: number; club: string })[];
+    WHERE t.league_id IN (${ph}) AND p.team_id != ? AND (p.listed = 1 OR p.release_clause IS NOT NULL) AND p.parent_team_id IS NULL
+    ORDER BY (p.release_clause IS NOT NULL) DESC, p.ask_price ASC, p.release_clause ASC`).all(...leagueIds, teamId) as unknown as
+    (PRow & { release_clause: number | null; club_team_id: number; club: string })[];
   return rows.map(r => {
     const attrs = JSON.parse(r.attrs);
-    return { id: r.id, name: r.name, club: r.club, clubTeamId: r.club_team_id, role: r.role, age: r.age, overall: overall(attrs), potential: r.potential, value: playerValue(attrs, r.age, parseJSON(r.personality)), askPrice: r.ask_price, wage: r.wage ?? 0 };
+    return { id: r.id, name: r.name, club: r.club, clubTeamId: r.club_team_id, role: r.role, age: r.age, overall: overall(attrs), potential: r.potential, value: playerValue(attrs, r.age, parseJSON(r.personality)), askPrice: r.ask_price, releaseClause: r.release_clause, wage: r.wage ?? 0 };
   });
+}
+
+// §release-clause: give each AI club's BEST player (by overall, no clause yet) a release clause — a
+// premium over his value, so triggering it is dear but decisive. Deterministic + idempotent (only fills a
+// NULL clause), human clubs untouched. Seeded at world creation + each rollover so new stars get clauses.
+const RELEASE_CLAUSE_PREMIUM = 1.7;
+export function seedReleaseClauses(leagueIds: number[]): void {
+  if (!leagueIds.length) return;
+  const ph = leagueIds.map(() => '?').join(',');
+  const aiTeams = db.prepare(`SELECT id FROM teams WHERE league_id IN (${ph}) AND user_id IS NULL`).all(...leagueIds) as { id: number }[];
+  const upd = db.prepare('UPDATE players SET release_clause = ? WHERE id = ?');
+  for (const t of aiTeams) {
+    const rows = db.prepare('SELECT id, attrs, age, personality, release_clause FROM players WHERE team_id = ? AND parent_team_id IS NULL')
+      .all(t.id) as { id: number; attrs: string; age: number; personality: string | null; release_clause: number | null }[];
+    if (rows.some(r => r.release_clause != null)) continue;   // this club already has a clause set — leave it
+    let best: { id: number; ov: number; value: number } | null = null;
+    for (const r of rows) {
+      const attrs = JSON.parse(r.attrs);
+      const ov = overall(attrs);
+      if (!best || ov > best.ov) best = { id: r.id, ov, value: playerValue(attrs, r.age, parseJSON(r.personality)) };
+    }
+    if (best) upd.run(Math.round(best.value * RELEASE_CLAUSE_PREMIUM / 100000) * 100000, best.id);
+  }
 }
 
 export interface BidResult { ok: boolean; status: 'pending' | 'accepted' | 'countered' | 'rejected' | 'error'; error?: string; counterFee?: number; player?: string; club?: string; fee?: number; placed?: 'xi' | 'bench' }
@@ -220,10 +244,10 @@ export function bidForPlayer(buyerTeamId: number, targetPlayerId: number, fee: n
   if (!transferWindow(buyer.league_id).open) return { ok: false, status: 'error', error: 'the transfer window is shut' };
   if (!Number.isFinite(fee) || fee <= 0) return { ok: false, status: 'error', error: 'enter a valid bid' };
   const bid = Math.round(fee);
-  const t = db.prepare(`SELECT p.id, p.team_id, p.name, p.parent_team_id, tm.name AS club, tm.league_id AS seller_league,
+  const t = db.prepare(`SELECT p.id, p.team_id, p.name, p.parent_team_id, p.release_clause, tm.name AS club, tm.league_id AS seller_league,
       (SELECT COUNT(*) FROM players px WHERE px.team_id = p.team_id) AS seller_count
     FROM players p JOIN teams tm ON tm.id = p.team_id WHERE p.id = ?`)
-    .get(targetPlayerId) as { id: number; team_id: number; name: string; parent_team_id: number | null; club: string; seller_league: number; seller_count: number } | undefined;
+    .get(targetPlayerId) as { id: number; team_id: number; name: string; parent_team_id: number | null; release_clause: number | null; club: string; seller_league: number; seller_count: number } | undefined;
   if (!t) return { ok: false, status: 'error', error: 'player not found' };
   if (t.team_id === buyerTeamId) return { ok: false, status: 'error', error: 'already your player' };
   if (t.parent_team_id != null) return { ok: false, status: 'error', error: `${t.name} is out on loan — not available to buy` };
@@ -234,8 +258,21 @@ export function bidForPlayer(buyerTeamId: number, targetPlayerId: number, fee: n
   const cur = transferWindow(buyer.league_id).current;
   // one live bid per (buyer, player): a new bid supersedes a prior pending/countered one.
   db.prepare("UPDATE transfer_offers SET status='withdrawn' WHERE buyer_team_id=? AND player_id=? AND status IN ('pending','countered')").run(buyerTeamId, t.id);
-  db.prepare(`INSERT INTO transfer_offers (buyer_team_id, seller_team_id, player_id, fee, status, created_round, expires_round, created_at)
+  const info = db.prepare(`INSERT INTO transfer_offers (buyer_team_id, seller_team_id, player_id, fee, status, created_round, expires_round, created_at)
     VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`).run(buyerTeamId, t.team_id, t.id, bid, cur, cur + OFFER_TTL, Date.now());
+  // §release-clause: a bid AT OR ABOVE the clause is BINDING — it completes AT ONCE (bypassing the club's
+  // verdict + the matchday wait, FM's clause trigger), still window-gated with the buyer's books re-checked.
+  if (t.release_clause != null && bid >= t.release_clause) {
+    const offerId = Number(info.lastInsertRowid);
+    const o = db.prepare('SELECT * FROM transfer_offers WHERE id = ?').get(offerId) as unknown as OfferRow;
+    const done = completeOffer(o);
+    if (!done.ok) {
+      db.prepare("UPDATE transfer_offers SET status='rejected' WHERE id = ?").run(offerId);
+      return { ok: false, status: 'error', error: 'the clause deal fell through — check your budget + wage room.' };
+    }
+    db.prepare("UPDATE transfer_offers SET status='accepted' WHERE id = ?").run(offerId);
+    return { ok: true, status: 'accepted', player: t.name, club: t.club, fee: bid, placed: done.placed };
+  }
   return { ok: true, status: 'pending', player: t.name, club: t.club, fee: bid };
 }
 
@@ -681,6 +718,7 @@ function expireListings(leagueId: number, win: TransferWindow): MarketEvent[] {
 // buys are seen by later ones.
 export function marketTick(leagueId: number): MarketEvent[] {
   const events: MarketEvent[] = [];
+  seedReleaseClauses([leagueId]);   // §release-clause: ensure each AI club's best man carries a clause (idempotent)
   processOffers(leagueId);   // §2.1: resolve the human's pending club-to-club bids FIRST (against the live ask price), so a
   events.push(...expireListings(leagueId, transferWindow(leagueId)));   // §2.4: deadline-day bid still completes before its listing lapses below
   const aiTeams = db.prepare('SELECT id FROM teams WHERE league_id = ? AND user_id IS NULL ORDER BY id').all(leagueId) as { id: number }[];

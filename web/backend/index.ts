@@ -17,7 +17,7 @@ import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
 import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W } from './formations.ts';
-import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, loanOut, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers } from './market.ts';
+import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, loanOut, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers, seedReleaseClauses } from './market.ts';
 import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } from './plan.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, setTeamTrainingIntensity, applyTrainingPreset, TRAINING_PRESETS, setPlayerRetrain, RETRAIN_ROLES, getTrainingReport, TRAINABLE, VALID_FOCUS, VALID_INTENSITY, VALID_TEAM_INTENSITY } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
@@ -127,6 +127,7 @@ app.post('/api/team', async (req: any, reply) => {
   // §P2: stock the for-sale market for the opening summer window (both divisions) so a brand-new
   // manager sees AI clubs offering players to bid on, not an empty board.
   for (const lid of new Set([leagueId, worldId])) aiListSurplus(lid);
+  seedReleaseClauses([leagueId, worldId]);   // §release-clause: AI clubs' stars get a clause from day one
   seedAcademy(teamId);   // §2.9: a starting crop of youth prospects in the academy
   // Generate the squad's personalities in the background (best-effort, ~3s) so team
   // creation returns immediately; the dashboard backfills via /api/personalities.

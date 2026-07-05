@@ -163,6 +163,10 @@ ensureColumn('teams', 'wage_budget', 'wage_budget INTEGER NOT NULL DEFAULT 40000
 // Seasons left on a player's deal; at rollover it ticks down and expiring players leave
 // (pillar 5.2b). Existing rows default to a comfortable 3.
 ensureColumn('players', 'contract_years', 'contract_years INTEGER NOT NULL DEFAULT 3');
+// §release-clause: a fee that makes the player instantly buyable (FM's clause trigger) — a bid at/above it
+// completes at once, bypassing the selling club's verdict. Seeded on AI clubs' best players; NULL = none, so
+// existing saves are unaffected (a player with no clause negotiates as before).
+ensureColumn('players', 'release_clause', 'release_clause INTEGER');
 // §2.3-depth: the matchday-count marker for the last time the manager talked an unsettled player round
 // (the reassure cooldown — one heart-to-heart per match, so morale can't be farmed). NULL = never.
 ensureColumn('players', 'last_settled_round', 'last_settled_round INTEGER');
