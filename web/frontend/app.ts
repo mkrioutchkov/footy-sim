@@ -2290,8 +2290,12 @@ async function screenScouting() {
   const shortChk = h('input', { type: 'checkbox', 'aria-label': 'Only shortlisted' }) as HTMLInputElement;
   const searchBtn = h('button', { class: 'primary small' }, 'Search') as HTMLButtonElement;
 
+  // sequence token: role/checkbox/Enter can fire overlapping searches; only the LATEST may write the table
+  // (two concurrent fetches can resolve out of order, else a stale filter's results would win).
+  let searchSeq = 0;
   const runSearch = async () => {
-    searchBtn.setAttribute('disabled', 'true'); const t0 = searchBtn.textContent; searchBtn.textContent = '…';
+    const my = ++searchSeq;
+    searchBtn.setAttribute('disabled', 'true'); searchBtn.textContent = '…';
     try {
       const r = await api.searchPlayers({
         role: roleSel.value || undefined,
@@ -2301,10 +2305,10 @@ async function screenScouting() {
         name: nameInput.value.trim() || undefined,
         shortlisted: shortChk.checked,
       });
-      if (!alive()) return;
+      if (!alive() || my !== searchSeq) return;   // a newer search superseded this one
       depth = r.depth; players = r.players; expanded.clear(); renderResults();
-    } catch (e: any) { toast(e.message); }
-    finally { searchBtn.removeAttribute('disabled'); searchBtn.textContent = t0; }
+    } catch (e: any) { if (my === searchSeq) toast(e.message); }
+    finally { if (my === searchSeq) { searchBtn.removeAttribute('disabled'); searchBtn.textContent = 'Search'; } }
   };
   searchBtn.addEventListener('click', runSearch);
   for (const el of [ageInput, ovrInput, valInput, nameInput]) el.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter') runSearch(); });
@@ -2333,8 +2337,11 @@ async function screenScouting() {
     const body = h('tbody');
     for (const p of players) {
       const pot = p.potential != null && p.potential > p.overall;
+      // the star must NOT bubble to the name cell's expand handler — stop propagation on both click + key
       const star = h('span', { role: 'button', tabindex: '0', title: p.shortlisted ? 'On your shortlist — click to remove' : 'Add to your shortlist',
-        style: `cursor:pointer;margin-right:5px;${p.shortlisted ? 'color:var(--gold,#e8b53a)' : 'opacity:.3'}`, ...clickable(() => toggleStar(p)) }, '★');
+        style: `cursor:pointer;margin-right:5px;${p.shortlisted ? 'color:var(--gold,#e8b53a)' : 'opacity:.3'}`,
+        onclick: (e: Event) => { e.stopPropagation(); toggleStar(p); },
+        onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleStar(p); } } }, '★');
       const nameCell = h('td', { ...clickable(() => { if (expanded.has(p.id)) expanded.delete(p.id); else expanded.add(p.id); renderResults(); }), style: 'cursor:pointer', title: 'Show scouted attributes' },
         star, p.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + p.club),
         p.releaseClause != null ? h('span', { class: 'pill', title: 'Release clause — instantly buyable from the Market', style: 'margin-left:6px;background:rgba(230,57,70,.18);color:#f2a1a8' }, `⚡ ${fmtMoney(p.releaseClause)}`)
@@ -3194,7 +3201,10 @@ async function screenReport(fixtureId: number, cup = false) {
     const tac = await tacP;
     const msg = String(e.message).includes('no recording')
       ? "No report yet — this match wasn't recorded (play or watch it first)."
-      : e.message;
+      // a past-season fixture is purged at rollover, so an old inbox 'report' deep-link 404s here
+      : String(e.message).includes('not found')
+        ? "This report is no longer available — matches from past seasons are cleared when the season rolls over."
+        : e.message;
     if (!alive()) return;
     return mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' }, h('h2', {}, 'Match report'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),

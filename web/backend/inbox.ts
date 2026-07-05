@@ -6,7 +6,6 @@
 // The archive persists across rollover (like player_news), grouped by season on the screen. Engine-free —
 // pure formatting + storage over data the advance response already carries.
 import { db } from './db.ts';
-import { getFixture } from './match.ts';
 
 export interface InboxItem { category: string; icon: string; text: string; hash?: string | null }
 export interface InboxRow extends InboxItem { id: number; season: number; round: number; read: boolean }
@@ -24,6 +23,11 @@ export interface AdvanceBag {
   teamId: number;
   myResult: { homeScore: number; awayScore: number } | null;
   myFixtureId: number | null;
+  // The user's side + opponent for THIS match, resolved in the handler BEFORE rollover (which purges the
+  // fixtures). Passing them through avoids re-reading the DB post-rollover, where the fixture is gone and
+  // the headline would default to home=true and invert an away result. null home = unknown (fall back home).
+  myHome: boolean | null;
+  myOpponent: string;
   income: number;
   developed: number;
   injuries: { teamId: number; player: string; matches: number }[];
@@ -46,19 +50,14 @@ export interface AdvanceBag {
 }
 
 // The matchday headline — the user's result from their own perspective (their goals first + W/D/L +
-// opponent). Mirrors app.ts:653-659 (resolves the fixture + opponent name server-side).
+// opponent). Uses the side/opponent resolved in the handler BEFORE rollover (bag.myHome/myOpponent), so
+// a season-completing advance (which deletes the fixture) can't flip an away win into a reported loss.
 export function matchdayHeadline(bag: AdvanceBag): string {
   if (!bag.myResult || bag.myFixtureId == null) return '';
-  const fx = getFixture(bag.myFixtureId);
-  const home = fx ? fx.home_team_id === bag.teamId : true;
+  const home = bag.myHome !== false;   // null (unknown) falls back to home
   const gf = home ? bag.myResult.homeScore : bag.myResult.awayScore;
   const ga = home ? bag.myResult.awayScore : bag.myResult.homeScore;
-  let opp = '';
-  if (fx) {
-    const oppId = home ? fx.away_team_id : fx.home_team_id;
-    opp = (db.prepare('SELECT name FROM teams WHERE id = ?').get(oppId) as { name: string } | undefined)?.name ?? '';
-  }
-  return `${gf > ga ? '✅ Won' : gf < ga ? '❌ Lost' : '➖ Drew'} ${gf}–${ga}${opp ? ` vs ${opp}` : ''}`;
+  return `${gf > ga ? '✅ Won' : gf < ga ? '❌ Lost' : '➖ Drew'} ${gf}–${ga}${bag.myOpponent ? ` vs ${bag.myOpponent}` : ''}`;
 }
 
 // Port of the frontend digest assembly (app.ts:660-713) — same items/icons/wording/hashes, so the inbox

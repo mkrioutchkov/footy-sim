@@ -1161,8 +1161,14 @@ app.post('/api/advance', async (req: any, reply) => {
   for (const r of results) { if (r && r.players) { try { tallyDivisionRatings(r.fixtureId, r.players); } catch { /* ambient */ } } }
   // the user's match this matchday (null if they'd already played/watched it ahead)
   const myFx = userRound == null ? null
-    : db.prepare('SELECT id FROM fixtures WHERE league_id = ? AND round = ? AND (home_team_id = ? OR away_team_id = ?) LIMIT 1').get(team.leagueId, userRound, teamId, teamId) as { id: number } | undefined;
+    : db.prepare('SELECT id, home_team_id, away_team_id FROM fixtures WHERE league_id = ? AND round = ? AND (home_team_id = ? OR away_team_id = ?) LIMIT 1').get(team.leagueId, userRound, teamId, teamId) as { id: number; home_team_id: number; away_team_id: number } | undefined;
   const myResult = myFx ? results.find(r => r.fixtureId === myFx.id) ?? null : null;
+  // Resolve the user's side + opponent NOW, before rollover deletes the fixtures — the inbox headline
+  // needs them and can't re-read the (purged) fixture afterwards without inverting an away result.
+  const myHome = myFx ? myFx.home_team_id === teamId : null;
+  const myOpponent = myFx
+    ? ((db.prepare('SELECT name FROM teams WHERE id = ?').get(myHome ? myFx.away_team_id : myFx.home_team_id) as { name: string } | undefined)?.name ?? '')
+    : '';
   // The world progresses between matchdays: condition drains + injuries land (before any
   // squad changes, so "who played" is the XI as it lined up), AI clubs trade + manage, then
   // every player trains.
@@ -1213,7 +1219,7 @@ app.post('/api/advance', async (req: any, reply) => {
   // from the identical array — no frontend/backend drift.
   const myContractOffers = contractEvents.filter(e => e.teamId === teamId);
   const inboxBag = {
-    teamId, myResult, myFixtureId: myFx?.id ?? null, income, developed, injuries, transfers,
+    teamId, myResult, myFixtureId: myFx?.id ?? null, myHome, myOpponent, income, developed, injuries, transfers,
     incomingBids, faOffers, listingsExpired, contractOffers: myContractOffers, cup, rollover,
   };
   const inboxItems = assembleInboxItems(inboxBag);
@@ -1271,8 +1277,16 @@ server.on('upgrade', (request, socket, head) => {
   // cup ties aren't shout-driven, so no live re-sim / coordinator path.
   if (url.searchParams.get('cup')) {
     const tieId = Number(url.searchParams.get('cup'));
-    const tie = db.prepare('SELECT id, home_team_id, away_team_id, seed, played FROM cup_ties WHERE id = ?').get(tieId) as { id: number; home_team_id: number | null; away_team_id: number | null; seed: number; played: number } | undefined;
+    const tie = db.prepare('SELECT id, world_id, home_team_id, away_team_id, seed, played FROM cup_ties WHERE id = ?').get(tieId) as { id: number; world_id: number; home_team_id: number | null; away_team_id: number | null; seed: number; played: number } | undefined;
     if (!tie || !tie.played || tie.home_team_id == null || tie.away_team_id == null) { socket.destroy(); return; }
+    // World-scope guard (mirrors the cup-report REST branch's 403): only a manager in the tie's own world
+    // may watch it back. Cup ties are personal — only your own club's ties are recorded — so this never
+    // blocks a legitimate watch, but it stops another tenant streaming your replay by guessing a tie id.
+    const wsSid = request.headers.cookie?.match(/(?:^|;\s*)sid=([^;]+)/)?.[1];
+    const wsUser = wsSid ? getUserBySession(wsSid) : null;
+    const wsTeamId = wsUser ? teamForUser(wsUser.id) : null;
+    const wsWorld = wsTeamId ? db.prepare('SELECT id, world_id FROM leagues WHERE id = (SELECT league_id FROM teams WHERE id = ?)').get(wsTeamId) as { id: number; world_id: number | null } | undefined : undefined;
+    if (!wsWorld || tie.world_id !== (wsWorld.world_id ?? wsWorld.id)) { socket.destroy(); return; }
     wss.handleUpgrade(request, socket, head, (ws) => {
       try {
         const cnm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(tie.home_team_id, tie.away_team_id) as { id: number; name: string }[];
