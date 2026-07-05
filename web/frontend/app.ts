@@ -2564,7 +2564,8 @@ async function screenAcademy() {
   catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
 
   const body = h('tbody');
-  for (const p of prospects) {
+  // best-potential first, so the ones worth promoting rise to the top
+  for (const p of [...prospects].sort((a, b) => (b.potential ?? b.overall) - (a.potential ?? a.overall))) {
     const room = (p.potential ?? p.overall) - p.overall;
     const promote = h('button', { class: 'primary small' }, 'Promote');
     promote.addEventListener('click', async () => {
@@ -2572,12 +2573,17 @@ async function screenAcademy() {
       try { const r = await api.promoteProspect(p.id); toast(`${r.player} promoted to the senior squad`); screenAcademy(); }
       catch (e: any) { toast(e.message); promote.removeAttribute('disabled'); }
     });
+    // promotion signals: a prospect at first-team level, and one graduating out (leaves the academy at 21).
+    const ready = p.overall >= 60;
+    const graduating = p.age >= 20;
     body.append(h('tr', {},
       h('td', {}, p.name,
+        ready ? h('span', { class: 'pill', title: 'At first-team level — ready to promote', style: 'margin-left:6px;background:transparent;border:1px solid var(--accent);color:var(--accent);font-size:9px' }, 'ready') : '',
+        graduating ? h('span', { class: 'pill', title: 'Graduates out of the academy at 21 if not promoted', style: 'margin-left:5px;background:transparent;border:1px solid #ffb84d;color:#ffb84d;font-size:9px' }, '⚠ graduating') : '',
         // the attribute profile so a prospect can be evaluated on more than OVR (the squad/scout views show this)
         h('div', { class: 'muted', style: 'font-size:10px' }, attrTokens(p.attrs).join(' · '))),
       h('td', {}, h('span', { class: 'pill' }, p.role)),
-      h('td', { class: 'num' }, String(p.age)),
+      h('td', { class: 'num', style: graduating ? 'color:#ffb84d;font-weight:600' : '' }, String(p.age)),
       h('td', { class: 'num' }, String(p.overall)),
       h('td', { class: 'num' }, room > 0 ? h('span', { class: 'a', style: 'color:var(--accent)' }, `${p.potential} (+${room})`) : String(p.potential ?? '—')),
       h('td', {}, promote)));
@@ -2980,6 +2986,8 @@ async function screenReport(fixtureId: number) {
   };
 
   const f = rep.facts;
+  // Man of the Match — the highest match rating across both sides (a staple report headline).
+  const motm = [...rep.ratings].sort((a, b) => b.rating - a.rating)[0];
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('h2', {}, rep.headline),
@@ -3000,7 +3008,9 @@ async function screenReport(fixtureId: number) {
         h('div', { class: 'muted', style: 'margin-top:8px;font-size:12px' },
           `${f.shotsOnTarget} on target · ${f.saves} saves · ${f.corners} corners`))),
     h('div', { class: 'card', style: 'margin-top:10px' },
-      h('div', { class: 'section-title', style: 'margin-top:0' }, 'Player ratings'),
+      h('div', { class: 'between', style: 'align-items:center;flex-wrap:wrap;gap:8px' },
+        h('div', { class: 'section-title', style: 'margin-top:0' }, 'Player ratings'),
+        motm ? h('span', { class: 'pill', title: 'Highest match rating', style: 'background:var(--gold,#e8b53a);color:#1a1205;font-weight:700' }, `⭐ Man of the Match — ${motm.name} (${motm.team === 'home' ? rep.homeName : rep.awayName}) ${motm.rating.toFixed(1)}`) : ''),
       h('div', { style: 'display:flex;gap:24px;flex-wrap:wrap' }, ratingsCol('home', rep.homeName), ratingsCol('away', rep.awayName))),
     shoutReviewCard(tac, fixtureId),
   ));
