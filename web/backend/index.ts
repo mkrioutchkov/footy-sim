@@ -4,7 +4,7 @@ import fstatic from '@fastify/static';
 import { WebSocketServer } from 'ws';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { registerUser, loginUser, createSession, destroySession, getUserBySession, type User } from './auth.ts';
+import { registerUser, loginUser, createSession, destroySession, getUserBySession, seedAdminUser, type User } from './auth.ts';
 import { db } from './db.ts';
 import {
   newSeasonForUser, getTeamWithPlayers, standings, teamForUser,
@@ -71,6 +71,15 @@ function setSession(reply: any, userId: number): void {
 function requireUser(req: any, reply: any): User | null {
   const u = currentUser(req);
   if (!u) { reply.code(401).send({ error: 'not logged in' }); return null; }
+  return u;
+}
+// Admin-only gate. A non-admin (or logged-out) caller can NEVER pass — the endpoint 404s to
+// logged-out and 403s to normal users, so /api/advance is unreachable to a normal user even if
+// they hand-craft the request. The frontend also hides the button, but THIS is the real guard.
+function requireAdmin(req: any, reply: any): User | null {
+  const u = requireUser(req, reply);
+  if (!u) return null;
+  if (!u.isAdmin) { reply.code(403).send({ error: 'admin only' }); return null; }
   return u;
 }
 function validTactics(t: any): Tactics {
@@ -1136,7 +1145,7 @@ app.get('/api/history', async (req: any, reply) => {
 // fixtures) and return the summary.
 const advancing = new Set<number>();   // per-user lock: a matchday mutates many tables + plays
 app.post('/api/advance', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
+  const user = requireAdmin(req, reply); if (!user) return;   // admin-only: manual world-advance is a tester/cron tool
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   // serialise per user so two overlapping advances (two tabs, a mid-request refresh) can't
@@ -1264,6 +1273,10 @@ if (existsSync(DIST)) {
     return reply.sendFile('index.html');
   });
 }
+
+// Ensure the default admin (maxk/maxk) exists so a tester / headless run can advance the world.
+// Idempotent; disable in prod with FOOTY_NO_ADMIN_SEED=1. See auth.seedAdminUser.
+seedAdminUser();
 
 const server = app.server;
 await app.listen({ port: PORT, host: '127.0.0.1' });

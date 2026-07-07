@@ -43,7 +43,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return data as T;
 }
 
-export interface UserT { id: number; username: string; }
+export interface UserT { id: number; username: string; isAdmin?: boolean; }
 export interface Tactics {
   aggression: number; passingDirectness: number; overlapFrequency: number;
   midfieldFreedom: number; defensiveLineHeight: number;

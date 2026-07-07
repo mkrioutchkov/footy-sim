@@ -15,7 +15,7 @@ interface TacticsReceipt {
 type WatchMessage = EngineState & { homeName?: string; awayName?: string; weather?: 'clear' | 'rain' | 'wind'; replay?: boolean; durationMs?: number; tacticsReceipt?: TacticsReceipt; error?: string };
 
 const root = document.getElementById('app')!;
-let user: { id: number; username: string } | null = null;
+let user: { id: number; username: string; isAdmin?: boolean } | null = null;
 
 // ── tiny DOM helper ──
 type Attrs = Record<string, any>;
@@ -633,8 +633,8 @@ async function screenDashboard() {
     ? 'Simulate the whole matchday now — including YOUR match (instantly). To play yours yourself, use “Watch my next match” or “⚡ Play LIVE” first.'
     : 'Simulate every club’s matchday and move the season on. No undo.' },
     !canAdvance ? 'Season complete'
-      : simmingMyMatch ? `Play matchday ${pendingRound}`
-        : `Advance matchday${pendingRound != null ? ` ${pendingRound}` : ''}`);
+      : simmingMyMatch ? `Play matchday ${pendingRound} (admin)`
+        : `Advance matchday${pendingRound != null ? ` ${pendingRound}` : ''} (admin)`);
   if (!canAdvance) advanceBtn.setAttribute('disabled', 'true');
   advanceBtn.addEventListener('click', async () => {
     const opp = myInPending ? (myInPending.homeTeamId === team.id ? myInPending.away : myInPending.home) : '';
@@ -927,7 +927,7 @@ async function screenDashboard() {
       // Match-flow actions live in the next-match hero card below; the header keeps Advance
       // (+ replay-last when there's no upcoming match — the hero only exists with one).
       h('div', {},
-        h('div', { class: 'row' }, myNext ? '' : watchBtn, advanceBtn),
+        h('div', { class: 'row' }, myNext ? '' : watchBtn, user?.isAdmin ? advanceBtn : ''),
         // played-ahead dead-end: all your matches are done but the season hasn't rolled over yet — explain it
         // so the missing "Play LIVE" doesn't read as a bug (you simply have no upcoming match this season).
         !myNext && canAdvance ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' },

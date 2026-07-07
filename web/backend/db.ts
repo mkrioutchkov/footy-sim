@@ -76,6 +76,10 @@ function ensureColumn(table: string, col: string, ddl: string): void {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!cols.some(c => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
+// Admin flag: 0 = normal user, 1 = admin (may hit admin-only endpoints like /api/advance).
+// Defaults 0 so every existing + self-registered user is a normal user; admin is granted only
+// by the maxk seed (auth.seedAdminUser) or a manual DB update.
+ensureColumn('users', 'is_admin', 'is_admin INTEGER NOT NULL DEFAULT 0');
 ensureColumn('teams', 'formation', "formation TEXT NOT NULL DEFAULT '4-3-3'");
 ensureColumn('teams', 'lineup', 'lineup TEXT');   // json int[11]: formationSlot -> player slot; NULL = identity XI
 // Plain-English standing tactical plan (replaces the human 5-dial UI). plan_text = the manager's
