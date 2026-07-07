@@ -522,20 +522,18 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                      && onsideGap > 3.0 && onsideGap < 170.0
                      && pitch::lateralFromCenter(t.y) < 150.0
                      && goalDistEff < 245.0 && fpEff > 20.0;
-    // ── Over the top (ATTEMPTED AND REVERTED, twice-tuned) ── a lofted ball
-    // into the space behind a flat defence for the striker to run onto (owner
-    // 1:26 "loft it over their heads... pass into space for the striker").
-    // passBallTo already auto-lofts a blocked lane at range, so the physics
-    // exist; adding it to SELECTION raised through balls 6 -> 18 (broad) or
-    // 6 -> 8 (tight) but LOWERED goals (0.30 -> 0.33 broad but spammy; tight:
-    // goals 0.23 -> 0.20, shots 3.1 -> 2.9, on-target 1.18 -> 0.75). This is
-    // the FOURTH supply-side experiment this session (through-ball window,
-    // directed panic outlet, release ball, over-the-top) that raises killer-
-    // ball VOLUME and drops goals: the striker gets the ball but the
-    // conversion chain (first touch -> next decision -> finish) leaks the EV,
-    // so each extra Through is a negative-EV possession lottery. The bottleneck
-    // is CONVERSION, not selection — fix fresh-through finishing / 1-on-1-vs-GK
-    // before adding more supply.
+    // ── Over the top (FIVE strikes — permanently shelved) ── the lofted ball
+    // behind the line for the striker (owner asked repeatedly, most recently
+    // 1:06/1:28 seed 317). A/B'd THREE times pre-conversion-fix and twice
+    // post: even with clear-cut finishing landed (1-on-1s 14% -> 33%), the
+    // tight variant still dropped goals (0.38 -> 0.17 in the combined round;
+    // isolated bisect confirmed it as the driver). Why conversion didn't save
+    // it: the reception lands ~30-35m out with the keeper set — the runner
+    // still has to carry and beat him, so it's NOT a clear-cut chance by
+    // strike time; meanwhile the attempts replace possession sequences that
+    // did produce chances. Do not re-add via selection; if this ball is ever
+    // wanted, it needs its own receive-to-finish path (first-touch knock past
+    // the keeper / earlier clear-cut qualification), not a score bonus here.
     if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall) {
         pur = ActionPurpose::Through;
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).

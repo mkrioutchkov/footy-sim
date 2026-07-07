@@ -450,6 +450,25 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
 
     if (a.type == ActionType::Pass && a.target) {
         PassSelectionAudit audit = passSelectionAudit(a, actions);
+        // "Nonsense pass" census (owner ask: a metric for the pass that makes
+        // no sense): a low-completion ball released under little/no pressure
+        // while a clearly safer option with comparable progress was on the
+        // menu. Killer balls and panic clears are exempt — those are meant to
+        // be risky. Census only; the selection-sanity penalty in scorePass is
+        // what actually reduces them.
+        int pcNow = cachedPerception.has_value() ? cachedPerception->pressureCount : 0;
+        if (pcNow <= 1 && a.audit.expectedCompletion > 0.0 && a.audit.expectedCompletion < 0.50
+            && a.purpose != ActionPurpose::Through && a.purpose != ActionPurpose::Clear
+            && a.purpose != ActionPurpose::Cross && a.purpose != ActionPurpose::Cutback) {
+            for (auto& x : actions) {
+                if (x.type != ActionType::Pass || !x.target || x.target->id == a.target->id) continue;
+                if (x.audit.expectedCompletion > 0.74
+                    && x.audit.forwardProgress >= a.audit.forwardProgress - 60.0) {
+                    engine.stats.recordNonsensePass();
+                    break;
+                }
+            }
+        }
         bool released;
         if (a.purpose == ActionPurpose::Clear) {
             engine.forcePassTo(p, *a.target, &audit);

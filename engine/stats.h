@@ -232,6 +232,9 @@ class StatsCollector {
     // box / arc at a penalty kick, opponent inside the box at a goal kick) AT
     // THE MOMENT of release. Guarded to 0 by the scenario suite.
     void recordRestartLawViolation() { restartLawViolations++; }
+    // "Retard pass" census (owner ask): a low-completion ball released under
+    // little/no pressure while a clearly safer, comparable option existed.
+    void recordNonsensePass() { nonsensePasses++; }
     void recordQualityFlag(QualityFlag flag);
     void recordDecisionMoment() { decisionMoments++; }
     void recordPlayerDecision() { playerDecisions++; }
@@ -351,6 +354,7 @@ class StatsCollector {
     int stationaryHold500ms = 0;
     int unknownQualityFlags = 0;
     int restartLawViolations = 0;
+    int nonsensePasses = 0;
     int decisionMoments = 0, playerDecisions = 0, staleGrabs = 0, skillMoves = 0, shotsBlocked = 0;
     int taskSelectionsTotal = 0, taskSelectionsPrimary = 0, taskSelectionsSecondary = 0;
     int taskSelectionsCover = 0, taskSelectionsLine = 0, taskSelectionsScreen = 0;

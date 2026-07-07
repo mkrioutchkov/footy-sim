@@ -67,6 +67,29 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
         if (result) r.push_back(*result);
     }
 
+    // ── Selection sanity ── with little/no pressure, a low-completion ball
+    // must not outbid CLEARLY safer options of comparable progress (watched
+    // replay seed 317: the same wide defender picked off build-up pass after
+    // build-up pass — 0:31, 1:11, 1:34 — while two or three easy outlets stood
+    // free each time; "spin pass into massive traffic instead of the simple
+    // ball"). Killer balls, clears and deliveries stay exempt (meant to be
+    // risky). The penalty scales with how much safer the best alternative is,
+    // so a marginal gap changes nothing.
+    if (per.pressureCount <= 1) {
+        double bestSafeComp = 0.0;
+        for (auto& x : r)
+            if (x.audit.forwardProgress > -60.0)
+                bestSafeComp = std::max(bestSafeComp, x.audit.expectedCompletion);
+        if (bestSafeComp > 0.70) {
+            for (auto& x : r) {
+                if (x.purpose == ActionPurpose::Through || x.purpose == ActionPurpose::Clear
+                    || x.purpose == ActionPurpose::Cross || x.purpose == ActionPurpose::Cutback) continue;
+                double gap = bestSafeComp - x.audit.expectedCompletion - 0.26;
+                if (gap > 0.0) x.score -= gap * 0.9;
+            }
+        }
+    }
+
     // ── Crossing carrier override ──
     // ⚠ Load-bearing offense — do NOT remove without replacing the chances.
     // History: this block is the engine's cross-volume machine (originally ~246
