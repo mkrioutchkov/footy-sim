@@ -133,12 +133,16 @@ export function declineFallback(hasDirectives: boolean, hasMotivation: boolean, 
 // Validate the returned plan's directives (same rules as tactics.ts) + motivation
 // (id range, clamp, enforce the per-player cap from motUsed). Deterministic given
 // the model output, so cached replays stay identical.
-function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, mineIds: Set<number>, oppIds: Set<number>, motUsed: Map<number, number>): { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation: string | null; setPieceTakers: PlanTakers | null } {
+// Exported for the deterministic offline regression test (tools/test_plan_validate.ts):
+// the live compile paths are LLM-backed, so validate() is the seam a unit test can
+// drive with a hand-authored raw plan (e.g. the GAP 1 standing-plan man_mark note).
+export function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, mineIds: Set<number>, oppIds: Set<number>, motUsed: Map<number, number>): { plan: Plan; changed: string; motivation: Motivation[]; note: string; formation: string | null; setPieceTakers: PlanTakers | null } {
   const myScope = myTeam === 'home' ? 0 : 1;
   const planRaw = (raw.plan ?? {}) as Record<string, unknown>;
   const timeOK = TIME_WORDS.test(shout), scoreOK = SCORE_WORDS.test(shout), phaseOK = PHASE_WORDS.test(shout);
   const directives: Directive[] = [];
   let droppedKind = false;   // the LLM proposed a directive whose kind isn't a real primitive (→ honest-decline net)
+  let proposedManMark = false;   // a man_mark was asked for but there's no opponent XI to bind it to (standing plan) — GAP 1
   for (const r of (Array.isArray(planRaw.directives) ? planRaw.directives : [])) {
     if (!r || typeof r !== 'object') continue;
     const d = r as Record<string, unknown>;
@@ -155,7 +159,10 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
       dir = { playerId: pid, kind, intensity };
       if (kind === 'man_mark') {
         const t = num(d.targetId, -1);
-        if (!oppIds.has(t)) continue;          // mark an OPPONENT (else the engine ignores it)
+        // mark an OPPONENT (else the engine ignores it). Pre-match there is no
+        // opponent XI (oppIds empty), so this always drops — flag it so we tell
+        // the manager it's a live-only order instead of a silent no-op (GAP 1).
+        if (!oppIds.has(t)) { if (oppIds.size === 0) proposedManMark = true; continue; }
         dir.targetId = t;
       } else if (kind === 'target_player') {
         const t = num(d.targetId, -1);
@@ -192,6 +199,13 @@ function validate(raw: Record<string, unknown>, myTeam: Side, shout: string, min
   const changed = typeof raw.changed === 'string' ? raw.changed.trim().slice(0, 160) : '';
   let note = typeof raw.note === 'string' ? raw.note.trim().slice(0, 200) : '';
   note = declineFallback(directives.length > 0, motivation.length > 0, droppedKind, note);
+  // GAP 1: a man_mark in a STANDING plan can't bind (no opponent XI at plan-save
+  // time) and it's a valid kind, so the honest-decline net above never fires —
+  // it would just vanish. Surface a note so the manager knows to set it live.
+  if (proposedManMark) {
+    const mm = 'Man-marking is set as a live shout during the match, not in the standing plan.';
+    note = (note ? `${note} ${mm}` : mm).slice(0, 240);
+  }
   // Formation change: accept only a real registry shape (normalise digits/keys).
   let formation: string | null = null;
   if (typeof raw.formation === 'string' && raw.formation.trim()) {

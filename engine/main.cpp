@@ -60,7 +60,9 @@ void loadTeam(const nlohmann::json& t, GameEngine::RosterOverride& ro, GameEngin
 // Parse the optional "directives" block (plain-English tactics, compiled to a
 // structured form by the caller). Player ids are already resolved to 0..21.
 // Shape: [{"playerId":3,"kind":"man_mark","targetId":19,"intensity":0.9,
-//          "when":{"minuteMod":2,"minuteEq":1,"scoreState":"losing","scoreBy":1}}]
+//          "when":{"fromMin":0,"toMin":90,"scoreState":"losing","scoreBy":1,"phase":"transition"}}]
+// (The `when` keys actually parsed are fromMin/toMin/scoreState/scoreBy/phase —
+//  see the `when` block below; there is no minuteMod/minuteEq.)
 void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directive>& out) {
     auto num = [](const nlohmann::json& o, const char* k, double d) {
         return o.contains(k) && o[k].is_number() ? o[k].get<double>() : d;

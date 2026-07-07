@@ -114,7 +114,9 @@ function specForTeam(teamId: number, side: 'home' | 'away', talk?: Map<number, n
   // Set-piece takers (user-watch): the manager's designated FK/corner/pen/long-throw takers ride in as
   // per-player directives (playerId = squad slot) that resolve to engine ids alongside the plan. A taker
   // who isn't in the fielded XI is dropped by resolvePlanDirectives → the engine falls back to its default.
-  // Unknown kinds are a no-op in today's engine (main.cpp `else continue`) until Boris reads them.
+  // These kinds are read end-to-end now: the engine maps fk_taker/corner_taker/pen_taker/long_throw_taker
+  // via designatedTakerFor and honours them at the restart (engine_setpiece.cpp). Truly unknown kinds are
+  // still ignored by the engine (main.cpp `else continue`) — but the backend never emits those.
   const directives = resolvePlanDirectives([...(t.plan?.directives ?? []), ...setPieceTakerDirectives(t.setPieceTakers)], slotToEngine, side);
   return { spec: { name: t.name, tactics, players }, directives };
 }
@@ -880,6 +882,13 @@ export class MatchStream extends FramePacer {
     this.timeline.push({ atMs: t, directives, morale, layout });
     this.commands.push({ atMs: t, team: this.myTeam === 'home' ? 0 : 1, directives, morale, layout, text: text || undefined });
     this.writeSessionSpec();
+    // Durably flush the command log on EVERY committed edit, not only on socket close
+    // (GAP 2): dispose()'s persistTactics() misses a mid-match backend crash/restart,
+    // which would silently lose every shout so far — no re-sim, no shout review. This
+    // is idempotent (overwrites with the growing log) and best-effort; shouts are rare
+    // enough that rewriting the small log each time is free. A no-shout watch never
+    // reaches here, so its spec stays byte-identical.
+    this.persistTactics();
     this.fromMs = Math.max(this.fromMs, t);   // monotonic — never rewind already-streamed frames
     this.paused = false;
     this.start();

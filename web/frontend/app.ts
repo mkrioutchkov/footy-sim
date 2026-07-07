@@ -1165,6 +1165,7 @@ const TEAM_LABEL: Record<string, string> = {
   drop_off: 'Drop off / contain', play_it_long: 'Play it long', keep_it_on_ground: 'Keep it on the ground',
   get_it_wide: 'Get it wide', play_narrow: 'Play narrow', push_up: 'Push the line up', slow_it_down: 'Slow it down',
   counter_attack: 'Counter-attack', offside_trap: 'Offside trap',
+  shoot_from_distance: 'Shoot from distance', work_it_into_box: 'Work it into the box',  // GAP 3: both are engine-run team kinds
 };
 // the gradated FM dials — [low, mid, high] readback bands keyed off the directive's intensity
 const GRADATED: Record<string, [string, string, string]> = {

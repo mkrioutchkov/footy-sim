@@ -297,6 +297,28 @@ export class LiveMatch {
     const command: Command = { atMs, team, directives, morale, layout };
     this.commands.push(command);
     this.proc.writeCommand(JSON.stringify({ type: 'inject', ...command }));
+    this.persistCommandsNow();
+  }
+
+  // Durably flush the command log the moment a shout is injected (GAP 2). The
+  // authoritative events log is written when the capture stream ends (constructor,
+  // on clean finish), but that MISSES a mid-match backend crash/restart — which
+  // would silently lose every shout, so ?shouts=1 re-sim and the shout-review card
+  // have nothing to rebuild from. This best-effort partial write is crash-insurance;
+  // the finish-time write overwrites it with the authoritative final scores. Only for
+  // recorded (human-stake) matches with shouts, so a plain/AI watch writes nothing and
+  // stays byte-identical.
+  private persistCommandsNow(): void {
+    if (!this.record || !this.commands.length) return;
+    try {
+      writeEventsLog(this.kind, this.refId, {
+        seed: this.seed,
+        duration: Number(this.latest?.clockMs ?? 0),
+        scores: { home: Number(this.latest?.homeScore ?? 0), away: Number(this.latest?.awayScore ?? 0) },
+        spec: this.baseSpec as Record<string, unknown>,
+        commands: this.commands,
+      });
+    } catch { /* best-effort — a shout must never fail because persistence did */ }
   }
 
   // ── shared speed / pause (match-global, broadcast) ────────────────────────────
