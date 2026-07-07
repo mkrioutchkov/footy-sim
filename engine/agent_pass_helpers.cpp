@@ -53,12 +53,19 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         double effBlocker = PASS_BLOCKER_PERP + clamp(closing / 50.0, 0.0, 1.0) * 13.0;
         if (perp < effBlocker) bl++;
         else if (perp < 112.0 && t2 > 0.10 && t2 < 0.92) laneRisk += clamp((112.0 - perp) / 76.0, 0.0, 1.0);
-        // Opponent right on the boot at release: near-certain deflection that
-        // the wide lane radius under-weighted (passes straight into a marker
-        // 17px away looked like normal 1-blocker passes).
-        if (perp < 17.0 && dist(o.x, o.y, p.x, p.y) < 42.0) pointBlank++;
+        // Opponent right on the boot at release, in the NEAR half of the lane:
+        // near-certain deflection that the wide lane radius under-weighted
+        // (passes straight into a marker 17px away looked like normal
+        // 1-blocker passes). t2<0.5 so it's a body in FRONT of the passer,
+        // not one hovering by the receiver.
+        if (perp < 17.0 && t2 < 0.5 && dist(o.x, o.y, p.x, p.y) < 42.0) pointBlank++;
     }
-    if (bl >= 3 || (pointBlank > 0 && per.pressureCount < 2)) return std::nullopt;
+    // A man point-blank in the near lane is fatal EVEN under pressure — you
+    // cannot thread the ball past a defender 3-4m directly in front however
+    // swarmed you are (watched replay 0:38: a pressed Messi fired a hard
+    // backpass straight into Busquets 7px off the lane because the veto was
+    // disabled at pressureCount>=2; he should shield/spin instead).
+    if (bl >= 3 || pointBlank > 0) return std::nullopt;
 
     double fp = pitch::forwardGain(p.x, t.x, p.team);
     double rs = attrFactor(p.attrs.passing);

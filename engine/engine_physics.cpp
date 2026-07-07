@@ -444,6 +444,13 @@ bool GameEngine::tryKeeperLooseGather(double bs) {
                     keeperContact->diveAnim = std::max(keeperContact->diveAnim, 440.0); // render-only stretch
                 }
             }
+            // Reaching BEYOND standing arm length (23.5px) to gather a loose
+            // ball means the keeper stretches/lunges for it — without this he
+            // grabbed a ball 34px away looking planted, "well outside his
+            // wingspan" (watched replay 0:44). diveAnim is render-only (feeds
+            // no rng, no logic — engine_gk.cpp) so the golden is untouched.
+            if (dist(keeperContact->x, keeperContact->y, b.x, b.y) > GK_STAND_REACH)
+                keeperContact->diveAnim = std::max(keeperContact->diveAnim, 300.0);
             collectBall(*keeperContact);
             return true;
         }

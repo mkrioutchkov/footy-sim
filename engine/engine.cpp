@@ -1005,6 +1005,38 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     separateTeammates(sdt);
     enforceRestartDistance();
 
+    // ── Defensive wall / block, that actually FORMS, with hurry ──
+    // setPiecePositioning writes the wall + block-shape targets (agent_
+    // setpiece.cpp, FreeKick defending branch) AFTER tickAgents' movement
+    // integrator has already run for the tick, and nothing downstream walks a
+    // defender to that target — so the wall rendered (p.wall=1) but no bodies
+    // were ever there (watched replay 0:53: a 21m central FK with no wall, the
+    // defenders strolling their open-play shape). Walk every defending
+    // outfielder to his set-piece target at urgent pace — same proven mover as
+    // the intruder push above — so the block sets in ~2s of the hold. Only for
+    // a dangerous FreeKick (near the defending goal); elsewhere no wall forms
+    // and this is a no-op.
+    if (setPiece.type == SetPiece::FreeKick && !setPiece.fast) {
+        Team defTeam = setPiece.team == Team::Home ? Team::Away : Team::Home;
+        double defGoalX = ownGoalXFor(defTeam);
+        bool dangerFK = std::abs(setPiece.spotX - defGoalX) < 300.0;
+        if (dangerFK) {
+            double step = SPEED_SPRINT * 1.5 * (sdt / 1000.0);
+            for (auto& p : state.players) {
+                if (p.team != defTeam || p.role == Role::GK || p.sentOff) continue;
+                double mx = p.targetX - p.x, my = p.targetY - p.y, md = std::hypot(mx, my);
+                if (md > 2.0) {
+                    double st = std::min(step, md);
+                    p.x += mx / md * st;
+                    p.y += my / md * st;
+                    p.vx = mx / md * SPEED_SPRINT;
+                    p.vy = my / md * SPEED_SPRINT;
+                    p.facing = std::atan2(state.ball.y - p.y, state.ball.x - p.x); // watch the ball
+                }
+            }
+        }
+    }
+
     // Keepers are NOT statues during restarts: fixedUpdate's armed
     // early-return skips updateGK entirely, so a keeper stood wherever the
     // previous phase left him through every corner/FK hold (watched replay
@@ -1091,8 +1123,9 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 // Goal kick: the 6s award budget (awardSetPiece: "6s total") keeps
                 // counting through the keeper's walk — re-arming on arrival stacked
                 // another full hold on top (observed 10-13s frozen restarts).
+                // Fast free kick: barely any hold — play it before the wall sets.
                 if (setPiece.type != SetPiece::GoalKick)
-                    phase.actionTimer = actionTimerFor(setPiece.type);
+                    phase.actionTimer = setPiece.fast ? 300.0 : actionTimerFor(setPiece.type);
             }
         }
     }
@@ -1163,7 +1196,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 // Same GoalKick exclusion as the honest-arrival path: the budget
                 // already ran out (plus the 3.5s walk backstop) — kick it now.
                 if (setPiece.type != SetPiece::GoalKick)
-                    phase.actionTimer = actionTimerFor(setPiece.type);
+                    phase.actionTimer = setPiece.fast ? 300.0 : actionTimerFor(setPiece.type);
             }
         }
     }

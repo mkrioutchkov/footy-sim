@@ -314,6 +314,12 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // already-clear man). Drive it faster and flatter so a defender can't drift
     // into the lane before it arrives — an open keeper roll isn't getting nicked.
     double speed = (PASS_SPEED_BASE + rawDist * PASS_SPEED_DIST) * (0.92 + rng.random() * 0.16);
+    // NOTE: a short-range pace throttle (speed *= clamp(rawDist/150, 0.66, 1))
+    // for the "why was that pass so hard" look (0:38) was A/B'd and REVERTED —
+    // a gentler short ball spends longer in the lane and the step-in
+    // interceptor model punishes it (completion 81.1 -> 79.4). The verifier
+    // confirmed the pace was cosmetic and did NOT cause the turnover; the
+    // point-blank blocker did (fixed in scorePassToTarget).
     if (secure) speed *= 1.45;
     double travelTime = rawDist / std::max(speed, 1.0);
     double receiverSpeed = std::hypot(t.vx, t.vy);
@@ -1024,7 +1030,16 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
             b.vz = clamp(0.5 * GRAVITY * (d / std::max(fkSpeed, 1.0)) * 1.05, 170.0, 330.0);
             b.curl = openSide * vxSign * (0.10 + accuracy * 0.07);
         } else {
-            b.vz = std::max(fkSpeed * 0.72, 150.0);
+            // Distance-SIZED loft (was a flat fkSpeed*0.72, distance-blind):
+            // the flat lift peaked ~3m at any range, so a 20m+ curler came
+            // back to ground ~5-6m SHORT and plopped softly into the keeper's
+            // 6-yard box (watched replay 1:00 "missed tap-in" — the FK that
+            // died short) — directly against this code's own intent ("dips
+            // under the bar BY THE GOAL LINE"). Size vz so the parabola lands
+            // at the line (0.5·g·d/fkSpeed) with a lower peak than the dipper
+            // (×1.0 vs ×1.05) so it arrives flat-ish and the curl still lives;
+            // floor 150 keeps the peak above the 20px wall-clearance height.
+            b.vz = clamp(0.5 * GRAVITY * (d / std::max(fkSpeed, 1.0)) * 1.0, 150.0, 330.0);
             b.curl = openSide * vxSign * (0.20 + accuracy * 0.15);
         }
     }

@@ -845,6 +845,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
     setPiece.type = t;
     setPiece.team = tm;
     setPiece.armed = true;
+    setPiece.fast = false;   // default; the FreeKick branch may set it true
     setPiece.reason = std::string(to_string(t));
     setPiece.spotX = b.x;
     setPiece.spotY = b.y;
@@ -908,6 +909,33 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
     phase.actionTimer = 5000;
     Player* best = findNearestOutfieldPlayer(tmTeam, b.x, b.y);
     setPiece.takerId = best ? best->id : -1;
+
+    // ── Rare sneaky FAST free kick ── occasionally a taker plays it QUICKLY,
+    // before the defence forms its block — the sharp counter-punch a good side
+    // takes when the ref lets play flow (owner ask). Gated tight so it never
+    // spams and never replaces a shooting FK: only when it is NOT a direct
+    // shooting position (a fast shot would just be a worse shot from range),
+    // and only when a genuinely open team-mate is already ahead of the ball
+    // with a clean lane to receive. ~14% of those.
+    double oppGoalX = goalXFor(tmTeam);
+    double spotToGoal = std::abs(b.x - oppGoalX);
+    setPiece.fast = false;
+    if (best && spotToGoal > 260.0 && rng.random() < 0.14) {
+        double fd = fdFor(tmTeam);
+        for (auto& m : state.players) {
+            if (m.team != tmTeam || m.id == best->id || m.role == Role::GK || m.sentOff) continue;
+            double fwd = (m.x - b.x) * fd;              // ahead of the ball
+            if (fwd < 40.0 || fwd > 320.0) continue;
+            if (isOffsideTargetPerceived(*best, m)) continue;
+            double nearOpp = 1e9;
+            for (auto& o : state.players)
+                if (isActiveOpponent(o, tmTeam)) nearOpp = std::min(nearOpp, dist(o.x, o.y, m.x, m.y));
+            if (nearOpp < 70.0) continue;               // receiver must be open
+            if (countLaneBlockers(state.players, b.x, b.y, m.x, m.y, tmTeam, BLOCKER_PERP_FREEKICK, 0.08, 0.92) != 0) continue;
+            setPiece.fast = true;                       // clean quick outlet exists — take it early
+            break;
+        }
+    }
 }
 
 void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {

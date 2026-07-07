@@ -161,6 +161,7 @@ public:
         int takerId = -1;
         double spotX = 0, spotY = 0;
         bool takerArrived = false;
+        bool fast = false;   // rare sneaky quick free kick: skip the full hold, play it before the defense sets
         double walkMs = 0;   // time spent trying to reach the ball — backstop against a never-arriving taker
         // Out-ball glide: for corner/throw/goal-kick awards the ball keeps
         // ROLLING out under friction until this clock, then snaps to the spot —
