@@ -440,6 +440,18 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         double crossz = b.vx * (PITCH_H / 2.0 - b.y) - b.vy * (goalX - b.x);
         b.curl = (crossz >= 0 ? 1.0 : -1.0) * (0.18 + rng.random() * 0.12);
     }
+    // Pivot the passer's body onto the ball's launch line for a CROSS or any
+    // lofted delivery. A player swinging a ball across his body kicks THROUGH
+    // it — he doesn't release it facing the other way (watched replay seed 105
+    // Messi goal: the crosser whipped it in while rendered facing back infield,
+    // because his body still pointed at the ball he'd been shielding below him).
+    // Scoped to crosses/lofted balls: that is where the wide swing makes the
+    // stale windup-facing look wrong, and it keeps the pivot off the hundreds of
+    // flat to-feet passes (an all-pass pivot fed pass-scoring's facing term and
+    // reshuffled the game harder than the render fix warranted). Physics lerps
+    // facing back toward his run over the following ticks.
+    if ((selectedCross || whippedCross || b.vz > 40.0) && std::hypot(b.vx, b.vy) > 1.0)
+        f.facing = std::atan2(b.vy, b.vx);
     if (audit) {
         bool riskyFlag = audit->blockers > 0 || audit->receiverPressure > 0 || audit->expectedCompletion < 0.58;
         stats.recordPassSelection(audit->distance, audit->expectedCompletion, audit->blockers, audit->receiverPressure, riskyFlag, audit->saferOptionTargetId);

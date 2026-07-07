@@ -228,6 +228,15 @@ inline constexpr double GK_DISTRIBUTE_MS        = 2000.0;
 // keeper distributes himself instead of being force-passed as a "stuck carrier".
 inline constexpr double GK_MAX_HOLD_MS          = 1800.0;
 
+// ── Goal-kick long-distribution mix ── even a possession side mixes in a
+// longer distribution to a target man rather than ALWAYS playing out short
+// (watched replay seed 105: goal kicks were taken short unrealistically
+// often). When a real advanced outlet exists and the keeper isn't being
+// pressed into a rushed short escape, launch it long this fraction of the
+// time. A genuine mix, not every kick.
+inline constexpr double GK_LONG_MIX_PROB        = 0.30;
+inline constexpr double GK_LONG_TARGET_MIN_PROG = 470.0; // outlet past halfway
+
 // ── GK cross-claim (keeper commands his box) ──
 // A claim is a save of the DELIVERY: the keeper attacks an aerial cross that
 // nobody won in his 6-yard zone. Reuses catch/punch/tip physics — there is NO

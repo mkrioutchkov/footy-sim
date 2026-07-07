@@ -60,6 +60,7 @@ export class MatchRenderer {
   private ringGfx: Graphics;
   private ballBody: Graphics;
   private ballGlow: Graphics;
+  private ballHighlight: Graphics;   // faint elevation halo hugging a lofted ball → reads as lit/floating
   // ── scoreboard (DOM) ── one clean full-width strip: teams + score + a BIG clock + shots/poss.
   // DOM (not canvas Text) so it's crisp, styleable from styles.css, and can never be occluded by
   // the floating controls (the old canvas HUD sat under the top-left button pile).
@@ -186,6 +187,7 @@ export class MatchRenderer {
     this.ringGfx = new Graphics();
     this.ballBody = new Graphics();
     this.ballGlow = new Graphics();
+    this.ballHighlight = new Graphics();
     this.eventGfx = new Graphics();
     this.jockeyGfx = new Graphics();
     this.setPieceGfx = new Graphics();
@@ -250,6 +252,7 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ringGfx);
     this.pitchContainer.addChild(this.ballBody);
     this.pitchContainer.addChild(this.ballGlow);
+    this.pitchContainer.addChild(this.ballHighlight);
     this.pitchContainer.addChild(this.eventGfx);
     for (const label of this.eventLabels) this.pitchContainer.addChild(label);
     this.pitchContainer.addChild(this.setPieceGfx);
@@ -482,7 +485,9 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.setPieceText);
     // BALL ALWAYS ON TOP — added LAST so no player, event effect, set-piece marker or overlay sprite can
     // ever occlude it (owner bug: the ball vanished under other chrome). The HUD DOM strip is faded
-    // separately in renderFrame when the ball's screen position would slide under it.
+    // separately in renderFrame when the ball's screen position would slide under it. The elevation halo
+    // rides just below the sprite so it reads as a rim of light around the lofted ball, never over it.
+    this.pitchContainer.addChild(this.ballHighlight);
     this.pitchContainer.addChild(this.ballBody);
 
     const g = this.pitchGfx;   // reused (clear + redraw) so a resize/recalc doesn't leak a Graphics each time
@@ -629,8 +634,13 @@ export class MatchRenderer {
     if (bylineRun) __bw.__bylineSeen = true;
 
     // ── ball draw (interpolated pos + Z lift + dribble stride) ──
-    const arcOffset = ibz * 0.7;
-    const shadowAlpha = clamp(ibz / 120, 0.05, 0.55);
+    // 3D height read: the sprite lifts off its ground shadow (arcOffset), GROWS as it climbs (nearer the
+    // camera), and the shadow it casts on the turf spreads WIDER + fades SOFTER the higher it goes. The
+    // gap between the lifted sprite and the pinned shadow is the cue that sells "up in the air".
+    const arcOffset = ibz * 0.7;   // NOTE: the motion/shot trails mirror this 0.7 lift — keep them in step.
+    // Map height 0→1 over the realistic lofted range (~50u apex for crosses/corners/goal-kicks); balls
+    // above that clamp, so the effect saturates gracefully instead of ballooning on a freak clearance.
+    const heightRatio = clamp(ibz / 50, 0, 1);
     let touchX = 0, touchY = 0;
     if (b.controllerId !== null && ibz < 2) {
       const ctrl = byId.get(b.controllerId);
@@ -644,16 +654,30 @@ export class MatchRenderer {
         touchY = Math.sin(ma) * push + Math.cos(ma) * sway;
       }
     }
-    this.ballBody.position.set(ibx + touchX, iby + touchY - arcOffset);
-    const heightRatio = clamp(ibz / 250, 0, 1);
-    this.ballBody.scale.set(1 - heightRatio * 0.3);
+    const bx = ibx + touchX, by = iby + touchY - arcOffset;
+    this.ballBody.position.set(bx, by);
+    this.ballBody.scale.set(1 + heightRatio * 0.55);   // grows up to ~1.55× at apex — nearer the camera
+
+    // ground shadow (ballGlow) — pinned at the ball's x,y on the turf while the sprite floats above it.
+    // It widens and softens with height (a diffuse pool for a high ball, a tight dark disc for a low one).
     this.ballGlow.position.set(ibx, iby);
     this.ballGlow.clear();
     if (ibz > 5) {
-      this.ballGlow.ellipse(0, 0, BALL_R * (1 + heightRatio * 0.8), BALL_R * 0.5);
+      const shadowAlpha = clamp(0.34 - heightRatio * 0.20, 0.1, 0.34);
+      this.ballGlow.ellipse(0, 0, BALL_R * (1 + heightRatio * 1.7), BALL_R * (0.5 + heightRatio * 0.35));
       this.ballGlow.fill({ color: 0x000000, alpha: shadowAlpha });
     }
     this.ballGlow.visible = ibz > 5;
+
+    // elevation halo — a faint bright rim tracking the lifted sprite, brightening with height so a high
+    // ball reads as lit and floating rather than a flat disc. Matches the grown ball radius + a thin ring.
+    this.ballHighlight.position.set(bx, by);
+    this.ballHighlight.clear();
+    if (ibz > 5) {
+      this.ballHighlight.circle(0, 0, BALL_R * (1 + heightRatio * 0.55) + 2.5);
+      this.ballHighlight.fill({ color: 0xffffff, alpha: 0.05 + heightRatio * 0.12 });
+    }
+    this.ballHighlight.visible = ibz > 5;
 
     // ── ball-under-scorebug fade ── the ball is z-topmost on the canvas, but the fixed DOM scoreboard
     // strip lives above the canvas and could still cover a ball near the top touchline. When the ball's

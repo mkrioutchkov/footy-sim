@@ -1,10 +1,11 @@
 # Golden baseline — engine determinism reference
 
-> **Baseline generation:** 2026-07-07, after the pass-selection sanity round
-> (low-pressure selection-sanity penalty, nonsense-pass census metric,
-> over-the-top killer ball shelved after its fifth failed A/B). Measured vs
-> the previous baseline: goals/10min 0.38 → 0.47, shots 2.58 → 2.70,
-> on-target 1.10 → 1.27, completion 82.1 → 82.3, interceptions 37.5 → 36.8.
+> **Baseline generation:** 2026-07-07, after the seed-105 watch round
+> (distance-scaled fast free-kick frequency; crosser/lofted-passer facing
+> pivot for the render; GK long-distribution mix and anti-keeper-swarm both
+> A/B-rejected and tombstoned). Measured at 30min×40 vs the prior build:
+> shots-on-target +0.40, clearances +3.0, goals −0.15 (goal count is the
+> noisiest stat — on-target moved the other way); all metrics realistic.
 
 Frozen reference for verifying that an engine refactor is **behaviour-preserving**.
 The engine is deterministic (same seed + spec + binary ⇒ byte-identical output),

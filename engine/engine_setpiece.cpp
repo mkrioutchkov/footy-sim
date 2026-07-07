@@ -352,6 +352,16 @@ void GameEngine::releaseGoalKick(Player& holder) {
     // below when no safe short option exists. A play-it-long team skips this and
     // launches it (distribution tactic).
     double gkLongBias = teamTactics[teamIndex(holder.team)].longBallBias;
+    // ── Goal-kick long-distribution mix (SHELVED) ── owner asked for fewer
+    // always-short goal kicks (seed 105). Skipping the short-safe roll to launch
+    // a target-man ball a fraction of the time WORKS, but it is route-one and
+    // the engine's long balls are low-percentage: at a 0.30 mix, A/B over 40
+    // seeds @30min cratered goals 1.05 -> 0.65 (-38%) with clearances +4.3 and
+    // shots-on-target down — the target man loses the aerial and it's cleared.
+    // A meaningful long-mix rate is simply not affordable until a target man can
+    // actually WIN and lay off the long ball (hold-up play doesn't exist yet).
+    // Left short-safe. GK_LONG_MIX_PROB / GK_LONG_TARGET_MIN_PROG retained for a
+    // future revival paired with hold-up mechanics.
     if (!(gkLongBias > 0.0 && rng.random() < gkLongBias)) {
         Player* sp = nullptr;
         double bestSafe = -1e9;
@@ -531,6 +541,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         puntLong();
         return;
     }
+
 
     // ── Safety-first distribution: a keeper should keep the ball, not gift it.
     // Find the safest open outlet (clear passing lane, sensible range) and roll
@@ -920,7 +931,13 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
     double oppGoalX = goalXFor(tmTeam);
     double spotToGoal = std::abs(b.x - oppGoalX);
     setPiece.fast = false;
-    if (best && spotToGoal > 260.0 && rng.random() < 0.14) {
+    // Frequency rises with distance from goal (owner ask): near a shooting
+    // position a quick tap is rarely the play, but a free kick won deep in
+    // your own half is exactly where the sharp early ball beats the press
+    // before it sets. 0.16 floor at the 260 gate, climbing toward ~0.38 for a
+    // FK won ~550+ from the opposition goal.
+    double fastProb = clamp(0.16 + (spotToGoal - 260.0) / 900.0 * 0.30, 0.16, 0.38);
+    if (best && spotToGoal > 260.0 && rng.random() < fastProb) {
         double fd = fdFor(tmTeam);
         for (auto& m : state.players) {
             if (m.team != tmTeam || m.id == best->id || m.role == Role::GK || m.sentOff) continue;

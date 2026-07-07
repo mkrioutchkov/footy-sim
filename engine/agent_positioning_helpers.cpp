@@ -111,6 +111,18 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
             for (auto& o : engine.state.players) {
                 if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, carrier->x, carrier->y) < 60.0) carrierPressure++;
             }
+            // ── Anti-swarm-around-keeper (SHELVED) ── the 5:08 seed-105 moment
+            // (7 red shirts ringing Buffon after a save) looked ridiculous, but
+            // every attempt to fix it HERE cratered goals: this block runs for
+            // EVERY teammate on EVERY tick the keeper holds, so suppressing the
+            // crowding + adding any spread candidate perturbs the whole team's
+            // positioning through build-up, not just the ring. A/B (40 seeds):
+            // baseline 0.475 goals; aggressive spread 0.275; minimal single
+            // get-out candidate 0.25. The swarm is a cosmetic transient (~2s
+            // after a claim); it is not worth a standing ~0.2-goal regression.
+            // A real fix belongs in a keeper-distribution-phase positioning pass
+            // that ONLY runs while the keeper is actually holding, not in the
+            // general attacking-support candidate set. Left as normal support.
             if (carrierPressure >= 2) {
                 // CROWDING NOTE (2026-07-02 audit): gating these Offer candidates
                 // to the 2 nearest teammates was A/B'd against the blob probe
