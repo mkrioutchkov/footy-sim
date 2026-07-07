@@ -28,7 +28,17 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
                 if (o.team == p.team || o.role == Role::GK) continue;
                 double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
                 double perp = std::hypot(o.x - p.x - t2 * dx, o.y - p.y - t2 * dy);
-                if (perp < PASS_BLOCKER_PERP_OUTLET) bl++;
+                // Count a defender CLOSING on the lane as a blocker (same step-in
+                // model scorePassToTarget uses): the static perp check rated a
+                // lane "clear" while a defender stepped into it and picked the
+                // ball, so a pressed CB never got the keeper recycle valve
+                // (watched replay 0:31, 0:59). A defender drifting away keeps the
+                // static radius.
+                double cx = p.x + t2 * dx, cy = p.y + t2 * dy;
+                double tlx = cx - o.x, tly = cy - o.y, tld = std::hypot(tlx, tly);
+                double closing = tld > 1.0 ? (o.vx * tlx + o.vy * tly) / tld : 0.0;
+                double effBlocker = PASS_BLOCKER_PERP_OUTLET + clamp(closing / 50.0, 0.0, 1.0) * 13.0;
+                if (perp < effBlocker) bl++;
             }
             if (bl > 1) continue;
             int receiverPressure = 0;
