@@ -46,6 +46,7 @@ type PlayerEntry = {
   armHasBall: boolean;
   armHeading: boolean;   // last header-pose state
   armKnock: boolean;     // last knock-dribble state
+  armDive: boolean;      // last GK dive-pose state (gates the ready-glove draw so it redraws when a dive starts/ends)
 };
 
 export class MatchRenderer {
@@ -567,7 +568,7 @@ export class MatchRenderer {
       entry.arrow.position.set(ix, iy);
       // F7: redraw the boot/head arrow at the LERPED facing every tick (was keyframe-rate → boots lagged turns).
       const pp = byId.get(id);
-      if (pp) this.drawPlayerArrow(entry, pp, this.lerpAngle(this.facingPrev.get(id) ?? this.facingAngles.get(id) ?? 0, this.facingAngles.get(id) ?? 0, t), ix, iy, ibx, iby);
+      if (pp) this.drawPlayerArrow(entry, pp, this.lerpedFacing(id, t, pp.team), ix, iy, ibx, iby);
       entry.label.position.set(ix, iy + DISC_R + 3);
       if (entry.dirTag.visible) entry.dirTag.position.set(ix, iy + DISC_R + 16);
     }
@@ -591,14 +592,20 @@ export class MatchRenderer {
           const gp = 0.5 + 0.5 * Math.sin(this.animTime * 0.11);   // slow clasp pulse
           this.ringGfx.circle(vc.x, vc.y, DISC_R + 11 + gp * 2);
           this.ringGfx.stroke({ width: 2.5, color: 0xffe27a, alpha: 0.55 + gp * 0.35 });
-          // glove pads flanking the held ball — perpendicular to the keeper's facing so they cup it
-          const ga = this.facingAngles.get(ctrl.id) ?? (ctrl.team === 'home' ? 0 : Math.PI);
-          const px = -Math.sin(ga), py = Math.cos(ga);
+          // glove pads cupping the held ball — flanking it PERPENDICULAR to the keeper's facing and nudged
+          // slightly FORWARD along it, so the two pads form a cup around the front of the ball he's looking
+          // at. Uses the same LERPED facing as his body/boots/chevron (not the raw target) → the clasp never
+          // leads or lags the turn and never sits on a world axis while he tracks the ball.
+          const ga = this.lerpedFacing(ctrl.id, t, ctrl.team);
+          const px = -Math.sin(ga), py = Math.cos(ga);            // perpendicular to facing (side-to-side)
+          const fx = Math.cos(ga), fy = Math.sin(ga);             // along facing (forward)
           const bx = this.visualBall?.x ?? vc.x, by = this.visualBall?.y ?? vc.y;
           for (const s of [1, -1]) {
-            this.ringGfx.circle(bx + px * s * (BALL_R + 2.6), by + py * s * (BALL_R + 2.6), 2.9);
+            const gx = bx + px * s * (BALL_R + 2.6) + fx * (BALL_R * 0.5);
+            const gy = by + py * s * (BALL_R + 2.6) + fy * (BALL_R * 0.5);
+            this.ringGfx.circle(gx, gy, 2.9);
             this.ringGfx.fill({ color: 0xffe27a, alpha: 0.9 });
-            this.ringGfx.circle(bx + px * s * (BALL_R + 2.6), by + py * s * (BALL_R + 2.6), 2.9);
+            this.ringGfx.circle(gx, gy, 2.9);
             this.ringGfx.stroke({ width: 1, color: 0x33261c, alpha: 0.85 });
           }
           (window as unknown as { __gkHold?: unknown }).__gkHold = { id: ctrl.id, atMs: this.lastState?.clockMs };   // verify hook
@@ -888,7 +895,7 @@ export class MatchRenderer {
           diveAngle: p.team === 'home' ? Math.PI : 0,
           lastDribbleType: p.dribbleType,
           wasSprinting: false,
-          armDrawn: false, armAngle: 0, armCtrlX: 0, armCtrlY: 0, armHasBall: false, armHeading: false, armKnock: false,
+          armDrawn: false, armAngle: 0, armCtrlX: 0, armCtrlY: 0, armHasBall: false, armHeading: false, armKnock: false, armDive: false,
         };
         this.playerEntries.set(p.id, entry);
         this.syncNeedsImmediateDraw = true;   // position the just-created shapes this sync (else they'd flash at the origin)
@@ -1798,6 +1805,16 @@ export class MatchRenderer {
     return a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
   }
 
+  // The player's LERPED facing at tween fraction t — the exact angle the boot/head arrow is drawn at
+  // (facingPrev → facingAngles). Single source of truth so any facing-relative decoration (the boots,
+  // the chevron, the GK ready-gloves, the GK ball-held clasp) rides the SAME smoothed heading and can
+  // never point backward/sideways relative to the body while the keeper tracks the ball.
+  private lerpedFacing(id: number, t: number, team: 'home' | 'away'): number {
+    const target = this.facingAngles.get(id) ?? (team === 'home' ? 0 : Math.PI);
+    const prev = this.facingPrev.get(id) ?? target;
+    return this.lerpAngle(prev, target, t);
+  }
+
   // F7: draw the player's boot/head arrow at a given facing — called PER TICK from renderFrame (was drawn at
   // keyframe rate in sync → boots lagged a turn by up to ~250ms). Local coords; the arrow Graphics is
   // positioned at the tweened player pos by renderFrame. vp/vb are the interpolated player + ball positions.
@@ -1806,6 +1823,7 @@ export class MatchRenderer {
     const hasBall = this.lastState?.ball.controllerId === p.id;
     const heading = (p.headingAnim ?? 0) > 0;
     const knockDribble = p.dribbleType === 3;
+    const diving = p.role === 'GK' && (p.diveAnim ?? 0) > 0;   // gates the GK ready-gloves (the dive body draws its own reach glove)
     const controlDx = hasBall ? vbx - vpx : 0;
     const controlDy = hasBall ? vby - vpy : 0;
     // Dirty-check: the arrow's local geometry is a pure function of (facing angle, hasBall, the ball-relative
@@ -1815,9 +1833,9 @@ export class MatchRenderer {
     // players still redraw (their angle / ball-vector move each tick).
     if (entry.armDrawn
       && Math.abs(angle - entry.armAngle) < 0.035   // ~2° — sub-pixel at PLAYER_R scale; 0.01 was below the per-tick lerp delta, so the skip never engaged during play
-      && hasBall === entry.armHasBall && heading === entry.armHeading && knockDribble === entry.armKnock
+      && hasBall === entry.armHasBall && heading === entry.armHeading && knockDribble === entry.armKnock && diving === entry.armDive
       && Math.abs(controlDx - entry.armCtrlX) < 0.5 && Math.abs(controlDy - entry.armCtrlY) < 0.5) return;
-    entry.armDrawn = true; entry.armAngle = angle; entry.armHasBall = hasBall;
+    entry.armDrawn = true; entry.armAngle = angle; entry.armHasBall = hasBall; entry.armDive = diving;
     entry.armHeading = heading; entry.armKnock = knockDribble; entry.armCtrlX = controlDx; entry.armCtrlY = controlDy;
     const a = entry.arrow;
     a.clear();
@@ -1859,6 +1877,29 @@ export class MatchRenderer {
       a.fill({ color: 0xffffff, alpha: 0.95 });
       a.moveTo(tX, tY); a.lineTo(blX, blY); a.lineTo(brX, brY); a.closePath();
       a.stroke({ width: 0.8, color: 0x1a1a1a, alpha: 0.85 });
+    }
+    // ── keeper ready-gloves ── a standing keeper (not carrying, not diving, not heading) holds two bright
+    // glove pads out IN FRONT along his facing, one to each side of the chevron, with a short wrist line back
+    // to the shoulders. They are built from the SAME lerped `angle` as the boots/chevron, so as the engine
+    // turns the GK to track the ball the gloves rotate with him and always sit at his front — never detached,
+    // never pointing backward/sideways. (When he holds the ball, the ball-held clasp cue draws the hands on
+    // the ball instead, so this is suppressed via !hasBall.)
+    if (p.role === 'GK' && !hasBall && !heading && !diving) {
+      const gloveFwd = r * 0.98, gloveSpread = r * 0.6;
+      const sideX = -forwardY, sideY = forwardX;          // facing-perpendicular (keeper's left/right)
+      for (const s of [1, -1]) {
+        const gx = forwardX * gloveFwd + sideX * s * gloveSpread;
+        const gy = forwardY * gloveFwd + sideY * s * gloveSpread;
+        // wrist/arm from the shoulder out to the glove
+        a.moveTo(forwardX * r * 0.34 + sideX * s * r * 0.42, forwardY * r * 0.34 + sideY * s * r * 0.42);
+        a.lineTo(gx, gy);
+        a.stroke({ width: 2, color: 0xffe27a, alpha: 0.55 });
+        // glove pad — matches the dive/held-ball glove palette
+        a.circle(gx, gy, 2.9);
+        a.fill({ color: 0xffe27a, alpha: 0.95 });
+        a.circle(gx, gy, 2.9);
+        a.stroke({ width: 1, color: 0x33261c, alpha: 0.85 });
+      }
     }
     if (heading) {
       a.circle(forwardX * r * 1.65, forwardY * r * 1.65, r * 0.82);
