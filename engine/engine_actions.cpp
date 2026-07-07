@@ -510,6 +510,29 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
         }
     }
     double speed = PASS_SPEED_BASE + 35 + rawDist * (PASS_SPEED_DIST + 0.05);
+    // ── Genuine BOX HOOF ── a real panic clearance (audit != null) from
+    // inside/near his own area is BOOTED long and high UP THE CHANNEL toward
+    // the target man — not a measured ~180px/s pass that a defender in the
+    // lane nicks at his feet (watched replay seed 994 2:15: a full-back's
+    // "clearance" travelled 55px straight to Ronaldo for a tap-in). Extend the
+    // launch to a real clearance distance and loft it over the immediate
+    // presser. Only the panic path (agent.cpp passes an audit); calm engine-
+    // internal outlets keep the measured pass.
+    bool boxHoof = audit && std::abs(f.x - ownGoalX) < PENALTY_AREA_W;
+    if (boxHoof) {
+        // Clear the DANGER — boot it out to around midfield, not a pinpoint
+        // ball onto the target man's boot in the final third. A desperate boot
+        // is scrappy: reach ~the middle third and scatter it wide so it lands
+        // as a genuine 50/50 in a neutral area (a longer, pinpoint hoof lifted
+        // goals to ~4.1/90 by gifting the CF a clear-cut finish — the clearance
+        // is meant to end the threat, not start a counter on a plate).
+        double minReach = 360.0;
+        if (tDist < minReach) { tdx = tdx / tDist * minReach; tdy = tdy / tDist * minReach; tDist = minReach; }
+        double sc = (rng.random() - 0.5) * 200.0;
+        double perpx = -tdy / tDist, perpy = tdx / tDist;
+        tdx += perpx * sc; tdy += perpy * sc; tDist = std::hypot(tdx, tdy);
+        speed = std::max(speed, 320.0);   // real hoof pace, clears the danger zone
+    }
     auto& b = state.ball;
     b.controllerId = -1;
     placeBallForRelease(f, tdx, tdy);
@@ -521,7 +544,7 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     b.intendedReceiverId = t.id;
     receiverShieldTargetId = t.id;
     b.z = 0;
-    b.vz = speed * 0.40;
+    b.vz = boxHoof ? std::max(speed * 0.62, 200.0) : speed * 0.40;   // high, up and over the presser
     beginTrackedPass(f, t);
 }
 
