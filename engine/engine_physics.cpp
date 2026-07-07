@@ -756,7 +756,25 @@ void GameEngine::resolveBallContact(double sec) {
         // (engine sat at ~2 vs ~10 because every cut was a clean collect).
         if (contact->team != pendingPass.team) {
             double ownLineX = ownGoalXFor(contact->team);
-            if (std::abs(b.x - ownLineX) < 175.0 && rng.random() < 0.55) { // corners 2.7->6.5: dominant source, was 28%/140. Raising the rate further (0.70) was noise — the cut-near-line VOLUME caps it, not the rate; the last ~3 (toward real ~10) need a kicked-clearance-behind source.
+            // A cut only becomes a corner if the ball is genuinely going BEHIND —
+            // heading toward the defender's GOAL line and crossing it in bounds. An
+            // overhit cross drifting off the pitch over the TOUCHLINE by the corner
+            // flag is a throw-in, not the crossing team's corner (watched replay
+            // seed 105 1:46: 11R's cross ran out over the top touchline at the flag
+            // — moving AWAY from the goal line in x, out over y=0 — yet a red corner
+            // was awarded, a "ghost corner"). Project the flight to the goal line:
+            // require it to be heading there and to cross between the touchlines.
+            double toLine = ownLineX - b.x;                 // signed distance to that goal line
+            bool headingBehind = toLine * b.vx > 0.0;       // moving toward it, not away
+            double tLine = std::abs(b.vx) > 1.0 ? toLine / b.vx : 1e9;   // time to reach the line
+            double yAtLine = b.y + b.vy * tLine;            // y where it would cross the goal line
+            bool crossesInBounds = tLine > 0.0 && yAtLine > 0.0 && yAtLine < PITCH_H;
+            // And he can only put it BEHIND if he is GOAL-SIDE of the ball (between it
+            // and his own line). A defender level with or behind the ball can't cut it
+            // out for a corner — the ball carries on (at 1:46 it rolled out for what
+            // should be a goal kick, not a corner off a body it had already passed).
+            bool defenderGoalSide = std::abs(contact->x - ownLineX) <= std::abs(b.x - ownLineX) + BALL_R;
+            if (std::abs(b.x - ownLineX) < 175.0 && headingBehind && crossesInBounds && defenderGoalSide && rng.random() < 0.55) { // corners 2.7->6.5: dominant source. VOLUME is capped by the cut-near-line rate, not this probability.
                 awardCorner(pendingPass.team, contact->team == Team::Home, b.y);
                 return;
             }

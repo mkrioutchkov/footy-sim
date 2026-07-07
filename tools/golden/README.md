@@ -1,6 +1,11 @@
 # Golden baseline — engine determinism reference
 
-> **Baseline generation:** 2026-07-07, after the seed-105 watch round
+> **Baseline generation:** 2026-07-07, after the ghost-corner fix (a cut-near-line
+> corner is only awarded when the ball is genuinely heading behind the goal line,
+> in bounds, off a goal-side defender — not for an overhit cross drifting out by
+> the flag). Corners 5.28 -> 4.47 per 30min (clear ghosts removed); goals/shots
+> essentially flat (the removed corners were illegitimate). Prior baseline note:
+> after the seed-105 watch round
 > (distance-scaled fast free-kick frequency; crosser/lofted-passer facing
 > pivot for the render; GK long-distribution mix and anti-keeper-swarm both
 > A/B-rejected and tombstoned). Measured at 30min×40 vs the prior build:

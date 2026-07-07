@@ -90,6 +90,14 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
         }
     }
 
+    // NOTE: a "pressured release valve" (boost the safest outlet once a carrier has
+    // been pressed + dwelling >1.4s, to force the shield-then-safe-ball at seed 105
+    // 0:16) was A/B'd and REVERTED. Fire-often cost -0.18 goals (recycling killed
+    // attacks a good carrier would have carried out of); gated to "genuinely stuck"
+    // it barely fired and still reshuffled -0.12 with backward passes DOWN, not up.
+    // The 0:16 dwell is better treated as a decision-latency problem (stuck-carrier
+    // watchdog) than a pass-score nudge — revisit there, not here.
+
     // ── Crossing carrier override ──
     // ⚠ Load-bearing offense — do NOT remove without replacing the chances.
     // History: this block is the engine's cross-volume machine (originally ~246
