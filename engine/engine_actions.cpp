@@ -866,6 +866,16 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     executionError = std::max(SHOT_ERROR_FLOOR, executionError + roleError);
     bool credibleFinish = angleDeg > 9.0 && shotDistance < 200.0 && pressureCount <= 2 && laneBlockers <= 1;
     bool freshThrough = s.throughCollected > 0.0 && shotDistance < 245.0;
+    // A CLEAR-CUT chance: close, clean sight of goal, unpressured — a real
+    // striker BURIES these (~35-45%). The post-edge aim + full error spread
+    // (a global fix that cut a 4x over-conversion on HALF-chances) strangled
+    // these clean chances to ~9-14% conversion too (funnel analysis, seed
+    // 101-116). Gated hard — close, no pressure, no blocker, real angle — so it
+    // only catches genuine chances; contested/long shots keep the post-edge aim
+    // and don't re-inflate on-target. Finished clinically below.
+    bool clearCutChance = shotDistance < 140.0 && angleDeg > 11.0
+                       && pressureCount == 0 && laneBlockers == 0
+                       && (freshThrough || s.firstTouchFinish > 0.0 || credibleFinish);
     // First-time foot finish off a low cross: struck clean and FLAT (not a
     // header, so shot.header stays false), with a tight error band — the whole
     // point is to turn a swept low cross into an on-target chance.
@@ -942,6 +952,20 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     // spread a little so they keep finding the frame, but not so far that the
     // off-centre aim starts spraying wide (that cost on-target last iteration).
     if (shotType) executionError *= (shotType == 2 ? 0.88 : 0.80);
+    // Clear-cut chance: place it into the side the keeper is NOT covering,
+    // comfortably inside the frame, with a tight spread — bury it. This is the
+    // ONLY place a clean close chance escapes the deliberately-wide post-edge
+    // aim; everything else (contested, long, half-chances) is untouched.
+    if (clearCutChance) {
+        postSide = openSide;
+        // Near the post — PAST the keeper's dive from his set position — but
+        // with a very tight spread so it finds the side netting instead of
+        // straying wide. A central placement just sat in his dive envelope and
+        // was saved (saves rose, conversion didn't); the corner + tight error
+        // is the actual clinical 1-on-1 finish.
+        aimedPost = postSide * GOAL_W * (0.34 + accuracy * 0.06);
+        executionError *= 0.42;
+    }
     double goalY = goalCenterY + aimedPost + (rng.random() + rng.random() - 1.0) * executionError;
     if (acuteGeometry) {
         double nearPostSide = s.y < goalCenterY ? -1.0 : 1.0;
@@ -1062,7 +1086,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     shot.shooterId = s.id;
     shot.originX = s.x;
     shot.originY = s.y;
-    shot.freshFinish = firstTouch || freshCross || freshThrough; // snap finish — wrong-foots the keeper (engine_gk reaction)
+    shot.freshFinish = firstTouch || freshCross || freshThrough || clearCutChance; // snap finish — wrong-foots the keeper (engine_gk reaction); a clean 1-on-1 is placed before he can set
     shot.type = shotType;                                        // carried to the save roll for the per-type probe (debug only)
     // ── Explicit shot-block roll: each defender in the lane gets ONE
     // deliberate, skill-based chance (squareness in lane x reaction time x

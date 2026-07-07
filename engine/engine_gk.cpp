@@ -96,7 +96,14 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
             // time to set: he reacts late, so cut his tracking burst. This is the
             // real "beat the keeper" lever — the save-roll ceiling barely matters
             // because he otherwise collects almost everything.
-            double trackMul = (shot.active && shot.freshFinish) ? 0.95 : 1.05;
+            // A snap finish (fresh through / cross / first-touch / clean 1-on-1)
+            // gives the keeper no time to set — cut his tracking burst hard so a
+            // well-placed clean chance actually beats him. This is the real
+            // "beat the keeper" lever: the funnel showed close/1-on-1 chances
+            // converting ~9-14% (real ~35-45%) because the keeper tracked a
+            // placed shot into any corner. 0.95 was a token cut; 0.78 lets the
+            // corner beat him without touching his set-shot (non-fresh) saves.
+            double trackMul = (shot.active && shot.freshFinish) ? 0.78 : 1.05;
             double sp = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * trackMul;
             if (md > 1.0) { double st = std::min(sp * secs, md); gk.x += mvx / md * st; gk.y += mvy / md * st; }
             gk.facing = std::atan2(state.ball.y - gk.y, state.ball.x - gk.x);
