@@ -534,8 +534,27 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // did produce chances. Do not re-add via selection; if this ball is ever
     // wanted, it needs its own receive-to-finish path (first-touch knock past
     // the keeper / earlier clear-cut qualification), not a score bonus here.
-    if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall) {
+    // ── Genuinely-open advanced man (seed 105 0:52: killer balls to unmarked
+    // shirts 7 & 10 declined for a safe square) ── the Through rewards above are
+    // CF/WM-only (targetAttacker) and gate on the strict in-behind band, so an
+    // UNMARKED advanced CENTRAL man — especially a central MIDFIELDER — got no
+    // forward premium and lost selection to a safe recycle. RE-RANK, not new
+    // supply: fires only when the man is genuinely open (no marker within 85px,
+    // zero lane blockers, zero receiver pressure), central, advanced, roughly
+    // onside, and the ball completes (>=0.50). Pairs with the chip-loft (0:55):
+    // these forward balls now beat a blocker instead of being cut on the deck.
+    double nearestOppRecv = 1e9;
+    for (auto& o : engine.state.players)
+        if (o.team != p.team && o.role != Role::GK && !o.sentOff)
+            nearestOppRecv = std::min(nearestOppRecv, dist(o.x, o.y, t.x, t.y));
+    bool genuinelyOpenAdvanced = !isWideDelivery
+        && (t.role == Role::CF || t.role == Role::WM || t.role == Role::CM)
+        && rpEff == 0 && blEff == 0 && nearestOppRecv > 85.0
+        && onsideGap > -20.0 && pitch::lateralFromCenter(t.y) < 150.0
+        && goalDistEff < 300.0 && fpEff > 60.0 && completion >= 0.50;
+    if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall || genuinelyOpenAdvanced) {
         pur = ActionPurpose::Through;
+        if (genuinelyOpenAdvanced) sc += 0.14;   // capped re-rank so the open forward ball beats the safe square
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
         sc += 0.12 + attrFactor(p.attrs.creativity) * 0.10;   // trimmed with the window above to cut through-ball spam (~121 -> target ~15-30/match)
         if (cleanKillerBall) sc += 0.16;
