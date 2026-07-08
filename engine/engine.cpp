@@ -697,14 +697,30 @@ void GameEngine::detectSimulationFreeze(double sdt) {
             freezeDetector.freezeWatchMs += sdt;
             if (freezeDetector.freezeWatchMs > LOOSE_BALL_STALL_MS && best && state.clockMs - freezeDetector.lastFreezeAlertMs > 5000) {
                 stats.recordSimulationFreeze();
-                fb.controllerId = best->id; // updateControlledBall snaps it to him next tick
-                fb.vx = fb.vy = fb.vz = 0.0;
-                fb.z = 0.0;
-                fb.curl = 0.0;
-                fb.lastTouchTeam = best->team;
-                fb.lastToucherId = best->id;
-                fb.intendedReceiverId = -1;
-                lastLooseOrigin = LooseOrigin::None;
+                double rdx = best->x - fb.x, rdy = best->y - fb.y, rd = std::hypot(rdx, rdy);
+                if (rd < 20.0) {
+                    // Already at his feet — a genuine pickup.
+                    fb.controllerId = best->id;
+                    fb.vx = fb.vy = fb.vz = 0.0;
+                    fb.z = 0.0;
+                    fb.curl = 0.0;
+                    fb.lastTouchTeam = best->team;
+                    fb.lastToucherId = best->id;
+                    fb.intendedReceiverId = -1;
+                    lastLooseOrigin = LooseOrigin::None;
+                } else {
+                    // ROLL the abandoned ball to him — assigning control from range
+                    // teleported it up to ~150px to his feet in one tick (watched
+                    // replay seed 133 1:28). A bounded nudge-roll reads as the ball
+                    // wobbling back into life; he collects it naturally on arrival,
+                    // and the 5s re-arm re-rolls if it under-reaches.
+                    double rs = clamp(rd * 0.9, 120.0, 260.0);
+                    fb.vx = rdx / rd * rs;
+                    fb.vy = rdy / rd * rs;
+                    fb.vz = 0.0;
+                    fb.z = 0.0;
+                    fb.curl = 0.0;
+                }
                 freezeDetector.lastFreezeAlertMs = state.clockMs;
                 freezeDetector.freezeWatchMs = 0;
             }
