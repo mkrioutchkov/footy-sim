@@ -637,10 +637,19 @@ export class MatchRenderer {
     // 3D height read: the sprite lifts off its ground shadow (arcOffset), GROWS as it climbs (nearer the
     // camera), and the shadow it casts on the turf spreads WIDER + fades SOFTER the higher it goes. The
     // gap between the lifted sprite and the pinned shadow is the cue that sells "up in the air".
-    const arcOffset = ibz * 0.7;   // NOTE: the motion/shot trails mirror this 0.7 lift — keep them in step.
+    // Two fixes so height reads WITHOUT the ball detaching from its carrier:
+    //  • when a player CONTROLS the ball it's at their feet, so collapse the lift
+    //    /size — a collected ball sits ON the player, never floating above him;
+    //  • ease the sprite down onto its shadow through the last units of the drop
+    //    (smoothstep on z) so a landing settles instead of snapping to the deck.
+    const controlled = b.controllerId !== null;
+    const settle = ((u) => u * u * (3 - 2 * u))(clamp(ibz / 8, 0, 1));
+    const damp = controlled ? 0.12 : 1;
+    const arcOffset = ibz * 0.6 * settle * damp;   // NOTE: the motion/shot trails mirror this 0.6 base lift — keep them in step.
     // Map height 0→1 over the realistic lofted range (~50u apex for crosses/corners/goal-kicks); balls
     // above that clamp, so the effect saturates gracefully instead of ballooning on a freak clearance.
-    const heightRatio = clamp(ibz / 50, 0, 1);
+    // Damped/eased alongside the lift so a carried or just-landed ball doesn't stay grown or cast a wide shadow.
+    const heightRatio = clamp(ibz / 50, 0, 1) * settle * damp;
     let touchX = 0, touchY = 0;
     if (b.controllerId !== null && ibz < 2) {
       const ctrl = byId.get(b.controllerId);
@@ -832,7 +841,7 @@ export class MatchRenderer {
       if (idx >= 0) {
         const pt = this.trailBuffer[idx];
         t.visible = true;
-        t.position.set(pt.x, pt.y - pt.z * 0.7);   // lift by the same arcOffset the ball uses → trail follows the arc
+        t.position.set(pt.x, pt.y - pt.z * 0.6);   // lift by the same base arcOffset the ball uses → trail follows the arc
         // the dot is a pre-drawn white unit circle — scale it to the radius, tint it the colour (no
         // clear()+re-tessellate per dot per sync; see the pool construction)
         const alpha = (i / TRAIL_LENGTH) * 0.48;
@@ -863,8 +872,8 @@ export class MatchRenderer {
         const progress = (i + 1) / this.shotTrailBuffer.length;
         const alpha = progress * 0.85;
         const width = (BALL_R * 0.4 + progress * BALL_R * 1.2) * (1 + curlMag * 0.5);   // a curling shot's trail thickens
-        this.shotTrailGfx.moveTo(a.x, a.y - a.z * 0.7);
-        this.shotTrailGfx.lineTo(b2.x, b2.y - b2.z * 0.7);   // lofted shots (chips/dippers) arc with the ball
+        this.shotTrailGfx.moveTo(a.x, a.y - a.z * 0.6);
+        this.shotTrailGfx.lineTo(b2.x, b2.y - b2.z * 0.6);   // lofted shots (chips/dippers) arc with the ball
         this.shotTrailGfx.stroke({ width, color: curlTint(0xff4422), alpha });
       }
     }
