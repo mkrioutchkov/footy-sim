@@ -956,6 +956,10 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
 }
 
 void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
+    if (std::getenv("CORNER_DEBUG"))
+        fprintf(stderr, "[corner] t=%.2f ball=(%.0f,%.0f,z%.0f) v=(%.0f,%.0f) att=%d lastTouch=%d\n",
+                state.clockMs/1000.0, state.ball.x, state.ball.y, state.ball.z,
+                state.ball.vx, state.ball.vy, (int)attackingTeam, state.ball.lastToucherId);
     stats.recordCorner();
     auto& b = state.ball;
     b.controllerId = -1;

@@ -545,10 +545,24 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
         pendingPass.active = false;
         return;
     }
-    // TIP → corner (clean, dramatic; no live central ball). awardCorner draws nothing.
+    // TIP: a real deflection up and over toward his own goal line — NOT an
+    // instant awardCorner (that left the live ball flying on into the box for
+    // the 700ms glide window and then teleported it 400px to the flag —
+    // watched replay seed 103 0:30/31). checkOutOfPlay awards the corner
+    // organically when the tipped ball actually crosses.
     emitEvent("save", gk.x, gk.y, gk.id);
-    awardCorner(pendingPass.team, gk.team == Team::Home, b.y);
     stats.recordClaimTip();
+    double tipLineDir = (ownGoalXFor(gk.team) == 0.0) ? -1.0 : 1.0;
+    // Strong enough to actually carry over the line from the claim spot.
+    b.vx = tipLineDir * std::max(120.0 + rng.random() * 80.0,
+                                 std::abs(ownGoalXFor(gk.team) - b.x) / 0.45);
+    b.vy = (b.y < PITCH_H / 2.0 ? -1.0 : 1.0) * (40.0 + rng.random() * 70.0);
+    b.vz = std::max(b.vz, 160.0);   // flicked up and over
+    b.z = std::max(b.z, 20.0);
+    b.intendedReceiverId = -1;
+    b.lastTouchTeam = gk.team;
+    b.lastToucherId = gk.id;
+    blockReboundFor(gk.id, 700);
     pendingPass.active = false;
 }
 

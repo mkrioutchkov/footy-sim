@@ -109,12 +109,29 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             stats.recordHeaderClearance();
             stats.recordPassIntercepted(); // the cross was cut out — close the pass ledger
             // A defender heading clear under the cross near his own line often
-            // can only put it behind — a common corner source.
+            // can only put it behind — a common corner source. Physically HEAD it
+            // behind (no instant award — that teleported a live ball to the flag,
+            // watched replay seed 103 0:30 class): a glanced header toward his own
+            // goal line, angled off the mouth, looping up. checkOutOfPlay awards
+            // the corner when it actually crosses.
             double ownLineX = ownGoalXFor(receiver.team);
             if (std::abs(receiver.x - ownLineX) < 165.0 && rng.random() < 0.62) { // corner boost (was 0.45/130)
+                double lineDir = (ownLineX == 0.0) ? -1.0 : 1.0;
+                double sideDir = receiver.y < PITCH_H / 2.0 ? -1.0 : 1.0;
+                // Speed scales with distance to the line so the header genuinely
+                // carries behind despite airborne drag (see the cut-cross deflection).
+                double hs = std::max(clamp(deliverySpeed * 0.5, 140.0, 240.0),
+                                     std::abs(ownLineX - receiver.x) / 0.55);
+                b.controllerId = -1;
+                b.intendedReceiverId = -1;
+                b.vx = lineDir * hs;
+                b.vy = sideDir * hs * (0.25 + rng.random() * 0.45);
+                b.z = std::max(b.z, 12.0);
+                b.vz = 70.0 + rng.random() * 80.0;
+                b.lastTouchTeam = receiver.team;
+                b.lastToucherId = receiver.id;
                 pendingPass.active = false;
-                Team att = receiver.team == Team::Home ? Team::Away : Team::Home;
-                awardCorner(att, receiver.team == Team::Home, receiver.y);
+                blockReboundFor(receiver.id, 500);
                 return true;
             }
             double clearFd = fdFor(receiver.team);

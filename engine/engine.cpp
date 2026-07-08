@@ -882,10 +882,28 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             applyBallPhysics(sec);
             clampBallPosition();
         } else {
-            gb.x = setPiece.spotX;
-            gb.y = setPiece.spotY;
-            gb.vx = gb.vy = gb.z = gb.vz = 0;
-            setPiece.placeBallAtMs = 0.0;
+            // GUIDED RETRIEVAL — never snap. When the glide window closes with the
+            // ball still away from the restart spot (an early-ruled deflection, a
+            // ball that rolled past the arc), STEER the dead ball to the spot at a
+            // bounded roll speed instead of teleporting it (watched replay seed
+            // 103 0:30/31: a 420px snap to the flag). Reads as the ball being
+            // rolled back for the restart; placement completes on arrival.
+            double gdx = setPiece.spotX - gb.x, gdy = setPiece.spotY - gb.y;
+            double gd = std::hypot(gdx, gdy);
+            if (gd < 14.0) {
+                gb.x = setPiece.spotX;
+                gb.y = setPiece.spotY;
+                gb.vx = gb.vy = gb.z = gb.vz = 0;
+                setPiece.placeBallAtMs = 0.0;
+            } else {
+                double sp = clamp(gd / 0.40, 240.0, 760.0);   // arrive in ~0.4-0.6s
+                gb.vx = gdx / gd * sp;
+                gb.vy = gdy / gd * sp;
+                gb.vz = 0;
+                gb.z *= 0.72;                                  // settle out of the air
+                gb.x += gb.vx * sec;
+                gb.y += gb.vy * sec;
+            }
         }
     }
 
@@ -1146,7 +1164,14 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         Player* taker = playerById(setPiece.takerId);
         if (taker) {
             double d = dist(taker->x, taker->y, takerTX, takerTY);
-            if (d < 15.0) {
+            // If the taker is ALREADY at the spot (e.g. he just took a corner from
+            // this exact flag) but the awarded ball is still far away mid-glide,
+            // do NOT complete the placement — that snapped a ball from the middle
+            // of the box to the flag in one tick (watched replay seed 103 0:30).
+            // He waits for the glide; placement completes when the ball is near.
+            bool ballNearSpot = setPiece.placeBallAtMs <= 0.0
+                             || dist(state.ball.x, state.ball.y, setPiece.spotX, setPiece.spotY) < 30.0;
+            if (d < 15.0 && ballNearSpot) {
                 // Taker reached the spot while the ball is still gliding —
                 // finish the placement now so he takes control of a real ball.
                 if (setPiece.placeBallAtMs > 0.0) {

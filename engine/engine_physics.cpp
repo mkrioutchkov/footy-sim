@@ -798,7 +798,32 @@ void GameEngine::resolveBallContact(double sec) {
             // put it behind — a defender level with or behind the ball can't cut it out.
             bool defenderGoalSide = std::abs(contact->x - ownLineX) <= std::abs(b.x - ownLineX) + BALL_R;
             if (std::abs(b.x - ownLineX) < 175.0 && headingBehind && dangerousCross && defenderGoalSide && rng.random() < 0.55) { // corners 2.7->6.5: dominant source. VOLUME is capped by the cut-near-line rate, not this probability.
-                awardCorner(pendingPass.team, contact->team == Team::Home, b.y);
+                // Physically DEFLECT it behind — never award instantly. The instant
+                // awardCorner here TELEPORTED a live ball out of the box to the flag
+                // (watched replay seed 103 0:30: a corner's own cross was cut at
+                // (957,279) and the ball snapped to (1044,674) one tick later,
+                // because the taker still stood at the flag so the glide was
+                // skipped). Give the defender a real scuffed touch: kill most of
+                // the incoming pace, send it toward his own goal line angled away
+                // from the mouth, with a bit of lift. checkOutOfPlay then awards
+                // the corner when the ball ACTUALLY crosses, glide and all — and
+                // if the scuff drifts out by the flag for a throw-in instead,
+                // that's football.
+                double lineDir = (ownLineX == 0.0) ? -1.0 : 1.0;
+                double sideDir = b.y < PITCH_H / 2.0 ? -1.0 : 1.0;
+                // Speed scales with distance to the line so the deflection genuinely
+                // crosses despite airborne drag (an under-hit one stalled in-field —
+                // corners collapsed 4.3 -> 3.0/30min on the first cut of this fix).
+                double defl = std::max(clamp(bs * 0.45, 150.0, 260.0),
+                                       std::abs(ownLineX - b.x) / 0.55);
+                b.vx = lineDir * defl;
+                b.vy = sideDir * defl * (0.35 + rng.random() * 0.40);
+                b.vz = 60.0 + rng.random() * 90.0;
+                b.z = std::max(b.z, 1.0);
+                b.lastTouchTeam = contact->team;
+                b.lastToucherId = contact->id;
+                pendingPass.active = false;
+                blockReboundFor(contact->id, 500);
                 return;
             }
         }
@@ -871,12 +896,20 @@ void GameEngine::resolveBallContact(double sec) {
                 lastLooseOrigin = LooseOrigin::ShotBlock;
                 // A block close to the defender's own line that deflects goalward
                 // often loops behind for a corner — another corner source the
-                // engine never produced.
+                // engine never produced. COMMIT the deflection physically (no
+                // instant award — that teleported live balls; see the cross-cut
+                // deflection above): steepen the outbound component and lift it a
+                // touch so the already-deflected ball genuinely carries behind,
+                // then checkOutOfPlay awards the corner when it crosses.
                 double ownLine = ownGoalXFor(contact->team);
                 bool nearLine = std::abs(b.x - ownLine) < 150.0;
                 bool deflectingBehind = (ownLine == 0.0) ? b.vx < 0 : b.vx > 0;
                 if (nearLine && deflectingBehind && rng.random() < 0.80) { // corner boost (was 0.65)
-                    awardCorner(shot.team, contact->team == Team::Home, b.y);
+                    double lineDir = (ownLine == 0.0) ? -1.0 : 1.0;
+                    double bs2 = std::hypot(b.vx, b.vy);
+                    b.vx = lineDir * std::max(std::abs(b.vx), std::max(bs2, 140.0) * 0.75);
+                    b.vz = std::max(b.vz, 40.0 + rng.random() * 80.0);
+                    b.z = std::max(b.z, 1.0);
                 }
             }
         }
