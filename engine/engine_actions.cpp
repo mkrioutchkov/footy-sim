@@ -377,9 +377,43 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     receiverShieldTargetId = t.id;
     b.z = 0;
     b.vz = 0;
-    int blockers = countLaneBlockers(state.players, f.x, f.y, predX, predY, f.team, 35.0, 0.03, 0.9);
+    // Loft over a blocker in the lane (watched replay seed 105 0:55: a pass hit
+    // low straight into a defender who should have been chipped over). Read the
+    // lane with the SAME step-in model the pass SCORER uses (a closing defender
+    // reaches further than his static perp) — the flat execution's narrow 35px
+    // read saw a stepping-in defender as "clear" and left the ball on the deck.
+    double bdx = predX - f.x, bdy = predY - f.y, blenSq = bdx * bdx + bdy * bdy;
+    int blockers = 0;
+    if (blenSq > 1.0)
+        for (auto& o : state.players) {
+            if (o.team == f.team || o.role == Role::GK || o.sentOff) continue;
+            double al = clamp(((o.x - f.x) * bdx + (o.y - f.y) * bdy) / blenSq, 0.0, 1.0);
+            if (al <= 0.15 || al >= 0.85) continue;                 // mid-lane bodies only
+            double cx = f.x + al * bdx, cy = f.y + al * bdy;
+            double tlx = cx - o.x, tly = cy - o.y, tld = std::hypot(tlx, tly);
+            double closing = tld > 1.0 ? (o.vx * tlx + o.vy * tly) / tld : 0.0;
+            double eff = PASS_BLOCKER_PERP + clamp(closing / 50.0, 0.0, 1.0) * 13.0;
+            if (std::hypot(o.x - cx, o.y - cy) < eff) blockers++;
+        }
     if (rawDist > 240) b.vz = speed * 0.55;
-    if (blockers > 0 && rawDist > 120) b.vz = std::max(b.vz, speed * 0.70);
+    if (blockers > 0 && rawDist > 85) {
+        if (rawDist < 260.0) {
+            // CHIP it: a short lofted ball must clear the defender AND drop onto
+            // the receiver, so REDUCE the horizontal speed (a fast ball can't arc
+            // high enough over ~9m and still land in time — the old speed*0.95
+            // rocket sailed the ball out of play). With GRAVITY 500, apex =
+            // vz^2/1000 and it lands at t = 2*vz/GRAVITY: pick chipSpeed <= 1.55*d
+            // so the land-on-target vz (=GRAVITY*t/2) also clears AERIAL_HEIGHT 20
+            // (apex ~26). Flat lanes keep blockers==0 -> no chip -> ground ball.
+            double chipSpeed = clamp(tDist * 1.55, 120.0, speed);
+            b.vx = tdx / tDist * chipSpeed;
+            b.vy = tdy / tDist * chipSpeed;
+            double flight = tDist / std::max(chipSpeed, 1.0);
+            b.vz = std::max(b.vz, GRAVITY * flight * 0.5);
+        } else {
+            b.vz = std::max(b.vz, speed * 0.70);   // a long blocked ball keeps the driven loft
+        }
+    }
     if (rawDist > 350) b.vz = std::max(b.vz, speed);
     const auto* audit = selectionAudit;
     double goalX = goalXFor(f.team);
