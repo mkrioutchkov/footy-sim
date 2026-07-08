@@ -849,6 +849,23 @@ void GameEngine::populateThrowInSupport(Team spTeam) {
                 bb.throwInSupport.targetX[p.id] = clamp(tx, 35.0, PITCH_W - 35.0);
                 bb.throwInSupport.targetY[p.id] = clamp(ty, 35.0, PITCH_H - 35.0);
             }
+            // A dedicated SHORT man (watched replay seed 133 0:52: the thrower
+            // had NO teammate within 130px — nearest body was an opponent at
+            // 38px — because every role target sits 80-170px upfield or at
+            // central y). The nearest non-taker teammate comes to a genuine
+            // bail-out spot: ~60px away, angled infield from the touchline.
+            Player* shortMan = nullptr;
+            double shortBest = 1e9;
+            for (auto& p : state.players) {
+                if (p.team != spTeam || p.role == Role::GK || p.sentOff || p.id == setPiece.takerId) continue;
+                double dd = dist(p.x, p.y, bx, by);
+                if (dd < shortBest) { shortBest = dd; shortMan = &p; }
+            }
+            if (shortMan) {
+                double inDir = by < PITCH_H / 2.0 ? 1.0 : -1.0;   // toward the middle
+                bb.throwInSupport.targetX[shortMan->id] = clamp(bx + fd * 30.0, 35.0, PITCH_W - 35.0);
+                bb.throwInSupport.targetY[shortMan->id] = clamp(by + inDir * 55.0, 35.0, PITCH_H - 35.0);
+            }
         }
     }
 }

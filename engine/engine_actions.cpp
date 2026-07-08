@@ -617,7 +617,19 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     // launch to a real clearance distance and loft it over the immediate
     // presser. Only the panic path (agent.cpp passes an audit); calm engine-
     // internal outlets keep the measured pass.
-    bool boxHoof = audit && std::abs(f.x - ownGoalX) < PENALTY_AREA_W;
+    // Also hoof a SWARMED clear from the wider defensive quarter (audited: the
+    // De Bruyne-goal buildup was seven "clearances" launched 3-9m OUTSIDE the
+    // box gate, each a measured flat pass nicked within 1-4m; seed 133 1:41 the
+    // same — a pressed defender 13px outside the gate hit a flat ball into the
+    // interceptor when the target needed elevation). Presser within 45px + own
+    // defensive quarter → the already-tuned hoof treatment (loft over him,
+    // scatter, real distance) instead of the flat measured ball.
+    double pressOnClear = 1e9;
+    if (audit)
+        for (auto& o : state.players)
+            if (isActiveOpponent(o, f.team)) pressOnClear = std::min(pressOnClear, dist(o.x, o.y, f.x, f.y));
+    bool swarmedClear = audit && pressOnClear < 45.0 && std::abs(f.x - ownGoalX) < PENALTY_AREA_W * 1.7;
+    bool boxHoof = (audit && std::abs(f.x - ownGoalX) < PENALTY_AREA_W) || swarmedClear;
     if (boxHoof) {
         // Clear the DANGER — boot it out to around midfield, not a pinpoint
         // ball onto the target man's boot in the final third. A desperate boot
