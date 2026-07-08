@@ -396,20 +396,23 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
             if (std::hypot(o.x - cx, o.y - cy) < eff) blockers++;
         }
     if (rawDist > 240) b.vz = speed * 0.55;
-    if (blockers > 0 && rawDist > 85) {
+    // CHIP over a blocker in the lane onto the receiver. Only for a NORMAL pass:
+    // a THROUGH ball is aimed well BEYOND the receiver (predX leads his run), so
+    // the land-on-target arc computed from that far aim point over-lofts into a
+    // moonball (watched replay 2:55: a led ball reached z=314). Through balls keep
+    // the driven loft above; the chip is the fix for the flat ball into a marker.
+    if (blockers > 0 && rawDist > 85 && !throughBall) {
         if (rawDist < 260.0) {
-            // CHIP it: a short lofted ball must clear the defender AND drop onto
-            // the receiver, so REDUCE the horizontal speed (a fast ball can't arc
-            // high enough over ~9m and still land in time — the old speed*0.95
-            // rocket sailed the ball out of play). With GRAVITY 500, apex =
-            // vz^2/1000 and it lands at t = 2*vz/GRAVITY: pick chipSpeed <= 1.55*d
-            // so the land-on-target vz (=GRAVITY*t/2) also clears AERIAL_HEIGHT 20
-            // (apex ~26). Flat lanes keep blockers==0 -> no chip -> ground ball.
+            // Reduce horizontal speed so a fast ball can't outrun the arc; with
+            // GRAVITY 500 apex = vz^2/1000 and it lands at t = 2*vz/GRAVITY, so a
+            // chipSpeed <= 1.55*d gives a land-on-target vz that also clears
+            // AERIAL_HEIGHT 20 (apex ~26). A hard cap keeps even a mishit off a
+            // moonball. Flat lanes keep blockers==0 -> no chip -> ground ball.
             double chipSpeed = clamp(tDist * 1.55, 120.0, speed);
             b.vx = tdx / tDist * chipSpeed;
             b.vy = tdy / tDist * chipSpeed;
             double flight = tDist / std::max(chipSpeed, 1.0);
-            b.vz = std::max(b.vz, GRAVITY * flight * 0.5);
+            b.vz = std::max(b.vz, std::min(GRAVITY * flight * 0.5, 240.0));  // apex <= ~58, never a lob
         } else {
             b.vz = std::max(b.vz, speed * 0.70);   // a long blocked ball keeps the driven loft
         }
