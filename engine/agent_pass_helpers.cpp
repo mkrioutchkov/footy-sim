@@ -455,7 +455,13 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     int rpEff = receiverPressure;
     int blEff = bl;
     double rxEff = t.x, ryEff = t.y;   // projected receive point (falls back to the current spot)
-    if ((targetAttacker || t.role == Role::CM) && runnerForwardSpeed > 15.0) {
+    // Lateral/channel runners too (loft audit M1/M2: a WM sprinting down the
+    // flank had vx*fd ~2-14, under the radial-speed gate, so the projection
+    // never ran and his run was judged at the spot he was LEAVING).
+    double runnerRawSpd = std::hypot(t.vx, t.vy);
+    bool lateralRunner = runnerRawSpd > 30.0 && (t.vx * fd) > 8.0
+                      && (targetAttacker || t.role == Role::CM || t.role == Role::FB);
+    if (((targetAttacker || t.role == Role::CM) && runnerForwardSpeed > 15.0) || lateralRunner) {
         double lead = clamp(d / 300.0 + 0.3, 0.4, 1.1);
         double px2 = clamp(t.x + t.vx * lead, 12.0, PITCH_W - 12.0);
         double py2 = clamp(t.y + t.vy * lead, 12.0, PITCH_H - 12.0);
@@ -552,9 +558,38 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         && rpEff == 0 && blEff == 0 && nearestOppRecv > 85.0
         && onsideGap > -20.0 && pitch::lateralFromCenter(t.y) < 150.0
         && goalDistEff < 300.0 && fpEff > 60.0 && completion >= 0.50;
-    if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall || genuinelyOpenAdvanced) {
+    // ── Led-runner loft (seed 103: 0:58 Robben jogging into an empty channel
+    // unfed; 1:05 Kroos facing Robben's finished run but playing a doomed short
+    // ball; 9:44 the one time it WAS played, it looked great) ── the visible
+    // 25-45m ball into a genuine runner's path. Every other killer class needs
+    // the final 30m (goalDistEff<300) or a tight in-behind band, so the long
+    // diagonal to a runner in acres simply had no reward class. Gates: real
+    // range (250-460), a genuinely MOVING runner (raw speed + forward
+    // component — lateral channel runs count via the projection extension),
+    // and a CLEAN projected reception (no pressure, no lane blockers, nearest
+    // projected marker 75px+, real forward gain, completes). Executed as a
+    // Through (led + lofted at range by passBallTo), exempt from the sanity
+    // penalty like every deliberate killer ball.
+    double nearestOppProj = 1e9;
+    if (runnerRawSpd > 30.0) {
+        double leadT = clamp(d / 300.0 + 0.3, 0.4, 1.1);
+        for (auto& o : engine.state.players)
+            if (o.team != p.team && o.role != Role::GK && !o.sentOff)
+                nearestOppProj = std::min(nearestOppProj,
+                    dist(o.x + o.vx * leadT, o.y + o.vy * leadT, rxEff, ryEff));
+    }
+    bool runnerAssignment = assignment && (assignment->role == DefensiveTask::RunAhead
+        || assignment->role == DefensiveTask::InsideRun || assignment->role == DefensiveTask::Overlap
+        || assignment->role == DefensiveTask::CrossLane);
+    bool ledRunnerLoft = d >= 250.0 && d <= 460.0
+        && (targetAttacker || ((t.role == Role::CM || t.role == Role::FB) && runnerAssignment))
+        && runnerRawSpd > 30.0 && (t.vx * fd) > 8.0
+        && rpEff == 0 && blEff == 0 && nearestOppProj > 75.0
+        && fpEff > 40.0 && completion >= 0.58;
+    if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall || genuinelyOpenAdvanced || ledRunnerLoft) {
         pur = ActionPurpose::Through;
         if (genuinelyOpenAdvanced) sc += 0.14;   // capped re-rank so the open forward ball beats the safe square
+        if (ledRunnerLoft) sc += 0.15;           // the visible runner gets the ball into his path
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
         sc += 0.12 + attrFactor(p.attrs.creativity) * 0.10;   // trimmed with the window above to cut through-ball spam (~121 -> target ~15-30/match)
         if (cleanKillerBall) sc += 0.16;

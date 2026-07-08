@@ -88,6 +88,11 @@ public:
     int teammatePingPongs = 0;
     double lastSameTeamCollectionMs = 0;
     std::optional<Team> lastCollectionTeam;
+    // Last deliberate-risk launch (through/cross) — sticky past pendingPass
+    // resolution so the senseless-out-of-play census can exclude an overhit
+    // killer ball that runs dead AFTER the pass tracker already failed it.
+    double lastRiskyBallMs = -1e9;
+    int lastRiskyBallToucher = -1;
     int dizzySpins = 0;
     double nextTacticalAuditMs = 0;
 

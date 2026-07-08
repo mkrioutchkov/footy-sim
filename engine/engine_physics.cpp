@@ -291,7 +291,14 @@ bool GameEngine::checkOutOfPlay() {
     // genuine clearance under pressure are all legitimate and excluded. Detection
     // only — changes no restart, so it can't perturb determinism beyond the counter.
     auto flagSenselessOut = [&]() {
-        if (shot.active || (pendingPass.active && pendingPass.isCross)) return;
+        // Through balls are DELIBERATE-RISK balls like crosses: an overhit led
+        // ball running dead past its runner is normal football, not the aimless
+        // "just kicked it out" this census measures.
+        if (shot.active || (pendingPass.active && (pendingPass.isCross || pendingPass.isThrough))) return;
+        // ...including one whose pass tracker already resolved: the sticky
+        // risky-launch marker survives the failure so the overhit killer ball
+        // rolling dead isn't miscounted as an aimless hoof.
+        if (b.lastToucherId == lastRiskyBallToucher && state.clockMs - lastRiskyBallMs < 4000.0) return;
         Player* toucher = playerById(b.lastToucherId);
         if (!toucher || toucher->role == Role::GK || toucher->sentOff) return;
         double nearestOpp = 1e9;

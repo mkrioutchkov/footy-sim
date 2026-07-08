@@ -358,8 +358,23 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     bool movingForward = t.vx * fd > 5;
     double leadFactor = throughBall ? (movingForward && receiverSpeed > 14 ? 1.32 : 0.80) : (movingForward && receiverSpeed > 20 ? 0.90 : 0.55);
     double throughLead = throughBall ? fd * (90 + attrFactor(f.attrs.creativity) * 120) : 0;
+    // NOTE: clamping the through-ball aim point inside the field (weighting it
+    // to stay in) was A/B'd and REVERTED — the most valuable killer balls are
+    // aimed exactly at the deep byline channel, and pulling them up cost the
+    // led-runner-loft goal gain (1.45 -> 0.82). An overhit through ball running
+    // out is deliberate-risk football; the senseless-out-of-play census
+    // excludes Through purposes (like crosses) for the same reason.
     double predX = t.x + t.vx * travelTime * leadFactor + throughLead;
     double predY = t.y + t.vy * travelTime * leadFactor;
+    // A passer never AIMS outside the pitch: leading a winger sprinting down
+    // the line put the aim point past the touchline (predY < 0), and with
+    // realistic airborne drag the ball now carries there instead of dying
+    // short — traced senseless-out-of-play census: deep diagonals drifting
+    // out over the touchline, unpressured. Tight 12px margin so the deep
+    // byline channel ball stays aggressive (a 40px margin blunted penetration
+    // and cost the led-runner-loft goal gain).
+    predX = clamp(predX, 12.0, PITCH_W - 12.0);
+    predY = clamp(predY, 10.0, PITCH_H - 10.0);
     double dx = predX - f.x, dy = predY - f.y, adjDist = std::hypot(dx, dy);
     if (adjDist < 1) return false;
     double passSkill = attrFactor(f.attrs.passing);
@@ -418,18 +433,21 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // the land-on-target arc computed from that far aim point over-lofts into a
     // moonball (watched replay 2:55: a led ball reached z=314). Through balls keep
     // the driven loft above; the chip is the fix for the flat ball into a marker.
-    if (blockers > 0 && rawDist > 85 && !throughBall) {
+    // Chip DIET (loft audit: 29% of 8.5-15m passes were lofted vs real <2%,
+    // 21 chips/match pinned at the apex cap — the "90% of lofts look wrong"
+    // class): floor raised 85 -> 115 so the mundane short ball stays on the
+    // deck, and the chip may be DRIVEN faster than the soft base pass speed so
+    // it reads as a clipped dink (0.6-0.7s) rather than a floaty ~1s lob.
+    if (blockers > 0 && rawDist > 115 && !throughBall) {
         if (rawDist < 260.0) {
-            // Reduce horizontal speed so a fast ball can't outrun the arc; with
-            // GRAVITY 500 apex = vz^2/1000 and it lands at t = 2*vz/GRAVITY, so a
-            // chipSpeed <= 1.55*d gives a land-on-target vz that also clears
-            // AERIAL_HEIGHT 20 (apex ~26). A hard cap keeps even a mishit off a
-            // moonball. Flat lanes keep blockers==0 -> no chip -> ground ball.
-            double chipSpeed = clamp(tDist * 1.55, 120.0, speed);
+            // chipSpeed <= 1.55*d keeps the land-on-target vz clearing
+            // AERIAL_HEIGHT 20; the 240 floor on the cap lets a short chip be
+            // struck with real pace instead of inheriting the soft pass speed.
+            double chipSpeed = clamp(tDist * 1.55, 120.0, std::max(speed, 240.0));
             b.vx = tdx / tDist * chipSpeed;
             b.vy = tdy / tDist * chipSpeed;
             double flight = tDist / std::max(chipSpeed, 1.0);
-            b.vz = std::max(b.vz, std::min(GRAVITY * flight * 0.5, 240.0));  // apex <= ~58, never a lob
+            b.vz = std::max(b.vz, std::min(GRAVITY * flight * 0.5, 200.0));  // apex <= 40 — a dink, never a lob
         } else {
             b.vz = std::max(b.vz, speed * 0.70);   // a long blocked ball keeps the driven loft
         }
@@ -524,6 +542,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         bool riskyFlag = audit->blockers > 0 || audit->receiverPressure > 0 || audit->expectedCompletion < 0.58;
         stats.recordPassSelection(audit->distance, audit->expectedCompletion, audit->blockers, audit->receiverPressure, riskyFlag, audit->saferOptionTargetId);
     }
+    if (throughBall || selectedCross) { lastRiskyBallMs = state.clockMs; lastRiskyBallToucher = f.id; }
     beginTrackedPass(f, t, selectedCross, throughBall, selectedCutback);
     if (audit) {
         pendingPass.auComp = audit->expectedCompletion;
