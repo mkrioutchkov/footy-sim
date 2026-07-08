@@ -150,6 +150,7 @@ int main(int argc, char* argv[]) {
     bool summaryOnly = false;
     bool debugMode = true;
     std::string tracePath;
+    std::string snapshotPath;   // --snapshot-in: situation snapshot to resume from (see tools/snapshot_from_trace.py)
     std::string matchPath;
     double streamFromMs = 0;   // suppress frame output before this clock (live re-sim resume)
     bool forceLive = false;    // --live (or FOOTY_LIVE env): self-pace the engine to wall-clock (§1.1)
@@ -160,6 +161,7 @@ int main(int argc, char* argv[]) {
         else if (arg == "--live") forceLive = true;
         else if (arg == "--no-debug") debugMode = false;
         else if (arg == "--trace" && i + 1 < argc) tracePath = argv[++i];
+        else if (arg == "--snapshot-in" && i + 1 < argc) snapshotPath = argv[++i];
         else if (arg == "--match" && i + 1 < argc) matchPath = argv[++i];
         else if (arg == "--stream-from" && i + 1 < argc) streamFromMs = std::atof(argv[++i]);
         else if (i == 1 && arg[0] != '-') seed = std::atoi(argv[i]);
@@ -267,6 +269,68 @@ int main(int argc, char* argv[]) {
     engine.setMatchLengthMinutes(minutes);
     if (debugMode) engine.equalizeAttributes(65);
     engine.startMatch();
+
+    // ── Situation snapshot load (--snapshot-in) ── resume a SITUATION captured
+    // from any trace (tools/snapshot_from_trace.py) in THIS engine version:
+    // positions/velocities/facing/stamina, ball state, clock and score are
+    // overridden after normal init; agent trackers/perceptions start fresh and
+    // this engine's logic runs the moment forward. Exact bit-resume across
+    // versions is impossible by design (any code change shifts the RNG stream)
+    // — this is the cross-version "load the moment and continue" the owner
+    // asked for: fix something, reload the snapshot, watch the same situation
+    // play out under the new rules.
+    if (!snapshotPath.empty()) {
+        std::ifstream sf(snapshotPath);
+        if (!sf) { std::cerr << "Failed to open snapshot: " << snapshotPath << "\n"; return 1; }
+        nlohmann::json snap;
+        try { sf >> snap; } catch (const std::exception& e) {
+            std::cerr << "Bad snapshot JSON: " << e.what() << "\n"; return 1;
+        }
+        auto& st = engine.state;
+        st.clockMs = snap.value("clockMs", 0.0);
+        if (snap.contains("score")) {
+            st.homeScore = snap["score"].value("home", 0);
+            st.awayScore = snap["score"].value("away", 0);
+        }
+        if (snap.contains("ball")) {
+            const auto& jb = snap["ball"];
+            st.ball.x = jb.value("x", 525.0);   st.ball.y = jb.value("y", 340.0);
+            st.ball.z = jb.value("z", 0.0);     st.ball.curl = jb.value("curl", 0.0);
+            st.ball.vx = jb.value("vx", 0.0);   st.ball.vy = jb.value("vy", 0.0);
+            st.ball.vz = jb.value("vz", 0.0);
+            st.ball.controllerId = jb.value("controllerId", -1);
+            st.ball.intendedReceiverId = jb.value("intendedReceiverId", -1);
+            st.ball.lastToucherId = jb.value("lastToucherId", -1);
+            int ltt = jb.value("lastTouchTeam", st.ball.lastToucherId >= 11 ? 1 : 0);
+            st.ball.lastTouchTeam = ltt == 1 ? Team::Away : Team::Home;
+        }
+        if (snap.contains("players"))
+            for (const auto& jp : snap["players"]) {
+                int id = jp.value("id", -1);
+                if (id < 0 || id >= (int) st.players.size()) continue;
+                auto& p = st.players[id];
+                p.x = jp.value("x", p.x);             p.y = jp.value("y", p.y);
+                p.vx = jp.value("vx", 0.0);           p.vy = jp.value("vy", 0.0);
+                p.targetX = jp.value("targetX", p.x); p.targetY = jp.value("targetY", p.y);
+                p.facing = jp.value("facing", p.facing);
+                p.stamina = jp.value("stamina", p.stamina);
+            }
+        // Live-ball housekeeping: no kickoff staging, no armed restart; the
+        // carry tracker starts on the snapshot's controller so dwell/marathon
+        // logic measures from the resume, not from a phantom past.
+        engine.phase.kickoffPhase = false;
+        engine.phase.actionTimer = 0;
+        engine.setPiece.armed = false;
+        engine.setPiece.type = SetPiece::None;
+        engine.setPiece.placeBallAtMs = 0.0;
+        engine.carrierTracker.carryTrackerId = st.ball.controllerId;
+        engine.carrierTracker.carryStartMs = st.clockMs;
+        engine.carrierTracker.carryStartX = st.ball.x;
+        engine.carrierTracker.marathonReleased = false;
+        std::cerr << "Snapshot loaded: t=" << st.clockMs / 1000.0 << "s score "
+                  << st.homeScore << "-" << st.awayScore << " ball(" << st.ball.x << "," << st.ball.y
+                  << ") ctrl=" << st.ball.controllerId << "\n";
+    }
 
     TraceWriter trace;
     if (!tracePath.empty()) {
