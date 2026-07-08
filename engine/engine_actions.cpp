@@ -473,7 +473,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         // possession (the +1.6-goal effect, paired). A genuine box delivery
         // stays DRIVEN but is capped at the hardest-shot ceiling (~38 m/s) so it
         // no longer launches at the measured 44-56 m/s.
-        aSpeed = std::min(aSpeed, intoBox ? 380.0 : 340.0);
+        aSpeed = std::min(aSpeed, intoBox ? 300.0 : 270.0);   // 108 / 97 km/h — real driven-cross band
         b.vx = adx / aDist * aSpeed;
         b.vy = ady / aDist * aSpeed;
         // Low driven cross vs whipped loft. A runner attacking the near post or
@@ -486,7 +486,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         double tgdCross = std::abs(predX - goalX);
         bool lowDriven = tgdCross < 112.0 && std::abs(predY - PITCH_H / 2.0) < 120.0;
         if (lowDriven) {
-            double lowSpeed = clamp(aDist * 0.95, 250.0, 330.0);
+            double lowSpeed = clamp(aDist * 0.90, 205.0, 265.0);  // 74-95 km/h low-driven band
             b.vx = adx / aDist * lowSpeed;
             b.vy = ady / aDist * lowSpeed;
             b.z = 0;

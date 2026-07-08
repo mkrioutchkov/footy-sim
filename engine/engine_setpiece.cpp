@@ -196,6 +196,31 @@ void GameEngine::releaseSetPiece() {
         return;
     }
     if (setPiece.type == SetPiece::Penalty) {
+        // Final referee correction at the strike: the per-tick enforcer nudges
+        // stragglers out radially, but an agent whose defensive-shape target
+        // sits ON the arc boundary can tug-of-war to an equilibrium a few px
+        // inside (seed 126: a CB parked at 86px vs the 88px arc check). It's a
+        // dead ball — step anyone still inside cleanly out before the audit,
+        // exactly like a referee waving a player back before the whistle.
+        for (auto& p : state.players) {
+            if (p.id == holder->id || p.role == Role::GK || p.sentOff) continue;
+            // Box intruder: step him behind the area's edge, toward midfield.
+            double penGoalX = goalXFor(setPiece.team);
+            bool corrInBox = std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0
+                          && std::abs(p.x - penGoalX) < PENALTY_AREA_W;
+            if (corrInBox) {
+                double outDir = penGoalX == 0.0 ? 1.0 : -1.0;   // away from that goal
+                p.x = clamp(penGoalX + outDir * (PENALTY_AREA_W + 6.0), 8.0, PITCH_W - 8.0);
+            }
+            // Arc intruder: step him radially past the D.
+            double adx = p.x - setPiece.spotX, ady = p.y - setPiece.spotY;
+            double ad = std::hypot(adx, ady);
+            if (ad < 92.0) {
+                if (ad < 1.0) { adx = -fdFor(setPiece.team); ady = 0.2; ad = std::hypot(adx, ady); }
+                p.x = clamp(setPiece.spotX + adx / ad * 96.0, 8.0, PITCH_W - 8.0);
+                p.y = clamp(setPiece.spotY + ady / ad * 96.0, 8.0, PITCH_H - 8.0);
+            }
+        }
         // Law 14 audit at the actual strike: anyone but the taker and the
         // keepers inside the area or the arc is a violation (scenario-guarded
         // to 0 — this is how the ten-men-in-the-box replay bug stays dead).
@@ -204,7 +229,12 @@ void GameEngine::releaseSetPiece() {
             bool inBox = std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0
                       && std::abs(p.x - goalXFor(setPiece.team)) < PENALTY_AREA_W;
             bool inArc = dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < 88.0;
-            if (inBox || inArc) stats.recordRestartLawViolation();
+            if (inBox || inArc) {
+                if (std::getenv("LAW_DEBUG"))
+                    fprintf(stderr, "[law14] t=%.2f pid=%d at(%.0f,%.0f) inBox=%d inArc=%d spot=(%.0f,%.0f)\n",
+                            state.clockMs/1000.0, p.id, p.x, p.y, inBox, inArc, setPiece.spotX, setPiece.spotY);
+                stats.recordRestartLawViolation();
+            }
         }
         stats.recordPenaltyTaken();
         shot.penalty = true;
@@ -262,7 +292,7 @@ void GameEngine::releaseSetPiece() {
                 double ty = lerp(tgt->y, gy2, 0.55);
                 double dx = tx - holder->x, dy = ty - holder->y, d = std::hypot(dx, dy);
                 if (d > 1.0) {
-                    double speed = clamp(300.0 + d * 0.30, 330.0, 380.0);
+                    double speed = clamp(240.0 + d * 0.24, 260.0, 300.0);   // FK cross at real driven pace (94-108 km/h)
                     auto& b = state.ball;
                     b.controllerId = -1;
                     placeBallForRelease(*holder, dx, dy);
@@ -516,8 +546,8 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         placeBallForRelease(holder, dx, dy);
         b.lastTouchTeam = holder.team;
         b.lastToucherId = holder.id;
-        b.vx = dx / d * 330.0;
-        b.vy = dy / d * 330.0;
+        b.vx = dx / d * 300.0;   // punt at ~108 km/h (was 119)
+        b.vy = dy / d * 300.0;
         b.vz = 300.0;
         b.z = 28.0;
         b.intendedReceiverId = -1;
@@ -804,7 +834,7 @@ void GameEngine::releaseCornerKick(Player& holder) {
         if (d > 1.0) {
             // Driven corner delivery — same whip treatment as open-play crosses,
             // capped at the hardest-shot ceiling (~38 m/s); was launching to 52.
-            double speed = clamp(300.0 + d * 0.30, 340.0, 380.0);
+            double speed = clamp(240.0 + d * 0.24, 265.0, 300.0);   // corner delivery at real driven pace
             auto& b = state.ball;
             b.controllerId = -1;
             placeBallForRelease(holder, dx, dy);

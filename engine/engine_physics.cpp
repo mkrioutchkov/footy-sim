@@ -77,8 +77,13 @@ void GameEngine::applyBallPhysics(double s) {
         b.curl *= std::pow(b.z > 2.0 ? 0.55 : 0.02, s);
         if (std::abs(b.curl) < 0.02) b.curl = 0.0;
     }
-    double friction = std::pow(BALL_FRICTION, s);
-    if (weather == 1) friction = 1.0 - (1.0 - friction) * 0.55; // §weather rain: wet pitch sheds ~45% less rolling friction (ball skids further)
+    // Airborne balls fly near-ballistically (light air drag); grounded balls
+    // roll under grass friction. Same z>2 gate curl already uses. The rain
+    // modifier is a WET-PITCH effect, so it now correctly applies only to
+    // grounded balls (it was accidentally lightening airborne drag too).
+    bool airborne = b.z > 2.0;
+    double friction = std::pow(airborne ? BALL_AIR_DRAG : BALL_FRICTION, s);
+    if (weather == 1 && !airborne) friction = 1.0 - (1.0 - friction) * 0.55; // §weather rain: wet pitch sheds ~45% less rolling friction (ball skids further)
     b.vx *= friction;
     b.vy *= friction;
     // Rolling friction: a grounded ball below jogging pace stops in a stride
@@ -90,7 +95,7 @@ void GameEngine::applyBallPhysics(double s) {
         b.vx *= slowed / gs;
         b.vy *= slowed / gs;
     }
-    if (std::hypot(b.vx, b.vy) < 4) { b.vx = b.vy = 0; }
+    if (b.z < 1.0 && std::hypot(b.vx, b.vy) < 4) { b.vx = b.vy = 0; }   // grounded only — a vertical lob keeps its drift
     b.x += b.vx * s;
     b.y += b.vy * s;
     if (b.vz != 0.0 || b.z > 0) {

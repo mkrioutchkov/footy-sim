@@ -1195,16 +1195,35 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         }
     }
 
-    // Gate release on rough compliance: extend in 250ms steps (max ~1.2s)
-    // while opponents are well inside the restraint distance.
-    if (setPiece.takerArrived && phase.actionTimer <= 0 && phase.actionTimer > -1200.0 && setPiece.type != SetPiece::ThrowIn) {
-        double minDist = minDistFor(setPiece.type);
-        for (auto& p : state.players) {
-            if (p.team == setPiece.team || p.role == Role::GK) continue;
-            if (dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < minDist * 0.72) {
-                phase.actionTimer -= sdt; // keep counting the cap down
-                cacheBallState();
-                return;
+    // Gate release on rough compliance: extend in 250ms steps (max ~1.2s;
+    // penalties get longer — Law 14 is scenario-guarded to zero violations)
+    // while players are still inside the restraint zone. For most restarts
+    // that means OPPONENTS inside the radius; for a PENALTY the law binds
+    // BOTH teams — anyone but the taker and the keepers must be out of the
+    // box and the arc, so a lingering TEAMMATE must also hold the kick.
+    double complianceCap = setPiece.type == SetPiece::Penalty ? -3000.0 : -1200.0;
+    if (setPiece.takerArrived && phase.actionTimer <= 0 && phase.actionTimer > complianceCap && setPiece.type != SetPiece::ThrowIn) {
+        if (setPiece.type == SetPiece::Penalty) {
+            for (auto& p : state.players) {
+                if (p.id == setPiece.takerId || p.role == Role::GK || p.sentOff) continue;
+                bool inBox = std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0
+                          && std::abs(p.x - goalXFor(setPiece.team)) < PENALTY_AREA_W;
+                bool inArc = dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < 92.0;
+                if (inBox || inArc) {
+                    phase.actionTimer -= sdt;
+                    cacheBallState();
+                    return;
+                }
+            }
+        } else {
+            double minDist = minDistFor(setPiece.type);
+            for (auto& p : state.players) {
+                if (p.team == setPiece.team || p.role == Role::GK) continue;
+                if (dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < minDist * 0.72) {
+                    phase.actionTimer -= sdt; // keep counting the cap down
+                    cacheBallState();
+                    return;
+                }
             }
         }
     }

@@ -43,6 +43,14 @@ inline constexpr double SHOT_SPEED_BASE = 285.0;
 // it used to teleport mid-flight the tick it crossed the line.
 inline constexpr double OUT_BALL_GLIDE_MS = 700.0;
 inline constexpr double BALL_FRICTION  = 0.70;
+// Airborne drag base — MUCH lighter than rolling friction. The single 0.70
+// constant doubled as air drag, shedding 30%/s of an airborne ball's pace
+// (real air drag at cross pace loses ~20% over a whole second and collapses
+// as speed drops). That constant-rate decay while vz stayed perfectly
+// ballistic made every arc steepen and "stall and sink at a certain position"
+// (watched replay: lofted balls "sink a fair bit"). 0.93/s ~= the real
+// end-of-flight drag rate.
+inline constexpr double BALL_AIR_DRAG  = 0.93;
 inline constexpr double GRAVITY        = 500.0;
 // §weather v2 WIND: a seed-derived per-match wind vector accelerates AIRBORNE balls laterally.
 // Height-gated (h = min(z/WIND_HEIGHT_REF, 1)) so ground passes are immune -> passPct protected.
@@ -168,10 +176,15 @@ inline constexpr double PRE_CONTACT_CHASE_REACH = 36.4;
 // often a whip survives the box, the speed pair governs how it looks.
 // User (watching fixture 2241): "crosses fly in too fast." 10px=1m, so 360-560 px/s was 36-56 m/s
 // — a real driven cross is ~25-35 m/s and 56 m/s was absurd. Pulled to ~30-42 m/s (300-420 px/s).
-inline constexpr double CROSS_DRIVE_SPEED_BASE   = 270.0;
-inline constexpr double CROSS_DRIVE_SPEED_PER_PX = 0.42;
-inline constexpr double CROSS_DRIVE_SPEED_MIN    = 300.0;
-inline constexpr double CROSS_DRIVE_SPEED_MAX    = 420.0;
+// Calibrated to real cross pace (1 px/s = 0.36 km/h). Box deliveries were
+// launching at 103-137 km/h — hard-SHOT speed; real crosses are 50-80 km/h,
+// the hardest driven ~90. These land box crosses at ~88-108 km/h (top of the
+// driven band, ~20% slower than before) rather than one-stepping to the
+// floated band, which history says craters headed-goal output.
+inline constexpr double CROSS_DRIVE_SPEED_BASE   = 220.0;
+inline constexpr double CROSS_DRIVE_SPEED_PER_PX = 0.32;
+inline constexpr double CROSS_DRIVE_SPEED_MIN    = 245.0;
+inline constexpr double CROSS_DRIVE_SPEED_MAX    = 320.0;
 inline constexpr double CROSS_DIP_TARGET_Z       = 18.0;  // ball height at arrival
 inline constexpr double CROSS_CURL_MIN           = 0.27;  // rad/s — more visible whip on crosses + FK-crosses (was 0.20)
 inline constexpr double CROSS_CURL_RANGE         = 0.21;  // (was 0.17). Pre-rot scales with curl -> aim preserved.
