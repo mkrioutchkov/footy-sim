@@ -498,6 +498,46 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
                     carrierTracker.marathonReleased = true;
                 }
             }
+            // ── Pressured-circling release ── the 7s/final-third guard above misses
+            // the commonest lost-possession shuttle: a carrier SWARMED (2+ markers,
+            // one touch-tight) in the attacking half but OUTSIDE the box, circling
+            // 2.6s+ with no forward progress while a WIDE-open team-mate stands free —
+            // dispossessed ~100% of the time (watched replay seed 105 0:16 was 14.6s
+            // of it). Release to the safest wide-open man. TIGHT gates (2 markers incl.
+            // one <32px, a confirmed side-to-side shuttle, the 200-340 band, a receiver
+            // 90px+ clear) — deliberately NOT the looser long-hold variant that raised
+            // giveaways. Reuses the proven forcePassTo one-shot.
+            if (!carrierTracker.marathonReleased && carryDurMs >= 2600.0 && carryFwd < 40.0
+                && carrierTracker.carryRevsY >= 1 && distToOppGoal > 200.0 && distToOppGoal < 340.0) {
+                int tightMarkers = 0;
+                double nearestOpp = 1e9;
+                for (auto& q : state.players) {
+                    if (q.team == c->team || q.role == Role::GK || q.sentOff) continue;
+                    double qd = dist(c->x, c->y, q.x, q.y);
+                    if (qd < 55.0) tightMarkers++;
+                    nearestOpp = std::min(nearestOpp, qd);
+                }
+                if (tightMarkers >= 2 && nearestOpp < 32.0) {
+                    Player* best = nullptr;
+                    double bestScore = -1e9;
+                    for (auto& o : state.players) {
+                        if (o.team != c->team || o.id == c->id || o.role == Role::GK || o.sentOff) continue;
+                        double od = dist(c->x, c->y, o.x, o.y);
+                        if (od < 90.0 || od > 380.0) continue;
+                        double oppD = 1e9;
+                        for (auto& q : state.players)
+                            if (q.team != c->team && q.role != Role::GK && !q.sentOff)
+                                oppD = std::min(oppD, dist(o.x, o.y, q.x, q.y));
+                        if (oppD < 90.0) continue;                 // WIDE-open only
+                        double score = oppD - std::abs((o.x - c->x) * fd) * 0.15; // safest, not most forward
+                        if (score > bestScore) { bestScore = score; best = &o; }
+                    }
+                    if (best) {
+                        forcePassTo(*c, *best, nullptr);
+                        carrierTracker.marathonReleased = true;
+                    }
+                }
+            }
         }
 }
 
