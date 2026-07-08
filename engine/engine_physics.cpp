@@ -787,13 +787,17 @@ void GameEngine::resolveBallContact(double sec) {
             bool headingBehind = toLine * b.vx > 0.0;       // moving toward it, not away
             double tLine = std::abs(b.vx) > 1.0 ? toLine / b.vx : 1e9;   // time to reach the line
             double yAtLine = b.y + b.vy * tLine;            // y where it would cross the goal line
-            bool crossesInBounds = tLine > 0.0 && yAtLine > 0.0 && yAtLine < PITCH_H;
-            // And he can only put it BEHIND if he is GOAL-SIDE of the ball (between it
-            // and his own line). A defender level with or behind the ball can't cut it
-            // out for a corner — the ball carries on (at 1:46 it rolled out for what
-            // should be a goal kick, not a corner off a body it had already passed).
+            // He only clears a cross BEHIND for a corner when it is a genuinely
+            // DANGEROUS delivery dropping into the goalmouth — not one projected to
+            // cross WIDE of the posts (that is sailing out for a goal kick off the
+            // attacker; a defender near it did not "concede a corner"). Instrumented
+            // seed 105 1:46: the cross crossed the away line ~70px wide of the near
+            // post, yet a red corner was manufactured off a body it merely passed.
+            bool dangerousCross = tLine > 0.0 && std::abs(yAtLine - PITCH_H / 2.0) < GOAL_W / 2.0 + 55.0;
+            // And he must be GOAL-SIDE of the ball (between it and his own line) to
+            // put it behind — a defender level with or behind the ball can't cut it out.
             bool defenderGoalSide = std::abs(contact->x - ownLineX) <= std::abs(b.x - ownLineX) + BALL_R;
-            if (std::abs(b.x - ownLineX) < 175.0 && headingBehind && crossesInBounds && defenderGoalSide && rng.random() < 0.55) { // corners 2.7->6.5: dominant source. VOLUME is capped by the cut-near-line rate, not this probability.
+            if (std::abs(b.x - ownLineX) < 175.0 && headingBehind && dangerousCross && defenderGoalSide && rng.random() < 0.55) { // corners 2.7->6.5: dominant source. VOLUME is capped by the cut-near-line rate, not this probability.
                 awardCorner(pendingPass.team, contact->team == Team::Home, b.y);
                 return;
             }
