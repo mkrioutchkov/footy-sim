@@ -223,6 +223,20 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             stats.recordPassWrongTeammate();
     } else {
         stats.recordPassIntercepted();
+        // Senseless-giveaway census (owner ask, 0:06 "senseless loss"): an
+        // UNPRESSURED passer whose plain (non-cross, non-through) ball was cut
+        // out — a poor giveaway, not a forced or deliberately-risky ball. Pressure
+        // gauged at the release point; measurement only.
+        if (!pendingPass.isCross && !pendingPass.isThrough) {
+            const Player* fromP2 = playerById(pendingPass.fromId);
+            if (fromP2 && fromP2->role != Role::GK) {
+                double np = 1e9;
+                for (auto& o : state.players)
+                    if (o.team != fromP2->team && o.role != Role::GK && !o.sentOff)
+                        np = std::min(np, dist(o.x, o.y, pendingPass.passerX, pendingPass.passerY));
+                if (np > 65.0) stats.recordSenselessGiveaway();
+            }
+        }
         emitEvent("intercept", receiver.x, receiver.y, receiver.id, pendingPass.toId);
         if (passDebug) {
             const Player* intended = playerById(pendingPass.toId);

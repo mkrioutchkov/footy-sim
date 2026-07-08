@@ -170,6 +170,8 @@
       "questionable_shot_choice": 20,
       "restart_law_violation": 0,
       "risky_pass_choice": 6513,
+      "senseless_giveaway": 172,
+      "senseless_out_of_play": 3,
       "simulation_freeze": 0,
       "slide_tackle_distance": 0,
       "slide_tackle_oob": 3,

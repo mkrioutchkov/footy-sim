@@ -235,6 +235,11 @@ class StatsCollector {
     // "Retard pass" census (owner ask): a low-completion ball released under
     // little/no pressure while a clearly safer, comparable option existed.
     void recordNonsensePass() { nonsensePasses++; }
+    // Senseless loss of possession census (owner ask): a ball put OUT OF PLAY, or
+    // handed straight to an opponent, by an UNPRESSURED player who had a safe
+    // option — the "just kicked it out of play" / "senseless giveaway" moments.
+    void recordSenselessOutOfPlay() { senselessOutOfPlay++; }
+    void recordSenselessGiveaway() { senselessGiveaways++; }
     void recordQualityFlag(QualityFlag flag);
     void recordDecisionMoment() { decisionMoments++; }
     void recordPlayerDecision() { playerDecisions++; }
@@ -352,6 +357,7 @@ class StatsCollector {
     int whyNoShoots = 0, questionableBackpasses = 0, clearPathShoots = 0, clearPathDrives = 0;
     int timeWastingDribbles = 0, backwardDribbles = 0, whyPlayerRunningDir = 0;
     int stationaryHold500ms = 0;
+    int senselessOutOfPlay = 0, senselessGiveaways = 0;
     int unknownQualityFlags = 0;
     int restartLawViolations = 0;
     int nonsensePasses = 0;

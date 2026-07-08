@@ -280,6 +280,22 @@ bool GameEngine::checkWoodwork() {
 bool GameEngine::checkOutOfPlay() {
     auto& b = state.ball;
     Team lt = b.lastTouchTeam;
+    // Census (owner ask): a ball put OUT OF PLAY by an UNPRESSURED outfielder who
+    // wasn't shooting or crossing — the "just kicked it out of play for no reason"
+    // moment. A shot going wide, a cross that runs out, a GK's long ball, or a
+    // genuine clearance under pressure are all legitimate and excluded. Detection
+    // only — changes no restart, so it can't perturb determinism beyond the counter.
+    auto flagSenselessOut = [&]() {
+        if (shot.active || (pendingPass.active && pendingPass.isCross)) return;
+        Player* toucher = playerById(b.lastToucherId);
+        if (!toucher || toucher->role == Role::GK || toucher->sentOff) return;
+        double nearestOpp = 1e9;
+        for (auto& o : state.players)
+            if (o.team != toucher->team && o.role != Role::GK && !o.sentOff)
+                nearestOpp = std::min(nearestOpp, dist(o.x, o.y, toucher->x, toucher->y));
+        if (nearestOpp < 60.0) return;   // pressured — a ball hacked clear is fine
+        stats.recordSenselessOutOfPlay();
+    };
     auto clearState = [&]() {
         resolveKnockAhead(nullptr, "out_of_play");
         pendingPass.active = false;
@@ -287,6 +303,7 @@ bool GameEngine::checkOutOfPlay() {
         lastLooseOrigin = LooseOrigin::None;
     };
     if (b.y < 0 || b.y > PITCH_H) {
+        flagSenselessOut();
         clearState();
         awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H);
         return true;
@@ -300,6 +317,7 @@ bool GameEngine::checkOutOfPlay() {
         // between the posts was a goal (already taken by checkGoal).
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
         if (!inGoal) {
+            if (lt != Team::Home) flagSenselessOut();   // away attacker put it behind for a goal kick
             clearState();
             if (lt == Team::Home)
                 awardCorner(Team::Away, true, b.y);
@@ -311,6 +329,7 @@ bool GameEngine::checkOutOfPlay() {
     if (b.x > AWAY_GOAL_X) { // centre-crossing (see HOME_GOAL_X note above)
         bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
         if (!inGoal) {
+            if (lt != Team::Away) flagSenselessOut();   // home attacker put it behind for a goal kick
             clearState();
             if (lt == Team::Away)
                 awardCorner(Team::Home, false, b.y);
