@@ -47,9 +47,19 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
             } else if (isCentralMidfielder()) {
                 p.targetX = oppGoalX - fd * (120.0 + slotA * 20.0);
                 p.targetY = PITCH_H / 2.0 + slotB * 40.0;
+            } else if (isCenterBack() && p.homeY < PITCH_H / 2.0) {
+                // Big man forward (watched replay seed 133 0:40 — "so few
+                // players in box? chiellini not getting forward for corners"):
+                // one CB attacks the far post as the aerial target while his
+                // partner and the full-backs hold rest-defense. The old
+                // else-branch lerped every defender to ~15m out, so the box
+                // never had more than the CF + one winger in it.
+                p.targetX = oppGoalX - fd * (70.0 + std::abs(slotA) * 18.0);
+                p.targetY = PITCH_H / 2.0 + (nearPost ? 55.0 : -55.0) + slotB * 12.0;
             } else {
-                p.targetX = lerp(p.x, oppGoalX - fd * 150.0, 0.6);
-                p.targetY = lerp(p.y, PITCH_H / 2.0, 0.3);
+                // Partner CB + FBs: insurance outside the box for the counter.
+                p.targetX = oppGoalX - fd * (240.0 + std::abs(slotA) * 40.0);
+                p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.4);
             }
         } else if (spType == SetPiece::Penalty) {
             // Law 14 (watched replay: ten players INSIDE the area at the kick):
@@ -65,7 +75,29 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
         } else if (spType == SetPiece::FreeKick) {
             double bx = engine.state.ball.x;
             double by = engine.state.ball.y;
-            if (isCenterForward()) {
+            // The delivery shape below is ball-relative geometry written for
+            // attacking-third FKs — CMs/defenders sit goal-side of ("behind")
+            // the ball. For a FK won DEEP IN OUR OWN HALF, "behind the ball" is
+            // our own goal line: the pitch clamp then stacked 7+ players onto
+            // x=goal-line in a 16m band next to the taker for the whole hold
+            // (watched replay seed 103 0:48 — "what team would do this?").
+            // A deep FK is a BUILD-UP restart: reuse the goal-kick spread
+            // (CBs split wide, FBs high flanks, CM pivot, front men stretch).
+            if (std::abs(bx - ownGoalX) < 380.0) {
+                if (isCenterBack()) {
+                    p.targetX = ownGoalX + fd * (115.0 + std::abs(slotA) * 22.0);
+                    p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.30 : PITCH_H * 0.70;
+                } else if (isFullBack()) {
+                    p.targetX = ownGoalX + fd * (180.0 + slotA * 28.0);
+                    p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.18 : PITCH_H * 0.82;
+                } else if (isCentralMidfielder()) {
+                    p.targetX = ownGoalX + fd * (175.0 + std::abs(slotA) * 35.0);
+                    p.targetY = PITCH_H / 2.0 + slotB * 60.0;
+                } else {
+                    p.targetX = ownGoalX + fd * (400.0 + slotA * 35.0);
+                    p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.25);
+                }
+            } else if (isCenterForward()) {
                 p.targetX = oppGoalX - fd * (60.0 + slotA * 15.0);
                 p.targetY = PITCH_H / 2.0 + slotB * 30.0;
             } else if (isCentralMidfielder()) {

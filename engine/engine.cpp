@@ -798,10 +798,13 @@ static double minDistFor(SetPiece sp) {
 // game-friendly fractions of that (a watched match shouldn't be half dead air),
 // and double as the window where the box crowd / wall / spread actually forms
 // on screen before the ball comes in.
-static double actionTimerFor(SetPiece sp) {
+static double actionTimerFor(SetPiece sp, double spotDistToOppGoal) {
     if (sp == SetPiece::ThrowIn) return 4000.0;
     if (sp == SetPiece::Penalty) return 9000.0;
-    return 7000.0; // corner / free kick
+    // Deep own-half free kick: no box routine to stage, so the full 7s hold is
+    // just dead air (seed 103 @41s sat 9.6s on a kick that was always a short pass).
+    if (sp == SetPiece::FreeKick && spotDistToOppGoal > 380.0) return 3000.0;
+    return 7000.0; // corner / attacking free kick
 }
 
 // Gaylord seam (16:48): the engine id of the team's designated taker for this set-piece type
@@ -1222,8 +1225,11 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 // counting through the keeper's walk — re-arming on arrival stacked
                 // another full hold on top (observed 10-13s frozen restarts).
                 // Fast free kick: barely any hold — play it before the wall sets.
-                if (setPiece.type != SetPiece::GoalKick)
-                    phase.actionTimer = setPiece.fast ? 300.0 : actionTimerFor(setPiece.type);
+                if (setPiece.type != SetPiece::GoalKick) {
+                    double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
+                    phase.actionTimer = setPiece.fast ? 300.0
+                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX));
+                }
             }
         }
     }
@@ -1312,8 +1318,11 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 setPiece.walkMs = 0;
                 // Same GoalKick exclusion as the honest-arrival path: the budget
                 // already ran out (plus the 3.5s walk backstop) — kick it now.
-                if (setPiece.type != SetPiece::GoalKick)
-                    phase.actionTimer = setPiece.fast ? 300.0 : actionTimerFor(setPiece.type);
+                if (setPiece.type != SetPiece::GoalKick) {
+                    double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
+                    phase.actionTimer = setPiece.fast ? 300.0
+                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX));
+                }
             }
         }
     }

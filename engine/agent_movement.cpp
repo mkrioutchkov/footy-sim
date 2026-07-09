@@ -109,7 +109,12 @@ void PlayerAI::applyMovement(double sdt) {
     bool committedPress = (pressTask && bd > 45.0 && (bd < PRESS_COMMIT_MAX_DIST || pitch::inDangerZone(engine.state.ball.x, p.team)))
                         || predatorial;
 
-    bool isObserving = !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5;
+    // A dead ball is never "observed": during a hold the choreography (box
+    // crowd, wall, build-up spread) IS the job, and the crawl multiplier meant
+    // a CB sent forward for a corner covered ~250 of 440px in a 10s hold — the
+    // box stayed empty however good the targets were (seed 133 0:40).
+    bool isObserving = !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5
+                    && !engine.setPiece.armed;
 
     // Defenders sprint when carrier is in their half
     bool defendSprint = false;
