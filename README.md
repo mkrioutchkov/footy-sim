@@ -67,6 +67,21 @@ for f in t.frames: ...
 ```
 The trace stores ball + all 22 player states, scores, and tagged events.
 
+**Situation snapshots** (cross-version moment replay): freeze any moment from a
+trace and reload it into a DIFFERENT engine build — e.g. a bug seen at 0:58 no
+longer reproduces from the seed after a fix (butterfly effect), so load the
+0:58 situation directly and watch how the new engine plays it out:
+```
+python3 tools/snapshot_from_trace.py old_trace.bin --ms 58000 -o moment.json
+./build/live.exe <seed> <minutes> --snapshot-in moment.json [--trace out.bin]
+```
+The snapshot carries positions/velocities/facing/stamina for all 22, ball state
+(incl. curl + controller), clock, and score. It is a *situation* restore, not a
+bit-exact resume — the RNG stream is code-coupled, so play diverges from the
+loaded moment the way a real re-run of the situation would. The tool warns if
+the requested moment sits within ±3s of a restart (set-piece choreography
+doesn't snapshot cleanly).
+
 ## Docs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the full system diagram + components.

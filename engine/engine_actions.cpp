@@ -99,6 +99,10 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
     double deliverySpeed = std::hypot(b.vx, b.vy);
     bool plausibleHeader = pendingPass.isCross && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT && deliveryDist >= HEADER_MIN_DELIVERY_DIST && deliverySpeed >= HEADER_MIN_SPEED;
     if (plausibleHeader) {
+        // Tripwire (watched replay seed 133 0:28): the contact gates cap header
+        // contact at leap reach — a header resolving above it means the ghost
+        // class (contact rendered a body-length off the header-er) is back.
+        if (b.z > HEADER_REACH_Z + MEET_REACH_HEAD) stats.recordQualityFlag(QualityFlag::GhostHeader);
         stats.recordHeader(b.z, deliveryDist, deliverySpeed, !plausibleHeader);
         receiver.headingAnim = 520.0;
         emitEvent("header", receiver.x, receiver.y, receiver.id, pendingPass.fromId);
@@ -108,14 +112,20 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         if (receiver.team != pendingPass.team) {
             stats.recordHeaderClearance();
             stats.recordPassIntercepted(); // the cross was cut out — close the pass ledger
-            // A defender heading clear under the cross near his own line often
-            // can only put it behind — a common corner source. Physically HEAD it
-            // behind (no instant award — that teleported a live ball to the flag,
-            // watched replay seed 103 0:30 class): a glanced header toward his own
-            // goal line, angled off the mouth, looping up. checkOutOfPlay awards
-            // the corner when it actually crosses.
+            // Direction is pressure-driven (watched replay seed 133 0:28: an
+            // UNPRESSURED CB glanced a routine cross behind for a corner —
+            // "just heading forward would be more realistic ... or a header
+            // back to the gk"). Conceding a corner is what a PRESSED defender
+            // does because it's all he can reach; a free man heads forward, or
+            // cushions it down to his keeper.
+            double clearerPressD = 1e9;
+            for (auto& opp : state.players) {
+                if (!isActiveOpponent(opp, receiver.team)) continue;
+                clearerPressD = std::min(clearerPressD, dist(opp.x, opp.y, receiver.x, receiver.y));
+            }
+            bool clearerPressed = clearerPressD < 60.0;
             double ownLineX = ownGoalXFor(receiver.team);
-            if (std::abs(receiver.x - ownLineX) < 165.0 && rng.random() < 0.62) { // corner boost (was 0.45/130)
+            if (clearerPressed && std::abs(receiver.x - ownLineX) < 165.0 && rng.random() < 0.72) { // pressed-only now; prob 0.62->0.72 recovers volume lost to the pressure gate
                 double lineDir = (ownLineX == 0.0) ? -1.0 : 1.0;
                 double sideDir = receiver.y < PITCH_H / 2.0 ? -1.0 : 1.0;
                 // Speed scales with distance to the line so the header genuinely
@@ -133,6 +143,36 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
                 pendingPass.active = false;
                 blockReboundFor(receiver.id, 500);
                 return true;
+            }
+            // Unpressured and deep, keeper unbothered: cushion the header down
+            // to the GK — the routine real-life choice a free defender makes
+            // instead of hammering it anywhere.
+            if (!clearerPressed && std::abs(receiver.x - ownLineX) < 220.0) {
+                Player* gk = findGK(receiver.team);
+                if (gk && rng.random() < 0.55) {
+                    double gkOppD = 1e9;
+                    for (auto& opp : state.players) {
+                        if (!isActiveOpponent(opp, receiver.team)) continue;
+                        gkOppD = std::min(gkOppD, dist(opp.x, opp.y, gk->x, gk->y));
+                    }
+                    double gkD = dist(receiver.x, receiver.y, gk->x, gk->y);
+                    if (gkOppD > 110.0 && gkD > 55.0 && gkD < 260.0) {
+                        double ndx = gk->x - receiver.x, ndy = gk->y - receiver.y;
+                        double hs2 = clamp(gkD * 1.15, 110.0, 230.0);
+                        b.controllerId = -1;
+                        b.intendedReceiverId = gk->id;
+                        b.vx = ndx / gkD * hs2;
+                        b.vy = ndy / gkD * hs2;
+                        b.z = std::max(b.z * 0.5, 10.0);
+                        b.vz = 35.0;
+                        b.lastTouchTeam = receiver.team;
+                        b.lastToucherId = receiver.id;
+                        lastLooseOrigin = LooseOrigin::HeaderClearance;
+                        pendingPass.active = false;
+                        recordBallImpulse();
+                        return true;
+                    }
+                }
             }
             double clearFd = fdFor(receiver.team);
             b.controllerId = -1;

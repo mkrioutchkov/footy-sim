@@ -89,7 +89,19 @@ bool GameEngine::canContestBall(Player& player) {
     if (setPiece.armed && state.ball.controllerId < 0) return false;
     if (activeKnockAhead.active && activeKnockAhead.playerId == player.id) return true;
     if (state.ball.controllerId < 0 && state.ball.intendedReceiverId == player.id && state.ball.lastTouchTeam == player.team && state.ball.lastToucherId != player.id) return true;
-    if (contestBlockedUntil[player.id] > state.clockMs) return false;
+    if (contestBlockedUntil[player.id] > state.clockMs) {
+        // A lockout marks a moment that beat him (whiffed duel, beaten dribble,
+        // lost tackle) — but a loose ball at REST is a NEW moment anyone can
+        // play. Watched replay seed 133 4:02: a pass ricocheted off a
+        // reaction-locked CB, died 6px from his boots, and he stood over it
+        // while the intended receiver strolled 30px to collect.
+        // Guarded to balls LAST TOUCHED BY SOMEONE ELSE — dissolving a passer's
+        // own lockout let him re-grab his own under-hit pass (the stale-grab
+        // churn the lockout exists to stop).
+        double looseRest = std::hypot(state.ball.vx, state.ball.vy);
+        if (!(state.ball.controllerId < 0 && looseRest < LOOSE_BALL_STALL_SPEED
+              && state.ball.lastToucherId != player.id)) return false;
+    }
     contestBlockedUntil[player.id] = 0;
     return true;
 }

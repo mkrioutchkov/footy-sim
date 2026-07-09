@@ -744,8 +744,15 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
         // which is why shotsBlocked sat at 0.
         if (shotInFlight && (p.id == shot.blockerId || designatedWall)) r = PLAYER_R + BALL_R + 11.0;
         if (d > r) continue;
-        double zLimit = pendingPass.active && pendingPass.isCross ? HEADER_MAX_HEIGHT : AERIAL_HEIGHT;
-        if (b.z > zLimit) continue;
+        // Cross contact uses the same z-aware slant reach as tryIntendedReceiverMeet:
+        // you can only head what your leap actually reaches. The old flat z<=64 gate
+        // let a flat-footed CB "head" a dropping cross from 3.8m up — rendered with
+        // the ball's z-lift, the contact appears a body-length from his dot, between
+        // other players (watched replay seed 133 0:28, the ghost header).
+        if (pendingPass.active && pendingPass.isCross) {
+            double dzc = std::max(0.0, b.z - HEADER_REACH_Z);
+            if (std::sqrt(d * d + dzc * dzc) > std::max(r, MEET_REACH_HEAD)) continue;
+        } else if (b.z > AERIAL_HEIGHT) continue;
         if (p.role == Role::GK) {
             continue;
         }

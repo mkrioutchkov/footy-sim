@@ -59,6 +59,13 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // 1-blocker passes). t2<0.5 so it's a body in FRONT of the passer,
         // not one hovering by the receiver.
         if (perp < 17.0 && t2 < 0.5 && dist(o.x, o.y, p.x, p.y) < 42.0) pointBlank++;
+        // TOMBSTONE (seed 133 0:04, presser at the boot stepping across the
+        // release): pricing these harder was tried twice — a pointBlank veto
+        // (completion -7.0pts, marathon carries 8.5->16) and a graded double
+        // count (completion -5.2, senseless giveaways +3.6). Both starved the
+        // pressured carrier of his outlets and made him HOLD, which is the
+        // uglier failure. The step-in effBlocker above already prices the
+        // closing presser once; the residual 0:04-class pick stays accepted.
     }
     // A man point-blank in the near lane is fatal EVEN under pressure — you
     // cannot thread the ball past a defender 3-4m directly in front however

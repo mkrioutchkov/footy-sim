@@ -244,6 +244,9 @@ class StatsCollector {
     void recordDecisionMoment() { decisionMoments++; }
     void recordPlayerDecision() { playerDecisions++; }
     void recordStaleGrabPrevented() { staleGrabs++; }
+    // Tripwire: a header resolved above any plausible leap reach (contact gates
+    // should make this impossible — nonzero means the ghost-header class is back).
+    void recordGhostHeader() { ghostHeaders++; }
     void recordSkillMove() { skillMoves++; }
     void recordShotBlocked() { shotsBlocked++; }
     void recordTaskSelection(DefensiveTask role);
@@ -362,6 +365,7 @@ class StatsCollector {
     int restartLawViolations = 0;
     int nonsensePasses = 0;
     int decisionMoments = 0, playerDecisions = 0, staleGrabs = 0, skillMoves = 0, shotsBlocked = 0;
+    int ghostHeaders = 0;
     int taskSelectionsTotal = 0, taskSelectionsPrimary = 0, taskSelectionsSecondary = 0;
     int taskSelectionsCover = 0, taskSelectionsLine = 0, taskSelectionsScreen = 0;
     int gkAssessed = 0, unlikelySaves = 0, preventableGoals = 0;

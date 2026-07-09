@@ -151,7 +151,16 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     // only shifts WHEN strikers try them, concentrating screamers into the nervy
     // closing minutes rather than inflating the baseline goal rate.
     bool lateGame = engine.phase.addedTimeActive && engine.phase.half == 2;   // end-of-match urgency is 2nd-half stoppage only (H1 added time is not "closing minutes")
-    if (shotDistance > 175.0) sc -= lateGame ? 0.18 : 0.34;
+    // The tax stays full for hopeful hits, but a CLEAN LOOK — unpressured,
+    // real opening, inside screamer range — is a legitimate strike choice, not
+    // a pot-shot (user: "would like to see more long range shots attempted";
+    // the flat -0.34 priced Xavi-from-22-yards identically to a crowded hoof).
+    double potShotTax = lateGame ? 0.18 : 0.34;
+    bool cleanLongLook = per.pressureCount == 0 && angleDeg > 8.0 && shotDistance < 260.0
+                      && pitch::lateralFromCenter(p.y) < 160.0;
+    if (cleanLongLook) potShotTax *= 0.35;
+    if (shotDistance > 175.0) sc -= potShotTax;
+    if (shotDistance > 175.0 && cleanLongLook) sc += 0.10;
     if (lateGame && shotDistance > 175.0 && shotDistance < 250.0 && per.pressureCount == 0 && angleDeg > 8.0)
         sc += 0.24;
 

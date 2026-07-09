@@ -52,7 +52,8 @@ enum class QualityFlag : uint8_t {
     TimeWastingDribble,
     BackwardDribble,
     WhyPlayerRunningDirection,
-    StationaryHold500ms
+    StationaryHold500ms,
+    GhostHeader
 };
 
 inline constexpr std::string_view to_string(Team t) { return t == Team::Home ? "home" : "away"; }
