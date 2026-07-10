@@ -151,6 +151,8 @@ int main(int argc, char* argv[]) {
     bool debugMode = true;
     std::string tracePath;
     std::string snapshotPath;   // --snapshot-in: situation snapshot to resume from (see tools/snapshot_from_trace.py)
+    std::string snapshotOutPath; // --snapshot-out: write a situation snapshot (incl. rngState) during this run
+    double snapshotAtMs = -1;    // --snapshot-at: clock ms at which --snapshot-out captures
     std::string matchPath;
     double streamFromMs = 0;   // suppress frame output before this clock (live re-sim resume)
     bool forceLive = false;    // --live (or FOOTY_LIVE env): self-pace the engine to wall-clock (§1.1)
@@ -162,6 +164,8 @@ int main(int argc, char* argv[]) {
         else if (arg == "--no-debug") debugMode = false;
         else if (arg == "--trace" && i + 1 < argc) tracePath = argv[++i];
         else if (arg == "--snapshot-in" && i + 1 < argc) snapshotPath = argv[++i];
+        else if (arg == "--snapshot-out" && i + 1 < argc) snapshotOutPath = argv[++i];
+        else if (arg == "--snapshot-at" && i + 1 < argc) snapshotAtMs = std::atof(argv[++i]);
         else if (arg == "--match" && i + 1 < argc) matchPath = argv[++i];
         else if (arg == "--stream-from" && i + 1 < argc) streamFromMs = std::atof(argv[++i]);
         else if (i == 1 && arg[0] != '-') seed = std::atoi(argv[i]);
@@ -327,6 +331,15 @@ int main(int argc, char* argv[]) {
         engine.carrierTracker.carryStartMs = st.clockMs;
         engine.carrierTracker.carryStartX = st.ball.x;
         engine.carrierTracker.marathonReleased = false;
+        // RNG stream restore (owner: "can't the RNG stream be snapshotted too?").
+        // Only --snapshot-out snapshots carry it (traces don't record RNG state);
+        // same-version resumes then replay the exact draw sequence from the
+        // moment. Cross-version it is deliberately ignored-if-absent: different
+        // code consumes the stream differently anyway.
+        if (snap.contains("rngState")) {
+            engine.rng.setState(snap["rngState"].get<uint32_t>());
+            std::cerr << "Snapshot RNG state restored\n";
+        }
         std::cerr << "Snapshot loaded: t=" << st.clockMs / 1000.0 << "s score "
                   << st.homeScore << "-" << st.awayScore << " ball(" << st.ball.x << "," << st.ball.y
                   << ") ctrl=" << st.ball.controllerId << "\n";
@@ -362,9 +375,42 @@ int main(int argc, char* argv[]) {
         }
     };
 
+    // --snapshot-out capture: at the first tick past --snapshot-at, freeze the
+    // situation (players/ball/clock/score) PLUS the RNG word, so a same-version
+    // --snapshot-in resume replays the moment on the exact same draw sequence.
+    bool snapshotOutWritten = false;
+    auto maybeSnapshotOut = [&]() {
+        if (snapshotOutPath.empty() || snapshotOutWritten || snapshotAtMs < 0
+            || engine.state.clockMs < snapshotAtMs) return;
+        snapshotOutWritten = true;
+        auto& st = engine.state;
+        nlohmann::json snap;
+        snap["clockMs"] = st.clockMs;
+        snap["score"] = { {"home", st.homeScore}, {"away", st.awayScore} };
+        snap["ball"] = {
+            {"x", st.ball.x}, {"y", st.ball.y}, {"z", st.ball.z},
+            {"vx", st.ball.vx}, {"vy", st.ball.vy}, {"vz", st.ball.vz},
+            {"curl", st.ball.curl},
+            {"controllerId", st.ball.controllerId == -1 ? -1 : st.ball.controllerId},
+            {"intendedReceiverId", st.ball.intendedReceiverId},
+            {"lastToucherId", st.ball.lastToucherId},
+            {"lastTouchTeam", st.ball.lastTouchTeam == Team::Away ? 1 : 0}};
+        snap["players"] = nlohmann::json::array();
+        for (const auto& p : st.players) {
+            snap["players"].push_back({
+                {"id", p.id}, {"x", p.x}, {"y", p.y}, {"vx", p.vx}, {"vy", p.vy},
+                {"targetX", p.targetX}, {"targetY", p.targetY},
+                {"facing", p.facing}, {"stamina", p.stamina}});
+        }
+        snap["rngState"] = engine.rng.getState();
+        std::ofstream out(snapshotOutPath);
+        out << snap.dump(1);
+        std::cerr << "Snapshot written: t=" << st.clockMs / 1000.0 << "s (rngState "
+                  << engine.rng.getState() << ") -> " << snapshotOutPath << "\n";
+    };
     if (!isLiveMode) {
         // §1.4 flat-out: advance every tick as fast as possible (default — byte-identical to before).
-        while (engine.step()) emit();
+        while (engine.step()) { maybeSnapshotOut(); emit(); }
     } else {
         // §1.1 self-paced + §1.2 live command channel. Self-pace: advance whole FIXED_DT ticks only as
         // fast as wall-elapsed × speed allows, so the engine clock tracks what a viewer watches and a live

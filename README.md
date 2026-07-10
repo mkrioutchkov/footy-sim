@@ -82,6 +82,17 @@ loaded moment the way a real re-run of the situation would. The tool warns if
 the requested moment sits within ±3s of a restart (set-piece choreography
 doesn't snapshot cleanly).
 
+To also carry the **RNG stream**, capture the snapshot from a live run instead
+of a trace — the PRNG is a single word and `--snapshot-out` includes it:
+```
+./build/live.exe 133 12 --summary --no-debug --snapshot-out moment.json --snapshot-at 58000
+./build/live.exe 133 12 --snapshot-in moment.json     # same-version: same draw sequence
+```
+Same-version resumes then replay the moment on the exact same rolls. Across
+versions the field is ignored — different code consumes the stream in a
+different order, so carrying the state cannot make builds agree (that part is
+inherent, not a missing feature).
+
 ## Docs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the full system diagram + components.

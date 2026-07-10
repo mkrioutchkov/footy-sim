@@ -8,6 +8,12 @@ class SeededRNG {
 public:
     void setSeed(uint32_t seed) { state = seed; seeded = true; }
     void clearSeed() { seeded = false; }
+    // Snapshot support: the whole PRNG is this one word. Restoring it resumes
+    // the exact draw sequence — same-version snapshot resumes replay the same
+    // rolls (cross-version still diverges: different code consumes the stream
+    // in a different order, which is inherent, not fixable by carrying state).
+    uint32_t getState() const { return state; }
+    void setState(uint32_t s) { state = s; seeded = true; }
 
     // splitmix32 — deterministic, high-quality 32-bit PRNG
     double random() {

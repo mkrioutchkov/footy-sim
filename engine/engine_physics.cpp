@@ -663,7 +663,14 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
     bool intendedNearby = false;
     if (pendingPass.active && b.intendedReceiverId >= 0) {
         if (Player* intended = playerById(b.intendedReceiverId)) {
-            intendedNearby = dist(intended->x, intended->y, b.x, b.y) < INTENDED_NEARBY_DIST;
+            // Only while the ball is still COMING to him: once a pass has
+            // overshot the intended receiver and is rolling away, a teammate
+            // must be allowed to rescue it — the old unconditional skip had a
+            // winger escort his own team's overrun pass at 10px for two full
+            // seconds, barred from touching it, straight into an opponent's
+            // interception (watched replay seed 133 1:06).
+            bool approaching = (intended->x - b.x) * b.vx + (intended->y - b.y) * b.vy > 0.0;
+            intendedNearby = approaching && dist(intended->x, intended->y, b.x, b.y) < INTENDED_NEARBY_DIST;
         }
     }
 

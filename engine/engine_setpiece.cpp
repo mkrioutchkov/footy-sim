@@ -868,6 +868,8 @@ void GameEngine::awardThrowIn(Team lastTouchTeam, double y) {
     setPiece.team = atTeam;
     setPiece.armed = true;
     setPiece.reason = "throw_in";
+    if (const Player* tgk = findGK(atTeam))
+        emitEvent("throw_in", sx, sy, tgk->id, -1, true);
     phase.actionTimer = 5000;
     setPiece.spotX = sx;
     setPiece.spotY = sy;
@@ -911,6 +913,8 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
                 break;
             }
         }
+        if (setPiece.takerId >= 0)
+            emitEvent("goal_kick", setPiece.spotX, setPiece.spotY, setPiece.takerId, -1, true);
         // The out-ball GLIDES (it used to vanish mid-flight at the line and
         // reappear dead at the spot); restore its flight and let
         // updateSetPiecePhase place it when the glide window closes.
@@ -991,6 +995,13 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
                 state.clockMs/1000.0, state.ball.x, state.ball.y, state.ball.z,
                 state.ball.vx, state.ball.vy, (int)attackingTeam, state.ball.lastToucherId);
     stats.recordCorner();
+    // Restart marker for the replay feed (trace-only: keeps the live ticker and
+    // getJSON events[] unchanged). Without it the out-ball glide to the flag
+    // reads as "the ball moved without anyone touching it" (watched seed 133
+    // 0:39) — the feed line names the restart the moment it's awarded. Team is
+    // carried via the attacking GK's id (events derive team from playerId).
+    if (const Player* cgk = findGK(attackingTeam))
+        emitEvent("corner", state.ball.x, state.ball.y, cgk->id, -1, true);
     auto& b = state.ball;
     b.controllerId = -1;
     b.intendedReceiverId = -1;

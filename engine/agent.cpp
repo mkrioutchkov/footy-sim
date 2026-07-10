@@ -807,8 +807,29 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     bool targetForward = (fd > 0.0 && p.targetX > p.x + 30.0) || (fd < 0.0 && p.targetX < p.x - 30.0);
     bool breakawayBurst = clearPath && advancedEnough && distToGoalX < 480.0
         && nearestOppDist > 40.0 && distToTarget > 90.0 && targetForward;
+    // Chase escape (watched replay seed 133 1:10): being run down FROM BEHIND
+    // with open grass ahead is the classic knock-and-go — but every space gate
+    // above fails because the chaser IS the nearest opponent. If the nearest
+    // man is level-or-behind the shoulder relative to the run, and the path
+    // ahead is clear, punch it forward and maximize the advantage.
+    bool chaseEscapeBurst = false;
+    if (clearPath && advancedEnough && targetForward && distToTarget > 90.0
+        && nearestOppDist > 22.0 && nearestOppDist < 90.0) {
+        const Player* chaser = nullptr;
+        double chaserD = 1e9;
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+            double dd = dist(o.x, o.y, p.x, p.y);
+            if (dd < chaserD) { chaserD = dd; chaser = &o; }
+        }
+        if (chaser) {
+            double rdx = p.targetX - p.x, rdy = p.targetY - p.y, rl = std::hypot(rdx, rdy);
+            double aheadOfMe = rl > 1.0 ? ((chaser->x - p.x) * rdx + (chaser->y - p.y) * rdy) / rl : 1e9;
+            chaseEscapeBurst = aheadOfMe < 12.0;
+        }
+    }
     bool mayBurst = engine.canKnockBallAhead(p.id) && cp.score < (needsCarryShotWindow ? 0.82 : 0.65)
-        && (openBurst || speculativeBurst || finalThirdBurst || needsCarryShotWindow || breakawayBurst);
+        && (openBurst || speculativeBurst || finalThirdBurst || needsCarryShotWindow || breakawayBurst || chaseEscapeBurst);
     int dribbleType = mayBurst ? 3 : (nearbyOpps >= 2 ? 1 : 2);
 
     bool newEpisode = (p.dribbleType != dribbleType);

@@ -143,9 +143,18 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
             } else if (isCentralMidfielder()) {
                 p.targetX = ownGoalX + fd * (175.0 + std::abs(slotA) * 35.0);
                 p.targetY = PITCH_H / 2.0 + slotB * 60.0;
+            } else if (isCenterForward()) {
+                // STRETCH the field (watched replay seed 133 0:45: every kicking
+                // player inside x<422 — 20 outfielders crammed into one third,
+                // the far half empty). The CF stands ON the halfway line next
+                // to the opposing CBs, pinning them back; long kicks have a
+                // genuine out-ball and the shape looks like football.
+                p.targetX = ownGoalX + fd * (530.0 + slotA * 25.0);
+                p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.30);
             } else {
-                p.targetX = ownGoalX + fd * (400.0 + slotA * 35.0);
-                p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.25);
+                // WMs high and WIDE — between the lines, stretching laterally too.
+                p.targetX = ownGoalX + fd * (455.0 + slotA * 35.0);
+                p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.10);
             }
         }
     } else {
@@ -212,6 +221,26 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                 p.targetX = lerp(p.x, ownGoalX + fd * 100.0, 0.4);
                 p.targetY = lerp(p.y, PITCH_H / 2.0, 0.2);
             }
+        } else if (spType == SetPiece::GoalKick) {
+            // Defending an opponent goal kick had NO shape — a 30% lerp toward
+            // our own goal left all ten strung in one flat mid-pitch band with
+            // the entire half behind them empty (watched replay seed 133 0:45,
+            // "completely wrong/unrealistic"). Real: a press LADDER anchored on
+            // distance from the KICKING goal — front men on the short outlets,
+            // midfield on the links, FBs on the stretched wingers, CBs holding
+            // rest-defense at halfway with their GK behind.
+            double distFromKick;
+            if (isCenterForward())            distFromKick = 215.0 + std::abs(slotA) * 30.0;
+            else if (isWideMidfielder())      distFromKick = 335.0 + std::abs(slotA) * 40.0;
+            else if (isCentralMidfielder())   distFromKick = 405.0 + std::abs(slotA) * 45.0;
+            else if (isFullBack())            distFromKick = 520.0 + slotA * 30.0;
+            else /* CB rest-defense */        distFromKick = 585.0 + std::abs(slotA) * 25.0;
+            p.targetX = oppGoalX - fd * distFromKick;   // anchored on the kicking goal (= our attacking goal)
+            if (isCenterForward())            p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.35);
+            else if (isWideMidfielder())      p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.10);
+            else if (isCentralMidfielder())   p.targetY = PITCH_H / 2.0 + slotB * 70.0;
+            else if (isFullBack())            p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.20 : PITCH_H * 0.80;
+            else                              p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.38 : PITCH_H * 0.62;
         } else {
             p.targetX = lerp(p.x, ownGoalX + fd * 120.0, 0.3);
             p.targetY = lerp(p.y, PITCH_H / 2.0, 0.15);

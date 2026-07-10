@@ -1184,7 +1184,11 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
         loft += longRangePenalty * 55.0;
         loft += (1.0 - accuracy) * 70.0;
         loft *= 0.5 + rng.random(); // 0.5x..1.5x: some balloon over, some kept down
-        loft = std::min(loft, 240.0);
+        // Cap at a DRIVEN miss, not a float: 240 gave apex 5.8m — a rushed long
+        // shot hung like a deliberate lob (watched replay seed 133 1:51, vz=199,
+        // apex 4.1m onto the bar). 160 -> apex ~2.6m: still clears the bar and
+        // balloons over, but on a believable driven trajectory.
+        loft = std::min(loft, 160.0);
     }
     // Finesse and power are struck DOWN — a placed side-foot or a driven laces
     // shot stays under the bar. Without this the loft model floated them over
