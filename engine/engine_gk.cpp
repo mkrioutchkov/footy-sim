@@ -218,9 +218,15 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
 
     // Rush-out: charge a loose ball / through ball behind the defense, or
     // smother an opponent who's broken clean through (smother1v1, above).
+    // A ball flying 4m overhead is NOT rushable — charging its ground shadow
+    // strands the keeper upfield while the flight sails past to the far post
+    // (watched replay seed 107, the FK cross that rolled in untouched: keeper
+    // 160px off his line under a z=44 cross he could never play). High
+    // deliveries belong to the CLAIM system, which only attacks in-envelope.
     double rushDist = std::abs(gk.x - state.ball.x);
+    bool rushable = state.ball.z <= AERIAL_HEIGHT + 6.0;
     bool rushing = !deferToTeammate && !backpassToMe
-        && (smother1v1 || (ballLoose && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall)));
+        && (smother1v1 || (ballLoose && rushable && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall)));
     if (rushing) {
         // clampRange (not clamp) so the off-line bounds stay valid for the Away
         // keeper too — goalX+fd*45 > goalX+fd*175 when fd=-1, which the bare

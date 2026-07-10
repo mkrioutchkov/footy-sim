@@ -126,16 +126,24 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             bool clearerPressed = clearerPressD < 60.0;
             double ownLineX = ownGoalXFor(receiver.team);
             if (clearerPressed && std::abs(receiver.x - ownLineX) < 165.0 && rng.random() < 0.72) { // pressed-only now; prob 0.62->0.72 recovers volume lost to the pressure gate
-                double lineDir = (ownLineX == 0.0) ? -1.0 : 1.0;
                 double sideDir = receiver.y < PITCH_H / 2.0 ? -1.0 : 1.0;
                 // Speed scales with distance to the line so the header genuinely
                 // carries behind despite airborne drag (see the cut-cross deflection).
                 double hs = std::max(clamp(deliverySpeed * 0.5, 140.0, 240.0),
                                      std::abs(ownLineX - receiver.x) / 0.55);
+                // AIM at a point on the goal line OUTSIDE the near post — the
+                // old flat vy ratio sent a CENTRAL clearer's header straight
+                // through his own mouth (seed 103: headed "behind" from y=331,
+                // crossed at y=306, inside the post — an own goal).
+                double clearY = PITCH_H / 2.0 + sideDir * (GOAL_W / 2.0 + 20.0 + rng.random() * 95.0);
+                if (sideDir < 0.0) clearY = std::min(clearY, b.y - 8.0);
+                else clearY = std::max(clearY, b.y + 8.0);
+                double dxL = ownLineX - b.x, dyL = clearY - b.y;
+                double dL = std::max(1.0, std::hypot(dxL, dyL));
                 b.controllerId = -1;
                 b.intendedReceiverId = -1;
-                b.vx = lineDir * hs;
-                b.vy = sideDir * hs * (0.25 + rng.random() * 0.45);
+                b.vx = dxL / dL * hs;
+                b.vy = dyL / dL * hs;
                 b.z = std::max(b.z, 12.0);
                 b.vz = 70.0 + rng.random() * 80.0;
                 b.lastTouchTeam = receiver.team;

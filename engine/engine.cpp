@@ -1022,6 +1022,11 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
             bool isTaker = p.id == setPiece.takerId;
             if (p.role == Role::GK || isTaker) continue;
             if (!pen && p.team == restartTeam) continue;
+            // Wall members stand at a LEGAL spot (91px down the line, slant
+            // ~93px) — the radial re-target here fired on them mid-WALK every
+            // time their path dipped inside the radius, so the wall never
+            // finished forming (seed 107 5:51: one-man wall).
+            if (!pen && p.wall) continue;
             double dx = p.x - setPiece.spotX;
             double dy = p.y - setPiece.spotY;
             double d = std::hypot(dx, dy);
@@ -1705,6 +1710,13 @@ void GameEngine::initWithSeed(int seed) {
 void GameEngine::creditGoal(int scorerId) {
     if (scorerId < 0 || scorerId >= 22) return;
     pStats[scorerId].goals++;
+    // Set-piece goal bucket: scored within 9s of a restart release. FKs are
+    // split direct-threat vs deep by nothing here — the release type is enough
+    // for the "where do goals come from" audit.
+    if (state.clockMs - lastRestartReleaseMs < 9000.0)
+        stats.recordSetPieceGoal(lastRestartReleaseType);
+    else
+        stats.recordOpenPlayGoal();
     // Assist: the teammate who last fed the scorer, within ~12s of the goal.
     int passer = lastReceiveFrom[scorerId];
     if (passer >= 0 && passer < 22 && passer != scorerId && state.clockMs - lastReceiveMs[scorerId] < 12000.0) {

@@ -236,6 +236,11 @@ std::string StatsCollector::summaryJSON() const {
     j["qualityFlags"] = {
         {"player_stuck", stuckAlerts}, {"simulation_freeze", simFreezes}, {"dizzy_spin", dizzySpins}, {"ball_jump", ballJumps}, {"slide_tackle_distance", slideTackleDistance}, {"slide_tackle_oob", slideTackleOob}, {"own_pass_goal", ownPassGoals}, {"unknown_loose_goal", unknownLooseGoals}, {"questionable_shot_choice", questionableShots}, {"questionable_press_assignment", questionPress}, {"unmarked_final_third", finalThirdUnmarked}, {"risky_pass_choice", riskyPassChoices}, {"teammate_pingpong", teammatePingPongs}, {"why_no_shoot", whyNoShoots}, {"questionable_backpass", questionableBackpasses}, {"clear_path_shoot", clearPathShoots}, {"clear_path_drive", clearPathDrives}, {"time_wasting_dribble", timeWastingDribbles}, {"backward_dribble", backwardDribbles}, {"stationary_hold_500ms", stationaryHold500ms}, {"why_player_running_dir", whyPlayerRunningDir}, {"decision_moments", decisionMoments}, {"player_decisions", playerDecisions}, {"stale_grabs_prevented", staleGrabs}, {"ghost_header", ghostHeaders}, {"unknown_quality_flag", unknownQualityFlags}, {"restart_law_violation", restartLawViolations}, {"nonsense_pass", nonsensePasses}, {"senseless_out_of_play", senselessOutOfPlay}, {"senseless_giveaway", senselessGiveaways}, {"task_selections_total", taskSelectionsTotal}, {"task_primary_press", taskSelectionsPrimary}, {"task_secondary_press", taskSelectionsSecondary}};
 
+    j["goalSources"] = {
+        {"freeKick", goalsFromFreeKick}, {"corner", goalsFromCorner},
+        {"throwIn", goalsFromThrowIn}, {"penaltyPhase", goalsFromPenaltyPhase},
+        {"openPlay", goalsOpenPlay}};
+
     j["ballSpeed"] = {
         {"peak", std::round(ballSpeedPeak)}, {"looseSampleAvg", std::round(looseAvg)}, {"looseSamples", ballSpeedSamples}, {"passLaunchAvg", std::round(passAvg)}, {"passLaunches", passLaunchCount}, {"shotLaunchAvg", std::round(shotAvg)}, {"shotLaunches", shotLaunchCount}};
 

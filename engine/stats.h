@@ -247,6 +247,14 @@ class StatsCollector {
     // Tripwire: a header resolved above any plausible leap reach (contact gates
     // should make this impossible — nonzero means the ghost-header class is back).
     void recordGhostHeader() { ghostHeaders++; }
+    void recordSetPieceGoal(SetPiece t) {
+        if (t == SetPiece::FreeKick) goalsFromFreeKick++;
+        else if (t == SetPiece::Corner) goalsFromCorner++;
+        else if (t == SetPiece::ThrowIn) goalsFromThrowIn++;
+        else if (t == SetPiece::Penalty) goalsFromPenaltyPhase++;
+        else goalsOpenPlay++;   // goal kicks / none: build-up, count as open play
+    }
+    void recordOpenPlayGoal() { goalsOpenPlay++; }
     void recordSkillMove() { skillMoves++; }
     void recordShotBlocked() { shotsBlocked++; }
     void recordTaskSelection(DefensiveTask role);
@@ -366,6 +374,8 @@ class StatsCollector {
     int nonsensePasses = 0;
     int decisionMoments = 0, playerDecisions = 0, staleGrabs = 0, skillMoves = 0, shotsBlocked = 0;
     int ghostHeaders = 0;
+    int goalsFromFreeKick = 0, goalsFromCorner = 0, goalsFromThrowIn = 0,
+        goalsFromPenaltyPhase = 0, goalsOpenPlay = 0;
     int taskSelectionsTotal = 0, taskSelectionsPrimary = 0, taskSelectionsSecondary = 0;
     int taskSelectionsCover = 0, taskSelectionsLine = 0, taskSelectionsScreen = 0;
     int gkAssessed = 0, unlikelySaves = 0, preventableGoals = 0;

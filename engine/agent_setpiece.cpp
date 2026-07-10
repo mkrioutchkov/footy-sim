@@ -196,26 +196,77 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
             double bx = engine.state.ball.x;
             double by = engine.state.ball.y;
             double goalDist = std::abs(bx - ownGoalX);
-            if (goalDist < 250.0) {
-                if (isFullBack()) {
-                    // Proper defensive wall: stand on the ball->goal line at the legal ~9.15m (91px),
-                    // not the old ~3.2m token gap. The two full-backs form a 2-man wall covering the
-                    // near-post angle; the FK shot already accounts for them via laneBlockers.
+            // Delivery FKs out to ~330 need the man-aware box defense too — the
+            // seed 107 1:36 goal came from a 301px FK swung into an unmarked box.
+            if (goalDist < 330.0) {
+                // ── Wall ── FBs man it; a CENTRAL fk (the direct-shot threat)
+                // adds the lowest-id CM as a third body. Targets sit 91px down
+                // the ball->goal line (the lateral offset keeps the slant legal
+                // at ~93px); enforceRestartDistance EXEMPTS p.wall so walkers
+                // actually arrive — it used to radially re-target anyone who
+                // dipped inside 91px en route, so the second FB never reached
+                // his slot (watched replay seed 107 5:51, the Ronaldinho FK:
+                // a one-man "wall", the other FB frozen 77px off the line).
+                bool centralFk = std::abs(by - PITCH_H / 2.0) < 150.0;
+                int lowestCm = -1;
+                if (centralFk)
+                    for (auto& q : engine.state.players)
+                        if (q.team == p.team && q.role == Role::CM && !q.sentOff
+                            && (lowestCm < 0 || q.id < lowestCm)) lowestCm = q.id;
+                int wallSlot = -1;
+                if (goalDist < 250.0) {   // wall only against a genuine direct-shot threat
+                    if (isFullBack()) wallSlot = (p.homeY < PITCH_H / 2.0) ? 0 : 1;
+                    else if (p.id == lowestCm) wallSlot = 2;
+                }
+                if (wallSlot >= 0) {
                     double wdx = ownGoalX - bx, wdy = PITCH_H / 2.0 - by, wlen = std::max(1.0, std::hypot(wdx, wdy));
                     wdx /= wlen; wdy /= wlen;
-                    double off = (p.homeY < PITCH_H / 2.0) ? -20.0 : 20.0;
+                    double off = wallSlot == 0 ? -18.0 : wallSlot == 1 ? 18.0 : 0.0;
                     p.targetX = bx + wdx * 91.0 + (-wdy) * off;
                     p.targetY = by + wdy * 91.0 + ( wdx) * off;
-                    p.wall = true;   // render-hint: this FB is in the FK wall (Gaylord's wall-highlight)
-                } else if (isCenterBack()) {
-                    p.targetX = ownGoalX + fd * 72.0;
-                    p.targetY = PITCH_H / 2.0 + (p.id % 2 == 0 ? -46.0 : 46.0);
-                } else if (isCentralMidfielder()) {
-                    p.targetX = ownGoalX + fd * 118.0;
-                    p.targetY = PITCH_H / 2.0 + (p.id % 3 - 1) * 52.0;
+                    p.wall = true;   // render-hint + enforceRestartDistance exemption
                 } else {
-                    p.targetX = ownGoalX + fd * 185.0;
-                    p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.2);
+                    // ── Man-aware box defense ── mark the attacker (in the
+                    // danger zone) for whom I am the closest unengaged
+                    // defender — goal-side, a stride off. Zone lines only as
+                    // fallback (watched replay seed 107 1:36: zone ladders
+                    // marched three defenders past unmarked attackers on the
+                    // six-yard line — "positions made no sense").
+                    auto inWall = [&](const Player& q) {
+                        return goalDist < 250.0
+                            && (roles::isFullBack(q.role) || (q.id == lowestCm && lowestCm >= 0));
+                    };
+                    const Player* markT = nullptr;
+                    double markD = 1e9;
+                    for (auto& opp : engine.state.players) {
+                        if (opp.team == p.team || opp.role == Role::GK || opp.sentOff) continue;
+                        if (opp.id == engine.setPiece.takerId) continue;
+                        if (std::abs(opp.x - ownGoalX) > 260.0
+                            || std::abs(opp.y - PITCH_H / 2.0) > 230.0) continue;
+                        double myD = dist(p.x, p.y, opp.x, opp.y);
+                        bool closest = true;
+                        for (auto& q : engine.state.players) {
+                            if (q.team != p.team || q.id == p.id || q.role == Role::GK
+                                || q.sentOff || inWall(q)) continue;
+                            if (dist(q.x, q.y, opp.x, opp.y) < myD - 1.0) { closest = false; break; }
+                        }
+                        if (closest && myD < markD) { markD = myD; markT = &opp; }
+                    }
+                    if (markT) {
+                        double gdx = ownGoalX - markT->x, gdy = PITCH_H / 2.0 - markT->y;
+                        double gl = std::max(1.0, std::hypot(gdx, gdy));
+                        p.targetX = markT->x + gdx / gl * 16.0;
+                        p.targetY = markT->y + gdy / gl * 16.0;
+                    } else if (isCenterBack()) {
+                        p.targetX = ownGoalX + fd * 72.0;
+                        p.targetY = PITCH_H / 2.0 + (p.id % 2 == 0 ? -46.0 : 46.0);
+                    } else if (isCentralMidfielder()) {
+                        p.targetX = ownGoalX + fd * 118.0;
+                        p.targetY = PITCH_H / 2.0 + (p.id % 3 - 1) * 52.0;
+                    } else {
+                        p.targetX = ownGoalX + fd * 185.0;
+                        p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.2);
+                    }
                 }
             } else {
                 p.targetX = lerp(p.x, ownGoalX + fd * 100.0, 0.4);

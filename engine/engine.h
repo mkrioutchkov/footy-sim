@@ -157,6 +157,9 @@ public:
     // Assist chain: who last fed this slot a completed pass, and when.
     std::array<int, 22> lastReceiveFrom = {};
     std::array<double, 22> lastReceiveMs = {};
+    // Goal-source tagging: the most recent restart RELEASE (kick actually taken).
+    double lastRestartReleaseMs = -1e9;
+    SetPiece lastRestartReleaseType = SetPiece::None;
     void creditGoal(int scorerId);
 
     struct SetPieceState {
@@ -661,6 +664,9 @@ public:
     // ── Physics ──
     void applyBallPhysics(double s);
     void clampBallPosition();
+    // Chase aid: forward-simulate the ball (drag/gravity/bounce, no bodies) to
+    // where it will actually be tAhead seconds out — see engine_physics.cpp.
+    void predictBallPos(double tAhead, double& outX, double& outY) const;
     bool checkGoal();
     bool checkWoodwork();
     bool checkOutOfPlay();

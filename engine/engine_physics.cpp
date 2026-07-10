@@ -125,6 +125,43 @@ void GameEngine::applyBallPhysics(double s) {
     }
 }
 
+// Predict where the ball will actually BE tAhead seconds from now, using the
+// same drag / gravity / bounce model as applyBallPhysics (walls and bodies
+// excluded — this is a chase aid, not an oracle). The linear `ball + v*lead`
+// chase target ignored air drag and the bounce's 30% horizontal kill, so on a
+// 293px/s cross with a 1.1s lead THREE defenders plus a home runner all
+// overran to a phantom point 140px beyond where the ball actually died
+// (watched replay seed 107, the untouched FK cross that rolled in far post).
+void GameEngine::predictBallPos(double tAhead, double& outX, double& outY) const {
+    const auto& b = state.ball;
+    double x = b.x, y = b.y, z = b.z, vx = b.vx, vy = b.vy, vz = b.vz;
+    const double dt = 0.05;
+    for (double t = 0.0; t < tAhead; t += dt) {
+        bool airborne = z > 2.0;
+        double f = std::pow(airborne ? BALL_AIR_DRAG : BALL_FRICTION, dt);
+        vx *= f;
+        vy *= f;
+        x += vx * dt;
+        y += vy * dt;
+        if (airborne || vz != 0.0) {
+            z += vz * dt;
+            vz -= GRAVITY * dt;
+            if (z <= 0.0) {
+                z = 0.0;
+                if (vz < -75.0) {
+                    vz *= -0.30;
+                    vx *= 0.70;
+                    vy *= 0.70;
+                } else
+                    vz = 0.0;
+            }
+        }
+        if (vx * vx + vy * vy < 36.0) break; // effectively at rest
+    }
+    outX = x;
+    outY = y;
+}
+
 void GameEngine::clampBallPosition() {
     state.ball.x = clamp(state.ball.x, -40., PITCH_W + 40);
     state.ball.y = clamp(state.ball.y, -40., PITCH_H + 40);

@@ -51,6 +51,23 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
             (exposedDot > 0.10 && (ctrl->dribbleType == 2 || ctrl->dribbleType == 3))
          || ballShownDot > 0.45
          || sustainedContest);
+    // 3v1 squeeze (watched replay seed 107 0:16: three defenders ringed a
+    // shielding carrier at 24-41px and nobody engaged — the ball was never
+    // "shown", so everyone contained forever). With numbers up close and the
+    // carrier pinned for over a second, the CLOSEST man commits.
+    if (!nickOpportunity && d < 45.0 && carrierSpeed < 30.0
+        && engine.carrierTracker.carryTrackerId == ctrl->id
+        && engine.state.clockMs - engine.carrierTracker.carryStartMs > 1200.0) {
+        int crowd = 0;
+        bool closest = true;
+        for (auto& q : engine.state.players) {
+            if (q.team != player.team || q.id == player.id || q.role == Role::GK || q.sentOff) continue;
+            double qd = dist(q.x, q.y, ctrl->x, ctrl->y);
+            if (qd < 55.0) crowd++;
+            if (qd < d - 1.0) closest = false;
+        }
+        if (crowd >= 1 && closest) nickOpportunity = true;
+    }
 
     bool isDef = isDefenderRole();
     if (isDef) {
@@ -531,9 +548,14 @@ Action PlayerAI::scoreChase(const Perception& per) {
         if (inDefThird) sc += 0.12;
     }
 
+    // Long leads must respect the flight model: linear projection on a fast
+    // ball overshoots the real stopping point by 100px+ (drag + the bounce's
+    // 30% horizontal kill), which had whole groups overrunning a dying cross.
+    double leadX, leadY;
+    engine.predictBallPos(la, leadX, leadY);
     return Action{ActionType::Chase, clamp(sc, 0.0, 1.0), nullptr,
-                  clamp(b.x + b.vx * la, 10.0, PITCH_W - 10.0),
-                  clamp(b.y + b.vy * la, 10.0, PITCH_H - 10.0)};
+                  clamp(leadX, 10.0, PITCH_W - 10.0),
+                  clamp(leadY, 10.0, PITCH_H - 10.0)};
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

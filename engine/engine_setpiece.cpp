@@ -172,6 +172,11 @@ void GameEngine::releaseSetPiece() {
     Player* holder = playerById(state.ball.controllerId);
     if (!holder) return;
     auto clearReleasedSetPiece = [&]() {
+        // Goal-source tagging (owner audit: "all goals set pieces?"): remember
+        // what restart just released and when — creditGoal buckets any goal
+        // scored within 9s as a set-piece goal of that type.
+        lastRestartReleaseMs = state.clockMs;
+        lastRestartReleaseType = setPiece.type;
         if (!setPiece.armed) {
             setPiece.type = SetPiece::None;
             setPiece.team = Team::Home;
