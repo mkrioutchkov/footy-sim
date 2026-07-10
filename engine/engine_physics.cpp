@@ -84,6 +84,17 @@ void GameEngine::applyBallPhysics(double s) {
     bool airborne = b.z > 2.0;
     double friction = std::pow(airborne ? BALL_AIR_DRAG : BALL_FRICTION, s);
     if (weather == 1 && !airborne) friction = 1.0 - (1.0 - friction) * 0.55; // §weather rain: wet pitch sheds ~45% less rolling friction (ball skids further)
+    // Air drag grows with speed (quadratic in reality): a 30m/s ball sheds far
+    // more than 7%/s. The flat 0.93 made driven flights look laser-flat
+    // (watched replay seed 111 0:59 — "the physics of how it travels is off...
+    // should slow down more"). Up to ~14%/s extra at 300+ px/s.
+    // Scoped to NON-SHOT flights: shot ballistics (loft/bar clearance/keeper
+    // model) were calibrated without it — with it, drives that used to clear
+    // the bar sagged into the bar band and woodwork rose ~40%.
+    if (airborne && lastLooseOrigin != LooseOrigin::Shot) {
+        double spA = std::hypot(b.vx, b.vy);
+        if (spA > 180.0) friction *= (1.0 - clamp((spA - 180.0) / 900.0, 0.0, 0.14) * s);
+    }
     b.vx *= friction;
     b.vy *= friction;
     // Rolling friction: a grounded ball below jogging pace stops in a stride
@@ -139,6 +150,10 @@ void GameEngine::predictBallPos(double tAhead, double& outX, double& outY) const
     for (double t = 0.0; t < tAhead; t += dt) {
         bool airborne = z > 2.0;
         double f = std::pow(airborne ? BALL_AIR_DRAG : BALL_FRICTION, dt);
+        if (airborne && lastLooseOrigin != LooseOrigin::Shot) {
+            double spA = std::hypot(vx, vy);   // mirror applyBallPhysics' speed-dependent air drag (same shot exemption)
+            if (spA > 180.0) f *= (1.0 - clamp((spA - 180.0) / 900.0, 0.0, 0.14) * dt);
+        }
         vx *= f;
         vy *= f;
         x += vx * dt;

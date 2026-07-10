@@ -40,7 +40,11 @@ double GameEngine::gkDistributeMs(const Player& gk) const {
         if (diff > 0)      mul += 0.45;   // protecting a lead late: take your time
         else if (diff < 0) mul -= 0.30;   // chasing late: hurry
     }
-    if (gkUnderPressure(gk, 95.0)) mul -= 0.40;   // a forward closing in: release quicker
+    // A ball IN HAND cannot be taken — a swarm is a reason to WAIT for shape,
+    // not to hurl it into the crowd (watched replay seed 111 0:56: a save,
+    // a 1.8s panic throw into the packed box, then three of his own defenders
+    // ping-pong clearing it). Chasing-late urgency still shortens the hold.
+    if (gkUnderPressure(gk, 95.0)) mul += 0.35;
     return clamp(GK_DISTRIBUTE_MS * mul, GK_DISTRIBUTE_MS * 0.45, GK_DISTRIBUTE_MS * 2.1);
 }
 

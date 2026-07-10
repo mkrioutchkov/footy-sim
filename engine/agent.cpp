@@ -469,6 +469,21 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
                 }
             }
         }
+        // Turn BEFORE the release, don't teleport the body (watched replay seed
+        // 111 0:20: the pivot snapped 163° in one tick — "instant shift 180
+        // degrees"). A pass played meaningfully across the body first rotates
+        // facing toward the launch line at a fast-but-human rate and releases
+        // on a later tick, once roughly aligned. The ball stays on the foot;
+        // pressure can still force a different choice next tick — that's real.
+        if (a.target && a.purpose != ActionPurpose::Clear) {
+            double wantAng = std::atan2(a.target->y - p.y, a.target->x - p.x);
+            double offT = std::atan2(std::sin(wantAng - p.facing), std::cos(wantAng - p.facing));
+            if (std::abs(offT) > 1.35) {
+                facing = p.facing + clamp(offT, -0.55, 0.55);   // ~19 rad/s at 34ms ticks: a sharp half-turn beat
+                p.facing = facing;
+                return;   // release next tick(s), body coming around
+            }
+        }
         bool released;
         if (a.purpose == ActionPurpose::Clear) {
             engine.forcePassTo(p, *a.target, &audit);

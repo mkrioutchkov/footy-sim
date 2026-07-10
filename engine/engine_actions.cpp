@@ -393,6 +393,18 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // already-clear man). Drive it faster and flatter so a defender can't drift
     // into the lane before it arrives — an open keeper roll isn't getting nicked.
     double speed = (PASS_SPEED_BASE + rawDist * PASS_SPEED_DIST) * (0.92 + rng.random() * 0.16);
+    // A contested reception wants PACE (watched replay seed 111 0:32: soft
+    // ball played square while the presser arrived with it — "at least it
+    // should be a faster pass as can see 7 arriving"): when an opponent is
+    // within a closing stride of the receiver, zip it.
+    {
+        double recvThreat = 1e9;
+        for (auto& o : state.players) {
+            if (o.team == f.team || o.role == Role::GK || o.sentOff) continue;
+            recvThreat = std::min(recvThreat, dist(o.x, o.y, t.x, t.y));
+        }
+        if (recvThreat < 85.0) speed *= 1.14;
+    }
     // NOTE: a short-range pace throttle (speed *= clamp(rawDist/150, 0.66, 1))
     // for the "why was that pass so hard" look (0:38) was A/B'd and REVERTED —
     // a gentler short ball spends longer in the lane and the step-in
@@ -564,13 +576,17 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         }
     }
     if (whippedCross) {
-        // Incidental lofted wide balls keep the high floaty arc (they're just
-        // passes); only deliberate crosses above get the driven whip. Making
-        // these driven too turned ~350 routine deliveries/match into header
-        // duels and halved chance creation. Mild curl kept for looks.
+        // Incidental lofted wide balls keep a lofted arc (they're just passes)
+        // with mild curl. The old vz = 2x horizontal launched SHORT ones as
+        // 60°+ mortars (watched replay seed 111 0:20: horizontal 119, vz 238,
+        // apex 7.6m over ~13m of travel). A whip is a FLAT fast arc: solve vz
+        // from the flight time to the target so the ball dips ON the receiver
+        // (same construction as the FK dipper), never steeper than ~50°.
         b.vx *= 1.30;
         b.vy *= 1.30;
-        b.vz = std::max(b.vz, speed * 1.30 * 1.55);
+        double whipH = std::hypot(b.vx, b.vy);
+        double whipT = whipH > 1.0 ? dist(b.x, b.y, t.x, t.y) / whipH : 0.5;
+        b.vz = clamp(0.5 * GRAVITY * whipT * 0.90, 80.0, std::min(235.0, whipH * 1.2));
         double crossz = b.vx * (PITCH_H / 2.0 - b.y) - b.vy * (goalX - b.x);
         b.curl = (crossz >= 0 ? 1.0 : -1.0) * (0.18 + rng.random() * 0.12);
     }
@@ -584,6 +600,10 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // flat to-feet passes (an all-pass pivot fed pass-scoring's facing term and
     // reshuffled the game harder than the render fix warranted). Physics lerps
     // facing back toward his run over the following ticks.
+    // No pass is a mortar: cap climb at ~50° of the horizontal pace. Every
+    // legitimate lofted pass (chips, whips, clears) lives inside this; only
+    // the broken short-loft corner cases exceeded it and they read as absurd.
+    b.vz = std::min(b.vz, std::hypot(b.vx, b.vy) * 1.2);
     if (std::hypot(b.vx, b.vy) > 1.0) {
         double launchAng = std::atan2(b.vy, b.vx);
         double offF = std::abs(std::atan2(std::sin(launchAng - f.facing), std::cos(launchAng - f.facing)));
@@ -1110,6 +1130,8 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
             shotType = 4; // chip
         else if (credibleFinish && shotDistance < 175.0 && pressureCount <= 1 && accuracy > 0.50)
             shotType = 1; // finesse
+        else if (clearSight && shotDistance < 140.0 && angleDeg > 10.0 && accuracy > 0.55)
+            shotType = 1; // composed placed shot (owner: "more placed/finesse shots"; first cut at acc>0.45/155px/ang8 tripled finesse volume — goals +0.55, woodwork +0.68 — keep it for genuinely composed looks)
         else if (wideAngle && shotDistance >= 110.0 && shotDistance <= 235.0 && clearSight)
             shotType = 3; // curl
         else if (clearSight && shotDistance >= 120.0 && shotDistance <= 250.0 && accuracy > 0.45)
@@ -1130,13 +1152,13 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     // ~34% (raising the spread alone saturates, since the aim is inside the frame).
     // LATERAL ONLY: loft is untouched, so the old beat-keeper-then-sail-over bug
     // can't revive. Penalty operand kept byte-identical — pens must stay clinical.
-    double postFrac = penaltyKick ? 0.36 + accuracy * 0.07 : (0.42 + accuracy * 0.18) * postAimScale;
+    double postFrac = penaltyKick ? 0.36 + accuracy * 0.07 : (0.38 + accuracy * 0.15) * postAimScale;
     if (shotType == 1)
-        postFrac = 0.47 + accuracy * 0.07; // finesse: aim to the post edge so the spread starts straying wide
+        postFrac = 0.33 + accuracy * 0.05; // finesse: a foot inside the post — every near-edge variant (0.47, 0.44+wide spread, 0.38) kept woodwork 4x real; the aim must genuinely leave the frame zone.
     else if (shotType == 2)
-        postFrac = 0.42 + accuracy * 0.09; // power: nearer the post (its larger *0.88 residual spread makes the shift bite)
+        postFrac = 0.34 + accuracy * 0.07; // power: same inward step
     else if (shotType == 3)
-        postFrac = 0.30 + accuracy * 0.06; // curl: small nudge — the bend already carries it out toward the corner
+        postFrac = 0.27 + accuracy * 0.05; // curl: small nudge — the bend already carries it out toward the corner
     else if (shotType == 4)
         postFrac = 0.18 + accuracy * 0.06; // chip: net is open with the keeper out — aim safely inside
     double postRoll = (rng.random() < 0.5 ? -1.0 : 1.0);
