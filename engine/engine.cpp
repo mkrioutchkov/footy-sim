@@ -1397,6 +1397,27 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     applyDirectives(); // §1.3b: applyLiveCommands now runs INSIDE applyDirectives (after the timeline
                        // loop, before the dials) so live-inject ≡ timeline-replay — no 1-tick offset.
     tickAgents(sdt, true);
+    // ── Keeper-distribution choreography ── the fix the anti-swarm tombstone
+    // (agent_positioning_helpers.cpp) prescribes: ONLY while a keeper holds the
+    // ball in his own box, both teams run the goal-kick shapes (build-up spread
+    // for his side, press ladder + rest defense for the opponents). Written
+    // AFTER tickAgents so the targets stand, and executeAction defers to them
+    // (keeperHoldChoreo gate) so they actually DRIVE movement — the seed 133
+    // 0:46 knot was 7 teammates loitering at 0-16px/s on correct 300px-away
+    // targets while their own per-tick decisions kept re-anchoring them, plus
+    // one opponent presser flapping his target every 1-3 ticks against a
+    // keeper he can never tackle.
+    keeperHoldChoreo = false;
+    if (!setPiece.armed && b.controllerId >= 0) {
+        Player* holdGk = playerById(b.controllerId);
+        if (holdGk && holdGk->role == Role::GK
+            && std::abs(holdGk->x - ownGoalXFor(holdGk->team)) < PENALTY_AREA_W + 30.0) {
+            keeperHoldChoreo = true;
+            for (auto& a : agents)
+                if (a->player.id != holdGk->id)
+                    a->setPiecePositioning(SetPiece::GoalKick, holdGk->team);
+        }
+    }
     if (goalKickMonitor.distributeTimer > 0) {
         goalKickMonitor.distributeTimer -= sdt;
         if (goalKickMonitor.distributeTimer <= 0) releaseSetPiece();

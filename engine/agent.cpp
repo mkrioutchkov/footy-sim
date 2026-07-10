@@ -442,6 +442,26 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
     auto& p = player;
     auto& b = engine.state.ball;
 
+    // ── Armed restart: choreography OWNS the targets ── setPiecePositioning
+    // runs after tickAgents so its targets "stand" for rendering — but the
+    // agent's own decision here re-overwrote them before movement every tick,
+    // so players WALKED to their stale open-play waypoints while DISPLAYING
+    // corner targets (seed 133 audit: at taker-at-flag, 1 of 9 attackers within
+    // 165px of goal; laggards moving 5-26px/s in the WRONG direction, cos -0.9
+    // to their shown targets, then snapping to cos=1.00 the frame after the
+    // kick). Non-takers do nothing here during a dead ball: the choreography
+    // target from last tick steers applyMovement, the referee push still
+    // applies, and tackles/chases are already gated off while armed.
+    if ((engine.setPiece.armed || engine.keeperHoldChoreo)
+        && p.id != engine.setPiece.takerId
+        && p.id != engine.state.ball.controllerId && !isGoalkeeper()) {
+        lastActionType = ActionType::Position;
+        lastPurpose = ActionPurpose::Space;
+        p.dribbleType = 0;
+        applyMovement(sdt);   // still WALK to the choreography target (movement normally runs at the end of this function)
+        return;
+    }
+
     lastActionType = a.type;
     lastPurpose = a.purpose;
     lastTargetId = a.target ? a.target->id : -1;

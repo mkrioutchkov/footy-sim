@@ -54,7 +54,8 @@ enum class QualityFlag : uint8_t {
     WhyPlayerRunningDirection,
     StationaryHold500ms,
     GhostHeader,
-    BlindPass
+    BlindPass,
+    OwnCornerConcession
 };
 
 inline constexpr std::string_view to_string(Team t) { return t == Team::Home ? "home" : "away"; }

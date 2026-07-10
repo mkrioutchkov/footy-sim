@@ -1000,6 +1000,23 @@ void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {
                 state.clockMs/1000.0, state.ball.x, state.ball.y, state.ball.z,
                 state.ball.vx, state.ball.vy, (int)attackingTeam, state.ball.lastToucherId);
     stats.recordCorner();
+    // Own-corner concession census (owner: "player kicks it out — flag this
+    // shit and never do this fuckup again"): a corner conceded by the
+    // defender's own DELIBERATE kick within 2.5s of release — not a save,
+    // header duel, block or deflection. The slice-clearance branch was the
+    // known source (both seed-133 0:25 and 0:48); this is the standing
+    // tripwire for any future member of the class.
+    {
+        Team conceding = attackingTeam == Team::Home ? Team::Away : Team::Home;
+        Player* ct = playerById(state.ball.lastToucherId);
+        if (ct && ct->team == conceding && ct->role != Role::GK
+            && state.ball.lastToucherId == lastDeliberateKickToucher
+            && state.clockMs - lastDeliberateKickMs < 2500.0
+            && lastLooseOrigin != LooseOrigin::Shot
+            && lastLooseOrigin != LooseOrigin::HeaderClearance
+            && lastLooseOrigin != LooseOrigin::Woodwork)
+            stats.recordQualityFlag(QualityFlag::OwnCornerConcession);
+    }
     // Restart marker for the replay feed (trace-only: keeps the live ticker and
     // getJSON events[] unchanged). Without it the out-ball glide to the flag
     // reads as "the ball moved without anyone touching it" (watched seed 133

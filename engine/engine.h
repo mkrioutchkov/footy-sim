@@ -157,6 +157,14 @@ public:
     // Assist chain: who last fed this slot a completed pass, and when.
     std::array<int, 22> lastReceiveFrom = {};
     std::array<double, 22> lastReceiveMs = {};
+    // Keeper-distribution choreography latch (set per tick in fixedUpdate):
+    // while a GK holds the ball in his box, goal-kick shapes own everyone's
+    // targets and executeAction defers (see the anti-swarm tombstone).
+    bool keeperHoldChoreo = false;
+    // Own-corner-concession census: last DELIBERATE outfield kick (pass/clear),
+    // so awardCorner can flag a corner gifted by the conceder's own boot.
+    double lastDeliberateKickMs = -1e9;
+    int lastDeliberateKickToucher = -1;
     // Goal-source tagging: the most recent restart RELEASE (kick actually taken).
     double lastRestartReleaseMs = -1e9;
     SetPiece lastRestartReleaseType = SetPiece::None;
@@ -407,6 +415,14 @@ public:
     // lane-block, box-guard…), which opponent to mark, and where to stand.
     struct AgentTeamAssignment { DefensiveTask role = DefensiveTask::None; int opponentId=-1; double targetX=0, targetY=0; };
     std::array<AgentTeamAssignment, 22> assignmentByPlayer = {};
+    // Marking hysteresis (seed 133 10:39 goal: one CB's assignment flip-flopped
+    // SEVEN times in 8s between a corner decoy and the central cover zone —
+    // per-tick wipe-and-rebuild lets near-equal candidates thrash, so he
+    // covered neither and the scorer's zone sat empty). A held MAN-mark now
+    // persists >=900ms; while held, the target is re-derived from the marked
+    // opponent's CURRENT position (mark maintenance), so it never goes stale.
+    struct AssignLock { DefensiveTask role = DefensiveTask::None; int oppId = -1; double changedMs = -1e9; };
+    std::array<AssignLock, 22> assignLock = {};
     [[nodiscard]] AgentTeamAssignment* assignmentFor(int playerId) {
         if (playerId < 0 || playerId >= 22 || assignmentByPlayer[playerId].role == DefensiveTask::None) return nullptr;
         return &assignmentByPlayer[playerId];

@@ -623,6 +623,8 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         stats.recordPassSelection(audit->distance, audit->expectedCompletion, audit->blockers, audit->receiverPressure, riskyFlag, audit->saferOptionTargetId);
     }
     if (throughBall || selectedCross) { lastRiskyBallMs = state.clockMs; lastRiskyBallToucher = f.id; }
+    lastDeliberateKickMs = state.clockMs;
+    lastDeliberateKickToucher = f.id;
     beginTrackedPass(f, t, selectedCross, throughBall, selectedCutback);
     if (audit) {
         pendingPass.auComp = audit->expectedCompletion;
@@ -660,8 +662,24 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
             auto& sb = state.ball;
             double fdc = fdFor(f.team);
             double sliceSide = f.y < PITCH_H / 2.0 ? -1.0 : 1.0; // shank toward the nearer corner
-            double svx = -fdc * (130.0 + rng.random() * 80.0);  // toward OWN byline
-            double svy = sliceSide * (70.0 + rng.random() * 90.0);
+            // Direction depends on WHERE the scuff happens. Right on the goal
+            // line (<70px) a slice going behind for a corner is football; from
+            // 10-16m out it read as a player deliberately kicking it out of
+            // his own end (watched replay seed 133: BOTH 0:25 and 0:48 were
+            // this branch — one rolled over the byline from x=924, one from a
+            // deep-corner clear at 133px out — "player kicks it out... never
+            // do this fuckup again"). Away from the line, the scuff now shanks
+            // toward the TOUCHLINE (a throw-in, the way a real shank usually
+            // dies) with only residual backward lean.
+            double distToLine = std::abs(f.x - clrLine);
+            double svx, svy;
+            if (distToLine < 70.0) {
+                svx = -fdc * (130.0 + rng.random() * 80.0);         // toward OWN byline: honest corner
+                svy = sliceSide * (70.0 + rng.random() * 90.0);
+            } else {
+                svx = -fdc * (20.0 + rng.random() * 50.0);          // slight backward lean only
+                svy = sliceSide * (150.0 + rng.random() * 80.0);    // out over the touchline
+            }
             sb.controllerId = -1;
             placeBallForRelease(f, svx, svy);
             sb.lastTouchTeam = f.team;
@@ -671,6 +689,8 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
             sb.z = 4.0;
             sb.vz = 90.0 + rng.random() * 70.0; // scuffed up and spinning
             sb.intendedReceiverId = -1;
+            lastDeliberateKickMs = state.clockMs;
+            lastDeliberateKickToucher = f.id;
             blockReboundFor(f.id, 700);
             return;
         }
@@ -1259,7 +1279,14 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     // pace to a chippable speed and loft it so the peak clears the wall
     // (>AERIAL_HEIGHT) yet dips back under the bar by the goal line.
     if (directFreeKickShot && laneBlockers >= 1) {
-        double fkSpeed = std::min(speed, 250.0);
+        // A dead-ball strike is hit CLEAN — pressure/lane penalties that shaped
+        // `speed` model open-play duress, not a placed run-up. At the old
+        // min(speed,250) the land-at-the-line vz sizing forces elevation past
+        // 45° whenever d > v²/250 ≈ 23m, so every long wall-FK launched as a
+        // 6m-apex lob (watched replay seed 133 0:22, measured 46.7°/6.2m —
+        // "looked like a lob... no power perception"). 300-380 keeps elevation
+        // under ~30° across the direct-FK range and the whip look real.
+        double fkSpeed = clamp(speed * 1.35, 300.0, 380.0);
         b.vx = dx / d * fkSpeed;
         b.vy = dy / d * fkSpeed;
         double vxSign = (dx >= 0.0 ? 1.0 : -1.0);
@@ -1270,6 +1297,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
         // Choice via a deterministic shooter+clock HASH (NOT a main-rng draw) so it doesn't shift the
         // match's rng sequence -> a CLEAN paired comparison vs the curl-only baseline + replay-stable.
         bool fkDipper = ((static_cast<uint32_t>(s.id) * 48271u + static_cast<uint32_t>(state.clockMs)) % 100u < 18u) && shotDistance < 235.0; // ~18% (a special occasional shot, not a third of FKs — the floated dipper over-converts vs the curler, +0.29 at 30%; keep it a small variety)
+        b.z = 2.5;   // above the z>2 airborne gate: launch-tick curl decays at the air rate, not the harsh grounded one
         if (fkDipper) {
             b.vz = clamp(0.5 * GRAVITY * (d / std::max(fkSpeed, 1.0)) * 1.05, 170.0, 330.0);
             b.curl = openSide * vxSign * (0.10 + accuracy * 0.07);

@@ -54,7 +54,12 @@ void PlayerAI::posDefensiveCover(SmallVector<PositionCandidate, 32>& c, const Po
     }
 
     double carrierDepth = (b.x - og) * pc.fd;
-    bool immediateDanger = carrierDepth < 260.0;
+    // 260 -> 360: at 260 the scorer's marker was still floating counter-outlet
+    // targets while the cross was being lined up from x=337 in our third —
+    // he sprinted upfield at +58px/s as the ball came in (seed 133 10:39 goal,
+    // nearest man to the free header 108px away). Inside the defensive third
+    // plus its approach band, EVERYONE defends first.
+    bool immediateDanger = carrierDepth < 360.0;
     if (!immediateDanger && isCenterForward()) {
         c.push_back({ clamp(HALF_X + pc.fd * 95.0, 60.0, PITCH_W - 60.0), p.homeY, ActionPurpose::CounterOutlet });
         c.push_back({ clamp(HALF_X + pc.fd * 70.0, 60.0, PITCH_W - 60.0), clamp(p.homeY + ((b.y < PITCH_H / 2.0) ? 45.0 : -45.0), 80.0, PITCH_H - 80.0), ActionPurpose::CounterOutlet });

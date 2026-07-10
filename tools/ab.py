@@ -193,6 +193,9 @@ def main() -> int:
     ap.add_argument("--all", action="store_true", help="every numeric metric the binary emits")
     ap.add_argument("--jobs", type=int, default=4, help="parallel match processes (default 4; keep low on this box)")
     ap.add_argument("--json", default=None, help="also dump the full result to this path")
+    ap.add_argument("--per90", action="store_true",
+                    help="display means/deltas/CI scaled to 90 minutes (x 90/--minutes); "
+                         "verdicts are computed on the raw paired data and are unaffected")
     ap.add_argument("--sort", action="store_true", help="sort rows by significance (|t|) instead of metric order")
     ap.add_argument("--selftest", action="store_true", help="validate the statistics on synthetic data and exit")
     args = ap.parse_args()
@@ -242,6 +245,21 @@ def main() -> int:
 
     if args.sort:
         rows.sort(key=lambda r: abs(r.get("t", 0.0)) if math.isfinite(r.get("t", 0.0)) else math.inf, reverse=True)
+
+    # --per90: linear display rescale to a 90-minute match (owner ask: "extrapolate
+    # to 90 mins when shorter games"). Means, deltas and CI all scale linearly, so
+    # only the DISPLAY changes; t/p/verdicts are scale-invariant and untouched.
+    # Percent-like metrics (avg/pct/rate names) stay unscaled.
+    if args.per90 and args.minutes != 90:
+        k = 90.0 / args.minutes
+        def _ratey(name):
+            low = name.lower()
+            return any(t in low for t in ("pct", "avg", "rate", "frac"))
+        for r in rows:
+            if _ratey(r["metric"]):
+                continue
+            r["base"] *= k; r["cand"] *= k; r["mean"] *= k
+            if r.get("ci"): r["ci"] = (r["ci"][0] * k, r["ci"][1] * k)
 
     # ── Render (ASCII only: this box's console is cp1252) ──
     wm = max((len(r["metric"]) for r in rows), default=6)

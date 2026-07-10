@@ -9,6 +9,29 @@
 // ══════════════════════════════════════════════════════════════
 
 void GameEngine::setAssignment(Player& player, DefensiveTask role, double x, double y, int opponentId) {
+    // Man-mark hysteresis (see AssignLock in engine.h): a held mark with a
+    // live opponent persists 900ms against a DIFFERENT incoming assignment,
+    // unless the ball is close (near-ball reactions stay instant). The kept
+    // target is recomputed goal-side of the marked man's CURRENT position.
+    {
+        auto& lk = assignLock[player.id];
+        bool differs = lk.role != role || lk.oppId != opponentId;
+        if (differs && lk.oppId >= 0
+            && state.clockMs - lk.changedMs < 900.0
+            && dist(player.x, player.y, state.ball.x, state.ball.y) > 250.0) {
+            Player* mo = playerById(lk.oppId);
+            if (mo && !mo->sentOff) {
+                double og = ownGoalXFor(player.team);
+                double gdx = og - mo->x, gdy = PITCH_H / 2.0 - mo->y;
+                double gl = std::max(1.0, std::hypot(gdx, gdy));
+                assignmentByPlayer[player.id] = {lk.role, lk.oppId,
+                    clamp(mo->x + gdx / gl * 14.0, 35.0, PITCH_W - 35.0),
+                    clamp(mo->y + gdy / gl * 14.0, 35.0, PITCH_H - 35.0)};
+                return;
+            }
+        }
+        if (differs) { lk.role = role; lk.oppId = opponentId; lk.changedMs = state.clockMs; }
+    }
     double tx = clamp(x, 35.0, PITCH_W - 35.0);
     double ty = clamp(y, 35.0, PITCH_H - 35.0);
     // Assignment-target spacing (2026-07-02 knot logger): 41% of six-player-crowd
