@@ -584,8 +584,20 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // flat to-feet passes (an all-pass pivot fed pass-scoring's facing term and
     // reshuffled the game harder than the render fix warranted). Physics lerps
     // facing back toward his run over the following ticks.
-    if ((selectedCross || whippedCross || b.vz > 40.0) && std::hypot(b.vx, b.vy) > 1.0)
-        f.facing = std::atan2(b.vy, b.vx);
+    if (std::hypot(b.vx, b.vy) > 1.0) {
+        double launchAng = std::atan2(b.vy, b.vx);
+        double offF = std::abs(std::atan2(std::sin(launchAng - f.facing), std::cos(launchAng - f.facing)));
+        // Tripwire (seed 133 0:04/0:56 no-look bombs): selection now vetoes
+        // passes >140° off facing — one resolving anyway means a forced path
+        // (layoff/panic) is leaking blind launches.
+        if (offF > 2.6 && !setPiece.armed) stats.recordQualityFlag(QualityFlag::BlindPass);
+        // Pivot onto the launch line for crosses/lofted balls AND any pass
+        // played meaningfully across the body (>~57°) — the passer turns as he
+        // strikes, physics lerps facing back toward his run afterwards. Flat
+        // to-feet passes near the facing line keep the stale-facing exemption.
+        if (selectedCross || whippedCross || b.vz > 40.0 || offF > 1.0)
+            f.facing = launchAng;
+    }
     if (audit) {
         bool riskyFlag = audit->blockers > 0 || audit->receiverPressure > 0 || audit->expectedCompletion < 0.58;
         stats.recordPassSelection(audit->distance, audit->expectedCompletion, audit->blockers, audit->receiverPressure, riskyFlag, audit->saferOptionTargetId);
@@ -854,16 +866,16 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier) {
     // Ball shown front-to-front → it should be there for the taking.
     double shieldingBonus = 0.0;
     if (ballExposureDot < -0.45)
-        shieldingBonus = -0.22; // well shielded
+        shieldingBonus = -0.30; // well shielded — the duel should read from the shielding (seed 133 1:20)
     else if (ballExposureDot < -0.10)
-        shieldingBonus = -0.12; // mostly shielded
+        shieldingBonus = -0.15; // mostly shielded
     else if (ballExposureDot > 0.45)
         shieldingBonus = 0.24; // ball exposed at him
     else if (ballExposureDot > 0.10)
         shieldingBonus = 0.12;                          // partly exposed
     if (exposedToFacingTackler) shieldingBonus += 0.10; // and he's squared up
 
-    double chance = clamp(0.20 + tackleSkill * 0.38 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0) - (fromBehind ? 0.14 : 0) + (approachDot > 0.3 && approachDot < 0.85 ? 0.06 : 0) + dribbleBonus + shieldingBonus, 0.06, 0.75);
+    double chance = clamp(0.20 + tackleSkill * 0.38 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0) - (fromBehind ? 0.18 : 0) + (approachDot > 0.3 && approachDot < 0.85 ? 0.06 : 0) + dribbleBonus + shieldingBonus, 0.06, 0.75);
     // Contain by default: a defender only COMMITS to a challenge when he has a
     // real chance of winning it (or it's an emergency, or the carrier has
     // stopped and exposed the ball). Otherwise he stays on his feet and
@@ -927,7 +939,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier) {
     receiverShieldTargetId = -1;
     double angle = std::atan2(b.y - tackler.y, b.x - tackler.x) + (rng.random() - 0.5) * 0.9;
     double outcomeRoll = rng.random();
-    double controlChance = clamp(0.28 + tackleSkill * 0.35 - carrierControl * 0.18 - (fromBehind ? 0.20 : 0) + (approachDot > 0.15 ? 0.12 : 0) - (carrier.dribbleType == 3 ? 0.08 : 0) + (exposedToFacingTackler ? 0.04 : 0), 0.12, 0.74);
+    double controlChance = clamp(0.28 + tackleSkill * 0.35 - carrierControl * 0.18 - (fromBehind ? 0.20 : 0) + (approachDot > 0.15 ? 0.12 : 0) - (carrier.dribbleType == 3 ? 0.08 : 0) + (exposedToFacingTackler ? 0.04 : 0) + (ballExposureDot > 0.40 ? 0.10 : 0.0) - (ballExposureDot < -0.30 ? 0.10 : 0.0), 0.12, 0.74);
     if (outcomeRoll < controlChance) {
         stats.recordTackleWin(true);
         if (tackler.id >= 0 && tackler.id < 22) pStats[tackler.id].tackles++;

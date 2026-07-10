@@ -53,7 +53,8 @@ enum class QualityFlag : uint8_t {
     BackwardDribble,
     WhyPlayerRunningDirection,
     StationaryHold500ms,
-    GhostHeader
+    GhostHeader,
+    BlindPass
 };
 
 inline constexpr std::string_view to_string(Team t) { return t == Team::Home ? "home" : "away"; }

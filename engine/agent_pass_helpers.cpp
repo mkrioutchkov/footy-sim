@@ -101,6 +101,20 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     double longBall = engine.teamTactics[teamIndex(p.team)].longBallBias;
     if (completion < 0.44 - longBall * 0.24) return std::nullopt;   // play_it_long: allow riskier long balls
 
+    // Blind-pass gate (watched replay seed 133 0:04/0:56: launches 163°/145°
+    // off the passer's FACING — no-look bombs "the player isn't even facing
+    // that direction"). Beyond ~140° off facing the ball is not a candidate at
+    // all; 93°-140° pays a stiff price so it only wins when clearly best. The
+    // scorer re-runs every tick and facing tracks motion, so a genuinely right
+    // backward ball still gets played — one beat later, body turned, like a
+    // real player. Dead-ball takers are exempt (they address the ball freely).
+    double passAngF = std::atan2(dy, dx);
+    double offFacing = std::abs(std::atan2(std::sin(passAngF - p.facing), std::cos(passAngF - p.facing)));
+    if (!engine.setPiece.armed) {
+        if (offFacing > 2.45) return std::nullopt;
+        if (offFacing > 1.62) completion *= 0.80;
+    }
+
     // ── G1 BUILD-UP LOOK (user 2026-06-27: "still prototype, make it look better") ──
     // In our own build-up third the defenders were pinging mid-completion balls to each
     // other that get picked off — reads aimless, not "patiently probe for a gap". Demand
@@ -116,10 +130,16 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     double progression = clamp(fp / 240.0, -0.5, 1.0);
     double turnoverCost = ((p.team == Team::Home) ? p.x < PITCH_W * 0.38 : p.x > PITCH_W * 0.62) ? 0.42 : 0.25;
+    // Own-CORNER escapes are the highest-leverage giveaway on the pitch (seed
+    // 133 1:19: a cornered FB threaded infield instead of clearing/using his
+    // keeper — picked off, instant chance). Losing it there must terrify.
+    if (pitch::distToOwnGoal(p.x, p.team) < 190.0 && pitch::lateralFromCenter(p.y) > 200.0)
+        turnoverCost = 0.62;
     // passingDirectness (centred at 50): high -> reward forward passes more and
     // value safe recycling less (vertical, direct); low -> patient possession.
     double directness = engine.configFor(p.team).passingDirectness / 50.0; // 0..2, 1 at 50
     double sc = completion * (0.34 + std::max(0.0, progression) * 0.34 * directness) - (1.0 - completion) * turnoverCost;
+    if (!engine.setPiece.armed && offFacing > 1.62) sc -= 0.14;   // blind-pass tax on top of the completion hit
     if (longBall > 0.0 && fp > 80.0) {                          // play_it_long: make the direct long ball win
         sc += longBall * (0.38 + std::min(fp, 360.0) / 360.0 * 0.46);   // longer => bigger reward (boosted to commit)
         sc += (1.0 - completion) * turnoverCost * longBall * 0.8;       // forgive most of the long-ball risk

@@ -292,6 +292,38 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
             else if (isCentralMidfielder())   p.targetY = PITCH_H / 2.0 + slotB * 70.0;
             else if (isFullBack())            p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.20 : PITCH_H * 0.80;
             else                              p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.38 : PITCH_H * 0.62;
+        } else if (spType == SetPiece::ThrowIn) {
+            // Contest the throw (owner: "we should see the other team contest
+            // it more"): defenders near the spot pick up the thrower's nearby
+            // options — stand a stride INSIDE the receiver (between him and
+            // our goal) so the catch is pressured the moment it lands. The
+            // 2m-from-thrower law is handled by enforceRestartDistance.
+            double sx = engine.setPiece.spotX, sy = engine.setPiece.spotY;
+            const Player* markT = nullptr;
+            double markD = 1e9;
+            if (dist(p.x, p.y, sx, sy) < 260.0) {
+                for (auto& opp : engine.state.players) {
+                    if (opp.team == p.team || opp.role == Role::GK || opp.sentOff) continue;
+                    if (opp.id == engine.setPiece.takerId) continue;
+                    if (dist(opp.x, opp.y, sx, sy) > 200.0) continue;
+                    double myD = dist(p.x, p.y, opp.x, opp.y);
+                    bool closest = true;
+                    for (auto& q : engine.state.players) {
+                        if (q.team != p.team || q.id == p.id || q.role == Role::GK || q.sentOff) continue;
+                        if (dist(q.x, q.y, opp.x, opp.y) < myD - 1.0) { closest = false; break; }
+                    }
+                    if (closest && myD < markD) { markD = myD; markT = &opp; }
+                }
+            }
+            if (markT) {
+                double gdx = ownGoalX - markT->x, gdy = PITCH_H / 2.0 - markT->y;
+                double gl = std::max(1.0, std::hypot(gdx, gdy));
+                p.targetX = markT->x + gdx / gl * 14.0;
+                p.targetY = markT->y + gdy / gl * 14.0;
+            } else {
+                p.targetX = lerp(p.x, ownGoalX + fd * 120.0, 0.3);
+                p.targetY = lerp(p.y, PITCH_H / 2.0, 0.15);
+            }
         } else {
             p.targetX = lerp(p.x, ownGoalX + fd * 120.0, 0.3);
             p.targetY = lerp(p.y, PITCH_H / 2.0, 0.15);

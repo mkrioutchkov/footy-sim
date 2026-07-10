@@ -247,6 +247,9 @@ class StatsCollector {
     // Tripwire: a header resolved above any plausible leap reach (contact gates
     // should make this impossible — nonzero means the ghost-header class is back).
     void recordGhostHeader() { ghostHeaders++; }
+    // Tripwire: a pass launched >150° off the passer's facing (selection vetoes
+    // these — nonzero means a forced path is leaking no-look bombs).
+    void recordBlindPass() { blindPasses++; }
     void recordSetPieceGoal(SetPiece t) {
         if (t == SetPiece::FreeKick) goalsFromFreeKick++;
         else if (t == SetPiece::Corner) goalsFromCorner++;
@@ -374,6 +377,7 @@ class StatsCollector {
     int nonsensePasses = 0;
     int decisionMoments = 0, playerDecisions = 0, staleGrabs = 0, skillMoves = 0, shotsBlocked = 0;
     int ghostHeaders = 0;
+    int blindPasses = 0;
     int goalsFromFreeKick = 0, goalsFromCorner = 0, goalsFromThrowIn = 0,
         goalsFromPenaltyPhase = 0, goalsOpenPlay = 0;
     int taskSelectionsTotal = 0, taskSelectionsPrimary = 0, taskSelectionsSecondary = 0;
