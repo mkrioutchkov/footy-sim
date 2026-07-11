@@ -213,6 +213,15 @@ export class LiveMatch {
       const side = sub.seat;                              // narrowed to 'home' | 'away'
       this.editLock = this.editLock.then(() => this.applyShout(side, cmd.text as string, sub.ws)).catch(() => { /* ignore */ });
     }
+    // Structured 'gk_up' shout: send the keeper up for late corners (no LLM). value picks the mode —
+    // >=1 = every late corner, else 0.5 = only when chasing late; anything <=0 turns it back off. Rides the
+    // same editLock/inject/command-log path a typed shout uses, so it persists into the shout timeline.
+    if (cmd.type === 'gk_up') {
+      const side = sub.seat;                              // narrowed to 'home' | 'away'
+      const raw = typeof cmd.value === 'number' ? cmd.value : 1;
+      const intensity = raw <= 0 ? 0 : raw >= 1 ? 1 : 0.5;
+      this.editLock = this.editLock.then(() => this.applyGkUpShout(side, intensity, sub.ws)).catch(() => { /* ignore */ });
+    }
   }
 
   // ── shouts → inject (no kill-respawn) ─────────────────────────────────────────
@@ -253,6 +262,29 @@ export class LiveMatch {
     const morale = this.tallyMorale(side, r.motivation);
     const layout = fk ? this.layoutFor(side, fk) : undefined;
     this.inject(side, r.plan.directives, morale, layout);
+  }
+
+  // Structured set-piece shout (no LLM): send the keeper up for late corners. Merges the
+  // gk_up_for_corners team directive into this side's live plan (replacing any prior mode; intensity 0
+  // removes it) and injects the updated set onto the tick — the SAME inject/command-log path a typed shout
+  // uses, so it persists into the shout timeline and re-sims identically. The engine still IGNORES the kind
+  // (main.cpp `else continue`) until its set-piece DK lands; the plumbing carries it through regardless.
+  private async applyGkUpShout(side: Side, intensity: number, ws?: WebSocket): Promise<void> {
+    if (this.disposed || this.finished) return;
+    const scope = side === 'home' ? 0 : 1;
+    const kept = (this.plans[side].directives ?? []).filter(d => d.kind !== 'gk_up_for_corners');
+    const directives = intensity > 0
+      ? [...kept, { playerId: -1, teamScope: scope, kind: 'gk_up_for_corners', intensity }]
+      : kept;
+    const plan: Plan = { summary: this.plans[side].summary, directives };
+    this.plans[side] = plan;
+    const changed = intensity <= 0 ? 'Keeper back to normal at corners'
+      : intensity >= 1 ? 'Keeper goes up for every late corner'
+      : 'Keeper goes up on late corners when behind';
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ tacticsReceipt: { text: 'GK up', plan, changed, motivation: [], formation: null, directives, error: null, note: null } }));
+    }
+    this.inject(side, directives, []);
   }
 
   // Public seam for manager_ai v2 (docs §3): an AI club's pre-compiled shout rides the SAME
