@@ -1431,7 +1431,7 @@ app.get('/api/nation/:key/squad', async (req: any, reply) => {
   const wid = worldForTeam(teamId);
   if (wid == null) return reply.code(404).send({ error: 'no world' });
   const xi = selectNationalSquad(wid, String(req.params?.key));
-  return { squad: (xi ?? []).map(p => ({ name: p.name, role: p.role, overall: overall(p.attrs) })) };
+  return { squad: (xi ?? []).map(p => ({ name: p.name, role: p.role, overall: overall(p.attrs, p.role) })) };
 });
 
 // §national-teams: admin — run this world's internationals now (testing; normally fires at rollover).
