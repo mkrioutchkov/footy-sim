@@ -295,6 +295,34 @@ CREATE TABLE IF NOT EXISTS inbox (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_inbox_team ON inbox(team_id, id);
+
+-- §national-teams: international tournaments (World Cup + continental) between national teams selected
+-- from players by nationality. A parallel bracket (cf. cup_ties) keyed by nation KEYS, per world+season.
+-- Run in a burst at season rollover (off-season), so the league calendar is untouched.
+CREATE TABLE IF NOT EXISTS tournaments (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  world_id   INTEGER NOT NULL,
+  season     INTEGER NOT NULL,           -- the season it was held
+  kind       TEXT NOT NULL,              -- 'world_cup' | 'continental'
+  confed     TEXT,                       -- confederation key (continental); NULL for the World Cup
+  name       TEXT NOT NULL,
+  champion   TEXT,                       -- winning nation key; NULL until decided
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tournament_ties (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  round         INTEGER NOT NULL,
+  slot          INTEGER NOT NULL,
+  home_nation   TEXT, away_nation TEXT,  -- NULL until feeders resolve
+  seed          INTEGER NOT NULL,
+  played        INTEGER NOT NULL DEFAULT 0,
+  home_score    INTEGER, away_score INTEGER,
+  home_pens     INTEGER, away_pens INTEGER,   -- penalty shootout (NULL when a tie wasn't level)
+  winner_nation TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tournaments_world ON tournaments(world_id, season);
+CREATE INDEX IF NOT EXISTS idx_tt_tournament ON tournament_ties(tournament_id, round, slot);
 `);
 
 // ── Ratings → morale + season awards (core/LLM stream) ──────────────────────

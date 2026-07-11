@@ -304,6 +304,11 @@ export const api = {
   leaveWorld: () => req<{ ok: boolean }>('POST', '/worlds/leave'),
   setAutonomy: (mode: 'assistant' | 'full') => req<{ ok: boolean; autonomy: string }>('POST', '/autonomy', { mode }),
   nations: () => req<{ nations: NationT[]; confeds: Record<string, string> }>('GET', '/nations'),
+  tournaments: () => req<{ tournaments: TournamentT[]; fieldable: FieldableNationT[] }>('GET', '/tournaments'),
+  nationSquad: (key: string) => req<{ squad: { name: string; role: string; overall: number }[] }>('GET', `/nation/${key}/squad`),
 };
+export interface TournamentTieT { round: number; slot: number; home: string | null; away: string | null; homeScore: number | null; awayScore: number | null; homePens: number | null; awayPens: number | null; winner: string | null }
+export interface TournamentT { id: number; season: number; kind: string; confed: string | null; name: string; champion: string | null; ties: TournamentTieT[] }
+export interface FieldableNationT { key: string; confed: string; count: number; strength: number }
 export interface JoinableWorldT { worldId: number; name: string; season: number; turn: number; intervalMin: number; unclaimed: number; total: number }
 export interface ClaimableTeamT { teamId: number; name: string; tier: number; division: string; overall: number; claimed: boolean; manager: string }

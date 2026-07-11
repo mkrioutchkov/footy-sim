@@ -601,6 +601,21 @@ export function playCupTie(tieId: number): Promise<CupTieResult> {
   });
 }
 
+// §national-teams: play a match between two arbitrary player lists (a national XI) with NO teams/players
+// rows — the engine only reads the spec JSON. Same neutral-base spec as a default-shape AI-vs-AI club tie
+// (name + tactics + 11 players by attrs), so it needs zero engine change. Players must be pre-ordered to
+// the default formation's slots (GK first). Returns the full summary (scores + per-player stats).
+export interface VirtualPlayer { name: string; role: string; attrs: Record<string, number>; personality?: unknown }
+export function playVirtualTie(seed: number, homeName: string, homePlayers: VirtualPlayer[], awayName: string, awayPlayers: VirtualPlayer[], tag = 'nat'): Promise<SummaryResult> {
+  const side = (name: string, players: VirtualPlayer[]) => ({ name, tactics: DEFAULT_TACTICS, players: players.slice(0, 11).map(p => ({ name: p.name, attrs: p.attrs, personality: p.personality ?? null })) });
+  const spec: Record<string, unknown> = { seed, minutes: MINUTES, home: side(homeName, homePlayers), away: side(awayName, awayPlayers) };
+  const weather = weatherForSeed(seed);
+  if (weather !== 'clear') spec.weather = weather;
+  const file = path.join(SPEC_DIR, `${tag}-${seed}.json`);
+  writeFileSync(file, JSON.stringify(spec));
+  return runEngineSummary(file);
+}
+
 // ── Live watch / replay: pace a frame stream to one client ──
 export const DEFAULT_FRAME_MS = 1000 / 30;
 type Proc = ChildProcessByStdio<null, Readable, Readable>;

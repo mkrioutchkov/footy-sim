@@ -27,6 +27,7 @@ import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldSta
 import { worldForTeam, getWorld, ensureWorldForLeague, claimAdvanceLock, releaseAdvanceLock, recordWorldAdvanced, dueSharedWorlds, listJoinableWorlds } from './worlds.ts';
 import { prepareMatchdayHeuristic, setTacticsAndXI } from './manager/index.ts';
 import { NATIONS, CONFED_NAME, backfillNationalities } from './nations.ts';
+import { runInternationalTournaments, getWorldTournaments, selectNationalSquad, fieldableNations } from './national.ts';
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
@@ -1288,7 +1289,13 @@ async function advanceWorldCore(worldLeagueId: number): Promise<WorldTurnCore> {
   }
 
   const rollover = seasonComplete(worldLeagueId) ? rolloverSeason(worldLeagueId) : null;
-  if (rollover) for (const tid of humanIds) void fillMissingPersonalities(tid).catch(() => { /* regens stay neutral */ });
+  if (rollover) {
+    for (const tid of humanIds) void fillMissingPersonalities(tid).catch(() => { /* regens stay neutral */ });
+    // §national-teams: the off-season internationals (World Cup / continental) run in the BACKGROUND —
+    // the ~7-15 engine sims must not block the advance response (they'd take minutes on the real engine).
+    // Results land in the tournament tables and surface on the #/internationals screen when ready.
+    void runInternationalTournaments(worldLeagueId, rollover.season).catch(() => { /* best-effort */ });
+  }
 
   // build + persist each human's inbox + payload
   const humans = new Map<number, HumanTurnPayload>();
@@ -1375,6 +1382,38 @@ app.post('/api/tick', async (req: any, reply) => {
 // render flags in player bios/squads + group tournaments by confederation.
 app.get('/api/nations', async () => {
   return { nations: NATIONS.map(n => ({ key: n.key, name: n.name, flag: n.flag, confed: n.confed })), confeds: CONFED_NAME };
+});
+
+// §national-teams: this world's international tournaments (World Cup / continental) + their brackets, and
+// the nations that can currently field a squad (with strength). Scoped to the caller's world.
+app.get('/api/tournaments', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const wid = worldForTeam(teamId);
+  if (wid == null) return reply.code(404).send({ error: 'no world' });
+  return { tournaments: getWorldTournaments(wid), fieldable: fieldableNations(wid).sort((a, b) => b.strength - a.strength) };
+});
+
+// §national-teams: a nation's current best XI in the caller's world.
+app.get('/api/nation/:key/squad', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const wid = worldForTeam(teamId);
+  if (wid == null) return reply.code(404).send({ error: 'no world' });
+  const xi = selectNationalSquad(wid, String(req.params?.key));
+  return { squad: (xi ?? []).map(p => ({ name: p.name, role: p.role, overall: overall(p.attrs) })) };
+});
+
+// §national-teams: admin — run this world's internationals now (testing; normally fires at rollover).
+app.post('/api/admin/run-internationals', async (req: any, reply) => {
+  const user = requireAdmin(req, reply); if (!user) return;
+  const wid = Number(req.body?.worldId);
+  const season = Number(req.body?.season);
+  if (!Number.isInteger(wid) || !Number.isInteger(season)) return reply.code(400).send({ error: 'worldId + season required' });
+  const held = await runInternationalTournaments(wid, season);
+  return { ok: true, held };
 });
 
 // §autonomous: the lobby — shared worlds a player can join, with their unclaimed-team counts.
