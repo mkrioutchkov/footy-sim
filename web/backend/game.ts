@@ -59,13 +59,16 @@ export function genAttrs(role: EngineRole, base: number): Record<string, number>
 }
 
 // ── Player value (pillar 1) ─────────────────────────────────────────────────
-// `overall` = mean of the 7 core skill attrs (height + handling excluded — height
-// is a physical trait, handling only matters for a keeper). Used for value + the
-// AI's weakest-role logic. TASTE: see GAME_LAYER_NOTES.md for the chosen curve.
+// `overall` = mean of the core skill attrs. Height is always excluded (a physical trait).
+// Handling is a core skill FOR A KEEPER ONLY — pass role==='GK' to fold it in; every other role
+// (and an omitted role) uses the 7-attr mean, so outfielders are byte-identical. Used for value +
+// the AI's weakest-role logic + training headroom. TASTE: see GAME_LAYER_NOTES.md for the curve.
 const SKILL_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'] as const;
-export function overall(attrs: Record<string, number>): number {
+const GK_SKILL_KEYS = [...SKILL_KEYS, 'handling'] as const;
+export function overall(attrs: Record<string, number>, role?: string): number {
+  const keys = role === 'GK' ? GK_SKILL_KEYS : SKILL_KEYS;
   let s = 0, n = 0;
-  for (const k of SKILL_KEYS) if (typeof attrs[k] === 'number') { s += attrs[k]; n++; }
+  for (const k of keys) if (typeof attrs[k] === 'number') { s += attrs[k]; n++; }
   return n ? Math.round(s / n) : 50;
 }
 
@@ -92,8 +95,8 @@ function personalityMult(personality: unknown): number {
 // Transfer value, on a real Premier-League scale: steeply convex in overall so a ~95-rated
 // star is worth ~£130M while a 50-rated squad filler is well under £1M (a 65-rated ~£11M, an
 // 80-rated ~£46M). Shifting by 30 + the 4th power gives that spread. TASTE: see notes.
-export function playerValue(attrs: Record<string, number>, age: number, personality: unknown): number {
-  const base = Math.pow(Math.max(0, overall(attrs) - 30) / 65, 4) * 130_000_000;
+export function playerValue(attrs: Record<string, number>, age: number, personality: unknown, role?: string): number {
+  const base = Math.pow(Math.max(0, overall(attrs, role) - 30) / 65, 4) * 130_000_000;
   const v = base * ageMult(age) * personalityMult(personality);
   return Math.max(25_000, Math.round(v / 50_000) * 50_000);
 }
@@ -101,8 +104,8 @@ export function playerValue(attrs: Record<string, number>, age: number, personal
 // Annual wage ≈ 10% of the (ego-neutral) value, then a big ego pushes the demand up — so a
 // £67M (85-rated) star earns ~£6.7M/yr (~£130k/wk) and a diva costs more to PAY even when
 // worth less to BUY. Separate from the one-off transfer fee. TASTE: the 10% ratio + ego premium.
-export function playerWage(attrs: Record<string, number>, age: number, personality: unknown): number {
-  const base = playerValue(attrs, age, null) * 0.10;
+export function playerWage(attrs: Record<string, number>, age: number, personality: unknown, role?: string): number {
+  const base = playerValue(attrs, age, null, role) * 0.10;
   const ego = ((personality as { traits?: { ego?: number } } | null)?.traits?.ego) ?? 50;
   const egoMult = 1 + (Math.max(0, ego - 50) / 50) * 0.25;        // up to +25% for a maxed ego
   return Math.max(25_000, Math.round((base * egoMult) / 25_000) * 25_000);
@@ -196,13 +199,13 @@ function insertRoster(teamId: number, base: number): void {
   ROLE_SLOTS.forEach((role, slot) => {
     const attrs = genAttrs(role, base);
     const age = genAge();
-    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), playerWage(attrs, age, null), 2 + Math.floor(Math.random() * 3));
+    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), playerWage(attrs, age, null, role), 2 + Math.floor(Math.random() * 3));
   });
   const benchBase = Math.max(40, base - 10);                 // a clear notch below the XI
   BENCH_ROLES.forEach((role, i) => {
     const attrs = genAttrs(role, benchBase);
     const age = 18 + Math.floor(Math.random() * 8);          // 18..25 — younger squad players / prospects
-    ins.run(teamId, ROLE_SLOTS.length + i, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), playerWage(attrs, age, null), 2 + Math.floor(Math.random() * 3));
+    ins.run(teamId, ROLE_SLOTS.length + i, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), playerWage(attrs, age, null, role), 2 + Math.floor(Math.random() * 3));
   });
 }
 
@@ -220,7 +223,7 @@ export function seedFreeAgents(leagueId: number, count = FREE_AGENT_COUNT): void
     const baseStrength = Math.round(38 + Math.pow(Math.random(), 2) * 42);   // 38..80, skewed low
     const attrs = genAttrs(role, baseStrength);
     const age = genAge();
-    ins.run(leagueId, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), playerValue(attrs, age, null), playerWage(attrs, age, null));
+    ins.run(leagueId, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), playerValue(attrs, age, null, role), playerWage(attrs, age, null, role));
   }
   db.prepare('UPDATE leagues SET market_seeded = 1 WHERE id = ?').run(leagueId);
 }
@@ -228,12 +231,30 @@ export function seedFreeAgents(leagueId: number, count = FREE_AGENT_COUNT): void
 // Backfill potential for players + free agents that predate pillar 2 (potential NULL):
 // set it from current OVR + age headroom. Idempotent — only touches NULL rows.
 export function backfillPotentials(): void {
-  const players = db.prepare('SELECT id, attrs, age FROM players WHERE potential IS NULL').all() as { id: number; attrs: string; age: number }[];
+  const players = db.prepare('SELECT id, role, attrs, age FROM players WHERE potential IS NULL').all() as { id: number; role: string; attrs: string; age: number }[];
   const upP = db.prepare('UPDATE players SET potential = ? WHERE id = ?');
-  for (const p of players) upP.run(genPotential(overall(JSON.parse(p.attrs)), p.age), p.id);
-  const fas = db.prepare('SELECT id, attrs, age FROM free_agents WHERE potential IS NULL').all() as { id: number; attrs: string; age: number }[];
+  for (const p of players) upP.run(genPotential(overall(JSON.parse(p.attrs), p.role), p.age), p.id);
+  const fas = db.prepare('SELECT id, role, attrs, age FROM free_agents WHERE potential IS NULL').all() as { id: number; role: string; attrs: string; age: number }[];
   const upF = db.prepare('UPDATE free_agents SET potential = ? WHERE id = ?');
-  for (const f of fas) upF.run(genPotential(overall(JSON.parse(f.attrs)), f.age), f.id);
+  for (const f of fas) upF.run(genPotential(overall(JSON.parse(f.attrs), f.role), f.age), f.id);
+}
+
+// One-time reconcile: existing GK potentials were derived from the 7-attr OVR (handling excluded), so
+// now that a keeper's handling counts toward his OVR his stored ceiling can sit AT/below his new OVR —
+// which would freeze his development (headroom 0). Re-derive each GK's potential as (role-aware OVR +
+// a deterministic age headroom), and only ever RAISE it — so it's idempotent (a second run is a no-op
+// once potential >= target) and never nerfs a keeper already given a higher ceiling. Deterministic (no
+// Math.random) so it doesn't perturb any seeded stream. NULL-potential GKs are left to backfillPotentials.
+export function reconcileGkPotentials(): void {
+  const gks = db.prepare("SELECT id, attrs, age, potential FROM players WHERE role = 'GK' AND potential IS NOT NULL")
+    .all() as { id: number; attrs: string; age: number; potential: number }[];
+  const up = db.prepare('UPDATE players SET potential = ? WHERE id = ?');
+  for (const g of gks) {
+    const ovr = overall(JSON.parse(g.attrs), 'GK');
+    const headroom = Math.max(0, Math.round((28 - g.age) * 0.65));   // deterministic: 0 at 28+, ~6 at 18
+    const target = Math.min(95, ovr + headroom);
+    if (target > g.potential) up.run(target, g.id);
+  }
 }
 
 // Backfill wages for players + free agents that predate pillar 5.2 (wage NULL), from

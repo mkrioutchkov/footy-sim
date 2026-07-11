@@ -16,7 +16,10 @@ import { moraleDevFactor } from './morale.ts';
 import { coachingFactor, categoryCoachFactor, categoryBoard, type CategoryBoard } from './staff.ts';
 import { getSquadHarmony, harmonyFactor } from './harmony.ts';
 
-export const TRAINABLE = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'] as const;
+// 'handling' is a keeper-only skill: it's in the list so it's a valid focus + develops, but developAttrs
+// GATES it to GKs (outfielders skip it → byte-identical growth). It maps to no MVP coach category, so a
+// handling-focused keeper falls back to his role's dominant category factor (see primaryCategoryOf).
+export const TRAINABLE = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina', 'handling'] as const;
 // 'position' = role-matched drills (audit §2.7); the rest are the club-wide foci.
 export const VALID_FOCUS = new Set<string>(['balanced', 'position', ...TRAINABLE]);
 const PHYSICAL = new Set<string>(['speed', 'stamina']);   // first to fade with age
@@ -112,7 +115,7 @@ export function applyTrainingPreset(teamId: number, name: string): { ok: boolean
 // his defending rather than spreading thin. Keys outside TRAINABLE (e.g. a keeper's handling) are
 // not trainable here, so a role leans on the trainable attributes closest to its job.
 const ROLE_KEY: Record<string, readonly string[]> = {
-  GK: ['positioning', 'speed'],
+  GK: ['positioning', 'handling', 'speed'],
   FB: ['speed', 'stamina', 'tackling', 'positioning'],
   CB: ['tackling', 'positioning', 'stamina'],
   CM: ['passing', 'creativity', 'stamina', 'positioning'],
@@ -210,13 +213,14 @@ export function developAttrs(
   // decline; loadDampenF (1 = no burnout) trims gains when load is high; retrainPenaltyF (1 = settled) trims
   // gains while a player adapts to a new role. All default to 1.
   if (drift > 0) drift *= growthMul * coachFactor * harmonyF * loadDampenF * retrainPenaltyF;
-  const move = drift >= 0 ? Math.min(drift, Math.max(0, potential - overall(attrs))) : drift;
+  const move = drift >= 0 ? Math.min(drift, Math.max(0, potential - overall(attrs, role))) : drift;
   // A 'position' focus weights growth by role (spreads a single focus's bonus across the role's key
   // attributes); any other focus keeps the original single-attribute path → byte-identical drift for
   // pre-§2.7 inputs.
   const posW = move > 0 && focus === 'position' ? positionWeights(role) : null;
   const out: Record<string, number> = { ...attrs };
   for (const k of TRAINABLE) {
+    if (k === 'handling' && role !== 'GK') continue;   // handling trains for keepers only; outfielders stay byte-identical
     if (typeof out[k] !== 'number') continue;
     let d = move;
     if (move < 0 && PHYSICAL.has(k)) d *= 1.6;                                       // legs go first
@@ -271,7 +275,7 @@ export function explainTraining(
   traits: { professionalism?: number; consistency?: number } | null | undefined,
   focus: string, individual: boolean, morale: number, coachFactor: number, harmonyF: number, loadDampenF = 1,
 ): TrainLine {
-  const ovrBefore = overall(before), ovrAfter = overall(after);
+  const ovrBefore = overall(before, p.role), ovrAfter = overall(after, p.role);
   const attrs: TrainAttrDelta[] = [];
   for (const k of TRAINABLE) {
     if (typeof before[k] !== 'number' || typeof after[k] !== 'number') continue;
@@ -355,7 +359,7 @@ export function developmentTick(leagueId: number): { players: number; improved: 
       let rep = reports.get(r.team_id);
       if (!rep) { rep = { focus: clubFocus, lines: [], snaps: [] }; reports.set(r.team_id, rep); }
       rep.lines.push(explainTraining(before, after, r, r.age, traits, focus, r.player_focus != null, r.morale, coachF, harmonyF, dampen));
-      rep.snaps.push({ playerId: r.id, ovr: overall(after), attrs: after });
+      rep.snaps.push({ playerId: r.id, ovr: overall(after, r.role), attrs: after });
     }
   }
   // count of HUMAN-club players who actually gained an attribute this tick — the honest "developed"

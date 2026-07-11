@@ -25,8 +25,9 @@ export interface ScoutReport {
 }
 
 const SKILL_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
-export function scoutOverall(attrs: Record<string, number>): number {
-  return Math.round(SKILL_KEYS.reduce((s, k) => s + (attrs[k] ?? 0), 0) / SKILL_KEYS.length);
+export function scoutOverall(attrs: Record<string, number>, role?: string): number {
+  const keys = role === 'GK' ? [...SKILL_KEYS, 'handling'] : SKILL_KEYS;   // a keeper's handling counts for HIM only
+  return Math.round(keys.reduce((s, k) => s + (attrs[k] ?? 0), 0) / keys.length);
 }
 const ovr = scoutOverall;
 
@@ -111,7 +112,7 @@ export function buildScoutReport(fixtureId: number, userTeamId: number): ScoutRe
   const width = scoutWidthForDepth(depth);   // -1 = not scouted at all
   const fog = fogAt(width);
   const keyPlayers = xi
-    .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs), potential: p.potential, danger: false, attrs: fog(p.attrs) }))
+    .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs, p.role), potential: p.potential, danger: false, attrs: fog(p.attrs) }))
     .sort((a, b) => b.overall - a.overall)
     .slice(0, 5 + depth + (imminent ? 1 : 0));   // the imminent opponent gets one extra man identified
   if (keyPlayers.length) {
@@ -126,7 +127,7 @@ export function buildScoutReport(fixtureId: number, userTeamId: number): ScoutRe
   const benchFog = fogAt(benchWidth);
   const bench: ScoutPlayer[] = showBench
     ? benchSquad
-        .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs), potential: p.potential, danger: false, attrs: benchFog(p.attrs) }))
+        .map(p => ({ name: p.name, role: p.role, age: p.age, overall: ovr(p.attrs, p.role), potential: p.potential, danger: false, attrs: benchFog(p.attrs) }))
         .sort((a, b) => b.overall - a.overall)
     : [];
 

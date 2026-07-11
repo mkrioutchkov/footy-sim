@@ -8,7 +8,7 @@ import { registerUser, loginUser, createSession, destroySession, getUserBySessio
 import { db } from './db.ts';
 import {
   newSeasonForUser, createSharedWorld, getTeamWithPlayers, standings, teamForUser,
-  assignPersonalities, needsPersonalities, fillMissingPersonalities, backfillFreeAgents, backfillPotentials, backfillContracts,
+  assignPersonalities, needsPersonalities, fillMissingPersonalities, backfillFreeAgents, backfillPotentials, reconcileGkPotentials, backfillContracts,
   playerValue, overall, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
@@ -57,6 +57,7 @@ const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
 // idempotent backfills for saves that predate pillars 1 & 2).
 backfillFreeAgents();
 backfillPotentials();
+reconcileGkPotentials();   // GK potentials predate handling counting toward OVR — re-derive so keepers aren't frozen
 backfillContracts();
 backfillNationalities();   // §national-teams: every player/free-agent gets a fixed-list nation + flag
 const app = Fastify({ logger: false });
@@ -1482,7 +1483,7 @@ app.get('/api/nation/:key/squad', async (req: any, reply) => {
   const wid = worldForTeam(teamId);
   if (wid == null) return reply.code(404).send({ error: 'no world' });
   const xi = selectNationalSquad(wid, String(req.params?.key));
-  return { squad: (xi ?? []).map(p => ({ name: p.name, role: p.role, overall: overall(p.attrs) })) };
+  return { squad: (xi ?? []).map(p => ({ name: p.name, role: p.role, overall: overall(p.attrs, p.role) })) };
 });
 
 // §national-teams: admin — run this world's internationals now (testing; normally fires at rollover).

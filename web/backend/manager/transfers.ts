@@ -22,7 +22,7 @@ function weakestRole(players: PRow[]): { role: Role; target: number } | null {
   const worstByRole = new Map<Role, number>();
   xi.forEach((p, i) => {
     const role = ROLE_SLOTS[i];
-    const ov = overall(JSON.parse(p.attrs));
+    const ov = overall(JSON.parse(p.attrs), role);
     worstByRole.set(role, Math.min(worstByRole.get(role) ?? 999, ov));
   });
   let weak: { role: Role; target: number } | null = null;
@@ -66,7 +66,7 @@ export function manageTransfers(teamId: number): TransferOutcome {
   // fits the wage budget. Deterministic ordering: value DESC (proxy for quality) then id ASC.
   const fas = db.prepare('SELECT id, role, attrs, value, wage FROM free_agents WHERE league_id = ? AND role = ? AND value <= ? ORDER BY value DESC, id ASC')
     .all(team.league_id, weak.role, team.budget) as unknown as FARow[];
-  const recruit = fas.find(a => overall(JSON.parse(a.attrs)) > weak.target && (a.wage ?? 0) <= headroom);
+  const recruit = fas.find(a => overall(JSON.parse(a.attrs), a.role) > weak.target && (a.wage ?? 0) <= headroom);
   if (!recruit) return { signed: false, renewed };
 
   const r = buyFreeAgent(teamId, recruit.id);

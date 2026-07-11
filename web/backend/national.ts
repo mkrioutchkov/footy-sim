@@ -19,7 +19,7 @@ function poolFor(worldId: number, nationKey: string): PoolPlayer[] {
   const ph = leagueIds.map(() => '?').join(',');
   const club = db.prepare(`SELECT p.name, p.role, p.attrs, p.personality FROM players p JOIN teams t ON t.id = p.team_id WHERE t.league_id IN (${ph}) AND p.nationality = ?`).all(...leagueIds, nationKey) as { name: string; role: string; attrs: string; personality: string | null }[];
   const fas = db.prepare(`SELECT name, role, attrs, personality FROM free_agents WHERE league_id IN (${ph}) AND nationality = ?`).all(...leagueIds, nationKey) as { name: string; role: string; attrs: string; personality: string | null }[];
-  return [...club, ...fas].map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs) }; });
+  return [...club, ...fas].map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs, p.role) }; });
 }
 
 // One best-XI picker for BOTH resolvers (national squads and Club World Cup clubs): sort the pool
@@ -109,10 +109,10 @@ async function runKnockout(tournamentId: number, seeded: string[], baseSeed: num
 // robust, always-available field (ranked by best-XI strength, no dependency on standings history).
 function clubXI(worldId: number, teamId: number): { xi: VirtualPlayer[]; strength: number } | null {
   const rows = db.prepare('SELECT name, role, attrs, personality FROM players WHERE team_id = ?').all(teamId) as { name: string; role: string; attrs: string; personality: string | null }[];
-  const pool = rows.map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs) }; });
+  const pool = rows.map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs, p.role) }; });
   const xi = pickXI(pool);
   if (!xi) return null;
-  const strength = Math.round(xi.slice(0, 11).reduce((s, p) => s + overall(p.attrs), 0) / 11);
+  const strength = Math.round(xi.slice(0, 11).reduce((s, p) => s + overall(p.attrs, p.role), 0) / 11);
   return { xi, strength };
 }
 

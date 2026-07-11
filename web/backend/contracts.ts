@@ -204,8 +204,8 @@ export function tickContracts(leagueId: number): ContractEvent[] {
     // Human: release expiring players (worst first) but never below a legal XI. Track by id
     // and re-resolve the current slot each time — releasePlayerToFreeAgents renumbers, so
     // slots shift after every release.
-    const ranked = (db.prepare('SELECT id, name, attrs FROM players WHERE team_id = ? AND contract_years <= 0').all(t.id) as { id: number; name: string; attrs: string }[])
-      .map(e => ({ id: e.id, name: e.name, ovr: overall(JSON.parse(e.attrs)) }))
+    const ranked = (db.prepare('SELECT id, name, role, attrs FROM players WHERE team_id = ? AND contract_years <= 0').all(t.id) as { id: number; name: string; role: string; attrs: string }[])
+      .map(e => ({ id: e.id, name: e.name, ovr: overall(JSON.parse(e.attrs), e.role) }))
       .sort((a, b) => a.ovr - b.ovr);
     for (const e of ranked) {
       const size = (db.prepare('SELECT COUNT(*) AS n FROM players WHERE team_id = ?').get(t.id) as { n: number }).n;
