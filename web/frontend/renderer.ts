@@ -433,7 +433,12 @@ export class MatchRenderer {
     // Cache the scoreboard's screen rect for the per-frame ball-occlusion fade (recomputed here so it
     // tracks the CSS media-query height changes that fire on resize). Read once per layout, not per frame.
     this.hudRect = this.hudEl ? this.hudEl.getBoundingClientRect() : null;
-    this.drawPitch();
+    // NB: do NOT call drawPitch() here. The pitch geometry is drawn in pitch-space and scaled/positioned by
+    // pitchContainer (set above), so a transform recompute needs no redraw. drawPitch() ALSO tears down every
+    // live entity (players/ball/trails, interpReady, lastState) — and calcTransform is driven by a
+    // ResizeObserver, so calling it here blanked the pitch on any mid-match panel/bar resize (applying a shout
+    // that grew the receipt, the replay UI appearing, a window resize) and left it blank while paused (renderFrame
+    // early-returns on !lastState). Geometry + entities are built once in the constructor's drawPitch().
   }
 
   // Build the DOM scoreboard: [teams + score] · [BIG clock, centred — the visual anchor] · [shots/poss]

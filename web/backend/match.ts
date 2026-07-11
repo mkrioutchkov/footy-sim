@@ -13,6 +13,7 @@ import { getTeamTalkDeltas, consumeTeamTalk } from './teamtalk.ts';
 import { tallyFixtureStats } from './leaders.ts';
 import type { Directive } from './tactics.ts';
 import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation, engineRole } from './formations.ts';
+import { fastSimEnabled, fastSimSummary, type MatchSpec } from './fastsim.ts';
 import { simulatePenaltyShootout, type ShootoutPlayer } from './shootout.ts';
 
 // Engine binary resolution lives in ONE shared helper (engine-path.ts) so every spawner —
@@ -229,6 +230,16 @@ const numF = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v
 // the per-player stats. Async (spawn) so a ~1-2s sim never blocks the event loop. Shared by league
 // fixtures + cup ties so they sim identically.
 function runEngineSummary(specPath: string): Promise<SummaryResult> {
+  // Fast-resolve tier: skip the engine spawn entirely and resolve the spec via the deterministic
+  // statistical model. Same seed+spec ⇒ same result, so a headless/bulk run stays reproducible while
+  // a match costs microseconds not seconds. Watched/human matches use the full engine (this path is
+  // --summary only). See fastsim.ts + FOOTY_FAST_SIM.
+  if (fastSimEnabled()) {
+    try {
+      const spec = JSON.parse(readFileSync(specPath, 'utf8')) as MatchSpec;
+      return Promise.resolve(fastSimSummary(spec));
+    } catch (e) { return Promise.reject(new Error(`fast-sim spec read failed: ${String(e)}`)); }
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(ENGINE, ['--match', specPath, '--summary', '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '', err = '';
