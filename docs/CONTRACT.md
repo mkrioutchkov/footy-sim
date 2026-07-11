@@ -10,8 +10,8 @@ cross-boundary change: announce it and update **both** sides in the same merge
 
 | Half | Owns | Talks to the other half via |
 |------|------|------------------------------|
-| **Engine session** | `engine/` (C++), `scripts/build-native.ps1`, `tools/` (engine harness + python probes), produces `build/live.exe` | the binary + the JSON I/O below |
-| **Web session** | `web/backend/` (Fastify + node:sqlite), `web/frontend/` (SPA + PixiJS renderer), `dist/` | spawns `build/live.exe`, reads its JSON |
+| **Engine session** | `engine/` (C++), `scripts/build-native.ps1` + `scripts/build-native.sh`, `tools/` (engine harness + python probes), produces `build/live.exe` (Windows) or `build/live` (Linux/macOS) | the binary + the JSON I/O below |
+| **Web session** | `web/backend/` (Fastify + node:sqlite), `web/frontend/` (SPA + PixiJS renderer), `dist/` | spawns the engine binary (`match.ts` resolves either name), reads its JSON |
 
 Build outputs and shared deps stay at the repo root by design: `build/`
 (engine binary), `dist/` (frontend build), `third_party/`. The **engine binary
@@ -24,7 +24,10 @@ reads TS.
 build/live.exe SEED MINUTES --summary --no-debug                 # legend teams
 build/live.exe --match <spec.json> --summary --no-debug          # data-driven teams
 build/live.exe --match <spec.json> --trace out.bin               # + binary frame trace
+build/live.exe SEED MINUTES --snapshot-out m.json --snapshot-at 58000   # freeze a moment (+ RNG)
+build/live.exe SEED MINUTES --snapshot-in m.json                        # reload a moment (cross-version)
 ```
+(On Linux/macOS the binary is `build/live` — `match.ts` resolves either name.)
 - `--summary` prints ONE JSON object per line; the **last `{…}` line** is the
   match summary. NEVER omit `--summary` (without it the process streams frames
   forever and locks the binary).
@@ -32,6 +35,16 @@ build/live.exe --match <spec.json> --trace out.bin               # + binary fram
   to stdout — this is what the live-watch path consumes and paces to the client.
 - Determinism: same `SEED` + same `spec.json` + same binary ⇒ byte-identical
   output. The web side relies on this (a fixture replays identically).
+- **Cross-version moment replay** (snapshots): `--snapshot-out <f> --snapshot-at <ms>`
+  freezes a match moment — all 22 players' pos/vel/facing/stamina, ball state (incl.
+  curl + controller), clock, score, **and the single-word PRNG state** — to a JSON
+  file; `--snapshot-in <f>` reloads it into a **DIFFERENT engine build** to watch how
+  the new code plays out that exact situation (e.g. a bug seen at 0:58 that the seed
+  no longer reproduces after a fix — the butterfly effect). Same-build resume replays
+  on the identical roll sequence; across builds the RNG field is ignored (different
+  code consumes the stream in a different order — inherent, not a gap).
+  `tools/snapshot_from_trace.py` extracts a moment from a `--trace` file instead of a
+  live run (positions/velocities but not the RNG). See the README engine-dev section.
 
 ## INPUT — `spec.json` (web → engine)
 
@@ -63,7 +76,7 @@ Written by `web/backend/match.ts → buildSpec()`; consumed by the engine's
   `PlayerAttributes` (`speed, passing, creativity, shooting, tackling,
   positioning, stamina`, each 0–100) — see `web/frontend/types.ts`.
 - The fixed-22 invariant: home = engine ids 0–10, away = 11–21.
-- `directives[].kind`: **20 per-player + 12 team-wide** kinds (man_mark,
+- `directives[].kind`: **~25 per-player + 17 team-wide (+ 4 set-piece-taker)** kinds (man_mark,
   shoot_on_sight, get_forward, sit_deep, target_player, …; team-wide kinds carry a
   `teamScope` flag and adjust the 5 dials at runtime). The **authoritative list lives
   in `engine/main.cpp` `parseDirectives` + `web/backend/tactics.ts`** and is
@@ -172,14 +185,14 @@ engine only ever sees compiled directives, so replays stay byte-identical. See
 ## Repo layout & commands
 
 ```
-engine/         C++ match engine            scripts/build-native.ps1  →  build/live.exe
+engine/         C++ match engine            build-native.ps1 (win) / .sh (posix)  →  build/live[.exe]
 web/backend/    Fastify + node:sqlite        npm run game     (:4000)
 web/frontend/   SPA + PixiJS renderer        npm run dev      (:5173, proxies /api,/ws → 4000)
 tools/          engine harness + py probes   npm run batch | scenarios | cpp-server
 docs/           ARCHITECTURE · CONTRACT · TACTICS · SHOUTS_AND_PERSONALITY · STATSBOMB_DATA · REAL_DATA_AND_IP · TEAM
 ```
 - DB: SQLite via `node:sqlite`, file at `web/backend/data/footy.sqlite` (gitignored).
-- After `engine/` or `scripts/` edits: `npm run native:build`. After
+- After `engine/` or `scripts/` edits: `npm run native:build` (Windows) / `npm run native:build:posix` (Linux/macOS). After
   `web/backend/` edits: restart `npm run game` (tsx has no hot-reload).
 - A fresh worktree needs `npm install` (node_modules is gitignored) and a
   `npm run native:build` (build/ is gitignored).

@@ -1,9 +1,12 @@
 # Plain-English tactics
 
-The differentiator: the manager controls the team by **typing**, not by dragging
-sliders. A perpetual tactical-plan textbox (editable at any moment, including
-mid-match) drives a real conditional instruction system the engine executes —
-not decorators over the 5 dials.
+The differentiator: the manager can control the team by **typing**. A perpetual
+tactical-plan textbox (editable at any moment, including mid-match) drives a real
+conditional instruction system the engine executes — not decorators over the 5
+dials. For managers who prefer to point-and-click there is now *also* a
+deterministic **structured tactics board** (sliders + formation picker + role
+presets) as a second, no-LLM input surface — both surfaces compile to the same
+directives (see [The structured tactics board](#the-structured-tactics-board)).
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for where every component plugs in.
 
@@ -30,6 +33,20 @@ The manager has **two textareas**, not one:
 - **The Shouts** (consumed) — one-shot, in-the-moment orders, primarily
   **substitutions** ("take off Nesta, bring on Terry") but also momentary nudges.
   Submitting a shout applies it (at the next dead ball for subs) and clears the box.
+
+## The structured tactics board
+
+Alongside the textbox there is a **deterministic, no-LLM** point-and-click board
+(`web/frontend/app.ts`): a **formation picker**, per-player **role presets**
+(wing-back, inside forward, false 9, ball-winner…), and team **sliders / segmented
+controls** (mentality, pressing, line, passing directness, width, shot selection).
+Each control maps onto a real directive `kind` from `tactics.ts` `VALID_KINDS`, so
+the board and the plain-English plan are interchangeable — both write the same
+`plan_directives`. It posts to `POST /api/team/plan-structured` (sanitised by
+`sanitizeStructuredDirectives`) and `POST /api/lineup/set` (formation + XI); with no
+opponent and no model call, a shape or role change is instant and byte-identical on
+replay. `man_mark` is board-excluded (it needs a live opponent XI, so it stays a
+mid-match shout).
 
 ## How text becomes behaviour
 
@@ -60,9 +77,14 @@ The manager has **two textareas**, not one:
   role groups ("the midfield"), or the whole team ("we/us/all" => the manager's
   side, resolved from the watch session).
 - **Conditions**: time windows (`fromMin`/`toMin` — "first half", "last 15",
-  "after the 60th") and score state (winning/losing/drawing by N). Sequenced
-  orders ("press high for 20 then drop off") split into two timed directives.
-- **Directives** (**20 per-player + 12 team-wide**). Each maps onto an
+  "after the 60th"), score state (winning/losing/drawing by N), and a possession
+  **phase** (`in_possession`/`out_of_possession`/`transition`) — all gated by the
+  engine, no rng. Sequenced orders ("press high for 20 then drop off") split into
+  two timed directives.
+- **Directives** (**25 per-player kinds + 17 team-wide** — the per-player vocab
+  accepts 35 phrasings that alias onto the 25 engine kinds; the engine also parses
+  4 set-piece-taker kinds, `fk_taker`/`corner_taker`/`pen_taker`/`long_throw_taker`,
+  that are NOT in `VALID_KINDS`). Each maps onto an
   existing engine knob (assignment / a per-player score bias / a formation-anchor
   shift / a per-team dial delta), gated behind a non-empty directive so the
   no-directive match is byte-identical:
@@ -80,7 +102,10 @@ The manager has **two textareas**, not one:
     `high_press`, `drop_off`, `play_it_long`, `keep_it_on_ground`, `get_it_wide`,
     `play_narrow`, `push_up`, `slow_it_down`, `counter_attack` (amplifies the
     quick-transition through-ball + run bonuses), `offside_trap` (holds a high
-    line in the danger zone to spring late runners offside).
+    line in the danger zone to spring late runners offside),
+    `shoot_from_distance`/`work_it_into_box` (team shot-range bias) and the three
+    gradated FM dials `press_intensity`/`mentality`/`line_height` (0-1, 0.5 =
+    neutral).
 - **Measured**: directive effects validated where a clean stat exists, e.g.
   `shoot_on_sight` +93% shots, `tackle_hard` +62% bookings. (`cross_early`'s old
   +8% was retracted as seed noise — it's now a volume-neutral timing nudge.)
@@ -129,12 +154,15 @@ ever executes a **bounded palette** of effects, so it can't go off the rails.
 > robustness notes below apply to both. See [TACTICS_RUNTIME.md](TACTICS_RUNTIME.md)
 > for the full runtime flow + persistence model.
 
-- **Provider-agnostic**: any **OpenAI-compatible** `/chat/completions` endpoint,
-  configured by env vars in `web/backend/.env` (gitignored):
+- **Provider-agnostic**: two backends, chosen by `TACTICS_LLM_PROVIDER` in
+  `web/backend/.env` (gitignored): **`http`** (default) — any **OpenAI-compatible**
+  `/chat/completions` endpoint — or **`claude-code`**, which spawns the local Claude
+  Code CLI in headless mode (runs on a Max subscription, no API billing):
   ```
-  TACTICS_LLM_API_KEY=...                              # required
+  TACTICS_LLM_PROVIDER=http                            # or claude-code
+  TACTICS_LLM_API_KEY=...                              # required (http)
   TACTICS_LLM_BASE_URL=https://api.groq.com/openai/v1  # default (Groq)
-  TACTICS_LLM_MODEL=llama-3.3-70b-versatile            # default
+  TACTICS_LLM_MODEL=llama-3.3-70b-versatile            # default (http)
   ```
   **Default is Groq** — free tier (30 req/min, no card), ~150-500ms, reliable.
   Swapping providers is a one-line `.env` change + a backend restart. (We started
@@ -160,7 +188,7 @@ ever executes a **bounded palette** of effects, so it can't go off the rails.
 | **P2 ✅ done** | **Live deltas + timeline**: a match is `seed + timeline` of timed directive sets (engine applies them at the recorded clocks — replays identically). A mid-watch `tactics` edit appends to the timeline at the watched clock and re-sims with `--stream-from`, resuming seamlessly (the prefix is byte-identical). Verified live: edit at 2533ms resumed there and engaged the mark. | engine + backend |
 | **P3 ✅ done** | **Text -> DSL compiler**: provider-agnostic OpenAI-compatible call, strict-schema prompt + roster context, validate/coerce + cache. Wired into the watch socket ({type:'tactics', text} -> compile -> receipt -> timeline). **LLM-only on Groq** + 429 retry. (Live path is now `web/backend/plan.ts` `compilePlanEdit`, a stateful composite-plan editor; the original single-shot `tactics.ts` `compileTactics` is test-only.) | backend |
 | **P4 ✅ done** | **Web UX**: tactical-plan textbox in the watch view → sends text on the socket → shows an interpretation receipt of what was understood, match re-sims live. Verified in-browser. Panel scrolls (long receipts don't truncate). Follow-on: the consumed "Shouts" box for subs (needs the engine runtime sub-trigger). | frontend |
-| **P4.5 ✅ done** | **Vocabulary expansion + provider**: 20 per-player + 12 team-wide directives (movement, on-ball, defending, the 5 dials at runtime; the per-player set has since grown to 20 with cutback/contain/stay_back), opponent-by-role + whole-team ("we/us/all", manager-side plumbed end-to-end) + sequenced conditions. Swapped the flaky MiMo for Groq (LLM-primary). Golden regression guard locks the default match. Effects measured where a clean stat exists. | engine + backend + frontend |
+| **P4.5 ✅ done** | **Vocabulary expansion + provider**: per-player + team-wide directives (movement, on-ball, defending, the 5 dials at runtime; the vocabulary has since grown to 25 per-player kinds / 35 phrasings + 17 team-wide), opponent-by-role + whole-team ("we/us/all", manager-side plumbed end-to-end) + sequenced conditions. Swapped the flaky MiMo for Groq (LLM-primary). Golden regression guard locks the default match. Effects measured where a clean stat exists. | engine + backend + frontend |
 | **P5 ◑ partial** | **Morale SHIPPED** (squad morale shades effort/decisions; shouts move morale via personality — see SHOUTS_AND_PERSONALITY.md). **Still to build**: per-directive compliance gating by temperament. | engine + UI |
 | **Ongoing** | More directive kinds (hold_up_play, waste_time, formation changes), a stronger ball-over-the-top mechanic so `play_it_long` bites, formation library, replays/sharing. | both |
 

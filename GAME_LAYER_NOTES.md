@@ -482,11 +482,15 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
   `buildMatchReport('cup', …)` works, but the report endpoint + the cup screen are fixture-only —
   no UI path reaches a cup tie's replay or report yet. Wiring a cup watch/report entry point is a
   small follow-on.
-- **No retirement / youth intake.** Players age +1 each season and decline past ~30 but are
-  never retired/regenerated, so over many seasons squads grey out. A release-at-38 +
-  generated-youth intake at rollover is the natural next step.
 - **AI keeps the default 4-3-3 shape.** AI optimises WHICH 11 start, not the formation —
   picking a shape to suit the squad (the `formations.ts` registry is already there) is a
   future enhancement.
-- **Season history isn't archived.** Rollover regenerates fixtures, discarding the played
-  results; a `season_results` table would preserve past tables/honours.
+
+> **Since this doc's ledger was last swept** (kept here so the log stays honest): retirement +
+> youth intake **shipped** (`youth.ts`, release/regeneration at rollover) and season history +
+> honours **shipped** (`history.ts` + the `season_history` table) — both former "limitations"
+> above are done. Also shipped since: the **P1–P4 world drop** — shared worlds + claim-a-club
+> (`worlds.ts`), national teams + international tournaments + a Club World Cup (`national.ts`,
+> `nations.ts`), the live-match coordinator (`coordinator.ts`), and a turn-based/autonomous world
+> scheduler; plus the **structured tactics board** (sliders/formation-picker/role-presets;
+> `/api/team/plan-structured`, `/api/lineup/set`) alongside the plain-English plan.

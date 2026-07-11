@@ -99,7 +99,7 @@ is fine. Always leave a provenance comment (Hard rule #5).
 3. **Keep the shippable surface anonymous and procedural.** The data that ends up
    in a build flows through one seam:
    `web/backend/game.ts (genAttrs)` → `web/backend/match.ts (buildSpec)` →
-   `spec.json` → `engine/main.cpp:15 loadTeam()` → the binary. Do **not** populate
+   `spec.json` → `engine/main.cpp:17 loadTeam()` → the binary. Do **not** populate
    any *committed/shipped* `spec.json`, the SQLite seed, or `formations.ts` with
    real names/ratings. (Tuning the generator's role-bias *magnitudes* from
    anonymous distributions is fine; shipping specific real players is not.)
@@ -137,7 +137,7 @@ target is the determinism golden; every realism number is "tuned by feel."
 | **Location** x → px | — | `x_px = x_sb × 8.75` (1050/120) |
 | **Location** y → px | — | `y_px = y_sb × 8.5` (680/80) |
 | Attacking goal | `(120, 40)` | `(1050, 340)` — home attacks **+x**; away mirrors as `x_engine = 1050 − x` |
-| Shot distance bands | (compute from location) | `<100 px` close, `<200 px` medium, else long (`stats.cpp:34`) — i.e. **<10 m / <20 m** |
+| Shot distance bands | (compute from location) | `<100 px` close, `<200 px` medium, else long (`stats.h:127` `recordShotDistance`; goals binned identically at `stats.cpp:43`) — i.e. **<10 m / <20 m** |
 
 > ⚠️ **`pass.length` / `carry` / shot length are in StatsBomb coordinate units
 > (≈ yards), NOT metres.** (An earlier note here said metres — that was wrong.) The
@@ -235,7 +235,7 @@ re-measure the engine's `savePct` over StatsBomb's exact denominator** — `save
 saves / (saves + goals)` over **on-target** shots only (`shot.outcome ∈ {Saved,
 Goal, Saved to Post, Saved Off T}`, excluding `Blocked / Off T / Wayward / Post`).
 If the engine's (pre-nerf) 83% was measured over *all* shots faced, it isn't
-comparable. `GK_SAVE_MAX` (~0.72 now, was 0.84 — verify `constants.h:175`) is a
+comparable. `GK_SAVE_MAX` (0.76 now, was 0.84 — verify `constants.h:212`) is a
 per-shot **cap**, not the mean; the realized **mean** save% must land ~0.69 for a
 *realistic* 2.75-goal target (the engine now runs hotter — see the 3.0 callout).
 
@@ -477,10 +477,11 @@ into "tuned to a real league" — entirely inside the private calibration layer.
 - **Binding terms:** `LICENSE.pdf` from `statsbomb/open-data` — *Public Data User
   Agreement, Standard Terms, last updated 8 September 2023*, laws of England &
   Wales. Read in full 2026-06-16. README attribution line: `README.md`, same repo.
-- **Codebase anchors** (verified 2026-06-16): `main.cpp:15` (`loadTeam`), `:133–136`
-  (CLI flags), `constants.h:161/164/175` (`PENALTY_SAVE_BASE`, `SHOT_SCOOP_CHANCE`,
-  `GK_SAVE_MAX`), `engine_gk.cpp:209/212`, `engine_actions.cpp:851`,
-  `stats.cpp:34/162/174`, `tools/trace_reader.py`, `.gitignore`.
+- **Codebase anchors** (verified 2026-07-11): `main.cpp:17` (`loadTeam`), `:160–172`
+  (CLI-flag parse loop), `constants.h:198/201/212` (`PENALTY_SAVE_BASE`, `SHOT_SCOOP_CHANCE`,
+  `GK_SAVE_MAX`), `engine_gk.cpp:333/336` (save-chance clamp + penalty cap),
+  `engine_actions.cpp:1345` (`SHOT_SCOOP_CHANCE` consume), distance bands
+  `stats.h:127` (shots) / `stats.cpp:43` (goals), `tools/trace_reader.py`, `.gitignore`.
 - **Benchmark sources** (public analytics — these are *not* StatsBomb data and may
   be cited freely; numbers are bands, spot-verify against live tables for precision):
   - Opta / The Analyst — goals/shots/conversion, playing styles, definitions:
