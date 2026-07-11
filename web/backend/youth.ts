@@ -30,7 +30,7 @@ function newProspect(teamId: number): { name: string; age: number } {
   const name = randomPlayerName();
   const per = defaultPersonality(name, role);
   db.prepare('INSERT INTO youth_prospects (team_id, name, role, attrs, age, potential, personality, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(teamId, name, role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), JSON.stringify(per), Date.now());
+    .run(teamId, name, role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), JSON.stringify(per), Date.now());
   return { name, age };
 }
 
@@ -43,15 +43,15 @@ export function seedAcademy(teamId: number, n = 4): void {
 // Develop the academy a season: each prospect ages + drifts toward potential (the same dev curve as the
 // senior squad), and any who pass ACADEMY_LEAVE_AGE without being promoted graduate out (leave the club).
 function academyTick(teamId: number): void {
-  const rows = db.prepare('SELECT id, attrs, age, potential, personality FROM youth_prospects WHERE team_id = ?')
-    .all(teamId) as { id: number; attrs: string; age: number; potential: number | null; personality: string | null }[];
+  const rows = db.prepare('SELECT id, role, attrs, age, potential, personality FROM youth_prospects WHERE team_id = ?')
+    .all(teamId) as { id: number; role: string; attrs: string; age: number; potential: number | null; personality: string | null }[];
   const upd = db.prepare('UPDATE youth_prospects SET attrs = ?, age = ? WHERE id = ?');
   const del = db.prepare('DELETE FROM youth_prospects WHERE id = ?');
   for (const p of rows) {
     const age = p.age + 1;
     if (age >= ACADEMY_LEAVE_AGE) { del.run(p.id); continue; }
     const traits = (parseJSON(p.personality) as { traits?: { professionalism?: number; consistency?: number } } | null)?.traits ?? null;
-    const attrs = developAttrs(JSON.parse(p.attrs), age, p.potential ?? overall(JSON.parse(p.attrs)), traits, 'balanced');
+    const attrs = developAttrs(JSON.parse(p.attrs), age, p.potential ?? overall(JSON.parse(p.attrs), p.role), traits, 'balanced', 65, 1, 1, p.role);
     upd.run(JSON.stringify(attrs), age, p.id);
   }
 }
@@ -86,7 +86,7 @@ export function youthAndRetirement(leagueId: number): YouthEvent[] {
         const name = randomPlayerName();
         const per = defaultPersonality(name, role);
         const maxSlot = (db.prepare('SELECT COALESCE(MAX(slot), -1) AS m FROM players WHERE team_id = ?').get(id) as { m: number }).m;
-        insSquad.run(id, maxSlot + 1, name, role, JSON.stringify(attrs), age, genPotential(overall(attrs), age), JSON.stringify(per), playerWage(attrs, age, per));
+        insSquad.run(id, maxSlot + 1, name, role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), JSON.stringify(per), playerWage(attrs, age, per, role));
         events.push({ teamId: id, type: 'intake', player: name, age });
       }
     }
@@ -99,7 +99,7 @@ export interface AcademyProspect { id: number; name: string; role: string; age: 
 export function getAcademy(teamId: number): AcademyProspect[] {
   return (db.prepare('SELECT id, name, role, attrs, age, potential FROM youth_prospects WHERE team_id = ? ORDER BY potential DESC, id')
     .all(teamId) as { id: number; name: string; role: string; attrs: string; age: number; potential: number | null }[])
-    .map(p => ({ id: p.id, name: p.name, role: p.role, age: p.age, overall: overall(JSON.parse(p.attrs)), potential: p.potential, attrs: JSON.parse(p.attrs) }));
+    .map(p => ({ id: p.id, name: p.name, role: p.role, age: p.age, overall: overall(JSON.parse(p.attrs), p.role), potential: p.potential, attrs: JSON.parse(p.attrs) }));
 }
 
 // Promote a prospect to the senior squad (onto the bench), if there's room under the squad cap.

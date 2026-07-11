@@ -15,7 +15,7 @@ import { seedStaffPool, hireStaff, suggestCoachAssignment, saveCoachAssignment, 
 export function optimizeLineup(teamId: number): void {
   const players = db.prepare('SELECT id, role, attrs FROM players WHERE team_id = ?').all(teamId) as { id: number; role: string; attrs: string }[];
   if (players.length < 11) return;
-  const pool = players.map(p => ({ id: p.id, role: p.role, ovr: overall(JSON.parse(p.attrs)) }));
+  const pool = players.map(p => ({ id: p.id, role: p.role, ovr: overall(JSON.parse(p.attrs), p.role) }));
   const used = new Set<number>();
   const order: number[] = [];                                   // player ids in slot order
   for (let i = 0; i < 11; i++) {

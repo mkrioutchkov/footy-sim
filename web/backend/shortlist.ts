@@ -38,8 +38,8 @@ export function getShortlist(teamId: number): ShortlistRow[] {
     const r = byId.get(id)!;
     const attrs = JSON.parse(r.attrs);
     return {
-      id: r.id, name: r.name, club: r.club, role: r.role, age: r.age, overall: overall(attrs),
-      value: playerValue(attrs, r.age, parseJSON(r.personality)), listed: !!r.listed,
+      id: r.id, name: r.name, club: r.club, role: r.role, age: r.age, overall: overall(attrs, r.role),
+      value: playerValue(attrs, r.age, parseJSON(r.personality), r.role), listed: !!r.listed,
       releaseClause: r.release_clause, mine: r.team_id === teamId, onLoan: r.parent_team_id != null,
     };
   });

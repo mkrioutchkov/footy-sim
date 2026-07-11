@@ -152,12 +152,13 @@ function fmtMoney(n: number): string {
   }
   return `£${Math.round(n)}`;
 }
-// OVR = mean of the 7 core skills (excludes height/handling) — matches the backend's
-// overall() and the market/training screens, so a player's OVR reads the same everywhere
-// and the potential headroom (a skill-based ceiling) compares against the right number.
+// OVR = mean of the core skills (excludes height). Handling counts ONLY for a keeper (role==='GK') —
+// mirrors the backend's overall(attrs, role), so a GK's OVR reads the same everywhere and his potential
+// headroom (a skill-based ceiling) compares against the right number. Omit role → the 7-attr mean.
 const SKILL_KEYS = ['speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
-function skillOvr(attrs: Record<string, number>): number {
-  return Math.round(SKILL_KEYS.reduce((s, k) => s + (attrs[k] ?? 0), 0) / SKILL_KEYS.length);
+function skillOvr(attrs: Record<string, number>, role?: string): number {
+  const keys = role === 'GK' ? [...SKILL_KEYS, 'handling'] : SKILL_KEYS;
+  return Math.round(keys.reduce((s, k) => s + (attrs[k] ?? 0), 0) / keys.length);
 }
 // per-cell attribute heat: red (low) → green (high), used across the squad table + compare.
 // 'POSN' (not 'POS') for the positioning ATTRIBUTE so it never reads the same as the role/Position column.
@@ -717,7 +718,7 @@ async function screenDashboard() {
   // team / squad card
   const squad = h('div', { class: 'players' });
   for (const p of team.players) {
-    const ovr = skillOvr(p.attrs);
+    const ovr = skillOvr(p.attrs, p.role);
     const per = p.personality;
     const potText = p.potential != null && p.potential > ovr ? ` → ${p.potential}` : '';
     const ageText = p.age != null ? ` · ${p.age}y` : '';
@@ -2634,11 +2635,11 @@ async function screenScouting() {
 
 // ── training / development ──
 // 'position' = role-matched drills (§2.7); the rest push one attribute club-wide or per-player.
-const TRAINING_FOCI = ['balanced', 'position', 'speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina'];
+const TRAINING_FOCI = ['balanced', 'position', 'speed', 'passing', 'creativity', 'shooting', 'tackling', 'positioning', 'stamina', 'handling'];
 const FOCUS_LABEL: Record<string, string> = {
   balanced: 'Balanced', position: 'Position-specific',
   speed: 'Speed', passing: 'Passing', creativity: 'Creativity', shooting: 'Shooting',
-  tackling: 'Tackling', positioning: 'Positioning', stamina: 'Stamina',
+  tackling: 'Tackling', positioning: 'Positioning', stamina: 'Stamina', handling: 'Handling (GK)',
 };
 const ATTR_SHORT: Record<string, string> = Object.fromEntries(SQUAD_ATTRS.map(([k, s]) => [k, s]));
 const focusLabel = (f: string) => FOCUS_LABEL[f] ?? (f ? f[0].toUpperCase() + f.slice(1) : f);
@@ -2657,7 +2658,7 @@ async function screenTraining() {
   // The report is best-effort — show the screen even if it hasn't been generated yet (or 404s).
   let report: TrainingReportT | null = null;
   try { report = (await api.trainingReport()).report; } catch { /* no report yet */ }
-  const ovrOf = (p: typeof team.players[number]) => skillOvr(p.attrs);
+  const ovrOf = (p: typeof team.players[number]) => skillOvr(p.attrs, p.role);
 
   // club-wide focus selector
   const sel = h('select', { class: 'focus-select', 'aria-label': 'Club training focus' }) as HTMLSelectElement;
@@ -3116,7 +3117,7 @@ async function screenPlayer(slot: number) {
   catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
   const p = team.players.find(x => x.slot === slot);
   if (!p) { location.hash = '#/'; return; }
-  const ovr = skillOvr(p.attrs);
+  const ovr = skillOvr(p.attrs, p.role);
   // squad role-average, for the per-attribute delta on the profile ("how good a CB is he for MY squad?")
   const sameRole = team.players.filter(x => x.role === p.role);
   const roleAvg = (k: string): number => sameRole.length ? sameRole.reduce((s, x) => s + (x.attrs[k] ?? 0), 0) / sameRole.length : 0;
@@ -3348,7 +3349,7 @@ async function screenPlayer(slot: number) {
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Attributes'),
           sameRole.length > 1 ? h('span', { class: 'muted', style: 'font-size:11px' }, `± vs your ${sameRole.length} ${p.role}s` ) : ''),
         h('div', { class: 'grid cols-2', style: 'gap:0 22px' },
-          ...ATTR_LABELS.map(a => {
+          ...(p.role === 'GK' ? [...ATTR_LABELS, { key: 'handling', label: 'Handling' }] : ATTR_LABELS).map(a => {
             const v = p.attrs[a.key] ?? 0;
             // delta vs the squad average for this position — "is he a strong CB for MY squad?" (FM's role context)
             const dRaw = sameRole.length > 1 ? Math.round(v - roleAvg(a.key)) : null;
@@ -4058,7 +4059,7 @@ async function screenSquad() {
     { key: 'slot', label: 'Name', text: true, get: p => p.name },
     { key: 'role', label: 'Pos', text: true, get: p => p.role },
     { key: 'age', label: 'Age', get: p => p.age ?? 0 },
-    { key: 'ovr', label: 'OVR', get: p => skillOvr(p.attrs) },
+    { key: 'ovr', label: 'OVR', get: p => skillOvr(p.attrs, p.role) },
     { key: 'pot', label: 'POT', get: p => p.potential ?? 0 },
     ...SQUAD_ATTRS.map(([a, lab]): { key: string; label: string; get: (p: PlayerT) => number } => ({ key: a, label: lab, get: p => p.attrs[a] ?? 0 })),
     { key: 'wage', label: 'Wage', get: p => p.wage ?? 0 },
@@ -4092,7 +4093,7 @@ async function screenSquad() {
       (!squadView.roleF || p.role === squadView.roleF) && (!squadView.attn || needsAttention(p));
     // squad-strength summary (filter-independent — squad-wide read)
     const xi = players.filter(p => p.slot < 11);
-    const xiOvr = xi.length ? Math.round(xi.reduce((s, p) => s + skillOvr(p.attrs), 0) / xi.length) : 0;
+    const xiOvr = xi.length ? Math.round(xi.reduce((s, p) => s + skillOvr(p.attrs, p.role), 0) / xi.length) : 0;
     const avgAge = players.length ? Math.round(players.reduce((s, p) => s + (p.age ?? 0), 0) / players.length) : 0;
     const attnCount = players.filter(needsAttention).length;
     const statChip = (label: string, val: string, color = '') => h('div', { style: 'min-width:84px' },
@@ -4106,7 +4107,7 @@ async function screenSquad() {
         ? statChip('Wage bill', `${fmtMoney(team.wageBill)}`, team.wageBill > team.wageBudget ? 'var(--danger)' : '') : '');
     const tbody = h('tbody');
     for (const p of sorted.filter(matchesRoleAttn)) {
-      const ovr = skillOvr(p.attrs);
+      const ovr = skillOvr(p.attrs, p.role);
       const isCap = captainSlot === p.slot;
       // §2.11: a clickable armband — the captain shows 🧭, others a faint one; clicking names/clears the captain.
       const setCap = async () => {
@@ -4172,7 +4173,7 @@ async function screenSquad() {
       const thin = cover === 0;
       return h('div', { style: 'min-width:120px' },
         h('div', { class: 'muted', style: `font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px${thin ? ';color:#ffb84d' : ''}`, title: thin ? 'No fit backup in this position — an injury or suspension here leaves no like-for-like cover' : '' }, `${g.role} · ${g.ps.length}${thin ? ' ⚠' : ''}`),
-        ...g.ps.map(p => h('div', { style: 'font-size:12px;padding:1px 0;' + (p.slot < 11 ? '' : 'opacity:.55'), }, `${p.slot < 11 ? '●' : '○'} ${p.name} ${skillOvr(p.attrs)}`)));
+        ...g.ps.map(p => h('div', { style: 'font-size:12px;padding:1px 0;' + (p.slot < 11 ? '' : 'opacity:.55'), }, `${p.slot < 11 ? '●' : '○'} ${p.name} ${skillOvr(p.attrs, p.role)}`)));
     }));
     // compare
     const opt = (sel: number) => [h('option', { value: '-1' }, '— pick —'), ...players.map(p => { const o = h('option', { value: String(p.slot) }, `${p.name} (${p.role})`) as HTMLOptionElement; if (p.slot === sel) o.selected = true; return o; })];
@@ -4194,8 +4195,8 @@ async function screenSquad() {
     const cmpFit = (p: PlayerT) => (p.injuredMatches ?? 0) > 0 ? -1 : (p.fitness ?? 100);
     const cmp = pa && pb
       ? h('div', {},
-          cmpSummary('OVR', skillOvr(pa.attrs), skillOvr(pb.attrs), n => String(n)),
-          cmpSummary('POT', pa.potential ?? skillOvr(pa.attrs), pb.potential ?? skillOvr(pb.attrs), n => String(n)),
+          cmpSummary('OVR', skillOvr(pa.attrs, pa.role), skillOvr(pb.attrs, pb.role), n => String(n)),
+          cmpSummary('POT', pa.potential ?? skillOvr(pa.attrs, pa.role), pb.potential ?? skillOvr(pb.attrs, pb.role), n => String(n)),
           cmpSummary('Age', pa.age ?? 0, pb.age ?? 0, n => n ? `${n}y` : '—', false),
           cmpSummary('Wage', pa.wage ?? 0, pb.wage ?? 0, n => n ? fmtMoney(n) : '—', false),
           cmpSummary('Morale', pa.morale ?? 0, pb.morale ?? 0, n => String(n)),
