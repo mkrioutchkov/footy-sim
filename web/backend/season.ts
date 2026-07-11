@@ -11,6 +11,7 @@ import { youthAndRetirement, type YouthEvent } from './youth.ts';
 import { resetFitness } from './fitness.ts';
 import { resetMorale } from './morale.ts';
 import { createCup, cupView } from './cup.ts';
+import { backfillNationalities } from './nations.ts';
 import { purgeRecordings } from './match.ts';
 import { purgeReports } from './report.ts';
 import { returnLoans } from './market.ts';
@@ -211,6 +212,7 @@ export function rolloverSeason(leagueId: number): RolloverResult | null {
       generateFixtures(l.id);
     }
     createCup(leagues[0].id);                            // a fresh cup for the new season
+    backfillNationalities();                             // §national-teams: youth intake gets a nation + flag
     return out;
   });
 }

@@ -54,7 +54,8 @@ export interface PersonalityT {
   traits: { temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number; consistency: number; leadership: number; professionalism: number; ego: number };
   nationality: string; backstory: string; tagline: string;
 }
-export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; fitness?: number; injuredMatches?: number; morale?: number; trainFocus?: string | null; trainIntensity?: string | null; retrainRole?: string | null; roleFamiliarity?: number; seasonGoals?: number; seasonAssists?: number; seasonApps?: number; seasonRatingSum?: number; }
+export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; fitness?: number; injuredMatches?: number; morale?: number; trainFocus?: string | null; trainIntensity?: string | null; retrainRole?: string | null; roleFamiliarity?: number; seasonGoals?: number; seasonAssists?: number; seasonApps?: number; seasonRatingSum?: number; nationality?: string; }
+export interface NationT { key: string; name: string; flag: string; confed: string; }
 export interface PlayerSeasonStatT { season: number; club: string; role: string; goals: number; assists: number; apps: number; avgRating: number; }
 export interface AttrSnapshotT { season: number; round: number; ovr: number; attrs: Record<string, number>; }
 export interface TeamT {
@@ -302,6 +303,7 @@ export const api = {
   claimTeam: (worldId: number, teamId: number) => req<{ ok: boolean; teamId: number }>('POST', `/worlds/${worldId}/claim`, { teamId }),
   leaveWorld: () => req<{ ok: boolean }>('POST', '/worlds/leave'),
   setAutonomy: (mode: 'assistant' | 'full') => req<{ ok: boolean; autonomy: string }>('POST', '/autonomy', { mode }),
+  nations: () => req<{ nations: NationT[]; confeds: Record<string, string> }>('GET', '/nations'),
 };
 export interface JoinableWorldT { worldId: number; name: string; season: number; turn: number; intervalMin: number; unclaimed: number; total: number }
 export interface ClaimableTeamT { teamId: number; name: string; tier: number; division: string; overall: number; claimed: boolean; manager: string }

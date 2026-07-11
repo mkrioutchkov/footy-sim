@@ -95,6 +95,10 @@ ensureColumn('teams', 'lineup', 'lineup TEXT');   // json int[11]: formationSlot
 ensureColumn('teams', 'plan_text', 'plan_text TEXT');
 ensureColumn('teams', 'plan_directives', 'plan_directives TEXT');
 ensureColumn('players', 'personality', 'personality TEXT');   // json: LLM-generated traits/nationality/backstory/tagline; NULL = not generated yet
+// §national-teams: a real, indexed nationality on EVERY player (not just the human club's LLM personality).
+// A fixed nation key (see nations.ts); deterministic backfill by id. '' = not yet assigned.
+ensureColumn('players', 'nationality', "nationality TEXT NOT NULL DEFAULT ''");   // free_agents.nationality added after that table's CREATE below
+db.exec('CREATE INDEX IF NOT EXISTS idx_players_nationality ON players(nationality);');
 
 // ── Transfer market (pillar 1) ──────────────────────────────────────────────
 // Every team gets a transfer kitty; defaults so existing teams are unaffected.
@@ -137,6 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_free_agents_league ON free_agents(league_id);
 // rows; backfillPotentials() sets it from current OVR + an age-based headroom.
 ensureColumn('players', 'potential', 'potential INTEGER');
 ensureColumn('free_agents', 'potential', 'potential INTEGER');   // for pillar-1 pools that predate this
+ensureColumn('free_agents', 'nationality', "nationality TEXT NOT NULL DEFAULT ''");   // §national-teams (table created above)
 // Which attribute a club trains hardest ('balanced', 'position', or an attr key); nudges the drift.
 ensureColumn('teams', 'training_focus', "training_focus TEXT NOT NULL DEFAULT 'balanced'");
 // Per-player training focus (audit §2.7): overrides the club focus for one player. NULL = follow

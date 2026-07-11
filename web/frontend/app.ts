@@ -3216,7 +3216,7 @@ async function screenPlayer(slot: number) {
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, p.name),
-        h('div', { class: 'muted' }, `${p.role} · OVR ${ovr}${p.potential && p.potential > ovr ? ` → ${p.potential}` : ''}${p.age != null ? ` · ${p.age}y` : ''}${p.personality?.nationality ? ` · ${p.personality.nationality}` : ''}`),
+        h('div', { class: 'muted' }, `${p.role} · OVR ${ovr}${p.potential && p.potential > ovr ? ` → ${p.potential}` : ''}${p.age != null ? ` · ${p.age}y` : ''}${p.nationality ? ` · ${flagOf(p.nationality)} ${nationNameOf(p.nationality) || p.personality?.nationality || ''}`.trimEnd() : (p.personality?.nationality ? ` · ${p.personality.nationality}` : '')}`),
         p.wage != null ? h('div', { class: 'row', style: 'align-items:center;gap:10px;font-size:12px' },
           h('span', { class: 'muted' }, `Wage ${fmtMoney(p.wage)}/yr · ${p.contractYears ?? 0}y left`),
           (team.wageBudget != null && team.wageBill != null)   // §1.15: club wage headroom, so a renewal isn't a blind 400
@@ -4334,10 +4334,18 @@ function watchForNewVersion(): void {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void check(); });
 }
 
+// §national-teams: a tiny nation-key → flag-emoji cache, loaded once at boot so bios/squads render flags
+// synchronously. flagOf('') / unknown → '' (no flag), so it's safe before the fetch resolves.
+let nationMap: Map<string, { flag: string; name: string }> | null = null;
+function flagOf(key?: string | null): string { return (key && nationMap?.get(key)?.flag) || ''; }
+function nationNameOf(key?: string | null): string { return (key && nationMap?.get(key)?.name) || ''; }
+async function loadNations() { try { const r = await api.nations(); nationMap = new Map(r.nations.map(n => [n.key, { flag: n.flag, name: n.name }])); } catch { nationMap = new Map(); } }
+
 (async function boot() {
   try {
     const me = await api.me();
     user = me.user;
+    void loadNations();   // fire-and-forget; screens re-render on navigation so flags fill in
     if (user && me.teamId == null && location.hash !== '#/tactics') { screenCreateTeam(); return; }
   } catch { /* */ }
   route();

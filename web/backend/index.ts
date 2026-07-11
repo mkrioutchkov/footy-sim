@@ -26,6 +26,7 @@ import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from '.
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { worldForTeam, getWorld, ensureWorldForLeague, claimAdvanceLock, releaseAdvanceLock, recordWorldAdvanced, dueSharedWorlds, listJoinableWorlds } from './worlds.ts';
 import { prepareMatchdayHeuristic, setTacticsAndXI } from './manager/index.ts';
+import { NATIONS, CONFED_NAME, backfillNationalities } from './nations.ts';
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
@@ -54,6 +55,7 @@ const PORT = Number.parseInt(process.env.FOOTY_PORT ?? '4000', 10);
 backfillFreeAgents();
 backfillPotentials();
 backfillContracts();
+backfillNationalities();   // §national-teams: every player/free-agent gets a fixed-list nation + flag
 const app = Fastify({ logger: false });
 await app.register(cookie);
 
@@ -1367,6 +1369,12 @@ app.post('/api/tick', async (req: any, reply) => {
   const user = requireAdmin(req, reply); if (!user) return;
   const max = Math.min(500, Math.max(1, Number((req.query as any)?.max) || 25));
   return await runDueTicks(Date.now(), max);
+});
+
+// §national-teams: the fixed nation registry (key → name/flag/confederation). Fetched once by the UI to
+// render flags in player bios/squads + group tournaments by confederation.
+app.get('/api/nations', async () => {
+  return { nations: NATIONS.map(n => ({ key: n.key, name: n.name, flag: n.flag, confed: n.confed })), confeds: CONFED_NAME };
 });
 
 // §autonomous: the lobby — shared worlds a player can join, with their unclaimed-team counts.
