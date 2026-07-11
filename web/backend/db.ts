@@ -72,9 +72,27 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user  ON sessions(user_id);
 // Lightweight migrations (no framework): add a column only if it's missing, so an
 // existing DB upgrades in place. Each new column has a default that reproduces the
 // pre-migration behaviour (teams default to the 4-3-3 shape + identity XI).
-function ensureColumn(table: string, col: string, ddl: string): void {
+// Returns true iff the column was actually added (missing before) — lets a caller run a ONE-TIME
+// data backfill at the exact migration moment (the column is only ever added once in a DB's life).
+function ensureColumn(table: string, col: string, ddl: string): boolean {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  if (!cols.some(c => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  if (cols.some(c => c.name === col)) return false;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  return true;
+}
+
+// §footedness: deterministic weighted foot from a STABLE id (Knuth multiplicative hash → bucket 0..99):
+// ~72% right (1), ~25% left (-1), ~3% two-footed (0). Pure fn of the id, so a save's feet never shuffle
+// between boots and a re-run would be idempotent. Used ONLY for the one-time backfill of existing rows;
+// brand-new players get a fresh random draw at creation (game.genFoot).
+function deterministicFoot(id: number): number {
+  const bucket = (Math.imul(id >>> 0, 2654435761) >>> 0) % 100;
+  return bucket < 72 ? 1 : bucket < 97 ? -1 : 0;
+}
+function backfillFoot(table: 'players' | 'free_agents'): void {
+  const rows = db.prepare(`SELECT id FROM ${table}`).all() as { id: number }[];
+  const upd = db.prepare(`UPDATE ${table} SET foot = ? WHERE id = ?`);
+  for (const r of rows) upd.run(deterministicFoot(r.id), r.id);
 }
 // Admin flag: 0 = normal user, 1 = admin (may hit admin-only endpoints like /api/advance).
 // Defaults 0 so every existing + self-registered user is a normal user; admin is granted only
@@ -99,6 +117,12 @@ ensureColumn('players', 'personality', 'personality TEXT');   // json: LLM-gener
 // A fixed nation key (see nations.ts); deterministic backfill by id. '' = not yet assigned.
 ensureColumn('players', 'nationality', "nationality TEXT NOT NULL DEFAULT ''");   // free_agents.nationality added after that table's CREATE below
 db.exec('CREATE INDEX IF NOT EXISTS idx_players_nationality ON players(nationality);');
+// §footedness: a player's stronger foot — -1 left, 1 right, 0 two-footed. The engine reads it from the
+// match spec and DEFAULTS to 1 (right) when absent, so the column defaults to 1 (fully backward-compatible;
+// a right-footed player emits nothing new). New players get a realistic random draw at creation; EXISTING
+// rows are backfilled ONCE right here (only when the column is first added) — deterministically by id, so
+// a save stays stable. free_agents.foot is migrated after that table's CREATE below.
+if (ensureColumn('players', 'foot', 'foot INTEGER NOT NULL DEFAULT 1')) backfillFoot('players');
 
 // ── Transfer market (pillar 1) ──────────────────────────────────────────────
 // Every team gets a transfer kitty; defaults so existing teams are unaffected.
@@ -142,6 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_free_agents_league ON free_agents(league_id);
 ensureColumn('players', 'potential', 'potential INTEGER');
 ensureColumn('free_agents', 'potential', 'potential INTEGER');   // for pillar-1 pools that predate this
 ensureColumn('free_agents', 'nationality', "nationality TEXT NOT NULL DEFAULT ''");   // §national-teams (table created above)
+if (ensureColumn('free_agents', 'foot', 'foot INTEGER NOT NULL DEFAULT 1')) backfillFoot('free_agents');   // §footedness (table created above)
 // Which attribute a club trains hardest ('balanced', 'position', or an attr key); nudges the drift.
 ensureColumn('teams', 'training_focus', "training_focus TEXT NOT NULL DEFAULT 'balanced'");
 // Per-player training focus (audit §2.7): overrides the club focus for one player. NULL = follow

@@ -12,21 +12,21 @@ import { simulatePenaltyShootout, mulberry32 } from './shootout.ts';
 
 const parseJSON = (s: string | null): unknown => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 
-interface PoolPlayer { name: string; role: string; attrs: Record<string, number>; personality: unknown; ovr: number }
+interface PoolPlayer { name: string; role: string; attrs: Record<string, number>; personality: unknown; ovr: number; foot: number }
 function poolFor(worldId: number, nationKey: string): PoolPlayer[] {
   const leagueIds = worldLeagues(worldId).map(l => l.id);
   if (!leagueIds.length) return [];
   const ph = leagueIds.map(() => '?').join(',');
-  const club = db.prepare(`SELECT p.name, p.role, p.attrs, p.personality FROM players p JOIN teams t ON t.id = p.team_id WHERE t.league_id IN (${ph}) AND p.nationality = ?`).all(...leagueIds, nationKey) as { name: string; role: string; attrs: string; personality: string | null }[];
-  const fas = db.prepare(`SELECT name, role, attrs, personality FROM free_agents WHERE league_id IN (${ph}) AND nationality = ?`).all(...leagueIds, nationKey) as { name: string; role: string; attrs: string; personality: string | null }[];
-  return [...club, ...fas].map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs, p.role) }; });
+  const club = db.prepare(`SELECT p.name, p.role, p.attrs, p.personality, p.foot FROM players p JOIN teams t ON t.id = p.team_id WHERE t.league_id IN (${ph}) AND p.nationality = ?`).all(...leagueIds, nationKey) as { name: string; role: string; attrs: string; personality: string | null; foot: number | null }[];
+  const fas = db.prepare(`SELECT name, role, attrs, personality, foot FROM free_agents WHERE league_id IN (${ph}) AND nationality = ?`).all(...leagueIds, nationKey) as { name: string; role: string; attrs: string; personality: string | null; foot: number | null }[];
+  return [...club, ...fas].map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs, p.role), foot: p.foot ?? 1 }; });
 }
 
 // One best-XI picker for BOTH resolvers (national squads and Club World Cup clubs): sort the pool
 // by overall, fill the default formation's role slots (GK first — shootout.ts trusts slot 0 as the
 // keeper), pad with the best remaining. Two hand-kept copies of this loop would let the two
 // tournament families silently pick XIs by different rules.
-interface XiCandidate { name: string; role: string; attrs: Record<string, number>; personality: unknown; ovr: number }
+interface XiCandidate { name: string; role: string; attrs: Record<string, number>; personality: unknown; ovr: number; foot?: number }
 function pickXI(pool: XiCandidate[]): VirtualPlayer[] | null {
   const sorted = pool.slice().sort((a, b) => b.ovr - a.ovr);
   if (sorted.length < 11) return null;
@@ -35,7 +35,7 @@ function pickXI(pool: XiCandidate[]): VirtualPlayer[] | null {
     let idx = sorted.findIndex((p, i) => !used.has(i) && p.role === role);
     if (idx < 0) idx = sorted.findIndex((_, i) => !used.has(i));   // pad with the best remaining of any role
     used.add(idx); const p = sorted[idx];
-    xi.push({ name: p.name, role: p.role, attrs: p.attrs, personality: p.personality });
+    xi.push({ name: p.name, role: p.role, attrs: p.attrs, personality: p.personality, foot: p.foot ?? 1 });
   }
   return xi;
 }
@@ -108,8 +108,8 @@ async function runKnockout(tournamentId: number, seeded: string[], baseSeed: num
 // for a true cross-country CWC until worlds span multiple countries; here "the world's best clubs" is a
 // robust, always-available field (ranked by best-XI strength, no dependency on standings history).
 function clubXI(worldId: number, teamId: number): { xi: VirtualPlayer[]; strength: number } | null {
-  const rows = db.prepare('SELECT name, role, attrs, personality FROM players WHERE team_id = ?').all(teamId) as { name: string; role: string; attrs: string; personality: string | null }[];
-  const pool = rows.map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs, p.role) }; });
+  const rows = db.prepare('SELECT name, role, attrs, personality, foot FROM players WHERE team_id = ?').all(teamId) as { name: string; role: string; attrs: string; personality: string | null; foot: number | null }[];
+  const pool = rows.map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs, p.role), foot: p.foot ?? 1 }; });
   const xi = pickXI(pool);
   if (!xi) return null;
   const strength = Math.round(xi.slice(0, 11).reduce((s, p) => s + overall(p.attrs, p.role), 0) / 11);

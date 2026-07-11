@@ -6,7 +6,7 @@
 // appearing in the squad. AI clubs keep the auto-intake-to-squad path, so the AI world still renews itself.
 // Regens carry a neutral personality the manager can flesh out via the story editor (the text↔dial coupling).
 import { db } from './db.ts';
-import { overall, genAttrs, genPotential, playerWage, type EngineRole } from './game.ts';
+import { overall, genAttrs, genPotential, playerWage, genFoot, type EngineRole } from './game.ts';
 import { removePlayerFromSquad, SQUAD_MAX, SQUAD_MIN } from './market.ts';
 import { developAttrs } from './training.ts';
 import { randomPlayerName } from './names.ts';
@@ -60,7 +60,7 @@ function academyTick(teamId: number): void {
 // transaction (no tx of its own); run AFTER the contract tick so retirees leave the game, not the FA pool.
 export function youthAndRetirement(leagueId: number): YouthEvent[] {
   const events: YouthEvent[] = [];
-  const insSquad = db.prepare('INSERT INTO players (team_id, slot, name, role, attrs, age, potential, personality, wage, contract_years) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 3)');
+  const insSquad = db.prepare('INSERT INTO players (team_id, slot, name, role, attrs, age, potential, personality, wage, contract_years, foot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 3, ?)');
   for (const t of db.prepare('SELECT id, user_id FROM teams WHERE league_id = ?').all(leagueId) as { id: number; user_id: number | null }[]) {
     const id = t.id;
     // 1. retirement — oldest first, but never below a legal XI (re-resolve slot by id as removePlayerFromSquad renumbers).
@@ -86,7 +86,7 @@ export function youthAndRetirement(leagueId: number): YouthEvent[] {
         const name = randomPlayerName();
         const per = defaultPersonality(name, role);
         const maxSlot = (db.prepare('SELECT COALESCE(MAX(slot), -1) AS m FROM players WHERE team_id = ?').get(id) as { m: number }).m;
-        insSquad.run(id, maxSlot + 1, name, role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), JSON.stringify(per), playerWage(attrs, age, per, role));
+        insSquad.run(id, maxSlot + 1, name, role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), JSON.stringify(per), playerWage(attrs, age, per, role), genFoot());
         events.push({ teamId: id, type: 'intake', player: name, age });
       }
     }
@@ -109,8 +109,8 @@ export function promoteProspect(teamId: number, prospectId: number): { ok: boole
   if (!p) return { ok: false, error: 'no such prospect in your academy' };
   if (squadSize(teamId) >= SQUAD_MAX) return { ok: false, error: `squad full (max ${SQUAD_MAX}) — sell or release first` };
   const maxSlot = (db.prepare('SELECT COALESCE(MAX(slot), -1) AS m FROM players WHERE team_id = ?').get(teamId) as { m: number }).m;
-  db.prepare('INSERT INTO players (team_id, slot, name, role, attrs, age, potential, personality, wage, contract_years) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 3)')
-    .run(teamId, maxSlot + 1, p.name, p.role, p.attrs, p.age, p.potential, p.personality, playerWage(JSON.parse(p.attrs), p.age, parseJSON(p.personality)));
+  db.prepare('INSERT INTO players (team_id, slot, name, role, attrs, age, potential, personality, wage, contract_years, foot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 3, ?)')
+    .run(teamId, maxSlot + 1, p.name, p.role, p.attrs, p.age, p.potential, p.personality, playerWage(JSON.parse(p.attrs), p.age, parseJSON(p.personality)), genFoot());
   db.prepare('DELETE FROM youth_prospects WHERE id = ?').run(prospectId);
   return { ok: true, player: p.name };
 }
