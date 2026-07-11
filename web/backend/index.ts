@@ -25,6 +25,7 @@ import { seedAcademy, getAcademy, promoteProspect } from './youth.ts';
 import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from './teamtalk.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
 import { worldForTeam, getWorld, ensureWorldForLeague, claimAdvanceLock, releaseAdvanceLock, recordWorldAdvanced, dueSharedWorlds, listJoinableWorlds } from './worlds.ts';
+import { prepareMatchdayHeuristic, setTacticsAndXI } from './manager/index.ts';
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
@@ -69,9 +70,16 @@ function setSession(reply: any, userId: number): void {
   const sid = createSession(userId);
   reply.setCookie('sid', sid, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30 });
 }
+const lastSeenStamp = new Map<number, number>();   // throttle the last_seen write to ≤1/min per user
 function requireUser(req: any, reply: any): User | null {
   const u = currentUser(req);
   if (!u) { reply.code(401).send({ error: 'not logged in' }); return null; }
+  // §autonomous: record activity so the assistant manager knows when a human is present vs away.
+  const now = Date.now();
+  if ((lastSeenStamp.get(u.id) ?? 0) < now - 60000) {
+    lastSeenStamp.set(u.id, now);
+    try { db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(now, u.id); } catch { /* non-fatal */ }
+  }
   return u;
 }
 // Admin-only gate. A non-admin (or logged-out) caller can NEVER pass — the endpoint 404s to
@@ -1169,6 +1177,41 @@ interface WorldTurnCore {
   rollover: any | null; cupChampion: number | null; cupRound: number | null; humans: Map<number, HumanTurnPayload>;
 }
 
+// §manager-ai: the heuristic manager runs in the pre-matchday pass (default on; FOOTY_MANAGER_AI=0 reverts
+// to the old XI-only aiManagerTick). ABSENT_MS = how long a human can be away before the assistant takes over.
+const MANAGER_AI_ON = process.env.FOOTY_MANAGER_AI !== '0';
+const ABSENT_MS = Math.max(1, Number(process.env.FOOTY_ABSENT_HOURS) || 30) * 3600000;
+
+// Pre-matchday manager pass: set every AI club's formation/XI/plan (+ transfers) and auto-run any ABSENT
+// human's club (assistant tier = tactics + XI, never spends; or full if they opted in). A PRESENT human
+// keeps their own setup. Heuristic-only (deterministic, no LLM) → replay-safe + fast at scale.
+function runManagerPrePass(fixtureIds: number[]): void {
+  if (!MANAGER_AI_ON || !fixtureIds.length) return;
+  const nowMs = Date.now();
+  const seen = new Set<number>();
+  const fxRow = db.prepare('SELECT home_team_id AS h, away_team_id AS a FROM fixtures WHERE id = ?');
+  const teamRow = db.prepare('SELECT t.user_id AS uid, t.autonomy AS autonomy, u.last_seen AS last_seen FROM teams t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = ?');
+  for (const fid of fixtureIds) {
+    const fx = fxRow.get(fid) as { h: number; a: number } | undefined;
+    if (!fx) continue;
+    for (const tid of [fx.h, fx.a]) {
+      if (seen.has(tid)) continue; seen.add(tid);
+      const t = teamRow.get(tid) as { uid: number | null; autonomy: string | null; last_seen: number | null } | undefined;
+      if (!t) continue;
+      try {
+        if (t.uid == null) {
+          setTacticsAndXI(tid);   // AI club: formation/XI/plan (transfers stay with marketTick — no double-trade)
+        } else if (t.last_seen == null || (nowMs - t.last_seen) > ABSENT_MS) {
+          // absent human: assistant = tactics + XI, no spend; full (opt-in) = also transfers/renewals
+          if (t.autonomy === 'full') prepareMatchdayHeuristic(tid, 'full');
+          else setTacticsAndXI(tid);
+        }
+        // a present human keeps their own tactics/XI
+      } catch { /* a manager error never blocks the matchday */ }
+    }
+  }
+}
+
 function humanTeamIdsInWorld(leagueIds: number[]): number[] {
   if (!leagueIds.length) return [];
   const ph = leagueIds.map(() => '?').join(',');
@@ -1193,6 +1236,7 @@ async function advanceWorldCore(worldLeagueId: number): Promise<WorldTurnCore> {
     preCtx.set(tid, { round: rnd, fx });
   }
 
+  runManagerPrePass(toPlay);   // §manager-ai: AI clubs + absent humans get their formation/XI/plan set now
   const results = await mapPool(toPlay, id => playFixture(id));   // core-capped: the whole world's matchday
   for (const r of results) { if (r && r.players) { try { tallyDivisionRatings(r.fixtureId, r.players); } catch { /* ambient */ } } }
 
@@ -1329,6 +1373,17 @@ app.post('/api/tick', async (req: any, reply) => {
 app.get('/api/worlds', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   return { worlds: listJoinableWorlds() };
+});
+
+// §autonomous: opt into full autonomy (the assistant also makes transfers while you're away) or back to
+// the default 'assistant' tier (tactics + XI only, never spends). Read on the team payload.
+app.post('/api/autonomy', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const mode = req.body?.mode === 'full' ? 'full' : 'assistant';
+  db.prepare('UPDATE teams SET autonomy = ? WHERE id = ?').run(mode, teamId);
+  return { ok: true, autonomy: mode };
 });
 
 // §autonomous: admin — spin up a fresh shared (autonomous) world of all-AI clubs open for claims.

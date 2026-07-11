@@ -130,6 +130,16 @@ export function prepareMatchdayHeuristic(teamId: number, autonomy: Autonomy): vo
   persistPlan(teamId, fb.summary, fb);
 }
 
+// Formation + best XI + a deterministic engine-legal plan, WITHOUT transfers. Used by the matchday
+// pre-pass for AI clubs (whose transfers are already handled by marketTick — calling manageTransfers here
+// too would double-trade) and for an absent human on the 'assistant' tier (real tactics, never spends).
+export function setTacticsAndXI(teamId: number): void {
+  const built = persistShapeAndXI(teamId);
+  if (!built) return;
+  const fb = fallbackPlan({ teamName: getTeamWithPlayers(teamId)?.name ?? 'The team', squad: built.xi, formation: built.formation });
+  persistPlan(teamId, fb.summary, fb);
+}
+
 // ── The integration convenience: prepare every club playing this matchday ───────
 // This is what the matchday tick calls — ONE await before the synchronous fire path. Given the
 // pending fixture ids, it resolves the distinct teams about to play and prepares each at the right

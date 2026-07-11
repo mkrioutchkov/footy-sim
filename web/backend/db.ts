@@ -80,6 +80,12 @@ function ensureColumn(table: string, col: string, ddl: string): void {
 // Defaults 0 so every existing + self-registered user is a normal user; admin is granted only
 // by the maxk seed (auth.seedAdminUser) or a manual DB update.
 ensureColumn('users', 'is_admin', 'is_admin INTEGER NOT NULL DEFAULT 0');
+// §autonomous: last authed activity (ms) — drives the assistant manager (an ABSENT human's club is
+// auto-run when the scheduler advances a shared world). NULL = never seen → treated as absent.
+ensureColumn('users', 'last_seen', 'last_seen INTEGER');
+// §autonomous: per-team autonomy the assistant honours when the human is away. 'assistant' = tactics +
+// XI only, never spends (default); 'full' = also make transfers/renewals like a fully-AI club.
+ensureColumn('teams', 'autonomy', "autonomy TEXT NOT NULL DEFAULT 'assistant'");
 ensureColumn('teams', 'formation', "formation TEXT NOT NULL DEFAULT '4-3-3'");
 ensureColumn('teams', 'lineup', 'lineup TEXT');   // json int[11]: formationSlot -> player slot; NULL = identity XI
 // Plain-English standing tactical plan (replaces the human 5-dial UI). plan_text = the manager's
