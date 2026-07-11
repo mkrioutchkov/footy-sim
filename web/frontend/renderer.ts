@@ -77,6 +77,7 @@ export class MatchRenderer {
   private prevFeedKey = '';   // dirty-check — don't rebuild the feed rows on every sync
   private seenEventKeys: Set<string> = new Set();
   private lastGoalScorer = '';   // most recent goal-event scorer name — fed to the goal banner
+  private lastGoalScorerId: number | null = null;   // most recent goal-event scorer id — fed to the celebration (dot flash)
   private commentaryNth = 0;     // advances per rotated commentary line so same-minute events don't repeat phrasing
   // ── live stats + momentum ("PRESSURE" panel) ── per-team tallies accumulated off the SAME
   // de-duped event loop as the feed (so a goal counts once), plus a signed momentum scalar.
@@ -105,6 +106,25 @@ export class MatchRenderer {
   private lastSetPieceType: string | null = null;   // corner edge-detection
   private bannerEl: HTMLDivElement | null = null;
   private bannerHideAt = 0;
+  // ── goal celebration (canvas FX) ── a time-based sequence painted in renderFrame (non-blocking): a
+  // radiating ring burst at the scored-on goal mouth + a slow flash on the scorer's disc + a score-bug
+  // pulse. Purely deadline-driven off performance.now(), so a rapid seek/replay just lets it lapse
+  // (startGoalCelebration is never called under replayMode, and updateMoments zeroes goalCelebStart on a seek).
+  private goalFxGfx: Graphics;
+  private goalCelebStart = 0;             // performance.now() the celebration began (0 = idle)
+  private goalCelebDur = 2500;            // the FX runs ~2.5s
+  private goalCelebScorerId: number | null = null;
+  private goalCelebGoalX = 0;             // goal-mouth centre the ring burst radiates from
+  private goalCelebGoalY = 0;
+  private goalCelebHome = true;           // scoring side → burst colour
+  // ── event popups (toast stack) ── a small top-right stack of transient "very temporary" reporting
+  // toasts (goal / card / penalty / own-goal / sub). Deadline-pruned in renderFrame (which is paused
+  // while the tab is hidden, so nothing piles up; on return the resumed ticker flushes any stale ones
+  // in one pass) — no per-toast setTimeout, so long sessions can't leak timers. Capped at 3, newest on top.
+  private toastEl: HTMLDivElement | null = null;
+  private toasts: { el: HTMLDivElement; deadline: number }[] = [];
+  private static readonly TOAST_MS = 4000;
+  private static readonly TOAST_MAX = 3;
   private replayMode = false;            // a goal replay is driving sync() — show a REPLAY overlay, suppress the live goal banner
   private panelEl: HTMLDivElement | null = null;
   private panelHideAt = 0;
@@ -135,6 +155,15 @@ export class MatchRenderer {
   private playerTargets: Map<number, { id: number; px: number; py: number; tx: number; ty: number }> = new Map();
   private ballPrev = { x: 0, y: 0, z: 0 };
   private ballTarget = { x: 0, y: 0, z: 0 };
+  // ── curve-following ball tween ── the engine samples ball positions per frame, so a bent/curling flight
+  // is already curved in the DATA; but tweening prev→target LINEARLY draws the CHORD between two samples,
+  // shaving the bow off a strong curl over a long (~250ms) segment. When the ball is in free flight we
+  // instead cubic-Hermite the position using the engine's own ball velocity at each endpoint as the
+  // tangents, so the interpolated path follows the arc, not the chord. Off (linear) for carried balls,
+  // snapped segments and near-stationary balls — a straight pass reduces to a line either way.
+  private ballPrevVx = 0; private ballPrevVy = 0;    // ball velocity reported at the segment START (prev frame)
+  private ballTargetVx = 0; private ballTargetVy = 0; // ball velocity reported at the segment END (this frame)
+  private ballCurveActive = false;                    // use the Hermite path this segment (in-flight, not snapped)
   // Ball velocity heading of the previous ingested frame — a sharp (>45°) swing between consecutive
   // in-flight frames snaps the tween (prev=target) instead of smoothing through the corner, so a
   // first-time pass / deflection reads as a crisp change of direction, not a fake orbiting arc.
@@ -190,6 +219,7 @@ export class MatchRenderer {
     this.ballGlow = new Graphics();
     this.ballHighlight = new Graphics();
     this.eventGfx = new Graphics();
+    this.goalFxGfx = new Graphics();
     this.jockeyGfx = new Graphics();
     this.setPieceGfx = new Graphics();
     this.setPieceText = new Text({ text: '', style: new TextStyle({ fill: 0xffffff, fontSize: 15, fontFamily: 'monospace', fontWeight: 'bold' }) });
@@ -292,9 +322,20 @@ export class MatchRenderer {
     if (!document.getElementById('footy-goalpop-kf')) {
       const st = document.createElement('style');
       st.id = 'footy-goalpop-kf';
-      st.textContent = '@keyframes footyGoalPop{0%{transform:translateX(-50%) scale(.5);opacity:0}55%{transform:translateX(-50%) scale(1.12);opacity:1}100%{transform:translateX(-50%) scale(1);opacity:1}}';
+      // goal-banner pop + the score-bug pulse (a quick scale/glow on the DOM scoreboard) + the toast
+      // slide-in — CSS keyframes so they cost nothing per frame and re-trigger by resetting the animation.
+      st.textContent =
+        '@keyframes footyGoalPop{0%{transform:translateX(-50%) scale(.5);opacity:0}55%{transform:translateX(-50%) scale(1.12);opacity:1}100%{transform:translateX(-50%) scale(1);opacity:1}}'
+        + '@keyframes footyScorePulse{0%{transform:scale(1)}30%{transform:scale(1.35)}100%{transform:scale(1)}}'
+        + '@keyframes footyToastIn{0%{transform:translateX(18px);opacity:0}100%{transform:translateX(0);opacity:1}}';
       document.head.appendChild(st);
     }
+    // ── event-popup toast stack ── renderer-owned (like the HUD/feed/banner), fixed top-right of the pitch.
+    // setReservedTop/Right keep it clear of the scoreboard/control bar and the docked tactics panel.
+    this.toastEl = document.createElement('div');
+    this.toastEl.className = 'watch-toasts';
+    document.body.appendChild(this.toastEl);
+    this.positionToasts();
     this.panelEl = document.createElement('div');
     Object.assign(this.panelEl.style, {
       position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
@@ -344,6 +385,8 @@ export class MatchRenderer {
     try { this.statPanelEl?.remove(); } catch { /* */ }   // may be docked inside the tactics panel — remove() is safe either way
     try { this.bannerEl?.remove(); } catch { /* */ }
     try { this.panelEl?.remove(); } catch { /* */ }
+    // toasts hold no timers (deadline-pruned in renderFrame), so tearing down is just detaching the nodes
+    try { this.toastEl?.remove(); } catch { /* */ } this.toasts = [];
     // Free the WebGL context. Browsers cap live contexts (~16) and Pixi's destroy() leaves it for the
     // GC, so opening/closing many watches in one SPA session leaks contexts — eventually a later
     // renderer.init() silently fails and the watch shows a blank pitch (until a reload). A LIVE match
@@ -373,6 +416,7 @@ export class MatchRenderer {
     const v = Math.max(0, Math.round(px));
     if (v === this.reservedRight) return;
     this.reservedRight = v;
+    this.positionToasts();   // keep the toast stack left of the docked tactics panel
     if (!this.destroyed && this.app.renderer) this.calcTransform();
   }
 
@@ -382,7 +426,50 @@ export class MatchRenderer {
     const v = Math.max(0, Math.round(px));
     if (v === this.reservedTop) return;
     this.reservedTop = v;
+    this.positionToasts();   // keep the toast stack below the scoreboard + control bar
     if (!this.destroyed && this.app.renderer) this.calcTransform();
+  }
+
+  // Anchor the toast stack top-right of the pitch view: below the scoreboard/control bar (reservedTop)
+  // and left of the docked tactics panel (reservedRight). Called on init + whenever a reserve changes.
+  private positionToasts(): void {
+    if (!this.toastEl) return;
+    this.toastEl.style.top = `${this.reservedTop + 6}px`;
+    this.toastEl.style.right = `${this.reservedRight + 12}px`;
+  }
+
+  // Push a transient reporting toast (newest on top, capped, deadline-pruned in renderFrame). Suppressed
+  // while a replay/rewind drives the renderer so a rewound goal/card doesn't re-pop. No timers held.
+  private pushToast(icon: string, text: string, kind: 'goal' | 'card' | 'pen' | 'sub' | 'og'): void {
+    if (!this.toastEl || this.replayMode) return;
+    const el = document.createElement('div');
+    el.className = `watch-toast wt-${kind}`;
+    el.style.animation = 'footyToastIn .22s ease-out';
+    const ic = document.createElement('span'); ic.className = 'wt-ic'; ic.textContent = icon;
+    const tx = document.createElement('span'); tx.className = 'wt-tx'; tx.textContent = text;
+    el.appendChild(ic); el.appendChild(tx);
+    this.toastEl.prepend(el);   // newest on top
+    this.toasts.unshift({ el, deadline: performance.now() + MatchRenderer.TOAST_MS });
+    while (this.toasts.length > MatchRenderer.TOAST_MAX) {
+      const old = this.toasts.pop();   // drop the oldest (bottom of the stack)
+      if (old) old.el.remove();
+    }
+    (window as unknown as { __toasts?: number }).__toasts = this.toasts.length;   // verify hook
+  }
+
+  // Remove toasts whose deadline has passed. Runs from renderFrame (paused while the tab is hidden),
+  // so on a background→foreground return every stale toast is flushed in one pass instead of lingering.
+  private pruneToasts(now: number): void {
+    if (!this.toasts.length) return;
+    for (let i = this.toasts.length - 1; i >= 0; i--) {
+      if (now >= this.toasts[i].deadline) { this.toasts[i].el.remove(); this.toasts.splice(i, 1); }
+    }
+  }
+
+  // Clear the whole stack (match restart / rewind detected in updateTicker).
+  private clearToasts(): void {
+    for (const t of this.toasts) t.el.remove();
+    this.toasts = [];
   }
 
   // The DOM scoreboard strip — screenWatch measures it (together with its own control bar) to
@@ -492,6 +579,8 @@ export class MatchRenderer {
     for (const label of this.eventLabels) this.pitchContainer.addChild(label);
     this.pitchContainer.addChild(this.setPieceGfx);
     this.pitchContainer.addChild(this.setPieceText);
+    // goal celebration FX (ring burst + scorer flash) ride above events/set-piece but still below the ball
+    this.pitchContainer.addChild(this.goalFxGfx);
     // BALL ALWAYS ON TOP — added LAST so no player, event effect, set-piece marker or overlay sprite can
     // ever occlude it (owner bug: the ball vanished under other chrome). The HUD DOM strip is faded
     // separately in renderFrame when the ball's screen position would slide under it. The elevation halo
@@ -561,8 +650,32 @@ export class MatchRenderer {
 
     // ball — tween its position FIRST (renderFrame owns visualBall) so the player loop aims boots at the
     // CURRENT-tick ball (F7 review: it was reading the previous tick's visualBall → a ~16ms boot-aim lag).
-    const ibx = lerp(this.ballPrev.x, this.ballTarget.x, t);
-    const iby = lerp(this.ballPrev.y, this.ballTarget.y, t);
+    // Curve-following: in free flight, cubic-Hermite through the engine's ball velocity at each endpoint
+    // so a curling flight follows its arc instead of the straight chord between the two samples; a straight
+    // pass, a carried ball or a snapped segment falls back to a plain linear lerp (see ballCurveActive).
+    let ibx: number, iby: number;
+    if (this.ballCurveActive) {
+      const dtSec = this.segDur / 1000;
+      const p0x = this.ballPrev.x, p0y = this.ballPrev.y, p1x = this.ballTarget.x, p1y = this.ballTarget.y;
+      // tangents = velocity·dt, but capped to ~1.25× the chord so a decelerating (friction) or fast-sampled
+      // ball can't overshoot p1 and wobble back — the DIRECTION of each tangent (which carries the curl) is
+      // what matters, not its raw length.
+      const chord = Math.hypot(p1x - p0x, p1y - p0y) || 1;
+      const cap = chord * 1.25;
+      const capTan = (vx: number, vy: number): [number, number] => {
+        let mx = vx * dtSec, my = vy * dtSec; const mag = Math.hypot(mx, my);
+        if (mag > cap) { const k = cap / mag; mx *= k; my *= k; } return [mx, my];
+      };
+      const [m0x, m0y] = capTan(this.ballPrevVx, this.ballPrevVy);
+      const [m1x, m1y] = capTan(this.ballTargetVx, this.ballTargetVy);
+      const t2 = t * t, t3 = t2 * t;
+      const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+      ibx = h00 * p0x + h10 * m0x + h01 * p1x + h11 * m1x;
+      iby = h00 * p0y + h10 * m0y + h01 * p1y + h11 * m1y;
+    } else {
+      ibx = lerp(this.ballPrev.x, this.ballTarget.x, t);
+      iby = lerp(this.ballPrev.y, this.ballTarget.y, t);
+    }
     const ibz = lerp(this.ballPrev.z, this.ballTarget.z, t);
     if (!this.visualBall) this.visualBall = { x: ibx, y: iby, z: ibz };
     else { this.visualBall.x = ibx; this.visualBall.y = iby; this.visualBall.z = ibz; }
@@ -739,7 +852,85 @@ export class MatchRenderer {
         }
       }
     }
+
+    // ── goal celebration FX (time-based, non-blocking) ── redrawn every tick off performance.now(); it
+    // simply lapses when its window elapses. Suppressed under replayMode so a rewind/replay never re-fires it.
+    this.drawGoalCelebration(now);
+    // ── event toasts ── deadline-pruned here (not via setTimeout) so a hidden→visible return flushes any
+    // stale toasts in one pass and no per-toast timer can leak across a long watch session.
+    this.pruneToasts(now);
   };
+
+  // Draw the goal celebration onto goalFxGfx: a radiating ring burst at the scored-on goal mouth + a
+  // slow flash hugging the scorer's disc. All keyed on elapsed time since startGoalCelebration; a rapid
+  // seek/replay just lets the window lapse (goalCelebStart is zeroed on a seek and never set under replay).
+  private drawGoalCelebration(now: number): void {
+    const g = this.goalFxGfx;
+    const elapsed = this.goalCelebStart ? now - this.goalCelebStart : Infinity;
+    if (this.replayMode || elapsed >= this.goalCelebDur) {
+      if (this.goalCelebStart) { this.goalCelebStart = 0; g.clear(); }   // clear once when the window closes
+      return;
+    }
+    g.clear();
+    const t = clamp(elapsed / this.goalCelebDur, 0, 1);        // 0..1 over the whole sequence
+    const fade = 1 - t;
+    const col = this.goalCelebHome ? 0xff8a8a : 0x9ecbff;      // scoring side's colour
+    // radiating ring burst at the goal mouth — three staggered rings expanding + fading outward.
+    const gx = this.goalCelebGoalX, gy = this.goalCelebGoalY;
+    for (let k = 0; k < 3; k++) {
+      const rt = clamp(t * 1.35 - k * 0.18, 0, 1);             // each ring launches slightly later
+      if (rt <= 0 || rt >= 1) continue;
+      const rr = 12 + rt * 120;
+      g.circle(gx, gy, rr);
+      g.stroke({ width: 3.5 * (1 - rt), color: k === 1 ? 0xffe97a : col, alpha: (1 - rt) * 0.85 });
+    }
+    // a bright spark core at the goal mouth for the first third
+    if (t < 0.34) {
+      g.circle(gx, gy, 6 + t * 26);
+      g.fill({ color: 0xffe97a, alpha: (0.34 - t) * 1.6 });
+    }
+    // scorer disc slow-flash — a soft glow + ring pulsing ~2×/sec that hugs the scorer's tweened position.
+    if (this.goalCelebScorerId != null) {
+      const v = this.visualPlayers.get(this.goalCelebScorerId);
+      if (v) {
+        const flash = 0.5 + 0.5 * Math.sin(elapsed * 0.012);   // slow flash
+        g.circle(v.x, v.y, DISC_R + 3 + flash * 4);
+        g.stroke({ width: 3, color: 0xffe97a, alpha: fade * (0.35 + flash * 0.5) });
+        g.circle(v.x, v.y, DISC_R + 1);
+        g.fill({ color: 0xffffff, alpha: fade * flash * 0.28 });
+      }
+    }
+  }
+
+  // Arm the goal celebration: record the start time, scoring side, scorer id (for the disc flash) and the
+  // goal-mouth the burst radiates from. homeAttacksX is set by updateMomentum (which runs earlier in sync);
+  // if it isn't known yet we aim the burst at the goal nearer the scorer, or the centre spot as a last resort.
+  private startGoalCelebration(homeScored: boolean, now: number): void {
+    this.goalCelebStart = now;
+    this.goalCelebHome = homeScored;
+    this.goalCelebScorerId = this.lastGoalScorerId;
+    let gx: number;
+    if (this.homeAttacksX !== null) {
+      const homeGoalMouth = this.homeAttacksX;   // the goal HOME attacks toward = where a home goal is scored
+      gx = homeScored ? homeGoalMouth : (homeGoalMouth === 0 ? PITCH_W : 0);
+    } else {
+      const v = this.goalCelebScorerId != null ? this.visualPlayers.get(this.goalCelebScorerId) : undefined;
+      gx = v ? (v.x < PITCH_W / 2 ? 0 : PITCH_W) : PITCH_W / 2;
+    }
+    this.goalCelebGoalX = gx; this.goalCelebGoalY = PITCH_H / 2;
+    (window as unknown as { __goalCeleb?: unknown }).__goalCeleb = { at: Math.round(now), home: homeScored, gx, scorer: this.goalCelebScorerId };   // verify hook
+  }
+
+  // A quick scale/glow pulse on the DOM score value — the "score-bug pulse" of the celebration. CSS keyframe
+  // re-triggered by resetting the animation (a reflow between). Cheap, one-shot, no per-frame cost.
+  private pulseScoreBug(): void {
+    const el = this.hudRefs?.score;
+    if (!el) return;
+    el.style.display = 'inline-block';   // a span won't take transform:scale while inline
+    el.style.transformOrigin = 'center';
+    el.style.animation = 'none'; void el.offsetWidth;
+    el.style.animation = 'footyScorePulse .6s ease-out';
+  }
 
   sync(state: EngineState): void {
     if (RENDER_DEBUG && this.animTime === 0) console.log('[HUD] first sync, state keys:', Object.keys(state).filter(k => ['homeScore','homeShots','possessionPct','clockMs','matchState'].includes(k)).map(k => `${k}=${(state as any)[k]}`).join(', '));
@@ -793,7 +984,12 @@ export class MatchRenderer {
     const vb = this.visualBall ?? { x: b.x, y: b.y, z: b.z ?? 0 };
     this.ballPrev = { x: vb.x, y: vb.y, z: vb.z };
     this.ballTarget = { x: b.x, y: b.y, z: b.z ?? 0 };
-    if (Math.hypot(b.x - vb.x, b.y - vb.y) > 160) this.ballPrev = { ...this.ballTarget };
+    // Curve tween tangents: the previous frame's END velocity is this segment's START tangent; this frame's
+    // is the END tangent (renderFrame Hermites between them). Carry BEFORE overwriting the target velocity.
+    this.ballPrevVx = this.ballTargetVx; this.ballPrevVy = this.ballTargetVy;
+    this.ballTargetVx = b.vx; this.ballTargetVy = b.vy;
+    let snapped = false;
+    if (Math.hypot(b.x - vb.x, b.y - vb.y) > 160) { this.ballPrev = { ...this.ballTarget }; snapped = true; }
     // ── sharp-direction snap ── a first-time pass, deflection or ricochet swings the ball's heading hard
     // between two consecutive frames. Linear-tweening from the OLD trajectory's tail into the new one bows
     // the path into a fake orbiting arc across the segment. If the ball is in flight and its velocity
@@ -803,10 +999,15 @@ export class MatchRenderer {
     if (b.controllerId === null && bSpeedSq > 400 && this.prevBallSpeedSq > 400) {
       const dir = Math.atan2(b.vy, b.vx);
       const dd = Math.abs(Math.atan2(Math.sin(dir - this.prevBallDir), Math.cos(dir - this.prevBallDir)));
-      if (dd > Math.PI / 4) this.ballPrev = { ...this.ballTarget };
+      if (dd > Math.PI / 4) { this.ballPrev = { ...this.ballTarget }; snapped = true; }
     }
     if (bSpeedSq > 400) { this.prevBallDir = Math.atan2(b.vy, b.vx); this.prevBallSpeedSq = bSpeedSq; }
     else this.prevBallSpeedSq = bSpeedSq;
+    // Curve-follow the tween only for a free-flight ball with real speed and no snap this segment. A carried
+    // ball, a stationary/slow ball or a snapped redirect uses the plain linear lerp (a straight pass reduces
+    // to a line under Hermite anyway — the endpoint tangents lie along the chord — so this is purely a guard).
+    this.ballCurveActive = b.controllerId === null && bSpeedSq > 400 && !snapped;
+    (window as unknown as { __ballCurve?: boolean }).__ballCurve = this.ballCurveActive;   // verify hook
 
     // ── trail ──
     if (b.controllerId === null && ballSpeed > 20) {
@@ -1124,7 +1325,9 @@ export class MatchRenderer {
     let labelIdx = 0;
     for (const ev of (state.events ?? [])) {
       const skillLike = ev.type === 'skill' || ev.type === 'dragback';
-      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : ev.type === 'nutmeg' ? 1000 : ev.type === 'tip' ? 1600 : skillLike ? 650 : 2200;
+      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : ev.type === 'nutmeg' ? 1000
+        : ev.type === 'tip' ? 1600 : ev.type === 'stepover' ? 450 : ev.type === 'roulette' ? 520 : ev.type === 'gk_punch' ? 460
+        : skillLike ? 650 : 2200;
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
       if (ev.type === 'pass') {
@@ -1166,6 +1369,11 @@ export class MatchRenderer {
         }
         this.eventGfx.circle(cx, cy, PLAYER_R + 2 + t * 9);
         this.eventGfx.stroke({ width: 2, color: 0xff6b6b, alpha: alpha * 0.7 });
+        // a bright flash ON the beaten defender for the first third — the ball went THROUGH him.
+        if (t < 0.33) {
+          this.eventGfx.circle(cx, cy, PLAYER_R + 1);
+          this.eventGfx.fill({ color: 0xffffff, alpha: (0.33 - t) * 1.9 });
+        }
         if (labelIdx < this.eventLabels.length) {
           const label = this.eventLabels[labelIdx++];
           label.text = 'NUTMEG!';
@@ -1189,6 +1397,76 @@ export class MatchRenderer {
           const a0 = spin * dir + (dir > 0 ? 0 : Math.PI);
           this.eventGfx.arc(cx, cy, sr, a0, a0 + Math.PI * 0.85);
           this.eventGfx.stroke({ width: 2.5, color: swirlColor, alpha: alpha * 0.9 });
+        }
+        continue;
+      }
+      if (ev.type === 'stepover') {
+        // Quick left-right feint: two small ellipses sweeping to either side of the carrier's feet (the
+        // shimmy), plus a light foot-flick tick trailing the current swing side. Anchored to the carrier's
+        // smoothed position (playerId), falling back to the event spot. ~450ms, subtle (no callout).
+        const mover = ev.playerId != null ? byId.get(ev.playerId) : undefined;
+        const cx = mover ? (this.visualPlayers.get(mover.id)?.x ?? mover.x) : ev.x;
+        const cy = mover ? (this.visualPlayers.get(mover.id)?.y ?? mover.y) : ev.y;
+        const t = ev.age / lifetime;
+        const col = this.eventColor('stepover');
+        const swing = Math.sin(t * Math.PI * 3);          // ~1.5 left-right cycles across the move
+        for (const s of [1, -1]) {
+          const ox = s * swing * (PLAYER_R + 5);
+          this.eventGfx.ellipse(cx + ox, cy + PLAYER_R * 0.35, 6.5, 3.4);
+          this.eventGfx.stroke({ width: 2, color: col, alpha: alpha * (0.9 - t * 0.35) });
+        }
+        this.eventGfx.moveTo(cx, cy + PLAYER_R * 0.35);
+        this.eventGfx.lineTo(cx + swing * (PLAYER_R + 9), cy + PLAYER_R * 0.35);
+        this.eventGfx.stroke({ width: 1.5, color: col, alpha: alpha * 0.5 });
+        continue;
+      }
+      if (ev.type === 'roulette') {
+        // Zidane roulette: a comet arc whose leading edge sweeps a full 360° around the carrier over the
+        // move, with a bright spin-dot (the ball dragged round on the sole) riding the leading edge. ~520ms.
+        const mover = ev.playerId != null ? byId.get(ev.playerId) : undefined;
+        const cx = mover ? (this.visualPlayers.get(mover.id)?.x ?? mover.x) : ev.x;
+        const cy = mover ? (this.visualPlayers.get(mover.id)?.y ?? mover.y) : ev.y;
+        const t = ev.age / lifetime;
+        const col = this.eventColor('roulette');
+        const rr = PLAYER_R + 5 + t * 6;
+        const head = -Math.PI / 2 + t * Math.PI * 2;      // leading edge → one full turn
+        this.eventGfx.arc(cx, cy, rr, head - Math.PI * 1.25, head);
+        this.eventGfx.stroke({ width: 3, color: col, alpha });
+        this.eventGfx.circle(cx + Math.cos(head) * rr, cy + Math.sin(head) * rr, 2.6);
+        this.eventGfx.fill({ color: 0xffffff, alpha });
+        continue;
+      }
+      if (ev.type === 'gk_punch') {
+        // Keeper punch: a short radial burst of spokes from the fists + a bright deflection streak sending
+        // the ball away along its heading (or clearing toward midfield if it's momentarily slow), with a
+        // ball-glint at the streak tip and a "PUNCH!" call. Anchored to the keeper (playerId). ~460ms.
+        const gk = ev.playerId != null ? byId.get(ev.playerId) : undefined;
+        const cx = gk ? (this.visualPlayers.get(gk.id)?.x ?? gk.x) : ev.x;
+        const cy = gk ? (this.visualPlayers.get(gk.id)?.y ?? gk.y) : ev.y;
+        const t = ev.age / lifetime;
+        const col = this.eventColor('gk_punch');
+        const r0 = PLAYER_R + 2, r1 = PLAYER_R + 6 + t * 16;
+        for (let s = 0; s < 8; s++) {
+          const a = (s / 8) * Math.PI * 2;
+          this.eventGfx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+          this.eventGfx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+        }
+        this.eventGfx.stroke({ width: 2, color: col, alpha });
+        let da = Math.atan2(b.vy, b.vx);
+        if (b.vx * b.vx + b.vy * b.vy < 400) da = cx < PITCH_W / 2 ? 0 : Math.PI;   // slow ball → clear to midfield
+        const dfx = Math.cos(da), dfy = Math.sin(da), reach = 20 + t * 34;
+        this.eventGfx.moveTo(cx + dfx * r0, cy + dfy * r0);
+        this.eventGfx.lineTo(cx + dfx * reach, cy + dfy * reach);
+        this.eventGfx.stroke({ width: 3, color: col, alpha });
+        this.eventGfx.circle(cx + dfx * reach, cy + dfy * reach, 3);
+        this.eventGfx.fill({ color: 0xffffff, alpha });
+        if (labelIdx < this.eventLabels.length) {
+          const label = this.eventLabels[labelIdx++];
+          label.text = 'PUNCH!';
+          label.position.set(cx, Math.max(18, cy - r1 - 12));
+          label.style.fill = col;
+          label.alpha = clamp(1 - t, 0, 1);
+          label.visible = true;
         }
         continue;
       }
@@ -1355,6 +1633,7 @@ export class MatchRenderer {
     if (seeked) {
       if (this.bannerEl.style.display === 'block') { this.bannerEl.style.display = 'none'; this.bannerHideAt = 0; }
       if (this.panelEl.style.display === 'block') { this.panelEl.style.display = 'none'; this.panelHideAt = 0; }
+      this.goalCelebStart = 0;   // let any running celebration lapse instantly on a seek (renderFrame clears the FX)
     }
     // goal banner on score change — but during a goal replay the score rewinds then plays forward;
     // track it silently (the "⚽ GOAL REPLAY" overlay is up) so we don't mis-fire "GOAL!" on the rewind.
@@ -1376,6 +1655,10 @@ export class MatchRenderer {
         this.bannerEl.style.animation = 'none'; void this.bannerEl.offsetWidth;
         this.bannerEl.style.animation = 'footyGoalPop .45s cubic-bezier(.2,1.5,.45,1)';
         this.bannerHideAt = now + 4500;
+        // canvas celebration (ring burst + scorer flash) + the score-bug pulse. Both here so they fire on
+        // exactly the same REAL-goal condition as the banner (single forward increment, not under replay).
+        this.startGoalCelebration(homeScored, now);
+        this.pulseScoreBug();
       } else if (!this.replayMode && this.bannerEl.style.display === 'block') {
         this.bannerEl.style.display = 'none'; this.bannerHideAt = 0;   // a seek/rewind changed the score → clear any stale GOAL banner now
       }
@@ -1433,14 +1716,16 @@ export class MatchRenderer {
   private updateTicker(state: EngineState): void {
     if (!this.feedRowsEl) return;
     if (state.clockMs < this.lastClockMs - 1000) {
-      // match restarted
+      // match restarted / rewound past the start — wipe the feed, dedup memory, scorer + the toast stack
       this.feedEntries = [];
       this.seenEventKeys.clear();
       this.lastGoalScorer = '';
+      this.lastGoalScorerId = null;
+      this.clearToasts();
       this.resetMatchStats(state.clockMs);
     }
     this.lastClockMs = state.clockMs;
-    const notable = new Set(['goal', 'shot', 'save', 'claim', 'tip', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork', 'handball']);
+    const notable = new Set(['goal', 'shot', 'save', 'claim', 'tip', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'stepover', 'roulette', 'gk_punch', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork', 'handball']);
     for (const ev of (state.events ?? [])) {
       if (!notable.has(ev.type)) continue;
       const evClock = state.clockMs - (ev.age ?? 0);
@@ -1454,9 +1739,12 @@ export class MatchRenderer {
       const actor = ev.playerId != null ? this.playerById.get(ev.playerId) : undefined;
       const who = actor?.name ?? '';
       const target = (ev.targetId != null ? this.playerById.get(ev.targetId) : undefined)?.name ?? '';
-      if (ev.type === 'goal') this.lastGoalScorer = who;   // banner reads this (no fragile line-parsing)
+      if (ev.type === 'goal') { this.lastGoalScorer = who; this.lastGoalScorerId = ev.playerId ?? null; }   // banner + celebration read these
       // newest on top — a chronological feed row: minute stamp · team-coloured dot · commentary
       this.feedEntries.unshift({ minute, team: actor?.team ?? null, text: this.commentary(ev.type, who, target), goal: ev.type === 'goal' });
+      // ── reporting toast (top-right) ── fires off the SAME de-duped event stream as the feed, so a toast
+      // shows exactly once per event. Only the "big moment" subset gets one; pushToast no-ops under replay.
+      this.maybeToast(ev, who, minute);
     }
     if (this.feedEntries.length > 8) this.feedEntries.length = 8;
     if (this.seenEventKeys.size > 400) this.seenEventKeys.clear();
@@ -1470,6 +1758,30 @@ export class MatchRenderer {
       const col = e.goal ? '#ffcf5c' : e.team === 'home' ? '#e63946' : e.team === 'away' ? '#4b93c9' : '#8aa0bd';
       return `<div class="wf-ev${e.goal ? ' wf-goal' : ''}"><span class="wf-t">${e.minute}'</span><span class="wf-dot" style="background:${col}"></span><span class="wf-tx">${esc(e.text)}</span></div>`;
     }).join('');
+  }
+
+  // Map a de-duped notable event to a reporting toast (the "big moments" only): goal (own-goal distinguished
+  // when the engine flags it), yellow/red card, penalty awarded, substitution. 'sub' is wired ahead of the
+  // engine emitting it — harmless if never fired. pushToast itself no-ops under replay.
+  private maybeToast(ev: EngineState['events'][number], who: string, minute: number): void {
+    const nm = this.shortName(who);
+    const m = `${minute}'`;
+    switch (ev.type) {
+      case 'goal':    this.pushToast('⚽', ev.ownGoal ? `${m}  ${nm || 'Own goal'} (O.G.)` : `${m}  ${nm || 'Goal'}`, ev.ownGoal ? 'og' : 'goal'); break;
+      case 'yellow':  this.pushToast('🟨', `${m}  ${nm}`, 'card'); break;
+      case 'red':     this.pushToast('🟥', `${m}  ${nm}`, 'card'); break;
+      case 'penalty': this.pushToast('❗', `${m}  Penalty awarded`, 'pen'); break;
+      case 'sub':     this.pushToast('🔁', `${m}  ${nm || 'Substitution'}`, 'sub'); break;
+      default: break;
+    }
+  }
+
+  // Compact display name for a toast: prefer the parenthetical short name the frame carries
+  // ("Firstname Lastname (Lastname)"), else strip a leading squad-number/team prefix.
+  private shortName(raw: string): string {
+    if (!raw) return '';
+    const paren = raw.match(/\(([^)]+)\)/);
+    return (paren ? paren[1] : raw.replace(/^[HA]?\d+\s*/, '')).trim();
   }
 
   private restartLabel(type: string): string {
@@ -1508,6 +1820,9 @@ export class MatchRenderer {
       case 'woodwork': return 'WOODWORK';
       case 'dragback': return 'DRAG-BACK';
       case 'nutmeg': return 'NUTMEG!';
+      case 'stepover': return 'STEP-OVER';
+      case 'roulette': return 'ROULETTE';
+      case 'gk_punch': return 'PUNCH!';
       case 'tip': return 'TIP OVER';
       default: return type.replace(/_/g, ' ').toUpperCase();
     }
@@ -1533,6 +1848,9 @@ export class MatchRenderer {
       case 'nutmeg':     return target ? `😱 Nutmeg! ${w} slips it through ${target}` : `😱 Nutmeg by ${w}!`;
       case 'dragback':   return `${w} with a slick drag-back`;
       case 'skill':      return `${w} shows a bit of skill`;
+      case 'stepover':   return `${w} dances past with a step-over`;
+      case 'roulette':   return `${w} spins away — Zidane roulette!`;
+      case 'gk_punch':   return `🧤 ${w} punches it clear`;
       case 'block':      return `🧱 Blocked! ${w} throws a body in the way`;
       case 'tackle_won': return `${w} wins the tackle`;
       case 'intercept':  return `${w} reads it — intercepted`;
@@ -1621,7 +1939,7 @@ export class MatchRenderer {
     }
     // on-target: goal → scorer side; save/tip/punch/claim → keeper side, so credit the OTHER team
     if (type === 'goal') { const s = sideOf(ev.playerId); if (s > 0) this.otH++; else if (s < 0) this.otA++; }
-    else if (type === 'save' || type === 'tip' || type === 'punch' || type === 'claim') {
+    else if (type === 'save' || type === 'tip' || type === 'punch' || type === 'gk_punch' || type === 'claim') {
       const k = sideOf(ev.playerId); if (k > 0) this.otA++; else if (k < 0) this.otH++;
     }
     // momentum impulse — favours the team named in the comment; skip if the side can't be resolved
@@ -1631,10 +1949,10 @@ export class MatchRenderer {
       case 'goal':     add(s, 55); this.goalFlashUntil = performance.now() + 600; break;
       case 'shot':     add(s, 10); break;                                  // shooter
       case 'woodwork': add(s, 20); break;                                  // shooter (unlucky but dominant)
-      case 'save': case 'tip': case 'punch': case 'claim': add(s, 6); break; // s = keeper/defending side
+      case 'save': case 'tip': case 'punch': case 'gk_punch': case 'claim': add(s, 6); break; // s = keeper/defending side
       case 'block':    add(s, 6); break;                                   // blocker (defending)
       case 'penalty':  add(s, 20); break;                                  // taker/attacker
-      case 'nutmeg': case 'skill': case 'dragback': add(s, 4); break;      // attacker flair
+      case 'nutmeg': case 'skill': case 'dragback': case 'stepover': case 'roulette': add(s, 4); break;   // attacker flair
       case 'yellow':   add(-s, 7); break;                                  // toward the carded player's opponent
       case 'red':      add(-s, 22); break;
       case 'foul':     add(-s, 4); if (s > 0) this.foulH++; else if (s < 0) this.foulA++; break;   // playerId = fouler → favour the fouled side
@@ -1773,6 +2091,9 @@ export class MatchRenderer {
       case 'skill': return 0x7df9ff;
       case 'nutmeg': return 0xffd24d;
       case 'dragback': return 0xc9a0ff;
+      case 'stepover': return 0x5cf2c0;   // teal shimmy — a cousin of the cyan skill swirl
+      case 'roulette': return 0xb98cff;   // spin purple — flair, like the drag-back
+      case 'gk_punch': return 0xff9944;   // keeper orange — matches the plain 'punch'
       case 'block': return 0x9aff9a;
       default: return 0xffffff;
     }

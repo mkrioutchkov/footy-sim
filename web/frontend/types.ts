@@ -96,12 +96,18 @@ export interface SetPieceState {
 }
 
 export interface MatchEvent {
-  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'foul' | 'offside' | 'intercept' | 'save' | 'claim' | 'tip' | 'goal' | 'header' | 'punch' | 'skill' | 'nutmeg' | 'dragback' | 'block' | 'penalty' | 'yellow' | 'sub' | 'injury' | 'assist' | 'advantage' | 'red' | 'woodwork' | 'handball' | 'corner_short' | 'clearance';
+  // NB: the string set is the wire contract with the engine — the C++ trace/WS emitter writes these
+  // exact `type` names and the renderer keys its animations off them. `stepover` / `roulette` / `gk_punch`
+  // are wired ahead of the engine commit that emits them; an unknown type degrades to the generic ring.
+  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'foul' | 'offside' | 'intercept' | 'save' | 'claim' | 'tip' | 'goal' | 'header' | 'punch' | 'skill' | 'nutmeg' | 'dragback' | 'stepover' | 'roulette' | 'gk_punch' | 'block' | 'penalty' | 'yellow' | 'sub' | 'injury' | 'assist' | 'advantage' | 'red' | 'woodwork' | 'handball' | 'corner_short' | 'clearance';
   x: number;
   y: number;
   age: number;
   playerId?: number | null;
   targetId?: number | null;
+  // render-hint (engine, pending): distinguishes an own goal so the popup/feed can label it "O.G.".
+  // Harmless if never set — the goal path reads it optionally.
+  ownGoal?: boolean;
 }
 
 export interface Formation {
