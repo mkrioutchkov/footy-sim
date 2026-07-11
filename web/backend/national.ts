@@ -78,17 +78,23 @@ function seedBracket(keys: string[], seed: number): string[] {
 }
 function largestPow2(n: number): number { let p = 1; while (p * 2 <= n) p *= 2; return p; }
 
+// Resolve an entrant key (nation key or club label) to its XI. Nations key by NATION key; clubs key by
+// their (world-unique) name — that key is what's stored in the tie rows and rendered by the UI (a club
+// name has no flag, so it shows as-is). Returns null if the entrant can't field 11 (never happens for a
+// vetted field). Shared so nations and clubs run through one knockout.
+type SquadResolver = (key: string) => VirtualPlayer[] | null;
+
 // Play a single-elimination knockout to a champion, recording every tie. Sequential (off-season burst —
 // bounds engine spawns). Squads are re-selected per tie (cheap; the roster is fixed for the tournament).
-async function runKnockout(tournamentId: number, seeded: string[], worldId: number, baseSeed: number): Promise<string> {
+async function runKnockout(tournamentId: number, seeded: string[], baseSeed: number, resolve: SquadResolver, label: (k: string) => string, tag: string): Promise<string> {
   let round = 1; let alive = seeded.slice();
   while (alive.length > 1) {
     const winners: string[] = [];
     for (let slot = 0; slot < alive.length; slot += 2) {
       const h = alive[slot], a = alive[slot + 1];
       const seed = ((baseSeed ^ (round * 100003 + (slot / 2) * 131)) >>> 0) || 1;
-      const hs = selectNationalSquad(worldId, h)!, as_ = selectNationalSquad(worldId, a)!;
-      const res = await playVirtualTie(seed, nationName(h), hs, nationName(a), as_, 'nat');
+      const hs = resolve(h)!, as_ = resolve(a)!;
+      const res = await playVirtualTie(seed, label(h), hs, label(a), as_, tag);
       let winner: string, hp: number | null = null, ap: number | null = null;
       if (res.homeScore > res.awayScore) winner = h;
       else if (res.awayScore > res.homeScore) winner = a;
@@ -102,22 +108,69 @@ async function runKnockout(tournamentId: number, seeded: string[], worldId: numb
   return alive[0];
 }
 
+// ── Club World Cup ──────────────────────────────────────────────────────────
+// The world's strongest CLUBS (across every division) contest a knockout every 4 seasons — the same
+// engine-free virtual-tie machinery as the national cups, entrants keyed by club name. A faithful stand-in
+// for a true cross-country CWC until worlds span multiple countries; here "the world's best clubs" is a
+// robust, always-available field (ranked by best-XI strength, no dependency on standings history).
+function clubXI(worldId: number, teamId: number): { xi: VirtualPlayer[]; strength: number } | null {
+  const rows = db.prepare('SELECT name, role, attrs, personality FROM players WHERE team_id = ?').all(teamId) as { name: string; role: string; attrs: string; personality: string | null }[];
+  const pool = rows.map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs) }; }).sort((a, b) => b.ovr - a.ovr);
+  if (pool.length < 11) return null;
+  const used = new Set<number>(); const xi: VirtualPlayer[] = [];
+  for (const role of ROLE_SLOTS) {
+    let idx = pool.findIndex((p, i) => !used.has(i) && p.role === role);
+    if (idx < 0) idx = pool.findIndex((_, i) => !used.has(i));
+    used.add(idx); const p = pool[idx];
+    xi.push({ name: p.name, role: p.role, attrs: p.attrs, personality: p.personality });
+  }
+  const strength = Math.round(xi.slice(0, 11).reduce((s, p) => s + overall(p.attrs), 0) / 11);
+  return { xi, strength };
+}
+
+interface ClubEntry { name: string; teamId: number; strength: number }
+export function topClubs(worldId: number, n: number): ClubEntry[] {
+  const leagueIds = worldLeagues(worldId).map(l => l.id);
+  if (!leagueIds.length) return [];
+  const ph = leagueIds.map(() => '?').join(',');
+  const teams = db.prepare(`SELECT id, name FROM teams WHERE league_id IN (${ph})`).all(...leagueIds) as { id: number; name: string }[];
+  const scored: ClubEntry[] = [];
+  for (const t of teams) { const x = clubXI(worldId, t.id); if (x) scored.push({ name: t.name, teamId: t.id, strength: x.strength }); }
+  scored.sort((a, b) => b.strength - a.strength);
+  const seen = new Set<string>(); const out: ClubEntry[] = [];   // key by name → dedupe so bracket keys stay unique
+  for (const c of scored) { if (seen.has(c.name)) continue; seen.add(c.name); out.push(c); if (out.length >= n) break; }
+  return out;
+}
+
 export interface HeldTournament { name: string; kind: string; confed: string | null; champion: string; teams: number }
 // Run this season's internationals for a world (idempotent-ish: skip if already held this world+season).
 // World Cup on season%4===0; otherwise the continental cups (one per confederation with >=4 fieldable).
 export async function runInternationalTournaments(worldId: number, season: number): Promise<HeldTournament[]> {
   if ((db.prepare('SELECT 1 FROM tournaments WHERE world_id = ? AND season = ? LIMIT 1').get(worldId, season))) return [];
   const fieldable = fieldableNations(worldId).sort((a, b) => b.strength - a.strength);
-  if (fieldable.length < 4) return [];
   const baseSeed = ((worldId * 7919 + season * 104729) >>> 0) || 1;
   const held: HeldTournament[] = [];
+  const natSquad: SquadResolver = k => selectNationalSquad(worldId, k);
   if (season % 4 === 0) {
+    if (fieldable.length < 4) return held;
     const size = Math.min(16, largestPow2(fieldable.length));
     const nats = seedBracket(fieldable.slice(0, size).map(f => f.key), baseSeed);
     const id = createTournament(worldId, season, 'world_cup', null, 'World Cup');
-    const champ = await runKnockout(id, nats, worldId, baseSeed);
+    const champ = await runKnockout(id, nats, baseSeed, natSquad, nationName, 'nat');
     db.prepare('UPDATE tournaments SET champion = ? WHERE id = ?').run(champ, id);
     held.push({ name: 'World Cup', kind: 'world_cup', confed: null, champion: champ, teams: size });
+  } else if (season % 4 === 2) {
+    // Club World Cup — the world's best clubs. Falls back to nothing if <4 clubs can field an XI.
+    const clubs = topClubs(worldId, 16);
+    if (clubs.length >= 4) {
+      const size = largestPow2(clubs.length);
+      const byName = new Map(clubs.map(c => [c.name, c.teamId]));
+      const keys = seedBracket(clubs.slice(0, size).map(c => c.name), (baseSeed ^ 0x0c1b) >>> 0);
+      const id = createTournament(worldId, season, 'club_world_cup', null, 'Club World Cup');
+      const champ = await runKnockout(id, keys, (baseSeed ^ 0xc1ab) >>> 0, name => clubXI(worldId, byName.get(name)!)?.xi ?? null, name => name, 'club');
+      db.prepare('UPDATE tournaments SET champion = ? WHERE id = ?').run(champ, id);
+      held.push({ name: 'Club World Cup', kind: 'club_world_cup', confed: null, champion: champ, teams: size });
+    }
   } else {
     for (const [confed] of NATIONS_BY_CONFED) {
       const f = fieldable.filter(x => x.confed === confed);
@@ -126,7 +179,7 @@ export async function runInternationalTournaments(worldId: number, season: numbe
       const nats = seedBracket(f.slice(0, size).map(x => x.key), (baseSeed ^ confed.charCodeAt(0)) >>> 0);
       const name = CONFED_TOURNAMENT[confed];
       const id = createTournament(worldId, season, 'continental', confed, name);
-      const champ = await runKnockout(id, nats, worldId, (baseSeed ^ (confed.charCodeAt(1) || 7)) >>> 0);
+      const champ = await runKnockout(id, nats, (baseSeed ^ (confed.charCodeAt(1) || 7)) >>> 0, natSquad, nationName, 'nat');
       db.prepare('UPDATE tournaments SET champion = ? WHERE id = ?').run(champ, id);
       held.push({ name, kind: 'continental', confed, champion: champ, teams: size });
     }

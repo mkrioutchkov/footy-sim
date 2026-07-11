@@ -372,7 +372,8 @@ async function screenInternationals() {
   let data: Awaited<ReturnType<typeof api.tournaments>>;
   try { data = await api.tournaments(); }
   catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
-  const nat = (k: string | null) => k ? `${flagOf(k)} ${nationNameOf(k) || k}` : 'TBD';
+  // Nations render with a flag; clubs (Club World Cup) have no flag key, so show the name as-is.
+  const nat = (k: string | null) => { if (!k) return 'TBD'; const f = flagOf(k); return `${f ? f + ' ' : ''}${nationNameOf(k) || k}`; };
 
   // bracket for one tournament: rounds as columns (like the cup), winners bold, pens shown
   const bracket = (t: import('./api').TournamentT) => {
@@ -386,7 +387,7 @@ async function screenInternationals() {
         h('div', { class: 'between', style: tie.winner === tie.home ? 'font-weight:700' : 'opacity:.65' }, h('span', {}, nat(tie.home)), h('span', {}, `${tie.homeScore ?? ''}${tie.homePens != null ? ` (${tie.homePens})` : ''}`)),
         h('div', { class: 'between', style: tie.winner === tie.away ? 'font-weight:700' : 'opacity:.65' }, h('span', {}, nat(tie.away)), h('span', {}, `${tie.awayScore ?? ''}${tie.awayPens != null ? ` (${tie.awayPens})` : ''}`))))));
     return h('div', { class: 'card' },
-      h('div', { class: 'between' }, h('div', {}, h('div', { style: 'font-weight:700;font-size:16px' }, `${t.kind === 'world_cup' ? '🌍' : '🏆'} ${t.name}`), h('div', { class: 'muted', style: 'font-size:12px' }, `Season ${t.season}${t.champion ? '' : ' · in progress'}`)),
+      h('div', { class: 'between' }, h('div', {}, h('div', { style: 'font-weight:700;font-size:16px' }, `${t.kind === 'world_cup' ? '🌍' : t.kind === 'club_world_cup' ? '🏟️' : '🏆'} ${t.name}`), h('div', { class: 'muted', style: 'font-size:12px' }, `Season ${t.season}${t.champion ? '' : ' · in progress'}`)),
         t.champion ? h('span', { class: 'pill', style: 'background:var(--gold,#e8b53a);color:#1a1205;font-weight:700' }, `🏆 ${nat(t.champion)}`) : ''),
       h('div', { style: 'display:flex;gap:14px;overflow:auto;align-items:flex-start;margin-top:10px' }, ...cols));
   };
@@ -416,7 +417,7 @@ async function screenInternationals() {
 
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
-    h('div', { class: 'between' }, h('div', {}, h('h2', {}, '🌍 Internationals'), h('div', { class: 'muted', style: 'font-size:13px' }, 'National teams (by player nationality) contest the World Cup every 4 seasons + continental cups. Held in the off-season.')),
+    h('div', { class: 'between' }, h('div', {}, h('h2', {}, '🌍 Internationals'), h('div', { class: 'muted', style: 'font-size:13px' }, 'National teams (by player nationality) contest the World Cup every 4 seasons + continental cups; the world\'s best clubs meet in the Club World Cup. Held in the off-season.')),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     data.tournaments.length ? h('div', { class: 'grid' }, ...data.tournaments.slice(0, 4).map(bracket)) : h('div', { class: 'card muted' }, 'No tournaments yet — the first internationals play at the end of this season.'),
     h('div', { class: 'grid cols-2', style: 'align-items:start' }, nationsCard, squadHost)));
