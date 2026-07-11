@@ -245,7 +245,7 @@ body.modal-open { overflow: hidden; }
 /* ── section nav grid (dashboard) — tidy equal-width icon tiles instead of a ragged button row ── */
 .nav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 10px; }
 .nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
-  background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--panel2); color: var(--text); text-decoration: none; border: 1px solid var(--line); border-radius: var(--radius-sm);
   padding: 15px 10px; font-weight: 600; box-shadow: none; transition: transform .1s, border-color .15s, background .15s, box-shadow .15s; }
 .nav-item:hover { border-color: var(--accent2); background: var(--hover); transform: translateY(-2px); box-shadow: var(--shadow-card); filter: none; }
 .nav-item:active { transform: translateY(0); }
@@ -376,3 +376,39 @@ header.top { padding-top: var(--safe-t); }
 .status-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
   padding: 9px 12px; border-radius: var(--radius-sm); font-size: 13px; border: 1px solid var(--line); background: var(--panel2); }
 .status-banner.warn { border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); color: var(--gold); }
+
+/* bare interactive text — a real <button> that reads as an icon / link (no gradient/box), used to un-nest
+   table controls (star + expand) into sibling buttons instead of role=button-inside-role=button. */
+.icon-btn, .linkish { background: none; border: none; padding: 0; margin: 0; box-shadow: none; font: inherit; color: inherit; cursor: pointer; }
+.icon-btn:hover, .linkish:hover { filter: none; transform: none; box-shadow: none; background: none; }
+.linkish { color: var(--text); text-align: left; }
+.linkish:hover { color: var(--accent); }
+.linkish[aria-expanded="true"] { color: var(--accent); }
+
+/* ── mobile bottom nav (persistent; desktop keeps the header + dashboard grid) ── */
+.bottom-nav { display: none; }
+@media (max-width: 720px) {
+  .bottom-nav { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 55;
+    background: rgba(14,20,32,.95); backdrop-filter: blur(10px); border-top: 1px solid var(--line);
+    padding-bottom: var(--safe-b); }
+  .bn-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    padding: 7px 2px; background: none; border: none; box-shadow: none; color: var(--muted); text-decoration: none;
+    font-size: 10px; min-height: 48px; cursor: pointer; }
+  .bn-item:hover { color: var(--text); background: none; transform: none; box-shadow: none; filter: none; }
+  .bn-ico { font-size: 18px; line-height: 1; }
+  .bn-item.on, .bn-item[aria-current="page"] { color: var(--accent); }
+  body.has-bottomnav { padding-bottom: calc(54px + var(--safe-b)); }   /* only when the bar is actually shown (not on Watch) */
+  /* the sticky Tactics Save bar pins to the visual viewport bottom — lift it clear of the fixed bottom nav */
+  body.has-bottomnav .tactics-savebar { bottom: calc(66px + var(--safe-b)); }
+}
+/* the "More" section sheet (uses .modal-backdrop for the centred, safe-area-padded overlay) */
+.nav-sheet-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px;
+  width: min(460px, 92vw); max-height: 80vh; overflow-y: auto; box-shadow: var(--shadow-pop); margin: auto; }
+.nav-sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.nav-sheet-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.nav-sheet-item { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-radius: var(--radius-sm);
+  color: var(--text); text-decoration: none; border: 1px solid var(--line); background: var(--panel2); font-size: 14px; }
+.nav-sheet-item:hover { border-color: var(--accent); color: var(--accent); }
+.intl-nation { border-radius: var(--radius-sm); padding-left: 6px !important; padding-right: 6px !important; }
+.intl-nation:hover { background: var(--hover); }
+.intl-nation.active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 600; }

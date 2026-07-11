@@ -340,10 +340,83 @@ function header(): HTMLElement {
   );
 }
 
-// A section-nav tile for the dashboard grid (icon + label → a hash route).
-function navItem(icon: string, label: string, route: string): HTMLElement {
-  return h('button', { class: 'nav-item', onclick: () => (location.hash = route) },
-    h('span', { class: 'ico' }, icon), h('span', { class: 'lab' }, label));
+// ── navigation model + persistent mobile bottom bar ──────────────────────────────────────────────
+// One source of truth for every section route, used by the dashboard grid, the mobile bottom bar, and the
+// "More" sheet. Deep detail routes (#/player/… etc.) belong to no section.
+const NAV: { hash: string; icon: string; label: string }[] = [
+  { hash: '#/', icon: '🏠', label: 'Home' },
+  { hash: '#/inbox', icon: '📨', label: 'Inbox' },
+  { hash: '#/matches', icon: '📅', label: 'My Matches' },
+  { hash: '#/league', icon: '⚽', label: 'Results' },
+  { hash: '#/leaders', icon: '📊', label: 'Stat leaders' },
+  { hash: '#/squad', icon: '👥', label: 'Squad' },
+  { hash: '#/tactics', icon: '♟️', label: 'Tactics' },
+  { hash: '#/market', icon: '💸', label: 'Market' },
+  { hash: '#/scouting', icon: '🔎', label: 'Scouting' },
+  { hash: '#/training', icon: '🏃', label: 'Training' },
+  { hash: '#/academy', icon: '🎓', label: 'Academy' },
+  { hash: '#/staff', icon: '🧑‍🏫', label: 'Staff' },
+  { hash: '#/finances', icon: '💰', label: 'Finances' },
+  { hash: '#/cup', icon: '🏆', label: 'Cup' },
+  { hash: '#/internationals', icon: '🌍', label: 'Internationals' },
+  { hash: '#/history', icon: '📜', label: 'History' },
+  { hash: '#/career', icon: '📋', label: 'Career' },
+];
+// A dashboard-grid tile — a REAL anchor now (native new-tab / middle-click / right-click / copy-link).
+function navItem(icon: string, label: string, hash: string): HTMLElement {
+  return h('a', { class: 'nav-item', href: hash }, h('span', { class: 'ico' }, icon), h('span', { class: 'lab' }, label));
+}
+
+// The mobile bottom bar: four primary destinations + a More sheet. Persistent — appended to <body> ONCE (outside
+// #app, so a per-screen mount() never destroys it). Hidden on desktop + on the immersive Watch screen via CSS/JS.
+const BOTTOM_PRIMARY = ['#/', '#/squad', '#/tactics', '#/matches'];
+let bottomNav: HTMLElement | null = null;
+let navSheetClose: (() => void) | null = null;
+// true while the club-creation screen is up (reached via boot's early return, bypassing route()) — the bottom
+// bar's section links are team-gated, so hide it there. Cleared when route() dispatches a real screen.
+let onboarding = false;
+function setupBottomNav(): void {
+  if (bottomNav) return;
+  const items = BOTTOM_PRIMARY.map(hash => { const e = NAV.find(n => n.hash === hash)!; return h('a', { class: 'bn-item', href: hash, 'data-nav': hash }, h('span', { class: 'bn-ico', 'aria-hidden': 'true' }, e.icon), h('span', { class: 'bn-lab' }, e.label)); });
+  const moreBtn = h('button', { class: 'bn-item bn-more', type: 'button', 'aria-haspopup': 'true', 'aria-expanded': 'false', 'aria-label': 'More sections' }, h('span', { class: 'bn-ico', 'aria-hidden': 'true' }, '☰'), h('span', { class: 'bn-lab' }, 'More'));
+  moreBtn.addEventListener('click', () => openNavSheet(moreBtn));
+  bottomNav = h('nav', { class: 'bottom-nav', 'aria-label': 'Primary' }, ...items, moreBtn);
+  document.body.appendChild(bottomNav);
+}
+// Sync the active-tab indication + hide the bar when logged out or on the immersive Watch screen.
+function syncNav(): void {
+  if (!bottomNav) return;
+  const hash = location.hash || '#/';
+  const show = !!user && !onboarding && !hash.startsWith('#/watch/');
+  bottomNav.style.display = show ? '' : 'none';
+  document.body.classList.toggle('has-bottomnav', show);   // gates the content-clearing padding (mobile CSS)
+  if (!show) return;
+  bottomNav.querySelectorAll<HTMLElement>('.bn-item[data-nav]').forEach(a => {
+    const active = a.dataset.nav === hash;
+    if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    a.classList.toggle('on', active);
+  });
+}
+// The "More" sheet: a focus-trapped dialog listing every section. Escape / backdrop close it; picking one
+// navigates (hashchange re-routes) and closes. Mirrors the confirm-modal focus semantics.
+function openNavSheet(trigger: HTMLElement): void {
+  if (navSheetClose) return;
+  const unlock = lockPageForModal();   // inert #app + scroll-lock the background while the sheet is open
+  const prevFocus = document.activeElement as HTMLElement | null;
+  const list = h('div', { class: 'nav-sheet-list' }, ...NAV.map(e =>
+    h('a', { class: 'nav-sheet-item', href: e.hash }, h('span', { 'aria-hidden': 'true' }, e.icon), h('span', {}, e.label))));
+  const card = h('div', { class: 'nav-sheet-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'All sections' },
+    h('div', { class: 'nav-sheet-head' }, h('strong', {}, 'Go to…'), h('button', { class: 'icon-btn', 'aria-label': 'Close', style: 'font-size:22px', onclick: () => close() }, '×')),
+    list);
+  const backdrop = h('div', { class: 'modal-backdrop', onclick: (e: Event) => { if (e.target === backdrop) close(); } }, card);
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close(); } else if (e.key === 'Tab') trapTab(e, card); };
+  function close(): void { if (!navSheetClose) return; navSheetClose = null; unlock(); document.removeEventListener('keydown', onKey); backdrop.remove(); trigger.setAttribute('aria-expanded', 'false'); (prevFocus ?? trigger).focus({ preventScroll: true }); }
+  navSheetClose = close;
+  list.addEventListener('click', () => close());   // a pick navigates via the anchor href + closes the sheet
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(backdrop);
+  trigger.setAttribute('aria-expanded', 'true');
+  (list.querySelector('a') as HTMLElement | null)?.focus({ preventScroll: true });
 }
 
 // ── auth ──
@@ -414,6 +487,7 @@ function screenAuth() {
 
 // ── create team ──
 function screenCreateTeam() {
+  onboarding = true; syncNav();   // no club yet → hide the team-gated bottom bar (this screen bypasses route())
   const name = h('input', { id: 'f-clubname', placeholder: 'e.g. Brisbane Roar', value: `${user!.username} FC` }) as HTMLInputElement;
   const planInput = h('textarea', { class: 'tactics-input', rows: '3',
     placeholder: 'Optional — your tactical plan in plain English: "high press, build from the back, full-backs bomb on, sit deeper if 2-0 up". You can set or change it any time from Tactics.' }) as HTMLTextAreaElement;
@@ -568,6 +642,9 @@ async function screenInternationals() {
   let squadRequest = 0;
   const showSquad = async (key: string) => {
     const request = ++squadRequest;
+    intlNation = key;   // survives navigation (module-level)
+    nationsCard.querySelectorAll<HTMLElement>('[data-nation]').forEach(el => { const on = el.dataset.nation === key; el.classList.toggle('active', on); if (on) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current'); });
+    if (window.matchMedia('(max-width: 860px)').matches) squadHost.scrollIntoView({ behavior: 'smooth', block: 'start' });   // on mobile the squad panel stacks below the long nations list — bring it into view
     squadHost.replaceChildren(h('div', { class: 'muted', style: 'font-size:12px' }, 'Loading squad…'));
     try {
       const { squad } = await api.nationSquad(key);
@@ -584,7 +661,7 @@ async function screenInternationals() {
     data.fieldable.length
       ? h('div', { class: 'grid cols-2', style: 'gap:6px 20px' }, ...[...byConfed.entries()].map(([cf, nats]) => h('div', {},
           h('div', { class: 'muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin:6px 0 3px' }, cf),
-          ...nats.sort((a, b) => b.strength - a.strength).map(f => h('div', { class: 'between', style: 'font-size:13px;padding:2px 0;cursor:pointer', ...clickable(() => showSquad(f.key)) },
+          ...nats.sort((a, b) => b.strength - a.strength).map(f => h('div', { class: 'between intl-nation', 'data-nation': f.key, style: 'font-size:13px;padding:2px 0;cursor:pointer', ...clickable(() => showSquad(f.key)) },
             h('span', {}, nat(f.key), h('span', { class: 'muted', style: 'font-size:11px' }, ` · ${f.count} players`)), h('span', { style: 'font-weight:700' }, String(f.strength)))))))
       : h('div', { class: 'muted', style: 'font-size:13px' }, 'No nations have enough players to field a squad yet — squads fill out as youth come through.'));
 
@@ -604,6 +681,8 @@ async function screenInternationals() {
             : '')
       : h('div', { class: 'card muted' }, 'No tournaments yet — the first internationals play at the end of this season.'),
     h('div', { class: 'grid cols-2', style: 'align-items:start' }, nationsCard, squadHost)));
+  // restore the previously-selected nation on re-entry (module-level intlNation)
+  if (intlNation && data.fieldable.some(f => f.key === intlNation)) void showSquad(intlNation);
 }
 
 // The standing tactical plan: a plain-English textarea + a read-only resolved-plan display
@@ -1386,22 +1465,7 @@ async function screenDashboard() {
     nextMatchCard,
     h('div', { class: 'card', style: 'padding:14px' },
       h('div', { class: 'nav-grid' },
-        navItem('📨', 'Inbox', '#/inbox'),
-        navItem('📅', 'My Matches', '#/matches'),
-        navItem('⚽', 'Results', '#/league'),
-        navItem('📊', 'Stat leaders', '#/leaders'),
-        navItem('👥', 'Squad', '#/squad'),
-        navItem('💸', 'Market', '#/market'),
-        navItem('🔎', 'Scouting', '#/scouting'),
-        navItem('🏃', 'Training', '#/training'),
-        navItem('🎓', 'Academy', '#/academy'),
-        navItem('🧑‍🏫', 'Staff', '#/staff'),
-        navItem('💰', 'Finances', '#/finances'),
-        navItem('🏆', 'Cup', '#/cup'),
-        navItem('🌍', 'Internationals', '#/internationals'),
-        navItem('📜', 'History', '#/history'),
-        navItem('📋', 'Career', '#/career'),
-        navItem('♟️', 'Tactics', '#/tactics'))),
+        ...NAV.filter(e => e.hash !== '#/').map(e => navItem(e.icon, e.label, e.hash)))),
     // §1.17: a wage bill over budget (e.g. forced renewals after relegation shrank it) is otherwise
     // only visible if you open Finances — surface it up front (new signings are blocked until under).
     (team.wageBudget != null && team.wageBill != null && team.wageBill > team.wageBudget)
@@ -3380,15 +3444,18 @@ async function screenScouting() {
     const body = h('tbody');
     for (const p of players) {
       const pot = p.potential != null && p.potential > p.overall;
-      // the star must NOT bubble to the name cell's expand handler — stop propagation on both click + key
-      const star = h('span', { role: 'button', tabindex: '0', title: p.shortlisted ? 'On your shortlist — click to remove' : 'Add to your shortlist',
-        style: `cursor:pointer;margin-right:5px;${p.shortlisted ? 'color:var(--gold,#e8b53a)' : 'opacity:.3'}`,
-        onclick: (e: Event) => { e.stopPropagation(); toggleStar(p); },
-        onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleStar(p); } } }, '★');
-      const nameCell = h('td', { ...clickable(() => { if (expanded.has(p.id)) expanded.delete(p.id); else expanded.add(p.id); renderResults(); }), style: 'cursor:pointer', title: 'Show scouted attributes' },
-        star, p.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + p.club),
+      // Un-nested: the star and the expand control are SIBLING real <button>s in a non-interactive <td> (no more
+      // role=button-inside-role=button + the stopPropagation crutch). aria-pressed = shortlist state; aria-expanded
+      // on the name button reflects the detail row.
+      const isExp = expanded.has(p.id);
+      const star = h('button', { type: 'button', class: 'icon-btn', 'aria-pressed': String(p.shortlisted), title: p.shortlisted ? 'On your shortlist — click to remove' : 'Add to your shortlist',
+        style: `margin-right:5px;${p.shortlisted ? 'color:var(--gold,#e8b53a)' : 'opacity:.4'}`, onclick: () => toggleStar(p) }, '★');
+      const nameBtn = h('button', { type: 'button', class: 'linkish', 'aria-expanded': String(isExp), title: 'Show scouted attributes',
+        onclick: () => { if (expanded.has(p.id)) expanded.delete(p.id); else expanded.add(p.id); renderResults(); } },
+        p.name, h('span', { class: 'muted', style: 'font-size:11px' }, ' · ' + p.club),
         p.releaseClause != null ? h('span', { class: 'pill', title: 'Release clause — instantly buyable from the Market', style: 'margin-left:6px;background:rgba(230,57,70,.18);color:#f2a1a8' }, `⚡ ${fmtMoney(p.releaseClause)}`)
           : p.buyable ? h('span', { class: 'pill', title: 'Listed for sale — bid from the Market', style: 'margin-left:6px' }, 'listed') : '');
+      const nameCell = h('td', {}, star, nameBtn);
       const action = p.buyable
         ? h('button', { class: 'ghost small', title: 'Go to the Market to bid for him', onclick: () => (location.hash = '#/market') }, '→ Market')
         : h('span', { class: 'muted', style: 'font-size:11px' }, 'not for sale');
@@ -3678,7 +3745,7 @@ async function screenTeamTalk(fixtureId: number) {
     mount(header(), h('div', { class: 'wrap grid' },
       h('div', { class: 'between' },
         h('div', {}, h('h2', {}, 'Team talk'), h('div', { class: 'muted' }, 'How you address the squad before kick-off shades their morale for the match — and each player reacts to his own temperament.')),
-        h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+        h('button', { class: 'ghost', onclick: () => goBack() }, '← Back')),
       h('div', { class: 'card' },
         h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px' }, ...toneBtns),
         h('div', { class: 'muted', style: 'font-size:12px;margin-top:8px' }, blurb),
@@ -3789,12 +3856,12 @@ async function screenInbox() {
   try { data = await api.inbox(200); }
   catch (e: any) { if (!alive()) return; if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
 
-  let filter = 'all';
+  let filter = inboxFilter;   // survives navigation (module-level)
   const container = h('div', {});
   const render = () => {
     const items = filter === 'all' ? data.inbox : data.inbox.filter(i => (i.category ?? '') === filter);
     const cats = [...new Set(data.inbox.map(i => i.category ?? 'other'))];
-    const chip = (key: string, label: string) => h('button', { class: filter === key ? 'primary small' : 'ghost small', onclick: () => { filter = key; render(); } }, label);
+    const chip = (key: string, label: string) => h('button', { class: filter === key ? 'primary small' : 'ghost small', 'aria-pressed': String(filter === key), onclick: () => { filter = key; inboxFilter = key; render(); } }, label);
     const chips = h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-bottom:10px' },
       chip('all', `All (${data.inbox.length})`), ...cats.map(c => chip(c, INBOX_CAT_LABEL[c] ?? c)));
     const groups: { season: number; items: typeof data.inbox }[] = [];
@@ -4132,7 +4199,7 @@ async function screenPlayer(slot: number) {
         devOutlook ? h('div', { class: 'muted', style: `font-size:12px;color:${devOutlook.color}` }, `${devOutlook.icon} ${devOutlook.text}`) : '',
         seekingMove(p) ? h('div', { style: 'font-size:12px;margin-top:2px' },
           h('span', { class: 'pill', title: 'Running down his contract and unsettled — likely to push for a move', style: 'background:var(--danger);color:#fff;font-size:9px' }, 'seeking a move')) : ''),
-      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
+      h('button', { class: 'ghost', onclick: () => goBack() }, '← Back'),
     ),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' },
@@ -4457,6 +4524,10 @@ async function screenStaff() {
     if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
+  // Coach-assignment saves are a FULL-snapshot replace server-side, so two quick edits to DIFFERENT categories
+  // must not each POST a stale snapshot (one would clobber the other). Serialize them: each save's payload is
+  // built from the LATEST v (after the prior save lands).
+  let staffChain: Promise<void> = Promise.resolve();
   const guard = (btn: HTMLElement, fn: () => Promise<void>) => async () => {
     if (btn.hasAttribute('disabled')) return;
     btn.setAttribute('disabled', 'true');
@@ -4519,10 +4590,23 @@ async function screenStaff() {
           if (c.assigned.includes(coach.id)) o.selected = true;
           sel.append(o);
         }
-        sel.addEventListener('change', async () => {
-          const assignment: Record<string, number[]> = Object.fromEntries(v.categories.map(cc => [cc.category, [...cc.assigned]]));
-          assignment[c.category] = [...sel.selectedOptions].map(o => Number(o.value));
-          try { v = await api.saveCoachAssignment(assignment); toast(`${c.category} coaching updated`); render(); } catch (er: any) { toast(er.message); }
+        // rollback-safe MULTI-select: snapshot the persisted selection, disable during the round-trip, and roll
+        // the options back on failure. Serialized via staffChain so the payload reads the latest v (no clobber).
+        let saved = [...c.assigned];
+        sel.addEventListener('change', () => {
+          const chosen = [...sel.selectedOptions].map(o => Number(o.value));
+          sel.disabled = true;
+          staffChain = staffChain.then(async () => {
+            const assignment: Record<string, number[]> = Object.fromEntries(v.categories.map(cc => [cc.category, cc.category === c.category ? chosen : [...cc.assigned]]));
+            try {
+              v = await api.saveCoachAssignment(assignment);
+              if (!alive()) return;
+              saved = chosen; toast(`${c.category} coaching updated`); render();   // render() rebuilds the panel from the new v
+            } catch (er) {
+              for (const o of sel.options) o.selected = saved.includes(Number(o.value));   // roll back to the last-saved selection
+              sel.disabled = false; toast(errMessage(er));
+            }
+          });
         });
         return h('div', { class: 'between', style: 'padding:7px 0;border-top:1px solid var(--line);gap:12px;align-items:center' },
           h('div', { style: 'min-width:96px' },
@@ -4641,7 +4725,7 @@ async function screenScout(fixtureId: number) {
       h('div', {}, h('h2', {}, `Scouting — ${o.name}`),
         h('div', { class: 'muted' },
           `${o.manager} · ${o.formation} · ${o.position != null ? ordinal(o.position) + ' in the table' : 'unranked'} · you play ${s.venue === 'home' ? 'at home' : 'away'} (R${s.round}) · ${s.roundsAway === 0 ? 'your next match' : `${s.roundsAway} matchday${s.roundsAway > 1 ? 's' : ''} away`}`)),
-      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+      h('button', { class: 'ghost', onclick: () => goBack() }, '← Back')),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Form & record'),
@@ -5181,9 +5265,23 @@ async function screenLeagueMatches() {
       : h('div', { class: 'card muted' }, 'No results played yet this season — advance a matchday.')));
 }
 
+// History-aware Back for deep detail screens: navBackHash is the route we ARRIVED FROM this navigation, so a
+// player/scout/team-talk opened from Squad or Scouting returns to that list instead of always the Dashboard.
+let navBackHash = '#/';
+let prevRouteHash = '#/';
+function goBack(fallback = '#/'): void { location.hash = (navBackHash && navBackHash !== location.hash) ? navBackHash : fallback; }
+// Module-level so a filter/selection survives navigating away and back (mirrors the squadView pattern).
+let inboxFilter = 'all';
+let intlNation: string | null = null;
+
 function route() {
   const hash = location.hash;
   routeGen++;   // invalidate any in-flight screen's pending mount (see screenGuard) — the new route owns the DOM now
+  navBackHash = prevRouteHash && prevRouteHash !== hash ? prevRouteHash : '#/';   // where we came from (for goBack)
+  prevRouteHash = hash;
+  onboarding = false;  // a real route is dispatching → leaving the club-creation screen
+  navSheetClose?.();   // close the More sheet if a navigation happened while it was open
+  syncNav();           // active-tab indication on the persistent mobile bottom bar (hides on auth / Watch / onboarding)
   if (hash !== '#/tactics') tacticsMutationGate.clearListeners();
   if (!user) { teardownWatch(); screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
@@ -5231,6 +5329,7 @@ window.addEventListener('unhandledrejection', (e) => { console.error('[unhandled
 const skipLink = h('a', { href: '#main-content', class: 'skip-link' }, 'Skip to content');
 skipLink.addEventListener('click', (e: Event) => { e.preventDefault(); document.getElementById('main-content')?.focus(); });
 document.body.insertBefore(skipLink, document.body.firstChild);
+setupBottomNav();   // the persistent mobile bottom nav (hidden on desktop via CSS; syncNav toggles per-route)
 
 window.addEventListener('hashchange', route);
 // Session expired (any api call got a 401): drop the stale user and fall back to the login screen instead of
@@ -5285,6 +5384,7 @@ mount(h('div', { class: 'center' }, h('div', { class: 'spin' }, 'Loading Footy M
     // than throwing, so it still falls through to route() → Auth as before.
     if (isOffline(e)) {
       mount(h('div', { class: 'center' }, offlineState(() => { mount(h('div', { class: 'center' }, h('div', { class: 'spin' }, 'Reconnecting…'))); void boot(); })));
+      syncNav();   // no user → hide the bottom bar on the offline screen (boot bypasses route())
       return;
     }
   }
