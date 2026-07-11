@@ -197,15 +197,26 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         gk.targetX = goalX + fd * supportDepth;
         gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.16), gk.homeY - 120.0, gk.homeY + 120.0);
     } else if (inArea && ballLoose && (towardGoal || ballSpeed < 180)) {
+        // ACROSS-GOAL ball (cutback/low cross, |vy| dominating): chasing it
+        // laterally + stepping out strands the keeper at the near post and
+        // the first-time redirect goes to the vacated side — the defensive
+        // audit put a pulled/advanced keeper (5-9m off his line, up to 13m
+        // off the finisher's line) as a contributing factor in 9 of 12
+        // conceded goals. Hold the line: shallow step, modest lateral chase.
+        bool acrossGoal = std::abs(state.ball.vy) > std::abs(state.ball.vx) * 1.15 && ballSpeed > 120.0;
         double projectedY = towardGoal
             ? state.ball.y + state.ball.vy * (ballGoalDist / std::max(std::abs(state.ball.vx), 1.0))
             : state.ball.y;
         double stepOut = ballSpeed > 260 ? 28.0 : clamp(ballGoalDist * (0.45 + rushFactor * 0.25), 34.0, 145.0 + rushFactor * 35.0);
+        if (acrossGoal) stepOut = std::min(stepOut, 38.0);
         gk.targetX = goalX + fd * stepOut;
-        gk.targetY = clamp(lerp(state.ball.y, projectedY, 0.45), PITCH_H * 0.13, PITCH_H * 0.87);
+        gk.targetY = clamp(lerp(state.ball.y, projectedY, acrossGoal ? 0.22 : 0.45), PITCH_H * 0.13, PITCH_H * 0.87);
     } else if (opponentCarrier && inArea) {
-        gk.targetX = goalX + fd * clamp(ballGoalDist * 0.52, 34.0, 135.0);
-        gk.targetY = clamp(lerp(gk.y, state.ball.y, 0.55), PITCH_H * 0.14, PITCH_H * 0.86);
+        // A wide/byline carrier about to pull it back: same audit class —
+        // don't get dragged to the near post, protect the middle.
+        bool wideCarrier = pitch::lateralFromCenter(state.ball.y) > 120.0;
+        gk.targetX = goalX + fd * clamp(ballGoalDist * (wideCarrier ? 0.30 : 0.52), 30.0, wideCarrier ? 70.0 : 135.0);
+        gk.targetY = clamp(lerp(gk.y, state.ball.y, wideCarrier ? 0.30 : 0.55), PITCH_H * 0.14, PITCH_H * 0.86);
     } else if (ballGoalDist < GK_RUSH_DIST && ballLoose) {
         gk.targetX = goalX + fd * clamp(ballGoalDist * 0.55, 24.0, 155.0);
         gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);

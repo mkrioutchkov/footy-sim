@@ -17,13 +17,18 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     bool freshCross = p.crossCollected > 0.0 && shotDistance < freshCrossMax;
     bool freshThrough = p.throughCollected > 0.0 && shotDistance < 245.0;
 
+    // Fresh windfall (possession won off the opponent <2s ago) in range: the
+    // long pot shot is ON — the defence is unset, exactly when real players
+    // let fly (owner, seed 111 1:13).
+    bool windfall = engine.state.clockMs - engine.lastTurnoverWinMs[p.id] < 2000.0
+        && engine.lastTurnoverWinMs[p.id] > 0.0 && shotDistance < 345.0;
     bool outsideGoalLane = pitch::lateralFromCenter(p.y) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < SHOT_ANGLE_ACUTE_THRESH && shotDistance > 150.0;
 
     if (!freshCross && !freshThrough && angleDeg < SHOT_ACUTE_SOFT_THRESH && shotDistance > 120.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    if ((!freshCross && shotDistance > (shootOnSight ? 360.0 : 310.0)) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && !shootOnSight && acuteGeometry))
+    if ((!freshCross && shotDistance > (shootOnSight ? 360.0 : windfall ? 345.0 : 310.0)) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && !shootOnSight && !windfall && acuteGeometry))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     if (!freshCross && !freshThrough && shotDistance > 285.0 && angleDeg < SHOT_ACUTE_HARD_THRESH)
@@ -32,6 +37,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     double hardMax = shotMaxDistance() + engine.teamTactics[teamIndex(p.team)].shootDistBias;   // shoot_from_distance extends the HARD cap too (line-36 gate); 0 = default
     if (freshCross) hardMax = std::max(hardMax, freshCrossMax);
     if (shootOnSight) hardMax = std::max(hardMax, 330.0);
+    if (windfall) hardMax = std::max(hardMax, 345.0);
     if (shotDistance > hardMax)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (!shootOnSight && isCentralMidfielder() && shotDistance > 225.0 && (angleDeg < 9.0 || per.pressureCount > 1))

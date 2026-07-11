@@ -128,6 +128,30 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
             // A real fix belongs in a keeper-distribution-phase positioning pass
             // that ONLY runs while the keeper is actually holding, not in the
             // general attacking-support candidate set. Left as normal support.
+            // Deep build-up safe angle (watched replay seed 111 0:42): the
+            // pc>=2 gate below never opens under a tight ONE-man press, so the
+            // off-ball CB anchored 42px from the presser and the only outlet
+            // was a square ball back into the same trap. A defender-like
+            // teammate near a PRESSED deep carrier offers a real support angle
+            // — lateral/deeper, on the side AWAY from the presser — instead of
+            // standing on his anchor. Own-40% carriers only, so this never
+            // perturbs midfield/attacking shape.
+            if (carrierPressure >= 1 && isDefenderLike()
+                && pitch::forwardProgress(carrier->x, p.team) < PITCH_W * 0.40
+                && dist(p.x, p.y, carrier->x, carrier->y) < 260.0) {
+                Player* presser = nullptr; double pd = 1e9;
+                for (auto& o : engine.state.players) {
+                    if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+                    double od = dist(o.x, o.y, carrier->x, carrier->y);
+                    if (od < pd) { pd = od; presser = &o; }
+                }
+                if (presser && pd < 90.0) {
+                    double sideSign = (presser->y <= carrier->y) ? 1.0 : -1.0;   // open on the far side of the press
+                    double sx = clamp(carrier->x - pc.fd * 95.0, 45.0, PITCH_W - 45.0);
+                    double sy = clamp(carrier->y + sideSign * 150.0, 50.0, PITCH_H - 50.0);
+                    c.push_back({ sx, sy, ActionPurpose::Offer });
+                }
+            }
             if (carrierPressure >= 2) {
                 // CROWDING NOTE (2026-07-02 audit): gating these Offer candidates
                 // to the 2 nearest teammates was A/B'd against the blob probe

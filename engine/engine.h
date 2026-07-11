@@ -157,6 +157,11 @@ public:
     // Assist chain: who last fed this slot a completed pass, and when.
     std::array<int, 22> lastReceiveFrom = {};
     std::array<double, 22> lastReceiveMs = {};
+    // When this player last WON possession off the opponent (intercept/clean
+    // tackle). A fresh windfall high up opens the aggressive menu — long pot
+    // shot / hard forward drive (owner, seed 111 1:13: Messi intercepted 31m
+    // out, feinted backward, was dispossessed 2.3s later).
+    std::array<double, 22> lastTurnoverWinMs = {};
     // Keeper-distribution choreography latch (set per tick in fixedUpdate):
     // while a GK holds the ball in his box, goal-kick shapes own everyone's
     // targets and executeAction defers (see the anti-swarm tombstone).
@@ -313,6 +318,12 @@ public:
         // Pass-decision audit, carried to the interception site (FOOTY_PASSDEBUG).
         double auComp = 0.0; int auBlk = 0; int auPress = 0; double auFwd = 0.0;
         double auSafer = 0.0; int auSaferId = -1;
+        // Suicide-pass audit (seed 111 1:13): own-third lateral/backward ball
+        // released with an already-closing lane defender who wins the race.
+        // Armed at release; the flag fires only if the ball is actually cut
+        // within 800ms (spec confirmed on the Chiellini->Van Dijk turnover).
+        bool suicideRisk = false;
+        double releaseMs = 0.0;
     } pendingPass;
     bool passDebug = false;   // FOOTY_PASSDEBUG: dump each intercepted pass's decision context to stderr
     struct ActiveKnockAhead {

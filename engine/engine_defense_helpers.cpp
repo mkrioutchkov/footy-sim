@@ -335,6 +335,12 @@ void GameEngine::assignThreatMarking(DefenseContext& ctx, Player& carrier) {
             // delivery into a contested duel instead of a free meet.
             if (receiverThreat) sag = 0.0;
             double towardGoal = receiverThreat ? 0.10 : lerp(ctx.danger ? 0.18 : 0.20, 0.48, sag);
+            // A SHALLOW box runner (audit: 8/12 conceded goals were a marker
+            // 2-7m off the finisher at the cutback) is marked genuinely
+            // between man and goal — real box marking is ~1m, ballside is
+            // worthless against a first-time finish.
+            if (std::abs(threat.player->x - ctx.ownGoalX) < 170.0 && !receiverThreat)
+                towardGoal = std::max(towardGoal, 0.35);
             // Track the RUN: mark a sprinter goal-side of where he's GOING,
             // not where he was — chasing the spot he left is how the channel
             // runner got in behind untouched.
@@ -388,12 +394,21 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
             ctx.assigned[guard->id] = true;
         }
     }
-    // Cutback guard
-    if (ctx.danger || ctx.shootingRange) {
+    // Cutback guard. Wide byline danger deploys it too (audit: the classic
+    // wide cutback failed the central shootingRange gate, so the finisher
+    // received INSIDE the never-deployed guard on 8/12 conceded goals), and
+    // the guard sits ON the carrier->penalty-spot lane instead of a fixed
+    // central zone.
+    if (ctx.danger || ctx.shootingRange || ctx.wideDanger) {
         Player* cutbackGuard = nullptr;
         double bestCutback = 1e9;
-        double cutbackY = lerp(carrier.y, PITCH_H / 2.0, ctx.danger ? 0.72 : 0.62);
-        double cutbackX = ctx.ownGoalX + ctx.fd * (ctx.danger ? 132.0 : 155.0);
+        double spotX = ctx.ownGoalX + ctx.fd * 110.0, spotY = PITCH_H / 2.0;
+        double laneT = 0.55;   // sit just carrier-side of the spot, in the pull-back lane
+        double cutbackY = lerp(carrier.y, spotY, laneT);
+        double cutbackX = lerp(carrier.x, spotX, laneT);
+        // never deeper than the old fixed depth band, never beyond the spot
+        double depth = clamp((cutbackX - ctx.ownGoalX) * ctx.fd, 100.0, ctx.danger ? 132.0 : 155.0);
+        cutbackX = ctx.ownGoalX + ctx.fd * depth;
         for (auto& defender : state.players) {
             if (defender.team != ctx.team || ctx.used(&defender)
                 || (!agentFor(defender)->isCentralMidfielder() && !agentFor(defender)->isFullBack()

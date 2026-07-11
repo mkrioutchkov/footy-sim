@@ -67,6 +67,27 @@ void GameEngine::beginTrackedPass(Player& from, Player& to, bool isCross, bool i
         bool bl = fd > 0.0 ? tm.x > line + OFFSIDE_TOLERANCE : tm.x < line - OFFSIDE_TOLERANCE;
         pendingPass.offsideAtPass[tm.id] = bh && bp && bl;
     }
+    // Suicide-pass audit arming (owner: "let's audit these", seed 111 1:13 spec):
+    // own defensive third + lateral/backward + an already-closing opponent in the
+    // middle of the lane at release. Fires as a quality flag only if the ball is
+    // actually cut inside 800ms (the Chiellini->Van Dijk ball died in 650ms).
+    pendingPass.releaseMs = state.clockMs;
+    pendingPass.suicideRisk = false;
+    if (pitch::distToOwnGoal(from.x, from.team) < 300.0 && forwardProgress <= 40.0) {
+        double sdx = to.x - from.x, sdy = to.y - from.y, sls = sdx * sdx + sdy * sdy;
+        if (sls > 1.0) {
+            for (auto& o : state.players) {
+                if (o.team == from.team || o.role == Role::GK || o.sentOff) continue;
+                double t2 = ((o.x - from.x) * sdx + (o.y - from.y) * sdy) / sls;
+                if (t2 < 0.15 || t2 > 0.85) continue;
+                double cx = from.x + t2 * sdx, cy = from.y + t2 * sdy;
+                double perp = dist(o.x, o.y, cx, cy);
+                if (perp > 60.0) continue;
+                double closing = perp > 1.0 ? (o.vx * (cx - o.x) + o.vy * (cy - o.y)) / perp : 0.0;
+                if (closing > 20.0) { pendingPass.suicideRisk = true; break; }
+            }
+        }
+    }
 }
 
 bool GameEngine::resolvePendingPass(Player& receiver) {
@@ -103,6 +124,9 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         // contact at leap reach — a header resolving above it means the ghost
         // class (contact rendered a body-length off the header-er) is back.
         if (b.z > HEADER_REACH_Z + MEET_REACH_HEAD) stats.recordQualityFlag(QualityFlag::GhostHeader);
+        // Horizontal ghost (seed 111 28:45): a header resolved with the ball
+        // 19px+ from the header-er's body — vertical-only tripwire missed it.
+        if (dist(receiver.x, receiver.y, b.x, b.y) > MEET_REACH_HEAD + 6.0) stats.recordQualityFlag(QualityFlag::GhostHeader);
         stats.recordHeader(b.z, deliveryDist, deliverySpeed, !plausibleHeader);
         receiver.headingAnim = 520.0;
         emitEvent("header", receiver.x, receiver.y, receiver.id, pendingPass.fromId);
@@ -216,6 +240,18 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             bool mustAttackHeader = shotDistance < 185.0 && angleDeg > 6.0 && pressure <= 2 && laneBlockers <= 1;
             double shotChance = clamp(0.32 + (roleShotMax - shotDistance) / 260.0 + angleDeg / 82.0 - pressure * 0.06 - laneBlockers * 0.08, 0.0, 0.85);
             if (headerShot && (mustAttackHeader || rng.random() < shotChance)) {
+                // Launch FROM the contact point: shootBall aims from the
+                // shooter's body, but the met ball can sit ~15-20px away — the
+                // 28:45 phantom rocketed goalward from beside an untouched
+                // defender. Snap the ball to the header-er's head first so
+                // position and velocity tell the same story.
+                {
+                    double hbd = dist(receiver.x, receiver.y, b.x, b.y);
+                    if (hbd > 10.0) {
+                        b.x = receiver.x + (b.x - receiver.x) / hbd * 10.0;
+                        b.y = receiver.y + (b.y - receiver.y) / hbd * 10.0;
+                    }
+                }
                 receiver.crossCollected = 900.0;
                 if (receiver.id >= 0 && receiver.id < 22 && pendingPass.fromId != receiver.id) {
                     lastReceiveFrom[receiver.id] = pendingPass.fromId;
@@ -288,6 +324,9 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             stats.recordPassWrongTeammate();
     } else {
         stats.recordPassIntercepted();
+        if (receiver.id >= 0 && receiver.id < 22) lastTurnoverWinMs[receiver.id] = state.clockMs;
+        if (pendingPass.suicideRisk && state.clockMs - pendingPass.releaseMs < 800.0)
+            stats.recordQualityFlag(QualityFlag::SuicidePass);
         // Senseless-giveaway census (owner ask, 0:06 "senseless loss"): an
         // UNPRESSURED passer whose plain (non-cross, non-through) ball was cut
         // out — a poor giveaway, not a forced or deliberately-risky ball. Pressure
@@ -426,7 +465,11 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     double fd = fdFor(f.team);
     bool movingForward = t.vx * fd > 5;
     double leadFactor = throughBall ? (movingForward && receiverSpeed > 14 ? 1.32 : 0.80) : (movingForward && receiverSpeed > 20 ? 0.90 : 0.55);
-    double throughLead = throughBall ? fd * (90 + attrFactor(f.attrs.creativity) * 120) : 0;
+    // Lead scales with the ball's own length (seed 111 1:35: a 195px through
+    // ball took the full 90-210px lead and landed in Neuer's arms 100px past
+    // the runner). A short slipped ball leads a stride; only the long killer
+    // earns the full channel lead.
+    double throughLead = throughBall ? fd * (90 + attrFactor(f.attrs.creativity) * 120) * clamp(rawDist / 450.0, 0.35, 1.0) : 0;
     // NOTE: clamping the through-ball aim point inside the field (weighting it
     // to stay in) was A/B'd and REVERTED — the most valuable killer balls are
     // aimed exactly at the deep byline channel, and pulling them up cost the
@@ -463,6 +506,25 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         double travel = (ownGoalX - f.x) / tdx;
         double crossingY = f.y + tdy * travel;
         if (travel > 0 && travel <= 1.0 && std::abs(crossingY - PITCH_H / 2) < GOAL_W / 2 + BALL_R + 8) return false;
+    }
+    // A ball driven INTO the opponent's mouth is a SHOT, not a pass (seed 111
+    // 14:57: Kroos's poked interception routed through the pass path at
+    // 163px/s — below even the shot model's 185 floor — and rolled in at
+    // 31km/h; owner: "shot lacked power"). If the release ray crosses the
+    // mouth within the ball's overrun range from shooting distance, hand it
+    // to shootBall for honest pace and bookkeeping. Crosses never enter this
+    // path; cutbacks aim away from the line so the ray test skips them.
+    if (!lob) {
+        double oppGoalX = goalXFor(f.team);
+        bool towardOppGoal = f.team == Team::Home ? tdx > 0 : tdx < 0;
+        if (towardOppGoal && std::abs(f.x - oppGoalX) < 420.0) {
+            double travel = (oppGoalX - f.x) / tdx;
+            double crossingY = f.y + tdy * travel;
+            if (travel > 0 && travel <= 1.5 && std::abs(crossingY - PITCH_H / 2) < GOAL_W / 2 - 2.0) {
+                shootBall(f, nullptr);
+                return true;
+            }
+        }
     }
     auto& b = state.ball;
     b.controllerId = -1;

@@ -252,6 +252,7 @@ class StatsCollector {
     // Tripwire: a pass launched >150° off the passer's facing (selection vetoes
     // these — nonzero means a forced path is leaking no-look bombs).
     void recordBlindPass() { blindPasses++; }
+    void recordSuicidePass() { suicidePasses++; }   // own-third lateral ball cut by a closing lane defender <800ms
     // A corner conceded by the defender's own deliberate kick (not a save,
     // duel or deflection) — the "player kicks it out of his own end" class.
     void recordOwnCornerConcession() { ownCornerConcessions++; }
@@ -385,6 +386,7 @@ class StatsCollector {
     int decisionMoments = 0, playerDecisions = 0, staleGrabs = 0, skillMoves = 0, shotsBlocked = 0;
     int ghostHeaders = 0;
     int blindPasses = 0;
+    int suicidePasses = 0;
     int ownCornerConcessions = 0;
     int goalsFromFreeKick = 0, goalsFromCorner = 0, goalsFromThrowIn = 0,
         goalsFromPenaltyPhase = 0, goalsOpenPlay = 0;

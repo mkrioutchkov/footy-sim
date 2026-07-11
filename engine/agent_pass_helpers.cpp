@@ -33,6 +33,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool keeperRecycle = ownProgress < PITCH_W * 0.36 && isDefenderLike()
         && ((oppClosingSoon && per.nearestOpponentDist < 110.0) || per.pressureCount >= 2
             || (per.pressureCount >= 1 && !hasClearOutfieldOutlet));
+    // NOTE: a static-tight admission (marker <45px, outlets open) was A/B'd
+    // twice for the 0:42 trapped-squares case and REVERTED — keeper ping-pong
+    // blew to 112 then 96 backpasses/90 (real ~30-40). The safe-angle support
+    // drop + oppClosingSoon term cover that moment without the flood.
     bool keeperOutlet = t.role == Role::GK && ((urgentKeeperNeed && !hasClearOutfieldOutlet) || keeperRecycle);
     if (t.role == Role::GK && !keeperOutlet) return std::nullopt;
     double d = dist(p.x, p.y, t.x, t.y);
@@ -62,7 +66,22 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         double closing = tld > 1.0 ? (o.vx * tlx + o.vy * tly) / tld : 0.0;   // px/s toward the lane
         double effBlocker = PASS_BLOCKER_PERP + clamp(closing / 50.0, 0.0, 1.0) * 13.0;
         bool onBootPresser = t2 < 0.05 && dist(o.x, o.y, p.x, p.y) < 42.0;
-        if (perp < effBlocker) {
+        // Step-in RACE (watched replay seed 111 1:13): an ALREADY-CLOSING mid-lane
+        // defender who reaches his gate before the ball does is a blocker, however
+        // far his static perp is. Messi at perp 58.6 closing 47px/s sat ~10px
+        // outside the max step-in radius, priced as soft laneRisk, and cut the
+        // lateral ball across Chiellini's own D 650ms later. Already-closing
+        // (>25px/s) waives the reaction lag a flat-footed defender would pay —
+        // he has committed; a static body keeps the old radius so tight-but-
+        // standing markers don't double count.
+        bool stepInWins = false;
+        if (perp >= effBlocker && perp < 112.0 && t2 > 0.10 && t2 < 0.92 && closing > 25.0) {
+            double passSpeed = std::min(std::max(150.0 + d * 0.32, PASS_SPEED_BASE + d * PASS_SPEED_DIST), 300.0);
+            double tGate = t2 * d / passSpeed;                       // when the ball crosses his gate
+            double sprint = std::max(80.0, attrFactor(o.attrs.speed) * SPEED_SPRINT);
+            stepInWins = (perp - 18.0) / sprint + 0.05 < tGate;
+        }
+        if (perp < effBlocker || stepInWins) {
             bl++;
             if (onBootPresser) onBootBl++;
         }
@@ -109,6 +128,17 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     for (auto& o : engine.state.players) {
         if (o.team != p.team && o.role != Role::GK && !o.sentOff && dist(o.x, o.y, t.x, t.y) < PASS_RECEIVER_PRESS_MAX) receiverPressure++;
     }
+    // The opposing KEEPER owns his zone (watched replay seed 111 1:35: a through
+    // ball led 100px past the runner scored rpEff=0/blEff=0 because every
+    // opponent loop filters GK — Neuer, set 76px away, collected uncontested).
+    // A receive point near the opposing GK inside his defensive quarter counts
+    // as pressed; outfield loops elsewhere still ignore him (he never presses
+    // upfield).
+    for (auto& o : engine.state.players) {
+        if (o.team == p.team || o.role != Role::GK || o.sentOff) continue;
+        if (pitch::distToOwnGoal(t.x, o.team) < PITCH_W * 0.25
+            && dist(o.x, o.y, t.x, t.y) < PASS_RECEIVER_PRESS_MAX * 1.4) receiverPressure++;
+    }
     if (receiverPressure >= 3) return std::nullopt;
 
     // ── Base scoring ──
@@ -145,7 +175,25 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // play_it_long: direct sides gamble on lower-completion (longer) balls. 0 by
     // default => floor stays 0.44 => the no-directive match is unchanged.
     double longBall = engine.teamTactics[teamIndex(p.team)].longBallBias;
-    if (completion < 0.44 - longBall * 0.24) return std::nullopt;   // play_it_long: allow riskier long balls
+    // Press-pinned RELIEF (watched replay seed 111 0:00-1:30: the pressing side
+    // committed 7-8 into blue's half, Ronaldo stood unmarked upfield in 100% of
+    // frames, and the 328px relief ball priced ~0.41 — vetoed here and by the
+    // build-up floor, so blue recycled 33-114px squares until picked off at
+    // x~700. Real teams go long against a full press). A deep carrier whose
+    // half is FLOODED (6+ opponents) may play the honest 50/50 relief to a
+    // genuinely unmarked man well upfield.
+    bool reliefBall = false;
+    if (fp > 180.0 && d > 240.0 && ownProgress < PITCH_W * 0.42 && t.role != Role::GK) {
+        double recvOpen = 1e9;
+        int oppInOurHalf = 0;
+        for (auto& o : engine.state.players) {
+            if (!isActiveOpponent(o, p.team)) continue;
+            recvOpen = std::min(recvOpen, dist(o.x, o.y, t.x, t.y));
+            if (pitch::forwardProgress(o.x, p.team) < PITCH_W * 0.5) oppInOurHalf++;
+        }
+        reliefBall = oppInOurHalf >= 6 && recvOpen > 90.0;
+    }
+    if (completion < (reliefBall ? 0.36 : 0.44) - longBall * 0.24) return std::nullopt;   // play_it_long: allow riskier long balls
 
     // Blind-pass gate (watched replay seed 133 0:04/0:56: launches 163°/145°
     // off the passer's FACING — no-look bombs "the player isn't even facing
@@ -187,7 +235,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // to an unmarked man with a clean lane, or the carrier stands holding
     // unplayable options until he's tackled (seed 129 0:37-0:40).
     bool pressedSafeOut = oppClosingSoon && d < 260.0 && receiverPressure == 0 && bl == 0;
-    if (!keeperOutlet && !pressedSafeOut && longBall <= 0.0 && ownProgress < PITCH_W * 0.42) {
+    if (!keeperOutlet && !pressedSafeOut && !reliefBall && longBall <= 0.0 && ownProgress < PITCH_W * 0.42) {
         bool breaksLine = fp > 120.0 && receiverPressure == 0 && bl == 0 && laneRisk < 0.8;
         double buildFloor = breaksLine ? 0.50 : 0.66;
         if (completion < buildFloor) return std::nullopt;
@@ -204,6 +252,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // value safe recycling less (vertical, direct); low -> patient possession.
     double directness = engine.configFor(p.team).passingDirectness / 50.0; // 0..2, 1 at 50
     double sc = completion * (0.34 + std::max(0.0, progression) * 0.34 * directness) - (1.0 - completion) * turnoverCost;
+    if (reliefBall) sc += 0.12;   // press-pinned escape beats the 15th sterile square recycle
     if (!engine.setPiece.armed && offFacing > 1.62) sc -= offFacing > 2.45 ? 0.24 : 0.14;   // blind-pass tax on top of the completion hit (stiffer past the old veto line)
     if (longBall > 0.0 && fp > 80.0) {                          // play_it_long: make the direct long ball win
         sc += longBall * (0.38 + std::min(fp, 360.0) / 360.0 * 0.46);   // longer => bigger reward (boosted to commit)

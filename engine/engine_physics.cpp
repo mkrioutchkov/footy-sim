@@ -607,7 +607,12 @@ bool GameEngine::tryIntendedReceiverMeet(double bs) {
                     double obd = dist(opp.x, opp.y, b.x, b.y);
                     double obz = std::max(0.0, b.z - HEADER_REACH_Z);
                     double ob3 = std::sqrt(obd * obd + obz * obz);
-                    if (od < 48.0 && ob3 <= MEET_REACH_HEAD && od < duelerDist) {
+                    // Same slant reach as the receiver's own meet grant: the
+                    // 28:45 phantom (seed 111) granted the header at meetD3~19
+                    // while the defender 20.4px from the BALL failed the tighter
+                    // MEET_REACH_HEAD gate and was never consulted. Symmetric
+                    // reach = whoever is genuinely closer contests.
+                    if (od < 48.0 && ob3 <= reach + 4.0 && od < duelerDist) {
                         dueler = &opp;
                         duelerDist = od;
                     }

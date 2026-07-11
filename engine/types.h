@@ -55,6 +55,7 @@ enum class QualityFlag : uint8_t {
     StationaryHold500ms,
     GhostHeader,
     BlindPass,
+    SuicidePass,   // own-third lateral/backward ball cut by an already-closing lane defender within 800ms
     OwnCornerConcession
 };
 

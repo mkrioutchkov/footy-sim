@@ -398,8 +398,16 @@ void GameEngine::releaseGoalKick(Player& holder) {
     // Left short-safe. GK_LONG_MIX_PROB / GK_LONG_TARGET_MIN_PROG retained for a
     // future revival paired with hold-up mechanics.
     if (!(gkLongBias > 0.0 && rng.random() < gkLongBias)) {
+        // Clipped-first mix (seed 111 census: 6/6 goal kicks were <150px rolls
+        // to a camped deep man — zero variety, zero progression): a third of
+        // the time the keeper LOOKS MID-RANGE FIRST (the clipped ball to the
+        // FB/CM seam); if no mid target is safely open, the pass below re-runs
+        // with the full range, so the failure mode is unchanged.
+        bool preferClipped = rng.random() < 0.33;
         Player* sp = nullptr;
         double bestSafe = -1e9;
+        double shortMinD = preferClipped ? 165.0 : 42.0;
+        for (int attempt = 0; attempt < (preferClipped ? 2 : 1) && !sp; attempt++, shortMinD = 42.0) {
         for (auto& p : state.players) {
             if (p.team != holder.team || p.id == holder.id || p.role == Role::GK || p.sentOff) continue;
             double d = dist(holder.x, holder.y, p.x, p.y);
@@ -408,7 +416,7 @@ void GameEngine::releaseGoalKick(Player& holder) {
             // the simple short roll to a close open man (down to 42px) + a touch longer (320). The
             // openness (nearestOpp>42) + clean-lane gates below are UNCHANGED, so it only plays out
             // to a SAFE option — no added risk, just fewer needless punts.
-            if (d < 42.0 || d > 320.0) continue;
+            if (d < shortMinD || d > 320.0) continue;
             // Press-aware openness (same as releaseGoalkeeperDistribution): the
             // receiver must still be open when the ball ARRIVES, not just now —
             // opponents are projected along their velocity over the flight.
@@ -426,12 +434,16 @@ void GameEngine::releaseGoalKick(Player& holder) {
             // GK DISTRIBUTION POLISH: among the safe short options, prefer the MOST OPEN man (most
             // space around him), not just the most advanced — a keeper rolls it to the defender in
             // acres, not the one with a forward breathing on him. Picks the genuinely-safe ball.
-            double score = progress * 0.30 - d * 0.20 + sp::weight(sp::GK_SHORT, p.role) +
+            // Mid-band distance penalty halved: an OPEN clipped option at
+            // 170-320 competes with the deep roll instead of always losing
+            // 0.20/px (openness is already the dominant term).
+            double score = progress * 0.30 - d * (d < 170.0 ? 0.20 : 0.10) + sp::weight(sp::GK_SHORT, p.role) +
                            (std::min(nearestOpp, 160.0) - 42.0) * 0.45;
             if (score > bestSafe) {
                 bestSafe = score;
                 sp = &p;
             }
+        }
         }
         if (sp && passBallTo(holder, *sp, false, false, nullptr, /*secure=*/true)) {
             goalKickMonitor.active = true;

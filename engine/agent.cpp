@@ -607,6 +607,7 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
             p.tackleAnim = cleanWin ? 220.0 : 800.0;
             if (cleanWin) {
                 stunLockTicks = 16;
+                engine.lastTurnoverWinMs[p.id] = engine.state.clockMs;
             }
         } else {
             // Approach at an INTERCEPT point, not the carrier's heels: chasing
