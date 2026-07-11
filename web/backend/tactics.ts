@@ -23,8 +23,19 @@ const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 
   // tactical-depth dials (FM team-instruction trio) — gradated, engine reads intensity 0-1 (0.5 = neutral):
   'press_intensity',   // 0=contain/no-chase … 1=high press
   'mentality',         // 0=ultra-defensive … 1=all-out attack (commits bodies forward, higher line, overlaps)
-  'line_height'];      // 0=deep block … 1=aggressive high line + offside trap
-export const VALID_KINDS = new Set([...PLAYER_KINDS, ...TEAM_KINDS]);
+  'line_height',       // 0=deep block … 1=aggressive high line + offside trap
+  // Set-piece / restart TEAM instruction. gk_up_for_corners: send the keeper up for late attacking corners
+  // (engine DK lands separately; until then main.cpp `else continue` ignores it — the plumbing carries it as a
+  // string kind). Intensity is the sanitizer-clamped [0,1] mode selector: 0.5 = only when behind in the closing
+  // minutes (the sane default), 1.0 = every late attacking corner.
+  'gk_up_for_corners'];
+// Designated set-piece-taker kinds (PLAYER-scoped; engine main.cpp maps them via designatedTakerFor at the
+// restart). The tactics board writes them as plan directives (playerId = SQUAD SLOT), resolved to engine ids
+// by resolvePlanDirectives (match.ts) — a taker not in the fielded XI is dropped, falling back to the engine
+// default. Not in the LLM prompt vocab, so the text compiler never emits them; the board (and the field-based
+// plan path) does.
+const SETPIECE_TAKER_KINDS = ['fk_taker', 'corner_taker', 'pen_taker', 'long_throw_taker'];
+export const VALID_KINDS = new Set([...PLAYER_KINDS, ...TEAM_KINDS, ...SETPIECE_TAKER_KINDS]);
 export const TEAM_KIND_SET = new Set(TEAM_KINDS);
 const VALID_SCORE = new Set(['winning', 'drawing', 'losing', 'any']);
 export type Side = 'home' | 'away';

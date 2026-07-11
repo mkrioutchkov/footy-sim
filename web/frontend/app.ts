@@ -1764,7 +1764,7 @@ function boardToggle(labelText: string, checked: boolean, onChange: (c: boolean)
 // The team-wide kinds the board can represent (the 3 dials + the segmented pairs + the 3 toggles). Anything
 // else (all_out_attack/park_the_bus/high_press/drop_off/push_up) or any conditional `when` can't be shown here,
 // so we warn before a board save silently replaces them.
-const BOARD_TEAM_KINDS = new Set(['mentality', 'press_intensity', 'line_height', 'play_it_long', 'keep_it_on_ground', 'play_narrow', 'get_it_wide', 'work_it_into_box', 'shoot_from_distance', 'counter_attack', 'offside_trap', 'slow_it_down']);
+const BOARD_TEAM_KINDS = new Set(['mentality', 'press_intensity', 'line_height', 'play_it_long', 'keep_it_on_ground', 'play_narrow', 'get_it_wide', 'work_it_into_box', 'shoot_from_distance', 'counter_attack', 'offside_trap', 'slow_it_down', 'gk_up_for_corners']);
 const hasWhenCond = (w: DirectiveT['when']): boolean => !!w && ((w.fromMin ?? 0) > 0 || (w.toMin ?? 1000) < 1000 || (!!w.scoreState && w.scoreState !== 'any') || !!w.phase);
 
 function tacticsBoard(team: TeamT, reg: FormationsT | null, gate: TacticsMutationGate): HTMLElement {
@@ -1799,6 +1799,9 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null, gate: TacticsMutatio
   const hiddenDirectives = (): DirectiveT[] => savedHiddenDirectives;
   const teamKind = (k: string) => existing.find(d => d.teamScope != null && d.kind === k);
   const dialVal = (k: string) => { const d = teamKind(k); return typeof d?.intensity === 'number' ? d.intensity : 0.5; };
+  // gk_up_for_corners is a 3-state set-piece instruction (off / 0.5 = up late when behind / 1 = every late
+  // corner), so it defaults to 0 (off) rather than the dials' neutral 0.5 — read the saved intensity or off.
+  const gkUpVal = () => { const d = teamKind('gk_up_for_corners'); return typeof d?.intensity === 'number' ? d.intensity : 0; };
 
   // ── mutable board state ──
   let formation = team.formation ?? '4-3-3';
@@ -1809,6 +1812,7 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null, gate: TacticsMutatio
     width: teamKind('play_narrow') ? 'narrow' : teamKind('get_it_wide') ? 'wide' : 'mid',
     shoot: teamKind('work_it_into_box') ? 'patient' : teamKind('shoot_from_distance') ? 'range' : 'mid',
     counter: !!teamKind('counter_attack'), offside: !!teamKind('offside_trap'), slow: !!teamKind('slow_it_down'),
+    gkUp: gkUpVal(),   // 0 = keeper stays / 0.5 = up late when behind / 1 = up for every late corner
   };
   // per formation-slot preset key; seeded by matching each slot's existing per-player directive set
   let presets: string[] = [];
@@ -1835,6 +1839,9 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null, gate: TacticsMutatio
     if (instr.counter) out.push({ playerId: -1, teamScope: 0, kind: 'counter_attack', intensity: 1 });
     if (instr.offside) out.push({ playerId: -1, teamScope: 0, kind: 'offside_trap', intensity: 1 });
     if (instr.slow) out.push({ playerId: -1, teamScope: 0, kind: 'slow_it_down', intensity: 1 });
+    // Set-piece: send the keeper up for late attacking corners. Off (0) emits nothing; the two intensity
+    // modes ride as the standard team directive (0.5 = up late when behind, 1 = every late corner).
+    if (instr.gkUp > 0) out.push({ playerId: -1, teamScope: 0, kind: 'gk_up_for_corners', intensity: instr.gkUp });
     return out;
   };
   const playerDirectives = (): DirectiveT[] => {
@@ -2055,7 +2062,21 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null, gate: TacticsMutatio
     h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
       boardToggle('Counter-attack', instr.counter, c => { instr.counter = c; markDirty(); }),
       boardToggle('Offside trap', instr.offside, c => { instr.offside = c; markDirty(); }),
-      boardToggle('Waste time / slow it down', instr.slow, c => { instr.slow = c; markDirty(); })));
+      boardToggle('Waste time / slow it down', instr.slow, c => { instr.slow = c; markDirty(); })),
+    // ── set pieces (team) ── send the keeper up for late attacking corners. A 3-state select rather than a
+    // toggle: off, up only when chasing late, or up for every late corner. Rides as the gk_up_for_corners team
+    // directive through the same plan-structured save as the dials.
+    h('div', { style: 'font-size:13px;font-weight:600;margin:10px 0 4px' }, 'Set pieces'),
+    (() => {
+      const sel = h('select', { class: 'tactics-input', style: 'width:auto;min-width:230px;padding:5px 8px' }) as HTMLSelectElement;
+      sel.append(h('option', { value: '0' }, 'Keeper stays back'));
+      sel.append(h('option', { value: '0.5' }, 'Send keeper up late when behind'));
+      sel.append(h('option', { value: '1' }, 'Send keeper up for every late corner'));
+      sel.value = instr.gkUp === 1 ? '1' : instr.gkUp > 0 ? '0.5' : '0';
+      sel.addEventListener('change', () => { instr.gkUp = Number(sel.value); markDirty(); });
+      return h('label', { class: 'row', style: 'gap:8px;align-items:center;font-size:13px' },
+        h('span', { style: 'flex-shrink:0' }, 'Late-corner keeper'), sel);
+    })());
 
   // ── player-roles card ──
   const rolesCard = h('div', { class: 'card' },
@@ -2173,6 +2194,8 @@ const GRADATED: Record<string, [string, string, string]> = {
   press_intensity: ['pressing: sit off & contain', 'pressing: measured mid-block', 'pressing: aggressive high press'],
   mentality: ['mentality: defensive — see it out', 'mentality: balanced', 'mentality: all-out attack'],
   line_height: ['defensive line: deep block', 'defensive line: mid', 'defensive line: high & squeeze'],
+  // set-piece keeper: only 0.5 (band 1) and 1 (band 2) are ever emitted; band 0 is the off state (no directive).
+  gk_up_for_corners: ['set pieces: keeper back', 'set pieces: keeper up on late corners when behind', 'set pieces: keeper up for every late corner'],
 };
 const PLAYER_VERB: Record<string, string> = {
   shoot_on_sight: 'shoots on sight', get_forward: 'gets forward', sit_deep: 'sits deep',
@@ -2656,7 +2679,15 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
       onclick: () => { tipRow.remove(); try { localStorage.setItem(TIP_KEY, '1'); } catch { /* */ } } }, '×'));
   const applyBtn = h('button', { class: 'primary small', title: 'Apply your shout (Ctrl+Enter)', onclick: applyPlan }, 'Apply') as HTMLButtonElement;
   applyBtn.disabled = true;
-  const panelBody = h('div', { class: 'tactics-body' }, statsHost, planEl, h('div', { class: 'tactics-row' }, ta, applyBtn), receiptEl);
+  // Quick structured set-piece shout: send the keeper up for late corners (rides the live inject channel as a
+  // 'gk_up' command — no LLM). One tap = "up for every late corner"; the pre-match board sets the subtler mode.
+  const gkUpBtn = h('button', { class: 'ghost small', title: 'Send your keeper up for late corners',
+    onclick: () => { if (activeWs?.readyState === WebSocket.OPEN) { receiptEl.replaceChildren(h('div', { class: 'muted' }, 'Sending keeper up…')); wsSend({ type: 'gk_up', value: 1 }); } } }, '⬆ Keeper up') as HTMLButtonElement;
+  gkUpBtn.disabled = true;
+  const panelBody = h('div', { class: 'tactics-body' }, statsHost, planEl,
+    h('div', { class: 'tactics-row' }, ta, applyBtn),
+    h('div', { class: 'row', style: 'gap:6px;margin-top:6px;flex-wrap:wrap' }, gkUpBtn),
+    receiptEl);
   // Mobile: the live shout panel docks over the pitch + commentary. A collapse toggle folds it to a slim header
   // so the match can be watched unobstructed, then reopened to shout. Default-collapsed on a phone (matchMedia),
   // and the choice is remembered. Desktop keeps it expanded in the right rail unless the user folds it.
@@ -2804,7 +2835,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   activeWs = ws;
   const setStreamReady = (ready: boolean): void => {
     streamControls.forEach(control => { control.disabled = !ready; });
-    if (live) { ta.disabled = !ready; applyBtn.disabled = !ready; }
+    if (live) { ta.disabled = !ready; applyBtn.disabled = !ready; gkUpBtn.disabled = !ready; }
   };
   ws.onopen = () => { if (myEpoch === watchEpoch) setStreamReady(true); };
   let replayUiApplied = false;
