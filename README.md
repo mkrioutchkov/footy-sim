@@ -11,11 +11,11 @@ Role-based — the engine and the web app are cleanly separable (see
 [docs/CONTRACT.md](docs/CONTRACT.md)):
 
 ```
-engine/        C++ match engine            -> build/live.exe   (deterministic sim)
+engine/        C++ match engine            -> build/live[.exe]   (deterministic sim)
 web/backend/   Fastify + node:sqlite       npm run game  (:4000)   API, auth, DB, match orchestration
 web/frontend/  vanilla-TS SPA + PixiJS     npm run dev   (:5173)   the game UI + 2D match renderer
-tools/         engine harness + py probes  npm run batch | scenarios
-scripts/       build-native.ps1            (engine build)
+tools/         engine harness + py probes  npm run batch | scenarios | ab.py
+scripts/       build-native.ps1 / .sh      (engine build — Windows / Linux+macOS)
 docs/          ARCHITECTURE . CONTRACT . TACTICS
 build/  dist/  third_party/                build outputs + deps
 ```
@@ -24,18 +24,25 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full component diagram.
 
 ## Quickstart — play the game
 
-Requires Node.js and Visual Studio with the C++ workload (`cl.exe`).
+Requires **Node.js** and a **C++ toolchain**. The engine build is **cross-platform**:
+`npm run native:build` auto-detects the OS (`scripts/native-build.mjs` runs
+`build-native.ps1` on Windows, `build-native.sh` on Linux/macOS), and the `pre*` npm
+hooks use it — so `batch`/`build` work on either OS.
+- **Windows** — Visual Studio with the C++ workload (`cl.exe`) → `build/live.exe`.
+- **Linux / macOS** — `g++`/`clang++` → `build/live` (`match.ts` resolves either name).
+`npm run native:build:posix` forces the bash path directly.
 
 ```
 npm install
-npm run native:build      # compile the engine -> build/live.exe
-npm run game              # backend API + match-watch socket on :4000
-npm run dev               # frontend on :5173 (proxies /api + /ws -> 4000)
+npm run native:build            # auto-detects the platform -> build/live[.exe]
+npm run game                    # backend API + match-watch socket on :4000
+npm run dev                     # frontend on :5173 (proxies /api + /ws -> 4000)
 ```
 Open http://localhost:5173 -> register -> create a club -> Play matchday -> Watch.
 The SQLite DB lives at `web/backend/data/footy.sqlite` (gitignored — delete it to
-wipe all accounts/leagues). `tsx` does **not** hot-reload: restart `npm run game`
-after any `web/backend/` or `engine/` change (rebuild the engine first).
+wipe all accounts/leagues; override the path with `FOOTY_DB`). `tsx` does **not**
+hot-reload: restart `npm run game` after any `web/backend/` or `engine/` change
+(rebuild the engine first).
 
 ## Engine development
 
@@ -101,18 +108,22 @@ inherent, not a missing feature).
 
 ## Roadmap
 
-The single-player core loop works end to end (auth -> create club -> 8-team league
-vs AI -> set the 5 tactic dials -> play matchdays -> watch -> live table).
+The single-player loop **and** shared-world multiplayer are shipped: auth → create/claim
+a club → league + cup → set tactics (plain-English plan **or** the structured board) →
+transfers, training, scouting, contracts, finances, board → play/watch matchdays → season
+rollover (promotion/relegation, honours) → national teams + international tournaments +
+a Club World Cup, with AI/assistant managers and a turn-based/autonomous world scheduler.
 
-Next, in order:
-1. **Plain-English tactics** — the flagship feature; see [docs/TACTICS.md](docs/TACTICS.md).
-2. **Solo-loop depth** — pick-XI/lineup, persisted match reports + season
-   leaderboards, season rollover (champion, promotion/relegation, season 2).
-3. **Multiplayer** — shared leagues, human-vs-human fixtures, an auto-sim scheduler.
+Genuinely next:
+1. **Distribution** — package for release (Electron desktop wrap; itch/Steam), and make the
+   LLM optional (the structured tactics board is already the no-LLM path).
+2. **Live-multiplayer polish** — the LiveAIManager checkpoints + the round-robin runner
+   (see [docs/LIVE_MATCH_ARCHITECTURE.md](docs/LIVE_MATCH_ARCHITECTURE.md) §4–5).
+3. **Engine role depth** — real DM/AM behaviour, ball-playing CB, true inverted full-back
+   (see [docs/TACTICS_ENGINE_FOLLOWUPS.md](docs/TACTICS_ENGINE_FOLLOWUPS.md)).
 
-Known engine debt: move per-player stats/alerts/decision-audits closer to the
-agent code; track time-in-offside by player/role (CF/WM); add CB-pair
-defensive-line telemetry (line gap, stagger, time holding the line).
+Known engine debt: move per-player stats/alerts/decision-audits closer to the agent code;
+track time-in-offside by player/role (CF/WM); add CB-pair defensive-line telemetry.
 
 ## Code style
 

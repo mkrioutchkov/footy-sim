@@ -1,0 +1,23 @@
+# Render Blueprint — one-click deploy of the whole app (C++ engine + Node backend + SPA) as a
+# single Docker web service. In the Render dashboard: New → Blueprint → connect this repo →
+# pick this branch. Render builds the Dockerfile and gives you https://<name>.onrender.com to
+# open on your phone (→ Add to Home Screen to install the PWA).
+#
+# Notes for the free plan:
+#   • The service sleeps after ~15 min idle and cold-starts on the next hit (first load is slow).
+#   • No persistent disk on free → the SQLite DB (accounts/leagues) resets on redeploy/restart.
+#     Fine for a try; add a paid disk mounted at /app/web/backend/data to persist.
+#   • Plain-English tactics need an LLM — add TACTICS_LLM_* env vars in the dashboard (optional;
+#     dial tactics + matches + seasons work without one).
+services:
+  - type: web
+    name: footy-sim
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    branch: feature/pwa-deploy
+    plan: free
+    healthCheckPath: /api/me
+    envVars:
+      # Render injects PORT and the backend now honors it; bind on all interfaces.
+      - key: FOOTY_HOST
+        value: 0.0.0.0

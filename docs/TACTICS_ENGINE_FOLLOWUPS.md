@@ -17,20 +17,21 @@ That covers most positions **faithfully today**:
 | Advanced playmaker (#10) | CM/AM slot (high) + `get_forward` + `drift_into_pocket` (real pocket behaviour) | none |
 | Holding / deep-lying mid | CM/DM slot (deep) + `sit_deep` + `stay_back` | anchor-only* |
 | Inverted full-back | FB + `come_inside` (+ `stay_back`) | approximate* |
-| **Ball-playing CB** | — (offered **disabled** in the UI) | **required** |
+| **Ball-playing CB** | `ball_playing` on a CB (steps out + carries + progresses from the back) | ✅ **SHIPPED** (PR #4) |
 
 `*` The board labels these honestly ("tuck inside — approx.", "a CM anchored deep/high"). The three items
 below are the engine work that would make them first-class. **Your call whether/when to land any of them** —
-they touch the calibration-sensitive sim, so each needs a golden + A/B pass. Nothing below is implemented; this
-is a spec, not a diff.
+they touch the calibration-sensitive sim, so each needs a golden + A/B pass. **§0 and §1 below have since
+SHIPPED** (role-weighted `overall()` = PR #3; ball-playing CB = PR #4); §2 (true DM/AM) and §3 (true
+inverted full-back) remain — their sections stand as the implementation spec.
 
 ---
 
-## 0. Parked WIP MR — role-weighted `overall()` (separate, already pushed)
+## 0. Role-weighted `overall()` — ✅ MERGED (PR #3)
 
-Unrelated to the tactics board, but found uncommitted in the working tree and packaged so it isn't lost:
+Unrelated to the tactics board — found uncommitted in the working tree, packaged as its own MR, and since merged:
 
-- **Branch / PR:** `feature/role-weighted-overall` → https://github.com/mkrioutchkov/footy-sim/pull/new/feature/role-weighted-overall
+- **Branch / PR:** `feature/role-weighted-overall` → merged via **PR #3**.
 - **What:** `overall(attrs, role?)` folds `handling` into the mean **for `role==='GK'` only**; every outfielder
   (and an omitted role) keeps the 7-attr mean, so non-keeper ratings/values stay **byte-identical**.
   `playerValue`/`playerWage` gain the same optional `role?`; all call sites (market, scout, shortlist, youth,
@@ -42,7 +43,12 @@ Unrelated to the tactics board, but found uncommitted in the working tree and pa
 
 ---
 
-## 1. Ball-playing CB  — smallest change, highest value (recommended first)
+## 1. Ball-playing CB — ✅ SHIPPED (PR #4)
+
+*Implemented as speced below:* the `ball_playing` (aliases `step_out`/`carry_out`) directive → `DK::BallPlaying`;
+the CB steps out, carries from the back, and plays progressive passes. The UI preset is now enabled (no longer
+disabled). Recipe kept below as the as-built reference.
+
 
 **Why it's missing:** the CB profile actively suppresses carrying — `dribbleOwnHalfExtraPenalty`,
 `canUseOpenLane=false`, `canUseWideDribble=false`, `roleBonusForPassTarget=0`, lowest `shotMaxDistance`

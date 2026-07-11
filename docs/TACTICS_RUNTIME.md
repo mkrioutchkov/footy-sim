@@ -5,7 +5,7 @@ directives, the live timeline, the engine mechanisms, and — importantly — **
 persists vs what's ephemeral**. Companion to [TACTICS.md](TACTICS.md) (the design +
 directive vocabulary), [CONTRACT.md](CONTRACT.md) (the spec/frame contract), and
 [SHOUTS_AND_PERSONALITY.md](SHOUTS_AND_PERSONALITY.md) (personality/morale). Verified
-against the working tree 2026-06-16.
+against the working tree 2026-07-11.
 
 > **One thing the older docs got wrong:** the **live mid-match compiler is
 > `web/backend/plan.ts` `compilePlanEdit`**, not `tactics.ts`. The single-shot
@@ -70,8 +70,10 @@ The LLM receives `(current plan + this shout + squad personalities + minute/scor
 and returns the **full new directive set after the edit** (amend-one / overhaul /
 nuke / no-op), plus an optional `formation` and a `motivation[]` judgement.
 
-- **Provider**: Groq `llama-3.3-70b-versatile`, OpenAI-compatible
-  `POST /chat/completions`, **temp 0.4**, JSON-only, 15 s timeout, **one** retry on
+- **Provider**: chosen by `TACTICS_LLM_PROVIDER` (`web/backend/llm.ts`) — **`http`**
+  (default: Groq `llama-3.3-70b-versatile`, OpenAI-compatible `POST /chat/completions`)
+  or **`claude-code`** (spawns the local Claude Code CLI headless, on a Max subscription,
+  no API billing). **temp 0.4** (http only), JSON-only, 15 s timeout, **one** retry on
   429/5xx (honouring `retry-after`). No other retry. **No offline rules parser** —
   failure ⇒ unchanged plan + an error note (`tactics.ts`'s old fuzzy fallback was
   removed because it mis-resolved names).
@@ -85,10 +87,15 @@ nuke / no-op), plus an optional `formation` and a `motivation[]` judgement.
   shout re-compiles whenever the standing plan, motivation-cap state, or clock/score
   changes — so stateful edits stay deterministic on in-session replay but miss across
   plan evolution.
-- **Directive shape**: `{playerId, teamScope?(0/1), kind, targetId?, intensity?, when?{fromMin,toMin,scoreState,scoreBy}}`.
-  Vocabulary = **17 per-player + 12 team-wide** kinds (authoritative list in
-  `tactics.ts` `VALID_KINDS` / `engine/main.cpp parseDirectives`, documented in
-  [TACTICS.md](TACTICS.md)).
+- **Directive shape**: `{playerId, teamScope?(0/1), kind, targetId?, intensity?, when?{fromMin,toMin,scoreState,scoreBy,phase}}`.
+  Vocabulary = **25 per-player + 17 team-wide** kinds (the per-player vocab accepts
+  35 phrasings that alias onto the 25 engine kinds; authoritative list in `tactics.ts`
+  `VALID_KINDS` / `engine/main.cpp parseDirectives`, documented in [TACTICS.md](TACTICS.md)).
+  The engine additionally parses 4 **set-piece-taker** kinds (`fk_taker`/`corner_taker`/
+  `pen_taker`/`long_throw_taker`) that are NOT in `VALID_KINDS` (they designate a taker,
+  not an in-play behaviour). The `when.phase` key (`in_possession`/`out_of_possession`/
+  `transition`) is engine-parsed and gated at runtime, but the current `validate()` and the
+  structured board don't emit it yet — it's available to hand-written specs.
 
 ## 2. Shouts
 
@@ -98,8 +105,9 @@ shout input** plus a **read-only** standing-plan display (the receipt, refreshed
 shout) — the manager never edits the plan directly; shouts do (`app.ts` live tactics
 panel: a `tactics-input` textarea → `{type:'tactics'}` → the receipt re-renders the
 "Standing plan:" directive list). The plan starts **empty** each watch session
-(`EMPTY_PLAN`) — there is no pre-match plain-English plan; pre-match you set only the
-5 dials + formation (which do persist).
+(`EMPTY_PLAN`) — there is no pre-match plain-English plan; pre-match you set the
+5 dials, the formation, and (via the structured board, §2b) any per-player/team
+directives — all of which do persist.
 
 - **Edit by intent**: amend one player · overhaul · **nuke** ("forget all that" →
   `directives:[]`) · **no-op** (pure motivation, directives echoed verbatim).
@@ -115,6 +123,19 @@ panel: a `tactics-input` textarea → `{type:'tactics'}` → the receipt re-rend
   line, per-player morale swings + the in-character reaction, the full standing
   directive list, and the note. A formation token (`4-3-3`) still applies via a
   regex fallback even if the LLM errored.
+
+## 2b. The structured tactics board (deterministic, no-LLM)
+
+The **pre-match** sibling of the shout compiler: a point-and-click board in
+`web/frontend/app.ts` (formation picker + per-player role presets + team sliders /
+segmented controls) that emits directives **without any LLM call**. Every control maps
+to a real `kind` in `tactics.ts` `VALID_KINDS`; the payload is sanitised by
+`sanitizeStructuredDirectives` (no free text, so no time/score/phase gating, `man_mark`
+dropped as live-only) and persisted to `plan_directives` by `POST /api/team/plan-structured`
+— the **same store** the plain-English plan compiles to — while `POST /api/lineup/set`
+writes the formation + XI. Because both surfaces produce byte-identical directive shapes,
+the board and the textbox are interchangeable, and an unset board round-trips to zero
+directives (default 4-3-3 persists as `NULL`, keeping the golden untouched).
 
 ## 3. The live timeline & mid-match re-sim
 
@@ -167,8 +188,9 @@ Then each tick, `applyDirectives` (`engine_defense.cpp`):
    fire that entry's `moraleDelta` once, apply its `layout` (re-anchor + re-role via
    `reassignAgent`), `idx++` (each entry fires exactly once).
 3. For each active directive whose **`when`** passes (`fromMin/toMin` window +
-   `scoreState`/`scoreBy`, clock+score only, no rng), apply **one of three
-   mechanisms**:
+   `scoreState`/`scoreBy` + optional possession `phase` — `in_possession`/
+   `out_of_possession`/`transition`, gated on clock + score + possession only, no
+   rng), apply **one of three mechanisms**:
    - **Mech 1 — per-player score bias** → `directiveBias[id]`, read by the
      pass/shoot/dribble/press scorers.
    - **Mech 2 — formation-anchor shift** → relocate `homeX`/`homeY` so the whole
@@ -195,12 +217,8 @@ produces a given effect.
 - **Plan/timeline ephemerality** is the headline gap: a human match's shouts vanish on
   socket close; no re-sim-from-shouts or tactical replay is possible. Persisting the
   timeline (a column on `match_recordings` or a sibling table) is what you'd need.
-- **`DirectiveBias.pushUp` is dead code** — `get_forward`/`sit_deep` moved to the
-  anchor-shift mechanism; the bias channel is never assigned (contributes 0).
 - **Formation-change timeline entries permanently overwrite the base anchors** — a
   mid-match shape change can't "lapse" back like a windowed directive.
-- **Stale doc-comment**: `main.cpp`'s `when`-gate example mentions `minuteMod/minuteEq`,
-  but only `fromMin/toMin/scoreState/scoreBy` are parsed (flagged to Boris).
 - **Score-state auto-tactics** in `configFor` fire independently of any directive
   (always-on chasing/protecting nudges); a directive's `dialOverride` stacks on top
   before the same clamps.

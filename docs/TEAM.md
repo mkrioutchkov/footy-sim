@@ -9,7 +9,7 @@ contract-based design — see [`CONTRACT.md`](CONTRACT.md).
 
 | Dev | Session | Owns (write) | Stack |
 |---|---|---|---|
-| **Boris** | *FootySim Engine* | `engine/` (C++), `tools/` (harness + Python probes), `scripts/build-native.ps1`, `build/` → `build/live.exe` | C++ / Python / PowerShell |
+| **Boris** | *FootySim Engine* | `engine/` (C++), `tools/` (harness + Python probes), `scripts/build-native.ps1` + `.sh`, `build/` → `build/live[.exe]` | C++ / Python / PowerShell+bash |
 | **Gaylord** | *FootySim FrontEnd/Tactics/DB* | `web/backend/` (Fastify + node:sqlite **DB**, the **tactics compiler**, match orchestration) **and** `web/frontend/` (SPA + PixiJS renderer) | TypeScript / SQL / Pixi |
 | **Fuckwit** | *FootySim SysArch* | `docs/`, `MEMORY.md`, cross-cutting research & decisions; **steward** of the contract | prose / research / no heavy code |
 
@@ -79,7 +79,8 @@ the only changes that *require* Boris **and** Gaylord. Handle them deliberately:
 ### Operational gotchas (so a dev doesn't wait on the other)
 
 - After `engine/` or `scripts/` edits → **Boris** runs `npm run native:build`
-  (rebuilds `build/live.exe`). The binary is the hand-off artifact Gaylord consumes.
+  (auto-detects the OS via `scripts/native-build.mjs`), rebuilding `build/live[.exe]`.
+  The binary is the hand-off artifact Gaylord consumes.
 - After `web/backend/` edits → **Gaylord** restarts `npm run game` (`:4000`) — `tsx`
   has no hot-reload. Frontend `npm run dev` (`:5173`) hot-reloads.
 - `live.exe` with no `--summary` streams frames forever and **locks the binary** —
@@ -110,8 +111,8 @@ What Fuckwit **does not** do:
 - Write engine C++ (Boris) or web TS feature code (Gaylord). Keeping Fuckwit
   code-light is the point — it's the cheap "thinking" session.
 - Edit outside `docs/` / `MEMORY.md` without explicit say-so. (Current standing
-  scope: **write only `docs/`**; root docs like `README.md`, `GAME_LAYER_NOTES.md`,
-  `NOTES_OVERNIGHT.md` are out of scope until granted.)
+  scope: **write only `docs/`**; root docs like `README.md` and
+  `GAME_LAYER_NOTES.md` are out of scope until granted.)
 
 **One-line charter:** *Fuckwit decides and documents; Boris and Gaylord build.*
 

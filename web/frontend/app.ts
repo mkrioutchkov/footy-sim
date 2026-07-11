@@ -4832,4 +4832,15 @@ async function loadNations() { try { const r = await api.nations(); nationMap = 
   } catch { /* */ }
   route();
   watchForNewVersion();
+  registerServiceWorker();
 })();
+
+// PWA: register the shell service worker so the app is installable ("Add to Home Screen" →
+// standalone, own icon) and launches offline-tolerant. Only in secure contexts (https or
+// localhost); a failed registration is non-fatal — the app runs fine without it.
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
+  // Register directly — NOT gated on the `load` event: boot() awaits a network call first, so by
+  // the time we get here `load` has usually already fired and a load-listener would never run.
+  navigator.serviceWorker.register('/sw.js').catch(() => { /* SW unavailable — no-op */ });
+}
