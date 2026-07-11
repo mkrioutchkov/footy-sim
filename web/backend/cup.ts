@@ -45,6 +45,12 @@ export function createCup(leagueId: number): void {
 interface CupTie { id: number; round: number; slot: number; home_team_id: number; away_team_id: number; seed: number; played: number; home_score: number | null; away_score: number | null; home_pens: number | null; away_pens: number | null; winner_team_id: number | null }
 
 // The winner of a played tie. A draw is broken by a deterministic seeded shootout.
+// Exported: the report route needs the SAME pens-then-recorded-winner precedence; an inline
+// re-derivation there could contradict the bracket if this rule ever evolves.
+export function cupTieWinnerId(t: { home_team_id: number; away_team_id: number; seed: number; home_score: number | null; away_score: number | null; home_pens: number | null; away_pens: number | null; winner_team_id: number | null }): number {
+  return tieWinner(t as CupTie);
+}
+
 function tieWinner(t: CupTie): number {
   if ((t.home_score ?? 0) > (t.away_score ?? 0)) return t.home_team_id;
   if ((t.away_score ?? 0) > (t.home_score ?? 0)) return t.away_team_id;

@@ -67,7 +67,9 @@ function cupPenaltySuffix(c: CupTieSummary): string {
     const forUs = c.won ? winnerPens : loserPens, againstUs = c.won ? loserPens : winnerPens;
     return ` (${c.won ? 'won' : 'lost'} ${forUs}–${againstUs} on penalties)`;
   }
-  return c.homeScore === c.awayScore ? ' (on pens)' : '';   // legacy draw with no stored score
+  // Legacy pre-shootout rows resolved by seed parity — claiming "(on pens)" there invented a
+  // shootout that never happened. Say nothing rather than something false.
+  return '';
 }
 
 // Port of the frontend digest assembly (app.ts:660-713) — same items/icons/wording/hashes, so the inbox

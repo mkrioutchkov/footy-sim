@@ -101,7 +101,8 @@ function round(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-const executable = path.resolve(process.cwd(), 'build', 'live.exe');
+import { resolveEngine } from '../web/backend/engine-path.ts';
+const executable = resolveEngine(path.resolve(process.cwd(), 'build'));
 
 function runMatch(seed: number, minutes: number): Promise<Summary & { seed: number }> {
   return new Promise((resolve, reject) => {

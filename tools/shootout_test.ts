@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { simulatePenaltyShootout, type ShootoutPlayer } from '../web/backend/shootout.ts';
+import { simulatePenaltyShootout, MAX_SHOOTOUT_SCORE, type ShootoutPlayer } from '../web/backend/shootout.ts';
 
 const player = (shooting = 65, positioning = 65, role = 'CM'): ShootoutPlayer => ({ role, attrs: { shooting, positioning } });
 const squad = (shooting = 65, keeperPositioning = 65): ShootoutPlayer[] => [
@@ -26,7 +26,7 @@ const weakKeeper = squad(65, 30), strongKeeper = squad(65, 95);
 for (let seed = 1; seed <= 5000; seed++) {
   const level = simulatePenaltyShootout(seed, even, even);
   assert.notEqual(level.home, level.away, `seed ${seed} returned a tied shootout`);
-  assert(level.home <= 106 && level.away <= 106, 'bounded sudden death exceeded its safety limit');
+  assert(level.home <= MAX_SHOOTOUT_SCORE && level.away <= MAX_SHOOTOUT_SCORE, 'bounded sudden death exceeded its safety limit');
   if ((level.home === 3 && level.away === 0) || (level.home === 0 && level.away === 3)) earlyFinish = true;
   if (level.home > level.away) identicalHomeWins++;
 

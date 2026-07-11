@@ -13,7 +13,8 @@ interface Summary {
   qualityFlags?: Record<string, number>;
 }
 
-const executable = path.resolve(process.cwd(), 'build', 'live.exe');
+import { resolveEngine } from '../web/backend/engine-path.ts';
+const executable = resolveEngine(path.resolve(process.cwd(), 'build'));
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);

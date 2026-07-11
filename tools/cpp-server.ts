@@ -3,18 +3,11 @@
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import type { Readable } from 'node:stream';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
 import { WebSocketServer, WebSocket } from 'ws';
 
 const PORT = Number.parseInt(process.env.CPP_PORT ?? '3000', 10);
-// Windows builds `live.exe`; Linux/macOS build `live` (see scripts/build-native.{ps1,sh}). Prefer
-// the platform-native name and fall back to the other so either binary resolves.
-const CPP_ENGINE = (() => {
-  const dir = path.resolve(process.cwd(), 'build');
-  const names = process.platform === 'win32' ? ['live.exe', 'live'] : ['live', 'live.exe'];
-  for (const n of names) { const p = path.join(dir, n); if (existsSync(p)) return p; }
-  return path.join(dir, names[0]);
-})();
+import { resolveEngine } from '../web/backend/engine-path.ts';
+const CPP_ENGINE = resolveEngine(path.resolve(process.cwd(), 'build'));
 // Fixed seed via CPP_SEED for reproduction; otherwise every restart is a
 // fresh match (the seed is shown in the page footer for bug reports).
 const FIXED_SEED = process.env.CPP_SEED ? Number.parseInt(process.env.CPP_SEED, 10) : null;

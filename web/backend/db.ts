@@ -661,3 +661,8 @@ CREATE TABLE IF NOT EXISTS contract_offers (
 CREATE INDEX IF NOT EXISTS idx_contract_offers_team ON contract_offers(team_id, status);
 CREATE INDEX IF NOT EXISTS idx_contract_offers_player ON contract_offers(player_id, status);
 `);
+
+// The advancing flag is a DURABLE lock but its holders are in-process try/finally blocks —
+// a crash/SIGKILL mid-advance would otherwise wedge the world forever (dueSharedWorlds filters
+// advancing=0 and /api/advance 409s). Any lock alive at boot is by definition stale: clear them.
+try { db.exec('UPDATE worlds SET advancing = 0'); } catch { /* pre-migration boot: table may not exist yet */ }

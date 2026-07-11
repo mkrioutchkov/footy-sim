@@ -8,12 +8,9 @@ import { worldLeagues } from './season.ts';
 import { ROLE_SLOTS, overall } from './game.ts';
 import { playVirtualTie, type VirtualPlayer } from './match.ts';
 import { NATION_BY_KEY, NATIONS_BY_CONFED, CONFED_TOURNAMENT, nationName, type Confed } from './nations.ts';
-import { simulatePenaltyShootout } from './shootout.ts';
+import { simulatePenaltyShootout, mulberry32 } from './shootout.ts';
 
 const parseJSON = (s: string | null): unknown => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
-function mulberry32(a: number) {
-  return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-}
 
 interface PoolPlayer { name: string; role: string; attrs: Record<string, number>; personality: unknown; ovr: number }
 function poolFor(worldId: number, nationKey: string): PoolPlayer[] {
@@ -25,18 +22,27 @@ function poolFor(worldId: number, nationKey: string): PoolPlayer[] {
   return [...club, ...fas].map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs) }; });
 }
 
-// The best XI for a nation, ordered to the default formation's slots (GK first). null if < 11 available.
-export function selectNationalSquad(worldId: number, nationKey: string): VirtualPlayer[] | null {
-  const pool = poolFor(worldId, nationKey).sort((a, b) => b.ovr - a.ovr);
-  if (pool.length < 11) return null;
+// One best-XI picker for BOTH resolvers (national squads and Club World Cup clubs): sort the pool
+// by overall, fill the default formation's role slots (GK first — shootout.ts trusts slot 0 as the
+// keeper), pad with the best remaining. Two hand-kept copies of this loop would let the two
+// tournament families silently pick XIs by different rules.
+interface XiCandidate { name: string; role: string; attrs: Record<string, number>; personality: unknown; ovr: number }
+function pickXI(pool: XiCandidate[]): VirtualPlayer[] | null {
+  const sorted = pool.slice().sort((a, b) => b.ovr - a.ovr);
+  if (sorted.length < 11) return null;
   const used = new Set<number>(); const xi: VirtualPlayer[] = [];
   for (const role of ROLE_SLOTS) {
-    let idx = pool.findIndex((p, i) => !used.has(i) && p.role === role);
-    if (idx < 0) idx = pool.findIndex((_, i) => !used.has(i));   // pad with the best remaining of any role
-    used.add(idx); const p = pool[idx];
+    let idx = sorted.findIndex((p, i) => !used.has(i) && p.role === role);
+    if (idx < 0) idx = sorted.findIndex((_, i) => !used.has(i));   // pad with the best remaining of any role
+    used.add(idx); const p = sorted[idx];
     xi.push({ name: p.name, role: p.role, attrs: p.attrs, personality: p.personality });
   }
   return xi;
+}
+
+// The best XI for a nation, ordered to the default formation's slots (GK first). null if < 11 available.
+export function selectNationalSquad(worldId: number, nationKey: string): VirtualPlayer[] | null {
+  return pickXI(poolFor(worldId, nationKey));
 }
 
 export interface FieldableNation { key: string; confed: Confed; count: number; strength: number }
@@ -103,15 +109,9 @@ async function runKnockout(tournamentId: number, seeded: string[], baseSeed: num
 // robust, always-available field (ranked by best-XI strength, no dependency on standings history).
 function clubXI(worldId: number, teamId: number): { xi: VirtualPlayer[]; strength: number } | null {
   const rows = db.prepare('SELECT name, role, attrs, personality FROM players WHERE team_id = ?').all(teamId) as { name: string; role: string; attrs: string; personality: string | null }[];
-  const pool = rows.map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs) }; }).sort((a, b) => b.ovr - a.ovr);
-  if (pool.length < 11) return null;
-  const used = new Set<number>(); const xi: VirtualPlayer[] = [];
-  for (const role of ROLE_SLOTS) {
-    let idx = pool.findIndex((p, i) => !used.has(i) && p.role === role);
-    if (idx < 0) idx = pool.findIndex((_, i) => !used.has(i));
-    used.add(idx); const p = pool[idx];
-    xi.push({ name: p.name, role: p.role, attrs: p.attrs, personality: p.personality });
-  }
+  const pool = rows.map(p => { const attrs = JSON.parse(p.attrs) as Record<string, number>; return { name: p.name, role: p.role, attrs, personality: parseJSON(p.personality), ovr: overall(attrs) }; });
+  const xi = pickXI(pool);
+  if (!xi) return null;
   const strength = Math.round(xi.slice(0, 11).reduce((s, p) => s + overall(p.attrs), 0) / 11);
   return { xi, strength };
 }
@@ -134,6 +134,15 @@ export interface HeldTournament { name: string; kind: string; confed: string | n
 // Run this season's internationals for a world (idempotent-ish: skip if already held this world+season).
 // World Cup on season%4===0; otherwise the continental cups (one per confederation with >=4 fieldable).
 export async function runInternationalTournaments(worldId: number, season: number): Promise<HeldTournament[]> {
+  // A tournament row is committed BEFORE its knockout runs, so a crash / missing engine /
+  // swallowed error used to leave champion NULL and the bare existence guard then blocked every
+  // retry — the tournament showed "in progress" forever. Sweep unfinished wreckage first; the
+  // guard below only respects COMPLETED seasons.
+  const wreck = db.prepare('SELECT id FROM tournaments WHERE world_id = ? AND season = ? AND champion IS NULL').all(worldId, season) as { id: number }[];
+  for (const t of wreck) {
+    db.prepare('DELETE FROM tournament_ties WHERE tournament_id = ?').run(t.id);
+    db.prepare('DELETE FROM tournaments WHERE id = ?').run(t.id);
+  }
   if ((db.prepare('SELECT 1 FROM tournaments WHERE world_id = ? AND season = ? LIMIT 1').get(worldId, season))) return [];
   const fieldable = fieldableNations(worldId).sort((a, b) => b.strength - a.strength);
   const baseSeed = ((worldId * 7919 + season * 104729) >>> 0) || 1;
@@ -164,10 +173,14 @@ export async function runInternationalTournaments(worldId: number, season: numbe
       const f = fieldable.filter(x => x.confed === confed);
       if (f.length < 4) continue;
       const size = Math.min(8, largestPow2(f.length));
-      const nats = seedBracket(f.slice(0, size).map(x => x.key), (baseSeed ^ confed.charCodeAt(0)) >>> 0);
+      // Hash the WHOLE confed name: charCodeAt collided (CONMEBOL/CONCACAF share 'O',
+      // AFC/OFC share 'F', three confeds start with 'C'), giving different tournaments
+      // identical engine + shootout RNG streams in the same season.
+      const confedHash = [...confed].reduce((h, ch) => (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0, 17);
+      const nats = seedBracket(f.slice(0, size).map(x => x.key), (baseSeed ^ confedHash) >>> 0);
       const name = CONFED_TOURNAMENT[confed];
       const id = createTournament(worldId, season, 'continental', confed, name);
-      const champ = await runKnockout(id, nats, (baseSeed ^ (confed.charCodeAt(1) || 7)) >>> 0, natSquad, nationName, 'nat');
+      const champ = await runKnockout(id, nats, ((baseSeed ^ Math.imul(confedHash, 2654435761)) >>> 0) || 1, natSquad, nationName, 'nat');
       db.prepare('UPDATE tournaments SET champion = ? WHERE id = ?').run(champ, id);
       held.push({ name, kind: 'continental', confed, champion: champ, teams: size });
     }

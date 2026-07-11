@@ -19,7 +19,7 @@ const attr = (p: ShootoutPlayer | undefined, key: string, fallback: number): num
   return typeof value === 'number' && Number.isFinite(value) ? clamp(value, 0, 100) : fallback;
 };
 
-function mulberry32(seed: number): () => number {
+export function mulberry32(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
     state = (state + 0x6D2B79F5) | 0;
@@ -48,6 +48,12 @@ function conversionChance(taker: ShootoutPlayer, keeper: ShootoutPlayer): number
   return clamp(0.76 + (shooting - 65) / 400 - (positioning - 65) / 500, 0.55, 0.92);
 }
 
+// Sudden death is bounded (hostile/malformed inputs must terminate); the max total score a side
+// can reach is 5 regulation + the sudden-death rounds + the final forced kick. The test asserts
+// against MAX_SHOOTOUT_SCORE so the two numbers can never drift apart.
+export const SUDDEN_DEATH_ROUNDS = 100;
+export const MAX_SHOOTOUT_SCORE = 5 + SUDDEN_DEATH_ROUNDS + 1;
+
 // Best of five with normal early completion, then paired sudden death until the scores differ.
 export function simulatePenaltyShootout(seed: number, home: readonly ShootoutPlayer[], away: readonly ShootoutPlayer[]): PenaltyShootoutResult {
   const normalizedSeed = Number.isFinite(seed) ? Math.trunc(seed) : 0;
@@ -67,7 +73,7 @@ export function simulatePenaltyShootout(seed: number, home: readonly ShootoutPla
     if (scores.home > scores.away + eachLeft || scores.away > scores.home + eachLeft) return scores;
   }
 
-  for (let round = 5; round < 105; round++) {
+  for (let round = 5; round < 5 + SUDDEN_DEATH_ROUNDS; round++) {
     if (kick(homeTakers[round % homeTakers.length], awayKeeper)) scores.home++;
     if (kick(awayTakers[round % awayTakers.length], homeKeeper)) scores.away++;
     if (scores.home !== scores.away) return scores;
