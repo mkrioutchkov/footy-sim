@@ -138,12 +138,13 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                 p.targetX = ownGoalX + fd * (115.0 + std::abs(slotA) * 22.0);
                 p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.30 : PITCH_H * 0.70;
             } else if (isFullBack()) {
-                // 235: the seam between the defending CF press ring (~215) and
-                // the WM ring (~335) — a clipped ball reaches him behind the
-                // first wave. (300 was a disconnected gap, goals -1.0; 180 sat
-                // him inside the CF's camp so every kick was a deep short roll
-                // — seed 111 census: 6/6 short, zero progression.)
-                p.targetX = ownGoalX + fd * (235.0 + slotA * 24.0);
+                // 275: the true seam between the defending CF press ring
+                // (~215) and the WM ring (~335) — 235 parked the FB ON the
+                // presser and the clipped ball never had a safe target (probe:
+                // 7/7 kicks still rolled short even with the mid look forced).
+                // (300 was a disconnected gap, goals -1.0; 180 sat him inside
+                // the CF's camp — seed 111 census: 6/6 short, zero progression.)
+                p.targetX = ownGoalX + fd * (275.0 + slotA * 20.0);
                 p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.16 : PITCH_H * 0.84;
             } else if (isCentralMidfielder()) {
                 p.targetX = ownGoalX + fd * (175.0 + std::abs(slotA) * 35.0);

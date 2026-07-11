@@ -428,7 +428,7 @@ void GameEngine::releaseGoalKick(Player& holder) {
                 double soon = dist(o.x + o.vx * eta * 0.85, o.y + o.vy * eta * 0.85, p.x, p.y);
                 nearestOpp = std::min(nearestOpp, std::max(std::min(now, soon), now * 0.35));
             }
-            if (nearestOpp <= 58.0) continue;
+            if (nearestOpp <= (d >= 165.0 ? 50.0 : 58.0)) continue;   // clipped ball arrives quicker than the roll this was tuned for
             if (countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_GK_DIST, 0.12, 0.92) != 0) continue;
             double progress = (p.x - ownGoalX) * fd;
             // GK DISTRIBUTION POLISH: among the safe short options, prefer the MOST OPEN man (most
