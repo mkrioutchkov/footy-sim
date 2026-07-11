@@ -1,6 +1,6 @@
 import './styles.css';
 import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT, type TimelineEventT, type LeadersT, type PlayerSeasonStatT } from './api';
-import { MatchRenderer } from './renderer';
+import type { MatchRenderer as MatchRendererInstance } from './renderer';
 import { PITCH_W, PITCH_H } from './constants';
 import type { EngineState } from './types';
 
@@ -37,6 +37,11 @@ function h(tag: string, attrs: Attrs = {}, ...kids: (Node | string)[]): HTMLElem
 function clickable(handler: () => void): Attrs {
   return { role: 'button', tabindex: '0', onclick: handler, onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); } } };
 }
+// Global shortcuts must yield to anything the browser already treats as interactive. In particular,
+// Space on a focused button should click that button—not bubble into the match viewer's pause shortcut.
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest('button, input, textarea, select, a, [role="button"], [contenteditable]');
+}
 // SVG sibling of h() — createElementNS so <svg> children render; values go in as attributes and
 // text as text nodes (so player names can't inject markup), same XSS-safe posture as h().
 function svgEl(tag: string, attrs: Record<string, string | number | undefined> = {}, ...kids: (Node | string)[]): SVGElement {
@@ -61,14 +66,20 @@ function mount(...nodes: Node[]) {
   const main = nodes[nodes.length - 1];
   if (main instanceof HTMLElement) {
     main.id = 'main-content'; main.setAttribute('role', 'main'); main.setAttribute('tabindex', '-1');
+    const pageHeading = main.querySelector('h1, h2') as HTMLElement | null;
+    if (pageHeading?.textContent?.trim()) document.title = `${pageHeading.textContent.trim()} · Footy Manager`;
     if (location.hash !== lastFocusHash) {
       // debounced + re-queried at fire time so a screen that mounts twice (skeleton then content) focuses its FINAL
       // content; hash-guarded so an in-screen re-render of the SAME route never yanks focus from what the user is doing.
       clearTimeout(navFocusTimer);
       navFocusTimer = window.setTimeout(() => {
-        lastFocusHash = location.hash;
         const m = document.getElementById('main-content'); if (!m) return;
-        const target = (m.querySelector('h1, h2') as HTMLElement | null) ?? m;
+        const heading = m.querySelector('h1, h2') as HTMLElement | null;
+        // A slow request can leave the loading skeleton mounted past this debounce. Do not mark the route
+        // focused yet: the final mount will schedule another pass and focus its real heading.
+        if (!heading && m.querySelector('.spin')) return;
+        lastFocusHash = location.hash;
+        const target = heading ?? m;
         target.setAttribute('tabindex', '-1');
         target.focus({ preventScroll: true });
       }, 90);
@@ -80,18 +91,31 @@ function toast(msg: string) {
   // instead of rendering exactly on top of each other. The container is created lazily and auto-cleans.
   let stack = document.getElementById('toast-stack');
   if (!stack) { stack = h('div', { id: 'toast-stack' }); document.body.appendChild(stack); }
-  const t = h('div', { class: 'toast', role: 'status' }, msg);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let t: HTMLElement;
+  const duration = Math.min(7000, Math.max(3200, 2400 + msg.length * 28));
+  const pause = () => { if (timer) clearTimeout(timer); timer = null; };
+  const remove = () => { pause(); t.remove(); if (stack && !stack.childElementCount) stack.remove(); };
+  const schedule = () => { pause(); timer = setTimeout(remove, duration); };
+  const resume = () => { if (t.isConnected && !t.matches(':hover') && !t.contains(document.activeElement)) schedule(); };
+  t = h('div', { class: 'toast' },
+    h('span', {}, msg),
+    h('button', { class: 'toast-close', 'aria-label': 'Dismiss notification', title: 'Dismiss', onclick: remove }, '×'));
+  t.addEventListener('mouseenter', pause);
+  t.addEventListener('mouseleave', resume);
+  t.addEventListener('focusin', pause);
+  t.addEventListener('focusout', () => setTimeout(resume, 0));
   stack.appendChild(t);
   // mirror into a persistent polite live-region so screen readers announce transient toasts
   let live = document.getElementById('live-region');
   if (!live) { live = h('div', { id: 'live-region', class: 'sr-only', 'aria-live': 'polite', 'aria-atomic': 'true' }); document.body.appendChild(live); }
   live.textContent = msg;
-  setTimeout(() => { t.remove(); if (stack && !stack.childElementCount) stack.remove(); }, 2600);
+  schedule();
 }
 
 // ── in-app modals (replace native confirm()/prompt(), which are ugly + block the event loop) ──
-// Both resolve a promise: cancel → false/null, confirm → true/the input value. ESC and a
-// backdrop click cancel; Enter confirms. The focused control is set on open for keyboard use.
+// Both resolve a promise: cancel → false/null, confirm → true/the input value. ESC and a backdrop click
+// cancel; native focused controls own Enter. Destructive dialogs focus Cancel by default.
 // a11y: keep Tab inside the open dialog (a modal must not let keyboard/SR users tab into the inert page behind).
 function trapTab(e: KeyboardEvent, card: HTMLElement): void {
   const f = card.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])');
@@ -100,36 +124,52 @@ function trapTab(e: KeyboardEvent, card: HTMLElement): void {
   if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
 }
-function confirmModal(title: string, message: string, okLabel = 'Confirm'): Promise<boolean> {
+let modalDepth = 0, modalWasInert = false, modalId = 0;
+function lockPageForModal(): () => void {
+  if (modalDepth++ === 0) { modalWasInert = root.inert; root.inert = true; document.body.classList.add('modal-open'); }
+  let released = false;
+  return () => {
+    if (released) return; released = true;
+    if (--modalDepth === 0) { root.inert = modalWasInert; document.body.classList.remove('modal-open'); }
+  };
+}
+function confirmModal(title: string, message: string, okLabel = 'Confirm', tone: 'default' | 'danger' = 'default', focusTarget?: HTMLElement | null): Promise<boolean> {
   return new Promise(resolve => {
     let done = false;
-    const opener = document.activeElement as HTMLElement | null;   // a11y: restore focus to the trigger on close
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(false); else if (e.key === 'Enter') finish(true); else if (e.key === 'Tab') trapTab(e, card); };
+    const opener = focusTarget ?? document.activeElement as HTMLElement | null;   // a11y: restore focus to the trigger on close
+    const unlock = lockPageForModal();
+    const titleId = `modal-title-${++modalId}`;
+    // Enter is intentionally left to the focused native button. A document-level Enter handler used to
+    // confirm even while Cancel had focus—the worst possible keyboard outcome for destructive actions.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(false); else if (e.key === 'Tab') trapTab(e, card); };
     const onHash = () => finish(false);   // navigating away closes the modal (it lives on body, not root)
-    const finish = (v: boolean) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); try { opener?.focus?.(); } catch { /* opener gone */ } resolve(v); };
-    const ok = h('button', { class: 'primary', onclick: () => finish(true) }, okLabel);
-    const card = h('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title' },
-      h('h3', { id: 'modal-title', style: 'margin-bottom:10px' }, title),
+    const finish = (v: boolean) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); unlock(); resolve(v); window.setTimeout(() => { try { if (opener?.isConnected) opener.focus(); } catch { /* opener gone */ } }, 0); };
+    const cancel = h('button', { class: 'ghost', onclick: () => finish(false) }, 'Cancel');
+    const ok = h('button', { class: tone === 'danger' ? 'danger-action' : 'primary', onclick: () => finish(true) }, okLabel);
+    const card = h('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
+      h('h3', { id: titleId, style: 'margin-bottom:10px' }, title),
       h('div', { class: 'muted', style: 'margin-bottom:18px;line-height:1.5;white-space:pre-wrap' }, message),
-      h('div', { class: 'row', style: 'justify-content:flex-end' }, h('button', { class: 'ghost', onclick: () => finish(false) }, 'Cancel'), ok));
+      h('div', { class: 'row', style: 'justify-content:flex-end' }, cancel, ok));
     const backdrop = h('div', { class: 'modal-backdrop', onmousedown: (e: MouseEvent) => { if (e.target === backdrop) finish(false); } }, card);
     document.addEventListener('keydown', onKey);
     window.addEventListener('hashchange', onHash);
     document.body.appendChild(backdrop);
-    ok.focus();
+    (tone === 'danger' ? cancel : ok).focus();
   });
 }
 function promptModal(title: string, message: string, value = '', okLabel = 'Submit'): Promise<string | null> {
   return new Promise(resolve => {
     let done = false;
     const opener = document.activeElement as HTMLElement | null;   // a11y: restore focus to the trigger on close
+    const unlock = lockPageForModal();
+    const titleId = `modal-title-${++modalId}`;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(null); else if (e.key === 'Tab') trapTab(e, card); };
     const onHash = () => finish(null);   // navigating away closes the modal (it lives on body, not root)
-    const finish = (v: string | null) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); try { opener?.focus?.(); } catch { /* opener gone */ } resolve(v); };
-    const input = h('input', { type: 'text', value }) as HTMLInputElement;
+    const finish = (v: string | null) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); unlock(); resolve(v); window.setTimeout(() => { try { if (opener?.isConnected) opener.focus(); } catch { /* opener gone */ } }, 0); };
+    const input = h('input', { type: 'text', value, 'aria-label': title }) as HTMLInputElement;
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(input.value); } });
-    const card = h('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title' },
-      h('h3', { id: 'modal-title', style: 'margin-bottom:10px' }, title),
+    const card = h('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
+      h('h3', { id: titleId, style: 'margin-bottom:10px' }, title),
       message ? h('div', { class: 'muted', style: 'margin-bottom:12px;line-height:1.5;white-space:pre-wrap' }, message) : '',
       h('div', { style: 'margin-bottom:16px' }, input),
       h('div', { class: 'row', style: 'justify-content:flex-end' },
@@ -151,6 +191,15 @@ function fmtMoney(n: number): string {
     return `£${k}K`;
   }
   return `£${Math.round(n)}`;
+}
+// Strict, shared money parser for bids, wages and search filters. Accepts the same values the UI displays
+// ("£50K", "1.5m", "1,500,000") so copying a formatted wage can never silently turn £50K into £50.
+function parseMoneyInput(value: string): number | null {
+  const text = value.trim().toLowerCase().replace(/[£$, \s]/g, '');
+  if (!/^\d*\.?\d+[mk]?$/.test(text)) return null;
+  const multiplier = text.endsWith('m') ? 1e6 : text.endsWith('k') ? 1e3 : 1;
+  const amount = Math.round(Number.parseFloat(text) * multiplier);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
 }
 // OVR = mean of the core skills (excludes height). Handling counts ONLY for a keeper (role==='GK') —
 // mirrors the backend's overall(attrs, role), so a GK's OVR reads the same everywhere and his potential
@@ -212,10 +261,10 @@ function otherDivisions(league: LeagueT): HTMLElement {
 function header(): HTMLElement {
   return h('header', { class: 'top' },
     h('div', { class: 'wrap' },
-      h('div', { class: 'brand' }, 'FOOTY ', h('span', { class: 'a' }, 'MANAGER')),
+      h('a', { class: 'brand brand-link', href: '#/', 'aria-label': 'Footy Manager dashboard' }, 'FOOTY ', h('span', { class: 'a' }, 'MANAGER')),
       h('div', { class: 'row' },
         h('span', { class: 'muted' }, user ? user.username : ''),
-        h('button', { class: 'ghost small', onclick: async () => { await api.logout(); user = null; route(); } }, 'Log out'),
+        h('button', { class: 'ghost small', onclick: async () => { await api.logout(); user = null; tacticsPlanFlash = null; route(); } }, 'Log out'),
       ),
     ),
   );
@@ -229,13 +278,17 @@ function navItem(icon: string, label: string, route: string): HTMLElement {
 
 // ── auth ──
 function screenAuth() {
+  document.title = 'Sign in · Footy Manager';
   let tab: 'login' | 'register' = 'login';
-  const err = h('div', { class: 'err' });
-  const uname = h('input', { id: 'f-uname', placeholder: 'username', autocomplete: 'username' }) as HTMLInputElement;
-  const pass = h('input', { id: 'f-pass', type: 'password', placeholder: 'password', autocomplete: 'current-password' }) as HTMLInputElement;
-  const submit = h('button', {}, 'Sign in');
+  let submitting = false;
+  const err = h('div', { id: 'auth-error', class: 'err', role: 'status', 'aria-live': 'polite' });
+  const uname = h('input', { id: 'f-uname', placeholder: 'username', autocomplete: 'username', required: true, minlength: '2', maxlength: '32', 'aria-describedby': 'auth-error' }) as HTMLInputElement;
+  const pass = h('input', { id: 'f-pass', type: 'password', placeholder: 'password', autocomplete: 'current-password', required: true, minlength: '4', 'aria-describedby': 'auth-error' }) as HTMLInputElement;
+  const submit = h('button', { type: 'submit' }, 'Sign in');
 
   async function go() {
+    if (submitting) return;
+    submitting = true;
     err.textContent = '';
     submit.setAttribute('disabled', 'true');
     try {
@@ -243,32 +296,48 @@ function screenAuth() {
       const r = await fn(uname.value.trim(), pass.value);
       user = r.user;
       route();
-    } catch (e: any) { err.textContent = e.message; submit.removeAttribute('disabled'); }
+    } catch (e: any) { err.textContent = e.message; submitting = false; submit.removeAttribute('disabled'); }
   }
-  submit.addEventListener('click', go);
-  pass.addEventListener('keydown', (ev: any) => { if (ev.key === 'Enter') go(); });
+  const form = h('form', { id: 'auth-form', role: 'tabpanel', 'aria-labelledby': 'auth-tab-login', onsubmit: (e: SubmitEvent) => { e.preventDefault(); void go(); } },
+    h('div', { class: 'field' }, h('label', { for: 'f-uname' }, 'Username'), uname),
+    h('div', { class: 'field' }, h('label', { for: 'f-pass' }, 'Password'), pass),
+    submit, err);
 
-  const tabs = h('div', { class: 'tabs' });
-  const tLogin = h('button', { class: 'active' }, 'Log in');
-  const tReg = h('button', {}, 'Register');
+  const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Account access' });
+  const tLogin = h('button', { id: 'auth-tab-login', type: 'button', class: 'active', role: 'tab', tabindex: '0', 'aria-selected': 'true', 'aria-controls': 'auth-form' }, 'Log in');
+  const tReg = h('button', { id: 'auth-tab-register', type: 'button', role: 'tab', tabindex: '-1', 'aria-selected': 'false', 'aria-controls': 'auth-form' }, 'Register');
   const setTab = (t: 'login' | 'register') => {
     tab = t; err.textContent = '';
     tLogin.classList.toggle('active', t === 'login');
     tReg.classList.toggle('active', t === 'register');
+    tLogin.setAttribute('aria-selected', String(t === 'login'));
+    tReg.setAttribute('aria-selected', String(t === 'register'));
+    tLogin.tabIndex = t === 'login' ? 0 : -1;
+    tReg.tabIndex = t === 'register' ? 0 : -1;
+    form.setAttribute('aria-labelledby', t === 'login' ? 'auth-tab-login' : 'auth-tab-register');
+    pass.autocomplete = t === 'login' ? 'current-password' : 'new-password';
     submit.textContent = t === 'login' ? 'Sign in' : 'Create account';
+    document.title = `${t === 'login' ? 'Sign in' : 'Create account'} · Footy Manager`;
   };
   tLogin.addEventListener('click', () => setTab('login'));
   tReg.addEventListener('click', () => setTab('register'));
+  const tabKey = (e: KeyboardEvent) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const current = document.activeElement === tReg ? 'register' : 'login';
+    const next = e.key === 'Home' ? 'login' : e.key === 'End' ? 'register' : current === 'login' ? 'register' : 'login';
+    setTab(next); (next === 'login' ? tLogin : tReg).focus();
+  };
+  tLogin.addEventListener('keydown', tabKey);
+  tReg.addEventListener('keydown', tabKey);
   tabs.append(tLogin, tReg);
 
   mount(h('div', { class: 'center' },
-    h('div', { class: 'card', style: 'width:360px' },
+    h('div', { class: 'card auth-card' },
       h('div', { class: 'brand', style: 'font-size:24px;margin-bottom:6px' }, 'FOOTY ', h('span', { class: 'a' }, 'MANAGER')),
       h('div', { class: 'muted', style: 'margin-bottom:18px' }, 'Build a team. Set your tactics. Play the season.'),
       tabs,
-      h('div', { class: 'field' }, h('label', { for: 'f-uname' }, 'Username'), uname),
-      h('div', { class: 'field' }, h('label', { for: 'f-pass' }, 'Password'), pass),
-      submit, err,
+      form,
     ),
   ));
 }
@@ -323,13 +392,29 @@ async function screenWorlds() {
   catch (e: any) { if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
 
   const container = h('div', {});
+  let worldRequest = 0;
+  let claimBusy = false;
+  const claimButtons = new Set<HTMLButtonElement>();
+  const paintClaimBusy = () => {
+    for (const button of claimButtons) {
+      if (!button.isConnected) { claimButtons.delete(button); continue; }
+      button.disabled = claimBusy;
+    }
+  };
   const cadence = (min: number) => min % 1440 === 0 ? `${min / 1440}/day` : `every ${Math.round(min / 60)}h`;
   const claimInto = async (worldId: number, teamId: number, btn: HTMLButtonElement) => {
-    btn.setAttribute('disabled', 'true'); btn.textContent = 'Claiming…';
-    try { await api.claimTeam(worldId, teamId); toast('✓ Club claimed — welcome to the world!'); location.hash = '#/'; route(); }
-    catch (e: any) { toast(e.message); btn.removeAttribute('disabled'); btn.textContent = 'Claim'; }
+    if (claimBusy) return;
+    claimBusy = true; paintClaimBusy(); btn.textContent = 'Claiming…';
+    try {
+      await api.claimTeam(worldId, teamId);
+      if (!alive()) return;
+      toast('✓ Club claimed — welcome to the world!'); location.hash = '#/';
+    } catch (e: any) { if (alive()) toast(e.message); }
+    finally { claimBusy = false; btn.textContent = 'Claim'; paintClaimBusy(); }
   };
   const openWorld = async (w: import('./api').JoinableWorldT) => {
+    const request = ++worldRequest;
+    claimButtons.clear();
     const host = h('div', { class: 'card muted' }, 'Loading clubs…');
     container.replaceChildren(
       h('div', { class: 'between' }, h('h2', {}, w.name), h('button', { class: 'ghost', onclick: () => render() }, '← All worlds')),
@@ -337,9 +422,10 @@ async function screenWorlds() {
       host);
     try {
       const { teams } = await api.worldTeams(w.worldId);
-      if (!alive()) return;
+      if (!alive() || request !== worldRequest) return;
       const rowFor = (t: import('./api').ClaimableTeamT) => {
         const claim = h('button', { class: 'primary small' }, 'Claim') as HTMLButtonElement;
+        if (!t.claimed && !data.hasTeam) { claimButtons.add(claim); claim.disabled = claimBusy; }
         claim.addEventListener('click', () => claimInto(w.worldId, t.teamId, claim));
         return h('tr', {},
           h('td', {}, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ` · ${t.division}`)),
@@ -352,9 +438,10 @@ async function screenWorlds() {
           h('thead', {}, h('tr', {}, h('th', {}, 'Club'), h('th', { class: 'num' }, 'Div'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, ''))),
           h('tbody', {}, ...teams.map(rowFor))),
         data.hasTeam ? h('div', { class: 'muted', style: 'padding:10px;font-size:12px' }, 'You already manage a club — leave it first (from your dashboard) to claim here.') : ''));
-    } catch (e: any) { if (alive()) host.replaceChildren(h('div', { class: 'card err' }, e.message)); }
+    } catch (e: any) { if (alive() && request === worldRequest) host.replaceChildren(h('div', { class: 'card err' }, e.message)); }
   };
   const render = () => {
+    worldRequest++;   // invalidate a slower club-list request after returning to the lobby
     container.replaceChildren(
       h('div', { class: 'between' }, h('div', {}, h('h2', {}, '🌍 Shared worlds'), h('div', { class: 'muted', style: 'font-size:13px' }, 'Live multiplayer worlds that advance on a schedule. Claim a club to join.')),
         h('button', { class: 'ghost', onclick: () => (location.hash = data.hasTeam ? '#/' : '') }, data.hasTeam ? '← Dashboard' : '← Back')),
@@ -378,7 +465,7 @@ async function screenInternationals() {
   if (!nationMap) await loadNations();
   let data: Awaited<ReturnType<typeof api.tournaments>>;
   try { data = await api.tournaments(); }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (!alive()) return; if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
   // Nations render with a flag; clubs (Club World Cup) have no flag key, so show the name as-is.
   const nat = (k: string | null) => { if (!k) return 'TBD'; const f = flagOf(k); return `${f ? f + ' ' : ''}${nationNameOf(k) || k}`; };
 
@@ -388,28 +475,31 @@ async function screenInternationals() {
     const roundName = (r: number) => { const d = totalRounds - r; return d === 0 ? 'Final' : d === 1 ? 'Semi-finals' : d === 2 ? 'Quarter-finals' : `Round of ${2 ** (d + 1)}`; };
     const byRound = new Map<number, import('./api').TournamentTieT[]>();
     for (const tie of t.ties) { const a = byRound.get(tie.round) ?? []; a.push(tie); byRound.set(tie.round, a); }
+    const tieClass = (winner: string | null, side: string | null): string => !winner ? 'bracket-team pending' : winner === side ? 'bracket-team winner' : 'bracket-team loser';
     const cols = [...byRound.keys()].sort((a, b) => a - b).map(r => h('div', { style: 'min-width:190px' },
       h('div', { class: 'section-title', style: 'margin-top:0' }, roundName(r)),
       ...byRound.get(r)!.map(tie => h('div', { class: 'card', style: 'padding:8px;margin-bottom:8px;font-size:13px' },
-        h('div', { class: 'between', style: tie.winner === tie.home ? 'font-weight:700' : 'opacity:.65' }, h('span', {}, nat(tie.home)), h('span', {}, `${tie.homeScore ?? ''}${tie.homePens != null ? ` (${tie.homePens})` : ''}`)),
-        h('div', { class: 'between', style: tie.winner === tie.away ? 'font-weight:700' : 'opacity:.65' }, h('span', {}, nat(tie.away)), h('span', {}, `${tie.awayScore ?? ''}${tie.awayPens != null ? ` (${tie.awayPens})` : ''}`))))));
+        h('div', { class: tieClass(tie.winner, tie.home) }, h('span', {}, nat(tie.home)), h('span', {}, `${tie.homeScore ?? ''}${tie.homePens != null ? ` (${tie.homePens})` : ''}`)),
+        h('div', { class: tieClass(tie.winner, tie.away) }, h('span', {}, nat(tie.away)), h('span', {}, `${tie.awayScore ?? ''}${tie.awayPens != null ? ` (${tie.awayPens})` : ''}`))))));
     return h('div', { class: 'card' },
       h('div', { class: 'between' }, h('div', {}, h('div', { style: 'font-weight:700;font-size:16px' }, `${t.kind === 'world_cup' ? '🌍' : t.kind === 'club_world_cup' ? '🏟️' : '🏆'} ${t.name}`), h('div', { class: 'muted', style: 'font-size:12px' }, `Season ${t.season}${t.champion ? '' : ' · in progress'}`)),
         t.champion ? h('span', { class: 'pill', style: 'background:var(--gold,#e8b53a);color:#1a1205;font-weight:700' }, `🏆 ${nat(t.champion)}`) : ''),
-      h('div', { style: 'display:flex;gap:14px;overflow:auto;align-items:flex-start;margin-top:10px' }, ...cols));
+      h('div', { class: 'bracket-scroll' }, ...cols));
   };
 
   // qualified nations by confederation, click → the nation's XI
-  const squadHost = h('div', {});
+  const squadHost = h('div', {}, h('div', { class: 'card muted' }, 'Select a nation to see its strongest available XI.'));
+  let squadRequest = 0;
   const showSquad = async (key: string) => {
+    const request = ++squadRequest;
     squadHost.replaceChildren(h('div', { class: 'muted', style: 'font-size:12px' }, 'Loading squad…'));
     try {
       const { squad } = await api.nationSquad(key);
-      if (!alive()) return;
+      if (!alive() || request !== squadRequest) return;
       squadHost.replaceChildren(h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, `${nat(key)} — best XI`),
-        squad.length ? h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:2px 18px' }, ...squad.map(p => h('div', { class: 'between', style: 'font-size:13px;padding:2px 0' }, h('span', {}, p.name, h('span', { class: 'muted', style: 'font-size:11px' }, ` ${p.role}`)), h('span', { style: 'font-weight:600' }, String(p.overall))))) : h('div', { class: 'muted' }, 'Not enough players to field a squad.')));
-    } catch (e: any) { if (alive()) squadHost.replaceChildren(h('div', { class: 'card err' }, e.message)); }
+        squad.length ? h('div', { class: 'nation-xi' }, ...squad.map(p => h('div', { class: 'between', style: 'font-size:13px;padding:2px 0' }, h('span', {}, p.name, h('span', { class: 'muted', style: 'font-size:11px' }, ` ${p.role}`)), h('span', { style: 'font-weight:600' }, String(p.overall))))) : h('div', { class: 'muted' }, 'Not enough players to field a squad.')));
+    } catch (e: any) { if (alive() && request === squadRequest) squadHost.replaceChildren(h('div', { class: 'card err' }, e.message)); }
   };
   const byConfed = new Map<string, typeof data.fieldable>();
   for (const f of data.fieldable) { const a = byConfed.get(f.confed) ?? []; a.push(f); byConfed.set(f.confed, a); }
@@ -501,7 +591,59 @@ function vocabPanel(input: HTMLTextAreaElement): HTMLElement {
         return b;
       })))));
 }
-function planPanel(team: TeamT): HTMLElement {
+interface TacticsMutationGate {
+  run(action: () => Promise<void>): Promise<boolean>;
+  onBusy(listener: (busy: boolean) => void): void;
+  clearListeners(): void;
+  whenIdle(): Promise<void>;
+  focusOrigin(): HTMLElement | null;
+}
+function createTacticsMutationGate(): TacticsMutationGate {
+  let busy = false;
+  let origin: HTMLElement | null = null;
+  const listeners = new Set<(busy: boolean) => void>();
+  const idleWaiters = new Set<() => void>();
+  const notify = () => { for (const listener of listeners) { try { listener(busy); } catch { /* detached panel */ } } };
+  return {
+    async run(action): Promise<boolean> {
+      if (busy) { toast('Another tactics change is still being applied.'); return false; }
+      origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      busy = true; notify();
+      try { await action(); return true; }
+      finally {
+        const restore = origin;
+        busy = false; notify();
+        for (const resolve of idleWaiters) resolve();
+        idleWaiters.clear();
+        origin = null;
+        try { if (restore?.isConnected && !restore.hasAttribute('disabled')) restore.focus({ preventScroll: true }); } catch { /* remounted */ }
+      }
+    },
+    onBusy(listener): void { listeners.add(listener); listener(busy); },
+    clearListeners(): void { listeners.clear(); },
+    whenIdle(): Promise<void> { return busy ? new Promise(resolve => idleWaiters.add(resolve)) : Promise.resolve(); },
+    focusOrigin(): HTMLElement | null { return origin; },
+  };
+}
+// One gate spans remounts and route changes. A request that already reached the server cannot be safely
+// "cancelled" by navigation, so a newly mounted tactics screen must stay locked until that write settles.
+const tacticsMutationGate = createTacticsMutationGate();
+type TacticsPlanFlash = { note?: string; error?: string | null };
+let tacticsPlanFlash: TacticsPlanFlash | null = null;
+function bindTacticsControls(gate: TacticsMutationGate, host: HTMLElement): void {
+  type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement;
+  const prior = new Map<Control, boolean>();
+  gate.onBusy(busy => {
+    if (busy) {
+      prior.clear();
+      host.querySelectorAll<Control>('input, select, textarea, button').forEach(el => { prior.set(el, el.disabled); el.disabled = true; });
+    } else {
+      for (const [el, disabled] of prior) if (el.isConnected) el.disabled = disabled;
+      prior.clear();
+    }
+  });
+}
+function planPanel(team: TeamT, gate: TacticsMutationGate, alive: () => boolean, flash: TacticsPlanFlash | null = null): HTMLElement {
   // resolve the plan's ids (squad slots) to names for describeDirective — full squad so a directive on a
   // promoted bench player (slot > 10, from the structured board) still resolves, not just the nominal XI.
   watchPlayers = team.players.map(p => ({ id: p.slot, name: p.name }));
@@ -524,42 +666,45 @@ function planPanel(team: TeamT): HTMLElement {
     if (note) out.appendChild(h('div', { style: 'margin-top:8px;color:var(--gold);font-size:13px' }, '📝 ' + note));
   };
   const save = h('button', { class: 'primary small' }, 'Save plan');
-  save.addEventListener('click', async () => {
-    save.setAttribute('disabled', 'true'); save.textContent = '…';
+  save.addEventListener('click', () => void gate.run(async () => {
+    save.textContent = 'Saving…';
     try {
       const before = JSON.stringify(team.setPieceTakers ?? null);
-      const r = await api.teamPlan(input.value.trim());
+      const text = input.value.trim();
+      const r = await api.teamPlan(text);
+      if (!alive()) return;
       team.planText = r.planText; team.plan = r.plan; team.setPieceTakers = r.setPieceTakers ?? null;
       renderPlan(r.plan, r.note, r.error);
+      tacticsPlanFlash = (r.error || r.note) ? { error: r.error, note: r.note } : null;
       // §3: if the plan also (re)assigned dead-ball takers, the panel below must reflect it — re-render.
-      if (JSON.stringify(r.setPieceTakers ?? null) !== before) { toast('Set-piece takers set from your plan ⚽'); return void screenTactics(); }
-      toast(input.value.trim() ? 'Plan saved' : 'Plan cleared');
-      // re-render so the structured tactics board above re-seeds from this typed plan (keeps the two surfaces in
-      // sync — both write the same plan_directives). On a compile error we stay put so the note remains visible.
-      if (!r.error) return void screenTactics();
-    } catch (e: any) { out.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message)); }
-    save.removeAttribute('disabled'); save.textContent = 'Save plan';
-  });
+      if (JSON.stringify(r.setPieceTakers ?? null) !== before) { toast('Set-piece takers set from your plan ⚽'); return void route(); }
+      toast(r.error ? 'Plan text saved, but its instructions could not be compiled.' : text ? 'Plan saved' : 'Plan cleared');
+      // Always re-render so the structured board reflects the server's actual plan—even a compile error saves
+      // a neutral plan. `tacticsPlanFlash` re-opens this editor with the compiler feedback intact.
+      return void route();
+    } catch (e: any) { if (alive()) out.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message)); }
+    finally { if (save.isConnected) save.textContent = 'Save plan'; }
+  }));
   // §2 quick-tactics: one-tap team mentality (deterministic, instant — no LLM wait). Sets the plan text +
   // directives together; the user can then refine in the box below.
   const QUICK: [string, string][] = [['defensive', '🛡️ Defensive'], ['balanced', '⚖️ Balanced'], ['attacking', '⚔️ Attacking'], ['allout', '🔥 All-out']];
   const quickRow = h('div', { class: 'row', style: 'gap:6px;margin-bottom:10px;flex-wrap:wrap' },
     ...QUICK.map(([key, label]) => {
       const b = h('button', { class: 'ghost small', title: 'Set your team’s overall approach in one tap (replaces the standing plan)' }, label) as HTMLButtonElement;
-      b.addEventListener('click', async () => {
-        b.setAttribute('disabled', 'true');
+      b.addEventListener('click', () => void gate.run(async () => {
         try {
           const r = await api.quickTactics(key);
+          if (!alive()) return;
           team.planText = r.planText; team.plan = r.plan;
           input.value = r.planText; renderPlan(r.plan);
           toast(`Tactics set: ${label.replace(/^\S+\s/, '')}`);
-        } catch (e: any) { toast(e.message); }
-        b.removeAttribute('disabled');
-      });
+          return void route();
+        } catch (e: any) { if (alive()) toast(e.message); }
+      }));
       return b;
     }));
-  renderPlan(team.plan);
-  return h('div', { class: 'card' },
+  renderPlan(team.plan, flash?.note, flash?.error);
+  const panel = h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Tactical plan'),
     h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'Type a standing plan in plain English — it’s compiled to your team’s instructions and seeds every match (and your live shouts). Name your dead-ball takers here too ("Lars on long throws"). Mid-match, the shout box edits it.'),
     h('div', { class: 'muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px' }, 'Quick tactics'),
@@ -568,6 +713,8 @@ function planPanel(team: TeamT): HTMLElement {
     vocabPanel(input),
     out,
   );
+  bindTacticsControls(gate, panel);
+  return panel;
 }
 
 // Formation control: a plain-text shout ("play 4-4-2", "AB at left back") sets the
@@ -688,6 +835,7 @@ function trainingSummary(p: PlayerT): string | null {
 // top of the dashboard until dismissed (replaces the old ~15-toast pile that vanished in 2.6s each).
 type DigestItem = { category?: string; icon: string; text: string; hash?: string | null };
 let matchdayDigest: { round: number | null; headline: string; items: DigestItem[] } | null = null;
+let lastWorldTurnRefreshAt = 0;
 async function screenDashboard() {
   const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
@@ -696,10 +844,10 @@ async function screenDashboard() {
     const [t, l, n, hm, fr, cn] = await Promise.all([api.team(), api.league(), api.news().catch(() => ({ news: [] })), api.harmony().catch(() => null), api.formations().catch(() => null), api.concerns().catch(() => ({ concerns: [] }))]);
     team = t; league = l; news = n.news; harmony = hm; reg = fr; concerns = cn.concerns;
   } catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     // team()/league() are essential — one transient failure shouldn't strand the home screen on a
     // bare error string with no way out. Offer a retry (news/harmony already fall back above).
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' },
       h('div', { class: 'err' }, 'Couldn’t load your club — ' + (e.message || 'something went wrong') + '.'),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenDashboard() }, '↻ Retry')));
@@ -747,8 +895,8 @@ async function screenDashboard() {
   const genPersBtn = h('button', { class: 'ghost small' }, 'Generate personalities');
   genPersBtn.addEventListener('click', async () => {
     genPersBtn.setAttribute('disabled', 'true'); genPersBtn.textContent = 'Generating…';
-    try { await api.generatePersonalities(); toast('Personalities generated'); screenDashboard(); }
-    catch (e: any) { toast(e.message); genPersBtn.removeAttribute('disabled'); genPersBtn.textContent = 'Generate personalities'; }
+    try { await api.generatePersonalities(); if (!alive()) return; toast('Personalities generated'); route(); }
+    catch (e: any) { if (!alive()) return; toast(e.message); genPersBtn.removeAttribute('disabled'); genPersBtn.textContent = 'Generate personalities'; }
   });
 
   // advance is gated on the WHOLE world having games left (the user may have watched all
@@ -783,14 +931,15 @@ async function screenDashboard() {
     advanceBtn.setAttribute('disabled', 'true'); advanceBtn.textContent = 'Simulating…';
     try {
       const r = await api.advance();
+      if (!alive()) return;
       // ── matchday DIGEST: everything the matchday produced, in ONE persistent, dismissable card on the
       // dashboard (was ~15 stacked 2.6-second toasts). The items + headline are now assembled server-side
       // (inbox.ts) and PERSISTED to the Inbox — the card renders the same array, so there's one formatting
       // source and no drift between the live digest and the archived feed.
       matchdayDigest = (r.digestHeadline || r.inbox.length) ? { round: pendingRound, headline: r.digestHeadline, items: r.inbox } : null;
       if (!matchdayDigest) toast('Matchday advanced.');
-      screenDashboard();
-    } catch (e: any) { toast(e.message); screenDashboard(); }
+      route();
+    } catch (e: any) { if (!alive()) return; toast(e.message); route(); }
   });
 
   const watchBtn = h('button', { class: 'ghost', title: myNext
@@ -831,7 +980,7 @@ async function screenDashboard() {
   const digestCard = matchdayDigest ? h('div', { class: 'card', style: 'padding:14px 16px;border-left:3px solid var(--accent)' },
     h('div', { class: 'between' },
       h('div', { class: 'section-title', style: 'margin:0' }, `📰 Matchday${matchdayDigest.round != null ? ` ${matchdayDigest.round}` : ''} digest`),
-      h('button', { class: 'ghost small', 'aria-label': 'Dismiss the matchday digest', onclick: () => { matchdayDigest = null; screenDashboard(); } }, '✕')),
+      h('button', { class: 'ghost small', 'aria-label': 'Dismiss the matchday digest', onclick: () => { matchdayDigest = null; route(); } }, '✕')),
     matchdayDigest.headline ? h('div', { style: 'font-size:17px;font-weight:700;margin-top:6px' }, matchdayDigest.headline) : '',
     ...matchdayDigest.items.map(it => it.hash
       ? h('div', { style: 'font-size:13px;padding:3px 0;cursor:pointer', title: 'Open', ...clickable(() => (location.hash = it.hash!)) }, `${it.icon} ${it.text} →`)
@@ -1063,12 +1212,40 @@ async function screenDashboard() {
     : (isShared && worldTurn
       ? (() => {
           const chip = h('span', { class: 'pill', title: 'This world advances on a schedule (2 turns/day). Set your tactics & transfers — the matchday plays automatically.' });
-          if (worldTurn.nextTurnAt == null) chip.textContent = `⏱ Turn ${worldTurn.turn} · scheduled`;
-          else {
-            const ms = worldTurn.nextTurnAt - Date.now();
-            if (ms <= 0) chip.textContent = `⏱ Turn ${worldTurn.turn} · next turn imminent`;
-            else { const hh = Math.floor(ms / 3600000), mm = Math.floor((ms % 3600000) / 60000); chip.textContent = `⏱ Next turn in ${hh > 0 ? hh + 'h ' : ''}${mm}m`; }
-          }
+          let countdownTimer = 0, expiryTimer = 0, refreshQueued = false;
+          const onVisibility = () => { if (!document.hidden) tick(); };
+          const cleanup = () => {
+            clearInterval(countdownTimer); clearTimeout(expiryTimer);
+            document.removeEventListener('visibilitychange', onVisibility);
+          };
+          const queueRefresh = () => {
+            if (refreshQueued || worldTurn.nextTurnAt == null || worldTurn.nextTurnAt > Date.now()) return;
+            refreshQueued = true;
+            // Give the scheduler a moment, then refetch the whole dashboard. If it has not advanced yet,
+            // the module-level cooldown prevents an expired timestamp from creating a tight reload loop.
+            const delay = Math.max(5000, 60000 - (Date.now() - lastWorldTurnRefreshAt));
+            expiryTimer = window.setTimeout(() => {
+              cleanup();
+              if (!alive() || !chip.isConnected) return;
+              lastWorldTurnRefreshAt = Date.now();
+              route();
+            }, delay);
+          };
+          const paintCountdown = () => {
+            if (worldTurn.nextTurnAt == null) chip.textContent = `⏱ Turn ${worldTurn.turn} · scheduled`;
+            else {
+              const ms = worldTurn.nextTurnAt - Date.now();
+              if (ms <= 0) { chip.textContent = `⏱ Turn ${worldTurn.turn} · refreshing…`; queueRefresh(); }
+              else { const hh = Math.floor(ms / 3600000), mm = Math.floor((ms % 3600000) / 60000); chip.textContent = `⏱ Next turn in ${hh > 0 ? hh + 'h ' : ''}${mm}m`; }
+            }
+          };
+          const tick = () => {
+            if (!alive() || !chip.isConnected) { cleanup(); return; }
+            paintCountdown();
+          };
+          paintCountdown();
+          countdownTimer = window.setInterval(tick, 30000);
+          document.addEventListener('visibilitychange', onVisibility);
           return chip;
         })()
       : '');
@@ -1091,9 +1268,9 @@ async function screenDashboard() {
     });
     const leaveBtn = h('button', { class: 'ghost small danger' }, 'Leave world') as HTMLButtonElement;
     leaveBtn.addEventListener('click', async () => {
-      if (!await confirmModal('Leave this world?', `${team.name} will be released back to AI control and you’ll return to the world lobby. This can’t be undone.`, 'Leave world')) return;
+      if (!await confirmModal('Leave this world?', `${team.name} will be released back to AI control and you’ll return to the world lobby. This can’t be undone.`, 'Leave world', 'danger')) return;
       leaveBtn.setAttribute('disabled', 'true');
-      try { await api.leaveWorld(); toast('You’ve left the world.'); location.hash = '#/worlds'; route(); }
+      try { await api.leaveWorld(); toast('You’ve left the world.'); location.hash = '#/worlds'; }
       catch (e: any) { toast(e.message); leaveBtn.removeAttribute('disabled'); }
     });
     return h('div', { class: 'card', style: 'padding:12px 16px' },
@@ -1260,31 +1437,43 @@ async function screenDashboard() {
 // Set-piece takers (user-watch): designate FK / corner / pen / long-throw takers. A taker who isn't in
 // the fielded XI falls back to the engine default (the backend drops his directive at spec-build).
 type TakerKey = 'fk' | 'corner' | 'pen' | 'longThrow';
-function setPieceTakerPanel(team: TeamT): HTMLElement {
+function setPieceTakerPanel(team: TeamT, gate: TacticsMutationGate, alive: () => boolean): HTMLElement {
   const players = [...team.players].sort((a, b) => a.slot - b.slot);
   const cur = team.setPieceTakers ?? { fk: null, corner: null, pen: null, longThrow: null };
-  const fields: { key: TakerKey; label: string; s: HTMLSelectElement }[] = ([
+  const fields: { key: TakerKey; label: string; s: HTMLSelectElement; saved: string }[] = ([
     ['fk', 'Free kicks'], ['corner', 'Corners'], ['pen', 'Penalties'], ['longThrow', 'Long throws'],
   ] as [TakerKey, string][]).map(([key, label]) => {
     const s = h('select', { class: 'tactics-input', style: 'width:auto;min-width:190px;padding:5px 8px' }) as HTMLSelectElement;
     s.append(h('option', { value: '' }, '— Default (by position) —'));
     for (const p of players) s.append(h('option', { value: String(p.slot) }, `${p.name} · ${p.role}${p.slot >= 11 ? ' (bench)' : ''}`));
     s.value = cur[key] != null ? String(cur[key]) : '';
-    return { key, label, s };
+    return { key, label, s, saved: s.value };
   });
-  const save = async () => {
+  const save = (changed: typeof fields[number]) => void gate.run(async () => {
     const body = { fk: null as number | null, corner: null as number | null, pen: null as number | null, longThrow: null as number | null };
     for (const f of fields) body[f.key] = f.s.value === '' ? null : Number(f.s.value);
-    try { await api.setSetPieceTakers(body); toast('Set-piece takers updated'); }
-    catch (e: any) { toast(e.message); }
-  };
-  fields.forEach(f => f.s.addEventListener('change', save));
-  return h('div', { class: 'card' },
+    try {
+      const r = await api.setSetPieceTakers(body);
+      if (!alive()) return;
+      const saved = r.setPieceTakers ?? body;
+      fields.forEach(f => { f.s.value = saved[f.key] == null ? '' : String(saved[f.key]); f.saved = f.s.value; });
+      team.setPieceTakers = saved;
+      toast('Set-piece takers updated');
+    } catch (e: any) {
+      if (!alive()) return;
+      changed.s.value = changed.saved;
+      toast(e.message);
+    }
+  });
+  fields.forEach(f => f.s.addEventListener('change', () => save(f)));
+  const panel = h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, '⚽ Set-piece takers'),
     h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:10px' }, 'Designate who takes your dead balls — or leave on Default to let the engine pick by position. A taker who isn’t in your matchday XI falls back to the default. You can also just say it in your tactical plan above ("Suárez takes our penalties").'),
     h('div', { class: 'grid cols-2', style: 'gap:10px' }, ...fields.map(f =>
       h('label', { class: 'between', style: 'gap:10px;align-items:center;font-size:13px' },
         h('span', { style: 'flex-shrink:0' }, f.label), f.s))));
+  bindTacticsControls(gate, panel);
+  return panel;
 }
 
 // ── structured tactics board (sliders / menus / formation picker) ──────────────────────────────────
@@ -1390,7 +1579,7 @@ function boardToggle(labelText: string, checked: boolean, onChange: (c: boolean)
 const BOARD_TEAM_KINDS = new Set(['mentality', 'press_intensity', 'line_height', 'play_it_long', 'keep_it_on_ground', 'play_narrow', 'get_it_wide', 'work_it_into_box', 'shoot_from_distance', 'counter_attack', 'offside_trap', 'slow_it_down']);
 const hasWhenCond = (w: DirectiveT['when']): boolean => !!w && ((w.fromMin ?? 0) > 0 || (w.toMin ?? 1000) < 1000 || (!!w.scoreState && w.scoreState !== 'any') || !!w.phase);
 
-function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
+function tacticsBoard(team: TeamT, reg: FormationsT | null, gate: TacticsMutationGate): HTMLElement {
   // directive playerIds are SQUAD SLOTS (the fielded player, incl. promoted bench) → names for the readback
   watchPlayers = team.players.map(p => ({ id: p.slot, name: p.name }));
   // `existing` is re-pointed to the latest saved plan after every commit, so seedPresets (on a formation
@@ -1402,8 +1591,11 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
   //   • per-player orders the slot's reconstructed preset bundle doesn't reproduce EXACTLY — a lone typed
   //     "shoot_on_sight", an order on an unfielded player, or a preset-shaped set at custom intensities
   //     (save re-emits the preset's canonical intensities, silently rewriting the manager's).
-  // Must run AFTER seedPresets() — it compares against what the CURRENT presets would emit on save.
-  const hiddenDirectives = (): DirectiveT[] => {
+  // Must run AFTER seedPresets() — it compares the SAVED plan with the preset reconstructed from that plan.
+  // Keep the result as a snapshot until the next successful save: comparing against a newly selected role
+  // would incorrectly label the old, ordinary role as an "advanced" instruction.
+  let savedHiddenDirectives: DirectiveT[] = [];
+  const detectHiddenDirectives = (): DirectiveT[] => {
     // squad slot -> the kind→intensity map the current preset choices would emit for the player fielded there
     const emitted = new Map<number, Map<string, number>>();
     slotsOf().forEach((s, i) => {
@@ -1416,6 +1608,7 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
       return emitted.get(d.playerId)?.get(d.kind) !== (d.intensity ?? 1);   // unfielded / kind missing / intensity rewritten
     });
   };
+  const hiddenDirectives = (): DirectiveT[] => savedHiddenDirectives;
   const teamKind = (k: string) => existing.find(d => d.teamScope != null && d.kind === k);
   const dialVal = (k: string) => { const d = teamKind(k); return typeof d?.intensity === 'number' ? d.intensity : 0.5; };
 
@@ -1470,6 +1663,7 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
     return out;
   };
   const allDirectives = () => [...teamDirectives(), ...playerDirectives()];
+  const stateFingerprint = (directives = allDirectives()): string => JSON.stringify({ formation, lineup, directives });
 
   // ── render targets ──
   const pitchBox = h('div', {});
@@ -1477,7 +1671,31 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
   const rolesBox = h('div', { class: 'grid cols-2', style: 'gap:8px' });
   const readout = h('div', { class: 'tactics-receipt', style: 'margin-top:10px' });
   const saveBtn = h('button', { class: 'primary' }, 'Save tactics') as HTMLButtonElement;
-  const markDirty = () => { saveBtn.textContent = 'Save tactics •'; renderReadout(); };
+  const saveStatus = h('span', { class: 'muted', role: 'status', 'aria-live': 'polite', style: 'font-size:12px' });
+  const warningHost = h('div', {});
+  const boardRoot = h('div', { class: 'grid tactics-board' });
+  let savedFingerprint = '', mutationBusy = false;
+  const priorDisabled = new Map<HTMLInputElement | HTMLSelectElement | HTMLButtonElement, boolean>();
+  const setBoardBusy = (busy: boolean) => {
+    if (busy) {
+      priorDisabled.clear();
+      boardRoot.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('input, select, button').forEach(el => { priorDisabled.set(el, el.disabled); el.disabled = true; });
+    } else {
+      for (const [el, disabled] of priorDisabled) if (el.isConnected) el.disabled = disabled;
+      priorDisabled.clear();
+    }
+  };
+  const isBoardDirty = () => stateFingerprint() !== savedFingerprint;
+  const paintSaveState = () => {
+    const dirty = isBoardDirty();
+    saveBtn.disabled = mutationBusy || !dirty;
+    saveBtn.textContent = mutationBusy ? 'Saving…' : dirty ? 'Save tactics •' : 'Saved';
+    saveStatus.textContent = mutationBusy ? 'Applying changes…' : dirty ? 'Unsaved changes' : 'All changes saved';
+  };
+  const markDirty = () => { paintSaveState(); renderReadout(); renderHiddenWarning(); };
+  const runBoardMutation = async (action: () => Promise<void>): Promise<void> => {
+    await gate.run(action);
+  };
 
   function renderReadout() {
     // resolve directive playerIds (squad slots, incl. promoted bench) → names for describeDirective's readback
@@ -1501,19 +1719,22 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
     const slots = slotsOf();
     const order = team.players.slice().sort((a, b) => a.slot - b.slot);
     slotBox.replaceChildren(...slots.map((s, i) => {
-      const sel = h('select', { class: 'tactics-input', style: 'width:100%;padding:5px 8px' }) as HTMLSelectElement;
+      const sel = h('select', { class: 'tactics-input', style: 'width:auto;flex:1;min-width:0;padding:5px 8px' }) as HTMLSelectElement;
       for (const p of order) sel.append(h('option', { value: String(p.slot) }, `${p.name} (${p.role})`));
       sel.value = String(squadIdx(i));
-      sel.addEventListener('change', async () => {
+      const original = sel.value;
+      sel.addEventListener('change', () => void runBoardMutation(async () => {
+        if (!await confirmHiddenReplacement()) { sel.value = original; return; }
         const chosen = Number(sel.value);
         const cur = slots.map((_, j) => squadIdx(j));
         const at = cur.indexOf(chosen);
         const prev = cur[i]; cur[i] = chosen;
         if (at >= 0 && at !== i) cur[at] = prev;   // swap within the XI; bench-in (at<0) just drops prev
-        await persistFormation(formation, cur);
+        if (!await persistFormation(formation, cur)) { sel.value = original; return; }
         await commitDirectives();                  // re-bind roles to the new XI so the saved plan matches the board
-      });
-      return h('label', { class: 'row', style: 'gap:6px;align-items:center;font-size:12px' },
+        redrawShape();
+      }));
+      return h('label', { class: 'row tactics-slot-row', style: 'gap:6px;align-items:center;font-size:12px' },
         h('span', { class: 'pill', style: 'flex-shrink:0;min-width:34px;text-align:center' }, s.role), sel);
     }));
   }
@@ -1536,29 +1757,47 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
   }
   const redrawShape = () => { drawPitch(); drawSlots(); drawRoles(); renderReadout(); };
 
-  async function persistFormation(fmt: string, lu: number[]) {
+  async function persistFormation(fmt: string, lu: number[]): Promise<boolean> {
     try {
       const r = await api.setFormation(fmt, lu);
       formation = r.formation; lineup = r.lineup; badge.textContent = r.formation;
-      redrawShape();
-    } catch (e: any) { toast(e.message); }
+      return true;
+    } catch (e: any) { toast(e.message); return false; }
   }
   // Persist the current directive board (team instructions + per-player roles). Called by the explicit Save AND
   // after any XI change (slot swap / Strongest XI / formation change) so the stored plan_directives always stay
   // bound to the fielded XI — playerDirectives() keys on squadIdx, so a lineup change re-targets the roles.
   // Re-points `existing` to the saved plan so a later formation change re-seeds from live state, not a stale load.
   async function commitDirectives(): Promise<boolean> {
-    saveBtn.setAttribute('disabled', 'true'); saveBtn.textContent = 'Saving…';
+    const directives = allDirectives();
+    const fingerprint = stateFingerprint(directives);
     try {
       const mentWord = instr.mentality <= 0.3 ? 'Defensive' : instr.mentality <= 0.6 ? 'Balanced' : 'Attacking';
       const roleCount = presets.filter((k, i) => k !== ROLE_PRESETS[roleFamily(slotsOf()[i]?.role ?? 'MID')][0].key).length;
       const summary = `${mentWord} setup${roleCount ? `, ${roleCount} player role${roleCount > 1 ? 's' : ''} set` : ''}.`;
-      const r = await api.setPlanStructured(allDirectives(), summary);
+      const r = await api.setPlanStructured(directives, summary);
       team.planText = r.planText; team.plan = r.plan; existing = r.plan.directives ?? [];
-      saveBtn.textContent = 'Save tactics';
+      savedFingerprint = fingerprint;
+      savedHiddenDirectives = detectHiddenDirectives();
+      paintSaveState(); renderHiddenWarning();
       return true;
-    } catch (e: any) { toast(e.message); saveBtn.textContent = 'Save tactics •'; return false; }
-    finally { saveBtn.removeAttribute('disabled'); }
+    } catch (e: any) { toast(e.message); paintSaveState(); return false; }
+  }
+  function renderHiddenWarning(): void {
+    const hidden = hiddenDirectives();
+    warningHost.replaceChildren();
+    if (!hidden.length) return;
+    warningHost.appendChild(h('div', { class: 'card tactics-hidden-warning', style: 'border-color:var(--gold)' },
+      h('div', { style: 'color:var(--gold);font-size:13px' },
+        `⚠ Your saved plan has instructions this board can't represent (${[...new Set(hidden.map(d => d.kind))].join(', ')}). A board save will replace or rewrite them; you will be asked before that happens.`)));
+  }
+  async function confirmHiddenReplacement(): Promise<boolean> {
+    const hidden = hiddenDirectives();
+    if (!hidden.length) return true;
+    const kinds = [...new Set(hidden.map(d => d.kind))].join(', ');
+    return confirmModal('Replace advanced instructions?',
+      `This board cannot represent ${kinds}. Saving these changes will replace or rewrite those instructions.\n\nCancel and use the plain-English editor if you want to keep them.`,
+      'Replace & save', 'danger', gate.focusOrigin());
   }
 
   // ── formation card ──
@@ -1572,23 +1811,40 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
     grp('Formations', rec); grp('More shapes', more);
     fmtSel.value = formation;
   }
-  fmtSel.addEventListener('change', async () => {
-    formation = fmtSel.value;
-    await persistFormation(formation, []);   // empty lineup → server auto-fits the strongest XI for the new shape
-    seedPresets();                           // re-derive roles from the SAVED plan for the new slots (still-fielded players keep theirs)
-    await commitDirectives();                // persist those roles, now re-bound to the new XI
-    redrawShape();
-    toast(`Shape: ${formation}`);
+  fmtSel.addEventListener('change', () => {
+    const requested = fmtSel.value, previous = formation;
+    void runBoardMutation(async () => {
+      if (!await confirmHiddenReplacement()) { fmtSel.value = previous; return; }
+      // A shape change re-seeds role presets for different slots. Persist the current board first so pending
+      // role/team changes are carried into that re-seed instead of silently disappearing.
+      if (isBoardDirty() && !await commitDirectives()) { fmtSel.value = previous; return; }
+      if (!await persistFormation(requested, [])) { fmtSel.value = previous; return; } // empty lineup → auto-fit this shape
+      fmtSel.value = formation;
+      seedPresets();                           // re-derive roles from the saved plan for the new slots
+      const saved = await commitDirectives();  // persist those roles, now re-bound to the new XI
+      redrawShape();
+      if (saved) toast(`Shape: ${formation}`);
+    });
   });
   const autoBtn = h('button', { class: 'ghost small', title: 'Field your strongest role-correct XI in this shape' }, '⚡ Strongest XI') as HTMLButtonElement;
-  autoBtn.addEventListener('click', async () => {
-    autoBtn.setAttribute('disabled', 'true');
-    try { const r = await api.autoLineup(); lineup = r.lineup; await commitDirectives(); redrawShape(); toast('Strongest XI selected'); }
+  autoBtn.addEventListener('click', () => void runBoardMutation(async () => {
+    if (!await confirmHiddenReplacement()) return;
+    if (isBoardDirty() && !await commitDirectives()) return;
+    try {
+      const r = await api.autoLineup();
+      const shapeChanged = r.formation !== formation;
+      formation = r.formation; lineup = r.lineup; badge.textContent = formation; fmtSel.value = formation;
+      if (shapeChanged) seedPresets();
+      const saved = await commitDirectives(); redrawShape();
+      if (saved) toast('Strongest XI selected');
+    }
     catch (e: any) { toast(e.message); }
-    finally { autoBtn.removeAttribute('disabled'); }
-  });
+  }));
 
-  seedPresets(); redrawShape();
+  seedPresets();
+  savedHiddenDirectives = detectHiddenDirectives();
+  savedFingerprint = stateFingerprint();
+  redrawShape();
 
   const formationCard = h('div', { class: 'card' },
     h('div', { class: 'between' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Formation', badge), autoBtn),
@@ -1620,56 +1876,59 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
     rolesBox);
 
   // ── save bar ──
-  saveBtn.addEventListener('click', async () => { if (await commitDirectives()) toast('Tactics saved ✓'); });
+  saveBtn.addEventListener('click', () => void runBoardMutation(async () => {
+    if (!await confirmHiddenReplacement()) return;
+    if (await commitDirectives()) toast('Tactics saved ✓');
+  }));
   renderReadout();
 
-  // #2: warn (don't silently drop) if the saved plan holds instructions this board can't represent.
-  // Computed AFTER seedPresets() above, so the round-trip check sees the presets a save would re-emit.
-  const hiddenDirs = hiddenDirectives();
-  const hiddenWarn = hiddenDirs.length
-    ? h('div', { class: 'card', style: 'border-color:var(--gold)' },
-        h('div', { style: 'color:var(--gold);font-size:13px' },
-          `⚠ Your saved plan has instructions this board can't represent (${[...new Set(hiddenDirs.map(d => d.kind))].join(', ')}). Saving from the board will replace or rewrite them — edit those in the plain-English plan below instead.`))
-    : '';
-
-  return h('div', { class: 'grid' },
-    hiddenWarn,
+  boardRoot.replaceChildren(
+    warningHost,
     formationCard,
     instrCard,
     rolesCard,
-    h('div', { class: 'card' },
-      readout,
-      h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:10px' }, saveBtn)));
+    h('div', { class: 'card' }, readout),
+    h('div', { class: 'card tactics-savebar' },
+      h('div', { class: 'between', style: 'gap:12px' }, saveStatus, saveBtn)));
+  renderHiddenWarning();
+  paintSaveState();
+  gate.onBusy(busy => { mutationBusy = busy; setBoardBusy(busy); paintSaveState(); });
+  return boardRoot;
 }
 
 async function screenTactics() {
   const alive = screenGuard();
+  tacticsMutationGate.clearListeners();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading tactics…')));
+  await tacticsMutationGate.whenIdle();
+  if (!alive()) return;
   let team: TeamT;
   try { team = await api.team(); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   const reg = await api.formations().catch(() => null);   // registry for the visual pitch (graceful if it fails)
   if (!alive()) return;
+  const gate = tacticsMutationGate;
+  const flash = tacticsPlanFlash; tacticsPlanFlash = null;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('h2', {}, 'Tactics'),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
-    tacticsBoard(team, reg),
-    setPieceTakerPanel(team),
+    tacticsBoard(team, reg, gate),
+    setPieceTakerPanel(team, gate, alive),
     // The plain-English plan (LLM) stays as an optional power-user alternative to the board above — it
     // compiles to the SAME plan_directives store, so either surface can drive the team.
-    h('details', { class: 'card' },
+    h('details', { class: 'card', open: !!flash },
       h('summary', { style: 'cursor:pointer;font-weight:600' }, 'Prefer to type it? Plain-English plan ▾'),
-      h('div', { style: 'margin-top:10px' }, planPanel(team))),
+      h('div', { style: 'margin-top:10px' }, planPanel(team, gate, alive, flash))),
   ));
 }
 
 // ── watch ──
-let activeRenderer: MatchRenderer | null = null;
+let activeRenderer: MatchRendererInstance | null = null;
 let activeWs: WebSocket | null = null;
 // The control bar (Pause, speed, seek) is interactive BEFORE the socket opens and stays in the DOM after it
 // closes at full-time; a bare activeWs.send() then throws an uncaught InvalidStateError (CONNECTING/CLOSING/
@@ -1766,7 +2025,11 @@ function describeDirective(d: any): string {
 
 async function screenWatch(fixtureId: number, shouts = false, live = false, startMs = 0, cup = false) {
   teardownWatch();
+  document.title = 'Match viewer · Footy Manager';
   const myEpoch = watchEpoch;   // if another teardown/navigation bumps this during init, we bail below
+  // Clear the previous management screen before the first fetch. Otherwise a slow/offline team request leaves
+  // stale dashboard controls live under a URL that already says Watch.
+  root.replaceChildren(h('div', { class: 'center' }, h('div', { class: 'spin' }, 'Preparing match viewer…')));
   // A cup tie is a recorded, spectator-only replay (no coordinator, no shout log keyed by tie id), so
   // its watch is always plain playback — force off the live/shout paths regardless of the hash.
   if (cup) { live = false; shouts = false; }
@@ -1960,10 +2223,14 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   // on-demand from ⋯, refreshed ~1.5s while open, body-appended + torn down centrally (teardownWatch).
   const statsBtn = h('button', { class: 'ghost small', 'aria-label': 'Toggle match stats', 'aria-pressed': 'false', title: 'Live player ratings, shot map & xG race' }, '📊 Stats') as HTMLButtonElement;
   let statsContent: HTMLElement | null = null;
+  let closeLineups: () => void = () => {};
+  let restoreOverlayFocus = (trigger: HTMLButtonElement): void => trigger.focus();
   const closeStats = (): void => {
+    const restoreFocus = !!watchStatsPanel?.contains(document.activeElement);
     if (watchStatsTimer) { clearInterval(watchStatsTimer); watchStatsTimer = null; }
     watchStatsPanel?.remove(); watchStatsPanel = null; statsContent = null;
     statsBtn.classList.remove('primary'); statsBtn.classList.add('ghost'); statsBtn.setAttribute('aria-pressed', 'false');
+    if (restoreFocus) restoreOverlayFocus(statsBtn);
   };
   const ratTint = (r: number): string => r >= 7.5 ? '#57e08a' : r >= 6.5 ? '#e8edf2' : r >= 5.5 ? '#cdd6df' : '#f3b06b';
   const renderStatsPanel = (): void => {
@@ -2022,6 +2289,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   };
   statsBtn.addEventListener('click', () => {
     if (watchStatsPanel) { closeStats(); return; }
+    closeLineups();
     statsBtn.classList.add('primary'); statsBtn.classList.remove('ghost'); statsBtn.setAttribute('aria-pressed', 'true');
     statsContent = h('div', {});
     watchStatsPanel = h('div', { role: 'region', 'aria-label': 'Match statistics',
@@ -2038,12 +2306,15 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   // Sourced from the renderer's per-frame roster (getRatings gives id/name/team/role; shirt = id%11+1 to
   // match the on-pitch labels). Built on open (rosters are stable within a match); torn down centrally.
   const lineupsBtn = h('button', { class: 'ghost small', 'aria-label': 'Toggle line-ups', 'aria-pressed': 'false', title: 'Match line-ups (both teams)' }, '👥 Line-ups') as HTMLButtonElement;
-  const closeLineups = (): void => {
+  closeLineups = (): void => {
+    const restoreFocus = !!watchLineupsPanel?.contains(document.activeElement);
     watchLineupsPanel?.remove(); watchLineupsPanel = null;
     lineupsBtn.classList.remove('primary'); lineupsBtn.classList.add('ghost'); lineupsBtn.setAttribute('aria-pressed', 'false');
+    if (restoreFocus) restoreOverlayFocus(lineupsBtn);
   };
   const openLineups = (): void => {
     if (!activeRenderer) return;
+    closeStats();
     const names = activeRenderer.getTeamNames();
     const roster = activeRenderer.getRatings();
     const sideCol = (teamName: string, side: 'home' | 'away', dot: string) => {
@@ -2066,6 +2337,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   lineupsBtn.addEventListener('click', () => {
     if (watchLineupsPanel) { closeLineups(); return; }
     openLineups();
+    if (!watchLineupsPanel) return;
     lineupsBtn.classList.add('primary'); lineupsBtn.classList.remove('ghost'); lineupsBtn.setAttribute('aria-pressed', 'true');
   });
   // ⋯ — everything secondary in ONE place (tactics overlay, match stats, line-ups, highlights tour, live goal
@@ -2080,6 +2352,10 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     moreBtn.classList.toggle('primary', open); moreBtn.classList.toggle('ghost', !open);
   });
   const moreWrap = h('div', { style: 'position:relative' }, moreBtn, morePop);
+  restoreOverlayFocus = trigger => (morePop.style.display === 'none' ? moreBtn : trigger).focus();
+  const rendererReadyControls = [dirBtn, statsBtn, lineupsBtn, moreBtn];
+  const streamControls = [pauseBtn, ...speedPills];
+  [...rendererReadyControls, ...streamControls].forEach(control => { control.disabled = true; });
   // status chips (weather + recorded/live) pinned to the bar's right edge even while the slider is hidden
   const chipGroup = h('div', { style: 'margin-left:auto;display:flex;gap:8px;align-items:center' }, weatherEl, recBadge);
   const bar = h('div', { class: 'watch-bar' },
@@ -2099,8 +2375,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   // , / . = prev/next moment (goal or red card). Seek-keys are no-ops on a live match (the coordinator
   // ignores seek) + before a moment index is loaded. Removed in teardownWatch. Ignored while typing a shout.
   watchKeyHandler = (e: KeyboardEvent): void => {
-    const tag = (e.target as HTMLElement | null)?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (isInteractiveTarget(e.target)) return;
     const step = e.shiftKey ? 2000 : 10000;   // Shift = a fine 2s nudge for landing on a specific touch
     if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); seekTo(Math.max(0, currentMs - step)); }
@@ -2119,6 +2394,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   const receiptEl = h('div', { class: 'tactics-receipt' });
   const ta = h('textarea', { class: 'tactics-input', rows: '2',
     placeholder: 'Shout at your team — "AB mark their striker, everyone push up", or rev them up: "come on Lange, sort it out". Each shout edits your standing plan.' }) as HTMLTextAreaElement;
+  ta.disabled = true;
   const applyPlan = () => {
     const text = ta.value.trim();
     if (!text || activeWs?.readyState !== WebSocket.OPEN) return;
@@ -2181,11 +2457,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     h('span', { style: 'flex:1 1 auto;min-width:0' }, '💡 Shouts are live-only — use ⚡ Play LIVE to steer a match in real time.'),
     h('button', { class: 'ghost small', 'aria-label': 'Dismiss this tip', title: 'Dismiss',
       onclick: () => { tipRow.remove(); try { localStorage.setItem(TIP_KEY, '1'); } catch { /* */ } } }, '×'));
+  const applyBtn = h('button', { class: 'primary small', title: 'Apply your shout (Ctrl+Enter)', onclick: applyPlan }, 'Apply') as HTMLButtonElement;
+  applyBtn.disabled = true;
   const panel = live
     ? h('div', { class: 'tactics-panel' },
         statsHost,
         planEl,
-        h('div', { class: 'tactics-row' }, ta, h('button', { class: 'primary small', title: 'Apply your shout (Ctrl+Enter)', onclick: applyPlan }, 'Apply')),
+        h('div', { class: 'tactics-row' }, ta, applyBtn),
         receiptEl,
       )
     : h('div', { class: 'tactics-panel compact' }, statsHost, ...(tipDismissed ? [] : [tipRow]));
@@ -2209,14 +2487,51 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     }).catch(() => { /* no report (re-sim / another club) → scrub without markers (falls back to live-marks) */ });
   }
 
-  const renderer = new MatchRenderer();
-  activeRenderer = renderer;
-  await renderer.init();
+  // Pixi is by far the largest frontend dependency. Load it only when a match is actually watched so every
+  // management screen reaches first paint without downloading/parsing the renderer bundle.
+  const rendererStatus = h('div', { class: 'watch-status', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }, h('div', { class: 'spin' }, 'Loading match viewer…'));
+  document.body.appendChild(rendererStatus);
+  watchStatus = rendererStatus;
+  const showRendererLoadError = () => {
+    const retry = h('button', { class: 'primary small', onclick: () => void screenWatch(fixtureId, shouts, live, startMs, cup) }, 'Retry') as HTMLButtonElement;
+    rendererStatus.setAttribute('role', 'alert');
+    rendererStatus.setAttribute('aria-live', 'assertive');
+    rendererStatus.replaceChildren(
+      h('div', { class: 'err' }, 'The match viewer could not be loaded.'),
+      h('div', { class: 'row', style: 'justify-content:center' },
+        retry,
+        h('button', { class: 'ghost small', onclick: () => location.reload() }, 'Reload app'),
+        h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back')));
+    retry.focus();
+  };
+  let rendererModule: typeof import('./renderer');
+  try { rendererModule = await import('./renderer'); }
+  catch {
+    if (myEpoch !== watchEpoch) return;
+    showRendererLoadError();
+    return;
+  }
+  if (myEpoch !== watchEpoch) return;
+  let renderer: MatchRendererInstance | null = null;
+  try {
+    renderer = new rendererModule.MatchRenderer();
+    activeRenderer = renderer;
+    await renderer.init();
+  } catch {
+    try { renderer?.destroy(); } catch { /* partially initialised renderer */ }
+    if (activeRenderer === renderer) activeRenderer = null;
+    if (myEpoch !== watchEpoch) return;
+    showRendererLoadError();
+    return;
+  }
   // If the user navigated away (or to another match) during the async init, this screen is stale:
   // teardownWatch already ran — destroy this orphan renderer and stop before opening a socket.
   if (myEpoch !== watchEpoch) { renderer.destroy(); return; }
+  rendererStatus.remove(); watchStatus = null;
   // Dock the renderer's live-stats block into the right column's top slot (it renders detached until then).
   renderer.dockStats(statsHost);
+  renderer.setShowDirectives(dirOn);
+  rendererReadyControls.forEach(control => { control.disabled = false; });
 
   // Keep the pitch clear of every panel: reserve the TOP for the scoreboard + control bar (measured —
   // the bar wraps on narrow viewports), and the panel's height/width at bottom/right. Wide screens dock
@@ -2246,7 +2561,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
 
   // Connecting overlay — the canvas is otherwise a blank dark void until the first frame
   // arrives (and silently stays one if the match never starts). Cleared on the first frame.
-  const status = h('div', { class: 'watch-status' }, h('div', { class: 'spin' }, 'Connecting to match…'));
+  const status = h('div', { class: 'watch-status', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' }, h('div', { class: 'spin' }, 'Connecting to match…'));
   document.body.appendChild(status);
   watchStatus = status;
   const showStatusError = (msg: string) => {
@@ -2255,19 +2570,32 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     // mid-stream error (e.g. a failed re-sim) must re-attach it, or the message is written to a detached
     // node and the user sees nothing while the pitch freezes.
     if (!status.isConnected) { document.body.appendChild(status); watchStatus = status; }
+    const retry = h('button', { class: 'primary small', onclick: () => void screenWatch(fixtureId, shouts, live, startMs, cup) }, 'Retry') as HTMLButtonElement;
+    status.setAttribute('role', 'alert');
+    status.setAttribute('aria-live', 'assertive');
     status.replaceChildren(
       h('div', { class: 'err' }, msg),
-      h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back'),
+      h('div', { class: 'row', style: 'justify-content:center' },
+        retry,
+        h('button', { class: 'ghost small', onclick: () => { location.hash = '#/'; } }, '← Back')),
     );
     status.style.display = '';
+    retry.focus();
   };
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const wsQuery = cup ? `cup=${fixtureId}` : `fixture=${fixtureId}${shouts ? '&shouts=1' : ''}${live ? '&live=1' : ''}`;
   const ws = new WebSocket(`${proto}://${location.host}/ws/match?${wsQuery}`);
   activeWs = ws;
+  const setStreamReady = (ready: boolean): void => {
+    streamControls.forEach(control => { control.disabled = !ready; });
+    if (live) { ta.disabled = !ready; applyBtn.disabled = !ready; }
+  };
+  ws.onopen = () => { if (myEpoch === watchEpoch) setStreamReady(true); };
   let replayUiApplied = false;
   let gotFrame = false;
+  let lastMatchState: EngineState['matchState'] | null = null;
+  let connectionErrorShown = false;
   // ── live goal replay: buffer recent frames; on a goal, snapshot the run-up + offer an instant replay ──
   const GOAL_CLIP = 130;                       // frames of run-up to keep (~several seconds before the goal)
   const LIVE_BUFFER_MAX = 7200;                // ~12 min of rewind at the ~10fps thinned rate (bounds memory ~35MB)
@@ -2418,7 +2746,8 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     if (myEpoch !== watchEpoch) return;   // navigated away — a queued frame must not sync() the now-destroyed renderer or touch detached DOM (matches the guards at the api callsites)
     try {
       const msg = JSON.parse(ev.data) as WatchMessage;
-      if (msg.error) { showStatusError(msg.error); return; }   // re-sim failed (e.g. replay-from-shouts)
+      if (msg.error) { connectionErrorShown = true; setStreamReady(false); showStatusError(msg.error); try { ws.close(); } catch { /* */ } return; }   // re-sim failed (e.g. replay-from-shouts)
+      if (typeof msg.matchState === 'string') lastMatchState = msg.matchState;
       // A backend seek is in flight: frames sent BEFORE the backend processed it would flick the pitch +
       // thumb back to the pre-seek position for a beat. Drop them until a frame lands near the target
       // (or the gate times out — accept whatever streams then, e.g. a seek past the end re-sends the tail).
@@ -2455,6 +2784,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
       if (Array.isArray(msg.players)) watchPlayers = msg.players.map(p => ({ id: p.id, name: p.name }));
       if (!gotFrame) {
         gotFrame = true; status.remove(); watchStatus = null; watchIsHome = msg.homeName === myTeam?.name; refreshDirOverlay();
+        if (msg.homeName && msg.awayName) document.title = `${msg.homeName} v ${msg.awayName} · Footy Manager`;
         if (live) { recBadge.textContent = '🔴 LIVE'; recBadge.title = 'Live match — the result counts.'; }
         else if (shouts) { recBadge.textContent = '⚙ Re-sim'; recBadge.title = 'Re-simulated from your shouts.'; }
         else if (msg.replay) { recBadge.textContent = '📹 Recorded'; recBadge.title = 'A faithful recording of how this match was played.'; }
@@ -2532,10 +2862,19 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
 
     } catch (e) { console.warn('[watch] dropped a malformed frame', e); }   // one bad frame shouldn't kill the watch (the next frame redraws) — but surface it for debugging rather than swallowing silently
   };
-  ws.onerror = () => { if (!gotFrame) showStatusError('Could not connect to the match.'); };
-  // A close before any frame means the match never streamed (engine missing / failed to start);
-  // a close after frames is just the match ending or navigating away — nothing to flag.
-  ws.onclose = () => { if (!gotFrame) showStatusError('The match could not be started.'); };
+  const connectionFailed = (message: string): void => {
+    if (connectionErrorShown || myEpoch !== watchEpoch) return;
+    connectionErrorShown = true;
+    showStatusError(message);
+  };
+  ws.onerror = () => { setStreamReady(false); connectionFailed(gotFrame ? 'Connection lost before full-time.' : 'Could not connect to the match.'); };
+  // A normal full-time close needs no overlay. Any other close—including one after frames began—used to leave
+  // a frozen pitch with no explanation; surface it and offer an in-place retry.
+  ws.onclose = () => {
+    setStreamReady(false);
+    if (myEpoch !== watchEpoch || lastMatchState === 'finished') return;
+    connectionFailed(gotFrame ? 'Connection lost before full-time.' : 'The match could not be started.');
+  };
   // Teardown is owned centrally by route() (it calls teardownWatch() on leaving '#/watch/') and by
   // the next screenWatch() (which calls teardownWatch() up front) — so no per-screen hashchange
   // listener is needed here. Adding one per visit used to leak a listener on every watch→watch.
@@ -2548,8 +2887,8 @@ async function screenMarket() {
   let market: MarketT;
   try { market = await api.market(); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   let offers: OfferT[] = [];
@@ -2600,8 +2939,8 @@ async function screenMarket() {
             `Offer ${a.name} (${a.role}, ${a.age}) an annual wage on a 3-year deal. He wants about ${fmtMoney(a.wage)} — match or beat it and he'll sign; lowball him and he'll walk. There's a ${fmtMoney(a.value)} signing-on fee. He decides at the next matchday.`,
             String(a.wage), 'Make offer');
           if (raw == null) return;
-          const wage = Math.round(Number(String(raw).replace(/[^0-9.]/g, '')));
-          if (!Number.isFinite(wage) || wage <= 0) { toast('Enter a positive wage'); return; }
+          const wage = parseMoneyInput(raw);
+          if (wage == null) { toast('Enter a valid wage — e.g. 50k or 50000'); return; }
           try { const r = await api.offerFreeAgent(a.id, wage, 3); market = r.market; faOffers = r.faOffers; toast(`Offer made to ${r.player} — he decides at the next matchday.`); render(); }
           catch (e: any) { toast(e.message); render(); }
         });
@@ -2692,14 +3031,8 @@ async function screenMarket() {
         `${t.club} are asking ${fmtMoney(ask)}. Your budget: ${fmtMoney(market.budget)}.\nEnter a number, or shorthand like 1.5m / 500k.`,
         String(ask), 'Submit bid');
       if (raw == null) return;
-      // accept plain numbers AND the shorthand the screen shows (£1.5M, 500k) — strip symbols,
-      // then scale by a trailing m/k so "1.5m" reads as 1,500,000 rather than 2. Reject anything
-      // that isn't a clean number with an optional single m/k suffix (so "1.5g" can't parse to ~2).
-      const s = raw.trim().toLowerCase().replace(/[£,\s]/g, '');
-      if (!/^\d*\.?\d+[mk]?$/.test(s)) { toast('Enter a valid bid — e.g. 1.5m, 500k, or 1500000'); return; }
-      const mult = s.endsWith('m') ? 1e6 : s.endsWith('k') ? 1e3 : 1;
-      const fee = Math.round(parseFloat(s) * mult);
-      if (!fee || fee <= 0) { toast('Enter a valid bid'); return; }
+      const fee = parseMoneyInput(raw);
+      if (fee == null) { toast('Enter a valid bid — e.g. 1.5m, 500k, or 1500000'); return; }
       await sendBid(t.id, fee);   // awaited so the click guard spans the full request, not just the modal
     };
     const doLoan = async (t: typeof market.transferTargets[number]): Promise<void> => {
@@ -2884,17 +3217,9 @@ async function screenScouting() {
   let players: import('./api').ScoutedPlayerT[] = [];
   let depth = 0;
   try { const r = await api.searchPlayers(); depth = r.depth; players = r.players; }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (!alive()) return; if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
 
   const expanded = new Set<number>();   // player ids whose fogged attributes are shown
-  // parse "1.5m" / "500k" / "1500000" into a number (shared with the market bid parser's intent)
-  const parseMoney = (s: string): number | undefined => {
-    const t = s.trim().toLowerCase().replace(/[£,\s]/g, '');
-    if (!t) return undefined;
-    if (!/^\d*\.?\d+[mk]?$/.test(t)) return undefined;
-    return Math.round(parseFloat(t) * (t.endsWith('m') ? 1e6 : t.endsWith('k') ? 1e3 : 1));
-  };
-
   const roleSel = h('select', { class: 'focus-select', 'aria-label': 'Position' }, h('option', { value: '' }, 'Any position'), ...SCOUT_ROLES.map(r => h('option', { value: r }, r))) as HTMLSelectElement;
   const ageInput = h('input', { type: 'number', min: '15', max: '40', placeholder: 'Max age', style: 'width:88px', 'aria-label': 'Maximum age' }) as HTMLInputElement;
   const ovrInput = h('input', { type: 'number', min: '1', max: '99', placeholder: 'Min OVR', style: 'width:88px', 'aria-label': 'Minimum overall' }) as HTMLInputElement;
@@ -2907,6 +3232,9 @@ async function screenScouting() {
   // (two concurrent fetches can resolve out of order, else a stale filter's results would win).
   let searchSeq = 0;
   const runSearch = async () => {
+    const maxValueText = valInput.value.trim();
+    const maxValue = maxValueText ? parseMoneyInput(maxValueText) : null;
+    if (maxValueText && maxValue == null) { toast('Enter a valid maximum value — e.g. 5m or 5000000'); valInput.focus(); return; }
     const my = ++searchSeq;
     searchBtn.setAttribute('disabled', 'true'); searchBtn.textContent = '…';
     try {
@@ -2914,7 +3242,7 @@ async function screenScouting() {
         role: roleSel.value || undefined,
         maxAge: ageInput.value ? Number(ageInput.value) : undefined,
         minOverall: ovrInput.value ? Number(ovrInput.value) : undefined,
-        maxValue: parseMoney(valInput.value),
+        maxValue: maxValue ?? undefined,
         name: nameInput.value.trim() || undefined,
         shortlisted: shortChk.checked,
       });
@@ -3015,8 +3343,8 @@ async function screenTraining() {
   let team: TeamT;
   try { team = await api.team(); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   // The report is best-effort — show the screen even if it hasn't been generated yet (or 404s).
@@ -3069,8 +3397,8 @@ async function screenTraining() {
       ...PRESETS.map(([name, label, hint]) => h('button', {
         class: 'ghost', style: 'font-size:12px;padding:4px 10px', title: hint,
         onclick: async () => {
-          try { const r = await api.applyTrainingPreset(name); toast(`Training schedule: ${r.preset?.label ?? label}`); screenTraining(); }
-          catch (e: any) { toast(e.message); }
+          try { const r = await api.applyTrainingPreset(name); if (!alive()) return; toast(`Training schedule: ${r.preset?.label ?? label}`); route(); }
+          catch (e: any) { if (alive()) toast(e.message); }
         },
       }, label))));
 
@@ -3166,8 +3494,8 @@ async function screenTraining() {
       rtSel.append(o);
     }
     rtSel.addEventListener('change', async () => {
-      try { const r = await api.setPlayerRetrain(p.slot, rtSel.value || 'clear'); toast(r.retrainRole ? `${p.name}: retraining → ${r.retrainRole}` : `${p.name}: settled at ${p.role}`); screenTraining(); }
-      catch (e: any) { toast(e.message); }
+      try { const r = await api.setPlayerRetrain(p.slot, rtSel.value || 'clear'); if (!alive()) return; toast(r.retrainRole ? `${p.name}: retraining → ${r.retrainRole}` : `${p.name}: settled at ${p.role}`); route(); }
+      catch (e: any) { if (alive()) toast(e.message); }
     });
     const fam = Math.round(p.roleFamiliarity ?? 100);
     const retrainCell = p.retrainRole
@@ -3230,8 +3558,8 @@ async function screenTeamTalk(fixtureId: number) {
   let data: { tones: TalkToneT[]; pending: { tone: string } | null; tone: string; reactions: TalkReactionT[] };
   try { data = await api.teamTalk(fixtureId); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => (location.hash = '#/') }, '← Back')));
   }
@@ -3290,7 +3618,7 @@ async function screenAcademy() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading the academy…')));
   let prospects: AcademyProspectT[];
   try { prospects = (await api.academy()).prospects; }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (!alive()) return; if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
 
   const body = h('tbody');
   // best-potential first, so the ones worth promoting rise to the top
@@ -3299,8 +3627,8 @@ async function screenAcademy() {
     const promote = h('button', { class: 'primary small' }, 'Promote');
     promote.addEventListener('click', async () => {
       promote.setAttribute('disabled', 'true');
-      try { const r = await api.promoteProspect(p.id); toast(`${r.player} promoted to the senior squad`); screenAcademy(); }
-      catch (e: any) { toast(e.message); promote.removeAttribute('disabled'); }
+      try { const r = await api.promoteProspect(p.id); if (!alive()) return; toast(`${r.player} promoted to the senior squad`); route(); }
+      catch (e: any) { if (!alive()) return; toast(e.message); promote.removeAttribute('disabled'); }
     });
     // promotion signals: a prospect at first-team level, and one graduating out (leaves the academy at 21).
     const ready = p.overall >= 60;
@@ -3339,7 +3667,7 @@ async function screenNews() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading the archive…')));
   let news: NewsItemT[];
   try { news = (await api.news(200)).news; }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (!alive()) return; if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
   const NEWS_ICON: Record<NewsItemT['type'], string> = { hat_trick: '⚽⚽⚽', brace: '⚽⚽', red_card: '🟥', star: '⭐', long_injury: '🤕', pots: '🏆', young_pots: '🌟', press: '🎤' };
 
   const groups: { season: number; items: NewsItemT[] }[] = [];
@@ -3372,7 +3700,7 @@ async function screenInbox() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading your inbox…')));
   let data: Awaited<ReturnType<typeof api.inbox>>;
   try { data = await api.inbox(200); }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (!alive()) return; if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
 
   let filter = 'all';
   const container = h('div', {});
@@ -3418,8 +3746,8 @@ async function screenLeaders() {
   let d: LeadersT;
   try { d = await api.leaders(); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenLeaders() }, '↻ Retry')));
   }
@@ -3478,7 +3806,7 @@ async function screenPlayer(slot: number) {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let team: TeamT;
   try { team = await api.team(); }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (!alive()) return; if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
   const p = team.players.find(x => x.slot === slot);
   if (!p) { location.hash = '#/'; return; }
   const ovr = skillOvr(p.attrs, p.role);
@@ -3504,28 +3832,29 @@ async function screenPlayer(slot: number) {
   const openTalks = async () => {
     let suggested = p.wage ?? 0;
     try { const pv = await api.renewPreview(slot); suggested = pv.newWage; } catch { /* fall back to current wage */ }
+    if (!alive()) return;
     const raw = await promptModal('Open contract talks',
       `Offer ${p.name} a new annual wage (3-year deal). His fair wage is about ${fmtMoney(suggested)} — go higher to land him, lower and he'll likely counter. He replies at the next matchday.`,
       String(suggested), 'Send offer');
     if (raw == null) return;
-    const wage = Math.round(Number(String(raw).replace(/[^0-9.]/g, '')));   // tolerate "£50,000" etc.
-    if (!Number.isFinite(wage) || wage <= 0) { toast('Enter a positive wage'); return; }
-    try { await api.renewOffer(slot, wage, 3); toast('Offer sent — he responds at the next matchday.'); screenPlayer(slot); }
-    catch (e: any) { toast(e.message); }
+    const wage = parseMoneyInput(raw);
+    if (wage == null) { toast('Enter a valid wage — e.g. 50k or 50000'); return; }
+    try { await api.renewOffer(slot, wage, 3); if (!alive()) return; toast('Offer sent — he responds at the next matchday.'); route(); }
+    catch (e: any) { if (alive()) toast(e.message); }
   };
   const contractControl = (() => {
     if (myOffer && myOffer.status === 'pending') {
       const wd = h('button', { class: 'ghost small' }, 'Withdraw');
-      wd.addEventListener('click', async () => { wd.setAttribute('disabled', 'true'); try { await api.withdrawContractOffer(myOffer!.id); toast('Offer withdrawn'); screenPlayer(slot); } catch (e: any) { toast(e.message); wd.removeAttribute('disabled'); } });
+      wd.addEventListener('click', async () => { wd.setAttribute('disabled', 'true'); try { await api.withdrawContractOffer(myOffer!.id); if (!alive()) return; toast('Offer withdrawn'); route(); } catch (e: any) { if (!alive()) return; toast(e.message); wd.removeAttribute('disabled'); } });
       return h('span', { class: 'row', style: 'gap:6px;align-items:center' },
         h('span', { class: 'pill', title: 'Awaiting his reply at the next matchday', style: 'background:#262d3a' }, `⏳ offered ${fmtMoney(myOffer.wage)}/yr × ${myOffer.years}y`), wd);
     }
     if (myOffer && myOffer.status === 'countered') {
       const cw = myOffer.counterWage ?? myOffer.wage, cy = myOffer.counterYears ?? myOffer.years;
       const m = h('button', { class: 'primary small' }, `Accept ${fmtMoney(cw)}/yr`);
-      m.addEventListener('click', async () => { m.setAttribute('disabled', 'true'); try { const r = await api.matchContractOffer(myOffer!.id); toast(`${r.player ?? p.name} re-signed — ${fmtMoney(r.wage!)}/yr × ${r.years}y`); screenPlayer(slot); } catch (e: any) { toast(e.message); m.removeAttribute('disabled'); } });
+      m.addEventListener('click', async () => { m.setAttribute('disabled', 'true'); try { const r = await api.matchContractOffer(myOffer!.id); if (!alive()) return; toast(`${r.player ?? p.name} re-signed — ${fmtMoney(r.wage!)}/yr × ${r.years}y`); route(); } catch (e: any) { if (!alive()) return; toast(e.message); m.removeAttribute('disabled'); } });
       const wd = h('button', { class: 'ghost small', style: 'margin-left:4px' }, 'Walk away');
-      wd.addEventListener('click', async () => { wd.setAttribute('disabled', 'true'); try { await api.withdrawContractOffer(myOffer!.id); toast('Talks ended'); screenPlayer(slot); } catch (e: any) { toast(e.message); wd.removeAttribute('disabled'); } });
+      wd.addEventListener('click', async () => { wd.setAttribute('disabled', 'true'); try { await api.withdrawContractOffer(myOffer!.id); if (!alive()) return; toast('Talks ended'); route(); } catch (e: any) { if (!alive()) return; toast(e.message); wd.removeAttribute('disabled'); } });
       return h('span', { class: 'row', style: 'gap:6px;align-items:center' },
         h('span', { class: 'pill', title: 'His agent countered', style: 'background:#3a2a1f;color:#ffce9a' }, `↩ wants ${fmtMoney(cw)}/yr × ${cy}y`), m, wd);
     }
@@ -3603,7 +3932,7 @@ async function screenPlayer(slot: number) {
   const rtSel = h('select', { style: 'width:auto;font-size:12px;padding:3px 6px', 'aria-label': 'Retrain position', title: 'Retrain him into a new position — he settles in over several matchdays, developing a little slower until comfortable.' }) as HTMLSelectElement;
   rtSel.append(h('option', { value: '' }, `No (stay ${p.role})`));
   for (const role of ['GK', 'FB', 'CB', 'CM', 'WM', 'CF']) { if (role === p.role) continue; const o = h('option', { value: role }, `→ ${role}`) as HTMLOptionElement; if (role === (p.retrainRole ?? '')) o.selected = true; rtSel.append(o); }
-  rtSel.addEventListener('change', async () => { try { const r = await api.setPlayerRetrain(slot, rtSel.value || 'clear'); toast(r.retrainRole ? `Retraining → ${r.retrainRole}` : `Settled at ${p.role}`); screenPlayer(slot); } catch (e: any) { toast(e.message); } });
+  rtSel.addEventListener('change', async () => { try { const r = await api.setPlayerRetrain(slot, rtSel.value || 'clear'); if (!alive()) return; toast(r.retrainRole ? `Retraining → ${r.retrainRole}` : `Settled at ${p.role}`); route(); } catch (e: any) { if (alive()) toast(e.message); } });
   const devCard = h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Development'),
     h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'His individual training — a focus grows one area faster, intensity trades growth for injury risk, and you can retrain him into a new position.'),
@@ -3746,13 +4075,13 @@ async function screenCup() {
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   let cup: CupT;
   try { cup = await api.cup(); }
-  catch (e: any) { if (String(e.message).includes('no team')) return screenCreateTeam(); if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+  catch (e: any) { if (!alive()) return; if (String(e.message).includes('no team')) return screenCreateTeam(); return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
   if (!cup.rounds.length) return mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('h2', {}, 'Cup'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     h('div', { class: 'card muted' }, 'No cup this season.')));
 
-  const teamRow = (name: string | null, score: number | null, pens: number | null, won: boolean, isMe: boolean) =>
-    h('div', { class: 'between', style: `font-size:12px;gap:10px;${won ? 'font-weight:700;' : 'opacity:.7;'}${isMe ? 'color:var(--accent,#4ea1ff);' : ''}` },
+  const teamRow = (name: string | null, score: number | null, pens: number | null, won: boolean, decided: boolean, isMe: boolean) =>
+    h('div', { class: `bracket-team ${decided ? won ? 'winner' : 'loser' : 'pending'}${isMe ? ' me' : ''}`, style: 'font-size:12px;gap:10px' },
       h('span', {}, name ?? 'TBD'), h('span', {}, score != null ? `${score}${pens != null ? ` (${pens})` : ''}` : ''));
   const cols = cup.rounds.map(rd => h('div', { style: 'min-width:170px' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, rd.name),
@@ -3760,8 +4089,8 @@ async function screenCup() {
       // Only YOUR ties carry a recording (human stake), so Watch/Report show on played ties you were in.
       const mine = t.homeTeamId === cup.myTeamId || t.awayTeamId === cup.myTeamId;
       return h('div', { class: 'card', style: 'padding:8px;margin-bottom:8px' },
-        teamRow(t.home, t.homeScore, t.homePens, t.winnerTeamId != null && t.winnerTeamId === t.homeTeamId, t.homeTeamId === cup.myTeamId),
-        teamRow(t.away, t.awayScore, t.awayPens, t.winnerTeamId != null && t.winnerTeamId === t.awayTeamId, t.awayTeamId === cup.myTeamId),
+        teamRow(t.home, t.homeScore, t.homePens, t.winnerTeamId === t.homeTeamId, t.winnerTeamId != null, t.homeTeamId === cup.myTeamId),
+        teamRow(t.away, t.awayScore, t.awayPens, t.winnerTeamId === t.awayTeamId, t.winnerTeamId != null, t.awayTeamId === cup.myTeamId),
         mine && t.played ? h('div', { class: 'row', style: 'gap:6px;margin-top:6px' },
           h('button', { class: 'ghost small', title: 'Watch this cup tie back', onclick: () => (location.hash = `#/watch/${t.id}?cup=1`) }, '▶ Watch'),
           h('button', { class: 'ghost small', title: 'Read the match report', onclick: () => (location.hash = `#/report/${t.id}?cup=1`) }, 'Report')) : '');
@@ -3773,7 +4102,7 @@ async function screenCup() {
       h('div', {}, h('h2', {}, 'Cup'),
         h('div', { class: 'muted' }, cup.champion ? `🏆 Winners: ${cup.champion}` : 'Single elimination — win it or go home. Ties play out across the season.')),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
-    h('div', { class: 'card' }, h('div', { style: 'display:flex;gap:14px;overflow:auto;align-items:flex-start' }, ...cols)),
+    h('div', { class: 'card' }, h('div', { class: 'bracket-scroll' }, ...cols)),
   ));
 }
 
@@ -3947,8 +4276,8 @@ async function screenFinances() {
   let f: FinancesT;
   try { f = await api.finances(); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   const net = f.income + f.expense;   // expense is already negative
@@ -4023,8 +4352,8 @@ async function screenStaff() {
   let v: StaffViewT;
   try { v = await api.staff(); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   const guard = (btn: HTMLElement, fn: () => Promise<void>) => async () => {
@@ -4044,7 +4373,7 @@ async function screenStaff() {
     for (const s of v.staff) {
       const fire = h('button', { class: 'ghost small' }, 'Release');
       fire.addEventListener('click', guard(fire, async () => {
-        if (!await confirmModal('Release staff', `Release ${s.name}? This is permanent — re-hiring later costs the full fee.`, 'Release')) return;
+        if (!await confirmModal('Release staff', `Release ${s.name}? This is permanent — re-hiring later costs the full fee.`, 'Release', 'danger')) return;
         try { v = await api.fireStaff(s.id); toast(`Released ${s.name}`); render(); } catch (er: any) { toast(er.message); }
       }));
       mineBody.append(h('tr', {},
@@ -4143,8 +4472,8 @@ async function screenScout(fixtureId: number) {
   let s: ScoutT;
   try { s = await api.scout(fixtureId); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' },
       h('div', { class: 'err' }, e.message),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => (location.hash = '#/') }, '← Back')));
@@ -4261,8 +4590,8 @@ async function screenCareer() {
   let c: ManagerCareerT;
   try { c = await api.career(); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
   const stat = (label: string, val: string | number, sub?: string) => h('div', { class: 'card', style: 'padding:12px 16px;min-width:118px' },
@@ -4316,8 +4645,8 @@ async function screenHistory() {
   let hist: SeasonHistoryT[]; let records: import('./api').ClubRecordsT | null = null;
   try { const r = await api.history(); hist = r.history; records = r.records; }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   }
 
@@ -4389,8 +4718,8 @@ async function screenSquad() {
   let team: TeamT;
   try { team = await api.team(); }
   catch (e: any) {
-    if (String(e.message).includes('no team')) return screenCreateTeam();
     if (!alive()) return;
+    if (String(e.message).includes('no team')) return screenCreateTeam();
     return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message),
       h('button', { class: 'ghost', style: 'margin-top:12px', onclick: () => screenSquad() }, '↻ Retry')));
   }
@@ -4475,8 +4804,8 @@ async function screenSquad() {
       const isCap = captainSlot === p.slot;
       // §2.11: a clickable armband — the captain shows 🧭, others a faint one; clicking names/clears the captain.
       const setCap = async () => {
-        try { const r = await api.setCaptain(isCap ? -1 : p.slot); toast(r.captainSlot == null ? 'Captain reset to auto (top leader)' : `${p.name} takes the armband`); screenSquad(); }
-        catch (err: any) { toast(err.message); }
+        try { const r = await api.setCaptain(isCap ? -1 : p.slot); if (!alive()) return; toast(r.captainSlot == null ? 'Captain reset to auto (top leader)' : `${p.name} takes the armband`); route(); }
+        catch (err: any) { if (alive()) toast(err.message); }
       };
       const capArm = h('span', {
         title: isCap ? 'Club captain — click to reset to auto (highest leader)' : `Make ${p.name} captain`,
@@ -4587,8 +4916,8 @@ async function screenSquad() {
         const btn = h('button', { class: 'ghost small' }, s.urgent ? 'Replace' : 'Rest him');
         btn.addEventListener('click', async () => {
           btn.setAttribute('disabled', 'true'); btn.textContent = '…';
-          try { await api.applyRotation(s.outSlot, s.inSlot); toast(`${s.inName} starts for ${s.outName}`); screenSquad(); }
-          catch (e: any) { toast(e.message); btn.removeAttribute('disabled'); btn.textContent = s.urgent ? 'Replace' : 'Rest him'; }
+          try { await api.applyRotation(s.outSlot, s.inSlot); if (!alive()) return; toast(`${s.inName} starts for ${s.outName}`); route(); }
+          catch (e: any) { if (!alive()) return; toast(e.message); btn.removeAttribute('disabled'); btn.textContent = s.urgent ? 'Replace' : 'Rest him'; }
         });
         return h('div', { class: 'card', style: 'padding:8px 10px;margin:0;display:flex;justify-content:space-between;align-items:center;gap:10px' },
           h('div', { style: 'font-size:13px' },
@@ -4686,9 +5015,11 @@ async function screenMyMatches() {
   const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   const league = await loadLeagueOr(e => {
+    if (!alive()) return;
     if (String(e.message).includes('no team')) screenCreateTeam();
     else mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   });
+  if (!alive()) return;
   if (!league) return;
   const mine = league.fixtures.filter(f => f.involvesMe && f.played).sort((a, b) => b.round - a.round);
   const rankOf = rankLookup(league);
@@ -4730,9 +5061,11 @@ async function screenLeagueMatches() {
   const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
   const league = await loadLeagueOr(e => {
+    if (!alive()) return;
     if (String(e.message).includes('no team')) screenCreateTeam();
     else mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
   });
+  if (!alive()) return;
   if (!league) return;
   const played = league.fixtures.filter(f => f.played);
   const rounds = [...new Set(played.map(f => f.round))].sort((a, b) => b - a);
@@ -4750,7 +5083,8 @@ async function screenLeagueMatches() {
 function route() {
   const hash = location.hash;
   routeGen++;   // invalidate any in-flight screen's pending mount (see screenGuard) — the new route owns the DOM now
-  if (!user) { screenAuth(); return; }
+  if (hash !== '#/tactics') tacticsMutationGate.clearListeners();
+  if (!user) { teardownWatch(); screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
   if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash), Number(hash.match(/[?&]t=(\d+)/)?.[1] ?? 0), /[?&]cup=1\b/.test(hash)); }
   else if (hash === '#/worlds') screenWorlds();
@@ -4787,7 +5121,7 @@ document.body.insertBefore(skipLink, document.body.firstChild);
 window.addEventListener('hashchange', route);
 // Session expired (any api call got a 401): drop the stale user and fall back to the login screen instead of
 // leaving a raw "not logged in" under a live URL. teardownWatch() stops any running watch first.
-window.addEventListener('footy:auth-expired', () => { if (!user) return; user = null; teardownWatch(); route(); });
+window.addEventListener('footy:auth-expired', () => { if (!user) return; user = null; tacticsPlanFlash = null; teardownWatch(); route(); });
 
 // ── stale-tab guard ── the SPA ships as one content-hashed bundle with no HMR for the watch screen, so an
 // open tab keeps running the OLD code after a deploy — which is exactly why the user saw "still choppy" on a
@@ -4805,9 +5139,8 @@ function watchForNewVersion(): void {
       if (m && !mine.includes(m[0])) {
         bannerShown = true;
         document.body.appendChild(h('div', {
-          role: 'button', tabindex: '0', title: 'Reload to get the latest version',
+          ...clickable(() => location.reload()), title: 'Reload to get the latest version',
           style: 'position:fixed;top:0;left:0;right:0;z-index:99999;background:var(--accent,#1b9af7);color:#fff;font:600 13px/1.5 system-ui,monospace;padding:9px 14px;text-align:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)',
-          onclick: () => location.reload(),
         }, '↻ A new version of the match viewer is available — click to reload'));
       }
     } catch { /* offline / transient — retry next tick */ }
@@ -4823,12 +5156,15 @@ function flagOf(key?: string | null): string { return (key && nationMap?.get(key
 function nationNameOf(key?: string | null): string { return (key && nationMap?.get(key)?.name) || ''; }
 async function loadNations() { try { const r = await api.nations(); nationMap = new Map(r.nations.map(n => [n.key, { flag: n.flag, name: n.name }])); } catch { nationMap = new Map(); } }
 
+mount(h('div', { class: 'center' }, h('div', { class: 'spin' }, 'Loading Footy Manager…')));
 (async function boot() {
   try {
     const me = await api.me();
     user = me.user;
     void loadNations();   // fire-and-forget; screens re-render on navigation so flags fill in
-    if (user && me.teamId == null && location.hash !== '#/tactics') { screenCreateTeam(); return; }
+    // A manager without a club may still browse shared worlds and claim one. The old tactics exception was a
+    // typo: it forced a direct #/worlds visit back to club creation, then left that link on an unchanged hash.
+    if (user && me.teamId == null && location.hash !== '#/worlds') { screenCreateTeam(); return; }
   } catch { /* */ }
   route();
   watchForNewVersion();
