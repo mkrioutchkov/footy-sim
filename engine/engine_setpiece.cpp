@@ -177,6 +177,10 @@ void GameEngine::releaseSetPiece() {
         // scored within 9s as a set-piece goal of that type.
         lastRestartReleaseMs = state.clockMs;
         lastRestartReleaseType = setPiece.type;
+        // Law 13-17 double-touch: whoever just took the restart cannot touch
+        // again until another player does (previously a pure 600-900ms timer,
+        // after which the taker could legally re-collect his own throw/corner).
+        restartRetouchBlockedId = setPiece.takerId;
         if (!setPiece.armed) {
             setPiece.type = SetPiece::None;
             setPiece.team = Team::Home;
@@ -953,7 +957,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
             if (p.team == tmTeam && p.role == Role::GK) {
                 double fd = fdFor(tmTeam);
                 double side = b.y < PITCH_H / 2.0 ? -1.0 : 1.0;
-                setPiece.spotX = ownGoalXFor(tmTeam) + fd * (58.0 + CONTROL_DIST);
+                setPiece.spotX = ownGoalXFor(tmTeam) + fd * (40.0 + CONTROL_DIST);   // inside the 55px goal area (audit: 70px sat outside it)
                 setPiece.spotY = clamp(PITCH_H / 2.0 + side * 78.0, 120.0, PITCH_H - 120.0);
                 setPiece.takerId = p.id;
                 break;

@@ -149,8 +149,24 @@ void PlayerAI::applyMovement(double sdt) {
         Player* oppCarrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
         if (oppCarrier && oppCarrier->team != p.team && bd < 180.0) defendSprint = true;
     }
+    // Caught-upfield DEFENDER recovery (FB audit: recoveries ran at 39-44px/s
+    // — 43% of top speed — because being >300px from the ball trips the
+    // observing crawl and defendSprint requires !isObserving, so being caught
+    // FURTHER out DISABLED sprinting; 2:05 Marcelo jogged home 146px behind
+    // the ball line while his target was goal-side the whole way). A defender
+    // on the wrong side of the ball while the opponent has it sprints home,
+    // however far away the play is.
+    bool recoverySprint = false;
+    if (isDefenderLike() && !defendSprint && engine.state.ball.controllerId >= 0) {
+        Player* oppCarrier = engine.playerById(engine.state.ball.controllerId);
+        if (oppCarrier && oppCarrier->team != p.team) {
+            double fdMe = fdFor(p.team);
+            bool wrongSide = (p.x - engine.state.ball.x) * fdMe > 40.0;   // upfield of the ball line
+            if (wrongSide) { recoverySprint = true; defendSprint = true; }
+        }
+    }
 
-    double cruiseMul = isObserving
+    double cruiseMul = (isObserving && !recoverySprint)
         ? observingCruiseMul()
         : 1.0;
 
@@ -223,6 +239,21 @@ void PlayerAI::applyMovement(double sdt) {
     }
 
     double df = (committedChase || committedPress || committedTackle || defendSprint || pursuingLooseBall || boxBurst) ? 1.0 : std::min(d / 120.0, 1.5);
+    // A contain point riding a DRIFTING carrier is a pursuit, not an arrival:
+    // the d/120 damping collapsed closure to ~0 at 24px short of the point
+    // (2:21 Iniesta pinned 4.5-5.5m off Bale for 4.7s at walk pace while the
+    // point drifted with the carrier). Keep a real floor near a live opponent
+    // carrier when my target hugs him.
+    {
+        const auto& cb2 = engine.state.ball;
+        if (cb2.controllerId >= 0 && df < 0.8) {
+            Player* cc2 = engine.playerById(cb2.controllerId);
+            if (cc2 && cc2->team != p.team
+                && dist(p.targetX, p.targetY, cc2->x, cc2->y) < 45.0
+                && dist(p.x, p.y, cc2->x, cc2->y) < 110.0)
+                df = 0.8;
+        }
+    }
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
 
     double px = p.x, py = p.y;

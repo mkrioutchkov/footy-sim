@@ -302,6 +302,27 @@ SmallVector<GameEngine::DefenseContext::Threat, 12> GameEngine::identifyThreats(
     // FB / advancing CM) got a marker. +1 slot seats the 5th without stripping
     // the block (danger stays 6).
     if (threats.size() > (ctx.danger ? 6u : 5u)) threats.resize(ctx.danger ? 6u : 5u);
+    // The carrier's SHORT OUTLET is a threat whatever his role (2:21: Bale's
+    // only escape was the supporting CB Chiellini 5-8m away, unmarked the whole
+    // contained passage because a support CB never qualifies as a threat and
+    // the free defender stood in no-man's land instead of killing the recycle).
+    // Appended past the cap so it never displaces a runner.
+    if (state.ball.controllerId >= 0) {
+        Player* car = playerById(state.ball.controllerId);
+        if (car && car->team != ctx.team) {
+            Player* outlet = nullptr; double od = 130.0;
+            for (auto& o : state.players) {
+                if (o.team == ctx.team || o.role == Role::GK || o.sentOff || o.id == car->id) continue;
+                double d = dist(o.x, o.y, car->x, car->y);
+                if (d < od) { od = d; outlet = &o; }
+            }
+            if (outlet) {
+                bool present = false;
+                for (auto& t : threats) if (t.player->id == outlet->id) { present = true; break; }
+                if (!present) threats.push_back({outlet, std::abs(outlet->x - ctx.ownGoalX)});
+            }
+        }
+    }
     return threats;
 }
 

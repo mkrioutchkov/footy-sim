@@ -606,7 +606,11 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
             bool cleanWin = engine.state.ball.controllerId == p.id;
             p.tackleAnim = cleanWin ? 220.0 : 800.0;
             if (cleanWin) {
-                stunLockTicks = 16;
+                // 24 ticks = 400ms gather (was 267ms): the post-tackle census
+                // put 40% of releases on the very first decision tick after the
+                // old stun — a won duel needs the ball dug out from under two
+                // bodies before any 30m ball is on.
+                stunLockTicks = 24;
                 engine.lastTurnoverWinMs[p.id] = engine.state.clockMs;
             }
         } else {
@@ -682,6 +686,23 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
     else if (a.type == ActionType::Position) {
         p.targetX = (a.posX != 0) ? a.posX : p.homeX;
         p.targetY = (a.posY != 0) ? a.posY : p.homeY;
+        // CB partnership clamp, in possession (shape audit: back line "broken"
+        // 24-28% of in-possession samples, 45% of them pure TARGET splits —
+        // Chiellini's own target sat 25m behind Van Dijk's body at 2:05). A CB
+        // never plans to sit more than 70px behind his partner while his team
+        // has the ball; he steps up with the line.
+        if (isCenterBack() && engine.state.ball.controllerId >= 0) {
+            Player* cc = engine.playerById(engine.state.ball.controllerId);
+            if (cc && cc->team == p.team) {
+                double fdm = fdFor(p.team);
+                for (auto& tm : engine.state.players) {
+                    if (tm.team != p.team || tm.id == p.id || tm.role != Role::CB || tm.sentOff) continue;
+                    double gap = (tm.targetX - p.targetX) * fdm;
+                    if (gap > 70.0) p.targetX = tm.targetX - fdm * 70.0;
+                    break;
+                }
+            }
+        }
         if (a.purpose == ActionPurpose::Task) {
             auto* task = engine.assignmentFor(p.id);
             if (task) engine.noteTaskSelection(p, task->role);

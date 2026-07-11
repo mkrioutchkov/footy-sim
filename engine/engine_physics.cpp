@@ -186,6 +186,14 @@ bool GameEngine::checkGoal() {
     auto& b = state.ball;
     bool inOpening = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
     if (!inOpening) return false;
+    // Law 15: a goal cannot be scored directly from a throw-in. Untouched
+    // since the throw (the taker is still retouch-blocked -> nobody else has
+    // touched), the ball crossing the line is a goal kick (opponent's goal)
+    // or a corner (own goal) — handled by the normal out-of-play award once
+    // we refuse the goal here.
+    if (lastRestartReleaseType == SetPiece::ThrowIn && restartRetouchBlockedId >= 0
+        && b.lastToucherId == restartRetouchBlockedId)
+        return false;
     auto recordGoalSource = [&](Team scoringTeam) {
         lastGoal.scoringTeam = scoringTeam;
         lastGoal.touchTeam = b.lastTouchTeam;
@@ -381,7 +389,11 @@ bool GameEngine::checkOutOfPlay() {
         // is already centre-based (b.y < 0); match it here.
         // A ball over the bar (or wide) is out — only one passing UNDER the bar
         // between the posts was a goal (already taken by checkGoal).
-        bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
+        bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H
+            // Law 15: an untouched throw-in is never a goal — fall through to
+            // the corner/goal-kick award (mirrors the checkGoal refusal).
+            && !(lastRestartReleaseType == SetPiece::ThrowIn && restartRetouchBlockedId >= 0
+                 && b.lastToucherId == restartRetouchBlockedId);
         if (!inGoal) {
             if (lt != Team::Home) flagSenselessOut();   // away attacker put it behind for a goal kick
             clearState();
@@ -393,7 +405,11 @@ bool GameEngine::checkOutOfPlay() {
         }
     }
     if (b.x > AWAY_GOAL_X) { // centre-crossing (see HOME_GOAL_X note above)
-        bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H;
+        bool inGoal = std::abs(b.y - PITCH_H / 2) <= GOAL_W / 2 && b.z + BALL_R <= GOAL_H
+            // Law 15: an untouched throw-in is never a goal — fall through to
+            // the corner/goal-kick award (mirrors the checkGoal refusal).
+            && !(lastRestartReleaseType == SetPiece::ThrowIn && restartRetouchBlockedId >= 0
+                 && b.lastToucherId == restartRetouchBlockedId);
         if (!inGoal) {
             if (lt != Team::Away) flagSenselessOut();   // home attacker put it behind for a goal kick
             clearState();
@@ -428,6 +444,17 @@ bool GameEngine::tryCutbackFirstTimeFinish(double bs) {
     if (b.controllerId < 0 && pendingPass.active && (pendingPass.isCross ? bs > 190.0 : pendingPass.isCutback && bs > 110.0) && b.intendedReceiverId >= 0 && b.z <= GROUND_MEET_MAX_Z + 6.0) {
         Player* rcv = playerById(b.intendedReceiverId);
         if (rcv && rcv->team == pendingPass.team && (rcv->role == Role::CF || rcv->role == Role::WM || rcv->role == Role::CM)) {
+            // Law 11 (audit HIGH): this path cleared pendingPass and shot
+            // without ever consulting the offside snapshot — a receiver
+            // offside at the whip could sweep it in unflagged. Same judgment
+            // as resolvePendingPass, from the same launch snapshot.
+            if (!pendingPass.offsideExempt && rcv->id == pendingPass.toId && pendingPass.receiverOffsideAtPass) {
+                stats.recordOffside();
+                emitEvent("offside", rcv->x, rcv->y, rcv->id, pendingPass.fromId);
+                pendingPass.active = false;
+                awardOffsideFreeKick(rcv->team == Team::Home ? Team::Away : Team::Home, *rcv);
+                return true;
+            }
             double goalX = goalXFor(rcv->team);
             double tgd = std::abs(rcv->x - goalX);
             double dRcv = dist(rcv->x, rcv->y, b.x, b.y);
@@ -1076,8 +1103,24 @@ void GameEngine::collectBall(Player& c) {
         settle *= 1.0 + (1.0 - staminaFrac(c.stamina)) * 0.5;
         firstTouchUntilMs[c.id] = state.clockMs + settle;
     }
+    // Law 11 rebound judgment: a shot-time-offside teammate collecting the
+    // rebound off the frame or the keeper is offside (the poacher tap-in the
+    // normal snapshot missed because shootBall killed pendingPass).
+    if (shotSnapshotLive
+        && (lastLooseOrigin == LooseOrigin::Shot || lastLooseOrigin == LooseOrigin::Woodwork
+            || lastLooseOrigin == LooseOrigin::GoalkeeperParry)
+        && c.team == shotTeam && c.id >= 0 && c.id < 22 && offsideAtShot[c.id]) {
+        shotSnapshotLive = false;
+        stats.recordOffside();
+        emitEvent("offside", c.x, c.y, c.id, -1);
+        awardOffsideFreeKick(c.team == Team::Home ? Team::Away : Team::Home, c);
+        return;
+    }
+    if (c.team != shotTeam || lastLooseOrigin == LooseOrigin::None) shotSnapshotLive = false;
     shot.clearFlags();
     lastLooseOrigin = LooseOrigin::None;
+    if (restartRetouchBlockedId >= 0 && c.id != restartRetouchBlockedId)
+        restartRetouchBlockedId = -1;   // another player touched: the taker is free again
     b.controllerId = c.id;
     b.intendedReceiverId = -1;
     b.curl = 0.0;

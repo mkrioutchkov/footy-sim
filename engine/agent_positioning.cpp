@@ -195,12 +195,24 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         if (my && cn.pur == ActionPurpose::Pocket)
             ob += engine.directiveBias[p.id].pocketBias;
 
+        // CM spacing (shape audit: the midfield trio's mean nearest-teammate
+        // was 5.4-6.6m vs 10-12m for every other role, and CM-CM-CM was the
+        // top clump class at ~7 clusters/min). A candidate that stands on a
+        // fellow CM pays for it — the trio spreads instead of stacking.
+        double crowd = 0.0;
+        if (isCentralMidfielder()) {
+            for (auto& tm : engine.state.players) {
+                if (tm.team != p.team || tm.id == p.id || tm.sentOff || tm.role != Role::CM) continue;
+                double cd = dist(cn.x, cn.y, tm.x, tm.y);
+                if (cd < 95.0) crowd += (95.0 - cd) / 95.0 * 0.26;
+            }
+        }
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;
         double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 6.0;
 
         options.push_back(Action{
             ActionType::Position,
-            clamp(0.15 + sf * 0.3 + tf * 0.25 + tac - bp2 + db + ob + onsideScoreAdjust, 0.0, 1.0),
+            clamp(0.15 + sf * 0.3 + tf * 0.25 + tac - bp2 + db + ob + onsideScoreAdjust - crowd, 0.0, 1.0),
             nullptr,
             clamp(targetX + jx, 40.0, PITCH_W - 40.0),
             clamp(targetY + jy, 40.0, PITCH_H - 40.0),

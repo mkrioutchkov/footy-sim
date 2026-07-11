@@ -85,6 +85,8 @@ const Player* GameEngine::findGK(Team team) const {
 }
 
 bool GameEngine::canContestBall(Player& player) {
+    // Double-touch law: the restart taker waits for another touch.
+    if (player.id == restartRetouchBlockedId) return false;
     if (player.sentOff) return false;
     if (setPiece.armed && state.ball.controllerId < 0) return false;
     if (activeKnockAhead.active && activeKnockAhead.playerId == player.id) return true;
@@ -856,10 +858,14 @@ static double standBackFor(SetPiece sp) {
     return 14.0;
 }
 static double minDistFor(SetPiece sp) {
+    // Law-audited: 10yd = 9.15m = 91.5px at the 10px/m scale. FK was 78
+    // (1.35m short) and corners 58 (3.35m short) — both confirmed violations.
+    // Throw-in stays 42 (law asks only 2m; the engine is deliberately more
+    // generous for playability). Penalty 96 covers the arc.
     if (sp == SetPiece::ThrowIn) return 42.0;
-    if (sp == SetPiece::Corner) return 58.0;
+    if (sp == SetPiece::Corner) return 91.5;
     if (sp == SetPiece::Penalty) return 96.0;
-    return 78.0;
+    return 91.5;
 }
 // Post-arrival hold before the restart is taken. The old values (0.65-1.8s)
 // resumed play near-instantly, which packed ~85 in-play minutes into the 90 —

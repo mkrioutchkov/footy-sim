@@ -817,6 +817,20 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
         tdx += perpx * sc; tdy += perpy * sc; tDist = std::hypot(tdx, tdy);
         speed = std::max(speed, 320.0);   // real hoof pace, clears the danger zone
     }
+    // Body mechanics (post-tackle audit: all 5 complaint-class releases were
+    // THIS path — a 320px/s hoof 267ms after a tackle win, up to 173 degrees
+    // off facing, body never turning). A clear struck against the body's
+    // orientation right after winning a duel is a SHANK, not a laser: scale
+    // power down with the off-facing angle when possession is fresh (<600ms),
+    // and always square the body onto the release line like passBallTo does.
+    {
+        double wantAng = std::atan2(tdy, tdx);
+        double offF = std::abs(std::atan2(std::sin(wantAng - f.facing), std::cos(wantAng - f.facing)));
+        double heldMs = state.clockMs - carrierTracker.carryStartMs;
+        if (carrierTracker.carryTrackerId == f.id && heldMs < 600.0 && offF > 0.6)
+            speed *= clamp(1.0 - (offF - 0.6) * 0.30, 0.55, 1.0);
+        f.facing = wantAng;
+    }
     auto& b = state.ball;
     b.controllerId = -1;
     placeBallForRelease(f, tdx, tdy);
@@ -1118,6 +1132,21 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
 }
 
 void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) {
+    // Law 11 rebound snapshot: teammates offside NOW may not play the rebound.
+    {
+        double fdS = fdFor(s.team);
+        double lineS = offsideLineFor(s.team);
+        offsideAtShot = {};
+        shotTeam = s.team;
+        shotSnapshotLive = true;
+        for (auto& tm : state.players) {
+            if (tm.team != s.team || tm.id == s.id || tm.role == Role::GK) continue;
+            bool bh = fdS > 0.0 ? tm.x > HALF_X : tm.x < HALF_X;
+            bool bp = fdS > 0.0 ? tm.x > s.x + OFFSIDE_TOLERANCE : tm.x < s.x - OFFSIDE_TOLERANCE;
+            bool bl = fdS > 0.0 ? tm.x > lineS + OFFSIDE_TOLERANCE : tm.x < lineS - OFFSIDE_TOLERANCE;
+            offsideAtShot[tm.id] = bh && bp && bl;
+        }
+    }
     emitEvent("shot", s.x, s.y, s.id);
     if (s.id >= 0 && s.id < 22) pStats[s.id].shots++;
     if (goalKickMonitor.active && s.team != goalKickMonitor.team) {

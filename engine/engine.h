@@ -162,6 +162,17 @@ public:
     // shot / hard forward drive (owner, seed 111 1:13: Messi intercepted 31m
     // out, feinted backward, was dispossessed 2.3s later).
     std::array<double, 22> lastTurnoverWinMs = {};
+    // Law 13-17 double-touch: the restart taker (FK/corner/throw/goal kick/
+    // penalty/kickoff) may not touch again until another player has. Enforced
+    // by prevention (the engine's referee idiom): set at release, cleared on
+    // any other player's touch. -1 = nobody restricted.
+    int restartRetouchBlockedId = -1;
+    // Law 11 'gaining an advantage': offside snapshot at the SHOT — a teammate
+    // in an offside position when the shot was struck may not play the rebound
+    // (post/bar/keeper). Mirror of pendingPass.offsideAtPass for shots.
+    std::array<bool, 22> offsideAtShot{};
+    Team shotTeam = Team::Home;
+    bool shotSnapshotLive = false;
     // Keeper-distribution choreography latch (set per tick in fixedUpdate):
     // while a GK holds the ball in his box, goal-kick shapes own everyone's
     // targets and executeAction defers (see the anti-swarm tombstone).

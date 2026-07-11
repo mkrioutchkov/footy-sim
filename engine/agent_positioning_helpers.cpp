@@ -11,13 +11,26 @@ void PlayerAI::posBaseCandidates(SmallVector<PositionCandidate, 32>& c, const Po
     const auto& p = player;
     auto& b = engine.state.ball;
 
+    // Block slide (shape audit): the defensive block's lateral shift measured
+    // 0.12-0.14 of ball-y vs real 0.3-0.5, and the far-side FB held 17-18m
+    // from centre with the ball on the opposite flank (real ~8-10m tuck).
+    // Out of possession the whole shape's y-anchor slides harder toward the
+    // ball flank; the far-side FB tucks hardest.
+    double slideK = 0.10;
+    double baseY = p.homeY;
+    if (!pc.myTeam) {
+        slideK = 0.26;
+        bool farSide = std::abs(p.homeY - b.y) > PITCH_H * 0.35;
+        if (isFullBack() && farSide)
+            baseY = lerp(p.homeY, PITCH_H / 2.0, 0.45);   // tuck in, protect the middle
+    }
     c = {
-        { p.homeX + pc.pushUp + pc.widthPush, p.homeY, ActionPurpose::Cover },
-        { p.homeX + pc.fd * 30.0 + pc.pushUp + pc.widthPush, p.homeY, ActionPurpose::Cover },
-        { p.homeX - pc.fd * 20.0 + pc.pushUp + pc.widthPush, p.homeY, ActionPurpose::Cover },
-        { p.homeX + pc.pushUp + pc.widthPush, p.homeY - 25.0, ActionPurpose::Cover },
-        { p.homeX + pc.pushUp + pc.widthPush, p.homeY + 25.0, ActionPurpose::Cover },
-        { lerp(p.homeX, b.x, 0.15) + pc.pushUp, lerp(p.homeY, b.y, 0.10), ActionPurpose::Cover },
+        { p.homeX + pc.pushUp + pc.widthPush, lerp(baseY, b.y, slideK), ActionPurpose::Cover },
+        { p.homeX + pc.fd * 30.0 + pc.pushUp + pc.widthPush, lerp(baseY, b.y, slideK), ActionPurpose::Cover },
+        { p.homeX - pc.fd * 20.0 + pc.pushUp + pc.widthPush, lerp(baseY, b.y, slideK), ActionPurpose::Cover },
+        { p.homeX + pc.pushUp + pc.widthPush, lerp(baseY, b.y, slideK) - 25.0, ActionPurpose::Cover },
+        { p.homeX + pc.pushUp + pc.widthPush, lerp(baseY, b.y, slideK) + 25.0, ActionPurpose::Cover },
+        { lerp(p.homeX, b.x, 0.15) + pc.pushUp, lerp(baseY, b.y, std::max(slideK, 0.10)), ActionPurpose::Cover },
     };
 
     int topCount = 0, botCount = 0;

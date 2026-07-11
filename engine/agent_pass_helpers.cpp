@@ -101,6 +101,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // closing presser once; the residual 0:04-class pick stays accepted.
     }
     double fp = pitch::forwardGain(p.x, t.x, p.team);
+    double nearestOppRecv = 1e9;
+    for (auto& o : engine.state.players)
+        if (o.team != p.team && o.role != Role::GK && !o.sentOff)
+            nearestOppRecv = std::min(nearestOppRecv, dist(o.x, o.y, t.x, t.y));
     // An opponent standing ON THE CARRIER'S BOOT (within pressing contact, at
     // the lane's origin) presses the CARRIER, not a lane — but exempting him
     // from EVERY lane flooded releases match-wide (+50% pass volume; his
@@ -286,7 +290,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // touch when pressed so the side still progresses when a real forward gap is on.
     if (per.pressureCount <= 1 && ownProgress < PITCH_W * 0.5) {
         double pressScale = per.pressureCount == 0 ? 1.0 : 0.65;
-        if (safeConnector || recyclePass) sc += 0.30 * pressScale;
+        // A square into a man with a marker at his back is not "patient
+        // circulation", it is the sterile ping the owner keeps flagging —
+        // the keep bonus thins as the receiver's space disappears (2:26).
+        double openScale = clamp((nearestOppRecv - 30.0) / 50.0, 0.55, 1.0);
+        if (safeConnector || recyclePass) sc += 0.30 * pressScale * openScale;
         sc -= (1.0 - completion) * 0.45;
     }
     if (keeperOutlet) {
@@ -315,8 +323,19 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool securePressuredOutlet = (per.pressureCount >= 2 && per.nearestOpponentDist < 40.0
                               && receiverPressure == 0 && bl == 0)
                               || (corneredEscape && receiverPressure == 0 && bl == 0);
-    if (!keeperOutlet && !securePressuredOutlet && fp < -30.0) sc -= carrierFinalThird ? 0.28 : 0.16;
-    if (!keeperOutlet && !securePressuredOutlet && fp < -90.0) sc -= carrierFinalThird ? 0.30 : 0.18;
+    // Open-switch waiver (2:26 class): the ball across to a genuinely FREE
+    // wide man is how real teams change the angle — it paid full backward
+    // taxes while the marked square collected the retention stack, a ~0.6
+    // structural spread the openness of the receiver never entered (openness
+    // had zero weight outside the forward killer classes).
+    bool openSwitch = nearestOppRecv > 85.0 && pitch::lateralFromCenter(t.y) > 120.0
+        && std::abs(t.y - p.y) > 150.0 && completion >= 0.64 && fp > -110.0;
+    if (!keeperOutlet && !securePressuredOutlet && !openSwitch && fp < -30.0) sc -= carrierFinalThird ? 0.28 : 0.16;
+    if (!keeperOutlet && !securePressuredOutlet && !openSwitch && fp < -90.0) sc -= carrierFinalThird ? 0.30 : 0.18;
+    if (openSwitch) sc += 0.08;
+    // Receiver openness has universal (small) weight: a free man is worth
+    // more than a marked one for the SAME geometry, everywhere on the pitch.
+    if (!keeperOutlet) sc += clamp((nearestOppRecv - 55.0) / 130.0, 0.0, 1.0) * 0.10;
     if (!keeperOutlet && carrierFinalThird && per.pressureCount == 0 && fp < 0.0) sc -= 0.12;
     if (securePressuredOutlet) sc += 0.18;
 
@@ -629,7 +648,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool lateralRunner = runnerRawSpd > 30.0 && (t.vx * fd) > 8.0
                       && (targetAttacker || t.role == Role::CM || t.role == Role::FB);
     if (((targetAttacker || t.role == Role::CM) && runnerForwardSpeed > 15.0) || lateralRunner) {
-        double lead = clamp(d / 300.0 + 0.3, 0.4, 1.1);
+        // A genuinely SPRINTING runner earns a longer projection (up to 1.8s):
+        // the 1.1s cap judged De Bruyne->Alba (2:05) and Xavi->Neymar (2:26)
+        // at spots the runner was leaving — fpEff read -85..-67 for a run that
+        // lands 100px+ upfield. The arrival-race blocker scan below runs at
+        // the same lead, so the longer ball is priced at its landing spot.
+        double lead = clamp(d / 300.0 + 0.3, 0.4, runnerRawSpd > 42.0 ? 1.8 : 1.1);
         double px2 = clamp(t.x + t.vx * lead, 12.0, PITCH_W - 12.0);
         double py2 = clamp(t.y + t.vy * lead, 12.0, PITCH_H - 12.0);
         rxEff = px2; ryEff = py2;
@@ -716,10 +740,6 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // zero lane blockers, zero receiver pressure), central, advanced, roughly
     // onside, and the ball completes (>=0.50). Pairs with the chip-loft (0:55):
     // these forward balls now beat a blocker instead of being cut on the deck.
-    double nearestOppRecv = 1e9;
-    for (auto& o : engine.state.players)
-        if (o.team != p.team && o.role != Role::GK && !o.sentOff)
-            nearestOppRecv = std::min(nearestOppRecv, dist(o.x, o.y, t.x, t.y));
     bool genuinelyOpenAdvanced = !isWideDelivery
         && (t.role == Role::CF || t.role == Role::WM || t.role == Role::CM)
         && rpEff == 0 && blEff == 0 && nearestOppRecv > 85.0
@@ -748,15 +768,31 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool runnerAssignment = assignment && (assignment->role == DefensiveTask::RunAhead
         || assignment->role == DefensiveTask::InsideRun || assignment->role == DefensiveTask::Overlap
         || assignment->role == DefensiveTask::CrossLane);
+    // A flying FB counts by his RUN, not his paperwork (2:05: Alba's byline
+    // sprint existed only as a positioning candidate the pass scorer couldn't
+    // see — the Overlap assignment needs a wide carrier, and De Bruyne was
+    // central).
+    bool sprintingFB = t.role == Role::FB && runnerRawSpd > 38.0 && (t.vx * fd) > 18.0;
     bool ledRunnerLoft = d >= 250.0 && d <= 460.0
-        && (targetAttacker || ((t.role == Role::CM || t.role == Role::FB) && runnerAssignment))
+        && (targetAttacker || ((t.role == Role::CM || t.role == Role::FB) && runnerAssignment) || sprintingFB)
         && runnerRawSpd > 30.0 && (t.vx * fd) > 8.0
         && rpEff == 0 && blEff == 0 && nearestOppProj > 75.0
         && fpEff > 40.0 && completion >= 0.58;
-    if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall || genuinelyOpenAdvanced || ledRunnerLoft) {
+    // Over the top (1:33: Neymar on an InsideRun, 10-12m onside, 30m of grass
+    // to Neuer, never fed — every killer class needs the final 30m): the long
+    // ball over the line to an assigned runner with real space behind it, from
+    // ANY depth. Priced at the projected landing like the loft.
+    double spaceBehindLine = std::isnan(offsideLine) ? 0.0
+        : std::abs(goalXFor(p.team) - offsideLine) ;
+    bool overTheTop = runnerAssignment && d >= 230.0 && d <= 520.0
+        && onsideGap > 25.0 && onsideGap < 200.0 && spaceBehindLine > 180.0
+        && rpEff == 0 && blEff <= 1 && nearestOppProj > 70.0
+        && runnerRawSpd > 28.0 && completion >= 0.50;
+    if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall || genuinelyOpenAdvanced || ledRunnerLoft || overTheTop) {
         pur = ActionPurpose::Through;
         if (genuinelyOpenAdvanced) sc += 0.14;   // capped re-rank so the open forward ball beats the safe square
         if (ledRunnerLoft) sc += 0.15;           // the visible runner gets the ball into his path
+        if (overTheTop && !ledRunnerLoft) sc += 0.14;   // spring the assigned runner from deep
         // Slide a runner in behind for a 1-on-1 (converts ~40% vs a 4% pot-shot).
         sc += 0.12 + attrFactor(p.attrs.creativity) * 0.10;   // trimmed with the window above to cut through-ball spam (~121 -> target ~15-30/match)
         if (cleanKillerBall) sc += 0.16;

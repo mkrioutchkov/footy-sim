@@ -31,7 +31,10 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
             double by = engine.state.ball.y;
             bool nearPost = by < PITCH_H / 2.0;
             if (isCenterForward()) {
-                p.targetX = oppGoalX - fd * (80.0 + slotA * 20.0);
+                // Clamped onside: the choreography ordered a 7.4s offside camp
+                // at 1:16 (seed 111) — the CF was SENT 70px beyond the line
+                // and deleted himself from the possession.
+                p.targetX = clampToLegalX(oppGoalX - fd * (80.0 + slotA * 20.0), fd);
                 p.targetY = PITCH_H / 2.0 + (nearPost ? -40.0 : 40.0) + slotB * 15.0;
             } else if (isWidePlayer()) {
                 bool myCornerSide = (p.homeY < PITCH_H / 2.0) == (by < PITCH_H / 2.0);
@@ -83,7 +86,12 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
             // (watched replay seed 103 0:48 — "what team would do this?").
             // A deep FK is a BUILD-UP restart: reuse the goal-kick spread
             // (CBs split wide, FBs high flanks, CM pivot, front men stretch).
-            if (std::abs(bx - ownGoalX) < 380.0) {
+            // 380 -> 546 (52%W): a MIDFIELD FK (448px from own goal at 1:16,
+            // seed 111) fell into the attacking-third blob shape — 8 of 9
+            // outfield targets inside a ~190x170 box on the taker, both FBs
+            // 32px apart in the centre. Anything up to just past halfway is a
+            // build-up restart and gets the spread.
+            if (std::abs(bx - ownGoalX) < PITCH_W * 0.52) {
                 if (isCenterBack()) {
                     p.targetX = ownGoalX + fd * (115.0 + std::abs(slotA) * 22.0);
                     p.targetY = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.30 : PITCH_H * 0.70;
@@ -98,7 +106,7 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                     p.targetY = lerp(p.homeY, PITCH_H / 2.0, 0.25);
                 }
             } else if (isCenterForward()) {
-                p.targetX = oppGoalX - fd * (60.0 + slotA * 15.0);
+                p.targetX = clampToLegalX(oppGoalX - fd * (60.0 + slotA * 15.0), fd);
                 p.targetY = PITCH_H / 2.0 + slotB * 30.0;
             } else if (isCentralMidfielder()) {
                 p.targetX = bx - fd * (35.0 + std::abs(slotA) * 55.0);
