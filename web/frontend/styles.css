@@ -349,3 +349,30 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .fx .fx-actions { grid-column: 1 / -1; justify-content: center; margin-top: 4px; }
   /* (the watch-viewer narrow rules live in the 860/700px blocks above, matching syncReserve) */
 }
+
+/* ── PWA safe-area insets (index.html sets viewport-fit=cover) ── env() is 0px off a notched/installed
+   device, so these are no-ops on desktop and only inset fixed/sticky chrome under a notch / home indicator. */
+:root {
+  --safe-t: env(safe-area-inset-top, 0px); --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px); --safe-l: env(safe-area-inset-left, 0px);
+}
+header.top { padding-top: var(--safe-t); }
+#toast-stack { bottom: calc(18px + var(--safe-b)); }
+.modal-backdrop { padding: max(20px, var(--safe-t)) max(20px, var(--safe-r)) max(20px, var(--safe-b)) max(20px, var(--safe-l)); }
+/* Match-viewer chrome: keep the scoreboard HUD out of the notch and the control bar below it + off the side
+   rounded corners. The pitch reserve self-corrects (syncReserve measures the bar's rect). */
+.watch-hud { padding-top: var(--safe-t); }
+.watch-bar { top: calc(var(--watch-hud-h) + 8px + var(--safe-t)); left: calc(10px + var(--safe-l)); right: calc(10px + var(--safe-r)); }
+
+/* keep form controls ≥16px on narrow screens so iOS Safari doesn't zoom the viewport on focus */
+@media (max-width: 640px) { input, select, textarea, .tactics-input { font-size: 16px; } }
+
+/* ── reusable screen states (loading / empty / error / offline / partial-failure) ── */
+.state-box { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 34px 20px; }
+.state-ico { font-size: 30px; line-height: 1; opacity: .92; }
+.state-title { font-size: 15px; font-weight: 700; color: var(--text); }
+.state-hint { font-size: 13px; max-width: 440px; line-height: 1.5; }
+.state-actions { gap: 8px; margin-top: 8px; justify-content: center; }
+.status-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 9px 12px; border-radius: var(--radius-sm); font-size: 13px; border: 1px solid var(--line); background: var(--panel2); }
+.status-banner.warn { border-color: color-mix(in srgb, var(--gold) 45%, var(--line)); color: var(--gold); }

@@ -1,4 +1,5 @@
 import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js';
+import { cappedResolution } from './util';
 import {
   PITCH_W, PITCH_H, PLAYER_R, BALL_R,
   LINE_COLOR, PITCH_GREEN, HOME_COLOR, AWAY_COLOR, HOME_GK_COLOR, AWAY_GK_COLOR, GOAL_COLOR,
@@ -241,7 +242,10 @@ export class MatchRenderer {
     this.inited = true;
     await this.app.init({
       resizeTo: window, backgroundColor: 0x1a1a2e,
-      antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true,
+      // Cap the backing-store multiplier (cappedResolution, see util.ts): high-DPR phones (2.5–3×) would
+      // otherwise allocate a huge full-window canvas — the heaviest GPU/memory load on exactly the devices
+      // least able to sustain a live match. 2× is visually indistinguishable. autoDensity stays on.
+      antialias: true, resolution: cappedResolution(window.devicePixelRatio), autoDensity: true,
     });
     if (this.destroyed) { try { this.app.destroy(true, { children: true, texture: true }); } catch { /* */ } return; }   // destroy() raced init — bail before touching the stage
 

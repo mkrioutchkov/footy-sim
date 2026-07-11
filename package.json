@@ -14,6 +14,7 @@
     "serve": "FOOTY_HOST=0.0.0.0 tsx --env-file-if-exists=web/backend/.env web/backend/index.ts",
     "host": "npm run native:build:posix && vite build && npm run serve",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.backend.json --noEmit",
+    "test:fe": "tsx web/frontend/util.test.ts",
     "prebatch": "npm run native:build",
     "batch": "tsx tools/native-batch.ts",
     "prebenchmark": "npm run native:build",

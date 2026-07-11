@@ -1,7 +1,8 @@
 import './styles.css';
-import { api, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT, type TimelineEventT, type LeadersT, type PlayerSeasonStatT } from './api';
+import { api, ApiError, type TeamT, type PlayerT, type LeagueT, type FixtureT, type MarketT, type CupT, type ReportT, type NewsItemT, type PlanT, type DirectiveT, type ScoutT, type SeasonHistoryT, type StaffViewT, type FinancesT, type HarmonyT, type ConcernT, type BoardMeetingT, type ManagerCareerT, type FormationsT, type OfferT, type TrainingReportT, type RotationT, type ContractOfferT, type ScoutPlayerT, type IncomingOfferT, type AcademyProspectT, type FreeAgentOfferT, type TalkToneT, type TalkReactionT, type TacticsReviewT, type ShoutReviewT, type TimelineEventT, type LeadersT, type PlayerSeasonStatT } from './api';
 import type { MatchRenderer as MatchRendererInstance } from './renderer';
 import { PITCH_W, PITCH_H } from './constants';
+import { parseRouteId, isLatest } from './util';
 import type { EngineState } from './types';
 
 // ── live-watch socket envelope ── the web backend wraps each engine frame with team names +
@@ -111,6 +112,75 @@ function toast(msg: string) {
   if (!live) { live = h('div', { id: 'live-region', class: 'sr-only', 'aria-live': 'polite', 'aria-atomic': 'true' }); document.body.appendChild(live); }
   live.textContent = msg;
   schedule();
+}
+
+// ── reusable screen states (loading / empty / error / offline / partial) ─────────────────────────
+// One consistent look + a11y for the async lifecycle, replacing the bare `.spin` / red-string patterns.
+// A network/offline failure (fetch rejected → ApiError status 0) is distinct from a real HTTP/app error.
+function isOffline(e: unknown): boolean { return e instanceof ApiError && e.status === 0; }
+function errMessage(e: unknown): string { return e instanceof Error ? e.message : String(e ?? 'Unknown error'); }
+function loadingState(msg = 'Loading…'): HTMLElement {
+  return h('div', { class: 'state-box', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'spin' }, msg));
+}
+function emptyState(opts: { icon?: string; title: string; hint?: string; action?: HTMLElement | string }): HTMLElement {
+  return h('div', { class: 'state-box empty-state' },
+    opts.icon ? h('div', { class: 'state-ico', 'aria-hidden': 'true' }, opts.icon) : '',
+    h('div', { class: 'state-title' }, opts.title),
+    opts.hint ? h('div', { class: 'state-hint muted' }, opts.hint) : '',
+    opts.action ?? '');
+}
+// A recoverable error: title + explanation + Retry + Back/Dashboard. role=alert → announced once.
+function errorState(opts: { title?: string; detail?: string; onRetry?: () => void; back?: (() => void) | 'dashboard' }): HTMLElement {
+  const actions: HTMLElement[] = [];
+  if (opts.onRetry) actions.push(h('button', { class: 'primary small', onclick: opts.onRetry }, '↻ Retry'));
+  if (opts.back) actions.push(h('button', { class: 'ghost small', onclick: () => { if (opts.back === 'dashboard') location.hash = '#/'; else (opts.back as () => void)(); } }, opts.back === 'dashboard' ? '← Dashboard' : '← Back'));
+  return h('div', { class: 'state-box error-state', role: 'alert' },
+    h('div', { class: 'state-ico', 'aria-hidden': 'true' }, '⚠'),
+    h('div', { class: 'state-title' }, opts.title || 'Something went wrong'),
+    h('div', { class: 'state-hint muted' }, opts.detail || 'The request failed. Please try again.'),
+    actions.length ? h('div', { class: 'state-actions row' }, ...actions) : '');
+}
+function offlineState(onRetry: () => void): HTMLElement {
+  return errorState({ title: 'Can’t reach the server', detail: 'You appear to be offline, or the server is unavailable. Your session is safe — retry once you’re back online.', onRetry });
+}
+// Inline "this optional section failed to load" banner with a retry — distinct from an empty section.
+function partialFailure(label: string, onRetry: () => void): HTMLElement {
+  return h('div', { class: 'status-banner warn', role: 'alert' },
+    h('span', {}, `⚠ Couldn’t load ${label}.`),
+    h('button', { class: 'ghost small', onclick: onRetry }, 'Retry'));
+}
+// A screen-level error mount used by the router async error boundary + malformed-route not-found.
+function mountError(title: string, detail: string, onRetry?: () => void): void {
+  mount(header(), h('div', { class: 'wrap' }, errorState({ title, detail, onRetry, back: 'dashboard' })));
+}
+
+// Serialized, rollback-safe mutation for a <select> (Training / player-development / any optimistic control).
+// - snapshots the last-saved value; disables the control while the request is in flight (blocks racing);
+// - a per-control token means a superseded request's late resolution is ignored (latest-intent wins);
+// - applies the server-normalized value only when still current AND the route is still live;
+// - on failure rolls the <select> back to the last-saved value and shows the error inline (toast).
+// `save` performs the request + any success side-effect and returns the server-normalized value (or void → use
+// the sent value). `alive` (optional) is the screen's screenGuard so a resolution after navigation is dropped.
+function guardSelect(sel: HTMLSelectElement, save: (value: string) => Promise<string | void>, alive?: () => boolean): void {
+  let token = 0;
+  let saved = sel.value;
+  sel.addEventListener('change', async () => {
+    const mine = ++token;
+    const next = sel.value;
+    sel.disabled = true;
+    try {
+      const norm = await save(next);
+      if (!isLatest(mine, token, alive)) return;   // superseded, or navigated away (latest-intent wins — see util.ts)
+      saved = typeof norm === 'string' ? norm : next;
+      sel.value = saved;
+    } catch (e) {
+      if (mine !== token) return;
+      sel.value = saved;                                           // roll back to the last persisted value
+      toast(errMessage(e));
+    } finally {
+      if (mine === token) sel.disabled = false;                    // only the newest request re-enables
+    }
+  });
 }
 
 // ── in-app modals (replace native confirm()/prompt(), which are ugly + block the event loop) ──
@@ -347,10 +417,12 @@ function screenCreateTeam() {
   const name = h('input', { id: 'f-clubname', placeholder: 'e.g. Brisbane Roar', value: `${user!.username} FC` }) as HTMLInputElement;
   const planInput = h('textarea', { class: 'tactics-input', rows: '3',
     placeholder: 'Optional — your tactical plan in plain English: "high press, build from the back, full-backs bomb on, sit deeper if 2-0 up". You can set or change it any time from Tactics.' }) as HTMLTextAreaElement;
-  const err = h('div', { class: 'err' });
-  const create = h('button', {}, 'Create team & start season');
-  create.addEventListener('click', async () => {
-    create.setAttribute('disabled', 'true'); create.textContent = 'Creating your club…';
+  const err = h('div', { class: 'err', role: 'alert' });
+  const create = h('button', { type: 'submit' }, 'Create team & start season') as HTMLButtonElement;
+  const submit = async () => {
+    if (create.disabled) return;
+    err.textContent = '';
+    create.disabled = true; create.textContent = 'Creating your club…';
     try {
       await api.createTeam(name.value.trim());
       const plan = planInput.value.trim();
@@ -364,16 +436,20 @@ function screenCreateTeam() {
           .catch(() => toast('Couldn’t read your plan — set it from the Tactics screen.'));
       }
       route();
-    } catch (e: any) { err.textContent = e.message; create.removeAttribute('disabled'); create.textContent = 'Create team & start season'; }
-  });
+    } catch (e: any) { err.textContent = e.message; create.disabled = false; create.textContent = 'Create team & start season'; }
+  };
+  // A real <form> so Enter in the club-name field submits natively (Enter in the plan textarea still adds a
+  // newline). Mirrors the auth screen's form.
+  const form = h('form', { onsubmit: (e: Event) => { e.preventDefault(); void submit(); } },
+    h('div', { class: 'field' }, h('label', { for: 'f-clubname' }, 'Club name'), name),
+    h('div', { class: 'section-title' }, 'Tactical plan'),
+    planInput,
+    h('div', { style: 'margin-top:16px' }, create), err);
   mount(header(), h('div', { class: 'wrap' },
     h('div', { class: 'card' },
       h('h2', {}, 'Create your club'),
       h('div', { class: 'muted', style: 'margin-bottom:16px' }, 'We’ll generate your squad — a starting XI plus bench — and drop you into an 8-team league against AI managers.'),
-      h('div', { class: 'field' }, h('label', { for: 'f-clubname' }, 'Club name'), name),
-      h('div', { class: 'section-title' }, 'Tactical plan'),
-      planInput,
-      h('div', { style: 'margin-top:16px' }, create), err,
+      form,
       h('div', { class: 'muted', style: 'margin-top:14px;font-size:13px;border-top:1px solid var(--line);padding-top:12px' },
         'Prefer to play against other managers? ',
         h('a', { href: '#/worlds', style: 'color:var(--accent);cursor:pointer' }, 'Join a shared world →'),
@@ -450,7 +526,7 @@ async function screenWorlds() {
             h('div', { class: 'between' },
               h('div', {}, h('div', { style: 'font-weight:700' }, w.name), h('div', { class: 'muted', style: 'font-size:12px' }, `Season ${w.season} · turn ${w.turn} · advances ${cadence(w.intervalMin)}`)),
               h('span', { class: 'pill', style: w.unclaimed ? 'background:var(--accent);color:#0b1018' : '' }, `${w.unclaimed}/${w.total} open`)))))
-        : h('div', { class: 'card muted' }, 'No shared worlds yet. Ask an admin to open one — or create your own solo club above.'));
+        : emptyState({ icon: '🌍', title: 'No shared worlds yet', hint: 'Ask an admin to open one — or start your own solo career.', action: h('button', { class: 'primary small', style: 'margin-top:6px', onclick: () => screenCreateTeam() }, 'Create a solo club →') }));
   };
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' }, container));
@@ -516,7 +592,17 @@ async function screenInternationals() {
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' }, h('div', {}, h('h2', {}, '🌍 Internationals'), h('div', { class: 'muted', style: 'font-size:13px' }, 'National teams (by player nationality) contest the World Cup every 4 seasons + continental cups; the world\'s best clubs meet in the Club World Cup. Held in the off-season.')),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
-    data.tournaments.length ? h('div', { class: 'grid' }, ...data.tournaments.slice(0, 4).map(bracket)) : h('div', { class: 'card muted' }, 'No tournaments yet — the first internationals play at the end of this season.'),
+    data.tournaments.length
+      ? h('div', { class: 'grid' },
+          ...data.tournaments.slice(0, 4).map(bracket),
+          // recent tournaments visible; older seasons' brackets go behind a "Show history" disclosure so the
+          // current continental cups (up to 6) aren't silently dropped by an arbitrary top-4 cap.
+          data.tournaments.length > 4
+            ? h('details', { style: 'margin-top:2px' },
+                h('summary', { style: 'cursor:pointer;color:var(--muted);font-size:13px;padding:4px 0' }, `Show ${data.tournaments.length - 4} older tournament${data.tournaments.length - 4 > 1 ? 's' : ''}`),
+                h('div', { class: 'grid', style: 'margin-top:10px' }, ...data.tournaments.slice(4).map(bracket)))
+            : '')
+      : h('div', { class: 'card muted' }, 'No tournaments yet — the first internationals play at the end of this season.'),
     h('div', { class: 'grid cols-2', style: 'align-items:start' }, nationsCard, squadHost)));
 }
 
@@ -1942,6 +2028,7 @@ let watchStatus: HTMLElement | null = null;   // connecting / connection-lost ov
 let watchPanelObs: ResizeObserver | null = null;   // keeps the pitch sized to the space the panel leaves
 let watchKeyHandler: ((e: KeyboardEvent) => void) | null = null;   // P3 viewer keyboard shortcuts (space/←/→/,/.)
 let watchVisHandler: (() => void) | null = null;   // background-tab handling (skip draw work while hidden; snap current on return)
+let watchMoreOutside: ((e: Event) => void) | null = null;   // outside-click dismissal for the ⋯ (More) popover
 let activeReplayTimer: ReturnType<typeof setInterval> | null = null;   // live goal-replay playback loop
 let activeHighlightTimer: ReturnType<typeof setTimeout> | null = null;   // 🎞 highlights-reel tour step (survives teardown otherwise)
 let watchStatsPanel: HTMLElement | null = null;   // 📊 on-demand match-analysis overlay (ratings + shot map + xG)
@@ -1957,6 +2044,7 @@ function teardownWatch() {
   watchLineupsPanel?.remove(); watchLineupsPanel = null;
   try { watchPanelObs?.disconnect(); } catch { /* */ } watchPanelObs = null;
   if (watchKeyHandler) { window.removeEventListener('keydown', watchKeyHandler); watchKeyHandler = null; }
+  if (watchMoreOutside) { document.removeEventListener('pointerdown', watchMoreOutside); watchMoreOutside = null; }
   if (watchVisHandler) { document.removeEventListener('visibilitychange', watchVisHandler); watchVisHandler = null; }
   try { activeWs?.close(); } catch { /* */ } activeWs = null;
   try { activeRenderer?.setReplay(false); } catch { /* */ }   // dismiss any GOAL-REPLAY banner before tearing down (no stuck overlay across watches)
@@ -2345,13 +2433,19 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   const morePop = h('div', { style: 'display:none;position:absolute;top:100%;right:0;margin-top:6px;z-index:41;background:rgba(12,19,32,.96);border:1px solid var(--line);border-radius:8px;padding:6px;flex-direction:column;gap:6px;min-width:160px' },
     dirBtn, statsBtn, lineupsBtn, highlightBtn, replayBtn) as HTMLElement;
   const moreBtn = h('button', { class: 'ghost small', 'aria-label': 'More controls', 'aria-haspopup': 'true', 'aria-expanded': 'false', title: 'More — tactics overlay, highlights, goal replay' }, '⋯') as HTMLButtonElement;
-  moreBtn.addEventListener('click', () => {
-    const open = morePop.style.display === 'none';
+  const setMoreOpen = (open: boolean): void => {
     morePop.style.display = open ? 'flex' : 'none';
     moreBtn.setAttribute('aria-expanded', String(open));
     moreBtn.classList.toggle('primary', open); moreBtn.classList.toggle('ghost', !open);
-  });
+  };
+  const closeMore = (returnFocus = false): void => { if (morePop.style.display === 'none') return; setMoreOpen(false); if (returnFocus) moreBtn.focus(); };
+  moreBtn.addEventListener('click', () => setMoreOpen(morePop.style.display === 'none'));
+  // Close after choosing any action, so the popover doesn't linger over the pitch (map: close-on-select).
+  morePop.addEventListener('click', e => { if ((e.target as HTMLElement).closest('button')) closeMore(); });
   const moreWrap = h('div', { style: 'position:relative' }, moreBtn, morePop);
+  // Outside-click dismissal (module-level so teardownWatch removes it alongside the other body-attached listeners).
+  watchMoreOutside = (e: Event) => { if (morePop.style.display !== 'none' && !moreWrap.contains(e.target as Node)) closeMore(); };
+  document.addEventListener('pointerdown', watchMoreOutside);
   restoreOverlayFocus = trigger => (morePop.style.display === 'none' ? moreBtn : trigger).focus();
   const rendererReadyControls = [dirBtn, statsBtn, lineupsBtn, moreBtn];
   const streamControls = [pauseBtn, ...speedPills];
@@ -2375,6 +2469,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   // , / . = prev/next moment (goal or red card). Seek-keys are no-ops on a live match (the coordinator
   // ignores seek) + before a moment index is loaded. Removed in teardownWatch. Ignored while typing a shout.
   watchKeyHandler = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape' && morePop.style.display !== 'none') { e.preventDefault(); closeMore(true); return; }   // Escape closes the ⋯ popover + restores focus to it
     if (isInteractiveTarget(e.target)) return;
     const step = e.shiftKey ? 2000 : 10000;   // Shift = a fine 2s nudge for landing on a specific touch
     if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
@@ -2883,27 +2978,28 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
 // ── transfer market ──
 async function screenMarket() {
   const alive = screenGuard();
-  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading…')));
+  mount(header(), h('div', { class: 'wrap' }, loadingState('Loading the transfer market…')));
   let market: MarketT;
   try { market = await api.market(); }
   catch (e: any) {
     if (!alive()) return;
     if (String(e.message).includes('no team')) return screenCreateTeam();
-    return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message)));
+    return mount(header(), h('div', { class: 'wrap' }, errorState({ title: 'Couldn’t load the market', detail: errMessage(e), onRetry: () => screenMarket(), back: 'dashboard' })));
   }
-  let offers: OfferT[] = [];
-  try { offers = (await api.offers()).offers; } catch { /* the bids panel just stays empty */ }
-  const refreshOffers = async (): Promise<void> => { try { offers = (await api.offers()).offers; } catch { /* keep current */ } };
-  // §2.1: incoming bids — other clubs bidding for YOUR listed players.
-  let incoming: IncomingOfferT[] = [];
-  try { incoming = (await api.incomingOffers()).incoming; } catch { /* none / pre-feature */ }
-  // §2.1 (free-agent half): the manager's free-agent offers still being considered.
-  let faOffers: FreeAgentOfferT[] = [];
-  try { faOffers = (await api.freeAgentOffers()).offers; } catch { /* none / pre-feature */ }
-  // §shortlist: the transfer watchlist (resolved rows) + the tracked id set for the ★ toggle state.
+  // The four side panels are INDEPENDENT + optional — fetch them in PARALLEL (was four serial round-trips, so
+  // time-to-interactive was the SUM not the max) and keep each panel's FAILURE distinct from genuinely-empty,
+  // so a transient error surfaces a retry note instead of a silently-empty panel.
+  let offers: OfferT[] = [], incoming: IncomingOfferT[] = [], faOffers: FreeAgentOfferT[] = [];
   let shortlist: import('./api').ShortlistRowT[] = [];
   let shortIds = new Set<number>();
-  try { const s = await api.shortlist(); shortlist = s.shortlist; shortIds = new Set(s.ids); } catch { /* none / pre-feature */ }
+  const failed = { offers: false, incoming: false, faOffers: false, shortlist: false };
+  const [offR, incR, faR, shR] = await Promise.allSettled([api.offers(), api.incomingOffers(), api.freeAgentOffers(), api.shortlist()]);
+  if (!alive()) return;
+  if (offR.status === 'fulfilled') offers = offR.value.offers; else failed.offers = true;
+  if (incR.status === 'fulfilled') incoming = incR.value.incoming; else failed.incoming = true;
+  if (faR.status === 'fulfilled') faOffers = faR.value.offers; else failed.faOffers = true;
+  if (shR.status === 'fulfilled') { shortlist = shR.value.shortlist; shortIds = new Set(shR.value.ids); } else failed.shortlist = true;
+  const refreshOffers = async (): Promise<void> => { try { offers = (await api.offers()).offers; failed.offers = false; } catch { /* keep current */ } };
   const toggleStar = async (playerId: number) => {
     const add = !shortIds.has(playerId);
     try { const s = await api.toggleShortlist(playerId, add); shortlist = s.shortlist; shortIds = new Set(s.ids); toast(add ? '★ Added to your shortlist' : 'Removed from shortlist'); render(); }
@@ -3112,6 +3208,7 @@ async function screenMarket() {
       if (o.status === 'countered') {
         const m = h('button', { class: 'primary small' }, `Match ${fmtMoney(o.counterFee ?? o.fee)}`);
         m.addEventListener('click', offerGuard(m, async () => {
+          if (!await confirmModal('Match their price?', `Pay ${fmtMoney(o.counterFee ?? o.fee)} to complete this signing? This commits club funds now.`, `Pay ${fmtMoney(o.counterFee ?? o.fee)}`)) return;
           try { const r = await api.matchOffer(o.id); if (r.status === 'accepted') { market = r.market; toast(`Signed ${r.player} for ${fmtMoney(r.fee!)}`); } offers = r.offers; render(); }
           catch (e: any) { toast(e.message); await refreshOffers(); render(); }
         }));
@@ -3139,6 +3236,7 @@ async function screenMarket() {
       if (o.status === 'pending') {
         const acc = h('button', { class: 'primary small' }, `Accept ${fmtMoney(o.fee)}`);
         acc.addEventListener('click', offerGuard(acc, async () => {
+          if (!await confirmModal('Sell player?', `Accept the ${fmtMoney(o.fee)} bid for ${o.playerName}? This is a binding, irreversible sale.`, 'Sell', 'danger')) return;
           try { const r = await api.acceptOffer(o.id); market = r.market; incoming = r.incoming; toast(`Sold ${o.playerName} to ${r.club} for ${fmtMoney(r.fee!)}`); render(); }
           catch (e: any) { toast(e.message); try { incoming = (await api.incomingOffers()).incoming; } catch { /* keep */ } render(); }
         }));
@@ -3167,6 +3265,10 @@ async function screenMarket() {
           h('div', { class: 'muted' }, `Budget ${fmtMoney(market.budget)} · wages ${fmtMoney(market.wageBill)}/${fmtMoney(market.wageBudget)} (${wagePct}%) · squad ${market.squad.length}/${market.squadMax}`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
       ),
+      // §1.6: a panel that FAILED to load (vs genuinely empty) gets a visible retry, not a silent blank.
+      (failed.offers || failed.incoming || failed.faOffers || failed.shortlist)
+        ? partialFailure('some transfer panels', () => screenMarket())
+        : '',
       h('div', { class: 'card', style: `padding:8px 12px;${win.open ? (win.deadlineDay ? 'border-left:3px solid var(--danger)' : 'border-left:3px solid var(--accent,#4ea1ff)') : 'opacity:.8'}` },
         h('span', { style: win.open ? 'font-weight:600' : '' }, (win.deadlineDay ? '🚨 ' : win.open ? '🟢 ' : '🔒 ') + win.label),
         // §2.4: deadline-day urgency — count down the matchdays left in the window
@@ -3359,10 +3461,7 @@ async function screenTraining() {
     if (f === (team.trainingFocus ?? 'balanced')) o.selected = true;
     sel.append(o);
   }
-  sel.addEventListener('change', async () => {
-    try { const r = await api.setTraining(sel.value); toast(`Club training focus: ${focusLabel(r.focus)}`); }
-    catch (e: any) { toast(e.message); }
-  });
+  guardSelect(sel, async v => { const r = await api.setTraining(v); toast(`Club training focus: ${focusLabel(r.focus)}`); return r.focus; }, alive);
 
   // club-wide training intensity dial — a gentler scale than the per-player override (which wins).
   // 'normal' is the byte-identical default; heavy grows the whole squad faster at a higher injury cost.
@@ -3377,10 +3476,7 @@ async function screenTraining() {
   const intensityHint = (v: string) => v === 'heavy' ? 'Whole squad: +40% growth, higher fatigue + injury risk'
     : v === 'light' ? 'Whole squad: −30% growth, fresher legs + fewer injuries' : 'Whole squad: standard load';
   tiHint.textContent = intensityHint(team.trainingIntensity ?? 'normal');
-  tiSel.addEventListener('change', async () => {
-    try { const r = await api.setTeamIntensity(tiSel.value); tiHint.textContent = intensityHint(r.intensity); toast(`Club intensity: ${r.intensity}`); }
-    catch (e: any) { toast(e.message); }
-  });
+  guardSelect(tiSel, async v => { const r = await api.setTeamIntensity(v); tiHint.textContent = intensityHint(r.intensity); toast(`Club intensity: ${r.intensity}`); return r.intensity; }, alive);
 
   // one-click training schedules — set the club focus + intensity together (FM's preset buttons)
   const PRESETS: [string, string, string][] = [
@@ -3469,10 +3565,7 @@ async function screenTraining() {
       if (f === (p.trainFocus ?? '')) o.selected = true;
       pfSel.append(o);
     }
-    pfSel.addEventListener('change', async () => {
-      try { const r = await api.setPlayerTraining(p.slot, pfSel.value); toast(r.focus ? `${p.name}: ${focusLabel(r.focus)}` : `${p.name} follows the club focus`); }
-      catch (e: any) { toast(e.message); }
-    });
+    guardSelect(pfSel, async v => { const r = await api.setPlayerTraining(p.slot, v); toast(r.focus ? `${p.name}: ${focusLabel(r.focus)}` : `${p.name} follows the club focus`); return r.focus ?? undefined; }, alive);
     // per-player training intensity — faster growth at a higher injury cost (normal = the default / byte-identical)
     const piSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px', 'aria-label': 'Training intensity for ' + p.name, title: 'Higher intensity grows faster but raises injury risk; rest recovers' }) as HTMLSelectElement;
     for (const [iv, lbl] of [['normal', 'Normal'], ['double', 'Double ↑'], ['half', 'Light'], ['rest', 'Rest']]) {
@@ -3480,10 +3573,7 @@ async function screenTraining() {
       if (iv === (p.trainIntensity ?? 'normal')) o.selected = true;
       piSel.append(o);
     }
-    piSel.addEventListener('change', async () => {
-      try { const r = await api.setPlayerIntensity(p.slot, piSel.value); toast(`${p.name}: ${r.intensity ?? 'normal'} training`); }
-      catch (e: any) { toast(e.message); }
-    });
+    guardSelect(piSel, async v => { const r = await api.setPlayerIntensity(p.slot, v); toast(`${p.name}: ${r.intensity ?? 'normal'} training`); return r.intensity ?? undefined; }, alive);
     // position retrain — learn a new role; while settling, he develops a little slower (familiarity bar)
     const rtSel = h('select', { class: 'focus-select', style: 'font-size:12px;padding:2px 4px', 'aria-label': 'Retrain position for ' + p.name, title: 'Retrain this player into a new position. He settles in over several matchdays, developing a little slower until comfortable.' }) as HTMLSelectElement;
     rtSel.append(h('option', { value: '' }, 'No (stay ' + p.role + ')'));
@@ -3493,10 +3583,7 @@ async function screenTraining() {
       if (role === (p.retrainRole ?? '')) o.selected = true;
       rtSel.append(o);
     }
-    rtSel.addEventListener('change', async () => {
-      try { const r = await api.setPlayerRetrain(p.slot, rtSel.value || 'clear'); if (!alive()) return; toast(r.retrainRole ? `${p.name}: retraining → ${r.retrainRole}` : `${p.name}: settled at ${p.role}`); route(); }
-      catch (e: any) { if (alive()) toast(e.message); }
-    });
+    guardSelect(rtSel, async v => { const r = await api.setPlayerRetrain(p.slot, v || 'clear'); if (!alive()) return; toast(r.retrainRole ? `${p.name}: retraining → ${r.retrainRole}` : `${p.name}: settled at ${p.role}`); route(); return r.retrainRole ?? undefined; }, alive);
     const fam = Math.round(p.roleFamiliarity ?? 100);
     const retrainCell = p.retrainRole
       ? h('div', { style: 'min-width:90px' }, rtSel,
@@ -3725,17 +3812,28 @@ async function screenInbox() {
             : 'No items in this category.')]));
   };
 
-  const markAll = h('button', { class: 'ghost small' }, 'Mark all read');
+  // The subtitle count + the markAll button live OUTSIDE render() (which only rebuilds the message list), so a
+  // helper repaints them after any unread change — otherwise 'Mark all read' left a stale '· N unread' and an
+  // enabled button that just re-hit the endpoint.
+  const subtitle = h('div', { class: 'muted' });
+  const markAll = h('button', { class: 'ghost small' }, 'Mark all read') as HTMLButtonElement;
+  const syncHeader = () => {
+    subtitle.textContent = `${data.inbox.length} item(s)${data.unread ? ` · ${data.unread} unread` : ''}`;
+    markAll.disabled = data.unread === 0;
+    markAll.style.display = data.unread === 0 ? 'none' : '';
+  };
   markAll.addEventListener('click', async () => {
-    try { const r = await api.markInboxRead({ all: true }); data.unread = r.unread; data.inbox.forEach(i => i.read = true); render(); }
-    catch (e: any) { toast(e.message); }
+    markAll.disabled = true;
+    try { const r = await api.markInboxRead({ all: true }); data.unread = r.unread; data.inbox.forEach(i => i.read = true); render(); syncHeader(); }
+    catch (e: any) { toast(e.message); syncHeader(); }
   });
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
-      h('div', {}, h('h2', {}, '📨 Inbox'), h('div', { class: 'muted' }, `${data.inbox.length} item(s)${data.unread ? ` · ${data.unread} unread` : ''}`)),
-      h('div', { class: 'row', style: 'gap:8px' }, data.inbox.length ? markAll : '', h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'))),
+      h('div', {}, h('h2', {}, '📨 Inbox'), subtitle),
+      h('div', { class: 'row', style: 'gap:8px' }, markAll, h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'))),
     container));
+  syncHeader();
   render();
 }
 
@@ -3925,14 +4023,14 @@ async function screenPlayer(slot: number) {
   const pfSel = h('select', { style: 'width:auto;font-size:12px;padding:3px 6px', 'aria-label': 'Training focus' }) as HTMLSelectElement;
   pfSel.append(h('option', { value: '' }, 'Follow club focus'));
   for (const f of TRAINING_FOCI) { const o = h('option', { value: f }, focusLabel(f)) as HTMLOptionElement; if (f === (p.trainFocus ?? '')) o.selected = true; pfSel.append(o); }
-  pfSel.addEventListener('change', async () => { try { const r = await api.setPlayerTraining(slot, pfSel.value); p.trainFocus = r.focus ?? undefined; toast(r.focus ? `Focus: ${focusLabel(r.focus)}` : 'Follows the club focus'); } catch (e: any) { toast(e.message); } });
+  guardSelect(pfSel, async v => { const r = await api.setPlayerTraining(slot, v); p.trainFocus = r.focus ?? undefined; toast(r.focus ? `Focus: ${focusLabel(r.focus)}` : 'Follows the club focus'); return r.focus ?? undefined; }, alive);
   const piSel = h('select', { style: 'width:auto;font-size:12px;padding:3px 6px', 'aria-label': 'Training intensity', title: 'Higher intensity grows faster but raises injury risk; rest recovers' }) as HTMLSelectElement;
   for (const [iv, lbl] of [['normal', 'Normal'], ['double', 'Double ↑'], ['half', 'Light'], ['rest', 'Rest']]) { const o = h('option', { value: iv }, lbl) as HTMLOptionElement; if (iv === (p.trainIntensity ?? 'normal')) o.selected = true; piSel.append(o); }
-  piSel.addEventListener('change', async () => { try { const r = await api.setPlayerIntensity(slot, piSel.value); p.trainIntensity = r.intensity ?? undefined; toast(`Intensity: ${r.intensity ?? 'normal'}`); } catch (e: any) { toast(e.message); } });
+  guardSelect(piSel, async v => { const r = await api.setPlayerIntensity(slot, v); p.trainIntensity = r.intensity ?? undefined; toast(`Intensity: ${r.intensity ?? 'normal'}`); return r.intensity ?? undefined; }, alive);
   const rtSel = h('select', { style: 'width:auto;font-size:12px;padding:3px 6px', 'aria-label': 'Retrain position', title: 'Retrain him into a new position — he settles in over several matchdays, developing a little slower until comfortable.' }) as HTMLSelectElement;
   rtSel.append(h('option', { value: '' }, `No (stay ${p.role})`));
   for (const role of ['GK', 'FB', 'CB', 'CM', 'WM', 'CF']) { if (role === p.role) continue; const o = h('option', { value: role }, `→ ${role}`) as HTMLOptionElement; if (role === (p.retrainRole ?? '')) o.selected = true; rtSel.append(o); }
-  rtSel.addEventListener('change', async () => { try { const r = await api.setPlayerRetrain(slot, rtSel.value || 'clear'); if (!alive()) return; toast(r.retrainRole ? `Retraining → ${r.retrainRole}` : `Settled at ${p.role}`); route(); } catch (e: any) { if (alive()) toast(e.message); } });
+  guardSelect(rtSel, async v => { const r = await api.setPlayerRetrain(slot, v || 'clear'); if (!alive()) return; toast(r.retrainRole ? `Retraining → ${r.retrainRole}` : `Settled at ${p.role}`); route(); return r.retrainRole ?? undefined; }, alive);
   const devCard = h('div', { class: 'card' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, 'Development'),
     h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'His individual training — a focus grows one area faster, intensity trades growth for injury risk, and you can retrain him into a new position.'),
@@ -4314,14 +4412,17 @@ async function screenFinances() {
         cell('Wage bill', `${fmtMoney(f.wageBill)}/yr`, f.wageBill > f.wageBudget ? 'color:var(--danger)' : ''))),
     // wage bill vs budget bar
     (() => {
-      const pct = f.wageBudget > 0 ? Math.min(100, Math.round((f.wageBill / f.wageBudget) * 100)) : 0;
+      // rawPct is the TRUE percentage (can exceed 100 when over budget — the label must show it);
+      // barPct clamps only the bar WIDTH so it can't overflow its track.
+      const rawPct = f.wageBudget > 0 ? Math.round((f.wageBill / f.wageBudget) * 100) : 0;
+      const barPct = Math.min(100, rawPct);
       const over = f.wageBill > f.wageBudget;
       return h('div', { class: 'card', style: 'padding:10px 14px' },
         h('div', { class: 'between', style: 'font-size:12px;margin-bottom:4px' },
           h('span', { class: 'muted' }, 'Wage bill vs budget'),
-          h('span', { style: over ? 'color:var(--danger);font-weight:600' : '' }, `${fmtMoney(f.wageBill)} / ${fmtMoney(f.wageBudget)} (${pct}%)`)),
+          h('span', { style: over ? 'color:var(--danger);font-weight:600' : '' }, `${fmtMoney(f.wageBill)} / ${fmtMoney(f.wageBudget)} (${rawPct}%)`)),
         h('div', { style: 'height:7px;background:var(--panel2,#161f30);border-radius:4px;overflow:hidden' },
-          h('div', { style: `height:100%;width:${pct}%;background:${over ? 'var(--danger)' : 'var(--accent)'}` })));
+          h('div', { style: `height:100%;width:${barPct}%;background:${over ? 'var(--danger)' : 'var(--accent)'}` })));
     })(),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       h('div', { class: 'card' },
@@ -5086,31 +5187,44 @@ function route() {
   if (hash !== '#/tactics') tacticsMutationGate.clearListeners();
   if (!user) { teardownWatch(); screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
-  if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash), Number(hash.match(/[?&]t=(\d+)/)?.[1] ?? 0), /[?&]cup=1\b/.test(hash)); }
-  else if (hash === '#/worlds') screenWorlds();
-  else if (hash === '#/internationals') screenInternationals();
-  else if (hash === '#/matches') screenMyMatches();
-  else if (hash === '#/league') screenLeagueMatches();
-  else if (hash === '#/tactics') screenTactics();
-  else if (hash === '#/market') screenMarket();
-  else if (hash === '#/scouting') screenScouting();
-  else if (hash === '#/training') screenTraining();
-  else if (hash === '#/academy') screenAcademy();
-  else if (hash.startsWith('#/teamtalk/')) screenTeamTalk(Number(hash.split('/')[2]));
-  else if (hash === '#/news') screenNews();
-  else if (hash === '#/inbox') screenInbox();
-  else if (hash === '#/leaders') screenLeaders();
-  else if (hash === '#/squad') screenSquad();
-  else if (hash === '#/staff') screenStaff();
-  else if (hash === '#/finances') screenFinances();
-  else if (hash === '#/cup') screenCup();
-  else if (hash === '#/history') screenHistory();
-  else if (hash === '#/career') screenCareer();
-  else if (hash.startsWith('#/report/')) { const seg = hash.split('/')[2] ?? ''; screenReport(Number(seg.split('?')[0]), /[?&]cup=1\b/.test(hash)); }
-  else if (hash.startsWith('#/scout/')) screenScout(Number(hash.split('/')[2]));
-  else if (hash.startsWith('#/player/')) screenPlayer(Number(hash.split('/')[2]));
-  else screenDashboard();
+  const alive = screenGuard();
+  // Router async error boundary — an async screen that rejects OUTSIDE its own try/catch (a synchronous render
+  // throw, an unhandled path) would otherwise leave a permanent half-mounted spinner. Catch it and show a
+  // recoverable error instead. Fires only if this route is still current (a later navigation supersedes it).
+  const run = (p: void | Promise<void>): void => { void Promise.resolve(p).catch(err => { if (alive()) mountError('Something went wrong', errMessage(err), () => route()); }); };
+  // Validate numeric route params (parseRouteId, see util.ts) so a garbage hash (#/report/abc, #/player/NaN)
+  // shows a recoverable not-found state instead of firing NaN at the API.
+  const idArg = parseRouteId;
+  const notFound = () => mount(header(), h('div', { class: 'wrap' }, errorState({ title: 'Page not found', detail: 'That link doesn’t point to a valid page.', back: 'dashboard' })));
+
+  if (hash.startsWith('#/watch/')) { const id = idArg(hash.split('/')[2] ?? ''); if (id == null) return notFound(); run(screenWatch(id, /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash), Number(hash.match(/[?&]t=(\d+)/)?.[1] ?? 0), /[?&]cup=1\b/.test(hash))); }
+  else if (hash === '#/worlds') run(screenWorlds());
+  else if (hash === '#/internationals') run(screenInternationals());
+  else if (hash === '#/matches') run(screenMyMatches());
+  else if (hash === '#/league') run(screenLeagueMatches());
+  else if (hash === '#/tactics') run(screenTactics());
+  else if (hash === '#/market') run(screenMarket());
+  else if (hash === '#/scouting') run(screenScouting());
+  else if (hash === '#/training') run(screenTraining());
+  else if (hash === '#/academy') run(screenAcademy());
+  else if (hash.startsWith('#/teamtalk/')) { const id = idArg(hash.split('/')[2] ?? ''); if (id == null) return notFound(); run(screenTeamTalk(id)); }
+  else if (hash === '#/news') run(screenNews());
+  else if (hash === '#/inbox') run(screenInbox());
+  else if (hash === '#/leaders') run(screenLeaders());
+  else if (hash === '#/squad') run(screenSquad());
+  else if (hash === '#/staff') run(screenStaff());
+  else if (hash === '#/finances') run(screenFinances());
+  else if (hash === '#/cup') run(screenCup());
+  else if (hash === '#/history') run(screenHistory());
+  else if (hash === '#/career') run(screenCareer());
+  else if (hash.startsWith('#/report/')) { const id = idArg(hash.split('/')[2] ?? ''); if (id == null) return notFound(); run(screenReport(id, /[?&]cup=1\b/.test(hash))); }
+  else if (hash.startsWith('#/scout/')) { const id = idArg(hash.split('/')[2] ?? ''); if (id == null) return notFound(); run(screenScout(id)); }
+  else if (hash.startsWith('#/player/')) { const slot = idArg(hash.split('/')[2] ?? ''); if (slot == null) return notFound(); run(screenPlayer(slot)); }
+  else run(screenDashboard());
 }
+// Last-resort net: log any unhandled rejection the router boundary didn't wrap (kept console-only to avoid
+// toasting the app's intentional fire-and-forget `void promise` paths). The boundary above is the user-facing net.
+window.addEventListener('unhandledrejection', (e) => { console.error('[unhandled]', e.reason); });
 
 // a11y: a "skip to content" link as the first focusable element lets keyboard users jump past the header nav.
 // It focuses the #main-content landmark directly (NOT via an href hash, which would clobber the SPA route).
@@ -5165,7 +5279,15 @@ mount(h('div', { class: 'center' }, h('div', { class: 'spin' }, 'Loading Footy M
     // A manager without a club may still browse shared worlds and claim one. The old tactics exception was a
     // typo: it forced a direct #/worlds visit back to club creation, then left that link on an unchanged hash.
     if (user && me.teamId == null && location.hash !== '#/worlds') { screenCreateTeam(); return; }
-  } catch { /* */ }
+  } catch (e) {
+    // A NETWORK failure (server down / offline) is NOT the same as being logged out — don't dump the user on
+    // the login screen. Show a recoverable offline state; a real not-logged-in /me RESOLVES (user:null) rather
+    // than throwing, so it still falls through to route() → Auth as before.
+    if (isOffline(e)) {
+      mount(h('div', { class: 'center' }, offlineState(() => { mount(h('div', { class: 'center' }, h('div', { class: 'spin' }, 'Reconnecting…'))); void boot(); })));
+      return;
+    }
+  }
   route();
   watchForNewVersion();
   registerServiceWorker();
