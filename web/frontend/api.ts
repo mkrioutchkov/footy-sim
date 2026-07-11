@@ -48,7 +48,7 @@ export interface Tactics {
   aggression: number; passingDirectness: number; overlapFrequency: number;
   midfieldFreedom: number; defensiveLineHeight: number;
 }
-export interface DirectiveT { playerId: number; kind: string; targetId?: number; teamScope?: number; intensity?: number; when?: { fromMin?: number; toMin?: number; scoreState?: string; scoreBy?: number }; }
+export interface DirectiveT { playerId: number; kind: string; targetId?: number; teamScope?: number; intensity?: number; when?: { fromMin?: number; toMin?: number; scoreState?: string; scoreBy?: number; phase?: string }; }   // phase: in_possession/out_of_possession/transition (backend tactics.ts Directive)
 export interface PlanT { summary: string; directives: DirectiveT[]; }
 export interface PersonalityT {
   traits: { temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number; consistency: number; leadership: number; professionalism: number; ego: number };

@@ -1349,7 +1349,7 @@ function boardToggle(labelText: string, checked: boolean, onChange: (c: boolean)
 // else (all_out_attack/park_the_bus/high_press/drop_off/push_up) or any conditional `when` can't be shown here,
 // so we warn before a board save silently replaces them.
 const BOARD_TEAM_KINDS = new Set(['mentality', 'press_intensity', 'line_height', 'play_it_long', 'keep_it_on_ground', 'play_narrow', 'get_it_wide', 'work_it_into_box', 'shoot_from_distance', 'counter_attack', 'offside_trap', 'slow_it_down']);
-const hasWhenCond = (w: DirectiveT['when']): boolean => !!w && ((w.fromMin ?? 0) > 0 || (w.toMin ?? 1000) < 1000 || (!!w.scoreState && w.scoreState !== 'any'));
+const hasWhenCond = (w: DirectiveT['when']): boolean => !!w && ((w.fromMin ?? 0) > 0 || (w.toMin ?? 1000) < 1000 || (!!w.scoreState && w.scoreState !== 'any') || !!w.phase);
 
 function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
   // directive playerIds are SQUAD SLOTS (the fielded player, incl. promoted bench) → names for the readback
@@ -1357,9 +1357,26 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
   // `existing` is re-pointed to the latest saved plan after every commit, so seedPresets (on a formation
   // change) re-derives roles from what's actually persisted — not a stale load-time snapshot.
   let existing = team.plan?.directives ?? [];
-  // Advanced directives (unexposed team kinds, or any with a time/score condition) the board can't render —
-  // surfaced as a warning so a board save doesn't wipe a typed plan's park_the_bus / "slow down when winning".
-  const hiddenDirs = existing.filter(d => (d.teamScope != null && !BOARD_TEAM_KINDS.has(d.kind)) || hasWhenCond(d.when));
+  // EVERY saved directive the board can't represent (and a board save would therefore drop or rewrite):
+  //   • team-wide kinds with no board control (park_the_bus, push_up, …);
+  //   • any time/score/phase condition (the board has no `when` UI);
+  //   • per-player orders the slot's reconstructed preset bundle doesn't reproduce EXACTLY — a lone typed
+  //     "shoot_on_sight", an order on an unfielded player, or a preset-shaped set at custom intensities
+  //     (save re-emits the preset's canonical intensities, silently rewriting the manager's).
+  // Must run AFTER seedPresets() — it compares against what the CURRENT presets would emit on save.
+  const hiddenDirectives = (): DirectiveT[] => {
+    // squad slot -> the kind→intensity map the current preset choices would emit for the player fielded there
+    const emitted = new Map<number, Map<string, number>>();
+    slotsOf().forEach((s, i) => {
+      const preset = ROLE_PRESETS[roleFamily(s.role)].find(p => p.key === presets[i]);
+      emitted.set(squadIdx(i), new Map((preset?.dirs ?? []).map(([k, v]) => [k, v ?? 1])));
+    });
+    return existing.filter(d => {
+      if (hasWhenCond(d.when)) return true;
+      if (d.teamScope != null) return !BOARD_TEAM_KINDS.has(d.kind);
+      return emitted.get(d.playerId)?.get(d.kind) !== (d.intensity ?? 1);   // unfielded / kind missing / intensity rewritten
+    });
+  };
   const teamKind = (k: string) => existing.find(d => d.teamScope != null && d.kind === k);
   const dialVal = (k: string) => { const d = teamKind(k); return typeof d?.intensity === 'number' ? d.intensity : 0.5; };
 
@@ -1567,11 +1584,13 @@ function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
   saveBtn.addEventListener('click', async () => { if (await commitDirectives()) toast('Tactics saved ✓'); });
   renderReadout();
 
-  // #2: warn (don't silently drop) if the saved plan holds advanced instructions this board can't show.
+  // #2: warn (don't silently drop) if the saved plan holds instructions this board can't represent.
+  // Computed AFTER seedPresets() above, so the round-trip check sees the presets a save would re-emit.
+  const hiddenDirs = hiddenDirectives();
   const hiddenWarn = hiddenDirs.length
     ? h('div', { class: 'card', style: 'border-color:var(--gold)' },
         h('div', { style: 'color:var(--gold);font-size:13px' },
-          `⚠ Your saved plan has advanced instructions this board can't show (${[...new Set(hiddenDirs.map(d => d.kind))].join(', ')}). Saving from the board will replace them — edit those in the plain-English plan below instead.`))
+          `⚠ Your saved plan has instructions this board can't represent (${[...new Set(hiddenDirs.map(d => d.kind))].join(', ')}). Saving from the board will replace or rewrite them — edit those in the plain-English plan below instead.`))
     : '';
 
   return h('div', { class: 'grid' },
