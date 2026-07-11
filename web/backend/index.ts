@@ -966,7 +966,10 @@ app.get('/api/league', async (req: any, reply) => {
       const wid = worldForTeam(teamId); const w = wid != null ? getWorld(wid) : null;
       if (!w) return { mode: 'solo' as const, turn: 0, canAdvance: !!user.isAdmin };
       const nextTurnAt = w.mode === 'shared' && w.lastAdvanced != null ? w.lastAdvanced + w.intervalMin * 60000 : null;
-      return { mode: w.mode, turn: w.turn, intervalMin: w.intervalMin, lastAdvanced: w.lastAdvanced, nextTurnAt, canAdvance: user.isAdmin || w.mode === 'solo' };
+      // §autonomous: surface the team's autonomy tier so a shared-world manager can see/toggle whether the
+      // assistant only sets tactics+XI ('assistant') or also makes transfers while they're away ('full').
+      const autonomy = (db.prepare('SELECT autonomy FROM teams WHERE id = ?').get(teamId) as { autonomy: string | null } | undefined)?.autonomy === 'full' ? 'full' : 'assistant';
+      return { mode: w.mode, turn: w.turn, intervalMin: w.intervalMin, lastAdvanced: w.lastAdvanced, nextTurnAt, canAdvance: user.isAdmin || w.mode === 'solo', autonomy };
     })(),
   };
 });

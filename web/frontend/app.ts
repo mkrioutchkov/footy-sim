@@ -76,13 +76,17 @@ function mount(...nodes: Node[]) {
   }
 }
 function toast(msg: string) {
+  // Toasts stack in a fixed bottom-centre column so concurrent toasts (many actions fire 2+) queue upward
+  // instead of rendering exactly on top of each other. The container is created lazily and auto-cleans.
+  let stack = document.getElementById('toast-stack');
+  if (!stack) { stack = h('div', { id: 'toast-stack' }); document.body.appendChild(stack); }
   const t = h('div', { class: 'toast', role: 'status' }, msg);
-  document.body.appendChild(t);
+  stack.appendChild(t);
   // mirror into a persistent polite live-region so screen readers announce transient toasts
   let live = document.getElementById('live-region');
   if (!live) { live = h('div', { id: 'live-region', class: 'sr-only', 'aria-live': 'polite', 'aria-atomic': 'true' }); document.body.appendChild(live); }
   live.textContent = msg;
-  setTimeout(() => t.remove(), 2600);
+  setTimeout(() => { t.remove(); if (stack && !stack.childElementCount) stack.remove(); }, 2600);
 }
 
 // ── in-app modals (replace native confirm()/prompt(), which are ugly + block the event loop) ──
@@ -99,9 +103,10 @@ function trapTab(e: KeyboardEvent, card: HTMLElement): void {
 function confirmModal(title: string, message: string, okLabel = 'Confirm'): Promise<boolean> {
   return new Promise(resolve => {
     let done = false;
+    const opener = document.activeElement as HTMLElement | null;   // a11y: restore focus to the trigger on close
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(false); else if (e.key === 'Enter') finish(true); else if (e.key === 'Tab') trapTab(e, card); };
     const onHash = () => finish(false);   // navigating away closes the modal (it lives on body, not root)
-    const finish = (v: boolean) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); resolve(v); };
+    const finish = (v: boolean) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); try { opener?.focus?.(); } catch { /* opener gone */ } resolve(v); };
     const ok = h('button', { class: 'primary', onclick: () => finish(true) }, okLabel);
     const card = h('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title' },
       h('h3', { id: 'modal-title', style: 'margin-bottom:10px' }, title),
@@ -117,9 +122,10 @@ function confirmModal(title: string, message: string, okLabel = 'Confirm'): Prom
 function promptModal(title: string, message: string, value = '', okLabel = 'Submit'): Promise<string | null> {
   return new Promise(resolve => {
     let done = false;
+    const opener = document.activeElement as HTMLElement | null;   // a11y: restore focus to the trigger on close
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') finish(null); else if (e.key === 'Tab') trapTab(e, card); };
     const onHash = () => finish(null);   // navigating away closes the modal (it lives on body, not root)
-    const finish = (v: string | null) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); resolve(v); };
+    const finish = (v: string | null) => { if (done) return; done = true; document.removeEventListener('keydown', onKey); window.removeEventListener('hashchange', onHash); backdrop.remove(); try { opener?.focus?.(); } catch { /* opener gone */ } resolve(v); };
     const input = h('input', { type: 'text', value }) as HTMLInputElement;
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(input.value); } });
     const card = h('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title' },
@@ -1062,6 +1068,37 @@ async function screenDashboard() {
         })()
       : '');
 
+  // §autonomous: shared-world membership controls — an autonomy toggle (assistant sets only tactics+XI vs
+  // full also spends in the market while you're away) and a leave-world action. Only meaningful in a shared
+  // world; solo worlds have neither an assistant tier nor a "leave" (you own the world). Both endpoints existed
+  // but had no UI — the worlds screen even told users to "leave from your dashboard" with nothing to click.
+  const sharedWorldCard: HTMLElement | string = isShared && worldTurn ? (() => {
+    let autonomy: 'assistant' | 'full' = worldTurn.autonomy ?? 'assistant';
+    const autoBtn = h('button', { class: 'ghost small' }) as HTMLButtonElement;
+    const paintAuto = () => { autoBtn.textContent = autonomy === 'full' ? '🤖 Full autonomy' : '🧭 Assistant only'; autoBtn.setAttribute('aria-pressed', String(autonomy === 'full')); };
+    paintAuto();
+    autoBtn.addEventListener('click', async () => {
+      const next = autonomy === 'full' ? 'assistant' : 'full';
+      autoBtn.setAttribute('disabled', 'true');
+      try { await api.setAutonomy(next); autonomy = next; paintAuto(); toast(next === 'full' ? '🤖 Full autonomy — the assistant will also make transfers while you’re away' : '🧭 Assistant only — tactics & XI while you’re away, never spends'); }
+      catch (e: any) { toast(e.message); }
+      finally { autoBtn.removeAttribute('disabled'); }
+    });
+    const leaveBtn = h('button', { class: 'ghost small danger' }, 'Leave world') as HTMLButtonElement;
+    leaveBtn.addEventListener('click', async () => {
+      if (!await confirmModal('Leave this world?', `${team.name} will be released back to AI control and you’ll return to the world lobby. This can’t be undone.`, 'Leave world')) return;
+      leaveBtn.setAttribute('disabled', 'true');
+      try { await api.leaveWorld(); toast('You’ve left the world.'); location.hash = '#/worlds'; route(); }
+      catch (e: any) { toast(e.message); leaveBtn.removeAttribute('disabled'); }
+    });
+    return h('div', { class: 'card', style: 'padding:12px 16px' },
+      h('div', { class: 'between', style: 'gap:12px;flex-wrap:wrap' },
+        h('div', { class: 'row', style: 'gap:8px;align-items:baseline' },
+          h('span', { class: 'section-title', style: 'margin:0' }, '🌍 Shared world'),
+          h('span', { class: 'muted', style: 'font-size:12px' }, 'While you’re away, your assistant runs the club:')),
+        h('div', { class: 'row', style: 'gap:8px' }, autoBtn, leaveBtn)));
+  })() : '';
+
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
@@ -1076,6 +1113,7 @@ async function screenDashboard() {
         !myNext && canAdvance ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' },
           'You’ve played all your matches this season — keep advancing to finish the season, then play your next fixtures live.') : ''),
     ),
+    sharedWorldCard,
     digestCard,
     nextMatchCard,
     h('div', { class: 'card', style: 'padding:14px' },
@@ -1269,6 +1307,12 @@ async function screenTactics() {
 // ── watch ──
 let activeRenderer: MatchRenderer | null = null;
 let activeWs: WebSocket | null = null;
+// The control bar (Pause, speed, seek) is interactive BEFORE the socket opens and stays in the DOM after it
+// closes at full-time; a bare activeWs.send() then throws an uncaught InvalidStateError (CONNECTING/CLOSING/
+// CLOSED). Route every control-bar command through this OPEN guard so a mistimed click is a silent no-op.
+function wsSend(msg: unknown): void {
+  if (activeWs?.readyState === WebSocket.OPEN) activeWs.send(JSON.stringify(msg));
+}
 let watchBar: HTMLElement | null = null;
 let watchPanel: HTMLElement | null = null;
 let watchStatus: HTMLElement | null = null;   // connecting / connection-lost overlay
@@ -1459,9 +1503,13 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
       // position within the CURRENT range (live: the rewind window; recorded: 0..duration) — a moment older
       // than the window pins to the left edge (clicking it seeks the oldest buffered frame).
       const pct = Math.min(99.5, Math.max(0, ((e.clockMs - scrubMinMs) / Math.max(1, scrubMaxMs - scrubMinMs)) * 100));
-      goalMarkers.append(h('span', {
-        title: `${Math.floor(e.clockMs / 60000)}' — ${e.name} · click to jump`,
-        style: `position:absolute;left:${pct}%;top:-2px;transform:translateX(-50%);font-size:13px;line-height:1;cursor:pointer;pointer-events:auto`,
+      const min = Math.floor(e.clockMs / 60000);
+      // a11y: a real <button> (not a bare <span onclick>) so the marker is focusable and keyboard-operable —
+      // the ,/. shortcuts scrub, but the markers themselves must also be reachable (matches screenReport's strip).
+      goalMarkers.append(h('button', {
+        type: 'button', 'aria-label': `${e.kind} at ${min} minutes — ${e.name}. Jump to it`,
+        title: `${min}' — ${e.name} · click to jump`,
+        style: `position:absolute;left:${pct}%;top:-2px;transform:translateX(-50%);font-size:13px;line-height:1;cursor:pointer;pointer-events:auto;background:none;border:0;padding:0;box-shadow:none`,
         onclick: () => seekTo(Math.max(0, e.clockMs - 4000)),
       }, MARKER_ICON[e.kind] ?? '•'));
     }
@@ -1508,7 +1556,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   };
   const setSpeed = (v: number): void => {
     curSpeed = v;   // apply immediately — re-paces the buffer playback even while rewound (replaying)
-    activeWs?.send(JSON.stringify({ type: 'speed', value: v }));
+    wsSend({ type: 'speed', value: v });
     paintSpeed(v);
   };
   speedPills.forEach((btn, i) => btn.addEventListener('click', () => setSpeed(SPEEDS[i])));
@@ -1521,7 +1569,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   const pauseBtn = h('button', { class: 'ghost small', 'aria-label': 'Pause or resume playback', 'aria-pressed': 'false', onclick: () => {
     paused = !paused;
     pauseClickedAt = performance.now();
-    activeWs?.send(JSON.stringify({ type: paused ? 'pause' : 'resume' }));
+    wsSend({ type: paused ? 'pause' : 'resume' });
     pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
     paintBar();
   } }, '⏸ Pause') as HTMLButtonElement;
@@ -1708,9 +1756,9 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     placeholder: 'Shout at your team — "AB mark their striker, everyone push up", or rev them up: "come on Lange, sort it out". Each shout edits your standing plan.' }) as HTMLTextAreaElement;
   const applyPlan = () => {
     const text = ta.value.trim();
-    if (!text || !activeWs) return;
+    if (!text || activeWs?.readyState !== WebSocket.OPEN) return;
     receiptEl.replaceChildren(h('div', { class: 'muted' }, 'Applying…'));
-    activeWs.send(JSON.stringify({ type: 'tactics', text }));
+    wsSend({ type: 'tactics', text });
   };
   // Ctrl/Cmd+Enter applies the shout (same as the Apply button) — keep your hands on the keyboard mid-match.
   ta.addEventListener('keydown', (e) => {
@@ -1941,7 +1989,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
     if (liveSeek) { seekLiveBuffer(targetMs); return; }
     if (!replayUiApplied) return;   // a live re-sim before its buffer is ready / a non-seekable stream: nothing to backend-seek (avoid a dead send)
     pendingSeekMs = Math.max(0, targetMs); pendingSeekAt = performance.now();
-    activeWs?.send(JSON.stringify({ type: 'seek', value: Math.max(0, targetMs) }));
+    wsSend({ type: 'seek', value: Math.max(0, targetMs) });
     // ReplayStream.seekTo() force-resumes the backend, so re-sync the local pause label — else the Pause
     // button inverts (reads "▶ Resume" while the match visibly plays, and needs two clicks to recover).
     if (paused) { paused = false; pauseBtn.textContent = '⏸ Pause'; paintBar(); }
