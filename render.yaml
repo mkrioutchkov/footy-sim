@@ -14,7 +14,7 @@ services:
     name: footy-sim
     runtime: docker
     dockerfilePath: ./Dockerfile
-    branch: feature/pwa-deploy
+    branch: master
     plan: free
     healthCheckPath: /api/me
     envVars:
