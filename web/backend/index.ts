@@ -28,6 +28,7 @@ import { worldForTeam, getWorld, ensureWorldForLeague, claimAdvanceLock, release
 import { prepareMatchdayHeuristic, setTacticsAndXI } from './manager/index.ts';
 import { NATIONS, CONFED_NAME, backfillNationalities } from './nations.ts';
 import { runInternationalTournaments, getWorldTournaments, selectNationalSquad, fieldableNations } from './national.ts';
+import { fastSimEnabled } from './fastsim.ts';
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
@@ -1529,6 +1530,7 @@ seedAdminUser();
 const server = app.server;
 await app.listen({ port: PORT, host: '127.0.0.1' });
 console.log(`footy game server on http://localhost:${PORT}`);
+if (fastSimEnabled()) console.log('⚡ FOOTY_FAST_SIM on — matches resolve via the fast statistical model (no engine spawn). Headless/bulk mode; watched matches lose full-engine fidelity.');
 
 // ── Autonomous turn scheduler (opt-in) ──────────────────────────────────────
 // When FOOTY_AUTO_TICK_MIN is set, the server self-drives: every N minutes it advances every shared
