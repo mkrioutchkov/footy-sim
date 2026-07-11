@@ -1474,7 +1474,7 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     keeperHoldChoreo = false;
     if (!setPiece.armed && b.controllerId >= 0) {
         Player* holdGk = playerById(b.controllerId);
-        if (holdGk && holdGk->role == Role::GK
+        if (holdGk && holdGk->role == Role::GK && !gkHoldFeetOnly
             && std::abs(holdGk->x - ownGoalXFor(holdGk->team)) < PENALTY_AREA_W + 30.0) {
             keeperHoldChoreo = true;
             for (auto& a : agents)

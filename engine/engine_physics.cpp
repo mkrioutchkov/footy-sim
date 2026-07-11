@@ -397,7 +397,8 @@ bool GameEngine::checkOutOfPlay() {
         if (!inGoal) {
             if (lt != Team::Home) flagSenselessOut();   // away attacker put it behind for a goal kick
             clearState();
-            if (lt == Team::Home)
+            if (lt == Team::Home
+                || (state.clockMs - lastRicochetMs < 700.0 && lastRicochetTeam == Team::Home))
                 awardCorner(Team::Away, true, b.y);
             else
                 awardSetPiece(SetPiece::GoalKick, Team::Home);
@@ -413,7 +414,8 @@ bool GameEngine::checkOutOfPlay() {
         if (!inGoal) {
             if (lt != Team::Away) flagSenselessOut();   // home attacker put it behind for a goal kick
             clearState();
-            if (lt == Team::Away)
+            if (lt == Team::Away
+                || (state.clockMs - lastRicochetMs < 700.0 && lastRicochetTeam == Team::Away))
                 awardCorner(Team::Home, false, b.y);
             else
                 awardSetPiece(SetPiece::GoalKick, Team::Away);
@@ -797,6 +799,8 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
                         b.vx -= COLLISION_REFLECT_FACTOR * dot * nx;
                         b.vy -= COLLISION_REFLECT_FACTOR * dot * ny;
                     }
+                    lastRicochetTeam = p.team;
+                    lastRicochetMs = state.clockMs;
                     b.vx *= 0.72;
                     b.vy *= 0.72; // a leggy, messy ricochet, not a clean block
                     recordBallImpulse();
@@ -1090,9 +1094,20 @@ void GameEngine::collectBall(Player& c) {
     // tick, which read as the ball ricocheting off him like a pinball.
     double incoming = std::hypot(b.vx, b.vy);
     if (c.role == Role::GK) {
+        // Law 12 back-pass (audit HIGH: 5/5 deliberate kicked back-passes in
+        // the traced match became tackle-immune hand-holds): a deliberate
+        // kicked pass from a teammate (intended receiver = me, last touch =
+        // my team; headers/chests never set the intended receiver) may not be
+        // picked up — the keeper plays it with his feet: a short feet window
+        // instead of the protected 700-1500ms hold, and the release paths
+        // keep it on the ground (no from-hands punt).
+        gkHoldFeetOnly = b.intendedReceiverId == c.id && b.lastTouchTeam == c.team
+            && pendingPass.active && pendingPass.team == c.team;
         goalKickMonitor.distributeTimer = std::max(goalKickMonitor.distributeTimer,
-                                                   clamp(700.0 + incoming * 1.2, 700.0, 1500.0));
+                                                   gkHoldFeetOnly ? 380.0
+                                                                  : clamp(700.0 + incoming * 1.2, 700.0, 1500.0));
     } else if (c.id >= 0 && c.id < 22) {
+        gkHoldFeetOnly = false;
         // Settle window before a deliberate pass — long for a fierce ball,
         // ~nil for a gently rolled one, shorter for a composed player. He can
         // still dribble/shield during it (and shoot a first-timer).
@@ -1108,7 +1123,7 @@ void GameEngine::collectBall(Player& c) {
     // normal snapshot missed because shootBall killed pendingPass).
     if (shotSnapshotLive
         && (lastLooseOrigin == LooseOrigin::Shot || lastLooseOrigin == LooseOrigin::Woodwork
-            || lastLooseOrigin == LooseOrigin::GoalkeeperParry)
+            || lastLooseOrigin == LooseOrigin::GoalkeeperParry || lastLooseOrigin == LooseOrigin::GoalkeeperPunch)
         && c.team == shotTeam && c.id >= 0 && c.id < 22 && offsideAtShot[c.id]) {
         shotSnapshotLive = false;
         stats.recordOffside();

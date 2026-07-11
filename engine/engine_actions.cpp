@@ -875,14 +875,20 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
             // Card-per-foul was ~32% (≈2× real ~17%): a foul fired a card far too
             // often, so raising fouls toward real exploded yellows/reds. Lowered to
             // calibrate cards to the higher foul volume (cynical fouls stay bookable).
-            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.20 : 0.055); // SysArch 2026-06-30: yellows measured ~5.5/match (≈1.5× real 3-4) → trim 0.28/0.075 → 0.20/0.055
+            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.42 : 0.13); // recalibrated after DOGSO: cynical-yellow volume became (rare) reds; fouls sit at ~21.5/90 (real band), card-per-foul was ~10% vs real ~17%
             // A booked player's borderline SECOND foul: a real ref usually warns
             // rather than firing the automatic second yellow. Second-yellow reds were
             // measured ~0.62/match (≈2.5× real ~0.25), piled up in chippy high-yellow
             // games — trimming the average never tamed that tail; this does. (A cynical
             // second foul stays bookable — he meant it.)
             if (yellowCards[tackler.id] >= 1 && !cynical) cardChance *= 0.45;
-            bool straightRed = fromBehind && rng.random() < 0.0032; // reds measured ~0.60 ≈ 2.4× real → 0.005->0.0032
+            // Law 12 DOGSO (audit HIGH): the cynical trigger IS textbook
+            // denial-of-goal-scoring-opportunity outside the box (last man, no
+            // cover, unwinnable challenge) — a straight red, not the 55% SPA
+            // yellow it rolled (45% walked away cardless). Small ref-error
+            // residual keeps it human.
+            bool straightRed = (cynical && rng.random() < 0.92)
+                || (fromBehind && rng.random() < 0.0032); // non-DOGSO wild lunges stay rare
             if (straightRed || rng.random() < cardChance) {
                 if (!straightRed) {
                     yellowCards[tackler.id]++;
@@ -1044,11 +1050,12 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // carrier's forward velocity toward our goal, not approachDot.
     double carrierToGoal = carrierSpeed > 8.0 ? forwardX * fdFor(carrier.team) : 0.0;
     bool cynical = !inPenaltyBox && carrierGoalDist > CYNICAL_BAND_NEAR && carrierGoalDist < CYNICAL_BAND_FAR && carrierToGoal > CYNICAL_FOUL_DRIVE                       // carrier breaking toward my goal
-                   && carrierSpeed > CYNICAL_MIN_SPEED                                                                                                                    // a real sprint break
+                   && carrierSpeed > 40.0                                                                                                                                 // a genuine sprint breakaway (was 18 — that fired ~3.5/90; DOGSO reds hit 3.3 vs real ~0.25)
                    && goalSideCover == 0                                                                                                                                  // I am the last man
                    && chance < commitBar                                                                                                                                  // the tackle is genuinely unwinnable
                    && state.ball.controllerId == carrier.id                                                                                                               // he's in control (a real break, not a loose 50/50)
-                   && directiveBias[tackler.id].stayOnFeet < 0.5;                                                                                                         // a stay_on_feet order suppresses it
+                   && directiveBias[tackler.id].stayOnFeet < 0.5                                                                                                          // a stay_on_feet order suppresses it
+                   && rng.random() < 0.30;                                                                                                                                // most pros do NOT pull him down — willingness, not certainty
     bool committed = chance >= commitBar || boxEmergency || cynical || (carrier.dribbleType == 0 && ballExposureDot > 0.0) || (ballPushedAhead && ballExposureDot > 0.15) // nick the loose touch off an open carry
                      || (ballExposureDot > 0.40);                                                                                                                         // ball shown front-to-front at me — go, whatever the carry type
     if (!committed) return false;

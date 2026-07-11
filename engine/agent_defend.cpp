@@ -250,6 +250,13 @@ Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
 // cc() — can-chase
 // ══════════════════════════════════════════════════════════════════════════════
 Action PlayerAI::scoreChase(const Perception& per) {
+    // Law 11 self-restraint: a player who was in an offside position when his
+    // teammate SHOT pulls out of the rebound chase — real poachers know the
+    // flag is coming (without this, honest rebound whistling hit 9.7/90 vs
+    // real 3-6 because runners chased balls they could never legally play).
+    if (engine.shotSnapshotLive && player.team == engine.shotTeam
+        && player.id >= 0 && player.id < 22 && engine.offsideAtShot[player.id])
+        return Action{ActionType::Chase, 0.0};
     auto& b = engine.state.ball;
     bool isIntendedReceiver = (player.id == b.intendedReceiverId);
     bool activeKnockAheadRunner = engine.isActiveKnockAheadRunner(player.id);

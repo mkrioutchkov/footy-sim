@@ -173,6 +173,16 @@ public:
     std::array<bool, 22> offsideAtShot{};
     Team shotTeam = Team::Home;
     bool shotSnapshotLive = false;
+    // Locked-body ricochet memory, RESTART ATTRIBUTION ONLY (Law 17 audit: a
+    // real ricochet off a contest-locked defender's legs that ran behind his
+    // own line restarted as a goal kick because lastToucher deliberately isn't
+    // updated there). Never consulted for possession or offside.
+    Team lastRicochetTeam = Team::Home;
+    double lastRicochetMs = -1e9;
+    // Law 12 back-pass: the keeper holding a ball deliberately KICKED to him
+    // by a teammate is feet-only — no protected hold, no hold choreography,
+    // no from-hands punt. Set at collect, cleared at release/next collect.
+    bool gkHoldFeetOnly = false;
     // Keeper-distribution choreography latch (set per tick in fixedUpdate):
     // while a GK holds the ball in his box, goal-kick shapes own everyone's
     // targets and executeAction defers (see the anti-swarm tombstone).

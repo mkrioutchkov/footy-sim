@@ -569,8 +569,11 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         b.lastToucherId = holder.id;
         b.vx = dx / d * 300.0;   // punt at ~108 km/h (was 119)
         b.vy = dy / d * 300.0;
-        b.vz = 300.0;
-        b.z = 28.0;
+        // Feet-only hold (back-pass law): the long ball is a driven low punt
+        // off the deck, never the from-hands launch.
+        b.vz = gkHoldFeetOnly ? 120.0 : 300.0;
+        b.z = gkHoldFeetOnly ? 0.0 : 28.0;
+        gkHoldFeetOnly = false;
         b.intendedReceiverId = -1;
         emitEvent("pass", holder.x, holder.y, holder.id, outlet ? outlet->id : -1); // tag the GK long distribution (audit #6)
         blockReboundFor(holder.id, 750);

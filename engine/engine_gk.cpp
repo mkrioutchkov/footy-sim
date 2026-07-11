@@ -563,6 +563,14 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
         blockReboundFor(gk.id, 900);
         blockReboundFor(pendingPass.fromId, 900);
         recordBallImpulse();
+        // Law 11: a punch is a SAVE — it does not reset offside. Carry the
+        // launch snapshot so an offside pouncer on the dropped ball is flagged
+        // (rides the shot-rebound judgment in collectBall).
+        if (pendingPass.active && !pendingPass.offsideExempt) {
+            offsideAtShot = pendingPass.offsideAtPass;
+            shotTeam = pendingPass.team;
+            shotSnapshotLive = true;
+        }
         pendingPass.active = false;
         return;
     }
@@ -584,6 +592,11 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
     b.lastTouchTeam = gk.team;
     b.lastToucherId = gk.id;
     blockReboundFor(gk.id, 700);
+    if (pendingPass.active && !pendingPass.offsideExempt) {
+        offsideAtShot = pendingPass.offsideAtPass;   // a tip is a save: offside memory survives
+        shotTeam = pendingPass.team;
+        shotSnapshotLive = true;
+    }
     pendingPass.active = false;
 }
 
