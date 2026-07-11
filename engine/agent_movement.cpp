@@ -206,7 +206,12 @@ void PlayerAI::applyMovement(double sdt) {
     // run pace — precisely the carrier's dribble speed — and rode his back at
     // the collision radius indefinitely (watched replay: 23px for 10 straight
     // seconds, zero challenges). You don't amble into a challenge.
-    bool committedTackle = lastActionType == ActionType::Tackle && engine.state.ball.controllerId >= 0;
+    // Scoped to the CLOSING BURST (d<90): an unbounded sprint-while-Tackle-chosen
+    // kept every jockeying defender in permanent sprint, and the stamina bleed
+    // showed up as a late-match defensive collapse (30-min A/B: shots +24%,
+    // goals +40% — both flat at 10 min).
+    bool committedTackle = lastActionType == ActionType::Tackle && engine.state.ball.controllerId >= 0
+        && d < 90.0;
     double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)
         ? DRIBBLE_FAST_SPEED
         : (lastActionType == ActionType::Chase || committedPress || committedTackle || defendSprint || pursuingLooseBall || boxBurst ? SPEED_SPRINT : SPEED_RUN);
