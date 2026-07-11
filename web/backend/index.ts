@@ -19,6 +19,7 @@ import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W, roleFit } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, loanOut, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers, seedReleaseClauses, searchPlayers } from './market.ts';
 import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } from './plan.ts';
+import { sanitizeStructuredDirectives } from './tactics.ts';
 import { developmentTick, setTrainingFocus, setPlayerTrainingFocus, setPlayerTrainingIntensity, setTeamTrainingIntensity, applyTrainingPreset, TRAINING_PRESETS, setPlayerRetrain, RETRAIN_ROLES, getTrainingReport, getAttrProgression, TRAINABLE, VALID_FOCUS, VALID_INTENSITY, VALID_TEAM_INTENSITY } from './training.ts';
 import { getRotationView, applyRotation } from './rotation.ts';
 import { seedAcademy, getAcademy, promoteProspect } from './youth.ts';
@@ -328,31 +329,82 @@ app.put('/api/lineup', async (req: any, reply) => {
   return { formation: r.formation, lineup: isDefault ? null : lineup, slots: r.slots, note: r.note };
 });
 
-// §auto-XI: field the strongest role-correct XI for the CURRENT formation — the same role-fit model the
-// lineup compiler uses (best fit per slot; injured players deprioritised; the keeper anchored to slot 0).
+// Strongest role-correct XI for a shape — the role-fit model the lineup compiler uses (best fit per
+// slot; injured players deprioritised; the keeper anchored to slot 0). Shared by /lineup/auto (current
+// shape) and /lineup/set (a shape chosen from the tactics board), so both stay byte-identical.
+function strongestXI(players: { slot: number; role: string; attrs: Record<string, number>; injuredMatches?: number }[], formation: string): number[] {
+  const slots = FORMATIONS[formation] ?? FORMATIONS['4-3-3'];
+  const used = new Set<number>();
+  const lineup: number[] = [];
+  for (let i = 0; i < slots.length; i++) {
+    const role = slots[i].role;   // roleFit understands DM/AM weights directly — do NOT collapse to CM here
+    const score = (p: typeof players[number]) => roleFit(p.attrs, role) + ((p.injuredMatches ?? 0) > 0 ? -1000 : 0) + (i === 0 && p.role === 'GK' ? 500 : 0);
+    const cand = players.filter(p => !used.has(p.slot));
+    const pick = cand.reduce((best, p) => (score(p) > score(best) ? p : best), cand[0]);
+    used.add(pick.slot); lineup.push(pick.slot);
+  }
+  return lineup;
+}
+
+// §auto-XI: field the strongest role-correct XI for the CURRENT formation.
 app.post('/api/lineup/auto', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const teamId = teamForUser(user.id);
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   const team = getTeamWithPlayers(teamId)!;
   const formation = team.formation ?? '4-3-3';
-  const slots = FORMATIONS[formation] ?? FORMATIONS['4-3-3'];
   const players = team.players.slice().sort((a, b) => a.slot - b.slot);
   if (players.length < 11) return reply.code(400).send({ error: 'not enough players for an XI' });
-  const used = new Set<number>();
-  const lineup: number[] = [];
-  for (let i = 0; i < slots.length; i++) {
-    const role = slots[i].role;
-    // best role-fit among the unused; injured heavily deprioritised (only picked if no fit cover, like the
-    // fit-first match draw); the keeper is anchored to slot 0.
-    const score = (p: typeof players[number]) => roleFit(p.attrs, role) + ((p.injuredMatches ?? 0) > 0 ? -1000 : 0) + (i === 0 && p.role === 'GK' ? 500 : 0);
-    const cand = players.filter(p => !used.has(p.slot));
-    const pick = cand.reduce((best, p) => (score(p) > score(best) ? p : best), cand[0]);
-    used.add(pick.slot); lineup.push(pick.slot);
-  }
+  const lineup = strongestXI(players, formation);
   const isDefault = formation === '4-3-3' && lineup.every((v, i) => v === i);
   db.prepare('UPDATE teams SET lineup = ? WHERE id = ?').run(isDefault ? null : JSON.stringify(lineup), teamId);
   return { formation, lineup: isDefault ? null : lineup, note: `Fielded your strongest XI in a ${formation}.` };
+});
+
+// DETERMINISTIC formation + XI from the tactics board (no LLM) — the structured sibling of PUT /api/lineup.
+// Body: { formation: <registry key>, lineup?: number[11] } (formation-slot order -> squad slot). An omitted
+// or invalid lineup falls back to the strongest role-fit XI for that shape. Keeps the byte-identical guard
+// (default 4-3-3 identity persists as NULL). No opponent, no LLM latency — a shape/slot change is instant.
+app.post('/api/lineup/set', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const formation = String(req.body?.formation ?? '');
+  if (!FORMATIONS[formation]) return reply.code(400).send({ error: 'unknown formation' });
+  const team = getTeamWithPlayers(teamId)!;
+  const players = team.players.slice().sort((a, b) => a.slot - b.slot);
+  if (players.length < 11) return reply.code(400).send({ error: 'not enough players for an XI' });
+  let lineup: number[];
+  const given = req.body?.lineup;
+  if (Array.isArray(given) && given.length === 11) {
+    const nums = given.map(Number);
+    // accept only a clean 11-permutation of real squad indices (mirrors getTeamWithPlayers' guard) — a
+    // malformed map could otherwise duplicate or drop a player in the spec.
+    if (!(nums.every((n: number) => Number.isInteger(n) && n >= 0 && n < players.length) && new Set(nums).size === 11))
+      return reply.code(400).send({ error: 'invalid lineup' });
+    lineup = nums;
+  } else {
+    lineup = strongestXI(players, formation);
+  }
+  const isDefault = formation === '4-3-3' && lineup.every((v, i) => v === i);
+  db.prepare('UPDATE teams SET formation = ?, lineup = ? WHERE id = ?').run(formation, isDefault ? null : JSON.stringify(lineup), teamId);
+  return { formation, lineup: isDefault ? null : lineup, note: `Set up in a ${formation}.` };
+});
+
+// DETERMINISTIC structured tactics from the board (sliders/menus) — the no-LLM sibling of POST /api/team/plan.
+// Body: { directives: Directive[] (team-relative XI ids 0-10, teamScope 0), summary?: string }. Sanitised
+// against VALID_KINDS (man_mark dropped — live-only), then persisted to plan_directives exactly like the
+// text/quick paths, so spec-build + the engine consume it unchanged. No opponent, no LLM.
+app.post('/api/team/plan-structured', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const directives = sanitizeStructuredDirectives(req.body?.directives, 0);   // team-relative (home scope 0); resolved at spec-build
+  const summary = (String(req.body?.summary ?? '').trim().slice(0, 280)) || (directives.length ? 'Tactics set from the tactics board.' : 'No special team instructions.');
+  const plan = { summary, directives };
+  db.prepare('UPDATE teams SET plan_text = ?, plan_directives = ? WHERE id = ?')
+    .run(directives.length ? summary : null, directives.length ? JSON.stringify(plan) : null, teamId);
+  return { planText: directives.length ? summary : '', plan };
 });
 
 // The formation registry (per-slot role + pitch coordinates) for the visual tactics pitch.

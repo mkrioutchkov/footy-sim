@@ -220,6 +220,49 @@ function validate(raw: unknown[], myTeam: Side, text: string): Directive[] {
   return out;
 }
 
+// Deterministic structured-directive sanitiser for the tactics BOARD (the sliders/menus UI) — the
+// NO-LLM sibling of the compilers. Unlike validate() it takes no free text: the structured board has
+// no time/score/phase conditions (v1), so there is nothing to text-gate. Ids are TEAM-RELATIVE (the
+// fielded XI, 0-10). man_mark is dropped (it needs a live opponent XI, same as the standing-plan
+// path). Mirrors validate()'s kind/scope/intensity rules exactly, so the board and the text compiler
+// produce byte-identical directive shapes. One directive per (playerId|teamScope, kind) — the UI's
+// role presets never emit a conflicting pair, and this makes a duplicate a no-op rather than
+// last-writer-wins. Total capped so a crafted payload can't bloat the plan.
+export function sanitizeStructuredDirectives(raw: unknown, myScope: number): Directive[] {
+  const out: Directive[] = [];
+  if (!Array.isArray(raw)) return out;
+  const seen = new Set<string>();
+  for (const r of raw) {
+    if (out.length >= 60) break;
+    if (!r || typeof r !== 'object') continue;
+    const d = r as Record<string, unknown>;
+    const kind = String(d.kind ?? '');
+    if (!VALID_KINDS.has(kind) || kind === 'man_mark') continue;   // man_mark is a live-only shout (no opponent pre-match)
+    const intensity = Math.max(0, Math.min(1, num(d.intensity, 1)));
+    let dir: Directive;
+    if (TEAM_KIND_SET.has(kind)) {
+      dir = { playerId: -1, teamScope: myScope === 1 ? 1 : 0, kind, intensity };
+    } else {
+      const playerId = num(d.playerId, -1);
+      // Per-player kinds are keyed by SQUAD SLOT (the board follows the fielded player, who may be a promoted
+      // bench slot > 10). resolvePlanDirectives (match.ts) drops any slot that isn't actually on the pitch, so
+      // a generous upper bound is safe — an unfielded / bogus id simply never reaches the engine.
+      if (playerId < 0 || playerId > 49) continue;
+      dir = { playerId, kind, intensity };
+      if (kind === 'target_player') {
+        const t = num(d.targetId, -1);
+        if (t < 0 || t > 49) continue;                             // feed a TEAM-MATE (squad slot)
+        dir.targetId = t;
+      }
+    }
+    const key = `${dir.playerId}:${dir.teamScope ?? ''}:${kind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(dir);
+  }
+  return out;
+}
+
 // Compile free text -> directives. LLM-ONLY: the model is the sole compiler.
 // The old offline rules fast-path was REMOVED — its fuzzy name-matcher
 // mis-resolved orders (a stray word like "cunt"/"stick", or an unknown name,
