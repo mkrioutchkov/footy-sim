@@ -42,12 +42,16 @@ export function createCup(leagueId: number): void {
   for (let i = 0; i < teams.length / 2; i++) ins.run(w.worldId, w.season, i, teams[2 * i], teams[2 * i + 1], seed());
 }
 
-interface CupTie { id: number; round: number; slot: number; home_team_id: number; away_team_id: number; seed: number; played: number; home_score: number | null; away_score: number | null; winner_team_id: number | null }
+interface CupTie { id: number; round: number; slot: number; home_team_id: number; away_team_id: number; seed: number; played: number; home_score: number | null; away_score: number | null; home_pens: number | null; away_pens: number | null; winner_team_id: number | null }
 
 // The winner of a played tie. A draw is broken by a deterministic seeded shootout.
 function tieWinner(t: CupTie): number {
   if ((t.home_score ?? 0) > (t.away_score ?? 0)) return t.home_team_id;
   if ((t.away_score ?? 0) > (t.home_score ?? 0)) return t.away_team_id;
+  if (t.home_pens != null && t.away_pens != null && t.home_pens !== t.away_pens)
+    return t.home_pens > t.away_pens ? t.home_team_id : t.away_team_id;
+  // Preserve an already-recorded legacy winner; otherwise old unadvanced draws keep seed parity.
+  if (t.winner_team_id === t.home_team_id || t.winner_team_id === t.away_team_id) return t.winner_team_id;
   return t.seed % 2 === 0 ? t.home_team_id : t.away_team_id;
 }
 
@@ -84,17 +88,17 @@ export function advanceCupRound(leagueId: number, round: number): CupAdvance | n
 }
 
 // A team's result in a given cup round (for the advance summary) — null if they weren't in it.
-export function cupTieFor(teamId: number, leagueId: number, round: number): { homeScore: number; awayScore: number; opponent: string; won: boolean } | null {
+export function cupTieFor(teamId: number, leagueId: number, round: number): { homeScore: number; awayScore: number; homePens: number | null; awayPens: number | null; opponent: string; won: boolean } | null {
   const w = worldOf(leagueId); if (!w) return null;
   const t = db.prepare('SELECT * FROM cup_ties WHERE world_id = ? AND season = ? AND round = ? AND (home_team_id = ? OR away_team_id = ?)')
     .get(w.worldId, w.season, round, teamId, teamId) as CupTie | undefined;
   if (!t || !t.played) return null;
   const oppId = t.home_team_id === teamId ? t.away_team_id : t.home_team_id;
   const opponent = (db.prepare('SELECT name FROM teams WHERE id = ?').get(oppId) as { name: string } | undefined)?.name ?? 'Opponent';
-  return { homeScore: t.home_score ?? 0, awayScore: t.away_score ?? 0, opponent, won: t.winner_team_id === teamId };
+  return { homeScore: t.home_score ?? 0, awayScore: t.away_score ?? 0, homePens: t.home_pens, awayPens: t.away_pens, opponent, won: t.winner_team_id === teamId };
 }
 
-export interface CupTieView { id: number; round: number; slot: number; home: string | null; away: string | null; homeTeamId: number | null; awayTeamId: number | null; played: boolean; homeScore: number | null; awayScore: number | null; winnerTeamId: number | null }
+export interface CupTieView { id: number; round: number; slot: number; home: string | null; away: string | null; homeTeamId: number | null; awayTeamId: number | null; played: boolean; homeScore: number | null; awayScore: number | null; homePens: number | null; awayPens: number | null; winnerTeamId: number | null }
 
 // The whole bracket for the world's current-season cup (for the cup screen).
 export function cupView(leagueId: number): { rounds: { round: number; name: string; ties: CupTieView[] }[]; totalRounds: number; champion: string | null; championTeamId: number | null } {
@@ -108,7 +112,7 @@ export function cupView(leagueId: number): { rounds: { round: number; name: stri
   const byRound = new Map<number, CupTieView[]>();
   for (const t of ties) {
     const arr = byRound.get(t.round) ?? [];
-    arr.push({ id: t.id, round: t.round, slot: t.slot, home: t.home_team_id != null ? names.get(t.home_team_id) ?? null : null, away: t.away_team_id != null ? names.get(t.away_team_id) ?? null : null, homeTeamId: t.home_team_id, awayTeamId: t.away_team_id, played: !!t.played, homeScore: t.home_score, awayScore: t.away_score, winnerTeamId: t.winner_team_id });
+    arr.push({ id: t.id, round: t.round, slot: t.slot, home: t.home_team_id != null ? names.get(t.home_team_id) ?? null : null, away: t.away_team_id != null ? names.get(t.away_team_id) ?? null : null, homeTeamId: t.home_team_id, awayTeamId: t.away_team_id, played: !!t.played, homeScore: t.home_score, awayScore: t.away_score, homePens: t.home_pens, awayPens: t.away_pens, winnerTeamId: t.winner_team_id });
     byRound.set(t.round, arr);
   }
   const rounds = [...byRound.keys()].sort((a, b) => a - b).map(round => ({ round, name: roundName(round, total), ties: byRound.get(round)! }));

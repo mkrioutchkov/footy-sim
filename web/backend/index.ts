@@ -995,7 +995,7 @@ app.get('/api/report', async (req: any, reply) => {
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   // §cup-report: a cup tie's report (the recording exists for the user's ties). Same builder, kind='cup'.
   if (req.query?.cup != null) {
-    const tie = db.prepare('SELECT * FROM cup_ties WHERE id = ?').get(Number(req.query.cup)) as { id: number; world_id: number; home_team_id: number | null; away_team_id: number | null; played: number } | undefined;
+    const tie = db.prepare('SELECT * FROM cup_ties WHERE id = ?').get(Number(req.query.cup)) as { id: number; world_id: number; home_team_id: number | null; away_team_id: number | null; played: number; home_pens: number | null; away_pens: number | null; winner_team_id: number | null } | undefined;
     if (!tie || !tie.played || tie.home_team_id == null || tie.away_team_id == null) return reply.code(404).send({ error: 'cup tie not found' });
     const lg = db.prepare('SELECT id, world_id FROM leagues WHERE id = (SELECT league_id FROM teams WHERE id = ?)').get(teamId) as { id: number; world_id: number | null };
     if (tie.world_id !== (lg.world_id ?? lg.id)) return reply.code(403).send({ error: 'not your world' });
@@ -1004,7 +1004,22 @@ app.get('/api/report', async (req: any, reply) => {
     const caway = cnm.find(t => t.id === tie.away_team_id)?.name ?? 'Away';
     const crep = await buildMatchReport('cup', tie.id, chome, caway);
     if (!crep) return reply.code(404).send({ error: 'no recording for this tie' });
-    return { homeName: chome, awayName: caway, ...crep };
+    if (tie.home_pens != null && tie.away_pens != null && tie.home_pens !== tie.away_pens) {
+      const winner: 'home' | 'away' = tie.winner_team_id === tie.home_team_id ? 'home'
+        : tie.winner_team_id === tie.away_team_id ? 'away'
+          : tie.home_pens > tie.away_pens ? 'home' : 'away';
+      const winnerName = winner === 'home' ? chome : caway;
+      const winnerPens = winner === 'home' ? tie.home_pens : tie.away_pens;
+      const loserPens = winner === 'home' ? tie.away_pens : tie.home_pens;
+      const decider = `${winnerName} won ${winnerPens}–${loserPens} on penalties after the tie finished ${crep.facts.homeScore}–${crep.facts.awayScore}.`;
+      return {
+        homeName: chome, awayName: caway, ...crep,
+        headline: `${crep.headline} (${tie.home_pens}–${tie.away_pens} pens)`,
+        body: `${decider} ${crep.body}`,
+        shootout: { home: tie.home_pens, away: tie.away_pens, winner },
+      };
+    }
+    return { homeName: chome, awayName: caway, ...crep, shootout: null };
   }
   const fx = getFixture(Number(req.query?.fixture));
   if (!fx) return reply.code(404).send({ error: 'fixture not found' });

@@ -364,11 +364,16 @@ CREATE TABLE IF NOT EXISTS cup_ties (
   played         INTEGER NOT NULL DEFAULT 0,
   home_score     INTEGER,
   away_score     INTEGER,
+  home_pens      INTEGER,
+  away_pens      INTEGER,
   winner_team_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_cup_world_season ON cup_ties(world_id, season);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cup_tie ON cup_ties(world_id, season, round, slot);
 `);
+// Existing saves predate stored shootout scores; NULL preserves their legacy seed-parity tie-break.
+ensureColumn('cup_ties', 'home_pens', 'home_pens INTEGER');
+ensureColumn('cup_ties', 'away_pens', 'away_pens INTEGER');
 
 // Record-and-replay: a played match's frame stream is recorded ONCE and later replayed instead
 // of re-simulating per viewer (cheaper, and it can't drift from the stored scoreline the way a

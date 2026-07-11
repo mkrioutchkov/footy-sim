@@ -8,6 +8,7 @@ import { worldLeagues } from './season.ts';
 import { ROLE_SLOTS, overall } from './game.ts';
 import { playVirtualTie, type VirtualPlayer } from './match.ts';
 import { NATION_BY_KEY, NATIONS_BY_CONFED, CONFED_TOURNAMENT, nationName, type Confed } from './nations.ts';
+import { simulatePenaltyShootout } from './shootout.ts';
 
 const parseJSON = (s: string | null): unknown => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
 function mulberry32(a: number) {
@@ -54,19 +55,6 @@ export function fieldableNations(worldId: number): FieldableNation[] {
   });
 }
 
-// Deterministic best-of-5 (+ sudden death) shootout from the two squads' penalty takers (shooting attr).
-function penShootout(seed: number, home: VirtualPlayer[], away: VirtualPlayer[]): { home: number; away: number } {
-  const rnd = mulberry32((seed ^ 0x5eed5eed) >>> 0);
-  const takers = (sq: VirtualPlayer[]) => sq.slice().sort((a, b) => (b.attrs.shooting ?? 50) - (a.attrs.shooting ?? 50));
-  const ht = takers(home), at = takers(away);
-  const prob = (p?: VirtualPlayer) => Math.max(0.5, Math.min(0.92, 0.62 + (((p?.attrs.shooting ?? 60) - 65) / 150)));
-  let hs = 0, as_ = 0;
-  for (let k = 0; k < 5; k++) { if (rnd() < prob(ht[k % ht.length])) hs++; if (rnd() < prob(at[k % at.length])) as_++; }
-  for (let r = 5; hs === as_ && r < 30; r++) { if (rnd() < prob(ht[r % ht.length])) hs++; if (rnd() < prob(at[r % at.length])) as_++; }
-  if (hs === as_) hs++;   // safety: never return a level shootout
-  return { home: hs, away: as_ };
-}
-
 function createTournament(worldId: number, season: number, kind: string, confed: string | null, name: string): number {
   const r = db.prepare('INSERT INTO tournaments (world_id, season, kind, confed, name, created_at) VALUES (?,?,?,?,?,?)').run(worldId, season, kind, confed, name, Date.now());
   return Number(r.lastInsertRowid);
@@ -98,7 +86,7 @@ async function runKnockout(tournamentId: number, seeded: string[], baseSeed: num
       let winner: string, hp: number | null = null, ap: number | null = null;
       if (res.homeScore > res.awayScore) winner = h;
       else if (res.awayScore > res.homeScore) winner = a;
-      else { const pen = penShootout(seed, hs, as_); hp = pen.home; ap = pen.away; winner = pen.home > pen.away ? h : a; }
+      else { const pen = simulatePenaltyShootout(seed, hs, as_); hp = pen.home; ap = pen.away; winner = pen.home > pen.away ? h : a; }
       db.prepare('INSERT INTO tournament_ties (tournament_id, round, slot, home_nation, away_nation, seed, played, home_score, away_score, home_pens, away_pens, winner_nation) VALUES (?,?,?,?,?,?,1,?,?,?,?,?)')
         .run(tournamentId, round, slot / 2, h, a, seed, res.homeScore, res.awayScore, hp, ap, winner);
       winners.push(winner);

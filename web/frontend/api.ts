@@ -111,13 +111,13 @@ export interface OfferT { id: number; playerId: number; playerName: string; club
 export interface IncomingOfferT { id: number; club: string; playerSlot: number | null; playerName: string; fee: number; status: string; }
 export interface FreeAgentOfferT { id: number; agentId: number; name: string; role: string; wage: number; years: number; demand: number; status: string; }
 export interface TransferT { teamId: number; teamName: string; type: 'sign' | 'buy_listed'; player: string; role: string; fee: number; from?: string; }
-export interface CupTieT { id: number; round: number; slot: number; home: string | null; away: string | null; homeTeamId: number | null; awayTeamId: number | null; played: boolean; homeScore: number | null; awayScore: number | null; winnerTeamId: number | null; }
+export interface CupTieT { id: number; round: number; slot: number; home: string | null; away: string | null; homeTeamId: number | null; awayTeamId: number | null; played: boolean; homeScore: number | null; awayScore: number | null; homePens: number | null; awayPens: number | null; winnerTeamId: number | null; }
 export interface CupT { rounds: { round: number; name: string; ties: CupTieT[] }[]; totalRounds: number; champion: string | null; myTeamId: number; }
 
 export interface PlayerRatingT { id: number; name: string; team: 'home' | 'away'; role: string; rating: number; goals: number; assists: number; shots: number; tackles: number; }
 export interface TimelineEventT { minute: number; team: 'home' | 'away'; name: string; type: 'goal' | 'yellow' | 'red' | 'penalty' | 'woodwork'; clockMs?: number; }
 export interface MatchFactsT { homeScore: number; awayScore: number; possessionHome: number; shots: { home: number; away: number }; shotsOnTarget: number; saves: number; corners: number; timeline: TimelineEventT[]; ratings: PlayerRatingT[]; }
-export interface ReportT { homeName: string; awayName: string; headline: string; body: string; facts: MatchFactsT; ratings: PlayerRatingT[]; }
+export interface ReportT { homeName: string; awayName: string; headline: string; body: string; facts: MatchFactsT; ratings: PlayerRatingT[]; shootout?: { home: number; away: number; winner: 'home' | 'away' } | null; }
 
 // The persisted shout review for a watched match (GET /api/tactics) — empty `shouts` if the match
 // was watched without shouting (or never live-watched). side/scores omitted when there's no log.
@@ -215,7 +215,7 @@ export const api = {
   league: () => req<LeagueT>('GET', '/league'),
   playFixture: (id: number) => req<{ result: { homeScore: number; awayScore: number; alreadyPlayed: boolean }; standings: StandingT[] }>('POST', `/fixtures/${id}/play`),
   playNext: () => req<{ fixtureId: number; result: { homeScore: number; awayScore: number }; standings: StandingT[] }>('POST', '/play-next'),
-  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; injuries?: { teamId: number; player: string; matches: number }[]; cup?: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null; rollover?: RolloverT | null; contractOffers?: ContractOfferEventT[]; listingsExpired?: { teamId: number; teamName: string; player: string; role: string }[]; incomingBids?: { player: string; fee: number; from: string }[]; faOffers?: { player: string; role: string; wage: number; years: number; type: 'fa_signed' | 'fa_rejected' | 'fa_expired' | 'fa_gone' }[]; income?: number; inbox: InboxItemT[]; digestHeadline: string; standings: StandingT[] }>('POST', '/advance'),
+  advance: () => req<{ round: number; myFixtureId: number; myResult: { homeScore: number; awayScore: number } | null; transfers: TransferT[]; development?: { players: number }; injuries?: { teamId: number; player: string; matches: number }[]; cup?: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; homePens: number | null; awayPens: number | null; opponent: string; won: boolean } | null } | null; rollover?: RolloverT | null; contractOffers?: ContractOfferEventT[]; listingsExpired?: { teamId: number; teamName: string; player: string; role: string }[]; incomingBids?: { player: string; fee: number; from: string }[]; faOffers?: { player: string; role: string; wage: number; years: number; type: 'fa_signed' | 'fa_rejected' | 'fa_expired' | 'fa_gone' }[]; income?: number; inbox: InboxItemT[]; digestHeadline: string; standings: StandingT[] }>('POST', '/advance'),
   cup: () => req<CupT>('GET', '/cup'),
   market: () => req<MarketT>('GET', '/market'),
   buyAgent: (agentId: number) => req<{ ok: boolean; placed: 'xi' | 'bench'; value: number; name: string; market: MarketT }>('POST', '/market/buy', { agentId }),
