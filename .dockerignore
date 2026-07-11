@@ -1,0 +1,11 @@
+.git
+node_modules
+dist
+build
+.scratch
+web/backend/data
+*.sqlite
+*.sqlite-*
+*.bin
+*.jsonl
+**/.env
