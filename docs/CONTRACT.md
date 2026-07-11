@@ -192,7 +192,7 @@ tools/          engine harness + py probes   npm run batch | scenarios | cpp-ser
 docs/           ARCHITECTURE · CONTRACT · TACTICS · SHOUTS_AND_PERSONALITY · STATSBOMB_DATA · REAL_DATA_AND_IP · TEAM
 ```
 - DB: SQLite via `node:sqlite`, file at `web/backend/data/footy.sqlite` (gitignored).
-- After `engine/` or `scripts/` edits: `npm run native:build` (Windows) / `npm run native:build:posix` (Linux/macOS). After
+- After `engine/` or `scripts/` edits: `npm run native:build` (auto-detects the OS via `scripts/native-build.mjs`; `native:build:posix` forces bash). After
   `web/backend/` edits: restart `npm run game` (tsx has no hot-reload).
 - A fresh worktree needs `npm install` (node_modules is gitignored) and a
   `npm run native:build` (build/ is gitignored).

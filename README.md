@@ -24,16 +24,17 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full component diagram.
 
 ## Quickstart — play the game
 
-Requires **Node.js** and a **C++ toolchain**. The engine build is cross-platform:
-- **Windows** — Visual Studio with the C++ workload (`cl.exe`); `npm run native:build` (scripts/build-native.ps1) → `build/live.exe`.
-- **Linux / macOS** — `g++`/`clang++`; `npm run native:build:posix` (scripts/build-native.sh) → `build/live`.
-
-`match.ts` resolves either binary name, and the `pre*` npm hooks pick the Windows build script — POSIX users run `native:build:posix` explicitly (or add it to the hook).
+Requires **Node.js** and a **C++ toolchain**. The engine build is **cross-platform**:
+`npm run native:build` auto-detects the OS (`scripts/native-build.mjs` runs
+`build-native.ps1` on Windows, `build-native.sh` on Linux/macOS), and the `pre*` npm
+hooks use it — so `batch`/`build` work on either OS.
+- **Windows** — Visual Studio with the C++ workload (`cl.exe`) → `build/live.exe`.
+- **Linux / macOS** — `g++`/`clang++` → `build/live` (`match.ts` resolves either name).
+`npm run native:build:posix` forces the bash path directly.
 
 ```
 npm install
-npm run native:build            # Windows: compile the engine -> build/live.exe
-#   or: npm run native:build:posix   # Linux/macOS -> build/live
+npm run native:build            # auto-detects the platform -> build/live[.exe]
 npm run game                    # backend API + match-watch socket on :4000
 npm run dev                     # frontend on :5173 (proxies /api + /ws -> 4000)
 ```

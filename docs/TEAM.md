@@ -79,7 +79,7 @@ the only changes that *require* Boris **and** Gaylord. Handle them deliberately:
 ### Operational gotchas (so a dev doesn't wait on the other)
 
 - After `engine/` or `scripts/` edits → **Boris** runs `npm run native:build`
-  (Windows) / `npm run native:build:posix` (Linux/macOS), rebuilding `build/live[.exe]`.
+  (auto-detects the OS via `scripts/native-build.mjs`), rebuilding `build/live[.exe]`.
   The binary is the hand-off artifact Gaylord consumes.
 - After `web/backend/` edits → **Gaylord** restarts `npm run game` (`:4000`) — `tsx`
   has no hot-reload. Frontend `npm run dev` (`:5173`) hot-reloads.
