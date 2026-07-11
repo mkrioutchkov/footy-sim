@@ -9,7 +9,7 @@ import { db } from './db.ts';
 import {
   newSeasonForUser, createSharedWorld, getTeamWithPlayers, standings, teamForUser,
   assignPersonalities, needsPersonalities, fillMissingPersonalities, backfillFreeAgents, backfillPotentials, backfillContracts,
-  playerValue, DEFAULT_TACTICS, type Tactics,
+  playerValue, overall, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
 import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, EventsReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay, mapPool, loadEventsLog, tacticsReview, weatherForSeed } from './match.ts';
@@ -1372,7 +1372,61 @@ app.post('/api/tick', async (req: any, reply) => {
 // §autonomous: the lobby — shared worlds a player can join, with their unclaimed-team counts.
 app.get('/api/worlds', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
-  return { worlds: listJoinableWorlds() };
+  return { worlds: listJoinableWorlds(), hasTeam: teamForUser(user.id) != null };
+});
+
+// §autonomous: the teams in a shared world (claimable = unclaimed AI seats), with OVR + division.
+app.get('/api/worlds/:id/teams', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const worldId = Number(req.params?.id);
+  if (!Number.isInteger(worldId)) return reply.code(400).send({ error: 'bad world' });
+  const leagues = worldLeagues(worldId);
+  if (!leagues.length) return reply.code(404).send({ error: 'no such world' });
+  const ph = leagues.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT t.id, t.name, t.user_id, t.manager, l.tier, l.name AS division
+    FROM teams t JOIN leagues l ON l.id = t.league_id WHERE t.league_id IN (${ph}) ORDER BY l.tier, t.name`).all(...leagues.map(l => l.id)) as { id: number; name: string; user_id: number | null; manager: string; tier: number; division: string }[];
+  const teams = rows.map(t => {
+    const attrs = (db.prepare('SELECT attrs FROM players WHERE team_id = ?').all(t.id) as { attrs: string }[]).map(p => JSON.parse(p.attrs));
+    const ovr = attrs.length ? Math.round(attrs.map(a => overall(a)).sort((x, y) => y - x).slice(0, 11).reduce((s, v) => s + v, 0) / Math.min(11, attrs.length)) : 0;
+    return { teamId: t.id, name: t.name, tier: t.tier, division: t.division, overall: ovr, claimed: t.user_id != null, manager: t.user_id != null ? t.manager : 'AI' };
+  });
+  return { teams };
+});
+
+// §autonomous: claim an unclaimed team in a shared world (transactional, race-safe). You must not
+// already manage a (non-sacked) club — one active team per user (the locked decision).
+app.post('/api/worlds/:id/claim', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const worldId = Number(req.params?.id);
+  const teamId = Number(req.body?.teamId);
+  if (!Number.isInteger(worldId) || !Number.isInteger(teamId)) return reply.code(400).send({ error: 'world + teamId required' });
+  const existing = teamForUser(user.id);
+  if (existing != null && !((db.prepare('SELECT sacked FROM teams WHERE id = ?').get(existing) as { sacked: number } | undefined)?.sacked)) {
+    return reply.code(409).send({ error: 'you already manage a club — leave it first' });
+  }
+  const w = getWorld(worldId);
+  if (!w || w.mode !== 'shared') return reply.code(404).send({ error: 'not a joinable world' });
+  const leagueIds = worldLeagues(worldId).map(l => l.id);
+  const ph = leagueIds.map(() => '?').join(',');
+  // atomic claim: only succeeds if the seat is still unclaimed and in this world
+  const res = db.prepare(`UPDATE teams SET user_id = ?, manager = ?, sacked = 0 WHERE id = ? AND user_id IS NULL AND league_id IN (${ph})`).run(user.id, user.username, teamId, ...leagueIds);
+  if (res.changes === 0) return reply.code(409).send({ error: 'that team was just taken — pick another' });
+  // backfill the squad's personalities/nationalities in the background (they were seeded blank for AI)
+  void fillMissingPersonalities(teamId).catch(() => { /* stays neutral on failure */ });
+  const nowLeagueId = getTeamWithPlayers(teamId)!.leagueId;
+  return { ok: true, teamId, standings: standings(nowLeagueId) };
+});
+
+// §autonomous: leave your club — it returns to AI control and its seat re-opens for another player.
+app.post('/api/worlds/leave', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const wid = worldForTeam(teamId);
+  const w = wid != null ? getWorld(wid) : null;
+  if (!w || w.mode !== 'shared') return reply.code(400).send({ error: 'you can only leave a shared world' });
+  db.prepare("UPDATE teams SET user_id = NULL, manager = 'AI', sacked = 0 WHERE id = ?").run(teamId);
+  return { ok: true };
 });
 
 // §autonomous: opt into full autonomy (the assistant also makes transfers while you're away) or back to

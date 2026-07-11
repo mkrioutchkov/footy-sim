@@ -296,4 +296,12 @@ export const api = {
   harmony: () => req<HarmonyT>('GET', '/harmony'),
   rotation: () => req<RotationT>('GET', '/rotation'),
   applyRotation: (outSlot: number, inSlot: number) => req<{ ok: boolean; lineup: number[] | null; rotation: RotationT }>('POST', '/rotation/apply', { outSlot, inSlot }),
+  // §autonomous: the world lobby — browse shared worlds, claim an unclaimed team, leave, set autonomy.
+  worlds: () => req<{ worlds: JoinableWorldT[]; hasTeam: boolean }>('GET', '/worlds'),
+  worldTeams: (id: number) => req<{ teams: ClaimableTeamT[] }>('GET', `/worlds/${id}/teams`),
+  claimTeam: (worldId: number, teamId: number) => req<{ ok: boolean; teamId: number }>('POST', `/worlds/${worldId}/claim`, { teamId }),
+  leaveWorld: () => req<{ ok: boolean }>('POST', '/worlds/leave'),
+  setAutonomy: (mode: 'assistant' | 'full') => req<{ ok: boolean; autonomy: string }>('POST', '/autonomy', { mode }),
 };
+export interface JoinableWorldT { worldId: number; name: string; season: number; turn: number; intervalMin: number; unclaimed: number; total: number }
+export interface ClaimableTeamT { teamId: number; name: string; tier: number; division: string; overall: number; claimed: boolean; manager: string }

@@ -298,8 +298,69 @@ function screenCreateTeam() {
       h('div', { class: 'section-title' }, 'Tactical plan'),
       planInput,
       h('div', { style: 'margin-top:16px' }, create), err,
+      h('div', { class: 'muted', style: 'margin-top:14px;font-size:13px;border-top:1px solid var(--line);padding-top:12px' },
+        'Prefer to play against other managers? ',
+        h('a', { href: '#/worlds', style: 'color:var(--accent);cursor:pointer' }, 'Join a shared world →'),
+        ' — claim an unclaimed club in a live world that advances on a schedule.'),
     ),
   ));
+}
+
+// §autonomous: the world lobby — browse shared (multiplayer) worlds and claim an unclaimed club. A world
+// advances on a schedule (2 turns/day); you set tactics/transfers and the matchday plays automatically.
+async function screenWorlds() {
+  const alive = screenGuard();
+  mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading worlds…')));
+  let data: Awaited<ReturnType<typeof api.worlds>>;
+  try { data = await api.worlds(); }
+  catch (e: any) { if (!alive()) return; return mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'err' }, e.message))); }
+
+  const container = h('div', {});
+  const cadence = (min: number) => min % 1440 === 0 ? `${min / 1440}/day` : `every ${Math.round(min / 60)}h`;
+  const claimInto = async (worldId: number, teamId: number, btn: HTMLButtonElement) => {
+    btn.setAttribute('disabled', 'true'); btn.textContent = 'Claiming…';
+    try { await api.claimTeam(worldId, teamId); toast('✓ Club claimed — welcome to the world!'); location.hash = '#/'; route(); }
+    catch (e: any) { toast(e.message); btn.removeAttribute('disabled'); btn.textContent = 'Claim'; }
+  };
+  const openWorld = async (w: import('./api').JoinableWorldT) => {
+    const host = h('div', { class: 'card muted' }, 'Loading clubs…');
+    container.replaceChildren(
+      h('div', { class: 'between' }, h('h2', {}, w.name), h('button', { class: 'ghost', onclick: () => render() }, '← All worlds')),
+      h('div', { class: 'muted', style: 'margin:-4px 0 10px;font-size:13px' }, `Season ${w.season} · turn ${w.turn} · advances ${cadence(w.intervalMin)} · ${w.unclaimed} club(s) open`),
+      host);
+    try {
+      const { teams } = await api.worldTeams(w.worldId);
+      if (!alive()) return;
+      const rowFor = (t: import('./api').ClaimableTeamT) => {
+        const claim = h('button', { class: 'primary small' }, 'Claim') as HTMLButtonElement;
+        claim.addEventListener('click', () => claimInto(w.worldId, t.teamId, claim));
+        return h('tr', {},
+          h('td', {}, t.name, h('span', { class: 'muted', style: 'font-size:11px' }, ` · ${t.division}`)),
+          h('td', { class: 'num' }, `T${t.tier}`),
+          h('td', { class: 'num' }, String(t.overall)),
+          h('td', { class: 'num' }, t.claimed ? h('span', { class: 'muted', style: 'font-size:12px' }, `👤 ${t.manager}`) : (data.hasTeam ? h('span', { class: 'muted', style: 'font-size:11px' }, 'open') : claim)));
+      };
+      host.replaceChildren(h('div', { class: 'card', style: 'padding:0;overflow-x:auto' },
+        h('table', { style: 'width:100%' },
+          h('thead', {}, h('tr', {}, h('th', {}, 'Club'), h('th', { class: 'num' }, 'Div'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, ''))),
+          h('tbody', {}, ...teams.map(rowFor))),
+        data.hasTeam ? h('div', { class: 'muted', style: 'padding:10px;font-size:12px' }, 'You already manage a club — leave it first (from your dashboard) to claim here.') : ''));
+    } catch (e: any) { if (alive()) host.replaceChildren(h('div', { class: 'card err' }, e.message)); }
+  };
+  const render = () => {
+    container.replaceChildren(
+      h('div', { class: 'between' }, h('div', {}, h('h2', {}, '🌍 Shared worlds'), h('div', { class: 'muted', style: 'font-size:13px' }, 'Live multiplayer worlds that advance on a schedule. Claim a club to join.')),
+        h('button', { class: 'ghost', onclick: () => (location.hash = data.hasTeam ? '#/' : '') }, data.hasTeam ? '← Dashboard' : '← Back')),
+      data.worlds.length
+        ? h('div', { class: 'grid' }, ...data.worlds.map(w => h('div', { class: 'card', ...clickable(() => openWorld(w)), style: 'cursor:pointer' },
+            h('div', { class: 'between' },
+              h('div', {}, h('div', { style: 'font-weight:700' }, w.name), h('div', { class: 'muted', style: 'font-size:12px' }, `Season ${w.season} · turn ${w.turn} · advances ${cadence(w.intervalMin)}`)),
+              h('span', { class: 'pill', style: w.unclaimed ? 'background:var(--accent);color:#0b1018' : '' }, `${w.unclaimed}/${w.total} open`)))))
+        : h('div', { class: 'card muted' }, 'No shared worlds yet. Ask an admin to open one — or create your own solo club above.'));
+  };
+  if (!alive()) return;
+  mount(header(), h('div', { class: 'wrap grid' }, container));
+  render();
 }
 
 // The standing tactical plan: a plain-English textarea + a read-only resolved-plan display
@@ -4211,6 +4272,7 @@ function route() {
   if (!user) { screenAuth(); return; }
   if (!hash.startsWith('#/watch/')) teardownWatch();
   if (hash.startsWith('#/watch/')) { const seg = hash.split('/')[2] ?? ''; screenWatch(Number(seg.split('?')[0]), /[?&]shouts=1\b/.test(hash), /[?&]live=1\b/.test(hash), Number(hash.match(/[?&]t=(\d+)/)?.[1] ?? 0), /[?&]cup=1\b/.test(hash)); }
+  else if (hash === '#/worlds') screenWorlds();
   else if (hash === '#/matches') screenMyMatches();
   else if (hash === '#/league') screenLeagueMatches();
   else if (hash === '#/tactics') screenTactics();
