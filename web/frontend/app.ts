@@ -495,8 +495,9 @@ function vocabPanel(input: HTMLTextAreaElement): HTMLElement {
       })))));
 }
 function planPanel(team: TeamT): HTMLElement {
-  // resolve the plan's team-relative ids (0-10) to player names for describeDirective
-  watchPlayers = team.players.slice(0, 11).map((p, i) => ({ id: i, name: p.name }));
+  // resolve the plan's ids (squad slots) to names for describeDirective — full squad so a directive on a
+  // promoted bench player (slot > 10, from the structured board) still resolves, not just the nominal XI.
+  watchPlayers = team.players.map(p => ({ id: p.slot, name: p.name }));
   const input = h('textarea', { class: 'tactics-input', rows: '3',
     placeholder: '"high press, build from the back, full-backs bomb on, sit deeper if 2-0 up. Suárez takes our penalties, Lars on long throws"' }) as HTMLTextAreaElement;
   input.value = team.planText ?? '';
@@ -526,6 +527,9 @@ function planPanel(team: TeamT): HTMLElement {
       // §3: if the plan also (re)assigned dead-ball takers, the panel below must reflect it — re-render.
       if (JSON.stringify(r.setPieceTakers ?? null) !== before) { toast('Set-piece takers set from your plan ⚽'); return void screenTactics(); }
       toast(input.value.trim() ? 'Plan saved' : 'Plan cleared');
+      // re-render so the structured tactics board above re-seeds from this typed plan (keeps the two surfaces in
+      // sync — both write the same plan_directives). On a compile error we stay put so the note remains visible.
+      if (!r.error) return void screenTactics();
     } catch (e: any) { out.replaceChildren(h('div', { class: 'warn' }, '⚠ ' + e.message)); }
     save.removeAttribute('disabled'); save.textContent = 'Save plan';
   });
@@ -1244,6 +1248,342 @@ function setPieceTakerPanel(team: TeamT): HTMLElement {
         h('span', { style: 'flex-shrink:0' }, f.label), f.s))));
 }
 
+// ── structured tactics board (sliders / menus / formation picker) ──────────────────────────────────
+// The deterministic, no-LLM tactics surface. Every control maps to a REAL engine-backed directive kind
+// (tactics.ts VALID_KINDS) and is saved straight to plan_directives via /api/team/plan-structured — the
+// same store the plain-English plan compiles to, so the two surfaces are interchangeable. FM positions
+// (wing-back, inside forward, #10, holding mid…) are PRESET BUNDLES of (formation anchor + directives)
+// over the engine's 6 roles, not new roles — the engine reads them today. The few that need engine work
+// (ball-playing CB, true DM/AM behaviour) are labelled honestly or disabled.
+
+// Recommended shapes shown first in the picker; the registry's auto-generated band shapes (6-0-4, …) go
+// under "more shapes" so the menu leads with real, sensible formations.
+const RECOMMENDED_FORMATIONS = ['4-3-3', '4-4-2', '4-2-3-1', '4-1-2-1-2', '4-3-2-1', '4-4-1-1', '4-2-2-2',
+  '3-5-2', '3-4-3', '3-4-2-1', '5-3-2', '5-4-1', 'wide 4-2-3-1', 'wide diamond'];
+
+// A per-player role preset = a bundle of per-player directive kinds (each [kind, intensity?]). The FIRST
+// entry of every family is the NEUTRAL default (no directives) so an un-set team round-trips to zero
+// directives. Grouped by the slot's engine-role family.
+type RolePreset = { key: string; label: string; disabled?: boolean; dirs: [string, number?][] };
+const ROLE_PRESETS: Record<string, RolePreset[]> = {
+  GK: [{ key: 'gk', label: 'Goalkeeper', dirs: [] }],
+  CB: [
+    { key: 'defend', label: 'Central defender', dirs: [] },
+    { key: 'stopper', label: 'Stopper — step out & press', dirs: [['press_hard', 0.8], ['tackle_hard', 0.7]] },
+    { key: 'cover', label: 'Cover — hold, no risks', dirs: [['stay_back', 1], ['play_simple', 0.8]] },
+    { key: 'ballplaying', label: 'Ball-playing — carry & pass out ⚙ needs engine update', disabled: true, dirs: [] },
+  ],
+  FB: [
+    { key: 'fullback', label: 'Full-back', dirs: [] },
+    { key: 'wingback', label: 'Wing-back — overlap & bomb on', dirs: [['overlap', 1], ['get_forward', 0.8], ['stay_wide', 1]] },
+    { key: 'attacking', label: 'Attacking full-back — early crosses', dirs: [['overlap', 0.8], ['cross_early', 1]] },
+    { key: 'inverted', label: 'Inverted full-back — tuck inside (approx.)', dirs: [['come_inside', 1], ['stay_back', 0.6]] },
+    { key: 'defensive', label: 'Defensive full-back — stay home', dirs: [['stay_back', 1]] },
+  ],
+  MID: [
+    { key: 'central', label: 'Central midfielder', dirs: [] },
+    { key: 'box', label: 'Box-to-box — get forward', dirs: [['get_forward', 0.7], ['make_runs', 0.7]] },
+    { key: 'deep', label: 'Holding / deep-lying', dirs: [['sit_deep', 0.8], ['stay_back', 1]] },
+    { key: 'advanced', label: 'Advanced playmaker (#10)', dirs: [['get_forward', 0.8], ['drift_into_pocket', 1]] },
+    { key: 'ballwinner', label: 'Ball-winner — press & tackle', dirs: [['press_hard', 1], ['tackle_hard', 0.8]] },
+    { key: 'roaming', label: 'Roaming — take them on', dirs: [['dribble_more', 1], ['switch_play', 0.6]] },
+  ],
+  WM: [
+    { key: 'wide', label: 'Wide midfielder', dirs: [] },
+    { key: 'winger', label: 'Winger — stay wide, cross', dirs: [['stay_wide', 1], ['cross_early', 0.7]] },
+    { key: 'inside', label: 'Inside forward — cut in & shoot', dirs: [['cut_inside', 1], ['shoot_on_sight', 1], ['come_inside', 0.6]] },
+    { key: 'wideforward', label: 'Wide forward — get in behind', dirs: [['get_forward', 0.8], ['run_in_behind', 0.8]] },
+    { key: 'wideplaymaker', label: 'Wide playmaker — drift in & switch', dirs: [['come_inside', 0.7], ['switch_play', 0.8]] },
+    { key: 'trackback', label: 'Defensive winger — track back', dirs: [['stay_back', 0.8]] },
+  ],
+  CF: [
+    { key: 'forward', label: 'Forward', dirs: [] },
+    { key: 'poacher', label: 'Poacher — get in behind', dirs: [['run_in_behind', 1], ['shoot_on_sight', 0.8]] },
+    { key: 'target', label: 'Target man — hold it up', dirs: [['target_man_holdup', 1]] },
+    { key: 'false9', label: 'False 9 — drop & link', dirs: [['come_short', 1], ['drift_into_pocket', 0.8]] },
+    { key: 'pressing', label: 'Pressing forward — hunt it down', dirs: [['press_hard', 1]] },
+  ],
+};
+function roleFamily(role: string): string {
+  if (role === 'GK' || role === 'CB' || role === 'FB' || role === 'WM' || role === 'CF') return role;
+  return 'MID';   // CM / DM / AM all compile to CM (deep/high is carried by the slot anchor)
+}
+const engineRoleC = (r: string): string => (r === 'DM' || r === 'AM' ? 'CM' : r);
+// The team-instruction segmented controls (opposite pairs → one 3-way). 'mid' emits nothing.
+const SEG_PASSING = [{ key: 'long', label: 'Direct', kind: 'play_it_long' }, { key: 'mid', label: 'Mixed', kind: '' }, { key: 'short', label: 'Short', kind: 'keep_it_on_ground' }];
+const SEG_WIDTH = [{ key: 'narrow', label: 'Narrow', kind: 'play_narrow' }, { key: 'mid', label: 'Balanced', kind: '' }, { key: 'wide', label: 'Wide', kind: 'get_it_wide' }];
+const SEG_SHOOT = [{ key: 'patient', label: 'Work it in', kind: 'work_it_into_box' }, { key: 'mid', label: 'Mixed', kind: '' }, { key: 'range', label: 'Shoot on sight', kind: 'shoot_from_distance' }];
+
+function boardSlider(labelText: string, bands: [string, string, string], value: number, onCommit: (v: number) => void): HTMLElement {
+  const read = h('span', { class: 'muted', style: 'font-size:12px;text-align:right' });
+  const setRead = (v: number) => { read.textContent = bands[v <= 0.3 ? 0 : v <= 0.6 ? 1 : 2]; };
+  setRead(value);
+  const input = h('input', { type: 'range', min: '0', max: '100', step: '5', value: String(Math.round(value * 100)), style: 'width:100%;accent-color:var(--accent)', 'aria-label': labelText }) as HTMLInputElement;
+  input.addEventListener('input', () => setRead(Number(input.value) / 100));
+  input.addEventListener('change', () => onCommit(Number(input.value) / 100));
+  return h('div', { style: 'margin:10px 0' },
+    h('div', { class: 'between', style: 'margin-bottom:3px;gap:10px' }, h('span', { style: 'font-size:13px;font-weight:600' }, labelText), read),
+    input);
+}
+function boardSeg(labelText: string, opts: { key: string; label: string }[], value: string, onChange: (k: string) => void): HTMLElement {
+  const btns: Record<string, HTMLButtonElement> = {};
+  // paint the selected option (visual class + aria-pressed, so the state is exposed to assistive tech)
+  const paint = (k: string) => { for (const key in btns) { const sel = key === k; btns[key].className = sel ? 'small' : 'ghost small'; btns[key].setAttribute('aria-pressed', String(sel)); } };
+  const row = h('div', { class: 'row', role: 'group', 'aria-label': labelText, style: 'gap:6px;flex-wrap:wrap' }, ...opts.map(o => {
+    const b = h('button', { type: 'button' }, o.label) as HTMLButtonElement;
+    btns[o.key] = b;
+    b.addEventListener('click', () => { paint(o.key); onChange(o.key); });
+    return b;
+  }));
+  paint(value);
+  return h('div', { style: 'margin:10px 0' }, h('div', { style: 'font-size:13px;font-weight:600;margin-bottom:4px' }, labelText), row);
+}
+function boardToggle(labelText: string, checked: boolean, onChange: (c: boolean) => void): HTMLButtonElement {
+  let on = checked;
+  const b = h('button', { type: 'button', 'aria-pressed': String(on), class: on ? 'small' : 'ghost small' }, labelText) as HTMLButtonElement;
+  b.addEventListener('click', () => { on = !on; b.className = on ? 'small' : 'ghost small'; b.setAttribute('aria-pressed', String(on)); onChange(on); });
+  return b;
+}
+
+// The team-wide kinds the board can represent (the 3 dials + the segmented pairs + the 3 toggles). Anything
+// else (all_out_attack/park_the_bus/high_press/drop_off/push_up) or any conditional `when` can't be shown here,
+// so we warn before a board save silently replaces them.
+const BOARD_TEAM_KINDS = new Set(['mentality', 'press_intensity', 'line_height', 'play_it_long', 'keep_it_on_ground', 'play_narrow', 'get_it_wide', 'work_it_into_box', 'shoot_from_distance', 'counter_attack', 'offside_trap', 'slow_it_down']);
+const hasWhenCond = (w: DirectiveT['when']): boolean => !!w && ((w.fromMin ?? 0) > 0 || (w.toMin ?? 1000) < 1000 || (!!w.scoreState && w.scoreState !== 'any'));
+
+function tacticsBoard(team: TeamT, reg: FormationsT | null): HTMLElement {
+  // directive playerIds are SQUAD SLOTS (the fielded player, incl. promoted bench) → names for the readback
+  watchPlayers = team.players.map(p => ({ id: p.slot, name: p.name }));
+  // `existing` is re-pointed to the latest saved plan after every commit, so seedPresets (on a formation
+  // change) re-derives roles from what's actually persisted — not a stale load-time snapshot.
+  let existing = team.plan?.directives ?? [];
+  // Advanced directives (unexposed team kinds, or any with a time/score condition) the board can't render —
+  // surfaced as a warning so a board save doesn't wipe a typed plan's park_the_bus / "slow down when winning".
+  const hiddenDirs = existing.filter(d => (d.teamScope != null && !BOARD_TEAM_KINDS.has(d.kind)) || hasWhenCond(d.when));
+  const teamKind = (k: string) => existing.find(d => d.teamScope != null && d.kind === k);
+  const dialVal = (k: string) => { const d = teamKind(k); return typeof d?.intensity === 'number' ? d.intensity : 0.5; };
+
+  // ── mutable board state ──
+  let formation = team.formation ?? '4-3-3';
+  let lineup: number[] | null = team.lineup ?? null;
+  const instr = {
+    mentality: dialVal('mentality'), press: dialVal('press_intensity'), line: dialVal('line_height'),
+    passing: teamKind('play_it_long') ? 'long' : teamKind('keep_it_on_ground') ? 'short' : 'mid',
+    width: teamKind('play_narrow') ? 'narrow' : teamKind('get_it_wide') ? 'wide' : 'mid',
+    shoot: teamKind('work_it_into_box') ? 'patient' : teamKind('shoot_from_distance') ? 'range' : 'mid',
+    counter: !!teamKind('counter_attack'), offside: !!teamKind('offside_trap'), slow: !!teamKind('slow_it_down'),
+  };
+  // per formation-slot preset key; seeded by matching each slot's existing per-player directive set
+  let presets: string[] = [];
+  const seedPresets = () => {
+    const slots = slotsOf();
+    presets = slots.map((s, i) => {
+      const fam = ROLE_PRESETS[roleFamily(s.role)];
+      const mine = new Set(existing.filter(d => d.teamScope == null && d.playerId === squadIdx(i)).map(d => d.kind));
+      if (!mine.size) return fam[0].key;
+      const hit = fam.find(p => p.dirs.length === mine.size && p.dirs.every(([k]) => mine.has(k)));
+      return (hit ?? fam[0]).key;
+    });
+  };
+  const slotsOf = () => reg?.formations[formation] ?? reg?.formations['4-3-3'] ?? [];
+  const squadIdx = (i: number) => lineup?.[i] ?? i;
+
+  // ── directive assembly ──
+  const teamDirectives = (): DirectiveT[] => {
+    const out: DirectiveT[] = [];
+    const dial = (kind: string, v: number) => { if (Math.abs(v - 0.5) >= 0.06) out.push({ playerId: -1, teamScope: 0, kind, intensity: Math.round(v * 100) / 100 }); };
+    dial('mentality', instr.mentality); dial('press_intensity', instr.press); dial('line_height', instr.line);
+    const seg = (opts: { key: string; kind: string }[], v: string) => { const k = opts.find(o => o.key === v)?.kind; if (k) out.push({ playerId: -1, teamScope: 0, kind: k, intensity: 1 }); };
+    seg(SEG_PASSING, instr.passing); seg(SEG_WIDTH, instr.width); seg(SEG_SHOOT, instr.shoot);
+    if (instr.counter) out.push({ playerId: -1, teamScope: 0, kind: 'counter_attack', intensity: 1 });
+    if (instr.offside) out.push({ playerId: -1, teamScope: 0, kind: 'offside_trap', intensity: 1 });
+    if (instr.slow) out.push({ playerId: -1, teamScope: 0, kind: 'slow_it_down', intensity: 1 });
+    return out;
+  };
+  const playerDirectives = (): DirectiveT[] => {
+    const out: DirectiveT[] = [];
+    const slots = slotsOf();
+    slots.forEach((s, i) => {
+      const fam = ROLE_PRESETS[roleFamily(s.role)];
+      const preset = fam.find(p => p.key === presets[i]);
+      // playerId = the SQUAD SLOT of whoever is fielded at this formation slot (may be a bench player the
+      // auto-fit promoted) — resolvePlanDirectives maps that squad slot to the engine id, so the role follows
+      // the player on the pitch, not the slot index.
+      for (const [kind, intensity] of (preset?.dirs ?? [])) out.push({ playerId: squadIdx(i), kind, intensity: intensity ?? 1 });
+    });
+    return out;
+  };
+  const allDirectives = () => [...teamDirectives(), ...playerDirectives()];
+
+  // ── render targets ──
+  const pitchBox = h('div', {});
+  const slotBox = h('div', { class: 'grid cols-2', style: 'gap:6px;margin-top:10px' });
+  const rolesBox = h('div', { class: 'grid cols-2', style: 'gap:8px' });
+  const readout = h('div', { class: 'tactics-receipt', style: 'margin-top:10px' });
+  const saveBtn = h('button', { class: 'primary' }, 'Save tactics') as HTMLButtonElement;
+  const markDirty = () => { saveBtn.textContent = 'Save tactics •'; renderReadout(); };
+
+  function renderReadout() {
+    // resolve directive playerIds (squad slots, incl. promoted bench) → names for describeDirective's readback
+    watchPlayers = team.players.map(p => ({ id: p.slot, name: p.name }));
+    const dirs = allDirectives();
+    readout.replaceChildren(h('div', { class: 'muted', style: 'font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px' }, 'Your instructions'));
+    if (!dirs.length) { readout.appendChild(h('div', { class: 'muted' }, 'Neutral base — no special instructions yet.')); return; }
+    for (const d of dirs) readout.appendChild(h('div', { class: 'receipt-line' }, '• ' + describeDirective(d)));
+  }
+  function drawPitch() {
+    const slots = slotsOf();
+    const tokens = slots.map((s, i) => {
+      const p = team.players[squadIdx(i)];
+      return { x: s.x, y: s.y, role: s.role, name: p?.name ?? '—', injured: !!p?.injuredMatches, misfit: !!p && engineRoleC(p.role) !== engineRoleC(s.role) };
+    });
+    pitchBox.replaceChildren(reg ? pitchSvg(tokens, reg.pitchW, reg.pitchH) : h('div', { class: 'muted', style: 'font-size:12px' }, '(pitch unavailable)'));
+  }
+  // per-slot player picker — choosing a player already in the XI swaps the two slots; a bench player pushes
+  // the displaced starter out. Persists immediately (structural, like changing the shape).
+  function drawSlots() {
+    const slots = slotsOf();
+    const order = team.players.slice().sort((a, b) => a.slot - b.slot);
+    slotBox.replaceChildren(...slots.map((s, i) => {
+      const sel = h('select', { class: 'tactics-input', style: 'width:100%;padding:5px 8px' }) as HTMLSelectElement;
+      for (const p of order) sel.append(h('option', { value: String(p.slot) }, `${p.name} (${p.role})`));
+      sel.value = String(squadIdx(i));
+      sel.addEventListener('change', async () => {
+        const chosen = Number(sel.value);
+        const cur = slots.map((_, j) => squadIdx(j));
+        const at = cur.indexOf(chosen);
+        const prev = cur[i]; cur[i] = chosen;
+        if (at >= 0 && at !== i) cur[at] = prev;   // swap within the XI; bench-in (at<0) just drops prev
+        await persistFormation(formation, cur);
+        await commitDirectives();                  // re-bind roles to the new XI so the saved plan matches the board
+      });
+      return h('label', { class: 'row', style: 'gap:6px;align-items:center;font-size:12px' },
+        h('span', { class: 'pill', style: 'flex-shrink:0;min-width:34px;text-align:center' }, s.role), sel);
+    }));
+  }
+  function drawRoles() {
+    const slots = slotsOf();
+    rolesBox.replaceChildren(...slots.map((s, i) => {
+      const fam = ROLE_PRESETS[roleFamily(s.role)];
+      const p = team.players[squadIdx(i)];
+      if (fam.length <= 1) return h('div', { class: 'row', style: 'gap:8px;align-items:center;font-size:12px' },
+        h('span', { class: 'pill', style: 'min-width:34px;text-align:center' }, s.role), h('span', {}, p?.name ?? '—'));
+      const sel = h('select', { class: 'tactics-input', style: 'width:100%;padding:5px 8px' }) as HTMLSelectElement;
+      for (const pr of fam) { const o = h('option', { value: pr.key }, pr.label) as HTMLOptionElement; if (pr.disabled) o.disabled = true; sel.append(o); }
+      sel.value = presets[i];
+      sel.addEventListener('change', () => { presets[i] = sel.value; markDirty(); });
+      return h('div', { style: 'font-size:12px' },
+        h('div', { class: 'row', style: 'gap:6px;align-items:center;margin-bottom:3px' },
+          h('span', { class: 'pill', style: 'min-width:34px;text-align:center' }, s.role), h('span', { style: 'font-weight:600' }, shortName(p?.name ?? '—'))),
+        sel);
+    }));
+  }
+  const redrawShape = () => { drawPitch(); drawSlots(); drawRoles(); renderReadout(); };
+
+  async function persistFormation(fmt: string, lu: number[]) {
+    try {
+      const r = await api.setFormation(fmt, lu);
+      formation = r.formation; lineup = r.lineup; badge.textContent = r.formation;
+      redrawShape();
+    } catch (e: any) { toast(e.message); }
+  }
+  // Persist the current directive board (team instructions + per-player roles). Called by the explicit Save AND
+  // after any XI change (slot swap / Strongest XI / formation change) so the stored plan_directives always stay
+  // bound to the fielded XI — playerDirectives() keys on squadIdx, so a lineup change re-targets the roles.
+  // Re-points `existing` to the saved plan so a later formation change re-seeds from live state, not a stale load.
+  async function commitDirectives(): Promise<boolean> {
+    saveBtn.setAttribute('disabled', 'true'); saveBtn.textContent = 'Saving…';
+    try {
+      const mentWord = instr.mentality <= 0.3 ? 'Defensive' : instr.mentality <= 0.6 ? 'Balanced' : 'Attacking';
+      const roleCount = presets.filter((k, i) => k !== ROLE_PRESETS[roleFamily(slotsOf()[i]?.role ?? 'MID')][0].key).length;
+      const summary = `${mentWord} setup${roleCount ? `, ${roleCount} player role${roleCount > 1 ? 's' : ''} set` : ''}.`;
+      const r = await api.setPlanStructured(allDirectives(), summary);
+      team.planText = r.planText; team.plan = r.plan; existing = r.plan.directives ?? [];
+      saveBtn.textContent = 'Save tactics';
+      return true;
+    } catch (e: any) { toast(e.message); saveBtn.textContent = 'Save tactics •'; return false; }
+    finally { saveBtn.removeAttribute('disabled'); }
+  }
+
+  // ── formation card ──
+  const badge = h('span', { class: 'pill', style: 'margin-left:8px' }, formation);
+  const fmtSel = h('select', { class: 'tactics-input', style: 'width:auto;min-width:150px;padding:5px 8px' }) as HTMLSelectElement;
+  {
+    const keys = reg ? Object.keys(reg.formations) : [formation];
+    const rec = RECOMMENDED_FORMATIONS.filter(k => !reg || k in reg.formations);
+    const more = keys.filter(k => !rec.includes(k)).sort();
+    const grp = (label: string, ks: string[]) => { if (!ks.length) return; const og = h('optgroup', { label }) as HTMLOptGroupElement; for (const k of ks) og.append(h('option', { value: k }, k)); fmtSel.append(og); };
+    grp('Formations', rec); grp('More shapes', more);
+    fmtSel.value = formation;
+  }
+  fmtSel.addEventListener('change', async () => {
+    formation = fmtSel.value;
+    await persistFormation(formation, []);   // empty lineup → server auto-fits the strongest XI for the new shape
+    seedPresets();                           // re-derive roles from the SAVED plan for the new slots (still-fielded players keep theirs)
+    await commitDirectives();                // persist those roles, now re-bound to the new XI
+    redrawShape();
+    toast(`Shape: ${formation}`);
+  });
+  const autoBtn = h('button', { class: 'ghost small', title: 'Field your strongest role-correct XI in this shape' }, '⚡ Strongest XI') as HTMLButtonElement;
+  autoBtn.addEventListener('click', async () => {
+    autoBtn.setAttribute('disabled', 'true');
+    try { const r = await api.autoLineup(); lineup = r.lineup; await commitDirectives(); redrawShape(); toast('Strongest XI selected'); }
+    catch (e: any) { toast(e.message); }
+    finally { autoBtn.removeAttribute('disabled'); }
+  });
+
+  seedPresets(); redrawShape();
+
+  const formationCard = h('div', { class: 'card' },
+    h('div', { class: 'between' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Formation', badge), autoBtn),
+    h('div', { class: 'row', style: 'gap:8px;align-items:center;margin-bottom:8px' }, h('span', { style: 'font-size:13px' }, 'Shape'), fmtSel),
+    pitchBox,
+    h('div', { class: 'muted', style: 'font-size:11px;margin-top:8px' }, 'Pick a shape, then swap any player into a slot below (amber ⚠ = out of position).'),
+    slotBox);
+
+  // ── team-instructions card ──
+  const sMent = boardSlider('Mentality', ['Defensive — see it out', 'Balanced', 'All-out attack'], instr.mentality, v => { instr.mentality = v; markDirty(); });
+  const sPress = boardSlider('Pressing', ['Sit off & contain', 'Measured mid-block', 'Aggressive high press'], instr.press, v => { instr.press = v; markDirty(); });
+  const sLine = boardSlider('Defensive line', ['Deep block', 'Mid', 'High line & squeeze'], instr.line, v => { instr.line = v; markDirty(); });
+  const instrCard = h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Team instructions'),
+    sMent, sPress, sLine,
+    boardSeg('In possession', SEG_PASSING, instr.passing, k => { instr.passing = k; markDirty(); }),
+    boardSeg('Width', SEG_WIDTH, instr.width, k => { instr.width = k; markDirty(); }),
+    boardSeg('Shooting', SEG_SHOOT, instr.shoot, k => { instr.shoot = k; markDirty(); }),
+    h('div', { style: 'font-size:13px;font-weight:600;margin:10px 0 4px' }, 'Extras'),
+    h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
+      boardToggle('Counter-attack', instr.counter, c => { instr.counter = c; markDirty(); }),
+      boardToggle('Offside trap', instr.offside, c => { instr.offside = c; markDirty(); }),
+      boardToggle('Waste time / slow it down', instr.slow, c => { instr.slow = c; markDirty(); })));
+
+  // ── player-roles card ──
+  const rolesCard = h('div', { class: 'card' },
+    h('div', { class: 'section-title', style: 'margin-top:0' }, 'Player roles'),
+    h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:10px' }, 'Give each player a role — wing-backs, inside forwards, a #10, a holding mid, a target man. Each is a bundle of instructions the engine reads.'),
+    rolesBox);
+
+  // ── save bar ──
+  saveBtn.addEventListener('click', async () => { if (await commitDirectives()) toast('Tactics saved ✓'); });
+  renderReadout();
+
+  // #2: warn (don't silently drop) if the saved plan holds advanced instructions this board can't show.
+  const hiddenWarn = hiddenDirs.length
+    ? h('div', { class: 'card', style: 'border-color:var(--gold)' },
+        h('div', { style: 'color:var(--gold);font-size:13px' },
+          `⚠ Your saved plan has advanced instructions this board can't show (${[...new Set(hiddenDirs.map(d => d.kind))].join(', ')}). Saving from the board will replace them — edit those in the plain-English plan below instead.`))
+    : '';
+
+  return h('div', { class: 'grid' },
+    hiddenWarn,
+    formationCard,
+    instrCard,
+    rolesCard,
+    h('div', { class: 'card' },
+      readout,
+      h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:10px' }, saveBtn)));
+}
+
 async function screenTactics() {
   const alive = screenGuard();
   mount(header(), h('div', { class: 'wrap' }, h('div', { class: 'spin' }, 'Loading tactics…')));
@@ -1260,9 +1600,13 @@ async function screenTactics() {
     h('div', { class: 'between' },
       h('h2', {}, 'Tactics'),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
-    planPanel(team),
-    formationPanel(team, reg),
+    tacticsBoard(team, reg),
     setPieceTakerPanel(team),
+    // The plain-English plan (LLM) stays as an optional power-user alternative to the board above — it
+    // compiles to the SAME plan_directives store, so either surface can drive the team.
+    h('details', { class: 'card' },
+      h('summary', { style: 'cursor:pointer;font-weight:600' }, 'Prefer to type it? Plain-English plan ▾'),
+      h('div', { style: 'margin-top:10px' }, planPanel(team))),
   ));
 }
 

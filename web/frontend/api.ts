@@ -208,7 +208,11 @@ export const api = {
   setTactics: (tactics: Tactics) => req<{ tactics: Tactics }>('PUT', '/tactics', { tactics }),
   teamPlan: (text: string) => req<{ planText: string; plan: PlanT; setPieceTakers: TeamT['setPieceTakers']; note: string; error: string | null }>('POST', '/team/plan', { text }),
   quickTactics: (preset: string) => req<{ planText: string; plan: PlanT }>('POST', '/team/quick-tactics', { preset }),
+  // Deterministic tactics-board save (no LLM): a client-built directive list (team-relative XI ids 0-10, teamScope 0).
+  setPlanStructured: (directives: DirectiveT[], summary?: string) => req<{ planText: string; plan: PlanT }>('POST', '/team/plan-structured', { directives, summary }),
   setLineup: (text: string) => req<LineupResultT>('PUT', '/lineup', { text }),
+  // Deterministic formation/XI set from the picker (no LLM): a registry shape key + optional explicit XI.
+  setFormation: (formation: string, lineup?: number[]) => req<{ formation: string; lineup: number[] | null; note: string }>('POST', '/lineup/set', { formation, lineup }),
   autoLineup: () => req<{ formation: string; lineup: number[] | null; note: string }>('POST', '/lineup/auto'),
   formations: () => req<FormationsT>('GET', '/formations'),
   generatePersonalities: () => req<TeamT>('POST', '/personalities', {}),   // send a body so Fastify can't 415 on a bodyless POST
