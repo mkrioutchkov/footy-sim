@@ -22,7 +22,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1'), '..');
-const ENGINE = path.join(ROOT, 'build', 'live.exe');
+import { resolveEngine } from '../web/backend/engine-path.ts';
+const ENGINE = resolveEngine(path.join(ROOT, 'build'));
 
 const argv = process.argv.slice(2);
 const argN = (flag: string, d: number): number => { const i = argv.indexOf(flag); return i >= 0 ? Number(argv[i + 1]) || d : d; };

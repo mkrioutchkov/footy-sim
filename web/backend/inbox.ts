@@ -36,7 +36,7 @@ export interface AdvanceBag {
   faOffers: { type: string; player: string; wage: number; years: number }[];
   listingsExpired: { player: string }[];
   contractOffers: { result: string; player: string; years: number; wage: number; counterWage?: number | null }[];
-  cup: { champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null;
+  cup: { champion: number | null; myTie: { homeScore: number; awayScore: number; homePens: number | null; awayPens: number | null; opponent: string; won: boolean } | null } | null;
   rollover: {
     season: number;
     promoted: { teamId: number; toTier: number }[];
@@ -58,6 +58,18 @@ export function matchdayHeadline(bag: AdvanceBag): string {
   const gf = home ? bag.myResult.homeScore : bag.myResult.awayScore;
   const ga = home ? bag.myResult.awayScore : bag.myResult.homeScore;
   return `${gf > ga ? '✅ Won' : gf < ga ? '❌ Lost' : '➖ Drew'} ${gf}–${ga}${bag.myOpponent ? ` vs ${bag.myOpponent}` : ''}`;
+}
+
+type CupTieSummary = NonNullable<NonNullable<AdvanceBag['cup']>['myTie']>;
+function cupPenaltySuffix(c: CupTieSummary): string {
+  if (c.homePens != null && c.awayPens != null) {
+    const winnerPens = Math.max(c.homePens, c.awayPens), loserPens = Math.min(c.homePens, c.awayPens);
+    const forUs = c.won ? winnerPens : loserPens, againstUs = c.won ? loserPens : winnerPens;
+    return ` (${c.won ? 'won' : 'lost'} ${forUs}–${againstUs} on penalties)`;
+  }
+  // Legacy pre-shootout rows resolved by seed parity — claiming "(on pens)" there invented a
+  // shootout that never happened. Say nothing rather than something false.
+  return '';
 }
 
 // Port of the frontend digest assembly (app.ts:660-713) — same items/icons/wording/hashes, so the inbox
@@ -91,10 +103,13 @@ export function assembleInboxItems(bag: AdvanceBag): InboxItem[] {
   const wonCup = bag.cup?.champion != null && bag.cup.champion === teamId;
   if (bag.cup?.myTie && !wonCup) {
     const c = bag.cup.myTie;
-    const pens = c.homeScore === c.awayScore ? ' (on pens)' : '';
-    d.push({ category: 'cup', icon: '🏆', text: `Cup: ${c.won ? 'beat' : 'lost to'} ${c.opponent} ${c.homeScore}–${c.awayScore}${pens}${c.won ? ' — through' : ' — knocked out'}`, hash: '#/cup' });
+    d.push({ category: 'cup', icon: '🏆', text: `Cup: ${c.won ? 'beat' : 'lost to'} ${c.opponent} ${c.homeScore}–${c.awayScore}${cupPenaltySuffix(c)}${c.won ? ' — through' : ' — knocked out'}`, hash: '#/cup' });
   }
-  if (wonCup) d.push({ category: 'cup', icon: '🏆', text: 'You won the Cup!', hash: '#/cup' });
+  if (wonCup) {
+    const c = bag.cup?.myTie;
+    const final = c ? ` Beat ${c.opponent} ${c.homeScore}–${c.awayScore}${cupPenaltySuffix(c)}.` : '';
+    d.push({ category: 'cup', icon: '🏆', text: `You won the Cup!${final}`, hash: '#/cup' });
+  }
   if (bag.rollover) {
     const ro = bag.rollover;
     const up = ro.promoted.find(p => p.teamId === teamId);

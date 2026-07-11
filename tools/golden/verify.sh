@@ -12,7 +12,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 SEED_LO=101 SEED_HI=140 MINUTES=10
+# Dual-name: build-native.ps1 emits live.exe, scripts/build-native.sh emits live.
 BIN=build/live.exe
+[ -f "$BIN" ] || BIN=build/live
 REF=tools/golden/fingerprint.sha256
 BASE=tools/golden/baseline_summaries.jsonl
 

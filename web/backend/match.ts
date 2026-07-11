@@ -14,18 +14,12 @@ import { tallyFixtureStats } from './leaders.ts';
 import type { Directive } from './tactics.ts';
 import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation, engineRole } from './formations.ts';
 import { fastSimEnabled, fastSimSummary, type MatchSpec } from './fastsim.ts';
+import { simulatePenaltyShootout, type ShootoutPlayer } from './shootout.ts';
 
-// Resolve the native engine cross-platform: Windows builds `live.exe` (build-native.ps1),
-// Linux/macOS build `live` (build-native.sh). Prefer the platform-native name, fall back to the
-// other so a stub or a foreign-named binary still resolves. This lets the autonomous server run the
-// real engine on Linux without a Windows toolchain.
-function resolveEngine(): string {
-  const dir = path.resolve(process.cwd(), 'build');
-  const names = process.platform === 'win32' ? ['live.exe', 'live'] : ['live', 'live.exe'];
-  for (const n of names) { const p = path.join(dir, n); if (existsSync(p)) return p; }
-  return path.join(dir, names[0]);
-}
-const ENGINE = resolveEngine();
+// Engine binary resolution lives in ONE shared helper (engine-path.ts) so every spawner —
+// this runner, the live coordinator, the dev cpp-server, the batch tools — agrees on the name.
+import { resolveEngine } from './engine-path.ts';
+const ENGINE = resolveEngine(path.resolve(process.cwd(), 'build'));
 // Recordings live next to the DB (so a temp-DB test writes them to its temp dir, never the
 // real save), and the SPEC scratch under the canonical data dir.
 const DATA_DIR = process.env.FOOTY_DB ? path.dirname(process.env.FOOTY_DB) : path.resolve(process.cwd(), 'web', 'backend', 'data');
@@ -602,23 +596,29 @@ export async function mapPool<T, R>(items: T[], fn: (item: T) => Promise<R>, lim
   return out;
 }
 
-export interface CupTieResult { tieId: number; homeScore: number; awayScore: number; alreadyPlayed: boolean }
+export interface CupTieResult { tieId: number; homeScore: number; awayScore: number; homePens: number | null; awayPens: number | null; alreadyPlayed: boolean }
 
 // Play a cup tie through the engine and persist its score. Idempotent.
 export function playCupTie(tieId: number): Promise<CupTieResult> {
-  const t = db.prepare('SELECT home_team_id, away_team_id, seed, played, home_score, away_score FROM cup_ties WHERE id = ?')
-    .get(tieId) as { home_team_id: number | null; away_team_id: number | null; seed: number; played: number; home_score: number | null; away_score: number | null } | undefined;
+  const t = db.prepare('SELECT home_team_id, away_team_id, seed, played, home_score, away_score, home_pens, away_pens FROM cup_ties WHERE id = ?')
+    .get(tieId) as { home_team_id: number | null; away_team_id: number | null; seed: number; played: number; home_score: number | null; away_score: number | null; home_pens: number | null; away_pens: number | null } | undefined;
   if (!t || t.home_team_id == null || t.away_team_id == null) return Promise.reject(new Error('cup tie not ready'));
-  if (t.played) return Promise.resolve({ tieId, homeScore: t.home_score ?? 0, awayScore: t.away_score ?? 0, alreadyPlayed: true });
+  if (t.played) return Promise.resolve({ tieId, homeScore: t.home_score ?? 0, awayScore: t.away_score ?? 0, homePens: t.home_pens, awayPens: t.away_pens, alreadyPlayed: true });
   const file = path.join(SPEC_DIR, `cup-${tieId}.json`);
-  writeFileSync(file, JSON.stringify(buildTieSpec(t.home_team_id, t.away_team_id, t.seed)));
+  const spec = buildTieSpec(t.home_team_id, t.away_team_id, t.seed);
+  writeFileSync(file, JSON.stringify(spec));
+  // Use the exact emitted XIs (custom formation + injury cover included), not a later DB squad snapshot.
+  const homePlayers = ((spec.home as { players?: ShootoutPlayer[] }).players ?? []);
+  const awayPlayers = ((spec.away as { players?: ShootoutPlayer[] }).players ?? []);
   const human = hasHumanStake(t.home_team_id, t.away_team_id);
   // Same split as the league: --summary is the authoritative result; a human tie ALSO fires a best-effort,
   // capped, non-blocking replay recording (a timeout/crash leaves the result + bracket untouched).
   return runEngineSummary(file).then(({ homeScore, awayScore }) => {
-    db.prepare('UPDATE cup_ties SET played = 1, home_score = ?, away_score = ? WHERE id = ?').run(homeScore, awayScore, tieId);
+    const pens = homeScore === awayScore ? simulatePenaltyShootout(t.seed, homePlayers, awayPlayers) : null;
+    db.prepare('UPDATE cup_ties SET played = 1, home_score = ?, away_score = ?, home_pens = ?, away_pens = ? WHERE id = ?')
+      .run(homeScore, awayScore, pens?.home ?? null, pens?.away ?? null, tieId);
     if (human || process.env.FOOTY_RECORD_ALL === '1') enqueueRecording('cup', tieId, file);
-    return { tieId, homeScore, awayScore, alreadyPlayed: false };
+    return { tieId, homeScore, awayScore, homePens: pens?.home ?? null, awayPens: pens?.away ?? null, alreadyPlayed: false };
   });
 }
 

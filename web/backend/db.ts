@@ -364,11 +364,16 @@ CREATE TABLE IF NOT EXISTS cup_ties (
   played         INTEGER NOT NULL DEFAULT 0,
   home_score     INTEGER,
   away_score     INTEGER,
+  home_pens      INTEGER,
+  away_pens      INTEGER,
   winner_team_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_cup_world_season ON cup_ties(world_id, season);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cup_tie ON cup_ties(world_id, season, round, slot);
 `);
+// Existing saves predate stored shootout scores; NULL preserves their legacy seed-parity tie-break.
+ensureColumn('cup_ties', 'home_pens', 'home_pens INTEGER');
+ensureColumn('cup_ties', 'away_pens', 'away_pens INTEGER');
 
 // Record-and-replay: a played match's frame stream is recorded ONCE and later replayed instead
 // of re-simulating per viewer (cheaper, and it can't drift from the stored scoreline the way a
@@ -656,3 +661,8 @@ CREATE TABLE IF NOT EXISTS contract_offers (
 CREATE INDEX IF NOT EXISTS idx_contract_offers_team ON contract_offers(team_id, status);
 CREATE INDEX IF NOT EXISTS idx_contract_offers_player ON contract_offers(player_id, status);
 `);
+
+// The advancing flag is a DURABLE lock but its holders are in-process try/finally blocks —
+// a crash/SIGKILL mid-advance would otherwise wedge the world forever (dueSharedWorlds filters
+// advancing=0 and /api/advance 409s). Any lock alive at boot is by definition stale: clear them.
+try { db.exec('UPDATE worlds SET advancing = 0'); } catch { /* pre-migration boot: table may not exist yet */ }

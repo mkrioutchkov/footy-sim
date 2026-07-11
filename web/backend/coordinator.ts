@@ -32,7 +32,10 @@ import { db } from './db.ts';
 import { consumeTeamTalk } from './teamtalk.ts';
 import { processMatchAftermath } from './news.ts';
 
-const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
+import { resolveEngine } from './engine-path.ts';
+// Cross-platform via the shared resolver — this was the one spawner still hardcoding live.exe,
+// which broke 'Play LIVE' on a Linux build (scripts/build-native.sh emits build/live).
+const ENGINE = resolveEngine(path.resolve(process.cwd(), 'build'));
 export type Side = 'home' | 'away';
 export type Seat = Side | 'spectator';
 

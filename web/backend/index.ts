@@ -14,7 +14,7 @@ import {
 import { deriveTraits, defaultPersonality, type Personality } from './personality.ts';
 import { playFixture, playCupTie, getFixture, writeSpec, MatchStream, ReplayStream, EventsReplayStream, recordingFor, loadRecording, hasHumanStake, recordReplay, mapPool, loadEventsLog, tacticsReview, weatherForSeed } from './match.ts';
 import { joinLiveMatch, liveKey, type Seat } from './coordinator.ts';
-import { pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
+import { cupTieWinnerId, pendingCupRound, advanceCupRound, cupView, cupTieFor } from './cup.ts';
 import { compileLineup } from './lineup.ts';
 import { FORMATIONS, PITCH_W, roleFit } from './formations.ts';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, marketTick, bidForPlayer, loanIn, loanOut, endLoan, offersForTeam, withdrawOffer, matchCounter, aiListSurplus, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam, resolveFreeAgentOffers, seedReleaseClauses, searchPlayers } from './market.ts';
@@ -29,7 +29,7 @@ import { prepareMatchdayHeuristic, setTacticsAndXI } from './manager/index.ts';
 import { NATIONS, CONFED_NAME, backfillNationalities } from './nations.ts';
 import { runInternationalTournaments, getWorldTournaments, selectNationalSquad, fieldableNations } from './national.ts';
 import { fastSimEnabled } from './fastsim.ts';
-import { aiManagerTick } from './ai.ts';
+import { aiManagerTick, optimizeLineup } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
 import { interactWithPlayer, isInteractTone } from './interaction.ts';
@@ -999,7 +999,7 @@ app.get('/api/report', async (req: any, reply) => {
   if (!teamId) return reply.code(404).send({ error: 'no team' });
   // §cup-report: a cup tie's report (the recording exists for the user's ties). Same builder, kind='cup'.
   if (req.query?.cup != null) {
-    const tie = db.prepare('SELECT * FROM cup_ties WHERE id = ?').get(Number(req.query.cup)) as { id: number; world_id: number; home_team_id: number | null; away_team_id: number | null; played: number } | undefined;
+    const tie = db.prepare('SELECT * FROM cup_ties WHERE id = ?').get(Number(req.query.cup)) as { id: number; world_id: number; home_team_id: number | null; away_team_id: number | null; seed: number; played: number; home_score: number | null; away_score: number | null; home_pens: number | null; away_pens: number | null; winner_team_id: number | null } | undefined;
     if (!tie || !tie.played || tie.home_team_id == null || tie.away_team_id == null) return reply.code(404).send({ error: 'cup tie not found' });
     const lg = db.prepare('SELECT id, world_id FROM leagues WHERE id = (SELECT league_id FROM teams WHERE id = ?)').get(teamId) as { id: number; world_id: number | null };
     if (tie.world_id !== (lg.world_id ?? lg.id)) return reply.code(403).send({ error: 'not your world' });
@@ -1008,7 +1008,20 @@ app.get('/api/report', async (req: any, reply) => {
     const caway = cnm.find(t => t.id === tie.away_team_id)?.name ?? 'Away';
     const crep = await buildMatchReport('cup', tie.id, chome, caway);
     if (!crep) return reply.code(404).send({ error: 'no recording for this tie' });
-    return { homeName: chome, awayName: caway, ...crep };
+    if (tie.home_pens != null && tie.away_pens != null && tie.home_pens !== tie.away_pens) {
+      const winner: 'home' | 'away' = cupTieWinnerId({ ...tie, home_team_id: tie.home_team_id, away_team_id: tie.away_team_id }) === tie.home_team_id ? 'home' : 'away';
+      const winnerName = winner === 'home' ? chome : caway;
+      const winnerPens = winner === 'home' ? tie.home_pens : tie.away_pens;
+      const loserPens = winner === 'home' ? tie.away_pens : tie.home_pens;
+      const decider = `${winnerName} won ${winnerPens}–${loserPens} on penalties after the tie finished ${crep.facts.homeScore}–${crep.facts.awayScore}.`;
+      return {
+        homeName: chome, awayName: caway, ...crep,
+        headline: `${crep.headline} (${tie.home_pens}–${tie.away_pens} pens)`,
+        body: `${decider} ${crep.body}`,
+        shootout: { home: tie.home_pens, away: tie.away_pens, winner },
+      };
+    }
+    return { homeName: chome, awayName: caway, ...crep, shootout: null };
   }
   const fx = getFixture(Number(req.query?.fixture));
   if (!fx) return reply.code(404).send({ error: 'fixture not found' });
@@ -1208,10 +1221,15 @@ function runManagerPrePass(fixtureIds: number[]): void {
       try {
         if (t.uid == null) {
           setTacticsAndXI(tid);   // AI club: formation/XI/plan (transfers stay with marketTick — no double-trade)
-        } else if (t.last_seen == null || (nowMs - t.last_seen) > ABSENT_MS) {
-          // absent human: assistant = tactics + XI, no spend; full (opt-in) = also transfers/renewals
-          if (t.autonomy === 'full') prepareMatchdayHeuristic(tid, 'full');
-          else setTacticsAndXI(tid);
+        } else if (t.last_seen != null && (nowMs - t.last_seen) > ABSENT_MS) {
+          // Absent human. NULL last_seen means the user PREDATES the column (it stamps on any
+          // authed request) — treating that as absent made the first post-upgrade turn overwrite
+          // every existing user's saved setup. And the assistant tier must never DESTROY a saved
+          // plan/formation: setTacticsAndXI persists a heuristic formation + fallback plan over
+          // whatever the human set. Refresh the XI only (injury/fatigue cover) — the same
+          // never-touch-a-human's-plan contract prepareWorldMatchday documents.
+          if (t.autonomy === 'full') prepareMatchdayHeuristic(tid, 'full');   // full autonomy: they opted into takeover
+          else optimizeLineup(tid);
         }
         // a present human keeps their own tactics/XI
       } catch { /* a manager error never blocks the matchday */ }
@@ -1298,7 +1316,8 @@ async function advanceWorldCore(worldLeagueId: number): Promise<WorldTurnCore> {
     // §national-teams: the off-season internationals (World Cup / continental) run in the BACKGROUND —
     // the ~7-15 engine sims must not block the advance response (they'd take minutes on the real engine).
     // Results land in the tournament tables and surface on the #/internationals screen when ready.
-    void runInternationalTournaments(worldLeagueId, rollover.season).catch(() => { /* best-effort */ });
+    void runInternationalTournaments(worldLeagueId, rollover.season)
+      .catch(e => console.warn(`[internationals] world ${worldLeagueId} season ${rollover.season} failed (will retry next trigger):`, e));
   }
 
   // build + persist each human's inbox + payload
@@ -1342,7 +1361,11 @@ async function runDueTicks(now: number, max = 25): Promise<{ advanced: number[];
       const core = await advanceWorldCore(w.worldId);
       if (core.played) { recordWorldAdvanced(w.worldId, Date.now()); advanced.push(w.worldId); }
       else releaseAdvanceLock(w.worldId);   // nothing to play (rollover regenerates, so rare)
-    } catch (e: any) { releaseAdvanceLock(w.worldId); errors.push({ worldId: w.worldId, error: String(e?.message ?? e) }); }
+    } catch (e: any) {
+      releaseAdvanceLock(w.worldId);
+      errors.push({ worldId: w.worldId, error: String(e?.message ?? e) });
+      console.warn(`[scheduler] world ${w.worldId} turn failed:`, e);   // errors were previously discarded silently
+    }
   }
   return { advanced, errors, due: due.length };
 }
@@ -1423,7 +1446,10 @@ app.post('/api/admin/run-internationals', async (req: any, reply) => {
 // §autonomous: the lobby — shared worlds a player can join, with their unclaimed-team counts.
 app.get('/api/worlds', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
-  return { worlds: listJoinableWorlds(), hasTeam: teamForUser(user.id) != null };
+  // hasTeam must mean an ACTIVE club: teamForUser also returns a sacked one, which hid every
+  // Claim button from exactly the users the claim endpoint's sacked-exception is written for.
+  const activeTeam = (db.prepare('SELECT id FROM teams WHERE user_id = ? AND sacked = 0 ORDER BY id DESC LIMIT 1').get(user.id) as { id: number } | undefined)?.id ?? null;
+  return { worlds: listJoinableWorlds(), hasTeam: activeTeam != null };
 });
 
 // §autonomous: the teams in a shared world (claimable = unclaimed AI seats), with OVR + division.
@@ -1431,14 +1457,28 @@ app.get('/api/worlds/:id/teams', async (req: any, reply) => {
   const user = requireUser(req, reply); if (!user) return;
   const worldId = Number(req.params?.id);
   if (!Number.isInteger(worldId)) return reply.code(400).send({ error: 'bad world' });
+  // Shared worlds only: without this gate any logged-in user could enumerate every club,
+  // manager name and squad strength of every OTHER user's private solo world by iterating ids.
+  const w = getWorld(worldId);
+  if (!w || w.mode !== 'shared') return reply.code(404).send({ error: 'no such world' });
   const leagues = worldLeagues(worldId);
   if (!leagues.length) return reply.code(404).send({ error: 'no such world' });
   const ph = leagues.map(() => '?').join(',');
   const rows = db.prepare(`SELECT t.id, t.name, t.user_id, t.manager, l.tier, l.name AS division
     FROM teams t JOIN leagues l ON l.id = t.league_id WHERE t.league_id IN (${ph}) ORDER BY l.tier, t.name`).all(...leagues.map(l => l.id)) as { id: number; name: string; user_id: number | null; manager: string; tier: number; division: string }[];
+  // One query for every squad (was one per team — the hottest new endpoint doing N+1).
+  const attrsByTeam = new Map<number, number[]>();
+  if (rows.length) {
+    const tph = rows.map(() => '?').join(',');
+    for (const pr of db.prepare(`SELECT team_id, attrs FROM players WHERE team_id IN (${tph})`).all(...rows.map(t => t.id)) as { team_id: number; attrs: string }[]) {
+      const arr = attrsByTeam.get(pr.team_id) ?? [];
+      arr.push(overall(JSON.parse(pr.attrs)));
+      attrsByTeam.set(pr.team_id, arr);
+    }
+  }
   const teams = rows.map(t => {
-    const attrs = (db.prepare('SELECT attrs FROM players WHERE team_id = ?').all(t.id) as { attrs: string }[]).map(p => JSON.parse(p.attrs));
-    const ovr = attrs.length ? Math.round(attrs.map(a => overall(a)).sort((x, y) => y - x).slice(0, 11).reduce((s, v) => s + v, 0) / Math.min(11, attrs.length)) : 0;
+    const ovrs = attrsByTeam.get(t.id) ?? [];
+    const ovr = ovrs.length ? Math.round(ovrs.sort((x, y) => y - x).slice(0, 11).reduce((s2, v) => s2 + v, 0) / Math.min(11, ovrs.length)) : 0;
     return { teamId: t.id, name: t.name, tier: t.tier, division: t.division, overall: ovr, claimed: t.user_id != null, manager: t.user_id != null ? t.manager : 'AI' };
   });
   return { teams };
@@ -1457,11 +1497,16 @@ app.post('/api/worlds/:id/claim', async (req: any, reply) => {
   }
   const w = getWorld(worldId);
   if (!w || w.mode !== 'shared') return reply.code(404).send({ error: 'not a joinable world' });
+  if (!w.joinOpen) return reply.code(403).send({ error: 'this world is not accepting new managers' });
   const leagueIds = worldLeagues(worldId).map(l => l.id);
   const ph = leagueIds.map(() => '?').join(',');
   // atomic claim: only succeeds if the seat is still unclaimed and in this world
   const res = db.prepare(`UPDATE teams SET user_id = ?, manager = ?, sacked = 0 WHERE id = ? AND user_id IS NULL AND league_id IN (${ph})`).run(user.id, user.username, teamId, ...leagueIds);
   if (res.changes === 0) return reply.code(409).send({ error: 'that team was just taken — pick another' });
+  // Release the user's PREVIOUS club (the sacked one that made this claim legal): leaving its
+  // user_id set meant teamForUser (ORDER BY id DESC) could keep resolving to the dead club, so
+  // every team-scoped endpoint served the old save and the claim looked like a no-op.
+  db.prepare("UPDATE teams SET user_id = NULL, manager = 'AI' WHERE user_id = ? AND id <> ?").run(user.id, teamId);
   // backfill the squad's personalities/nationalities in the background (they were seeded blank for AI)
   void fillMissingPersonalities(teamId).catch(() => { /* stays neutral on failure */ });
   const nowLeagueId = getTeamWithPlayers(teamId)!.leagueId;

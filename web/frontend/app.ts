@@ -3386,17 +3386,17 @@ async function screenCup() {
     h('div', { class: 'between' }, h('h2', {}, 'Cup'), h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
     h('div', { class: 'card muted' }, 'No cup this season.')));
 
-  const teamRow = (name: string | null, score: number | null, won: boolean, isMe: boolean) =>
+  const teamRow = (name: string | null, score: number | null, pens: number | null, won: boolean, isMe: boolean) =>
     h('div', { class: 'between', style: `font-size:12px;gap:10px;${won ? 'font-weight:700;' : 'opacity:.7;'}${isMe ? 'color:var(--accent,#4ea1ff);' : ''}` },
-      h('span', {}, name ?? 'TBD'), h('span', {}, score != null ? String(score) : ''));
+      h('span', {}, name ?? 'TBD'), h('span', {}, score != null ? `${score}${pens != null ? ` (${pens})` : ''}` : ''));
   const cols = cup.rounds.map(rd => h('div', { style: 'min-width:170px' },
     h('div', { class: 'section-title', style: 'margin-top:0' }, rd.name),
     ...rd.ties.map(t => {
       // Only YOUR ties carry a recording (human stake), so Watch/Report show on played ties you were in.
       const mine = t.homeTeamId === cup.myTeamId || t.awayTeamId === cup.myTeamId;
       return h('div', { class: 'card', style: 'padding:8px;margin-bottom:8px' },
-        teamRow(t.home, t.homeScore, t.winnerTeamId != null && t.winnerTeamId === t.homeTeamId, t.homeTeamId === cup.myTeamId),
-        teamRow(t.away, t.awayScore, t.winnerTeamId != null && t.winnerTeamId === t.awayTeamId, t.awayTeamId === cup.myTeamId),
+        teamRow(t.home, t.homeScore, t.homePens, t.winnerTeamId != null && t.winnerTeamId === t.homeTeamId, t.homeTeamId === cup.myTeamId),
+        teamRow(t.away, t.awayScore, t.awayPens, t.winnerTeamId != null && t.winnerTeamId === t.awayTeamId, t.awayTeamId === cup.myTeamId),
         mine && t.played ? h('div', { class: 'row', style: 'gap:6px;margin-top:6px' },
           h('button', { class: 'ghost small', title: 'Watch this cup tie back', onclick: () => (location.hash = `#/watch/${t.id}?cup=1`) }, '▶ Watch'),
           h('button', { class: 'ghost small', title: 'Read the match report', onclick: () => (location.hash = `#/report/${t.id}?cup=1`) }, 'Report')) : '');
@@ -3469,11 +3469,18 @@ async function screenReport(fixtureId: number, cup = false) {
   const sideEvents = (team: 'home' | 'away') => rep.facts.timeline
     .filter(e => e.team === team && (e.type === 'goal' || e.type === 'red'))
     .map(e => h('div', { class: 'muted', style: 'font-size:12px;padding:1px 0' }, `${icon(e.type)} ${e.name} ${e.minute}'`));
+  const shootoutLine = rep.shootout ? (() => {
+    const winnerName = rep.shootout.winner === 'home' ? rep.homeName : rep.awayName;
+    const winnerPens = rep.shootout.winner === 'home' ? rep.shootout.home : rep.shootout.away;
+    const loserPens = rep.shootout.winner === 'home' ? rep.shootout.away : rep.shootout.home;
+    return h('div', { style: 'text-align:center;font-size:13px;font-weight:700;margin-top:4px;color:var(--gold,#e8b53a)' }, `${winnerName} won ${winnerPens}–${loserPens} on penalties`);
+  })() : '';
   const scoreboard = h('div', { class: 'card' },
     h('div', { style: 'display:flex;align-items:baseline;justify-content:center;gap:18px;flex-wrap:wrap' },
       h('div', { style: `flex:1;min-width:120px;text-align:right;font-weight:700;color:${HOME_C}` }, rep.homeName),
       h('div', { style: 'font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:1px' }, `${rep.facts.homeScore} — ${rep.facts.awayScore}`),
       h('div', { style: `flex:1;min-width:120px;font-weight:700;color:${AWAY_C}` }, rep.awayName)),
+    shootoutLine,
     h('div', { style: 'display:flex;gap:18px;margin-top:6px' },
       h('div', { style: 'flex:1;text-align:right' }, ...sideEvents('home')),
       h('div', { style: 'width:60px' }),

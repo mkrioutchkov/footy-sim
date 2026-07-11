@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "native:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-native.ps1",
+    "native:build": "node scripts/native-build.mjs",
     "native:build:posix": "bash scripts/build-native.sh",
     "preserver": "npm run native:build",
     "server": "tsx tools/cpp-server.ts",

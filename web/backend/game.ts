@@ -4,6 +4,7 @@ import { generateSquadPersonalities } from './personality.ts';
 import { createCup } from './cup.ts';
 import { deriveObjective, setSeasonObjective } from './objectives.ts';
 import { registerWorld } from './worlds.ts';
+import { backfillNationalities } from './nations.ts';
 import { FORMATIONS, DEFAULT_FORMATION } from './formations.ts';
 import type { Plan } from './plan.ts';
 
@@ -356,6 +357,10 @@ export function createSharedWorld(name: string): { worldId: number; secondId: nu
   seedFreeAgents(worldId); seedFreeAgents(secondId);
   createCup(secondId);
   registerWorld(worldId, name, 'shared', { joinOpen: true });
+  // Nationalities normally backfill at boot / season rollover — a world created at RUNTIME
+  // would otherwise field ~270 nationality-less players for its whole first season (empty
+  // internationals screen, no flags) until the next server restart.
+  backfillNationalities();
   return { worldId, secondId };
 }
 
