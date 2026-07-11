@@ -14,7 +14,17 @@ import { tallyFixtureStats } from './leaders.ts';
 import type { Directive } from './tactics.ts';
 import { FORMATIONS, DEFAULT_FORMATION, PITCH_W, normalizeFormation, engineRole } from './formations.ts';
 
-const ENGINE = path.resolve(process.cwd(), 'build', 'live.exe');
+// Resolve the native engine cross-platform: Windows builds `live.exe` (build-native.ps1),
+// Linux/macOS build `live` (build-native.sh). Prefer the platform-native name, fall back to the
+// other so a stub or a foreign-named binary still resolves. This lets the autonomous server run the
+// real engine on Linux without a Windows toolchain.
+function resolveEngine(): string {
+  const dir = path.resolve(process.cwd(), 'build');
+  const names = process.platform === 'win32' ? ['live.exe', 'live'] : ['live', 'live.exe'];
+  for (const n of names) { const p = path.join(dir, n); if (existsSync(p)) return p; }
+  return path.join(dir, names[0]);
+}
+const ENGINE = resolveEngine();
 // Recordings live next to the DB (so a temp-DB test writes them to its temp dir, never the
 // real save), and the SPEC scratch under the canonical data dir.
 const DATA_DIR = process.env.FOOTY_DB ? path.dirname(process.env.FOOTY_DB) : path.resolve(process.cwd(), 'web', 'backend', 'data');
