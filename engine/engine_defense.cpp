@@ -304,6 +304,10 @@ void GameEngine::applyDirectives() {
                 directiveBias[p->id].comeShortBias = 0.55 * d.intensity;   // the receive half (reuse come_short candidate + boost)
                 directiveBias[p->id].holdUpBias    = 0.30 * d.intensity;   // the carry half (read in resolveChoice's shield gate)
                 break;
+            // "ball-playing CB": step out of defence and carry/progress the ball. Enables the
+            // open-lane carry (agent_shoot_dribble), softens the own-half carry suppression
+            // (role_ai CBPlayerAI), and rewards a line-breaking distribution (agent_pass_helpers).
+            case DirectiveKind::BallPlaying: directiveBias[p->id].ballPlaying = true; break;
             case DirectiveKind::MakeRuns:    directiveBias[p->id].runAheadBias = 0.16 * d.intensity; break;
             case DirectiveKind::DribbleMore: directiveBias[p->id].dribbleBonus = 0.22 * d.intensity; break;
             // "stay back" — hold shape, don't bomb forward into the attack (damps the

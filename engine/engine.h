@@ -568,7 +568,7 @@ public:
         StayWide, ComeInside, CutInside, OverlapRun, StayCentral,
         CrossEarly, SwitchPlay, PlaySimple, Cutback,
         RunInBehind, MakeRuns, ComeShort, DriftIntoPocket, DribbleMore, StayBack,
-        TargetManHoldup,
+        TargetManHoldup, BallPlaying,
         PressHard, TackleHard, StayOnFeet, Contain,
         // ── set-piece taker designations (per-player; playerId = the designated taker) ──
         FkTaker, CornerTaker, PenTaker, LongThrowTaker,
@@ -600,6 +600,7 @@ public:
         bool crossEarly=false; double switchBias=0.0; double simplifyBias=0.0; double cutbackBias=0.0;
         double runAheadBias=0.0; double comeShortBias=0.0; double pocketBias=0.0; double cutInsideBias=0.0; double dribbleBonus=0.0; double stayBackBias=0.0;
         double holdUpBias=0.0;
+        bool   ballPlaying=false;   // "ball-playing CB": step out + carry/progress the ball from the back
         double pressTightness=0.0; double tackleAggression=0.0; double stayOnFeet=0.0; double containBias=0.0; };
     std::array<DirectiveBias, 22> directiveBias = {};
     // Timed plan changes (P2): each entry REPLACES the active directive set once

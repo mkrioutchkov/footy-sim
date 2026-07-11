@@ -349,8 +349,9 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     if (oppsInPath >= 5) sc -= 0.30;
 
     // Field position: prefer passing in own half
+    bool ballPlaying = engine.directiveBias[p.id].ballPlaying;   // ball-playing CB: carry out of the back
     if (inOwnHalf) sc -= 0.10;
-    if (inOwnHalf) sc += dribbleOwnHalfExtraPenalty(); // CM/CB/FB: extra penalty in own half
+    if (inOwnHalf && !ballPlaying) sc += dribbleOwnHalfExtraPenalty(); // CM/CB/FB: extra penalty in own half (a ball-playing CB is exempt)
 
     // Near goal bonus
     if (nearGoal) sc += 0.20;
@@ -373,7 +374,10 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
 
     double aheadX = clamp(p.x + fd * 130.0, 35.0, PITCH_W - 35.0);
     int densityAhead = densityAt(aheadX, p.y);
-    if (canUseOpenLane() && !finalThird && per.nearestOpponentDist > 78.0) {
+    // Open-lane carry. A ball-playing CB (directive) is granted the lane even though
+    // his role can't use it by default, with a real forward bonus/distance (the CB
+    // profile's are 0), so a stepped-out centre-back drives into the space ahead.
+    if ((canUseOpenLane() || ballPlaying) && !finalThird && per.nearestOpponentDist > 78.0) {
         double laneY = p.y;
         double topDensity = densityAt(p.x + fd * 145.0, clamp(p.y - 75.0, 45.0, PITCH_H - 45.0));
         double midDensity = densityAt(p.x + fd * 145.0, p.y);
@@ -382,8 +386,11 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         else if (botDensity < midDensity) laneY = clamp(p.y + 75.0, 45.0, PITCH_H - 45.0);
         int laneDensity = std::min({ topDensity, midDensity, botDensity });
         if (laneDensity <= 1) {
-            sc += openLaneDribbleBonus();
-            tx = clamp(p.x + fd * openLaneDribbleDistance(), 35.0, PITCH_W - 35.0);
+            double laneBonus = openLaneDribbleBonus();
+            double laneDist  = openLaneDribbleDistance();
+            if (ballPlaying) { if (laneBonus < 0.16) laneBonus = 0.16; if (laneDist < 150.0) laneDist = 150.0; }
+            sc += laneBonus;
+            tx = clamp(p.x + fd * laneDist, 35.0, PITCH_W - 35.0);
             ty = laneY;
         }
     }
