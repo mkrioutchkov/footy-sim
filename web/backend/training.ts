@@ -292,7 +292,7 @@ export function explainTraining(
 // still NULL (backfillPotentials runs at startup to prevent that). For human-managed clubs
 // it also records a training report (the latest per club is kept) so the manager can see why
 // each player moved.
-export function developmentTick(leagueId: number): { players: number; improved: number } {
+export function developmentTick(leagueId: number): { players: number; improved: number; improvedByTeam: Record<number, number> } {
   const rows = db.prepare(`
     SELECT p.id, p.team_id AS team_id, p.slot, p.name, p.role, p.attrs, p.age, p.potential,
            p.personality, p.morale, p.train_focus AS player_focus, p.train_intensity AS train_intensity,
@@ -361,16 +361,18 @@ export function developmentTick(leagueId: number): { players: number; improved: 
   // count of HUMAN-club players who actually gained an attribute this tick — the honest "developed"
   // figure for the matchday digest (the world-wide `n` counts every AI player too and read as ~272).
   let improved = 0;
+  const improvedByTeam: Record<number, number> = {};   // per human club (a world can hold >1 human club)
   if (reports.size) {
     const round = (db.prepare('SELECT MAX(round) AS r FROM fixtures WHERE league_id = ? AND played = 1').get(leagueId) as { r: number | null }).r ?? 0;
     const season = (db.prepare('SELECT season FROM leagues WHERE id = ?').get(leagueId) as { season: number } | undefined)?.season ?? 1;
     for (const [teamId, rep] of reports) {
       recordTrainingReport(teamId, season, round, rep.focus, rep.lines, coachOf(teamId), harmonyOf(teamId), categoryBoard(teamId));
       recordAttrSnapshots(teamId, season, round, rep.snaps);
-      improved += rep.lines.filter(l => l.attrs.some(a => a.delta > 0)).length;
+      const c = rep.lines.filter(l => l.attrs.some(a => a.delta > 0)).length;
+      improved += c; improvedByTeam[teamId] = c;
     }
   }
-  return { players: n, improved };
+  return { players: n, improved, improvedByTeam };
 }
 
 // One attribute snapshot per developed player this matchday (append-only progression history). Idempotent

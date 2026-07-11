@@ -158,6 +158,32 @@ ensureColumn('players', 'role_familiarity', 'role_familiarity REAL NOT NULL DEFA
 ensureColumn('leagues', 'tier', 'tier INTEGER NOT NULL DEFAULT 1');
 ensureColumn('leagues', 'world_id', 'world_id INTEGER');
 
+// ── Worlds (turn-based + autonomous mode) ───────────────────────────────────
+// A world is implicit today via leagues.world_id (= the tier-1 league id; legacy single leagues use
+// their own id). This side-table adds per-world turn state without disturbing that: world_id is the
+// SAME key worldLeagues() uses. 'solo' = one human, advanced on demand by its owner (today's flow);
+// 'shared' = seeded all-AI, many humans claim teams, advanced only by the scheduler on interval_min.
+db.exec(`
+CREATE TABLE IF NOT EXISTS worlds (
+  world_id      INTEGER PRIMARY KEY,           -- = leagues.world_id (COALESCE(world_id, id))
+  name          TEXT NOT NULL,
+  mode          TEXT NOT NULL DEFAULT 'solo',  -- 'solo' | 'shared'
+  join_open     INTEGER NOT NULL DEFAULT 0,    -- 1 = accepting human claims (shared worlds)
+  turn          INTEGER NOT NULL DEFAULT 0,    -- monotonic advance counter for this world
+  last_advanced INTEGER,                       -- ms of last advance; NULL = never
+  interval_min  INTEGER NOT NULL DEFAULT 720,  -- scheduled cadence in minutes (720 = 2 turns/day)
+  advancing     INTEGER NOT NULL DEFAULT 0,    -- durable lock: 1 while a turn is mid-advance
+  created_at    INTEGER NOT NULL
+);
+`);
+// Backfill: one worlds row per existing world (roots = tier-1 leagues world_id=id, or legacy world_id NULL).
+// Idempotent (INSERT OR IGNORE on the PK). All pre-existing worlds are 'solo'.
+db.exec(`
+INSERT OR IGNORE INTO worlds (world_id, name, mode, created_at)
+SELECT COALESCE(world_id, id) AS wid, MIN(name), 'solo', ${Date.now()}
+FROM leagues WHERE world_id IS NULL OR world_id = id GROUP BY wid;
+`);
+
 // ── Wages & contracts (pillar 5.2) ──────────────────────────────────────────
 // Annual wage (a recurring commitment, separate from the one-off transfer fee) + a wage
 // budget per club. NULL wages are backfilled (backfillContracts) from OVR/age/ego.

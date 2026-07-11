@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { registerUser, loginUser, createSession, destroySession, getUserBySession, seedAdminUser, type User } from './auth.ts';
 import { db } from './db.ts';
 import {
-  newSeasonForUser, getTeamWithPlayers, standings, teamForUser,
+  newSeasonForUser, createSharedWorld, getTeamWithPlayers, standings, teamForUser,
   assignPersonalities, needsPersonalities, fillMissingPersonalities, backfillFreeAgents, backfillPotentials, backfillContracts,
   playerValue, DEFAULT_TACTICS, type Tactics,
 } from './game.ts';
@@ -24,6 +24,7 @@ import { getRotationView, applyRotation } from './rotation.ts';
 import { seedAcademy, getAcademy, promoteProspect } from './youth.ts';
 import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from './teamtalk.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason, worldStandings, PROMOTE } from './season.ts';
+import { worldForTeam, getWorld, ensureWorldForLeague, claimAdvanceLock, releaseAdvanceLock, recordWorldAdvanced, dueSharedWorlds, listJoinableWorlds } from './worlds.ts';
 import { aiManagerTick } from './ai.ts';
 import { previewRenewal, proposeRenewal, processContractOffers, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from './contracts.ts';
 import { applyPressResponse, generatePressQuestion, pressAvailable, recordPress } from './press.ts';
@@ -948,6 +949,14 @@ app.get('/api/league', async (req: any, reply) => {
     boardMood: mood,                   // mid-season board mood line (null if no confidence)
     boardMessages: messages,           // event-driven board comms: last-result reaction + next-match expectation
     pressAvailable: pressAvailable(teamId),   // §2.14: can the manager hold a press conference this matchday
+    // §autonomous: the world's turn model. 'solo' → the owner advances on demand (show the button);
+    // 'shared' → the scheduler advances it, so surface the next-turn ETA instead of a manual button.
+    world_turn: (() => {
+      const wid = worldForTeam(teamId); const w = wid != null ? getWorld(wid) : null;
+      if (!w) return { mode: 'solo' as const, turn: 0, canAdvance: !!user.isAdmin };
+      const nextTurnAt = w.mode === 'shared' && w.lastAdvanced != null ? w.lastAdvanced + w.intervalMin * 60000 : null;
+      return { mode: w.mode, turn: w.turn, intervalMin: w.intervalMin, lastAdvanced: w.lastAdvanced, nextTurnAt, canAdvance: user.isAdmin || w.mode === 'solo' };
+    })(),
   };
 });
 
@@ -1143,111 +1152,191 @@ app.get('/api/history', async (req: any, reply) => {
 // both tables move together), then run the market + training ticks for each division. If
 // that completes the season, roll it over (prize money, promotion/relegation, ageing, new
 // fixtures) and return the summary.
-const advancing = new Set<number>();   // per-user lock: a matchday mutates many tables + plays
-app.post('/api/advance', async (req: any, reply) => {
-  const user = requireAdmin(req, reply); if (!user) return;   // admin-only: manual world-advance is a tester/cron tool
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
-  // serialise per user so two overlapping advances (two tabs, a mid-request refresh) can't
-  // double-run the ticks or duplicate a cup round.
-  if (advancing.has(user.id)) return reply.code(409).send({ error: 'a matchday is already in progress' });
-  advancing.add(user.id);
-  try {
-  const team = getTeamWithPlayers(teamId)!;
-  const leagues = worldLeagues(team.leagueId);
-  // Inbox key: the season + WORLD round (min unplayed across the world's leagues) captured BEFORE playing.
-  // World round (not userRound) because userRound is null once the user's division is done but the world
-  // isn't — and it's always non-null + increments once per advance, so it can't collide two matchdays.
-  const inboxSeason = (db.prepare('SELECT season FROM leagues WHERE id = ?').get(team.leagueId) as { season: number } | undefined)?.season ?? 1;
-  const inboxRound = (db.prepare(`SELECT MIN(round) AS r FROM fixtures WHERE league_id IN (${leagues.map(() => '?').join(',')}) AND played = 0`).get(...leagues.map(l => l.id)) as { r: number | null }).r ?? 0;
-  // the round number the user's own division is completing this matchday (for the UI)
-  const userRound = (db.prepare('SELECT MIN(round) AS r FROM fixtures WHERE league_id = ? AND played = 0').get(team.leagueId) as { r: number | null }).r;
-  const toPlay = pendingMatchday(team.leagueId);
-  if (!toPlay.length) return reply.code(404).send({ error: 'season complete' });
-  const results = await mapPool(toPlay, id => playFixture(id));   // core-capped: a matchday sims the whole world
-  // §division-ratings: tally AI clubs' player ratings into the season leaderboard (the user's club is tallied
-  // by processMatchAftermath below). Additive + guarded; best-effort, never blocks the matchday.
+// ── Turn engine ─────────────────────────────────────────────────────────────
+// advanceWorldCore plays ONE matchday for a whole world (every division) + the world-progression ticks
+// (market/fitness/training/cup/rollover) + per-human aftermath/recording/inbox. It is world-scoped and
+// user-agnostic, so BOTH the on-demand /api/advance (solo worlds) and the scheduled tick (shared worlds)
+// drive the identical progression. It returns a per-human-team payload map so a caller can pull its own.
+interface HumanTurnPayload {
+  teamId: number; round: number | null; myFixtureId: number | null; myResult: any;
+  transfers: any[]; injuries: any[]; incomingBids: any[]; faOffers: any[]; listingsExpired: any[];
+  contractOffers: any[]; income: number; developed: number;
+  cup: { round: number; champion: number | null; myTie: any } | null;
+  inbox: any[]; digestHeadline: string;
+}
+interface WorldTurnCore {
+  played: boolean; worldRound: number; season: number; results: any[]; developedWorld: number;
+  rollover: any | null; cupChampion: number | null; cupRound: number | null; humans: Map<number, HumanTurnPayload>;
+}
+
+function humanTeamIdsInWorld(leagueIds: number[]): number[] {
+  if (!leagueIds.length) return [];
+  const ph = leagueIds.map(() => '?').join(',');
+  return (db.prepare(`SELECT id FROM teams WHERE league_id IN (${ph}) AND user_id IS NOT NULL`).all(...leagueIds) as { id: number }[]).map(r => r.id);
+}
+
+async function advanceWorldCore(worldLeagueId: number): Promise<WorldTurnCore> {
+  const leagues = worldLeagues(worldLeagueId);
+  const leagueIds = leagues.map(l => l.id);
+  const humanIds = humanTeamIdsInWorld(leagueIds);
+  const season = (db.prepare('SELECT season FROM leagues WHERE id = ?').get(worldLeagueId) as { season: number } | undefined)?.season ?? 1;
+  const worldRound = (db.prepare(`SELECT MIN(round) AS r FROM fixtures WHERE league_id IN (${leagueIds.map(() => '?').join(',')}) AND played = 0`).get(...leagueIds) as { r: number | null }).r ?? 0;
+  const toPlay = pendingMatchday(worldLeagueId);
+  if (!toPlay.length) return { played: false, worldRound, season, results: [], developedWorld: 0, rollover: null, cupChampion: null, cupRound: null, humans: new Map() };
+
+  // per-human pre-play context (their division round + this round's fixture — resolved while it still exists)
+  const preCtx = new Map<number, { round: number | null; fx: { id: number; home_team_id: number; away_team_id: number } | null }>();
+  for (const tid of humanIds) {
+    const lid = (db.prepare('SELECT league_id FROM teams WHERE id = ?').get(tid) as { league_id: number }).league_id;
+    const rnd = (db.prepare('SELECT MIN(round) AS r FROM fixtures WHERE league_id = ? AND played = 0').get(lid) as { r: number | null }).r;
+    const fx = rnd == null ? null : (db.prepare('SELECT id, home_team_id, away_team_id FROM fixtures WHERE league_id = ? AND round = ? AND (home_team_id = ? OR away_team_id = ?) LIMIT 1').get(lid, rnd, tid, tid) as { id: number; home_team_id: number; away_team_id: number } | undefined ?? null);
+    preCtx.set(tid, { round: rnd, fx });
+  }
+
+  const results = await mapPool(toPlay, id => playFixture(id));   // core-capped: the whole world's matchday
   for (const r of results) { if (r && r.players) { try { tallyDivisionRatings(r.fixtureId, r.players); } catch { /* ambient */ } } }
-  // the user's match this matchday (null if they'd already played/watched it ahead)
-  const myFx = userRound == null ? null
-    : db.prepare('SELECT id, home_team_id, away_team_id FROM fixtures WHERE league_id = ? AND round = ? AND (home_team_id = ? OR away_team_id = ?) LIMIT 1').get(team.leagueId, userRound, teamId, teamId) as { id: number; home_team_id: number; away_team_id: number } | undefined;
-  const myResult = myFx ? results.find(r => r.fixtureId === myFx.id) ?? null : null;
-  // Resolve the user's side + opponent NOW, before rollover deletes the fixtures — the inbox headline
-  // needs them and can't re-read the (purged) fixture afterwards without inverting an away result.
-  const myHome = myFx ? myFx.home_team_id === teamId : null;
-  const myOpponent = myFx
-    ? ((db.prepare('SELECT name FROM teams WHERE id = ?').get(myHome ? myFx.away_team_id : myFx.home_team_id) as { name: string } | undefined)?.name ?? '')
-    : '';
-  // The world progresses between matchdays: condition drains + injuries land (before any
-  // squad changes, so "who played" is the XI as it lined up), AI clubs trade + manage, then
-  // every player trains.
-  const transfers: any[] = [];
-  const listingsExpired: any[] = [];   // §2.4: the user's listings that lapsed unsold at the window deadline
-  const incomingBids: any[] = [];      // §2.1: other clubs bidding for the user's listed players this matchday
-  const faOffers: any[] = [];          // §2.1 (free-agent half): the user's free-agent offers the agents answered this matchday
-  const injuries: any[] = [];
-  const contractEvents: any[] = [];
-  let income = 0;                       // §P2: the user's matchday gate & TV income this tick
-  let developed = 0;                    // world-wide players trained (kept for the API field)
-  let myDeveloped = 0;                  // just the user's players who actually improved (for the digest)
+
+  // per-human result + side + opponent, resolved BEFORE rollover purges the fixtures
+  const snap = new Map<number, { myFixtureId: number | null; myResult: any; myHome: boolean | null; myOpponent: string }>();
+  for (const tid of humanIds) {
+    const fx = preCtx.get(tid)!.fx;
+    const myResult = fx ? results.find(r => r.fixtureId === fx.id) ?? null : null;
+    const myHome = fx ? fx.home_team_id === tid : null;
+    const myOpponent = fx ? ((db.prepare('SELECT name FROM teams WHERE id = ?').get(myHome ? fx.away_team_id : fx.home_team_id) as { name: string } | undefined)?.name ?? '') : '';
+    snap.set(tid, { myFixtureId: fx?.id ?? null, myResult, myHome, myOpponent });
+  }
+
+  // world-progression ticks — collect ALL events unfiltered (payloads filter per human below)
+  const income: { teamId: number; amount: number }[] = [];
+  const injuries: any[] = []; const transfers: any[] = []; const listingsExpired: any[] = [];
+  const incomingBids: any[] = []; const faOffers: any[] = []; const contractEvents: any[] = [];
+  const improvedByTeam: Record<number, number> = {}; let developedWorld = 0;
   for (const l of leagues) {
-    income += payMatchdayIncome(l.id).filter(e => e.teamId === teamId).reduce((s, e) => s + e.amount, 0);
+    income.push(...payMatchdayIncome(l.id));
     injuries.push(...fitnessTick(l.id)); moraleTick(l.id);
     const mkt = marketTick(l.id);
-    transfers.push(...mkt.filter(e => e.type === 'sign' || e.type === 'buy_listed'));
-    listingsExpired.push(...mkt.filter(e => e.type === 'listing_expired' && e.teamId === teamId));
-    incomingBids.push(...mkt.filter(e => e.type === 'incoming_bid' && e.teamId === teamId));
-    faOffers.push(...resolveFreeAgentOffers(l.id).filter(e => e.teamId === teamId));   // §2.1: free agents answer
+    transfers.push(...mkt.filter((e: any) => e.type === 'sign' || e.type === 'buy_listed'));
+    listingsExpired.push(...mkt.filter((e: any) => e.type === 'listing_expired'));
+    incomingBids.push(...mkt.filter((e: any) => e.type === 'incoming_bid'));
+    faOffers.push(...resolveFreeAgentOffers(l.id));
     contractEvents.push(...processContractOffers(l.id)); aiManagerTick(l.id);
-    const dt = developmentTick(l.id); developed += dt.players; myDeveloped += dt.improved;
+    const dt = developmentTick(l.id); developedWorld += dt.players; Object.assign(improvedByTeam, dt.improvedByTeam);
   }
-  // The cup is spread across the season — round R plays once the league reaches matchday R*3,
-  // so it concludes (the final at matchday 12) before the season rolls over.
-  let cup: { round: number; champion: number | null; myTie: { homeScore: number; awayScore: number; opponent: string; won: boolean } | null } | null = null;
-  const pend = pendingCupRound(team.leagueId);
-  if (pend && userRound != null && pend.round * 3 <= userRound) {
+
+  // cup (world-scoped) — round R plays once the world reaches matchday R*3 (gated on the round just played)
+  let cupChampion: number | null = null; let cupRound: number | null = null;
+  const pend = pendingCupRound(worldLeagueId);
+  if (pend && pend.round * 3 <= worldRound) {
     await mapPool(pend.tieIds, id => playCupTie(id));
-    const adv = advanceCupRound(team.leagueId, pend.round);
-    cup = { round: pend.round, champion: adv?.champion ?? null, myTie: cupTieFor(teamId, team.leagueId, pend.round) };
+    const adv = advanceCupRound(worldLeagueId, pend.round);
+    cupChampion = adv?.champion ?? null; cupRound = pend.round;
   }
-  // The match aftermath for the user's players: rating -> morale + season tally, and notable
-  // events (hat-trick, red card, long injury…) become news + evolve the backstory/dials.
-  // Background + best-effort, like the personality backfill; fired before rollover so the squad
-  // map + the season tally reflect the match just played (rollover then crowns the awards).
-  if (myFx) void processMatchAftermath(teamId, myFx.id, injuries, myResult?.players ?? []).catch(() => { /* aftermath is ambient */ });
-  // Opt-in replay: fire the full-frame recording for the user's match NOW (after the matchday's summaries
-  // have resolved), so the slow capture never competes with the result-bearing summaries. Best-effort.
-  if (myFx && !myResult?.alreadyPlayed) recordReplay(myFx.id);
-  // End of season? Roll it over and report the new standings of whichever division the
-  // user now sits in (they may have just been promoted or relegated).
-  const rollover = seasonComplete(team.leagueId) ? rolloverSeason(team.leagueId) : null;
-  // a rollover may have brought academy regens through — give them LLM backstories + dials in
-  // the background (best-effort; never blocks the response, never touches established players).
-  if (rollover) void fillMissingPersonalities(teamId).catch(() => { /* regens stay neutral on failure */ });
-  const nowLeagueId = getTeamWithPlayers(teamId)!.leagueId;
-  // §inbox: assemble this matchday's items ONCE, server-side, from the same locals the response carries;
-  // persist them (idempotent by team+season+world-round) and return them so the dashboard digest renders
-  // from the identical array — no frontend/backend drift.
-  const myContractOffers = contractEvents.filter(e => e.teamId === teamId);
-  const inboxBag = {
-    teamId, myResult, myFixtureId: myFx?.id ?? null, myHome, myOpponent, income, developed: myDeveloped, injuries, transfers,
-    incomingBids, faOffers, listingsExpired, contractOffers: myContractOffers, cup, rollover,
-  };
-  const inboxItems = assembleInboxItems(inboxBag);
-  const digestHeadline = matchdayHeadline(inboxBag);
-  try { recordMatchdayInbox(teamId, inboxSeason, inboxRound, inboxItems); } catch { /* archive is best-effort — never fail the matchday */ }
-  return {
-    round: userRound, myFixtureId: myFx?.id ?? null, myResult, results,
-    transfers, development: { players: developed }, injuries, cup, rollover,
-    contractOffers: myContractOffers,   // §2.2: my renewal verdicts this matchday
-    listingsExpired,   // §2.4: my listings that lapsed unsold
-    incomingBids,      // §2.1: other clubs bidding for my listed players
-    faOffers,          // §2.1: free agents answering my contract offers
-    income,            // §P2: matchday gate & TV income credited this tick
-    inbox: inboxItems, digestHeadline,   // §inbox: the persisted digest items + headline (dashboard renders these)
-    standings: standings(nowLeagueId),
-  };
-  } finally { advancing.delete(user.id); }
+
+  // per-human aftermath + replay recording (best-effort, BEFORE rollover so the season tally reflects the match)
+  for (const tid of humanIds) {
+    const s = snap.get(tid)!;
+    if (s.myFixtureId != null) {
+      void processMatchAftermath(tid, s.myFixtureId, injuries, s.myResult?.players ?? []).catch(() => { /* ambient */ });
+      if (!s.myResult?.alreadyPlayed) recordReplay(s.myFixtureId);
+    }
+  }
+
+  const rollover = seasonComplete(worldLeagueId) ? rolloverSeason(worldLeagueId) : null;
+  if (rollover) for (const tid of humanIds) void fillMissingPersonalities(tid).catch(() => { /* regens stay neutral */ });
+
+  // build + persist each human's inbox + payload
+  const humans = new Map<number, HumanTurnPayload>();
+  for (const tid of humanIds) {
+    const s = snap.get(tid)!; const c = preCtx.get(tid)!;
+    const cup = cupRound != null ? { round: cupRound, champion: cupChampion, myTie: cupTieFor(tid, worldLeagueId, cupRound) } : null;
+    const myContract = contractEvents.filter((e: any) => e.teamId === tid);
+    const myIncome = income.filter(e => e.teamId === tid).reduce((sum, e) => sum + e.amount, 0);
+    const myIncoming = incomingBids.filter((e: any) => e.teamId === tid);
+    const myFa = faOffers.filter((e: any) => e.teamId === tid);
+    const myListings = listingsExpired.filter((e: any) => e.teamId === tid);
+    const bag = {
+      teamId: tid, myResult: s.myResult, myFixtureId: s.myFixtureId, myHome: s.myHome, myOpponent: s.myOpponent,
+      income: myIncome, developed: improvedByTeam[tid] ?? 0, injuries, transfers,
+      incomingBids: myIncoming, faOffers: myFa, listingsExpired: myListings, contractOffers: myContract, cup, rollover,
+    };
+    const inboxItems = assembleInboxItems(bag);
+    const digestHeadline = matchdayHeadline(bag);
+    try { recordMatchdayInbox(tid, season, worldRound, inboxItems); } catch { /* archive is best-effort */ }
+    humans.set(tid, {
+      teamId: tid, round: c.round, myFixtureId: s.myFixtureId, myResult: s.myResult, transfers,
+      injuries, incomingBids: myIncoming, faOffers: myFa, listingsExpired: myListings, contractOffers: myContract,
+      income: myIncome, developed: improvedByTeam[tid] ?? 0, cup, inbox: inboxItems, digestHeadline,
+    });
+  }
+  return { played: true, worldRound, season, results, developedWorld, rollover, cupChampion, cupRound, humans };
+}
+
+// The scheduler: advance every SHARED world whose cadence is due, sequentially + capped (bounds engine
+// fan-out — "2/day unless there are many games"). Per-world durable lock so overlapping ticks can't
+// double-advance. Solo worlds are never touched here (their owner advances them on demand).
+let tickInFlight = false;
+async function runDueTicks(now: number, max = 25): Promise<{ advanced: number[]; errors: { worldId: number; error: string }[]; due: number }> {
+  const due = dueSharedWorlds(now);
+  const batch = due.slice(0, Math.max(1, max));
+  const advanced: number[] = []; const errors: { worldId: number; error: string }[] = [];
+  for (const w of batch) {
+    if (!claimAdvanceLock(w.worldId)) continue;   // another tick / an on-demand advance holds it
+    try {
+      const core = await advanceWorldCore(w.worldId);
+      if (core.played) { recordWorldAdvanced(w.worldId, Date.now()); advanced.push(w.worldId); }
+      else releaseAdvanceLock(w.worldId);   // nothing to play (rollover regenerates, so rare)
+    } catch (e: any) { releaseAdvanceLock(w.worldId); errors.push({ worldId: w.worldId, error: String(e?.message ?? e) }); }
+  }
+  return { advanced, errors, due: due.length };
+}
+
+// On-demand advance: admin may advance any world; a normal user may advance only their own SOLO world
+// (single-player turn-based). Shared worlds move ONLY on the schedule (all their humans stay in lockstep).
+app.post('/api/advance', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  const teamId = teamForUser(user.id);
+  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const worldId = worldForTeam(teamId);
+  if (worldId == null) return reply.code(404).send({ error: 'no world' });
+  const world = getWorld(worldId) ?? ensureWorldForLeague(worldId);
+  if (!user.isAdmin && world.mode !== 'solo') return reply.code(403).send({ error: 'this world advances on a schedule' });
+  if (!claimAdvanceLock(worldId)) return reply.code(409).send({ error: 'a matchday is already in progress' });
+  try {
+    const core = await advanceWorldCore(worldId);
+    if (!core.played) return reply.code(404).send({ error: 'season complete' });
+    recordWorldAdvanced(worldId, Date.now());
+    const me = core.humans.get(teamId);
+    const nowLeagueId = getTeamWithPlayers(teamId)!.leagueId;
+    if (!me) return { round: core.worldRound, results: core.results, rollover: core.rollover, inbox: [], digestHeadline: '', standings: standings(nowLeagueId) };
+    return {
+      round: me.round, myFixtureId: me.myFixtureId, myResult: me.myResult, results: core.results,
+      transfers: me.transfers, development: { players: core.developedWorld }, injuries: me.injuries, cup: me.cup, rollover: core.rollover,
+      contractOffers: me.contractOffers, listingsExpired: me.listingsExpired, incomingBids: me.incomingBids, faOffers: me.faOffers,
+      income: me.income, inbox: me.inbox, digestHeadline: me.digestHeadline, standings: standings(nowLeagueId),
+    };
+  } finally { releaseAdvanceLock(worldId); }
+});
+
+// The scheduled tick (admin/cron): advance all due shared worlds. Drive it from an external cron, the
+// CCR trigger, or set FOOTY_AUTO_TICK_MIN to have the server self-schedule (see the boot hook).
+app.post('/api/tick', async (req: any, reply) => {
+  const user = requireAdmin(req, reply); if (!user) return;
+  const max = Math.min(500, Math.max(1, Number((req.query as any)?.max) || 25));
+  return await runDueTicks(Date.now(), max);
+});
+
+// §autonomous: the lobby — shared worlds a player can join, with their unclaimed-team counts.
+app.get('/api/worlds', async (req: any, reply) => {
+  const user = requireUser(req, reply); if (!user) return;
+  return { worlds: listJoinableWorlds() };
+});
+
+// §autonomous: admin — spin up a fresh shared (autonomous) world of all-AI clubs open for claims.
+app.post('/api/admin/world', async (req: any, reply) => {
+  const user = requireAdmin(req, reply); if (!user) return;
+  const name = (typeof req.body?.name === 'string' && req.body.name.trim()) ? req.body.name.trim().slice(0, 60) : `Shared World ${Date.now()}`;
+  const { worldId } = createSharedWorld(name);
+  return { ok: true, worldId, name };
 });
 
 // Convenience: play my next unplayed fixture.
@@ -1281,6 +1370,22 @@ seedAdminUser();
 const server = app.server;
 await app.listen({ port: PORT, host: '127.0.0.1' });
 console.log(`footy game server on http://localhost:${PORT}`);
+
+// ── Autonomous turn scheduler (opt-in) ──────────────────────────────────────
+// When FOOTY_AUTO_TICK_MIN is set, the server self-drives: every N minutes it advances every shared
+// world whose cadence (worlds.interval_min, default 720 = 2/day) is due. Off by default so dev/tests and
+// solo play are unaffected; a self-hosted autonomous deployment sets e.g. FOOTY_AUTO_TICK_MIN=30. An
+// external cron / the CCR trigger can drive POST /api/tick instead (same runDueTicks path).
+const AUTO_TICK_MIN = Number(process.env.FOOTY_AUTO_TICK_MIN);
+if (Number.isFinite(AUTO_TICK_MIN) && AUTO_TICK_MIN > 0) {
+  const everyMs = AUTO_TICK_MIN * 60000;
+  setInterval(() => {
+    if (tickInFlight) return;   // a slow tick must not stack on the next interval
+    tickInFlight = true;
+    runDueTicks(Date.now()).then(r => { if (r.advanced.length) console.log(`[tick] advanced ${r.advanced.length} world(s)`); }).catch(e => console.warn('[tick] failed', e)).finally(() => { tickInFlight = false; });
+  }, everyMs);
+  console.log(`[tick] auto-scheduler ON — every ${AUTO_TICK_MIN} min (shared worlds; cadence per world)`);
+}
 
 // ── match-watch WebSocket: /ws/match?fixture=ID (re-runs the deterministic sim) ──
 const wss = new WebSocketServer({ noServer: true });

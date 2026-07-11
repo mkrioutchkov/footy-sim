@@ -3,6 +3,7 @@ import { randomPlayerName, randomTeamName } from './names.ts';
 import { generateSquadPersonalities } from './personality.ts';
 import { createCup } from './cup.ts';
 import { deriveObjective, setSeasonObjective } from './objectives.ts';
+import { registerWorld } from './worlds.ts';
 import { FORMATIONS, DEFAULT_FORMATION } from './formations.ts';
 import type { Plan } from './plan.ts';
 
@@ -335,7 +336,27 @@ export function newSeasonForUser(userId: number, username: string, teamName: str
   // the board's opening expectation: a strong fresh club in the second tier is expected to go up
   // (2 = PROMOTE; passed as a literal to keep game.ts free of a season.ts import cycle).
   setSeasonObjective(teamId, 1, deriveObjective({ tier: 2, size: LEAGUE_SIZE, promote: 2, isTopTier: false }));
+  registerWorld(worldId, `${username}'s World`, 'solo');   // turn-state row (advanced on demand by the owner)
   return { leagueId: secondId, teamId, worldId };
+}
+
+// A SHARED (autonomous) world: two divisions of ALL-AI clubs, no human, open for humans to claim a team.
+// Advanced only by the scheduler (worlds.mode = 'shared'). Structurally identical to newSeasonForUser
+// minus the human team + objective. Nationalities are backfilled separately (see nations backfill).
+export function createSharedWorld(name: string): { worldId: number; secondId: number } {
+  const top = db.prepare("INSERT INTO leagues (name, season, status, tier) VALUES (?, 1, 'running', 1)").run(`${name} — Division 1`);
+  const worldId = Number(top.lastInsertRowid);
+  db.prepare('UPDATE leagues SET world_id = ? WHERE id = ?').run(worldId, worldId);
+  const second = db.prepare("INSERT INTO leagues (name, season, status, tier, world_id) VALUES (?, 1, 'running', 2, ?)").run(`${name} — Division 2`, worldId);
+  const secondId = Number(second.lastInsertRowid);
+  const fin1 = TIER_FINANCE[1], fin2 = TIER_FINANCE[2];
+  for (let i = 0; i < LEAGUE_SIZE; i++) createTeam({ leagueId: worldId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(70 + Math.random() * 15), budget: fin1.transferBudget, wageBudget: fin1.wageBudget });
+  for (let i = 0; i < LEAGUE_SIZE; i++) createTeam({ leagueId: secondId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(55 + Math.random() * 15), budget: fin2.transferBudget, wageBudget: fin2.wageBudget });
+  generateFixtures(worldId); generateFixtures(secondId);
+  seedFreeAgents(worldId); seedFreeAgents(secondId);
+  createCup(secondId);
+  registerWorld(worldId, name, 'shared', { joinOpen: true });
+  return { worldId, secondId };
 }
 
 export interface Standing {

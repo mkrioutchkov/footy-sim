@@ -629,12 +629,18 @@ async function screenDashboard() {
   const pendingRound = pendingUnplayed.length ? Math.min(...pendingUnplayed.map(f => f.round)) : null;
   const myInPending = pendingRound != null ? league.fixtures.find(f => f.involvesMe && f.round === pendingRound) : undefined;
   const simmingMyMatch = !!(myInPending && !myInPending.played);
+  // §autonomous: 'solo' worlds advance on demand by their owner; 'shared' worlds advance on a schedule
+  // (no manual button — a countdown is shown instead). canAdvance also lets an admin force any world.
+  const worldTurn = league.world_turn;
+  const isShared = worldTurn?.mode === 'shared';
+  const canAdvanceHere = worldTurn ? worldTurn.canAdvance : !!user?.isAdmin;
+  const adminTag = (user?.isAdmin && isShared) ? ' (admin)' : '';   // only tag the tester-forced case
   const advanceBtn = h('button', { title: simmingMyMatch
     ? 'Simulate the whole matchday now — including YOUR match (instantly). To play yours yourself, use “Watch my next match” or “⚡ Play LIVE” first.'
     : 'Simulate every club’s matchday and move the season on. No undo.' },
     !canAdvance ? 'Season complete'
-      : simmingMyMatch ? `Play matchday ${pendingRound} (admin)`
-        : `Advance matchday${pendingRound != null ? ` ${pendingRound}` : ''} (admin)`);
+      : simmingMyMatch ? `Play matchday ${pendingRound}${adminTag}`
+        : `Advance matchday${pendingRound != null ? ` ${pendingRound}` : ''}${adminTag}`);
   if (!canAdvance) advanceBtn.setAttribute('disabled', 'true');
   advanceBtn.addEventListener('click', async () => {
     const opp = myInPending ? (myInPending.homeTeamId === team.id ? myInPending.away : myInPending.home) : '';
@@ -919,6 +925,22 @@ async function screenDashboard() {
   };
   paintConcerns(concerns);
 
+  // §autonomous: the header turn control. A solo world (or an admin) gets the Advance button; a shared
+  // world advances on a schedule, so show a next-turn countdown chip instead of a manual button.
+  const turnControl: HTMLElement | string = canAdvanceHere ? advanceBtn
+    : (isShared && worldTurn
+      ? (() => {
+          const chip = h('span', { class: 'pill', title: 'This world advances on a schedule (2 turns/day). Set your tactics & transfers — the matchday plays automatically.' });
+          if (worldTurn.nextTurnAt == null) chip.textContent = `⏱ Turn ${worldTurn.turn} · scheduled`;
+          else {
+            const ms = worldTurn.nextTurnAt - Date.now();
+            if (ms <= 0) chip.textContent = `⏱ Turn ${worldTurn.turn} · next turn imminent`;
+            else { const hh = Math.floor(ms / 3600000), mm = Math.floor((ms % 3600000) / 60000); chip.textContent = `⏱ Next turn in ${hh > 0 ? hh + 'h ' : ''}${mm}m`; }
+          }
+          return chip;
+        })()
+      : '');
+
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
@@ -927,7 +949,7 @@ async function screenDashboard() {
       // Match-flow actions live in the next-match hero card below; the header keeps Advance
       // (+ replay-last when there's no upcoming match — the hero only exists with one).
       h('div', {},
-        h('div', { class: 'row' }, myNext ? '' : watchBtn, user?.isAdmin ? advanceBtn : ''),
+        h('div', { class: 'row' }, myNext ? '' : watchBtn, turnControl),
         // played-ahead dead-end: all your matches are done but the season hasn't rolled over yet — explain it
         // so the missing "Play LIVE" doesn't read as a bug (you simply have no upcoming match this season).
         !myNext && canAdvance ? h('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' },

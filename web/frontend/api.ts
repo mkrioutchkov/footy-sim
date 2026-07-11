@@ -86,6 +86,7 @@ export interface LeagueT {
   objective?: ObjectiveT | null; promote?: number;
   confidence?: { value: number; status: string } | null; boardMood?: string | null; pressAvailable?: boolean;
   boardMessages?: { kind: 'reaction' | 'expectation'; text: string }[];
+  world_turn?: { mode: 'solo' | 'shared'; turn: number; intervalMin?: number; lastAdvanced?: number | null; nextTurnAt?: number | null; canAdvance: boolean };
 }
 export interface RolloverT {
   season: number;
