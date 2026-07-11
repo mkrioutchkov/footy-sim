@@ -58,10 +58,15 @@ void CBPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isCon
     // him the ball). Pressed tight in his own half, he releases NOW — carrying
     // is off the menu, the quick ball out is on. Triggers on projected arrival
     // too: static 34px opens the valve only in the final 0.3s of a sprint-in.
+    // A ball-playing CB (directive) is trusted to carry out of the back: soften the
+    // pressed-tight carry suppression so he steps past the first presser instead of
+    // always releasing. Still damped (a tight press is a bad time to dwell), just
+    // less so. Unflagged CBs keep the full -0.22 valve (byte-identical default).
     if (isController && pitch::inOwnHalf(player.x, player.team)) {
         if (pressedTightOrClosing()) {
+            double dribblePenalty = engine.directiveBias[player.id].ballPlaying ? -0.08 : -0.22;
             for (auto& a : actions) {
-                if (a.type == ActionType::Dribble) a.score -= 0.22;
+                if (a.type == ActionType::Dribble) a.score += dribblePenalty;
                 if (a.type == ActionType::Pass)    a.score += 0.05;
             }
         }

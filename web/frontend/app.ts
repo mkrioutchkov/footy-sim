@@ -1310,7 +1310,7 @@ const ROLE_PRESETS: Record<string, RolePreset[]> = {
     { key: 'defend', label: 'Central defender', dirs: [] },
     { key: 'stopper', label: 'Stopper — step out & press', dirs: [['press_hard', 0.8], ['tackle_hard', 0.7]] },
     { key: 'cover', label: 'Cover — hold, no risks', dirs: [['stay_back', 1], ['play_simple', 0.8]] },
-    { key: 'ballplaying', label: 'Ball-playing — carry & pass out ⚙ needs engine update', disabled: true, dirs: [] },
+    { key: 'ballplaying', label: 'Ball-playing — carry & pass out', dirs: [['ball_playing', 1]] },
   ],
   FB: [
     { key: 'fullback', label: 'Full-back', dirs: [] },
@@ -1739,6 +1739,7 @@ const PLAYER_VERB: Record<string, string> = {
   target_man_holdup: 'holds it up as the target man', hold_it_up: 'holds it up', target_man: 'holds it up',
   cut_inside: 'cuts inside to shoot', cut_in: 'cuts inside', cut_inside_to_shoot: 'cuts inside to shoot',
   overlap: 'gets on the overlap', overlap_runs: 'overlaps', get_on_the_overlap: 'gets on the overlap',
+  ball_playing: 'steps out and plays it out from the back', step_out: 'steps out from the back', carry_out: 'carries it out from the back',
 };
 function condText(w: any): string {
   let c = '';

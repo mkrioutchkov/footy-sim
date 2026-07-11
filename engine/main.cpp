@@ -92,6 +92,8 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
         else if (k == "come_short" || k == "check_to_feet") dir.kind = DK::ComeShort;
         else if (k == "drift_into_pocket" || k == "play_between_lines" || k == "between_the_lines" || k == "drop_into_the_ten") dir.kind = DK::DriftIntoPocket;
         else if (k == "target_man_holdup" || k == "target_man" || k == "hold_it_up") dir.kind = DK::TargetManHoldup;
+        else if (k == "ball_playing" || k == "step_out" || k == "carry_out") dir.kind = DK::BallPlaying;   // ball-playing CB: step out + progress
+
         else if (k == "make_runs")      dir.kind = DK::MakeRuns;
         else if (k == "dribble_more")   dir.kind = DK::DribbleMore;
         else if (k == "stay_back")      dir.kind = DK::StayBack;

@@ -451,6 +451,15 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (isCross)                          pur = ActionPurpose::Cross;
     else if (isCutback)                   pur = ActionPurpose::Cutback;
 
+    // Ball-playing CB (directive): reward a progressive, line-breaking distribution
+    // — a forward build pass or a switch that changes the angle — so a stepped-out
+    // centre-back looks for the vertical/wide outlet over the square safe ball.
+    // Gated on the directive, so an unflagged CB is byte-identical.
+    if (engine.directiveBias[p.id].ballPlaying) {
+        if (pur == ActionPurpose::Build && fp > 60.0)  sc += 0.12;
+        else if (pur == ActionPurpose::Switch)         sc += 0.08;
+    }
+
     // ── Switch bonus ──
     if (pur == ActionPurpose::Switch) {
         sc += engine.directiveBias[p.id].switchBias;            // "switch the play / spread it"

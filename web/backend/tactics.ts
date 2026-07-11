@@ -14,7 +14,8 @@ const PLAYER_KINDS = ['man_mark', 'shoot_on_sight', 'get_forward', 'sit_deep', '
   'run_in_behind', 'make_runs', 'come_short', 'check_to_feet', 'drift_into_pocket', 'play_between_lines', 'between_the_lines', 'drop_into_the_ten',
   'target_man_holdup', 'hold_it_up', 'target_man', 'cut_inside', 'cut_in', 'cut_inside_to_shoot',
   'overlap', 'overlap_runs', 'get_on_the_overlap',
-  'dribble_more', 'press_hard', 'contain', 'tackle_hard', 'stay_on_feet', 'stay_back'];   // …cut_inside → DK::CutInside; overlap/overlap_runs/get_on_the_overlap → DK::OverlapRun (full-back overlaps, engine main.cpp)   // come_short/check_to_feet → DK::ComeShort; drift_into_pocket/play_between_lines/between_the_lines/drop_into_the_ten → DK::DriftIntoPocket; target_man_holdup/hold_it_up/target_man → DK::TargetManHoldup; cut_inside/cut_in/cut_inside_to_shoot → DK::CutInside (WAVE primitives, engine main.cpp)
+  'dribble_more', 'press_hard', 'contain', 'tackle_hard', 'stay_on_feet', 'stay_back',
+  'ball_playing', 'step_out', 'carry_out'];   // ball_playing/step_out/carry_out → DK::BallPlaying (ball-playing CB steps out + carries/progresses, engine main.cpp)   // …cut_inside → DK::CutInside; overlap/overlap_runs/get_on_the_overlap → DK::OverlapRun (full-back overlaps, engine main.cpp)   // come_short/check_to_feet → DK::ComeShort; drift_into_pocket/play_between_lines/between_the_lines/drop_into_the_ten → DK::DriftIntoPocket; target_man_holdup/hold_it_up/target_man → DK::TargetManHoldup; cut_inside/cut_in/cut_inside_to_shoot → DK::CutInside (WAVE primitives, engine main.cpp)
 const TEAM_KINDS = ['all_out_attack', 'park_the_bus', 'high_press', 'drop_off', 'play_it_long',
   'keep_it_on_ground', 'get_it_wide', 'play_narrow', 'push_up', 'slow_it_down',
   'counter_attack', 'offside_trap',
