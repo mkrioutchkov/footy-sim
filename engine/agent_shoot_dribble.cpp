@@ -441,14 +441,22 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                 evadeSide = ay >= 0.0 ? 1.0 : -1.0;
                 evadeSideUntilMs = engine.state.clockMs + 750.0;
             }
-            if ((ax / ad) * fd < -0.25) {
+            // OWN-HALF ONLY (bisected): applied everywhere, this escape turned
+            // pressing episodes that used to END possession (backward retreat →
+            // recycle or dispossession) into retained forward carries, and the
+            // compounding showed up as shots +7/90, goals +2/90 at 30 min (flat
+            // at 10) with the CM-goals/headed-shots signature. The complaint it
+            // fixes (seed 129 0:17-0:24, a 7s backward touchline crawl) was a
+            // DEEP corner trap — attacking-third cornered carriers keep the old
+            // radial retreat and have to release instead of grinding upfield.
+            if ((ax / ad) * fd < -0.25 && pitch::forwardProgress(p.x, p.team) < PITCH_W * 0.55) {
                 // Radial retreat from a goal-side presser points BACKWARD —
                 // escape ACROSS the pitch instead (same idea as the committed
                 // lateral escape in the close-evade branch above). The pure
                 // away-vector ran a cornered winger 100px backward along the
-                // touchline for 7 seconds (watched replay seed 129 0:17-0:24),
-                // and because this block runs after the backward-target pricing,
-                // that retreat was never even scored as backward.
+                // touchline for 7 seconds, and because this block runs after
+                // the backward-target pricing, that retreat was never even
+                // scored as backward.
                 tx = p.x + fd * 24.0;
                 ty = p.y + evadeSide * 72.0;
             } else {
