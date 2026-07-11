@@ -412,3 +412,19 @@ header.top { padding-top: var(--safe-t); }
 .intl-nation { border-radius: var(--radius-sm); padding-left: 6px !important; padding-right: 6px !important; }
 .intl-nation:hover { background: var(--hover); }
 .intl-nation.active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 600; }
+
+/* ── extracted structural primitives ── */
+.card > .section-title:first-child, .subcard-title { margin-top: 0; }   /* the ×59 "first section-title in a card" pattern, no inline needed */
+.page-head { align-items: flex-start; gap: 12px; margin-bottom: 2px; }
+.page-head h2 { margin: 0; }
+/* keyboard-focusable wide-table scroll regions (scrollRegion helper) + opt-in sticky header */
+.scroll-x[tabindex]:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.scroll-x thead.sticky th, .bracket-scroll thead.sticky th { position: sticky; top: 0; z-index: 1; background: var(--panel); }
+
+/* ── Watch: keep the bottom-docked mobile panels clear of the home indicator (safe-area) ── */
+@media (max-width: 860px) {
+  .tactics-panel { bottom: calc(10px + var(--safe-b)); }
+  .tactics-panel.compact { bottom: calc(10px + var(--safe-b)); }
+  .watch-feed { bottom: calc(12px + var(--safe-b)); }
+  .watch-lineups { bottom: calc(74px + var(--safe-b)); }
+}

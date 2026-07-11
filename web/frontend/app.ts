@@ -183,6 +183,28 @@ function guardSelect(sel: HTMLSelectElement, save: (value: string) => Promise<st
   });
 }
 
+// ── extracted structural primitives (reduce the repeated inline-style clusters + add table a11y) ──────────
+// A horizontally-scrollable region a keyboard user can focus + arrow-scroll, announced to AT. Wrap wide tables
+// / brackets. `sticky` opts the child table's <thead> into a sticky header (pairs with a maxH scroll).
+function scrollRegion(label: string, child: HTMLElement, opts: { sticky?: boolean; maxH?: string; dataScroll?: string } = {}): HTMLElement {
+  if (opts.sticky) child.querySelector('thead')?.classList.add('sticky');
+  const attrs: Attrs = { class: 'scroll-x', tabindex: '0', role: 'region', 'aria-label': label };
+  if (opts.maxH) attrs.style = `max-height:${opts.maxH};overflow:auto`;
+  if (opts.dataScroll) attrs['data-scroll'] = opts.dataScroll;
+  return h('div', attrs, child);
+}
+// The standard screen header: h2 title + optional subtitle + a Back button (history-aware by default). Replaces
+// the ~30 hand-built `between + h2 + muted subtitle + ← Back` clusters.
+function pageHead(title: string, opts: { subtitle?: string | HTMLElement; onBack?: () => void; actions?: (HTMLElement | string)[] } = {}): HTMLElement {
+  const left = h('div', {}, h('h2', {}, title), opts.subtitle ? (typeof opts.subtitle === 'string' ? h('div', { class: 'muted', style: 'font-size:13px' }, opts.subtitle) : opts.subtitle) : '');
+  const right = h('div', { class: 'row', style: 'gap:8px' }, ...(opts.actions ?? []), h('button', { class: 'ghost', onclick: opts.onBack ?? (() => goBack()) }, '← Back'));
+  return h('div', { class: 'page-head between' }, left, right);
+}
+// A card whose first section-title has no top margin (the ×59 pattern) — now via the .subcard-title class + CSS.
+function subcard(title: string, ...kids: (Node | string)[]): HTMLElement {
+  return h('div', { class: 'card' }, h('div', { class: 'section-title subcard-title' }, title), ...kids);
+}
+
 // ── in-app modals (replace native confirm()/prompt(), which are ugly + block the event loop) ──
 // Both resolve a promise: cancel → false/null, confirm → true/the input value. ESC and a backdrop click
 // cancel; native focused controls own Enter. Destructive dialogs focus Cancel by default.
@@ -634,7 +656,7 @@ async function screenInternationals() {
     return h('div', { class: 'card' },
       h('div', { class: 'between' }, h('div', {}, h('div', { style: 'font-weight:700;font-size:16px' }, `${t.kind === 'world_cup' ? '🌍' : t.kind === 'club_world_cup' ? '🏟️' : '🏆'} ${t.name}`), h('div', { class: 'muted', style: 'font-size:12px' }, `Season ${t.season}${t.champion ? '' : ' · in progress'}`)),
         t.champion ? h('span', { class: 'pill', style: 'background:var(--gold,#e8b53a);color:#1a1205;font-weight:700' }, `🏆 ${nat(t.champion)}`) : ''),
-      h('div', { class: 'bracket-scroll' }, ...cols));
+      h('div', { class: 'bracket-scroll', tabindex: '0', role: 'region', 'aria-label': 'Tournament bracket' }, ...cols));
   };
 
   // qualified nations by confederation, click → the nation's XI
@@ -1559,13 +1581,13 @@ async function screenDashboard() {
       rows.push(meetEl);
       return h('div', { class: 'card', style: 'padding:12px 14px' }, ...rows);
     })(),
-    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), h('div', { class: 'scroll-x' }, table),
+    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, league.divisionName ?? 'League table'), scrollRegion('League table', table),
       (hasPromotion || hasRelegation) ? h('div', { class: 'muted', style: 'font-size:11px;margin-top:8px;display:flex;gap:16px' },
         hasPromotion ? h('span', {}, ZONE_DOT('promo'), 'Promotion') : '',
         hasRelegation ? h('span', {}, ZONE_DOT('releg'), 'Relegation') : '') : ''),
     otherDivisions(league),
     h('div', { class: 'grid cols-split', style: 'align-items:start' },
-      h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your fixtures'), fxBox),
+      subcard('Your fixtures', fxBox),
       h('div', {},
         formationPanel(team, reg),
         harmonyCard,
@@ -3346,11 +3368,11 @@ async function screenMarket() {
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Free agents',
           h('span', { class: 'pill', style: 'margin-left:8px;text-transform:none;letter-spacing:0;background:rgba(67,211,158,.15);color:var(--accent)' }, 'signable any time')),
-        h('div', { class: 'scroll-x', style: 'max-height:520px;overflow:auto', 'data-scroll': 'fa' }, h('table', {}, headRow('Player'), faBody))),
+        scrollRegion('Free agents', h('table', {}, headRow('Player'), faBody), { maxH: '520px', dataScroll: 'fa', sticky: true })),
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your squad'),
         h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, `List a player to sell him — an AI club may buy once you have squad depth (12+).${win.open ? ' Listings lapse at the deadline if unsold.' : ''}`),
-        h('div', { class: 'scroll-x', style: 'max-height:520px;overflow:auto', 'data-scroll': 'squad' }, h('table', {}, headRow('Player'), sqBody))),
+        scrollRegion('Your squad', h('table', {}, headRow('Player'), sqBody), { maxH: '520px', dataScroll: 'squad', sticky: true })),
       incomingCard,
       offersCard,
       h('div', { class: 'card' },
@@ -3936,9 +3958,7 @@ async function screenLeaders() {
       h('td', { class: 'num', style: 'font-weight:700' }, r.value.toFixed(1))))))) : '';
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
-    h('div', { class: 'between' },
-      h('div', {}, h('h2', {}, 'Stat leaders'), h('div', { class: 'muted' }, `${d.division} · this season`)),
-      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    pageHead('Stat leaders', { subtitle: h('div', { class: 'muted' }, `${d.division} · this season`), onBack: () => (location.hash = '#/') }),
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
       board('🥇 Top scorers', 'goals', d.scorers),
       board('🅰️ Top assists', 'assists', d.assists)),
@@ -4222,7 +4242,7 @@ async function screenPlayer(slot: number) {
     progressionCard,
     devCard,
     h('div', { class: 'grid cols-2', style: 'align-items:start' },
-      h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Personality dials'), traitsEl),
+      subcard('Personality dials', traitsEl),
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Backstory'),
         h('div', { class: 'muted', style: 'font-size:12px;margin-bottom:8px' }, 'These dials are read off the backstory — and the player’s training rate and transfer value read the dials. Rewrite the story and the numbers re-derive.'),
@@ -4267,7 +4287,7 @@ async function screenCup() {
       h('div', {}, h('h2', {}, 'Cup'),
         h('div', { class: 'muted' }, cup.champion ? `🏆 Winners: ${cup.champion}` : 'Single elimination — win it or go home. Ties play out across the season.')),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
-    h('div', { class: 'card' }, h('div', { class: 'bracket-scroll' }, ...cols)),
+    h('div', { class: 'card' }, h('div', { class: 'bracket-scroll', tabindex: '0', role: 'region', 'aria-label': 'Tournament bracket' }, ...cols)),
   ));
 }
 
@@ -4467,9 +4487,7 @@ async function screenFinances() {
 
   if (!alive()) return;
   mount(header(), h('div', { class: 'wrap grid' },
-    h('div', { class: 'between' },
-      h('div', {}, h('h2', {}, 'Finances'), h('div', { class: 'muted' }, `Season ${f.season}`)),
-      h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
+    pageHead('Finances', { subtitle: h('div', { class: 'muted' }, `Season ${f.season}`), onBack: () => (location.hash = '#/') }),
     h('div', { class: 'card' },
       h('div', { class: 'row', style: 'gap:32px;flex-wrap:wrap' },
         cell('Balance', fmtMoney(f.balance)),
@@ -4871,7 +4889,7 @@ async function screenHistory() {
       h('div', {}, h('h2', {}, 'Club history'),
         h('div', { class: 'muted' }, 'Every completed season and the honours that came with it.')),
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
-    h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Trophy cabinet'), cabinet),
+    subcard('Trophy cabinet', cabinet),
     records && records.seasons > 0 ? h('div', { class: 'card' },
       h('div', { class: 'section-title', style: 'margin-top:0' }, 'All-time records'),
       h('div', { class: 'row', style: 'gap:26px;flex-wrap:wrap;font-size:13px' },
@@ -5152,7 +5170,7 @@ async function screenSquad() {
         h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain (click the armband to set — a strong leader steadies squad morale) · click a header to sort`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
       strengthCard,
-      h('div', { class: 'card' }, filterBar, h('div', { class: 'scroll-x' }, h('table', {}, thead, tbody))),
+      h('div', { class: 'card' }, filterBar, scrollRegion('Squad table', h('table', {}, thead, tbody), { sticky: true })),
       h('div', { class: 'grid cols-2', style: 'align-items:start' }, conditionCard, rotationCard || h('div')),
       h('div', { class: 'grid cols-2', style: 'align-items:start' },
         h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Depth by position'), depth),
