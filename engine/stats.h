@@ -208,6 +208,8 @@ class StatsCollector {
     void recordSimulationFreeze() { simFreezes++; }
     void recordDizzySpin() { dizzySpins++; }
     void recordWoodwork() { woodworkHits++; }
+    void recordWoodworkBar() { woodworkBar++; }
+    void recordWoodworkPost() { woodworkPost++; }
     void recordClearance() { clearances++; }           // Clear-purpose releases (both the hoof gate and relabeled candidates); real ~30-40/match both teams
     void recordBlobMoment() { blobMoments++; }         // 6+ players within 50px, open play, 1.5s throttle
     void recordMarathonCarry() { marathonCarries++; }  // outfield single-possession carry >= 8s
@@ -364,6 +366,8 @@ class StatsCollector {
     int simFreezes = 0;
     int dizzySpins = 0;
     int woodworkHits = 0; // frame (post/bar) contacts — real ~0.5-1/match; audit 2026-07-02 measured 8
+    int woodworkBar = 0;  // bar/post split (round-5 queued instrument: which band drives the 4x rate)
+    int woodworkPost = 0;
     int clearances = 0;
     int blobMoments = 0;
     int marathonCarries = 0, shuttleCarries = 0, lineTooDeepSamples = 0;

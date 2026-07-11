@@ -520,7 +520,7 @@ public:
     void applyWhipDelivery(double dist, double speed, double goalX, double curlMin, double curlRange);
     bool passBallTo(Player& f, Player& t, bool throughBall, bool lob, const PassSelectionAudit* selectionAudit, bool secure = false);
     void forcePassTo(Player& f, Player& t, const PassSelectionAudit*);
-    bool attemptTackle(Player& tackler, Player& carrier);
+    bool attemptTackle(Player& tackler, Player& carrier, double extraReach = 0.0);
     void resolveTackleFoul(Player& tackler, Player& carrier, bool fromBehind, bool cynical, double boxFoulScale);
     void shootBall(Player& s, const ShotSelectionAudit* selectionAudit);
     bool collectBall(Player& c, const std::string&, double allowedDist);

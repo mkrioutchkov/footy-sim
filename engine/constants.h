@@ -222,7 +222,10 @@ inline constexpr double GK_STAND_REACH    = PLAYER_R + BALL_R + 7.0;  // ~23.5px
 // clamp FLOOR on most dive rolls — the save model's coefficients were dead
 // dials (a +0.05 base buff changed literally nothing across 20 matches). Real
 // keepers cover ~3m of lateral dive; 17+16·hand ≈ 25-33px dive + 23.5 stand.
-inline constexpr double GK_MAX_DIVE_BASE  = 17.0;   // full lateral dive (base)
+inline constexpr double GK_MAX_DIVE_BASE  = 17.0;   // full lateral dive (base). NOTE round-7: 17->20 (+18->skill)
+                                                    // was A/B'd as a volume compensator and measured INERT on
+                                                    // goals (6.30 vs 6.38/90) — marginal reach doesn't reclaim
+                                                    // clean corner strikes. The volume lever must be upstream.
 inline constexpr double GK_MAX_DIVE_SKILL = 16.0;   // ...+ up to this with handling
 inline constexpr double GK_DIVE_FULL_T    = 0.42;   // seconds of flight to reach full stretch
 inline constexpr double GK_STAND_Z        = 8.0;    // free vertical reach (px) before height costs him

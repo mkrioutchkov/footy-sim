@@ -239,6 +239,15 @@ struct TeamBlackboard {
     struct OneTwo { int from, to; double expires; };
     std::optional<OneTwo> oneTwo;
 
+    // Escort resolution: how long the SAME primary presser has jockeyed the
+    // SAME carrier, and the carrier's forward progress at engage — a shadow
+    // that isn't being beaten steps in and challenges instead of riding at his
+    // standoff forever (census: a CB locked at 23px for 15+s without a duel).
+    int    pressEscortPresserId = -1;
+    int    pressEscortCarrierId = -1;
+    double pressEscortSinceMs   = 0;
+    double pressEscortStartProg = 0;
+
     // Throw-in support coordination — pre-computed targets for each teammate
     struct ThrowInSupport {
         bool active = false;

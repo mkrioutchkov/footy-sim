@@ -156,6 +156,11 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
         // (static pressureCount hadn't ticked to 2 yet), was tackled — penalty
         // conceded. The emergency case fires on CLOSING pressure and outbids
         // everything except a genuinely clean pass out.
+        // A tackle genuinely ARRIVING (an opponent sprinting in, not the assigned
+        // jockey holding his standoff) — the shared trigger for the deep-carrier
+        // release valves below. Proximity/projection variants of this were tried
+        // and reverted (see the tempo-brake note).
+        bool tackleComing = tackleArriving(engine.state.players, player.x, player.y, player.team);
         {
             double prog = pitch::forwardProgress(player.x, player.team);
             double oppSoon = 1e9;
@@ -167,12 +172,26 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                     oppSoon = std::min(oppSoon, std::min(now, soon));
                 }
             }
-            bool emergency = prog < 200.0 && oppSoon < 48.0 && per.nearestOpponentDist < 78.0;
-            bool swarmed = prog < PITCH_W * 0.30 && per.pressureCount >= 2;
+            // Emergency also covers the WIDENED own-30% band when a tackle is
+            // genuinely arriving (was a hardcoded 200px: the 0:40 FB stood at
+            // x=236 with the press sprinting in and no clearance on the menu);
+            // a lone CAPPED presser sprinting at a defender also counts as
+            // swarmed — the 2-man press cap makes pc>=2 structurally rare, so
+            // the old gate could never fire for the commonest caught-in-
+            // possession shape (one sprinting presser, everyone else marking).
+            bool emergency = (prog < 200.0 && oppSoon < 48.0 && per.nearestOpponentDist < 78.0)
+                || (prog < PITCH_W * 0.30 && tackleComing && per.nearestOpponentDist < 78.0);
+            bool swarmed = prog < PITCH_W * 0.30
+                && (per.pressureCount >= 2 || (isDefenderLike() && per.pressureCount >= 1 && tackleComing));
             if (emergency || swarmed) {
                 double bestSafe = 0.0;
+                // Judge "a genuinely clean pass out" on the PLAYABLE score, not raw
+                // completion: the old check read audit.expectedCompletion, so a pass
+                // the dwell gate had priced to -1.3 still suppressed the clearance —
+                // the carrier got neither the hoof nor the ball out (0:38 Ramos) and
+                // invited the presser to tackling range.
                 for (auto& x : a)
-                    if (x.type == ActionType::Pass) bestSafe = std::max(bestSafe, x.audit.expectedCompletion);
+                    if (x.type == ActionType::Pass && x.score > 0.15) bestSafe = std::max(bestSafe, x.audit.expectedCompletion);
                 if (bestSafe < (emergency ? 0.70 : 0.60)) {
                     Player* tgt = nullptr; double bestFx = -1e9;
                     for (auto& t : engine.state.players) {
@@ -280,12 +299,26 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             // arriving at touching distance, or two bodies closing in, does.
             // (pc counts opponents within 60px = 6m, which made the brake a no-op
             // once the assigned presser arrived — i.e. always.)
-            bool tightPress = per.nearestOpponentDist < 30.0 || pc >= 2;
+            // A tackler SPRINTING IN also lifts it (closing speed, not distance:
+            // proximity/projection variants read as permanently "arriving"
+            // because the assigned presser lives at a 12-30px standoff — pass
+            // volume exploded +55-80% with those). nearestOpp<30 alone opens the
+            // valve only when the tackler is already at contact — measured
+            // match-wide, deep defenders released at 22-28px on all nine holds,
+            // two of them turnovers (seed 129 0:40, 4:01).
+            bool tightPress = per.nearestOpponentDist < 30.0 || pc >= 2
+                || (tackleComing && progress < PITCH_W * 0.42);
             // A panic Clear is never "composing" — braking it (esp. the −2.0
             // hard gate below: Clear is a Pass, deep zone, fresh touch — all
             // three conditions of a panic situation) left the swarmed deep
-            // receiver standing on the ball until the tackle arrived.
-            bool panicClear = x.purpose == ActionPurpose::Clear;
+            // receiver standing on the ball until the tackle arrived. The keeper
+            // recycle is the same class of escape ball WHEN THE PRESS IS REAL —
+            // exempting it unconditionally made the GK the only playable ball of
+            // every braked deep hold, and build-up degenerated into a
+            // defender→GK→defender loop (measured 28-47 backpasses/match).
+            bool panicClear = x.purpose == ActionPurpose::Clear
+                || (x.purpose == ActionPurpose::KeeperBackpass
+                    && (tackleComing || pc >= 2));
             if (!tightPress && x.type == ActionType::Pass && !killerBall && !lineBreakOutlet && !panicClear) {
                 if      (holdTicks < 60)  x.score -= 0.26;   // <1.0s: just took the touch
                 else if (holdTicks < 110) x.score -= 0.16;   // <1.8s: still composing
@@ -554,9 +587,21 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
         executeDribble(a, sdt);
     }
     else if (a.type == ActionType::Tackle) {
-        if (a.target && dist(p.x, p.y, a.target->x, a.target->y) <= TACKLE_RANGE
-            && engine.attemptTackle(p, *a.target))
+        // Earned lunge: choosing Tackle tick after tick while the collision
+        // bubble holds you at 27-40px is a stalemate the selection layer can't
+        // see (instrumented seed 129: act=Tackle at score ~1.05 for 3+ straight
+        // seconds, attemptTackle never reached — its 24px gate sits inside the
+        // separation force's standoff). After ~0.9s shadowing the SAME carrier,
+        // the challenge gets a step-in band (+14px) so the duel actually rolls;
+        // attemptTackle prices the stretched reach down.
+        if (a.target && a.target->id == tackleShadowCarrierId
+            && dist(p.x, p.y, a.target->x, a.target->y) < TACKLE_ZONE_MAX - 8.0) tackleShadowTicks++;
+        else { tackleShadowTicks = 0; tackleShadowCarrierId = a.target ? a.target->id : -1; }
+        double lungeReach = tackleShadowTicks > 33 ? 14.0 : 0.0;
+        if (a.target && dist(p.x, p.y, a.target->x, a.target->y) <= TACKLE_RANGE + lungeReach
+            && engine.attemptTackle(p, *a.target, lungeReach))
         {
+            tackleShadowTicks = 0;
             engine.emitEvent("tackle", (p.x + a.target->x) / 2.0, (p.y + a.target->y) / 2.0, p.id, a.target->id);
             bool cleanWin = engine.state.ball.controllerId == p.id;
             p.tackleAnim = cleanWin ? 220.0 : 800.0;
@@ -573,8 +618,35 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
             if (a.target) {
                 double td = dist(p.x, p.y, a.target->x, a.target->y);
                 double lead = clamp(td / 90.0, 0.25, 0.8);
-                p.targetX = clamp(a.target->x + a.target->vx * lead, 8.0, PITCH_W - 8.0);
-                p.targetY = clamp(a.target->y + a.target->vy * lead, 8.0, PITCH_H - 8.0);
+                // Pinned on the carrier's BACK at contact range: the shielded
+                // ball sits beyond the challenge gate and the short lead point
+                // is inside the collision bubble, so the chaser rides there
+                // indefinitely (watched replay: a CM locked at exactly 23px for
+                // 10 straight seconds of a wing carry, zero challenges). Swing
+                // AROUND to the cut-off point ahead of the run — with a sprint
+                // edge over a dribbling carrier he gets goal-side, the ball is
+                // shown, and the duel actually happens.
+                double cs = std::hypot(a.target->vx, a.target->vy);
+                double aroundX = 0.0, aroundY = 0.0;
+                if (td < 40.0 && cs > 8.0) {
+                    double bx = (p.x - a.target->x) / std::max(td, 1.0);
+                    double by = (p.y - a.target->y) / std::max(td, 1.0);
+                    if ((bx * a.target->vx + by * a.target->vy) / cs < -0.3) {
+                        lead = 1.25;
+                        // Route AROUND the body: the straight line to a cut-off
+                        // point up the running lane drives the chaser INTO the
+                        // carrier's back, and the separation force cancels the
+                        // approach into a net crawl at exactly the dribble pace
+                        // (measured: 23px behind, 30px/s, for 10s). Swing out on
+                        // the goal side of the run and come around.
+                        double perpX = -a.target->vy / cs, perpY = a.target->vx / cs;
+                        double side = (perpX * (ownGoalXFor(player.team) - a.target->x)) >= 0.0 ? 1.0 : -1.0;
+                        aroundX = perpX * side * 26.0;
+                        aroundY = perpY * side * 26.0;
+                    }
+                }
+                p.targetX = clamp(a.target->x + a.target->vx * lead + aroundX, 8.0, PITCH_W - 8.0);
+                p.targetY = clamp(a.target->y + a.target->vy * lead + aroundY, 8.0, PITCH_H - 8.0);
             } else {
                 p.targetX = p.x;
                 p.targetY = p.y;

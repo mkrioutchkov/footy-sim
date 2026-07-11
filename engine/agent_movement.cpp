@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "agent.h"
+#include "agent_helpers.h"
 
 void PlayerAI::applyMovement(double sdt) {
     auto& p = player;
@@ -200,9 +201,15 @@ void PlayerAI::applyMovement(double sdt) {
             boxBurst = true;
         }
     }
+    // A chosen TACKLE is committed pursuit: at SPEED_RUN with the approach
+    // damping below, a presser 40px behind a dribbling carrier moved at ~1/3
+    // run pace — precisely the carrier's dribble speed — and rode his back at
+    // the collision radius indefinitely (watched replay: 23px for 10 straight
+    // seconds, zero challenges). You don't amble into a challenge.
+    bool committedTackle = lastActionType == ActionType::Tackle && engine.state.ball.controllerId >= 0;
     double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)
         ? DRIBBLE_FAST_SPEED
-        : (lastActionType == ActionType::Chase || committedPress || defendSprint || pursuingLooseBall || boxBurst ? SPEED_SPRINT : SPEED_RUN);
+        : (lastActionType == ActionType::Chase || committedPress || committedTackle || defendSprint || pursuingLooseBall || boxBurst ? SPEED_SPRINT : SPEED_RUN);
 
     // Shielding: slow down when near opponents with ball
     bool isController = (engine.state.ball.controllerId == p.id);
@@ -210,7 +217,7 @@ void PlayerAI::applyMovement(double sdt) {
         baseSpeed *= 0.80; // 20% slower when shielding
     }
 
-    double df = (committedChase || committedPress || defendSprint || pursuingLooseBall || boxBurst) ? 1.0 : std::min(d / 120.0, 1.5);
+    double df = (committedChase || committedPress || committedTackle || defendSprint || pursuingLooseBall || boxBurst) ? 1.0 : std::min(d / 120.0, 1.5);
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
 
     double px = p.x, py = p.y;
@@ -379,7 +386,18 @@ void PlayerAI::tryCollectAfterChase() {
         stunLockTicks = 12;  // ~200ms — react quickly near goal
         shotCooldown = 0;    // can shoot immediately in the box
     } else {
-        stunLockTicks = 45;  // ~750ms — settle time in midfield
+        // Threat-scaled settle: a presser arriving within ~0.8s means the first
+        // decision comes NOW, not after a 750ms rest — the calm settle froze a
+        // deep receiver's whole menu while the press arrived with the ball
+        // (watched replay seed 129 0:38.6-0:39.4: the FB's only action for 45
+        // ticks was the settle-dribble as the tackler closed 89→60px; tackled
+        // at 0:40.2). Calm receptions keep the full composure beat.
+        // Standing markers don't hurry the touch — a sprinting-in tackler does.
+        // (A static near-marker test here hurried nearly every midfield
+        // reception — the press retargets to the receive point on every pass —
+        // and inflated match pass volume.)
+        bool pressArriving = tackleArriving(engine.state.players, p.x, p.y, p.team);
+        stunLockTicks = pressArriving ? 16 : 45;  // ~270ms hurried / ~750ms calm
         shotCooldown = 15;   // ~250ms — brief cooldown after collect
     }
 }

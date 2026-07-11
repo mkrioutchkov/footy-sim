@@ -35,6 +35,24 @@ inline bool tryClaimPressSlot(TeamBlackboard& bb, int playerId,
 
 // ── Common query helpers ────────────────────────────────────────────────────
 
+/// A tackle is genuinely ARRIVING at (x, y): some opponent within `range` is
+/// closing at more than `closingSpeed` px/s toward that spot. Distinguishes the
+/// sprinting-in presser from the assigned jockey holding his 12-30px standoff —
+/// proximity tests cannot (the standoff means an opponent is ALWAYS close, so
+/// every distance/projection variant of this test read as permanently true and
+/// exploded pass tempo by +55-80% when used to lift the composure brake).
+inline bool tackleArriving(const std::vector<Player>& players, double x, double y,
+                           Team myTeam, double range = 120.0, double closingSpeed = 50.0) {
+    for (const auto& o : players) {
+        if (!isActiveOpponent(o, myTeam)) continue;
+        double dx = x - o.x, dy = y - o.y;
+        double d = std::hypot(dx, dy);
+        if (d > range || d < 1.0) continue;
+        if ((o.vx * dx + o.vy * dy) / d > closingSpeed) return true;
+    }
+    return false;
+}
+
 /// Count opponents within `range` of (x, y), excluding the given team and GKs.
 inline int countPressure(const std::vector<Player>& players, double x, double y,
                          Team team, double range) {

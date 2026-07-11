@@ -311,6 +311,7 @@ bool GameEngine::checkWoodwork() {
         woodworkCooldown = 4; // W1: don't re-collide with the bar next tick
         lastLooseOrigin = LooseOrigin::Woodwork;
         stats.recordWoodwork();
+        stats.recordWoodworkBar();
         emitEvent("woodwork", goalX, b.y, b.lastToucherId);
         return true;
     }
@@ -328,6 +329,7 @@ bool GameEngine::checkWoodwork() {
         woodworkCooldown = 4; // W1: don't re-collide with the post next tick
         lastLooseOrigin = LooseOrigin::Woodwork;
         stats.recordWoodwork();
+        stats.recordWoodworkPost();
         emitEvent("woodwork", goalX, center + postSide * half, b.lastToucherId);
         return true;
     }

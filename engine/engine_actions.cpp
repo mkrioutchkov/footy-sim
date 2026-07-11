@@ -412,6 +412,15 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // confirmed the pace was cosmetic and did NOT cause the turnover; the
     // point-blank blocker did (fixed in scorePassToTarget).
     if (secure) speed *= 1.45;
+    // Long balls are DRIVEN (watched replay seed 129 0:26.4, owner: "mindless
+    // pass not realistic"): the base gradient tops out ~195px/s, and with air
+    // drag a 350px+ ball died ~60% of the way out and arrived as a walking-pace
+    // roll anyone could step in front of (census: 13 passes planned >330px,
+    // only 4 arrived — every one as a dead ball the receiver walked back to).
+    // Real switches are struck: ~1.6s flight instead of ~2.8s+roll. Crosses
+    // set their own pace below; through balls keep the led-runner solve.
+    if (rawDist > 260.0 && !throughBall && !lob)
+        speed = std::max(speed, std::min(300.0, 150.0 + rawDist * 0.32));
     double travelTime = rawDist / std::max(speed, 1.0);
     double receiverSpeed = std::hypot(t.vx, t.vy);
     double fd = fdFor(f.team);
@@ -512,7 +521,9 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
             b.vz = std::max(b.vz, speed * 0.70);   // a long blocked ball keeps the driven loft
         }
     }
-    if (rawDist > 350) b.vz = std::max(b.vz, speed);
+    // Cleared heads is enough: vz >= speed turned every 350px+ ball into a
+    // hanging mortar whose flight time invited the arrival contest (0:26.4).
+    if (rawDist > 350) b.vz = std::max(b.vz, speed * 0.72);
     const auto* audit = selectionAudit;
     double goalX = goalXFor(f.team);
     bool fromWide = std::abs(f.y - PITCH_H / 2) > 130;
@@ -859,11 +870,11 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
         }
 }
 
-bool GameEngine::attemptTackle(Player& tackler, Player& carrier) {
+bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraReach) {
     double contactDist = dist(tackler.x, tackler.y, carrier.x, carrier.y);
     auto& b = state.ball;
     if (setPiece.armed) return false;
-    if (b.controllerId != carrier.id || tackler.team == carrier.team || contactDist > TACKLE_RANGE) return false;
+    if (b.controllerId != carrier.id || tackler.team == carrier.team || contactDist > TACKLE_RANGE + extraReach) return false;
     if (carrier.role == Role::GK) return false;
     if (!canContestBall(tackler)) return false;
     if (isCarrierShielded(carrier.id)) return false;
@@ -915,7 +926,8 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier) {
         shieldingBonus = 0.12;                          // partly exposed
     if (exposedToFacingTackler) shieldingBonus += 0.10; // and he's squared up
 
-    double chance = clamp(0.20 + tackleSkill * 0.38 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0) - (fromBehind ? 0.18 : 0) + (approachDot > 0.3 && approachDot < 0.85 ? 0.06 : 0) + dribbleBonus + shieldingBonus, 0.06, 0.75);
+    double chance = clamp(0.20 + tackleSkill * 0.38 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0) - (fromBehind ? 0.18 : 0) + (approachDot > 0.3 && approachDot < 0.85 ? 0.06 : 0) + dribbleBonus + shieldingBonus
+                          - (contactDist > TACKLE_RANGE ? 0.08 : 0.0), 0.06, 0.75);   // stretched step-in lunge is harder
     // Contain by default: a defender only COMMITS to a challenge when he has a
     // real chance of winning it (or it's an emergency, or the carrier has
     // stopped and exposed the ball). Otherwise he stays on his feet and
@@ -1252,11 +1264,23 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
         // balloons over, but on a believable driven trajectory.
         loft = std::min(loft, 160.0);
     }
-    // Finesse and power are struck DOWN — a placed side-foot or a driven laces
-    // shot stays under the bar. Without this the loft model floated them over
-    // the frame, so they beat the keeper's save roll yet sailed the goal (the
-    // conversion gap the save-roll probe exposed). On the deck = on frame.
-    if (shotType == 1 || shotType == 2) loft = std::min(loft, 10.0);
+    // Finesse and power are struck DOWN — under the bar, never floated over the
+    // save roll (the conversion gap the save-roll probe exposed). But "down"
+    // used to mean vz<=10 = a ground skimmer: the watched-match census found
+    // 20/20 goal-line crossings at z<=7 — no shot ever arrived above the
+    // keeper's ankles. Give the placed/driven strike its real height band:
+    // solve vz so the ball crosses the line between shin and hip (z 2-8).
+    // HARD CAP at apex <= GK_STAND_Z (vz <= sqrt(2*G*8) ~ 89): the save roll
+    // fires mid-flight (dToGoal < 250), so any z above GK_STAND_Z ANYWHERE on
+    // the flight engages the top-corner tax and quietly buys goals — a first
+    // cut capped at 118 (apex ~14) doubled per-SoT conversion on shots that
+    // were meant to be cosmetically lifted, not harder to save.
+    if (shotType == 1 || shotType == 2) {
+        double tLine = d / std::max(speed, 1.0);
+        double zTarget = 2.0 + rng.random() * (GK_STAND_Z - 2.0);
+        loft = std::min((zTarget + 0.5 * GRAVITY * tLine * tLine) / std::max(tLine, 0.1),
+                        std::sqrt(2.0 * GRAVITY * GK_STAND_Z));
+    }
     // Curl: give it just enough air to keep the spin alive (curl dies fast on
     // the deck) and bend it toward the open corner — a bent flight the keeper,
     // who reads a straight line, mis-sets for (see engine_gk deception term).

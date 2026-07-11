@@ -81,8 +81,19 @@ Action* PlayerAI::tryLowScoreFallback(SmallVector<Action, 24>& a, Action& /*best
             && (!dribbleOpt || x.score > dribbleOpt->score))
             dribbleOpt = &x;
     }
-    if (passOpt && passOpt->score > 0.05) return passOpt;
+    // A desperation pass must still be a PASS, not a hopeful launch: the
+    // fallback's pass-first 0.05 bar sent a 476px lofted coin-flip diagonal
+    // (comp 0.52, died mid-pitch, picked off — watched replay seed 129 0:26.4,
+    // owner: "mindless pass not realistic") over both the dribble and the
+    // shield-Hold path one line below it. Keep short balls and honest-risk
+    // clears; a long low-completion ball loses to carrying/shielding.
+    bool passPlayable = passOpt && passOpt->score > 0.05
+        && (passOpt->audit.expectedCompletion >= 0.55
+            || passOpt->audit.distance < 260.0
+            || passOpt->purpose == ActionPurpose::Clear);
+    if (passPlayable && (!dribbleOpt || passOpt->score >= dribbleOpt->score)) return passOpt;
     if (dribbleOpt && dribbleOpt->score > 0.04) return dribbleOpt;
+    if (passPlayable) return passOpt;
     return nullptr;
 }
 

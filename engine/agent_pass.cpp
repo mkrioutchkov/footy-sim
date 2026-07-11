@@ -1,5 +1,6 @@
 #include "engine.h"
 #include "agent.h"
+#include "agent_helpers.h"
 #include <optional>
 
 SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameContext& ctx) {
@@ -60,10 +61,29 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
         || (movingTowardOwnGoal && per.nearestOpponentDist < PASS_MIN_DISTANCE && nearOwnThird)
         || (trappedNearTouchline && ownProgress < PITCH_W * 0.36);
 
+    // ── Closing press / cornered carrier (watched replay seed 129, 0:23 + 0:40) ──
+    // Two ground-truth states the perception cone systematically misses:
+    // oppClosingSoon projects every opponent 0.8s along his velocity — the press
+    // that is ARRIVING, not just standing (a defender released at nearestOpp<30
+    // is releasing into the tackle, ~0.5s too late). corneredEscape is the
+    // touchline-pinned or regressing carrier under real carrier pressure
+    // (cp reads all pressers; per.pressureCount held 1 through a 7-second
+    // two-man corner trap because the second presser sat outside the cone) —
+    // it arms the secure-outlet waiver so the easy out-ball to a CB behind
+    // is a candidate instead of being backward-penalised to score<=0.
+    bool oppClosingSoon = tackleArriving(engine.state.players, p.x, p.y, p.team);
+    CarrierPressure cpPass = assessCarrierPressure(engine, p);
+    bool touchlinePinned = p.y < PASS_TOUCHLINE_TRAPPED || p.y > PITCH_H - PASS_TOUCHLINE_TRAPPED;
+    bool regressingCarry = engine.carrierTracker.backwardCarryCarrierId == p.id
+        && (p.x - engine.carrierTracker.backwardCarryStartX) * fd < -70.0;
+    bool corneredEscape = cpPass.score > 0.70 && per.nearestOpponentDist < 42.0
+        && (touchlinePinned || regressingCarry);
+
     for (auto& t : engine.state.players) {
         if (t.team != p.team || t.id == p.id) continue;
         auto result = scorePassToTarget(t, per, fd, ownGoalX, ownProgress,
-                                        hasClearOutfieldOutlet, urgentKeeperNeed, movingTowardOwnGoal);
+                                        hasClearOutfieldOutlet, urgentKeeperNeed, movingTowardOwnGoal,
+                                        corneredEscape, oppClosingSoon);
         if (result) r.push_back(*result);
     }
 

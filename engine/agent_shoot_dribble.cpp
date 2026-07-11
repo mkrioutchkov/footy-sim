@@ -434,9 +434,28 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                 evadeSide = ay >= 0.0 ? 1.0 : -1.0;
                 evadeSideUntilMs = engine.state.clockMs + 750.0;
             }
-            double retreat = cp.exposed > 0.35 ? -fd * 34.0 : 0.0;
-            tx = p.x + ax / ad * 44.0 + retreat;
-            ty = p.y + evadeSide * 48.0;
+            if ((ax / ad) * fd < -0.25) {
+                // Radial retreat from a goal-side presser points BACKWARD —
+                // escape ACROSS the pitch instead (same idea as the committed
+                // lateral escape in the close-evade branch above). The pure
+                // away-vector ran a cornered winger 100px backward along the
+                // touchline for 7 seconds (watched replay seed 129 0:17-0:24),
+                // and because this block runs after the backward-target pricing,
+                // that retreat was never even scored as backward.
+                tx = p.x + fd * 24.0;
+                ty = p.y + evadeSide * 72.0;
+            } else {
+                double retreat = cp.exposed > 0.35 ? -fd * 34.0 : 0.0;
+                tx = p.x + ax / ad * 44.0 + retreat;
+                ty = p.y + evadeSide * 48.0;
+            }
+            // Re-apply the edge guard — this block runs after it, so the evade
+            // could walk the carry into the touchline pocket the guard exists
+            // to prevent.
+            if (p.y < DRIBBLE_EDGE_MARGIN)           ty = std::max(ty, p.y + 40.0);
+            if (p.y > PITCH_H - DRIBBLE_EDGE_MARGIN) ty = std::min(ty, p.y - 40.0);
+            if (p.x < DRIBBLE_EDGE_MARGIN)           tx = std::max(tx, p.x + 40.0);
+            if (p.x > PITCH_W - DRIBBLE_EDGE_MARGIN) tx = std::min(tx, p.x - 40.0);
         }
     }
 

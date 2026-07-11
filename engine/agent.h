@@ -194,6 +194,10 @@ public:
 
 private:
     int    stunLockTicks = 0;
+    // Consecutive ticks this AI has CHOSEN Tackle on the same carrier while
+    // stuck outside contact — the earned-lunge trigger (see executeAction).
+    int    tackleShadowTicks = 0;
+    int    tackleShadowCarrierId = -1;
     int    skillMoveCooldown = 0;
     int    ballContestTicks = 0;   // audit #1: ticks glued within TACKLE_RANGE of an opponent carrier's ball
     double evadeSide = 1.0;
@@ -252,6 +256,8 @@ private:
 
 protected:
     virtual void          adjustActionScores(SmallVector<Action, 24>& actions, bool isController);
+    // Tight press now, or arriving within ~0.6s — the defender quick-release trigger.
+    bool                  pressedTightOrClosing() const;
     Action                resolveChoice(SmallVector<Action, 24>& actions);
 
     // resolveChoice() pipeline helpers — each returns nullptr to continue, or a chosen action
@@ -269,7 +275,7 @@ private:
     void                  executeDribble(Action& a, double sdt);
     std::optional<Action> scorePassToTarget(Player& target, const Perception& per,
         double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
-        bool urgentKeeperNeed, bool movingTowardOwnGoal);
+        bool urgentKeeperNeed, bool movingTowardOwnGoal, bool corneredEscape, bool oppClosingSoon);
     Perception            getCachedPerception();
     Perception            perceive();
     void                  applyMovement(double sdt);

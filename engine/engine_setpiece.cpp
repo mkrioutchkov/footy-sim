@@ -612,15 +612,44 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
             nearestOpp = std::min(nearestOpp, std::max(std::min(now, soon), now * 0.35));
             if (std::min(now, soon) < 115.0) escapePressure++;
         }
+        // Press CAPACITY, heading-agnostic: the velocity projection can't see a
+        // press that flips on the release trigger (watched replay seed 129
+        // 0:36: the nearest presser was RETREATING at release, flipped to the
+        // receive point within 0.5s, and the chain ended in a tackle at 0:40).
+        // Count everyone whose sprint reaches the receiver inside the flight +
+        // first-touch window, whatever he's doing right now.
+        int capacityPressure = 0;
+        for (auto& o : state.players) {
+            if (!isActiveOpponent(o, holder.team)) continue;
+            double sprint = std::max(40.0, attrFactor(o.attrs.speed) * SPEED_SPRINT);
+            if ((dist(o.x, o.y, p.x, p.y) - 20.0) / sprint < eta) capacityPressure++;
+        }
+        // A teammate standing in the rolling lane kills the ball dead: the 0:36
+        // roll clipped the CB's boots and died 90px short, turning a 215px
+        // outlet into a deep central reception with the press converging on it.
+        bool mateInLane = false;
+        {
+            double dxm = p.x - holder.x, dym = p.y - holder.y, lsm = dxm * dxm + dym * dym;
+            if (lsm > 1.0)
+                for (auto& m : state.players) {
+                    if (m.team != holder.team || m.id == holder.id || m.id == p.id || m.sentOff) continue;
+                    double t2 = clamp(((m.x - holder.x) * dxm + (m.y - holder.y) * dym) / lsm, 0.08, 0.92);
+                    if (std::hypot(m.x - holder.x - t2 * dxm, m.y - holder.y - t2 * dym) < 14.0
+                        && dist(m.x, m.y, holder.x, holder.y) < d - 25.0) {
+                        mateInLane = true;
+                        break;
+                    }
+                }
+        }
         int laneBlockers = countLaneBlockers(state.players, holder.x, holder.y, p.x, p.y, holder.team, BLOCKER_PERP_GK_DIST, 0.12, 0.92);
-        bool clearLane = laneBlockers == 0;
+        bool clearLane = laneBlockers == 0 && !mateInLane;
         // SAFE-BUT-TRAPPED (watched replay 0:45-0:47: the claim was rolled
         // short to a man who was open ON ARRIVAL but boxed in deep; two
         // passes later the opponent had the ball in the danger zone): a deep
         // short outlet must also have somewhere to GO. Two-plus opponents in
         // his escape bubble means the ball comes straight back under
         // pressure — that's not a safe outlet, punt instead.
-        bool trapped = progress < 260.0 && escapePressure >= 2;
+        bool trapped = progress < 260.0 && (escapePressure >= 2 || capacityPressure >= 2);
         // "Safe" = near-certain to complete AND playable on arrival: a clean
         // lane, a receiver still open when the ball gets there, a short-to-mid
         // ball. The keeper releases only on these and otherwise HOLDS (he can't

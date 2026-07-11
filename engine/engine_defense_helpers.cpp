@@ -61,11 +61,42 @@ void GameEngine::assignPrimaryPress(DefenseContext& ctx, Player& carrier) {
     double standoff = clamp(30.0 - carrierDrive * 0.45, 12.0, 30.0)
                            - directiveBias[primary->id].pressTightness * 13.0
                            + directiveBias[primary->id].containBias * 22.0;
+    // ── Escort resolution (stage 3 of the press redesign) ── a shadow that
+    // is NOT being beaten does not ride forever: once the same presser has
+    // jockeyed the same carrier ~1.5s with the carrier making no real progress
+    // (census: a CB locked at a constant 23px for 15+ seconds without a duel,
+    // because the standoff floor sits just outside TACKLE_RANGE and
+    // attemptTackle hard-rejects beyond it), he steps IN through the standoff
+    // to contact — the sustained-contest nick path then resolves the duel.
+    auto& dbb = blackboards[teamIndex(ctx.team)];
+    double carrierProg = pitch::forwardProgress(carrier.x, carrier.team);
+    if (dbb.pressEscortPresserId != primary->id || dbb.pressEscortCarrierId != carrier.id) {
+        dbb.pressEscortPresserId = primary->id;
+        dbb.pressEscortCarrierId = carrier.id;
+        dbb.pressEscortSinceMs = state.clockMs;
+        dbb.pressEscortStartProg = carrierProg;
+    }
+    double escortMs = state.clockMs - dbb.pressEscortSinceMs;
+    bool escortStale = dist(primary->x, primary->y, carrier.x, carrier.y) < 46.0
+        && (escortMs > 1500.0 && carrierProg - dbb.pressEscortStartProg < 40.0
+            // A LONG shadow counts even against a progressing carrier — being
+            // carried past for 200px at touching distance is a beaten jockey,
+            // not containment; he must force the duel.
+            || escortMs > 3000.0);
+    if (escortStale) standoff = 8.0;
     // Shade half a body inside (goal-center side) — show the carrier the wide
     // lane, protect the middle. The populated-box cross gate owns the wide lane.
     double insideShade = (carrier.y < PITCH_H / 2.0 ? 7.0 : -7.0);
+    // Mirror the carrier's MOVEMENT, not his footprints: compute the jockey
+    // point from where the carrier will be in ~0.25s, so a lateral burst
+    // doesn't leave the presser chasing the spot the carrier just left (the
+    // audit's stage-3 build item: keep the body between carrier and goal
+    // through the burst — a wider tackle trigger means nothing while the
+    // jockey's position is already beaten when the carrier passes him).
+    double cxLead = clamp(carrier.x + carrier.vx * 0.25, 12.0, PITCH_W - 12.0);
+    double cyLead = clamp(carrier.y + carrier.vy * 0.25, 12.0, PITCH_H - 12.0);
     setAssignment(*primary, DefensiveTask::PrimaryPress,
-                  carrier.x - ctx.fd * std::max(10.0, standoff), carrier.y + insideShade, carrier.id);
+                  cxLead - ctx.fd * std::max(escortStale ? 4.0 : 10.0, standoff), cyLead + insideShade, carrier.id);
     ctx.assigned[primary->id] = true;
 }
 

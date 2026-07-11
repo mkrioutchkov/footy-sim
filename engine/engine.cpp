@@ -437,9 +437,19 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
             carrierTracker.backwardCarryCarrierId = c->id;
             carrierTracker.backwardCarryStartX = c->x;
             carrierTracker.backwardCarryRecorded = false;
-        } else if (!carrierTracker.backwardCarryRecorded && (c->x - carrierTracker.backwardCarryStartX) * fd < -200.0) {
-            stats.recordLongBackwardCarry();
-            carrierTracker.backwardCarryRecorded = true;
+        } else {
+            // Measure regression from the carry's HIGH-WATER mark, not possession
+            // start: a carrier who advanced 65px then gave back 106px netted only
+            // -41 from his start point and never tripped the -70 backward-carry
+            // dampers (watched replay seed 129 0:17-0:24 — a 7s corner-pocket
+            // retreat with backwardCarry reading -28). Riding the max keeps the
+            // dampers (and the longBackwardCarries stat) honest.
+            if ((c->x - carrierTracker.backwardCarryStartX) * fd > 0.0)
+                carrierTracker.backwardCarryStartX = c->x;
+            if (!carrierTracker.backwardCarryRecorded && (c->x - carrierTracker.backwardCarryStartX) * fd < -200.0) {
+                stats.recordLongBackwardCarry();
+                carrierTracker.backwardCarryRecorded = true;
+            }
         }
         double carrierSpeed = std::hypot(c->vx, c->vy);
         double targetDistance = dist(c->x, c->y, c->targetX, c->targetY);
@@ -487,25 +497,73 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
             // release cost ~22% of shots. The shuttle we're killing is the
             // midfield/own-half "side to side" hold, not the final ball.
             double distToOppGoal = pitch::distToOppGoal(c->x, c->team);
-            if (carryDurMs >= 7000.0 && carryFwd < 80.0 && distToOppGoal > 340.0) {
+            // 5.2s, was 7.0s: the carry-duration histogram had a spike at
+            // exactly 6.8-7.2s — ~15 carries per watched match visibly riding
+            // this watchdog (census, seed 129). With the safe-outlet receiver
+            // pick below the forced release now reads as an ordinary escape
+            // ball, so it can come when a real player would play it.
+            if (carryDurMs >= 5200.0 && carryFwd < 80.0 && distToOppGoal > 340.0) {
+                // The forced release is the SAFE out-ball, not a mortar: the old
+                // pick weighted forwardness double openness with no lane check,
+                // so it chipped 145° over its shoulder into a triple-blocked lane
+                // the pass scorer had vetoed that same tick (watched replay seed
+                // 129 0:24.5 — the owner's "the pass attempted was just weird",
+                // intercepted 0.15s after release) while the free CB behind
+                // ranked LAST by construction. Safety-first scoring (same formula
+                // as the pressured-circling release below), a lane check, and a
+                // facing-compatible preference make the backstop ball look like a
+                // player's choice; fixes upstream should make it rarely fire.
+                // Graded lane read: hard-skip only a near-certain deflection
+                // (a body within ~20px of the flight line); nearby traffic
+                // costs score. A hard 30px skip left the watchdog with NO
+                // candidate in crowded midfield, the release never fired, and
+                // marathon carries ROSE (7-11/match vs baseline 3-6).
+                // The rules relax as the carry drags on: at first only a clean
+                // safe outlet is accepted (a real player's ball); past ~6.5s any
+                // honest escape beats carrying forever (a hard candidate filter
+                // here left the release unfired in crowded midfield and marathon
+                // carries ROSE).
+                bool desperate = carryDurMs >= 6500.0;
+                double hardPerp = desperate ? 14.0 : 20.0;
+                double coverMin = desperate ? 45.0 : 55.0;
+                auto laneCost = [&](const Player& o) {
+                    double dx = o.x - c->x, dy = o.y - c->y, ls = dx * dx + dy * dy;
+                    if (ls < 1.0) return 1e9;
+                    double cost = 0.0;
+                    for (auto& q : state.players) {
+                        if (q.team == c->team || q.role == Role::GK || q.sentOff) continue;
+                        double t2 = clamp(((q.x - c->x) * dx + (q.y - c->y) * dy) / ls, 0.0, 1.0);
+                        if (t2 * std::sqrt(ls) < 40.0) continue;   // the on-boot presser blocks every lane equally
+                        double perp = std::hypot(q.x - c->x - t2 * dx, q.y - c->y - t2 * dy);
+                        if (perp < hardPerp) return 1e9;           // ball into a body — the scorer already refused this
+                        if (perp < 40.0) cost += (40.0 - perp) * 2.5;
+                    }
+                    return cost;
+                };
                 Player* best = nullptr;
                 double bestScore = -1e9;
                 for (auto& o : state.players) {
                     if (o.team != c->team || o.id == c->id || o.role == Role::GK || o.sentOff) continue;
                     double d = dist(c->x, c->y, o.x, o.y);
-                    if (d < 90.0 || d > 380.0) continue; // realistic pass range
+                    if (d < PASS_MIN_DISTANCE || d > 380.0) continue; // realistic pass range
                     double oppD = 1e9;                   // receiver's nearest marker
                     for (auto& q : state.players)
                         if (q.team != c->team && q.role != Role::GK && !q.sentOff)
                             oppD = std::min(oppD, dist(o.x, o.y, q.x, q.y));
-                    if (oppD < 55.0) continue;                     // covered — not a safe release
-                    double score = (o.x - c->x) * fd + oppD * 0.5; // prefer forward + open
+                    if (oppD < coverMin) continue;                 // covered — not a safe release
+                    double lc = laneCost(o);
+                    if (lc > 1e8) continue;                        // certain deflection
+                    double score = oppD - lc - std::abs((o.x - c->x) * fd) * 0.15; // safest open man, near before far
+                    double wantAng = std::atan2(o.y - c->y, o.x - c->x);
+                    double offF = std::abs(std::atan2(std::sin(wantAng - c->facing), std::cos(wantAng - c->facing)));
+                    if (offF > 2.0) score -= 40.0;                 // prefer a ball he can play without a no-look spin
                     if (score > bestScore) {
                         bestScore = score;
                         best = &o;
                     }
                 }
                 if (best) {
+                    c->facing = std::atan2(best->y - c->y, best->x - c->x);   // square up with the release, not a no-looker
                     forcePassTo(*c, *best, nullptr);
                     carrierTracker.marathonReleased = true;
                 }

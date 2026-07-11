@@ -1,1 +1,1 @@
-ed4932506f4eed5607aec5a6081cd0f890a46ee7e39a46f87c48726fed9751da  baseline_summaries.jsonl  seeds 101-140 @10min, g++ -O2 -std=c++20
+cd3ac98a2a1131f091544556476a1dba8852592b8f16855c4482edb471f08088  tools/golden/baseline_summaries.jsonl

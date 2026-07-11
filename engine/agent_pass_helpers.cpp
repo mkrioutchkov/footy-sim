@@ -11,7 +11,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& per,
     double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
-    bool urgentKeeperNeed, bool movingTowardOwnGoal)
+    bool urgentKeeperNeed, bool movingTowardOwnGoal, bool corneredEscape, bool oppClosingSoon)
 {
     const auto& p = player;
 
@@ -21,9 +21,18 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // SAFE recycle for a pressed defender / deep midfielder in his own third — he
     // then distributes safely (play out from the back). The score below keeps it
     // from being spammed: it only wins when the forward options are genuinely poor.
+    // A PRESSED deep defender gets the valve regardless of hasClearOutfieldOutlet
+    // (watched replay seed 129 0:36-0:40: the FB's "clear outlets" were the very
+    // passes the dwell gate had priced to -1.3, so the keeper never scored and
+    // the carrier was tackled holding a menu of unplayable options — real
+    // defenders recycle via the GK constantly under press).
     bool nearOwnThirdForGk = ownProgress < PITCH_W * 0.42;
-    bool keeperRecycle = nearOwnThirdForGk && per.pressureCount >= 1 && !hasClearOutfieldOutlet
-        && isDefenderLike();
+    // The pressed-recycle valve is a DEEP defender's escape (own 36%), not a
+    // midfield option — at 0.42W the keeper's touches doubled (85/90 vs real
+    // ~40) as halfway-line carriers cycled him into ordinary possession.
+    bool keeperRecycle = ownProgress < PITCH_W * 0.36 && isDefenderLike()
+        && ((oppClosingSoon && per.nearestOpponentDist < 110.0) || per.pressureCount >= 2
+            || (per.pressureCount >= 1 && !hasClearOutfieldOutlet));
     bool keeperOutlet = t.role == Role::GK && ((urgentKeeperNeed && !hasClearOutfieldOutlet) || keeperRecycle);
     if (t.role == Role::GK && !keeperOutlet) return std::nullopt;
     double d = dist(p.x, p.y, t.x, t.y);
@@ -31,6 +40,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (!keeperOutlet && engine.isOffsideTargetPerceived(p, t)) return std::nullopt;
 
     int bl = 0;
+    int onBootBl = 0;
     double laneRisk = 0.0;
     double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
     if (ls < 1.0) return std::nullopt;
@@ -51,7 +61,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         double tlx = cx - o.x, tly = cy - o.y, tld = std::hypot(tlx, tly);
         double closing = tld > 1.0 ? (o.vx * tlx + o.vy * tly) / tld : 0.0;   // px/s toward the lane
         double effBlocker = PASS_BLOCKER_PERP + clamp(closing / 50.0, 0.0, 1.0) * 13.0;
-        if (perp < effBlocker) bl++;
+        bool onBootPresser = t2 < 0.05 && dist(o.x, o.y, p.x, p.y) < 42.0;
+        if (perp < effBlocker) {
+            bl++;
+            if (onBootPresser) onBootBl++;
+        }
         else if (perp < 112.0 && t2 > 0.10 && t2 < 0.92) laneRisk += clamp((112.0 - perp) / 76.0, 0.0, 1.0);
         // Opponent right on the boot at release, in the NEAR half of the lane:
         // near-certain deflection that the wide lane radius under-weighted
@@ -67,14 +81,27 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // uglier failure. The step-in effBlocker above already prices the
         // closing presser once; the residual 0:04-class pick stays accepted.
     }
+    double fp = pitch::forwardGain(p.x, t.x, p.team);
+    // An opponent standing ON THE CARRIER'S BOOT (within pressing contact, at
+    // the lane's origin) presses the CARRIER, not a lane — but exempting him
+    // from EVERY lane flooded releases match-wide (+50% pass volume; his
+    // blocker count is load-bearing for the possession tempo the brake sets).
+    // Scope the exemption to the pressed ESCAPE ball only: the backward safe
+    // out while cornered or with a tackle arriving — the class the double-
+    // count starved (watched replay seed 129 0:20-0:24: a cornered winger's
+    // easy CB out-ball priced 0.55 instead of ~0.79 because BOTH on-boot
+    // pressers counted on it, and he carried into the corner until the release
+    // watchdog fired). The pointBlank veto below still kills the lane the
+    // presser IS standing in (perp<17).
+    if (onBootBl > 0 && fp < -20.0
+        && (corneredEscape || (oppClosingSoon && ownProgress < PITCH_W * 0.42)))
+        bl = std::max(0, bl - onBootBl);
     // A man point-blank in the near lane is fatal EVEN under pressure — you
     // cannot thread the ball past a defender 3-4m directly in front however
     // swarmed you are (watched replay 0:38: a pressed Messi fired a hard
     // backpass straight into Busquets 7px off the lane because the veto was
     // disabled at pressureCount>=2; he should shield/spin instead).
     if (bl >= 3 || pointBlank > 0) return std::nullopt;
-
-    double fp = pitch::forwardGain(p.x, t.x, p.team);
     double rs = attrFactor(p.attrs.passing);
     double rr = attrFactor(t.attrs.positioning);
 
@@ -96,6 +123,25 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - blCost
             - std::min(laneRisk, 2.2) * 0.10 - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),
         0.08, 0.98);
+    // ── Arrival contest ── a long ball hangs long enough for a defender to beat
+    // it to the receive point: price the race explicitly. The step-in blocker
+    // model extends reach by at most 13px (~0.26s of closing) while a 450px
+    // ball flies ~1.6s — the watched 0:26.4 "mindless pass" needed its
+    // interceptor to move at walking pace (20px/s over the flight) yet priced
+    // as a normal 1-blocker ball. Opponents already inside the receiver-press
+    // radius are priced above — this term is the RANGE extension only.
+    if (d > 240.0) {
+        double tFlight = d / std::min(std::max(150.0 + d * 0.32, PASS_SPEED_BASE + d * PASS_SPEED_DIST), 300.0);
+        double tOpp = 1e9;
+        for (auto& o : engine.state.players) {
+            if (!isActiveOpponent(o, p.team)) continue;
+            double od = dist(o.x, o.y, t.x, t.y);
+            if (od < PASS_RECEIVER_PRESS_MAX) continue;
+            double sprint = std::max(40.0, attrFactor(o.attrs.speed) * SPEED_SPRINT);
+            tOpp = std::min(tOpp, (od - 18.0) / sprint);
+        }
+        completion -= clamp(tFlight - tOpp, 0.0, 1.2) * 0.25;
+    }
     // play_it_long: direct sides gamble on lower-completion (longer) balls. 0 by
     // default => floor stays 0.44 => the no-directive match is unchanged.
     double longBall = engine.teamTactics[teamIndex(p.team)].longBallBias;
@@ -110,9 +156,21 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // real player. Dead-ball takers are exempt (they address the ball freely).
     double passAngF = std::atan2(dy, dx);
     double offFacing = std::abs(std::atan2(std::sin(passAngF - p.facing), std::cos(passAngF - p.facing)));
+    // A PRESSED carrier deep in his own territory (or pinned/cornered) keeps the
+    // behind-him ball as a PRICED candidate instead of a hard veto: his escape
+    // dribble rotates his facing away from his own support, and the veto then
+    // deleted every backward outlet exactly when they were needed (watched
+    // replay seed 129 0:39-0:40: the FB's menu emptied the instant his facing
+    // turned upfield, and the keeper/CB recycle never existed). Execution stays
+    // honest: the turn-then-release path rotates the body over 2-3 ticks before
+    // the ball goes, so this never releases an actual 160° no-looker — the calm
+    // no-look bombs the veto was built for (seed 133 0:04/0:56) stay vetoed.
+    bool pressedDeepTurn = (oppClosingSoon && ownProgress < PITCH_W * 0.42)
+        || keeperOutlet || corneredEscape;
     if (!engine.setPiece.armed) {
-        if (offFacing > 2.45) return std::nullopt;
-        if (offFacing > 1.62) completion *= 0.80;
+        if (offFacing > 2.45 && !pressedDeepTurn) return std::nullopt;
+        if (offFacing > 2.45)      completion *= 0.76;
+        else if (offFacing > 1.62) completion *= 0.80;
     }
 
     // ── G1 BUILD-UP LOOK (user 2026-06-27: "still prototype, make it look better") ──
@@ -122,7 +180,14 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // gap (forward, unmarked receiver, clean lane). The keeper recycle (keeperOutlet) is
     // excluded so there is always a safe valve — this can't stall the build-up, only make
     // it pick the safe keep until a gap opens. play_it_long sides bypass it (they commit).
-    if (!keeperOutlet && longBall <= 0.0 && ownProgress < PITCH_W * 0.42) {
+    // A PRESSED carrier's short clean out-ball bypasses the floor: the floor
+    // exists to make CALM build-up probe patiently, and its own design note
+    // promises "there is always a safe valve — this can't stall the build-up".
+    // Under an arriving press the safe valve set must include the short escape
+    // to an unmarked man with a clean lane, or the carrier stands holding
+    // unplayable options until he's tackled (seed 129 0:37-0:40).
+    bool pressedSafeOut = oppClosingSoon && d < 260.0 && receiverPressure == 0 && bl == 0;
+    if (!keeperOutlet && !pressedSafeOut && longBall <= 0.0 && ownProgress < PITCH_W * 0.42) {
         bool breaksLine = fp > 120.0 && receiverPressure == 0 && bl == 0 && laneRisk < 0.8;
         double buildFloor = breaksLine ? 0.50 : 0.66;
         if (completion < buildFloor) return std::nullopt;
@@ -139,7 +204,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // value safe recycling less (vertical, direct); low -> patient possession.
     double directness = engine.configFor(p.team).passingDirectness / 50.0; // 0..2, 1 at 50
     double sc = completion * (0.34 + std::max(0.0, progression) * 0.34 * directness) - (1.0 - completion) * turnoverCost;
-    if (!engine.setPiece.armed && offFacing > 1.62) sc -= 0.14;   // blind-pass tax on top of the completion hit
+    if (!engine.setPiece.armed && offFacing > 1.62) sc -= offFacing > 2.45 ? 0.24 : 0.14;   // blind-pass tax on top of the completion hit (stiffer past the old veto line)
     if (longBall > 0.0 && fp > 80.0) {                          // play_it_long: make the direct long ball win
         sc += longBall * (0.38 + std::min(fp, 360.0) / 360.0 * 0.46);   // longer => bigger reward (boosted to commit)
         sc += (1.0 - completion) * turnoverCost * longBall * 0.8;       // forgive most of the long-ball risk
@@ -176,7 +241,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         sc -= (1.0 - completion) * 0.45;
     }
     if (keeperOutlet) {
-        sc += 0.04 + per.pressureCount * 0.04 + (movingTowardOwnGoal ? 0.06 : 0.0);
+        // Priced to win only under duress: the closing-press term is what lets a
+        // defender play it back BEFORE the tackler arrives (0:40 class) — a calm
+        // carrier's keeper ball stays a last resort.
+        sc += 0.04 + per.pressureCount * 0.05 + (oppClosingSoon ? 0.08 : 0.0)
+            + (movingTowardOwnGoal ? 0.06 : 0.0);
         if (bl == 0) sc += 0.02;
     }
     if (t.id == lastPassTargetId) sc -= 0.18;
@@ -188,8 +257,15 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // USERWATCH A1 (~3:23: carrier stripped with a safe backpass on): under HEAVY pressure a
     // SECURE outlet (unmarked teammate + clear lane) beats getting dispossessed — waive the
     // backward-pass penalty + add a retention bonus so the carrier plays safe instead of forcing it.
-    bool securePressuredOutlet = per.pressureCount >= 2 && per.nearestOpponentDist < 40.0
-                              && receiverPressure == 0 && bl == 0;
+    // corneredEscape arms the same waiver from ground-truth carrier pressure: a
+    // touchline-pinned or regressing carrier whose second presser sits outside
+    // the perception cone "felt" pc=1 for a whole 7s corner trap (seed 129
+    // 0:23) while the easy CB out-ball paid full backward penalties and never
+    // reached arbitration. Owner: "prioritize finding an easy pass e.g. to 3
+    // if being cornered like that."
+    bool securePressuredOutlet = (per.pressureCount >= 2 && per.nearestOpponentDist < 40.0
+                              && receiverPressure == 0 && bl == 0)
+                              || (corneredEscape && receiverPressure == 0 && bl == 0);
     if (!keeperOutlet && !securePressuredOutlet && fp < -30.0) sc -= carrierFinalThird ? 0.28 : 0.16;
     if (!keeperOutlet && !securePressuredOutlet && fp < -90.0) sc -= carrierFinalThird ? 0.30 : 0.18;
     if (!keeperOutlet && carrierFinalThird && per.pressureCount == 0 && fp < 0.0) sc -= 0.12;
@@ -351,6 +427,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (per.pressureCount == 0 && completion < 0.64) sc -= (0.64 - completion) * 0.55;
     if (fp > 110.0 && completion < 0.70) sc -= 0.10;
     if (fp > 180.0 && completion < 0.76) sc -= 0.08;
+    // Risk taxes keyed to DISTANCE, not just forward gain: the 0:26.4 pick won
+    // partly because a 476px sideways coin-flip (fp 96) slipped under both
+    // fwdRisk gates above while the safer 290px forward ball paid them — the
+    // longest, slowest, most interceptable ball on the menu was taxed least.
+    if (d > 320.0 && completion < 0.70) sc -= 0.10;
+    if (d > 400.0 && completion < 0.76) sc -= 0.10;
     sc -= bl * (d > 170.0 ? 0.09 : 0.12);   // chippable range: the lofted ball goes over (see blCost note)
     sc -= std::min(laneRisk, 2.2) * 0.075;   // steer away from lanes a defender can step into (see pass audit)
     if (fp > 0.0) {
@@ -633,7 +715,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     } else if (!isWideDelivery && releasedRunner && !runnerIntent && isCentralMidfielder()) {
         sc -= 0.08;
     }
-    if (wideOutletTarget && !isWideDelivery && onsideGap > 10.0 && bl <= 1 && receiverPressure <= 1) {
+    // Completion-gated (was d<500 with no completion check — the bonus paid out
+    // on hopeful hangs a defender could walk under, 0:26.4).
+    if (wideOutletTarget && !isWideDelivery && onsideGap > 10.0 && bl <= 1 && receiverPressure <= 1
+        && completion >= 0.60 && d < 400.0) {
         pur = std::abs(t.y - p.y) > 120.0 ? ActionPurpose::Switch : ActionPurpose::Build;
         sc += 0.12 + attrFactor(p.attrs.creativity) * 0.08;
     }
