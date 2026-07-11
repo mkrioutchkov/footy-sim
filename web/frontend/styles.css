@@ -331,6 +331,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .watch-bar { gap: 5px; padding: 5px 8px; }
   /* the slider takes its own full-width row below the buttons */
   .watch-bar .scrub-wrap { flex-basis: 100% !important; order: 99; }
+  /* fine-step buttons fold down to just ⏪10s / ⏩10s on a phone — the scrub drag + Shift+←/→ handle finer seeks */
+  .watch-bar .step-btn:not(.step-major) { display: none; }
+  .watch-bar .step-sep { display: none; }
   .watch-feed { width: 62vw; }
   .watch-feed .wf-ev { font-size: 11px; }
   .watch-feed .wf-rows { max-height: 22vh; }
@@ -427,4 +430,43 @@ header.top { padding-top: var(--safe-t); }
   .tactics-panel.compact { bottom: calc(10px + var(--safe-b)); }
   .watch-feed { bottom: calc(12px + var(--safe-b)); }
   .watch-lineups { bottom: calc(74px + var(--safe-b)); }
+}
+
+/* ── live shout panel: collapsible header so it can fold off the pitch/commentary (mobile) ── */
+.tactics-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex: 0 0 auto; }
+.tactics-head .th-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 600; }
+.tactics-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1 1 auto; }
+.tactics-body[hidden] { display: none; }
+/* folded to just the header — release the wide-screen full-height stretch so it sits content-sized at top-right.
+   (On mobile the panel keeps its bottom anchor and simply shrinks upward, so scope this to desktop.) */
+@media (min-width: 860.02px) { .tactics-panel.collapsed { bottom: auto; } }   /* abuts the max-width:860 mobile rule — no fractional-viewport gap (e.g. 150% scaling) */
+
+/* ── responsive data tables: reflow wide rows into compact labelled cards on phones ─────────────────────────
+   Desktop keeps the real <table> (scrollRegion + sticky header). ≤700px each <tr> becomes a card and each
+   <td> a "LABEL  value" line — the label comes from the data-label responsiveTable() stamps from the <th>.
+   First cell = card title; control cells (a <select>) and unlabelled action cells span the full width. */
+.resp-sort { display: none; }   /* mobile-only sort control (Squad); the column headers sort on desktop */
+@media (max-width: 700px) {
+  table.resp-table { display: block; }
+  table.resp-table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+  table.resp-table tbody { display: grid; gap: 8px; }
+  table.resp-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; align-items: center;
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: var(--panel2); }
+  table.resp-table tr.me { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  table.resp-table td { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    border: 0; padding: 2px 0; font-size: 13px; text-align: left; white-space: normal !important; }   /* !important beats inline nowrap (Squad name cell) so long titles wrap instead of overflowing the card */
+  table.resp-table td::before { content: attr(data-label); font-weight: 600; color: var(--muted);
+    text-transform: uppercase; font-size: 10px; letter-spacing: .3px; white-space: nowrap; flex: 0 0 auto; }
+  table.resp-table td:not([data-label])::before { content: ''; }
+  /* first cell = full-width card title */
+  table.resp-table td:first-child { grid-column: 1 / -1; font-weight: 700; font-size: 15px;
+    border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 3px; }
+  table.resp-table td:first-child::before { display: none; }
+  /* control cells (dropdowns) + unlabelled action cells get their own full-width row so they stay tappable */
+  table.resp-table td:has(select) { grid-column: 1 / -1; }
+  table.resp-table td:not([data-label]):not([colspan]):last-child { grid-column: 1 / -1; justify-content: flex-end; }
+  /* empty-state rows ("No free agents left") span the width and read as plain text, not a title */
+  table.resp-table td[colspan] { grid-column: 1 / -1; justify-content: flex-start; font-weight: 400;
+    font-size: 13px; border: 0; margin: 0; padding: 2px 0; }
+  .resp-sort { display: inline-block; }
 }

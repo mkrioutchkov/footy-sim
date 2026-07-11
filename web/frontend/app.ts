@@ -204,6 +204,22 @@ function pageHead(title: string, opts: { subtitle?: string | HTMLElement; onBack
 function subcard(title: string, ...kids: (Node | string)[]): HTMLElement {
   return h('div', { class: 'card' }, h('div', { class: 'section-title subcard-title' }, title), ...kids);
 }
+// responsiveTable — builds the <table class="resp-table"> and stamps every body cell with a `data-label` pulled
+// from the matching header <th>, so the mobile stylesheet can reflow each row into a compact labelled card
+// (each td renders "LABEL  value") instead of forcing a horizontal scroll. Zero per-cell churn at the call
+// sites: the labels come from the thead the screen already built. Rows whose cells span columns (colspan — the
+// "no data" empty-state rows) are skipped so their single cell isn't mislabelled. Header sort-arrows (▲/▼) are
+// stripped from the label. Returns the <table>; wrap it in scrollRegion() for the desktop scroll/sticky path.
+function responsiveTable(thead: HTMLElement, tbody: HTMLElement, extraClass = ''): HTMLElement {
+  const table = h('table', { class: 'resp-table' + (extraClass ? ' ' + extraClass : '') }, thead, tbody);
+  const labels = Array.from(thead.querySelectorAll('th')).map(th => (th.textContent ?? '').replace(/[▲▼]/g, '').trim());
+  for (const row of Array.from(tbody.children)) {
+    const cells = Array.from(row.children) as HTMLTableCellElement[];
+    if (cells.some(c => c.colSpan > 1)) continue;   // full-width empty-state row — nothing to label
+    cells.forEach((cell, i) => { if (labels[i] && !cell.hasAttribute('data-label')) cell.setAttribute('data-label', labels[i]); });
+  }
+  return table;
+}
 
 // ── in-app modals (replace native confirm()/prompt(), which are ugly + block the event loop) ──
 // Both resolve a promise: cancel → false/null, confirm → true/the input value. ESC and a backdrop click
@@ -2279,7 +2295,7 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
   const STEP_BACK = [10, 5, 3, 2, 1];   // seconds (rewind)
   const STEP_FWD = [1, 2, 3, 5, 10];    // seconds (fast-forward)
   const mkStep = (sec: number, dir: -1 | 1): HTMLButtonElement => h('button', {
-    class: 'ghost small step-btn', 'aria-label': `${dir < 0 ? 'Rewind' : 'Forward'} ${sec} seconds`,
+    class: 'ghost small step-btn' + (sec === 10 ? ' step-major' : ''), 'aria-label': `${dir < 0 ? 'Rewind' : 'Forward'} ${sec} seconds`,
     title: `${dir < 0 ? '−' : '+'}${sec}s`, onclick: () => seekTo(Math.max(0, currentMs + dir * sec * 1000)),
   }, `${dir < 0 ? '−' : '+'}${sec}s`) as HTMLButtonElement;
   const stepGroup = h('div', { class: 'step-group', style: 'display:none', role: 'group', 'aria-label': 'Rewind and fast-forward' },
@@ -2640,14 +2656,32 @@ async function screenWatch(fixtureId: number, shouts = false, live = false, star
       onclick: () => { tipRow.remove(); try { localStorage.setItem(TIP_KEY, '1'); } catch { /* */ } } }, '×'));
   const applyBtn = h('button', { class: 'primary small', title: 'Apply your shout (Ctrl+Enter)', onclick: applyPlan }, 'Apply') as HTMLButtonElement;
   applyBtn.disabled = true;
+  const panelBody = h('div', { class: 'tactics-body' }, statsHost, planEl, h('div', { class: 'tactics-row' }, ta, applyBtn), receiptEl);
+  // Mobile: the live shout panel docks over the pitch + commentary. A collapse toggle folds it to a slim header
+  // so the match can be watched unobstructed, then reopened to shout. Default-collapsed on a phone (matchMedia),
+  // and the choice is remembered. Desktop keeps it expanded in the right rail unless the user folds it.
+  const SHOUT_KEY = 'footy:watch-shout-collapsed';
+  let shoutCollapsed = false;
+  try { const s = localStorage.getItem(SHOUT_KEY); shoutCollapsed = s === null ? window.matchMedia('(max-width:700px)').matches : s === '1'; } catch { /* storage unavailable → stay expanded */ }
+  const collapseBtn = h('button', { class: 'ghost small', 'aria-label': 'Collapse or expand the shout panel', 'aria-expanded': String(!shoutCollapsed) }, '▾') as HTMLButtonElement;
+  const panelHead = h('div', { class: 'tactics-head' }, h('span', { class: 'th-lbl' }, '📣 Shouts'), collapseBtn);
   const panel = live
-    ? h('div', { class: 'tactics-panel' },
-        statsHost,
-        planEl,
-        h('div', { class: 'tactics-row' }, ta, applyBtn),
-        receiptEl,
-      )
+    ? h('div', { class: 'tactics-panel' }, panelHead, panelBody)
     : h('div', { class: 'tactics-panel compact' }, statsHost, ...(tipDismissed ? [] : [tipRow]));
+  if (live) {
+    const applyCollapse = (): void => {
+      panel.classList.toggle('collapsed', shoutCollapsed);
+      panelBody.hidden = shoutCollapsed;
+      collapseBtn.textContent = shoutCollapsed ? '▸' : '▾';
+      collapseBtn.setAttribute('aria-expanded', String(!shoutCollapsed));
+    };
+    collapseBtn.addEventListener('click', () => {
+      shoutCollapsed = !shoutCollapsed;
+      try { localStorage.setItem(SHOUT_KEY, shoutCollapsed ? '1' : '0'); } catch { /* ignore */ }
+      applyCollapse();
+    });
+    applyCollapse();
+  }
   document.body.appendChild(panel);
   watchPanel = panel;
 
@@ -3368,18 +3402,18 @@ async function screenMarket() {
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Free agents',
           h('span', { class: 'pill', style: 'margin-left:8px;text-transform:none;letter-spacing:0;background:rgba(67,211,158,.15);color:var(--accent)' }, 'signable any time')),
-        scrollRegion('Free agents', h('table', {}, headRow('Player'), faBody), { maxH: '520px', dataScroll: 'fa', sticky: true })),
+        scrollRegion('Free agents', responsiveTable(headRow('Player'), faBody), { maxH: '520px', dataScroll: 'fa', sticky: true })),
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your squad'),
         h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, `List a player to sell him — an AI club may buy once you have squad depth (12+).${win.open ? ' Listings lapse at the deadline if unsold.' : ''}`),
-        scrollRegion('Your squad', h('table', {}, headRow('Player'), sqBody), { maxH: '520px', dataScroll: 'squad', sticky: true })),
+        scrollRegion('Your squad', responsiveTable(headRow('Player'), sqBody), { maxH: '520px', dataScroll: 'squad', sticky: true })),
       incomingCard,
       offersCard,
       h('div', { class: 'card' },
         h('div', { class: 'section-title', style: 'margin-top:0' }, 'For sale — other clubs',
           win.open ? '' : h('span', { class: 'pill', style: 'margin-left:8px;text-transform:none;letter-spacing:0;background:#3a2a1f;color:#ffce9a' }, '🔒 window shut')),
         h('div', { class: 'muted', style: 'margin:-6px 0 8px;font-size:12px' }, win.open ? 'Bid for a listed player — the club may accept, counter, or reject.' : 'Bidding opens during a transfer window.'),
-        h('div', { style: 'max-height:420px;overflow:auto', 'data-scroll': 'targets' }, h('table', {}, headRow('Player'), tgtBody))),
+        scrollRegion('For sale — other clubs', responsiveTable(headRow('Player'), tgtBody), { maxH: '420px', dataScroll: 'targets', sticky: true })),
       shortlistCard,
     ));
 
@@ -3717,12 +3751,12 @@ async function screenTraining() {
         return h('div', { class: 'muted', style: 'font-size:12px;margin:0 0 4px' },
           bits.length ? `Squad: ${bits.join(' · ')} — everyone else on the club dial` : 'Squad: every player on the club default');
       })(),
-      h('div', { style: 'max-height:540px;overflow:auto;margin-top:8px' },
-        h('table', {},
+      h('div', { style: 'margin-top:8px' },
+        scrollRegion('Training table', responsiveTable(
           h('thead', {}, h('tr', {},
             h('th', {}, 'Player'), h('th', {}, 'Pos'),
             h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'), h('th', {}, 'Focus'), h('th', {}, 'Intensity'), h('th', {}, 'Retrain'))),
-          body)),
+          body), { maxH: '540px', sticky: true })),
     ),
   ));
 }
@@ -3830,9 +3864,9 @@ async function screenAcademy() {
       h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back'),
     ),
     prospects.length
-      ? h('div', { class: 'card' }, h('div', { style: 'max-height:540px;overflow:auto' }, h('table', {},
+      ? h('div', { class: 'card' }, scrollRegion('Academy prospects', responsiveTable(
           h('thead', {}, h('tr', {}, h('th', {}, 'Prospect'), h('th', {}, 'Pos'), h('th', { class: 'num' }, 'Age'), h('th', { class: 'num' }, 'OVR'), h('th', { class: 'num' }, 'Potential'), h('th', {}, ''))),
-          body)))
+          body), { maxH: '540px', sticky: true }))
       : h('div', { class: 'card muted', style: 'font-size:13px' }, 'No prospects right now — your next youth intake arrives at the end of the season.'),
   ));
 }
@@ -4652,12 +4686,12 @@ async function screenStaff() {
       h('div', { class: 'grid cols-2', style: 'align-items:start' },
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Your staff'),
-          h('div', { style: 'max-height:430px;overflow:auto' }, h('table', {},
-            h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Role'), h('th', { class: 'num' }, 'Rating'), h('th', { class: 'num' }, ''))), mineBody))),
+          scrollRegion('Your staff', responsiveTable(
+            h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Role'), h('th', { class: 'num' }, 'Rating'), h('th', { class: 'num' }, ''))), mineBody), { maxH: '430px', sticky: true })),
         h('div', { class: 'card' },
           h('div', { class: 'section-title', style: 'margin-top:0' }, 'Hire pool'),
-          h('div', { style: 'max-height:430px;overflow:auto' }, h('table', {},
-            h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Role'), h('th', { class: 'num' }, 'Rating'), h('th', { class: 'num' }, 'Fee'), h('th', { class: 'num' }, ''))), poolBody))),
+          scrollRegion('Hire pool', responsiveTable(
+            h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Role'), h('th', { class: 'num' }, 'Rating'), h('th', { class: 'num' }, 'Fee'), h('th', { class: 'num' }, ''))), poolBody), { maxH: '430px', sticky: true })),
       ),
     ));
   }
@@ -5054,8 +5088,13 @@ async function screenSquad() {
     attnCb.addEventListener('change', () => { squadView.attn = attnCb.checked; render(); });
     const clearBtn = h('button', { class: 'ghost small', title: 'Clear filters' }, 'Clear');
     clearBtn.addEventListener('click', () => { squadView.q = ''; squadView.roleF = ''; squadView.attn = false; render(); });
+    // On mobile the table reflows into cards and the sortable column headers are hidden — this select keeps
+    // sorting reachable (desktop uses the header clicks, so it's CSS-hidden ≥720px via .resp-sort).
+    const sortSel = h('select', { class: 'resp-sort', 'aria-label': 'Sort players by', style: 'width:auto' },
+      ...COLS.map(c => { const o = h('option', { value: c.key }, `Sort: ${c.label}`) as HTMLOptionElement; if (c.key === sortKey) o.selected = true; return o; })) as HTMLSelectElement;
+    sortSel.addEventListener('change', () => { const c = COLS.find(x => x.key === sortSel.value); if (!c) return; sortKey = c.key; sortDir = c.text ? 1 : -1; squadView.sortKey = sortKey; squadView.sortDir = sortDir; render(); });
     const filterBar = h('div', { class: 'row', style: 'gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px' },
-      qInput, roleSel,
+      qInput, roleSel, sortSel,
       h('label', { class: 'row', style: 'gap:5px;align-items:center;font-size:12px;cursor:pointer' }, attnCb, '🚨 Needs attention'),
       (squadView.q || squadView.roleF || squadView.attn) ? clearBtn : '', countLabel);
     applyText();   // apply the current text filter to the freshly-built rows
@@ -5170,7 +5209,7 @@ async function screenSquad() {
         h('div', {}, h('h2', {}, 'Squad'), h('div', { class: 'muted' }, `${players.length} players · ● starter / ○ bench · 🧭 captain (click the armband to set — a strong leader steadies squad morale) · click a header to sort`)),
         h('button', { class: 'ghost', onclick: () => (location.hash = '#/') }, '← Back')),
       strengthCard,
-      h('div', { class: 'card' }, filterBar, scrollRegion('Squad table', h('table', {}, thead, tbody), { sticky: true })),
+      h('div', { class: 'card' }, filterBar, scrollRegion('Squad table', responsiveTable(thead, tbody), { sticky: true })),
       h('div', { class: 'grid cols-2', style: 'align-items:start' }, conditionCard, rotationCard || h('div')),
       h('div', { class: 'grid cols-2', style: 'align-items:start' },
         h('div', { class: 'card' }, h('div', { class: 'section-title', style: 'margin-top:0' }, 'Depth by position'), depth),
