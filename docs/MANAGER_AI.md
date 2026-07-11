@@ -1,8 +1,8 @@
-# manager_ai — contract & v1 spec
+# manager_ai — shipped contract
 
 An AI manager that decides a club's matchday setup (and, for fully-AI clubs, transfers/renewals),
-**filling in for absent humans** in a scheduled, synchronized, multi-world live sim. Built in parallel
-by the SysArch session; lives in its own dir **`web/backend/manager/`**.
+**filling in for absent humans** in a scheduled, synchronized, multi-world live sim. Lives in its own
+dir **`web/backend/manager/`**; wired into the world tick via `runManagerPrePass` (see Integration).
 
 ## The seam (why it's a decoupled subsystem)
 manager_ai's **only output is writing four team columns that `specForTeam` (`web/backend/match.ts`)
@@ -17,12 +17,26 @@ already reads** — so the engine and `match.ts` need **zero knowledge** of it:
 
 It only **reads** other `web/backend` modules + the DB, and **writes only those 4 columns + its own dir**.
 
-## Entry point
+## Entry points
+Both shapes live in `web/backend/manager/index.ts`.
+
+**Wired — what actually runs each matchday (heuristic, deterministic, no LLM):**
 ```ts
-prepareMatchday(teamId: number, autonomy: 'assistant' | 'full'): Promise<void>
+setTacticsAndXI(teamId: number): void              // formation + XI + deterministic fallbackPlan (no transfers)
+prepareMatchdayHeuristic(teamId, autonomy): void   // same, plus transfers/renewals for the 'full' tier
 ```
-Reads the club state, decides, persists the four columns. **Idempotent** (safe to re-run).
-**Never called on the synchronous match-fire path** (see the fire-path rule).
+`web/backend/index.ts` imports **only these two** (line 29) and calls them from `runManagerPrePass`
+(see Integration). Both persist the four columns synchronously; the plan they write is the deterministic
+`fallbackPlan` (`plan.ts`), never the LLM.
+
+**Async LLM entries — they exist but are NOT wired into the world tick:**
+```ts
+prepareMatchday(teamId, autonomy): Promise<void>             // per-club; may call the LLM for the plan
+prepareWorldMatchday(fixtureIds: number[]): Promise<void>    // batches all AI clubs' plans into ONE LLM call
+```
+These are exercised by `manager/manager_test.ts` and `tools/manager_balance.ts` but are **not** called
+from `index.ts`. When wired they honour the fire-path rule (LLM in the pre-matchday async pass, never on
+the synchronous fire path). All entries are **idempotent** (safe to re-run).
 
 ## Inputs (read-only — reuse existing helpers, do not duplicate)
 - Squad + attrs + per-player **personality** dials + age/fitness/morale (`getTeamWithPlayers`, `game.ts`).
@@ -34,16 +48,21 @@ Reads the club state, decides, persists the four columns. **Idempotent** (safe t
   a heuristic best XI + a neutral/conservative plan. **No transfers/renewals** (never spend a human's
   money). The human can override before kickoff.
 - **`full`** — a fully-AI club (`user_id IS NULL`). Decide **everything**: formation + XI + a
-  personality-flavoured plan + transfers/renewals to address the weakest role within budget. Replaces
-  today's XI-only `aiManagerTick`.
+  personality-flavoured plan + transfers/renewals to address the weakest role within budget. The old
+  XI-only `aiManagerTick` (`ai.ts`) still **coexists** — it runs in the post-match world tick each
+  matchday (`index.ts:1321`), while the manager pre-pass sets shape/XI/plan before kickoff. manager_ai
+  does not remove it; `FOOTY_MANAGER_AI=0` reverts to `aiManagerTick`-only.
 
 ## Heuristic vs LLM split
 - **Heuristic (deterministic — no rng/seeded — runs anytime):** formation choice (from the `FORMATIONS`
   registry by squad shape/strength), XI selection (**reuse `optimizeLineup`**, `ai.ts`), transfers +
   renewals (**reuse the weakest-role + market helpers**, `market.ts`).
-- **LLM (full tier; PERSISTED):** the plain-English plan (**reuse `plan.ts compileInitialPlan` / the plan
-  compiler**), flavoured by the club's identity/personalities → writes `plan_text` + `plan_directives`.
-  Press is optional (v1+).
+- **LLM (full tier; PERSISTED):** the plain-English plan (**reuse `plan.ts compileInitialPlan` /
+  `compileInitialPlans`**), flavoured by the club's identity/personalities → writes `plan_text` +
+  `plan_directives`. ⚠️ Only reachable via the async `prepareMatchday` / `prepareWorldMatchday` entries,
+  which are **not wired into the world tick** — so in the shipped path the **deterministic `fallbackPlan`
+  (`plan.ts`) is what actually ships** to every match (`setTacticsAndXI` / `prepareMatchdayHeuristic`
+  both write it). Press is optional.
 
 ## ⚠️ The fire-path rule (non-negotiable)
 The LLM plan is generated in a **pre-matchday async pass and PERSISTED** to the columns. The synchronous
@@ -60,11 +79,19 @@ take minutes-to-fail.
   style, cf. `tools/tactics_golden.py`) comparing manager_ai-managed clubs vs the baseline
   (`aiManagerTick`) before its plans go live.
 
-## Integration — the ONE hook (Gaylord wires this; manager_ai does NOT edit it)
-In the **pre-matchday async pass** of the matchday tick (`advanceWorld` / the per-division tick), call
-`prepareMatchday(teamId, tier)` for each club — `tier = 'full'` if `user_id IS NULL`, else `'assistant'`
-if the human left tactics blank. manager_ai **exports `prepareMatchday`**; it does **not** modify
-`index.ts` / `season.ts` / `ai.ts` / `match.ts`.
+## Integration — the wired hook
+`web/backend/index.ts` calls **`runManagerPrePass(fixtureIds)`** from `advanceWorldCore` (line 1294,
+right before the synchronous fire path `mapPool(toPlay, playFixture)`), gated by **`FOOTY_MANAGER_AI`**
+(default on; `FOOTY_MANAGER_AI=0` reverts to the old XI-only `aiManagerTick` behaviour). Per distinct
+club about to play it dispatches:
+- **AI club** (`user_id IS NULL`) → `setTacticsAndXI(tid)` — formation/XI + deterministic plan; transfers
+  stay with `marketTick` (no double-trade).
+- **Absent human** (no `last_seen`, or away > `FOOTY_ABSENT_HOURS`, default 30h) → `prepareMatchdayHeuristic(tid, 'full')`
+  if the club opted into `autonomy = 'full'`, else `setTacticsAndXI(tid)` (assistant tier: tactics + XI, never spends).
+- **Present human** → left entirely alone (keeps their own tactics/XI).
+
+manager_ai exports the entries; `index.ts` owns `runManagerPrePass` and the wiring. It does **not** modify
+`season.ts` / `ai.ts` / `match.ts`.
 
 ## Ownership & stability
 `web/backend/manager/` is the manager_ai lane. **Don't rename the four columns** without updating this

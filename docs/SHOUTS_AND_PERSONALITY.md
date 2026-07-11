@@ -6,7 +6,7 @@ Status: SHIPPED (2026-06-16). The 3-phase loop is built — plan.ts (composite p
 
 1\. One shout box → one evolving "composite plan"
 
-Today the box is stateless (text → directives for that text only). Target is a stateful, LLM-maintained plan:
+Before this shipped, the box was stateless (text → directives for that text only). It is now a stateful, LLM-maintained plan:
 
 
 
@@ -24,7 +24,7 @@ in:  { currentPlan, shout, ctx:{minute,score,...} }
 
 out: { plan:{summary, directives\[]}, changed:"1 line", motivation\[], note? }
 
-The existing tactics.ts guards (name resolution, condition gate, note) carry over — they operate on a diff against the plan. Directives still freeze on the timeline for deterministic replay (plan after shout N = what re-sims from clock N). Keep the current single-shout flow working; make this additive/reversible.
+The existing tactics.ts guards (name resolution, condition gate, note) carried over — they operate on a diff against the plan. Directives still freeze on the timeline for deterministic replay (plan after shout N = what re-sims from clock N). The single-shout flow still works; the change landed additive and reversible.
 
 
 
@@ -62,7 +62,7 @@ You are the manager's voice. Hold the CURRENT PLAN, edit it per the shout, AND j
 
 
 
-4\. Data model (when built)
+4\. Data model (as built)
 
 Player.personality (3a JSON) + morale are persisted columns (`players.personality`, `players.morale`, default 65) + per-match motivationUsed. The composite plan is NOT a persisted Team column — it lives per-match in `MatchSession.plan` (match.ts) and is frozen on the directive timeline for deterministic replay (plan after shout N = what re-sims from clock N). Engine morale folds into effort/decision scoring (small, decaying, deterministic).
 

@@ -24,7 +24,7 @@ Everything below extends the existing deterministic tick. **Nothing is rebuilt.*
 ## 2. Current-state gaps (what the code does vs doesn't today)
 
 **`training.ts` does today** (`web/backend/training.ts`):
-- `developAttrs(attrs, age, potential, traits, focus, morale, coachFactor, harmonyF, role)` — drift = `ageDrift(age) × diligence × moraleDevFactor(morale)`; growth (not decline) multiplied by `coachFactor × harmonyF`; capped by headroom to `potential`; focus attribute gets `1.8×`; `'position'` focus spreads the bonus across `ROLE_KEY`. Clamp `[30,95]`, rounded to 0.1.
+- `developAttrs(attrs, age, potential, traits, focus, morale=65, coachFactor=1, harmonyF=1, role?, growthMul=1, loadDampenF=1, retrainPenaltyF=1)` — drift = `ageDrift(age) × diligence × moraleDevFactor(morale)`; on **positive drift only** it is multiplied by `growthMul × coachFactor × harmonyF × loadDampenF × retrainPenaltyF`; capped by headroom to `potential`; focus attribute gets `1.8×`; `'position'` focus spreads the bonus across `ROLE_KEY`. Clamp `[30,95]`, rounded to 0.1. **[SHIPPED — the `growthMul`/`loadDampenF`/`retrainPenaltyF` multipliers landed with the Coaches feature; all default to 1, so the pre-feature drift stays byte-identical. There is NO `minutesFactor` parameter.]**
 - `developmentTick(leagueId)` — one pass per matchday over every player in the league; caches `coachingFactor`/harmony per team; writes `players.attrs`; records a latest-only `training_reports` row per **human** club.
 - `explainTraining` / `trainingFactors` — plain-English "why" lines.
 - `ageDrift(age)` — hardcoded bands 20/23/27/30/33 → `+1.5 / +1.0 / +0.5 / 0 / −0.6 / −1.2`.
@@ -34,7 +34,7 @@ Everything below extends the existing deterministic tick. **Nothing is rebuilt.*
 - `coachingFactor(teamId) = 1 + min(0.30, strength*0.10)` — **one flat club-wide number**, applied identically to every player and every attribute.
 - `physioEffect` (injury mult + recover bonus), `scoutDepth`.
 
-**The gaps that block the fantasy:**
+**The gaps that block the fantasy** (the original design brief; **most are now closed by the SHIPPED MVP + Phase 2 — see §8** — retained here for context):
 - **Coaches are homogeneous & flat.** No specialty, no per-category quality, no assignment, no workload. A striker's shooting and a CB's tackling get the exact same boost.
 - **No intensity / load.** Training is always full-tilt; no fatigue or injury trade-off, no rest weeks, no taper.
 - **No per-player programme beyond a focus key.** No trait learning, no position retraining/settling-in cost, no game-time gate (a benched kid develops as fast as a starter).
@@ -82,10 +82,10 @@ The spine is unchanged: **one deterministic pass per matchday**, writing `player
 2. Resolve the player's **primary training category** (from the focus, or from `ROLE_KEY` if `balanced`/`position`).
 3. **Coach quality** for that category → `categoryCoachFactor(team, cat)` (falls back to today's flat `coachingFactor` when the category is unassigned — this is the golden-safe identity path).
 4. **Intensity** (`players.train_intensity ?? teams.training_intensity`) → `{growthMul, injuryMul, loadAdd}`.
-5. **Minutes→ROI** (Phase 2) → `minutesFactor ∈ [0.35,1.15]`.
-6. **Load dampen** (Phase 2) → burnout reduces this tick's gain.
-7. Call `developAttrs(... growthMul, categoryFactor, minutesFactor ...)`, apply the per-tick `seededGrowth` jitter, clamp, write back.
-8. Advance any **trait** / **familiarity** bar; on completion, write into `personality.traits` / commit the new role.
+5. **Minutes→ROI** — **NOT SHIPPED (roadmap).** `developAttrs` has no `minutesFactor`; game-time is not yet a development lever.
+6. **Load dampen** (Phase 2) — **SHIPPED.** `loadDampen(training_load)` trims this tick's gain once accumulated load passes ~40.
+7. Call `developAttrs(... growthMul, coachFactor, loadDampenF, retrainPenaltyF)` (the real shipped signature — no `minutesFactor`), clamp, write back.
+8. Advance any **familiarity** bar — **SHIPPED** (retrain settles inline in `developmentTick`). **Trait** learning is **NOT SHIPPED**: the `train_trait`/`train_trait_prog` columns exist but no code advances them into `personality.traits`.
 
 **Determinism guarantee:** every "random" growth quantum comes from `seededGrowth(playerId, season, round, worldId)` — a stable hash (FNV-1a/xorshift on the tuple), **never raw `Math.random()`**. The tick is a pure function of DB state, so recordings, replays, and the golden match stay byte-stable. Default state (no specialty, normal intensity, unassigned coaches) reproduces today's numbers **byte-identical** — verify with `tools/_training_test.ts` + `tools/tactics_golden.py`.
 
@@ -155,7 +155,7 @@ All additions use the existing `ensureColumn(table, col, ddl)` lazy migration (e
 ## 5. Backend logic + the precise tick hook
 
 ### Where development runs (unchanged hook)
-`/api/advance` → per league: `fitnessTick` → `moraleTick` → market → `aiManagerTick` → **`developmentTick(l.id)`** (`index.ts:950`). Once per matchday. Season-level work (intake, facilities upkeep) runs in **`season.ts:rolloverSeason`** alongside the existing `youthAndRetirement` (season.ts:194) and `resetFitness`.
+`/api/advance` → per league: `fitnessTick` → `moraleTick` → `marketTick` → FA/contract offers → `aiManagerTick` → **`developmentTick(l.id)`** (`index.ts:1322`). Once per matchday. Season-level work (intake, facilities upkeep) would run in **`season.ts:rolloverSeason`** (`season.ts:95`) alongside the existing `youthAndRetirement` (defined in `youth.ts:61`, called at `season.ts:199`).
 
 ### New/extended functions
 
@@ -168,7 +168,7 @@ All additions use the existing `ensureColumn(table, col, ddl)` lazy migration (e
 - `hireStaff` (EXTEND) — set `specialty` + `attrs` on hire; auto-assign into the thinnest category.
 
 **`training.ts`:**
-- `developAttrs` — **EXTEND signature** with `growthMul` (intensity), per-category `coachF` (caller now passes `categoryCoachFactor`, not the flat one), and (Phase 2) `minutesFactor`, `loadDampen`, `retrainPenalty`. New drift = `ageDrift(age) × diligence × moraleDevFactor × growthMul × minutesFactor × loadDampen × retrainPenalty`, then per-category `coachF` on **positive drift only** (mirror today's growth-only rule). Decline path unchanged except (Phase 3) a `fitness_coach` softens physical fade. Keep `[30,95]` clamp + headroom cap.
+- `developAttrs` — **EXTENDED signature (SHIPPED):** `growthMul` (intensity), per-category `coachFactor` (caller passes `categoryCoachFactor`, not the flat one), `loadDampenF` (burnout), `retrainPenaltyF` (unsettled role). Shipped drift, on **positive drift only**, = `ageDrift(age) × diligence × moraleDevFactor × growthMul × coachFactor × harmonyF × loadDampenF × retrainPenaltyF` (mirrors today's growth-only rule). **`minutesFactor` was designed but is NOT shipped** — there is no game-time term in the signature. Decline path unchanged except (Phase 3, unbuilt) a `fitness_coach` would soften physical fade. Keeps the `[30,95]` clamp + headroom cap.
 - `intensityFactor(level)` → `{growthMul, injuryMul, loadAdd}`: `double→{1.4, +injury, +load}`, `normal→{1.0,…}`, `half→{0.6,…}`, `rest→{0.0, recovery, −load}`. (Team-dial variant: `light 0.7 / normal 1.0 / heavy 1.4`.)
 - `focusBonus(role, attr)` — keep the `1.8×` default but scale by a small `(role,attr)` affinity so an against-type focus (CB training shooting) grows ~1.3× not 1.8×.
 - `seededGrowth(playerId, season, round, worldId)` → deterministic `[0,1)` hash. **Document next to the FOOTY_DB golden notes — this is the determinism guarantee.**
@@ -188,11 +188,11 @@ All additions use the existing `ensureColumn(table, col, ddl)` lazy migration (e
 
 ## 6. Frontend screens (`web/frontend/app.ts`)
 
-### Training schedule view — `screenTraining()` (extend the existing screen at app.ts:1651)
+### Training schedule view — `screenTraining()` (extend the existing screen at app.ts:2943)
 - **Phase 1:** per-player row keeps the FOCUS dropdown; **add an INTENSITY segmented control** (Double · Normal · Half · Rest) with a one-line trade-off hint, and a **"learn a trait"** picker with a progress bar when active. The category **★ stars** for the active focus shown inline (`Shooting focus → Attacking ★★★★☆, full coverage, +24% growth`). Report card lines render the per-player programme (intensity badge, trait %, category star, coverage).
 - **Phase 2:** a **preset button row** (Balanced / Fitness / Attacking / Defending / Tactical / Recovery) writing intensity+mix in one click; an optional collapsed 6-category mix control behind "Customize"; a per-player **retrain** affordance (role picker + familiarity bar + "unsettled — match penalty" warning); a squad load-at-a-glance count of players on Double/Rest (reuses `rotation.ts` fitness bands); "Tapering for next fixture" / "Managed recovery" badges.
 
-### Coaches hire/assign view — `screenStaff()` (extend at app.ts:2188)
+### Coaches hire/assign view — `screenStaff()` (extend at app.ts:3944)
 - Per-coach **specialty badge** + 7-attribute mini-bar.
 - A **CATEGORY BOARD**: 6 rows (Attacking/Possession/Defending/Fitness/Goalkeeping/SetPieces) each showing ★ stars, a green/amber/red **coverage bar**, assigned-coach chips, and `load: N players / capacity: M slots`.
 - **Assign** dropdown per category; amber-warn when a coach is spread over >2 categories; live star delta.
@@ -213,7 +213,7 @@ All additions use the existing `ensureColumn(table, col, ddl)` lazy migration (e
 
 **MVP & Phase 2: zero engine change.** Coaching/intensity/focus only change *which attributes grow* in the per-matchday `developmentTick`. Those attributes are written to `players.attrs` exactly as today, serialized by `specForTeam → buildTieSpec` into `spec.json`, and parsed by `engine/main.cpp:loadTeam` into `PlayerAttributes` (`attrFactor = attr/100`). Better coaching simply shows up as higher attrs over seasons — it reaches the pitch through the **existing** attr→spec→loadTeam pipeline. Trait completion writes into `personality.traits`, which already flows into `spec.players[].personality` where the engine's existing directive/PPM primitives bias decisions — **no new engine code** for traits that map to existing primitives.
 
-Short-term shades (current_form, role-settling, sharpness) ride the **existing `moraleBoost` seam** in `specForTeam` → `engine Player.moraleBoost` (`types.h:185-217`) — the engine stays attribute-only, no new field.
+Short-term shades (current_form, role-settling, sharpness) ride the **existing `moraleBoost` seam** in `specForTeam` → `engine Player.moraleBoost` (`types.h:209`) — the engine stays attribute-only, no new field.
 
 **Phase 3 (optional, the only engine ask):** `match.ts:specForTeam` may emit an optional `players[i].startStamina` derived from `fitness`/`recovery_until`, and `engine/main.cpp:loadTeam` reads it **defaulting to current behaviour when omitted** (golden-safe by omission, exactly like `weather: 'clear'`). This is the sole SysArch/Boris-owned touchpoint and is deferred, not required.
 
@@ -225,7 +225,7 @@ Short-term shades (current_form, role-settling, sharpness) ride the **existing `
 
 Each phase ships independently, leaves the default save **byte-identical**, and is gated by: `npm run typecheck` (BOTH `tsconfig` configs — the backend route is only covered by `tsconfig.backend.json`) **and** a deterministic season-tick test.
 
-### MVP — "training is meaningful": coach-influenced focus that actually grows attributes
+### MVP — "training is meaningful": coach-influenced focus that actually grows attributes — **[SHIPPED]**
 **The smallest slice that makes a manager feel like a coach.** No new tables beyond columns.
 
 **Ships:**
@@ -242,13 +242,19 @@ Each phase ships independently, leaves the default save **byte-identical**, and 
 - Extend `tools/_training_test.ts`: **(a) legacy-fallback identity** — a club with no assigned coaches + normal intensity produces byte-identical attrs to today (assert exact values, locks the golden); **(b) star math + coverage clamps + over-stretch penalty**; **(c) intensity scaling** double > normal > rest on paired same-seed; **(d) per-category wiring** — a 5★ Attacking club's shooting climbs faster than its tackling under a balanced focus; **(e) determinism** — two `developmentTick` runs over identical state give byte-identical `attrs`.
 - `tools/tactics_golden.py` unchanged (proves the engine/match lane is untouched).
 
-### Phase 2 — schedules, intensity dial, retraining, traits, minutes→ROI
+### Phase 2 — schedules, intensity dial, retraining, traits, minutes→ROI — **[PARTIALLY SHIPPED]**
 **Ships:** `teams.training_intensity`/`training_mix` + presets (`resolvePreset`); match-prep **taper**; `players.minutes_recent` + `minutesToFactor` (game-time as a development lever); `training_load` burnout + `loadDampen`; position **retrain** (`retrain_role` + `role_familiarity` + `roleAdaptation` + the in-match `attrFactor`/`moraleBoost` shade); **trait learning** (`train_trait`/`_prog` → `personality.traits`, coupled to matching directives); `current_form` from match output; `ai.ts` `coaching_style` presets + `aiManagerStaff` (closes "AI forever under-coached"); Goalkeeping (trainable `handling` via `gk_coach`). UI: preset row, mix sliders, retrain affordance, the per-player Development tab, recovery/taper badges.
+
+> **Status (verified against `training.ts` / `staff.ts` / `ai.ts` / `db.ts`):**
+> **SHIPPED** — the club `training_intensity` dial + presets (`resolvePreset`/`applyTrainingPreset`/`TRAINING_PRESETS`); `training_load` burnout (`loadDampen`/`LOAD_DECAY`); position retrain (`retrain_role`/`role_familiarity`/`roleAdaptation`/`retrainPenalty`, settled inline in `developmentTick`); `ai.ts` `coaching_style` + `aiManagerStaff`.
+> **NOT YET SHIPPED (roadmap)** — `training_mix` + match-prep taper; `minutes_recent`/minutes→ROI (`developAttrs` has no `minutesFactor`); trait learning (`train_trait`/`train_trait_prog` columns exist in `db.ts` but nothing merges them into `personality.traits`); `current_form`; the Goalkeeping category (`CATEGORY_ATTRS` holds only the 4 attr-backed categories — no `handling`/`gk_coach`).
 
 **Verify:** typecheck both configs; `_training_test.ts` adds — benched player drifts `<` starter same-seed (minutes gate); burnout dampening past threshold; intensity-dial paired ordering; trait bar reaches 100 → trait present in `personality.traits` then columns cleared; retrain familiarity climbs and the in-match shade is applied; **determinism** assertion still holds with all levers active. `tactics_golden.py` still green (AI on normal/no-trait, so the golden match is byte-stable).
 
-### Phase 3 — youth intake, facilities, tutoring
+### Phase 3 — youth intake, facilities, tutoring — **[ROADMAP · UNBUILT]**
 **Ships:** `players.is_youth`/`intake_season` + `teams.facility_training/youth/recruitment` (default 2 = neutral); `game.ts:generateIntake` called from `rolloverSeason` (fold into `youthAndRetirement`), with `youth_intake_reports` for human clubs; `developAttrs`/`developmentTick` fold the two facility multipliers into the positive-drift amplifier (youth players get the youth multiplier stacked); `facilities.ts:upgradeFacility` charging `facility_capex` to the ledger; `youth_coach` specialty driving intake quality + academy dev; tutoring (`mentor_id`/`mentor_until` + `tutoring.ts`); the new `screenYouthAcademy`; news hooks (intake day, facility upgrade, graduate promoted); AI parity via `aiManageAcademy`. **Optional engine ask:** omittable `players[i].startStamina` in `specForTeam`/`loadTeam`.
+
+> **Status: UNBUILT.** None of the Phase-3 columns/tables exist yet (`db.ts` has no `is_youth`, `intake_season`, `facility_training/youth/recruitment`, `mentor_id`, or `youth_intake_reports`), and there is no `generateIntake`, `facilities.ts`, `tutoring.ts`, or `screenYouthAcademy`. The pre-existing `youthAndRetirement` (in `youth.ts`, called from `rolloverSeason`) brings prospects through at rollover, but is **not** the academy/facilities/tutoring system described here.
 
 **Verify:** typecheck both configs; a new `tools/_youth_test.ts` (mirrors `_training_test`) asserting — **default tier-2 keeps senior development math byte-identical** (golden-safe); intake batch size + PA spread monotonic in recruitment tier; facility dev-rate monotonicity (tier 5 youth player grows faster than tier 1, same seed); tutoring drifts mentee personality toward the mentor and clears on expiry/promotion; a promoted prospect flows through `specForTeam` unchanged. `tactics_golden.py` still green.
 
