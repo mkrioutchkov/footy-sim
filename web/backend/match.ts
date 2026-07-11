@@ -97,7 +97,7 @@ function specForTeam(teamId: number, side: 'home' | 'away', talk?: Map<number, n
     const xi = xiIdx.map(i => bySlot[i]);
     // §2.13: a pre-match team talk rides in as players[].moraleBoost (engine reads it at kickoff). Only
     // added when a talk gave this player a non-zero delta — no talk ⇒ no field ⇒ byte-identical spec.
-    players = xi.map(p => { const mb = talk?.get(p.slot); return { name: p.name, attrs: p.attrs, personality: p.personality ?? null, ...(mb ? { moraleBoost: mb } : {}) }; });
+    players = xi.map(p => { const mb = talk?.get(p.slot); return { name: p.name, attrs: p.attrs, foot: p.foot, personality: p.personality ?? null, ...(mb ? { moraleBoost: mb } : {}) }; });
     xi.forEach((p, i) => slotToEngine.set(p.slot, i));
   } else {
     // Emit per-slot role + home anchor. The away side mirrors x (PITCH_W - x) to match
@@ -109,7 +109,7 @@ function specForTeam(teamId: number, side: 'home' | 'away', talk?: Map<number, n
       slotToEngine.set(p.slot, i);
       const mb = talk?.get(p.slot);
       return {
-        name: p.name, attrs: p.attrs, role: engineRole(slot.role), personality: p.personality ?? null,
+        name: p.name, attrs: p.attrs, foot: p.foot, role: engineRole(slot.role), personality: p.personality ?? null,
         homeX: side === 'away' ? PITCH_W - slot.x : slot.x,
         homeY: slot.y,
         ...(mb ? { moraleBoost: mb } : {}),
@@ -626,9 +626,9 @@ export function playCupTie(tieId: number): Promise<CupTieResult> {
 // rows — the engine only reads the spec JSON. Same neutral-base spec as a default-shape AI-vs-AI club tie
 // (name + tactics + 11 players by attrs), so it needs zero engine change. Players must be pre-ordered to
 // the default formation's slots (GK first). Returns the full summary (scores + per-player stats).
-export interface VirtualPlayer { name: string; role: string; attrs: Record<string, number>; personality?: unknown }
+export interface VirtualPlayer { name: string; role: string; attrs: Record<string, number>; personality?: unknown; foot?: number }
 export function playVirtualTie(seed: number, homeName: string, homePlayers: VirtualPlayer[], awayName: string, awayPlayers: VirtualPlayer[], tag = 'nat'): Promise<SummaryResult> {
-  const side = (name: string, players: VirtualPlayer[]) => ({ name, tactics: DEFAULT_TACTICS, players: players.slice(0, 11).map(p => ({ name: p.name, attrs: p.attrs, personality: p.personality ?? null })) });
+  const side = (name: string, players: VirtualPlayer[]) => ({ name, tactics: DEFAULT_TACTICS, players: players.slice(0, 11).map(p => ({ name: p.name, attrs: p.attrs, foot: p.foot ?? 1, personality: p.personality ?? null })) });
   const spec: Record<string, unknown> = { seed, minutes: MINUTES, home: side(homeName, homePlayers), away: side(awayName, awayPlayers) };
   const weather = weatherForSeed(seed);
   if (weather !== 'clear') spec.weather = weather;

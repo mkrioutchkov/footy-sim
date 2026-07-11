@@ -164,6 +164,14 @@ export function fieldedXIIndices<T>(bySlot: T[], isInjured: (x: T) => boolean, f
   return out;
 }
 
+// §footedness: a fresh player's stronger foot on a realistic distribution — ~72% right (1), ~25% left
+// (-1), ~3% two-footed (0). Random draw (unlike the deterministic id-hash used to backfill legacy rows).
+// Stored on players/free_agents and emitted into the match spec; the engine defaults to 1 when absent.
+export function genFoot(): number {
+  const r = Math.random();
+  return r < 0.72 ? 1 : r < 0.97 ? -1 : 0;
+}
+
 // New-player age: a realistic spread centred on the mid-20s (18..34), skewed to prime.
 function genAge(): number {
   const r = (Math.random() + Math.random()) / 2;   // triangular, peaks at .5
@@ -194,18 +202,18 @@ const BENCH_ROLES: EngineRole[] = ['GK', 'CB', 'FB', 'CM', 'WM', 'CF'];
 
 function insertRoster(teamId: number, base: number): void {
   const ins = db.prepare(
-    'INSERT INTO players (team_id, slot, name, role, attrs, age, potential, wage, contract_years) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO players (team_id, slot, name, role, attrs, age, potential, wage, contract_years, foot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
   ROLE_SLOTS.forEach((role, slot) => {
     const attrs = genAttrs(role, base);
     const age = genAge();
-    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), playerWage(attrs, age, null, role), 2 + Math.floor(Math.random() * 3));
+    ins.run(teamId, slot, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), playerWage(attrs, age, null, role), 2 + Math.floor(Math.random() * 3), genFoot());
   });
   const benchBase = Math.max(40, base - 10);                 // a clear notch below the XI
   BENCH_ROLES.forEach((role, i) => {
     const attrs = genAttrs(role, benchBase);
     const age = 18 + Math.floor(Math.random() * 8);          // 18..25 — younger squad players / prospects
-    ins.run(teamId, ROLE_SLOTS.length + i, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), playerWage(attrs, age, null, role), 2 + Math.floor(Math.random() * 3));
+    ins.run(teamId, ROLE_SLOTS.length + i, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), playerWage(attrs, age, null, role), 2 + Math.floor(Math.random() * 3), genFoot());
   });
 }
 
@@ -216,14 +224,14 @@ export const FREE_AGENT_COUNT = 28;
 const FA_ROLES: EngineRole[] = ['GK', 'FB', 'CB', 'CM', 'WM', 'CF'];
 export function seedFreeAgents(leagueId: number, count = FREE_AGENT_COUNT): void {
   const ins = db.prepare(
-    'INSERT INTO free_agents (league_id, name, role, attrs, personality, age, potential, value, wage) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)',
+    'INSERT INTO free_agents (league_id, name, role, attrs, personality, age, potential, value, wage, foot) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)',
   );
   for (let i = 0; i < count; i++) {
     const role = FA_ROLES[Math.floor(Math.random() * FA_ROLES.length)];
     const baseStrength = Math.round(38 + Math.pow(Math.random(), 2) * 42);   // 38..80, skewed low
     const attrs = genAttrs(role, baseStrength);
     const age = genAge();
-    ins.run(leagueId, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), playerValue(attrs, age, null, role), playerWage(attrs, age, null, role));
+    ins.run(leagueId, randomPlayerName(), role, JSON.stringify(attrs), age, genPotential(overall(attrs, role), age), playerValue(attrs, age, null, role), playerWage(attrs, age, null, role), genFoot());
   }
   db.prepare('UPDATE leagues SET market_seeded = 1 WHERE id = ?').run(leagueId);
 }
@@ -421,7 +429,7 @@ export function standings(leagueId: number): Standing[] {
   return out;
 }
 
-export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; age: number; potential: number | null; listed: boolean; askPrice: number | null; wage: number; contractYears: number; fitness: number; injuredMatches: number; morale: number; trainFocus: string | null; trainIntensity: string | null; retrainRole: string | null; roleFamiliarity: number; seasonGoals: number; seasonAssists: number; seasonApps: number; seasonRatingSum: number; nationality: string; }
+export interface PlayerRow { slot: number; name: string; role: string; attrs: Record<string, number>; personality: unknown | null; age: number; potential: number | null; listed: boolean; askPrice: number | null; wage: number; contractYears: number; fitness: number; injuredMatches: number; morale: number; trainFocus: string | null; trainIntensity: string | null; retrainRole: string | null; roleFamiliarity: number; seasonGoals: number; seasonAssists: number; seasonApps: number; seasonRatingSum: number; nationality: string; foot: number; }
 
 export interface SetPieceTakers { fk: number | null; corner: number | null; pen: number | null; longThrow: number | null; }
 export function getTeamWithPlayers(teamId: number): {
@@ -432,9 +440,9 @@ export function getTeamWithPlayers(teamId: number): {
   const t = db.prepare('SELECT id, name, manager, league_id, user_id, budget, wage_budget, training_focus, training_intensity, tactics, formation, lineup, plan_text, plan_directives, sacked, captain_slot, set_piece_takers FROM teams WHERE id = ?')
     .get(teamId) as { id: number; name: string; manager: string; league_id: number; user_id: number | null; budget: number; wage_budget: number; training_focus: string | null; training_intensity: string | null; tactics: string; formation: string | null; lineup: string | null; plan_text: string | null; plan_directives: string | null; sacked: number; captain_slot: number | null; set_piece_takers: string | null } | undefined;
   if (!t) return null;
-  const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, potential, listed, ask_price, wage, contract_years, fitness, injured_matches, morale, train_focus, train_intensity, retrain_role, role_familiarity, season_goals, season_assists, season_apps, season_rating_sum, nationality FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
-    { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; listed: number; ask_price: number | null; wage: number | null; contract_years: number; fitness: number; injured_matches: number; morale: number; train_focus: string | null; train_intensity: string | null; retrain_role: string | null; role_familiarity: number | null; season_goals: number | null; season_assists: number | null; season_apps: number | null; season_rating_sum: number | null; nationality: string | null }[])
-    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality), age: p.age, potential: p.potential, listed: !!p.listed, askPrice: p.ask_price, wage: p.wage ?? 0, contractYears: p.contract_years, fitness: p.fitness ?? 100, injuredMatches: p.injured_matches ?? 0, morale: p.morale ?? 65, trainFocus: p.train_focus ?? null, trainIntensity: p.train_intensity ?? null, retrainRole: p.retrain_role ?? null, roleFamiliarity: p.role_familiarity ?? 100, seasonGoals: p.season_goals ?? 0, seasonAssists: p.season_assists ?? 0, seasonApps: p.season_apps ?? 0, seasonRatingSum: p.season_rating_sum ?? 0, nationality: p.nationality ?? '' }));
+  const players = (db.prepare('SELECT slot, name, role, attrs, personality, age, potential, listed, ask_price, wage, contract_years, fitness, injured_matches, morale, train_focus, train_intensity, retrain_role, role_familiarity, season_goals, season_assists, season_apps, season_rating_sum, nationality, foot FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as
+    { slot: number; name: string; role: string; attrs: string; personality: string | null; age: number; potential: number | null; listed: number; ask_price: number | null; wage: number | null; contract_years: number; fitness: number; injured_matches: number; morale: number; train_focus: string | null; train_intensity: string | null; retrain_role: string | null; role_familiarity: number | null; season_goals: number | null; season_assists: number | null; season_apps: number | null; season_rating_sum: number | null; nationality: string | null; foot: number | null }[])
+    .map(p => ({ slot: p.slot, name: p.name, role: p.role, attrs: JSON.parse(p.attrs), personality: parseJSON(p.personality), age: p.age, potential: p.potential, listed: !!p.listed, askPrice: p.ask_price, wage: p.wage ?? 0, contractYears: p.contract_years, fitness: p.fitness ?? 100, injuredMatches: p.injured_matches ?? 0, morale: p.morale ?? 65, trainFocus: p.train_focus ?? null, trainIntensity: p.train_intensity ?? null, retrainRole: p.retrain_role ?? null, roleFamiliarity: p.role_familiarity ?? 100, seasonGoals: p.season_goals ?? 0, seasonAssists: p.season_assists ?? 0, seasonApps: p.season_apps ?? 0, seasonRatingSum: p.season_rating_sum ?? 0, nationality: p.nationality ?? '', foot: p.foot ?? 1 }));
   let lineup: number[] | null = null;
   // Accept the stored lineup only if it's a clean 11-long permutation of valid squad
   // indices (0..squadSize-1, all distinct). A malformed/legacy/tampered value falls

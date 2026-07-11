@@ -54,7 +54,7 @@ export interface PersonalityT {
   traits: { temperament: number; criticismResponse: number; praiseResponse: number; bigGame: number; consistency: number; leadership: number; professionalism: number; ego: number };
   nationality: string; backstory: string; tagline: string;
 }
-export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; fitness?: number; injuredMatches?: number; morale?: number; trainFocus?: string | null; trainIntensity?: string | null; retrainRole?: string | null; roleFamiliarity?: number; seasonGoals?: number; seasonAssists?: number; seasonApps?: number; seasonRatingSum?: number; nationality?: string; }
+export interface PlayerT { slot: number; name: string; role: string; attrs: Record<string, number>; personality?: PersonalityT | null; age?: number; potential?: number | null; listed?: boolean; askPrice?: number | null; wage?: number; contractYears?: number; fitness?: number; injuredMatches?: number; morale?: number; trainFocus?: string | null; trainIntensity?: string | null; retrainRole?: string | null; roleFamiliarity?: number; seasonGoals?: number; seasonAssists?: number; seasonApps?: number; seasonRatingSum?: number; nationality?: string; foot?: number; }
 export interface NationT { key: string; name: string; flag: string; confed: string; }
 export interface PlayerSeasonStatT { season: number; club: string; role: string; goals: number; assists: number; apps: number; avgRating: number; }
 export interface AttrSnapshotT { season: number; round: number; ovr: number; attrs: Record<string, number>; }

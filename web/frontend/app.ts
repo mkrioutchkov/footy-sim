@@ -1022,6 +1022,10 @@ const seekingMove = (p: PlayerT): boolean =>
 const contractStyle = (yrs: number | undefined): string =>
   (yrs ?? 9) <= 1 ? 'color:var(--danger);font-weight:600' : (yrs ?? 9) <= 2 ? 'color:#ffb84d' : '';
 const capWord = (s: string): string => s ? s[0].toUpperCase() + s.slice(1) : s;
+// §footedness: a player's stronger foot (backend: -1 left, 1 right, 0 two-footed; undefined ⇒ the engine's
+// right-footed default). footLabel = the profile phrasing; footTag = the compact (L)/(R)/(LR) squad-list badge.
+const footLabel = (foot: number | undefined): string => foot === -1 ? 'Left footed' : foot === 0 ? 'Two-footed' : 'Right footed';
+const footTag = (foot: number | undefined): string => foot === -1 ? 'L' : foot === 0 ? 'LR' : 'R';
 // A player's individual DEVELOPMENT state (focus / intensity / retraining) in plain English — all four
 // fields ride on PlayerT already but only surface on the Training screen; the profile ignored them.
 // Returns null when the player is on the club default with nothing individual set (nothing worth a line).
@@ -4269,7 +4273,7 @@ async function screenPlayer(slot: number) {
   mount(header(), h('div', { class: 'wrap grid' },
     h('div', { class: 'between' },
       h('div', {}, h('h2', {}, p.name),
-        h('div', { class: 'muted' }, `${p.role} · OVR ${ovr}${p.potential && p.potential > ovr ? ` → ${p.potential}` : ''}${p.age != null ? ` · ${p.age}y` : ''}${p.nationality ? ` · ${flagOf(p.nationality)} ${nationNameOf(p.nationality) || p.personality?.nationality || ''}`.trimEnd() : (p.personality?.nationality ? ` · ${p.personality.nationality}` : '')}`),
+        h('div', { class: 'muted' }, `${p.role} · OVR ${ovr}${p.potential && p.potential > ovr ? ` → ${p.potential}` : ''}${p.age != null ? ` · ${p.age}y` : ''} · ${footLabel(p.foot)}${p.nationality ? ` · ${flagOf(p.nationality)} ${nationNameOf(p.nationality) || p.personality?.nationality || ''}`.trimEnd() : (p.personality?.nationality ? ` · ${p.personality.nationality}` : '')}`),
         p.wage != null ? h('div', { class: 'row', style: 'align-items:center;gap:10px;font-size:12px' },
           h('span', { class: 'muted' }, `Wage ${fmtMoney(p.wage)}/yr · ${p.contractYears ?? 0}y left`),
           (team.wageBudget != null && team.wageBill != null)   // §1.15: club wage headroom, so a renewal isn't a blind 400
@@ -5086,7 +5090,8 @@ async function screenSquad() {
           h('span', { style: 'cursor:pointer', ...clickable(() => (location.hash = `#/player/${p.slot}`)) }, p.name),
           p.slot >= 11 ? h('span', { class: 'muted', style: 'font-size:10px' }, ' · bench') : '',
           seekingMove(p) ? h('span', { class: 'pill', title: 'Running down his contract and unsettled — likely to push for a move', style: 'margin-left:5px;background:var(--danger);color:#fff;font-size:9px' }, 'seeking move') : ''),
-        h('td', {}, h('span', { class: 'pill' }, p.role)),
+        h('td', { style: 'white-space:nowrap' }, h('span', { class: 'pill' }, p.role),
+          h('span', { class: 'muted', title: footLabel(p.foot), style: 'font-size:10px;margin-left:4px' }, `(${footTag(p.foot)})`)),
         h('td', { class: 'num' }, String(p.age ?? '—')),
         h('td', { class: 'num', style: 'font-weight:700' }, String(ovr)),
         h('td', { class: 'num' }, p.potential != null && p.potential > ovr ? h('span', { class: 'a', style: 'color:var(--accent)' }, String(p.potential)) : String(p.potential ?? '—')),
