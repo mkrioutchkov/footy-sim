@@ -549,7 +549,7 @@ public:
 
     void placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset=CONTROL_DIST+BALL_R+4.0);
     void passBallTo(Player& f, Player& t);
-    void applyWhipDelivery(double dist, double speed, double goalX, double curlMin, double curlRange);
+    void applyWhipDelivery(double dist, double speed, double goalX, double curlMin, double curlRange, const Player* crosser = nullptr);
     bool passBallTo(Player& f, Player& t, bool throughBall, bool lob, const PassSelectionAudit* selectionAudit, bool secure = false);
     void forcePassTo(Player& f, Player& t, const PassSelectionAudit*);
     bool attemptTackle(Player& tackler, Player& carrier, double extraReach = 0.0);
@@ -574,6 +574,7 @@ public:
         bool active = false;
         std::array<PlayerAttributes, 11> attrs{};
         std::array<std::string, 11> names{};
+        std::array<int, 11> feet{ 1,1,1,1,1,1,1,1,1,1,1 };   // +1 R / -1 L / 0 both ("foot" spec key)
         // Formation/lineup: per-slot role + home anchor (engine frame, absolute —
         // the backend mirrors for away). Default = the current 4-3-3 roles; anchors
         // <=0 mean "use the hardcoded default for this slot". hasLayout=false =>
@@ -633,6 +634,9 @@ public:
         double runAheadBias=0.0; double comeShortBias=0.0; double pocketBias=0.0; double cutInsideBias=0.0; double dribbleBonus=0.0; double stayBackBias=0.0;
         double holdUpBias=0.0;
         bool   ballPlaying=false;   // "ball-playing CB": step out + carry/progress the ball from the back
+        // gk_up_for_corners: 1.0 = keeper joins every late attacking corner;
+        // 0.5 = only late AND behind. 0 = never (default).
+        double gkUpForCorners = 0.0;
         double pressTightness=0.0; double tackleAggression=0.0; double stayOnFeet=0.0; double containBias=0.0; };
     std::array<DirectiveBias, 22> directiveBias = {};
     // Timed plan changes (P2): each entry REPLACES the active directive set once

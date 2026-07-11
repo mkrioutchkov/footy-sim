@@ -382,12 +382,24 @@ double GameEngine::goalOpeningAngleDeg(double x, double y, double gx) const {
 // arrives at header height as it reaches the aim point), the inswinging
 // curl toward the goal mouth, and pre-rotates the launch wide so the bent
 // path still lands on the target.
-void GameEngine::applyWhipDelivery(double dist, double speed, double goalX, double curlMin, double curlRange) {
+void GameEngine::applyWhipDelivery(double dist, double speed, double goalX, double curlMin, double curlRange, const Player* crosser) {
     auto& b = state.ball;
     double flightT = clamp(dist / speed, 0.25, 1.1);
     b.vz = clamp((CROSS_DIP_TARGET_Z + 0.5 * GRAVITY * flightT * flightT) / flightT, 150.0, 280.0);
     double toGoalCross = b.vx * (PITCH_H / 2.0 - b.y) - b.vy * (goalX - b.x);
     b.curl = (toGoalCross >= 0 ? 1.0 : -1.0) * (curlMin + rng.random() * curlRange);
+    // Footedness: the default whip is the INSWINGER (bends at goal). A crosser
+    // whose strike foot matches the flank (right foot from the right byline)
+    // wraps it the other way — the OUTSWINGER, flatter and drifting away —
+    // and a weak-foot whip carries ~30% less bend. Left-footers on the right
+    // (Robben-style) keep the vicious inswinger.
+    if (crosser) {
+        int kf = kickingFootFor(*crosser, b.vx, b.vy);
+        bool bottomFlank = crosser->y > PITCH_H / 2.0;
+        bool outswing = (kf > 0) == (bottomFlank == (fdFor(crosser->team) > 0.0));
+        if (outswing) b.curl = -b.curl * 0.8;
+        if (crosser->foot != 0 && kf != crosser->foot) b.curl *= 0.7;
+    }
     double preRot = -b.curl * flightT * 0.45;
     double cs = std::cos(preRot), sn = std::sin(preRot);
     double nvx = b.vx * cs - b.vy * sn;
@@ -495,6 +507,9 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // Fatigue: a tired passer sprays it — error grows as the tank empties
     // (up to +80% at empty). No-op at full stamina, so early passes are clean.
     inacc *= 1.0 + (1.0 - staminaFrac(f.stamina)) * 0.8;
+    // Footedness: a ball forced onto the weak side sprays more and carries
+    // less. Two-footed players (foot=0) never pay it.
+    if (weakFootStrike(f, dx, dy)) { inacc *= 1.28; speed *= 0.93; }
     if (secure) inacc *= 0.12; // rolled accurately to feet
     double tdx = dx + (rng.random() - 0.5) * inacc;
     double tdy = dy + (rng.random() - 0.5) * inacc;
@@ -645,7 +660,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
             double cz = adx * (PITCH_H / 2.0 - f.y) - ady * (goalX - f.x);
             b.curl = (cz >= 0 ? 1.0 : -1.0) * CROSS_CURL_MIN * 0.6;
         } else {
-            applyWhipDelivery(aDist, aSpeed, goalX, CROSS_CURL_MIN, CROSS_CURL_RANGE);
+            applyWhipDelivery(aDist, aSpeed, goalX, CROSS_CURL_MIN, CROSS_CURL_RANGE, &f);
         }
     }
     if (whippedCross) {
@@ -1206,7 +1221,8 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     double longRangePenalty = clamp((shotDistance - 120) / 130, 0.0, 1.0);
     double closePressure = shotDistance < 130.0 ? pressureCount * (freshCross ? SHOT_ERROR_CLOSE_PRESSURE_CROSS : SHOT_ERROR_CLOSE_PRESSURE_NORMAL) : 0.0;
     double roleError = agentFor(s)->shotRoleError(freshCross, shotDistance);
-    double executionError = SHOT_ERROR_BASE + (1 - accuracy) * SHOT_ERROR_SKILL + pressureCount * (freshCross ? SHOT_ERROR_PRESSURE_CROSS : SHOT_ERROR_PRESSURE_NORMAL) + closePressure + laneBlockers * (freshCross ? SHOT_ERROR_LANE_CROSS : SHOT_ERROR_LANE_NORMAL) + anglePenalty * SHOT_ERROR_ANGLE + distancePenalty * SHOT_ERROR_DISTANCE + longRangePenalty * SHOT_ERROR_LONG_RANGE;
+    double weakFootShotMul = weakFootStrike(s, goalXFor(s.team) - s.x, PITCH_H / 2.0 - s.y) ? 1.22 : 1.0;
+    double executionError = weakFootShotMul * (SHOT_ERROR_BASE + (1 - accuracy) * SHOT_ERROR_SKILL + pressureCount * (freshCross ? SHOT_ERROR_PRESSURE_CROSS : SHOT_ERROR_PRESSURE_NORMAL) + closePressure + laneBlockers * (freshCross ? SHOT_ERROR_LANE_CROSS : SHOT_ERROR_LANE_NORMAL) + anglePenalty * SHOT_ERROR_ANGLE + distancePenalty * SHOT_ERROR_DISTANCE + longRangePenalty * SHOT_ERROR_LONG_RANGE);
     executionError = std::max(SHOT_ERROR_FLOOR, executionError + roleError);
     bool credibleFinish = angleDeg > 9.0 && shotDistance < 200.0 && pressureCount <= 2 && laneBlockers <= 1;
     bool freshThrough = s.throughCollected > 0.0 && shotDistance < 245.0;
@@ -1385,7 +1401,10 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     if (shotType == 3) {
         loft = clamp(loft, 45.0, 85.0); // a little air so the spin lives, but down by the line
         double vxSign = (dx >= 0.0 ? 1.0 : -1.0);
-        b.curl = openSide * vxSign * (0.12 + accuracy * 0.08); // bend enough to round the keeper, not so far it sails the post
+        // Footedness: the bend lives on the strong foot — a weak-foot curler
+        // barely wraps it, a strong-foot strike bends harder.
+        double footCurl = weakFootShotMul > 1.0 ? 0.6 : 1.15;
+        b.curl = openSide * vxSign * (0.12 + accuracy * 0.08) * footCurl; // bend enough to round the keeper, not so far it sails the post
     }
     // Chip: loft sized so the parabola loops OVER the advanced keeper and is just
     // descending through the frame at the line. vz≈0.5·g·t (lands at the line)

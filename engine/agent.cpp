@@ -828,15 +828,38 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 moveType = "dragback";
             } else {
                 bool finalThird = (fd > 0.0) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
-                if (finalThird) {
-                    // Take-on: beat the man TOWARD goal — slip past his outside
-                    // shoulder and attack the box, not the touchline.
+                // Defender geometry decides the trick (renderer animates each):
+                // square-on and touch-tight with elite feet -> NUTMEG (through
+                // his legs); pressing from behind/side -> ROULETTE (spin off
+                // him); frontal take-on in the final third -> STEPOVER.
+                double defD = dist(p.x, p.y, def->x, def->y);
+                double defAhead = (def->x - p.x) * fd;
+                bool squareOn = defAhead > 8.0 && std::abs(def->y - p.y) < 14.0;
+                bool fromBehindSide = defAhead < 4.0;
+                if (squareOn && defD < 26.0 && attrFactor(p.attrs.creativity) > 0.62) {
+                    // Nutmeg: ball THROUGH the defender, carrier darts around.
+                    p.targetX = clamp(def->x + fd * 48.0, 30.0, PITCH_W - 30.0);
+                    p.targetY = clamp(p.y + ((def->y >= p.y) ? -20.0 : 20.0), 30.0, PITCH_H - 30.0);
+                    engine.agentFor(*def)->stunLock(30);
+                    engine.blockReboundFor(def->id, 950);
+                    moveType = "nutmeg";
+                } else if (fromBehindSide && defD < 34.0) {
+                    // Roulette: 360 spin away from the contact shoulder.
+                    double side = (def->y >= p.y) ? -1.0 : 1.0;
+                    p.targetX = clamp(p.x + fd * 40.0, 30.0, PITCH_W - 30.0);
+                    p.targetY = clamp(p.y + side * 36.0, 30.0, PITCH_H - 30.0);
+                    engine.agentFor(*def)->stunLock(26);
+                    engine.blockReboundFor(def->id, 850);
+                    moveType = "roulette";
+                } else if (finalThird) {
+                    // Step-over take-on: beat the man TOWARD goal — slip past
+                    // his outside shoulder and attack the box.
                     double side = (def->y >= p.y) ? -1.0 : 1.0;
                     p.targetX = clamp(def->x + fd * 56.0, 30.0, PITCH_W - 30.0);
                     p.targetY = clamp(def->y + side * 44.0, 30.0, PITCH_H - 30.0);
                     engine.agentFor(*def)->stunLock(24);
                     engine.blockReboundFor(def->id, 800);
-                    moveType = "skill";
+                    moveType = "stepover";
                 } else {
                     // Cut to whichever side has fewer bodies.
                     auto sideCrowd = [&](double sy) {

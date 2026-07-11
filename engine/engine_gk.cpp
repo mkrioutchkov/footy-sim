@@ -72,6 +72,27 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     // ball-side shade, and wait — the generic positioning chains read the dead
     // ball at the flag as a "loose ball near goal" and walked the keeper 80px
     // off his line BELOW the post (watched replay 0:34-0:36).
+    // gk_up_for_corners (tactic/shout): the keeper joins his OWN team's late
+    // attacking corner — camped at the far edge of the six-yard traffic. Gate:
+    // intensity >= 1.0 any corner in the last ~12%; lower intensities only
+    // when also BEHIND. He legs it back when the corner resolves (the armed
+    // gate drops and normal positioning owns him again).
+    if (setPiece.armed && setPiece.type == SetPiece::Corner && setPiece.team == gk.team) {
+        double up = directiveBias[gk.id].gkUpForCorners;
+        int myScore = gk.team == Team::Home ? state.homeScore : state.awayScore;
+        int opScore = gk.team == Team::Home ? state.awayScore : state.homeScore;
+        bool late = state.clockMs > matchDurationMs * 0.88;
+        if (up > 0.0 && late && (up >= 1.0 || myScore < opScore)) {
+            double oppGoalX = goalXFor(gk.team);
+            gk.targetX = oppGoalX - fd * 85.0;
+            gk.targetY = PITCH_H / 2.0 + (state.ball.y > PITCH_H / 2.0 ? -34.0 : 34.0);
+            double mvx = gk.targetX - gk.x, mvy = gk.targetY - gk.y, md = std::hypot(mvx, mvy);
+            double sp = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED;
+            if (md > 1.0) { double st = std::min(sp * secs, md); gk.x += mvx / md * st; gk.y += mvy / md * st; }
+            gk.facing = std::atan2(state.ball.y - gk.y, state.ball.x - gk.x);
+            return;
+        }
+    }
     if (setPiece.armed && setPiece.type == SetPiece::Corner && setPiece.team != gk.team) {
         gk.targetX = goalX + fd * 8.0;
         gk.targetY = PITCH_H / 2.0 + (state.ball.y > PITCH_H / 2.0 ? 10.0 : -10.0);
@@ -457,7 +478,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     // ball continues PAST the keeper on the side he dove, deadened, a live
     // rebound in the box.
     bool punch = !canHandle || gkPressured || speed > 320.0;
-    if (punch) emitEvent("punch", gk.x, gk.y, gk.id);
+    if (punch) emitEvent("gk_punch", gk.x, gk.y, gk.id);
     double clearSpeed = punch
         ? speed * agentFor(gk)->punchPower()
         : speed * (0.20 + rng.random() * 0.25);
@@ -546,7 +567,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
     // DRAW #2 — punch vs tip (only on the not-caught branch).
     bool doPunch = forcePunch || (rng.random() < punchConfidence);
     if (doPunch) {                                             // PUNCH → long + WIDE, dive-side
-        emitEvent("punch", gk.x, gk.y, gk.id);
+        emitEvent("gk_punch", gk.x, gk.y, gk.id);
         stats.recordClaimPunch();
         double clearSpeed = std::max(speed, 260.0) * agentFor(gk)->punchPower();
         // DRAW #3 — punch direction (only inside the punch branch).

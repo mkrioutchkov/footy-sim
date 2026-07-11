@@ -212,6 +212,10 @@ struct Player {
     // array (every pointer/lookup depends on that) but the player is parked
     // off the pitch and excluded from play — the team is genuinely a man down.
     bool sentOff = false;
+    // Footedness: +1 right, -1 left, 0 two-footed. Drives weak-foot execution
+    // error and natural curl side. Spec key "foot"; defaults right. Kept LAST:
+    // Player is aggregate-initialized in several places.
+    int foot = 1;
 };
 
 // A player worth considering as an opposing outfielder: on the other team, not

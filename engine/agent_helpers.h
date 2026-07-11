@@ -35,6 +35,21 @@ inline bool tryClaimPressSlot(TeamBlackboard& bb, int playerId,
 
 // ── Common query helpers ────────────────────────────────────────────────────
 
+/// Which foot strikes a ball released toward (dirX,dirY)? A ball played across
+/// the body to the LEFT of facing is a left-foot strike and vice versa; a
+/// straight-ahead ball uses the strong foot. Two-footed players never strike weak.
+inline int kickingFootFor(const Player& p, double dirX, double dirY) {
+    double rel = std::atan2(dirY, dirX) - p.facing;
+    double lat = std::sin(rel);
+    if (lat > 0.22) return 1;
+    if (lat < -0.22) return -1;
+    return p.foot == 0 ? 1 : p.foot;
+}
+inline bool weakFootStrike(const Player& p, double dirX, double dirY) {
+    if (p.foot == 0) return false;
+    return kickingFootFor(p, dirX, dirY) != p.foot;
+}
+
 /// A tackle is genuinely ARRIVING at (x, y): some opponent within `range` is
 /// closing at more than `closingSpeed` px/s toward that spot. Distinguishes the
 /// sprinting-in presser from the assigned jockey holding his 12-30px standoff —

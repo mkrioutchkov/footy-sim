@@ -2005,8 +2005,10 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
     int slot = (t == Team::Home) ? id : id - 11;
     if (ro.active && slot >= 0 && slot < 11) {
         // Data-driven: exact attrs + name from the user's team (no form roll).
-        return Player{id, ro.names[slot], t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
-                      ro.attrs[slot], t == Team::Home ? 0.0 : PI};
+        Player pl{id, ro.names[slot], t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
+                  ro.attrs[slot], t == Team::Home ? 0.0 : PI};
+        pl.foot = ro.feet[slot];
+        return pl;
     }
     // Legend profile with small per-match form variance (±4) so the same
     // names play recognizably while no two matches are identical.
@@ -2051,8 +2053,17 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
         /*21 Bale*/ 78,
     };
     a.height = (id >= 0 && id < 22) ? legendHeight[id] : a.positioning;
-    return Player{id, legendNameFor(id, t), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
-                  a, t == Team::Home ? 0.0 : PI};
+    Player pl{id, legendNameFor(id, t), t, r, hx, hy, 0, 0, hx, hy, hx, hy, 100.0,
+              a, t == Team::Home ? 0.0 : PI};
+    // Legend footedness (the watched-match roster stays true to life):
+    // Messi(9), Robben(19), Bale(21), Alba(15), Marcelo(4) left-footed;
+    // Ronaldinho(10) and Kroos(16) effectively two-footed.
+    static const int legendFoot[22] = {
+        /*0*/ 1, 1, 1, 1, /*4 Marcelo*/ -1, 1, 1, 1, 1, /*9 Messi*/ -1, /*10 Ronaldinho*/ 0,
+        /*11*/ 1, 1, 1, 1, /*15 Alba*/ -1, /*16 Kroos*/ 0, 1, 1, /*19 Robben*/ -1, 1, /*21 Bale*/ -1,
+    };
+    pl.foot = (id >= 0 && id < 22) ? legendFoot[id] : 1;
+    return pl;
 }
 
 // Default 4-3-3 slot roles + home anchors (engine frame). When a spec carries a

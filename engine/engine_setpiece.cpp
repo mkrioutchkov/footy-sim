@@ -311,7 +311,7 @@ void GameEngine::releaseSetPiece() {
                     b.vx = dx / d * speed;
                     b.vy = dy / d * speed;
                     b.z = 0;
-                    applyWhipDelivery(d, speed, gx2, CROSS_CURL_MIN, CROSS_CURL_RANGE);
+                    applyWhipDelivery(d, speed, gx2, CROSS_CURL_MIN, CROSS_CURL_RANGE, holder);
                     b.intendedReceiverId = tgt->id;
                     receiverShieldTargetId = tgt->id;
                     stats.recordCrossAttempt(holder->team == Team::Home);
@@ -897,7 +897,7 @@ void GameEngine::releaseCornerKick(Player& holder) {
             b.vx = dx / d * speed;
             b.vy = dy / d * speed;
             b.z = 0;
-            applyWhipDelivery(d, speed, goalX, 0.18, 0.15);
+            applyWhipDelivery(d, speed, goalX, 0.18, 0.15, &holder);
             b.intendedReceiverId = target.id;
             receiverShieldTargetId = target.id;
             beginTrackedPass(holder, target, true);
