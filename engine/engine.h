@@ -176,6 +176,11 @@ public:
     std::array<double, 22> lungeDashDirX = {};
     std::array<double, 22> lungeDashDirY = {};
     std::array<double, 22> lungeDashRemainPx = {};
+    // Carried-ball control-offset direction memory (seed 437 0:59: the offset
+    // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
+    // the full converge cap — a 337px/s phantom that rendered as a teleport
+    // around an opponent's body). The offset now rotates at a bounded rate.
+    double carryOffDx = 1.0, carryOffDy = 0.0;
     // OffBallOverspeed tripwire: last-tick positions for the displacement
     // check in fixedUpdate. Invalidated on restarts/kickoffs/halves/subs so
     // legitimate repositioning teleports don't count.

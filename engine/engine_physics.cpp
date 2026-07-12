@@ -1289,6 +1289,7 @@ void GameEngine::updateControlledBall(double sec) {
             carryTouchCarrier = c->id;
             carryTouchTravel = 0.0;
             carryLastPx = c->x; carryLastPy = c->y;
+            carryOffDx = dx; carryOffDy = dy;   // fresh carrier: adopt his offset dir outright
         }
         carryTouchTravel += dist(c->x, c->y, carryLastPx, carryLastPy);
         carryLastPx = c->x; carryLastPy = c->y;
@@ -1297,6 +1298,24 @@ void GameEngine::updateControlledBall(double sec) {
         double peak = clamp(speed * 0.22, 2.0, 15.0);
         knockExtra = peak * (1.0 - carryTouchTravel / std::max(stride, 1.0));
         if (nearestOppDist < 40.0) knockExtra *= 0.3;
+    }
+    // Offset swing-rate limit (seed 437 0:59, watched at 0.25x: "ball seems to
+    // teleport a small distance around the body"): the facing/movement blend
+    // swung the control offset ~95deg in 3 ticks, so the glued ball ORBITED
+    // the carrier at the full converge cap — a 337px/s phantom (9x his real
+    // 37px/s). The offset direction now rotates at most ~0.14rad/tick toward
+    // the blend's request; position tracking is unchanged, only the orbit
+    // rate is human.
+    if (c->role != Role::GK && sec > 1e-6) {
+        double want = std::atan2(dy, dx);
+        double cur = std::atan2(carryOffDy, carryOffDx);
+        double turn = std::atan2(std::sin(want - cur), std::cos(want - cur));
+        double lim = 0.14;
+        double ang = cur + clamp(turn, -lim, lim);
+        carryOffDx = std::cos(ang);
+        carryOffDy = std::sin(ang);
+        dx = carryOffDx;
+        dy = carryOffDy;
     }
     double tx = clamp(c->x + dx * (CONTROL_DIST + knockExtra), 5.0, PITCH_W - 5.0);
     double ty = clamp(c->y + dy * (CONTROL_DIST + knockExtra), 5.0, PITCH_H - 5.0);
@@ -1341,6 +1360,44 @@ void GameEngine::updateControlledBall(double sec) {
     if (firstTimedCallThisTick) {
         state.ball.vx = (state.ball.x - prevBx) / sec;
         state.ball.vy = (state.ball.y - prevBy) / sec;
+        // CarriedBallOverspeed tripwire (mirror of OffBallOverspeed, for the
+        // glued ball): a carried ball stepping faster than its carrier plus
+        // the firm-touch allowance is the orbit/teleport class (seed 437
+        // 0:59). Regression census only.
+        double stepSpd = dist(state.ball.x, state.ball.y, prevBx, prevBy) / sec;
+        if (stepSpd > std::hypot(c->vx, c->vy) + 320.0)
+            stats.recordQualityFlag(QualityFlag::CarriedBallOverspeed);
+    }
+    // Controlled-ball body-block (seed 437 0:53: Ronaldinho spun the ball
+    // "right in front of 8 then behind him into 11" — through 2.7px of pid21's
+    // body center for ~170ms — and kept it: NO contact path runs while
+    // controllerId >= 0, so the glue could drag the ball straight through a
+    // defender). A body dead-center (<8px, the same threshold the loose-ball
+    // ghost path trusts) on this tick's carried-ball sweep knocks it loose —
+    // deterministic, no rng; the beaten carrier can't instantly re-collect.
+    if (firstTimedCallThisTick && c->role != Role::GK) {
+        double sx = state.ball.x - prevBx, sy = state.ball.y - prevBy, seg2 = sx * sx + sy * sy;
+        for (auto& o : state.players) {
+            if (o.team == c->team || o.role == Role::GK || o.sentOff) continue;
+            double t = seg2 > 1e-6 ? clamp(((o.x - prevBx) * sx + (o.y - prevBy) * sy) / seg2, 0.0, 1.0) : 0.0;
+            double dg = dist(o.x, o.y, prevBx + sx * t, prevBy + sy * t);
+            if (dg < 8.0) {
+                double nx = state.ball.x - o.x, ny = state.ball.y - o.y, nd = std::hypot(nx, ny);
+                if (nd < 1e-6) { nx = -dx; ny = -dy; nd = 1.0; }
+                nx /= nd; ny /= nd;
+                state.ball.x = o.x + nx * (PLAYER_R + BALL_R);
+                state.ball.y = o.y + ny * (PLAYER_R + BALL_R);
+                state.ball.vx = nx * 90.0;
+                state.ball.vy = ny * 90.0;   // a leggy knock-off, not a clean tackle
+                state.ball.controllerId = -1;
+                c->dribbleType = 0;
+                blockReboundFor(c->id, 350);
+                lastRicochetTeam = o.team;
+                lastRicochetMs = state.clockMs;
+                recordBallImpulse();
+                return;
+            }
+        }
     }
     state.ball.lastTouchTeam = c->team;
     state.ball.lastToucherId = c->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory

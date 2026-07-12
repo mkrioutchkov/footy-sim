@@ -255,6 +255,7 @@ class StatsCollector {
     void recordSuicidePass() { suicidePasses++; }   // own-third lateral ball cut by a closing lane defender <800ms
     void recordOffBallOverspeed() { offBallOverspeed++; }   // teleport-grade single-tick displacement (seed 305 0:09)
     void recordEarlyKickoffGiveaway() { earlyKickoffGiveaways++; }   // pass within 5s of kickoff, cut out (seed 437 0:03)
+    void recordCarriedBallOverspeed() { carriedBallOverspeed++; }   // glued ball stepped beyond carrier + allowance (seed 437 0:59)
     // A corner conceded by the defender's own deliberate kick (not a save,
     // duel or deflection) — the "player kicks it out of his own end" class.
     void recordOwnCornerConcession() { ownCornerConcessions++; }
@@ -391,6 +392,7 @@ class StatsCollector {
     int suicidePasses = 0;
     int offBallOverspeed = 0;
     int earlyKickoffGiveaways = 0;
+    int carriedBallOverspeed = 0;
     int ownCornerConcessions = 0;
     int goalsFromFreeKick = 0, goalsFromCorner = 0, goalsFromThrowIn = 0,
         goalsFromPenaltyPhase = 0, goalsOpenPlay = 0;
