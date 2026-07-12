@@ -24,6 +24,12 @@ inline constexpr double BALL_R    = 4.5;
 inline constexpr double SPEED_RUN     = 52.0;
 inline constexpr double SPEED_SPRINT  = 68.0;
 inline constexpr double MAX_PLAYER_SPEED = 50.0;
+// Momentum v3 (agent_movement.cpp): off-ball, non-pursuit movers accelerate
+// under this cap instead of teleport-steering; reversals plant-and-brake at
+// the multiple below before relaunching. Pursuit states are exempt (the
+// anticipation pass models their early reads) — see the tombstone note.
+inline constexpr double MOMENTUM_ACCEL             = 340.0;
+inline constexpr double MOMENTUM_REVERSAL_BRAKE_MUL = 2.2;
 
 // ── Ball speed / physics ──
 // 2026-07-02 audit ("passes look weird"): base 136/slope 0.105 makes launch

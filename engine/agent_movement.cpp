@@ -282,26 +282,80 @@ void PlayerAI::applyMovement(double sdt) {
     }
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
 
-    // ── Momentum (TOMBSTONE, round 12b) ── a real accel/turn-rate model
-    // (launch 300-340px/s^2, speed-limited heading carve, brake-through-
-    // reversal) was implemented and A/B'd twice: shots +62% then +71%,
-    // tackles -19% then -28%, completion -1.5pp. Reactive defenders pay the
-    // momentum tax far harder than proactive runners because the AI has ZERO
-    // anticipation — giving pursuit states 47% more accel did not close the
-    // gap (carriers cash the turn-brake softening faster than defenders cash
-    // the launch parity). Do NOT retry with constants; visible momentum needs
-    // a defensive-anticipation pass (pre-turn reads, early weight shifts)
-    // FIRST. Reverted to command kinematics.
+    // ── Momentum v3 (tombstone lifted, round 13) ── v1/v2 taxed EVERYONE with
+    // a real accel/turn model and died twice (shots +62%/+71%, tackles
+    // -19%/-28%): reactive defenders paid hardest because nothing in the AI
+    // read the play early. The anticipation pass now exists (drop-point
+    // attack, step-with-the-pass, plus the existing press/chase commitments),
+    // so v3 EXEMPTS committed pursuit — a player who has read the play keeps
+    // command kinematics — while everyone else (shape holders, markers
+    // idling, attackers drifting into space) pays real launch physics: an
+    // accel-capped velocity chase (the cap IS the turn carve at speed) and a
+    // plant-and-brake through reversals. The carrier never runs through here
+    // (agent.cpp gates applyMovement to non-controllers) — moveCarrier's
+    // turn-rate caps remain his momentum.
     double px = p.x, py = p.y;
-    if (d > 1.0) {
-        double step = std::min(ms * secs, d);
-        p.x += (dx / d) * step;
-        p.y += (dy / d) * step;
-    }
-
-    if (secs > 0.001) {
-        p.vx = (p.x - px) / secs;
-        p.vy = (p.y - py) / secs;
+    bool momentumExempt = committedChase || committedPress || committedTackle
+        || defendSprint || pursuingLooseBall || boxBurst
+        || lastActionType == ActionType::Chase || lastActionType == ActionType::Tackle;
+    if (momentumExempt) {
+        if (d > 1.0) {
+            double step = std::min(ms * secs, d);
+            p.x += (dx / d) * step;
+            p.y += (dy / d) * step;
+        }
+        if (secs > 0.001) {
+            p.vx = (p.x - px) / secs;
+            p.vy = (p.y - py) / secs;
+        }
+    } else if (d < 14.0) {
+        // Docking: the last stride lands EXACTLY (command step under the
+        // braking envelope). An accel-capped follower can never quite stop ON
+        // the point — the residual crossing speed had containers orbiting
+        // their contain points, flipping direction every few ticks (measured:
+        // near-target at-speed flips 3.5x the command-kinematics build).
+        double lim = std::min(ms, std::sqrt(2.0 * MOMENTUM_ACCEL * d));
+        if (d > 1e-6) {
+            double step = std::min(lim * secs, d);
+            p.x += (dx / d) * step;
+            p.y += (dy / d) * step;
+        }
+        if (secs > 0.001) {
+            p.vx = (p.x - px) / secs;
+            p.vy = (p.y - py) / secs;
+        }
+    } else {
+        // Open field: velocity chases the command under the accel cap (the
+        // cap IS the turn carve at speed); reversals plant-and-brake first.
+        // Arrival envelope: never command more speed than can be braked away
+        // within the remaining distance (a naive d/secs cap is ~no-op at 60Hz,
+        // and the df=0.8 contain floor keeps commands hot arbitrarily close).
+        double desSpd = std::min(ms, std::sqrt(2.0 * MOMENTUM_ACCEL * d));
+        double desVx = (dx / d) * desSpd;
+        double desVy = (dy / d) * desSpd;
+        double curSpd = std::hypot(p.vx, p.vy);
+        double headDot = (curSpd > 40.0 && desSpd > 1.0)
+            ? (p.vx * desVx + p.vy * desVy) / (curSpd * desSpd)
+            : 1.0;
+        if (headDot < -0.35) {
+            // Hard reversal: nobody carves through 110+ degrees at speed —
+            // plant, kill the momentum, THEN relaunch the other way.
+            double brake = std::min(curSpd, MOMENTUM_ACCEL * MOMENTUM_REVERSAL_BRAKE_MUL * secs);
+            p.vx -= (p.vx / curSpd) * brake;
+            p.vy -= (p.vy / curSpd) * brake;
+        } else {
+            double dvx = desVx - p.vx, dvy = desVy - p.vy;
+            double dvl = std::hypot(dvx, dvy);
+            double cap = MOMENTUM_ACCEL * secs;
+            if (dvl > cap) {
+                dvx *= cap / dvl;
+                dvy *= cap / dvl;
+            }
+            p.vx += dvx;
+            p.vy += dvy;
+        }
+        p.x += p.vx * secs;
+        p.y += p.vy * secs;
     }
 
     double bAngle = std::atan2(engine.state.ball.y - p.y, engine.state.ball.x - p.x);
