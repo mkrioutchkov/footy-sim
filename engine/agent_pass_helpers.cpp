@@ -50,6 +50,16 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (ls < 1.0) return std::nullopt;
 
     int pointBlank = 0;
+    // A ball struck before it's settled cannot be THREADED past a close man
+    // (seed 305 1:12: 4R's first-time interception-clearance drilled straight
+    // into 8B parked 4.8px off the lane, 60px in front — outside the 42px
+    // point-blank gate). Fresh releases widen the gate to 70px; the settled
+    // carrier keeps 42 (the pointBlank tombstone below: pricing these harder
+    // for EVERYONE made pressed carriers hold, the uglier failure).
+    double heldPb = engine.state.clockMs - engine.carrierTracker.carryStartMs;
+    bool freshRelease = (engine.carrierTracker.carryTrackerId == p.id && heldPb < 500.0)
+        || (p.id >= 0 && p.id < 22 && engine.firstTouchUntilMs[p.id] > engine.state.clockMs);
+    double pbRadius = freshRelease ? 70.0 : 42.0;
     for (auto& o : engine.state.players) {
         if (!isActiveOpponent(o, p.team)) continue;
         double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
@@ -91,7 +101,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // (passes straight into a marker 17px away looked like normal
         // 1-blocker passes). t2<0.5 so it's a body in FRONT of the passer,
         // not one hovering by the receiver.
-        if (perp < 17.0 && t2 < 0.5 && dist(o.x, o.y, p.x, p.y) < 42.0) pointBlank++;
+        if (perp < 17.0 && t2 < 0.5 && dist(o.x, o.y, p.x, p.y) < pbRadius) pointBlank++;
         // TOMBSTONE (seed 133 0:04, presser at the boot stepping across the
         // release): pricing these harder was tried twice — a pointBlank veto
         // (completion -7.0pts, marathon carries 8.5->16) and a graded double
@@ -190,6 +200,32 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
             tOpp = std::min(tOpp, (od - 18.0) / sprint);
         }
         completion -= clamp(tFlight - tOpp, 0.0, 1.2) * 0.25;
+        // STEP-IN RACE on the LANE, not just the receive point (seed 305 0:35):
+        // the 326px switch was cut by a CF who jogged 57px sideways to the
+        // lane's closest-approach point — he was 102px from the RECEIVER (the
+        // race above scored him ~even) but only had to beat the ball to his
+        // own gate at t2=0.76. Race every opponent to HIS point on the lane; a
+        // man who reaches it before the ball crosses is a pick however far he
+        // is from the target. Scoped to non-killer balls (fp < 60): switches
+        // and recycles — the deliberate in-behind classes already price their
+        // lanes via rpEff/blEff and must keep their aggression.
+        if (fp < 60.0) {
+            double laneRace = 0.0;
+            double ux = dx / std::sqrt(ls), uy = dy / std::sqrt(ls);
+            double passSpd = std::min(std::max(150.0 + d * 0.32, PASS_SPEED_BASE + d * PASS_SPEED_DIST), 300.0);
+            for (auto& o : engine.state.players) {
+                if (!isActiveOpponent(o, p.team)) continue;
+                double t2 = clamp(((o.x - p.x) * ux + (o.y - p.y) * uy) / d, 0.15, 0.90);
+                double perp = dist(o.x, o.y, p.x + ux * t2 * d, p.y + uy * t2 * d);
+                if (perp < 20.0 || perp > 130.0) continue;   // <20 already blocker/laneRisk; >130 can't make the gate
+                double tGate = t2 * d / passSpd;
+                double sprint = std::max(60.0, attrFactor(o.attrs.speed) * SPEED_SPRINT);
+                double tReach = (perp - 16.0) / sprint;
+                if (tReach + 0.05 < tGate)
+                    laneRace = std::max(laneRace, clamp((tGate - tReach) * 0.8, 0.0, 0.30));
+            }
+            completion -= laneRace;
+        }
     }
     // play_it_long: direct sides gamble on lower-completion (longer) balls. 0 by
     // default => floor stays 0.44 => the no-directive match is unchanged.
@@ -570,8 +606,13 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                 bool onTargetSide = targetTop ? o.y < PITCH_H / 2.0 : o.y >= PITCH_H / 2.0;
                 if (onTargetSide && dist(o.x, o.y, t.x, t.y) < 200.0) oppsNearTarget++;
             }
-            if (oppsNearCarrier >= 3 && oppsNearTarget <= 1)      sc += 0.18;
-            else if (oppsNearCarrier >= 2 && oppsNearTarget <= 2) sc += 0.10;
+            // Congestion relief only pays on a CLEAN lane (seed 305 0:35: the
+            // boxed FB's 326px switch collected the full +0.18 while a jogging
+            // CF sat 66px abeam of the lane — the "escape the congestion" read
+            // was right about the flanks and wrong about the ball ever
+            // arriving; the safe 213px recycle lost by exactly this bonus).
+            if (oppsNearCarrier >= 3 && oppsNearTarget <= 1 && bl == 0 && laneRisk < 0.8) sc += 0.18;
+            else if (oppsNearCarrier >= 2 && oppsNearTarget <= 2 && laneRisk < 1.2)       sc += 0.10;
         }
     }
 
