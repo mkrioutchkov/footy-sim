@@ -192,7 +192,11 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                 // invited the presser to tackling range.
                 for (auto& x : a)
                     if (x.type == ActionType::Pass && x.score > 0.15) bestSafe = std::max(bestSafe, x.audit.expectedCompletion);
-                if (bestSafe < (emergency ? 0.70 : 0.60)) {
+                // 0.70/0.60 -> 0.78/0.70 (owner, round 14: "too many silly
+                // losses of possession in [the defensive] third, would prefer
+                // more clearances") — a pass out of a swarm must be genuinely
+                // safe to beat the hoof, not merely coin-flip playable.
+                if (bestSafe < (emergency ? 0.78 : 0.70)) {
                     Player* tgt = nullptr; double bestFx = -1e9;
                     for (auto& t : engine.state.players) {
                         if (t.team != player.team || t.id == player.id || t.role == Role::GK) continue;
@@ -224,6 +228,12 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
         int pc = per.pressureCount;
         double fd = fdFor(player.team);
         double progress = (player.x - ownGoalXFor(player.team)) * fd;
+        // (Round 14: a blanket deep-third risk tax on sub-0.62-completion
+        // passes was tried here and REVERTED — it didn't dent the silly-loss
+        // flags (suicide/senseless flat) and goals rose ~+2/90: the taxed
+        // passes lost to holding/dribbling into the tackle, not to the clear.
+        // The clearance preference lives in the emergency/swarmed thresholds
+        // above instead.)
 
         // ── Back-pressure layoff ── A rider on the carrier's BACK (behind his
         // line of travel, touch-tight) means: shield it and give it simple —
