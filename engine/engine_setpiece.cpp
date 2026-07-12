@@ -156,8 +156,7 @@ void GameEngine::kickoffTap() {
     placeBallForRelease(*holder, dx, dy);
     b.lastTouchTeam = holder->team;
     b.lastToucherId = holder->id;
-    b.vx = dx / rawDist * speed;
-    b.vy = dy / rawDist * speed;
+    driveBall(b, dx, dy, rawDist, speed);
     b.intendedReceiverId = target.id;
     receiverShieldTargetId = target.id;
     blockReboundFor(holder->id, 650);
@@ -308,8 +307,7 @@ void GameEngine::releaseSetPiece() {
                     blockReboundFor(holder->id, 900);
                     b.lastTouchTeam = holder->team;
                     b.lastToucherId = holder->id;
-                    b.vx = dx / d * speed;
-                    b.vy = dy / d * speed;
+                    driveBall(b, dx, dy, d, speed);
                     b.z = 0;
                     applyWhipDelivery(d, speed, gx2, CROSS_CURL_MIN, CROSS_CURL_RANGE, holder);
                     b.intendedReceiverId = tgt->id;
@@ -509,8 +507,7 @@ void GameEngine::releaseGoalKick(Player& holder) {
     b.lastTouchTeam = holder.team;
     b.lastToucherId = holder.id;
     double speed = 315.0 + clamp(d - 500.0, 0.0, 180.0) * 0.16;
-    b.vx = dx / d * speed;
-    b.vy = dy / d * speed;
+    driveBall(b, dx, dy, d, speed);
     b.vz = 315.0;
     b.z = 30.0;
     b.intendedReceiverId = outlet ? outlet->id : -1;
@@ -567,8 +564,7 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         placeBallForRelease(holder, dx, dy);
         b.lastTouchTeam = holder.team;
         b.lastToucherId = holder.id;
-        b.vx = dx / d * 300.0;   // punt at ~108 km/h (was 119)
-        b.vy = dy / d * 300.0;
+        driveBall(b, dx, dy, d, 300.0);   // punt at ~108 km/h (was 119)
         // Feet-only hold (back-pass law): the long ball is a driven low punt
         // off the deck, never the from-hands launch.
         b.vz = gkHoldFeetOnly ? 120.0 : 300.0;
@@ -769,8 +765,7 @@ void GameEngine::releaseThrowIn(Player& holder) {
         b.lastTouchTeam = holder.team;
         b.lastToucherId = holder.id;
         double speed = clamp(160.0 + d * 0.15, 160.0, 290.0); // a powerful long throw
-        b.vx = dx / d * speed;
-        b.vy = dy / d * speed;
+        driveBall(b, dx, dy, d, speed);
         b.vz = speed * 0.9;
         b.z = 0; // flat-fast aerial into the box
         b.intendedReceiverId = -1;
@@ -806,8 +801,7 @@ void GameEngine::releaseThrowIn(Player& holder) {
         blockReboundFor(holder.id, 600);
         b.lastTouchTeam = holder.team;
         b.lastToucherId = holder.id;
-        b.vx = dx / d * speed;
-        b.vy = dy / d * speed;
+        driveBall(b, dx, dy, d, speed);
         b.vz = speed * 1.4;
         b.z = 0;
         b.intendedReceiverId = t.id;
@@ -824,8 +818,7 @@ void GameEngine::releaseThrowIn(Player& holder) {
     blockReboundFor(holder.id, 600);
     b.lastTouchTeam = holder.team;
     b.lastToucherId = holder.id;
-    b.vx = dx / d * speed;
-    b.vy = dy / d * speed;
+    driveBall(b, dx, dy, d, speed);
     b.vz = speed * 0.95;
     b.z = 0;
     b.intendedReceiverId = -1;
@@ -858,8 +851,7 @@ void GameEngine::releaseCornerKick(Player& holder) {
             b.lastTouchTeam = holder.team;
             b.lastToucherId = holder.id;
             double speed = clamp(150.0 + d * 0.35, 150.0, 250.0);
-            b.vx = dx / d * speed;
-            b.vy = dy / d * speed;
+            driveBall(b, dx, dy, d, speed);
             b.z = 0;
             b.vz = 0;
             b.intendedReceiverId = shortOpt->id;
@@ -894,8 +886,7 @@ void GameEngine::releaseCornerKick(Player& holder) {
             blockReboundFor(holder.id, 900);
             b.lastTouchTeam = holder.team;
             b.lastToucherId = holder.id;
-            b.vx = dx / d * speed;
-            b.vy = dy / d * speed;
+            driveBall(b, dx, dy, d, speed);
             b.z = 0;
             applyWhipDelivery(d, speed, goalX, 0.18, 0.15, &holder);
             b.intendedReceiverId = target.id;

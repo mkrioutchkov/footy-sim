@@ -69,11 +69,7 @@ void GameEngine::separateTeammates(double sdt) {
 void GameEngine::applyBallPhysics(double s) {
     auto& b = state.ball;
     if (b.curl != 0.0) {
-        double rot = b.curl * s;
-        double cs = std::cos(rot), sn = std::sin(rot);
-        double nvx = b.vx * cs - b.vy * sn;
-        b.vy = b.vx * sn + b.vy * cs;
-        b.vx = nvx;
+        rotateBallVelocity(b, b.curl * s);
         b.curl *= std::pow(b.z > 2.0 ? 0.55 : 0.02, s);
         if (std::abs(b.curl) < 0.02) b.curl = 0.0;
     }

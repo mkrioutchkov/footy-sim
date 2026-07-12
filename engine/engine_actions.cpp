@@ -385,9 +385,9 @@ double GameEngine::goalOpeningAngleDeg(double x, double y, double gx) const {
 void GameEngine::applyWhipDelivery(double dist, double speed, double goalX, double curlMin, double curlRange, const Player* crosser) {
     auto& b = state.ball;
     double flightT = clamp(dist / speed, 0.25, 1.1);
-    b.vz = clamp((CROSS_DIP_TARGET_Z + 0.5 * GRAVITY * flightT * flightT) / flightT, 150.0, 280.0);
+    b.vz = clamp(landOnTargetVz(flightT, flightT, CROSS_DIP_TARGET_Z), 150.0, 280.0);
     double toGoalCross = b.vx * (PITCH_H / 2.0 - b.y) - b.vy * (goalX - b.x);
-    b.curl = (toGoalCross >= 0 ? 1.0 : -1.0) * (curlMin + rng.random() * curlRange);
+    b.curl = signedCurl(toGoalCross, curlMin + rng.random() * curlRange);
     // Footedness: the default whip is the INSWINGER (bends at goal). A crosser
     // whose strike foot matches the flank (right foot from the right byline)
     // wraps it the other way — the OUTSWINGER, flatter and drifting away —
@@ -400,11 +400,7 @@ void GameEngine::applyWhipDelivery(double dist, double speed, double goalX, doub
         if (outswing) b.curl = -b.curl * 0.8;
         if (crosser->foot != 0 && kf != crosser->foot) b.curl *= 0.7;
     }
-    double preRot = -b.curl * flightT * 0.45;
-    double cs = std::cos(preRot), sn = std::sin(preRot);
-    double nvx = b.vx * cs - b.vy * sn;
-    b.vy = b.vx * sn + b.vy * cs;
-    b.vx = nvx;
+    applyCurlPreRotation(b, b.curl, flightT);
 }
 
 void GameEngine::placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset) {
@@ -549,8 +545,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     blockReboundFor(f.id, 450);
     b.lastTouchTeam = f.team;
     b.lastToucherId = f.id;
-    b.vx = tdx / tDist * speed;
-    b.vy = tdy / tDist * speed;
+    driveBall(b, tdx, tdy, tDist, speed);
     b.intendedReceiverId = t.id;
     receiverShieldTargetId = t.id;
     b.z = 0;
@@ -590,10 +585,9 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
             // AERIAL_HEIGHT 20; the 240 floor on the cap lets a short chip be
             // struck with real pace instead of inheriting the soft pass speed.
             double chipSpeed = clamp(tDist * 1.55, 120.0, std::max(speed, 240.0));
-            b.vx = tdx / tDist * chipSpeed;
-            b.vy = tdy / tDist * chipSpeed;
+            driveBall(b, tdx, tdy, tDist, chipSpeed);
             double flight = tDist / std::max(chipSpeed, 1.0);
-            b.vz = std::max(b.vz, std::min(GRAVITY * flight * 0.5, 200.0));  // apex <= 40 — a dink, never a lob
+            b.vz = std::max(b.vz, std::min(apexDipVz(flight, 1.0), 200.0));  // apex <= 40 — a dink, never a lob
         } else {
             b.vz = std::max(b.vz, speed * 0.70);   // a long blocked ball keeps the driven loft
         }
@@ -640,8 +634,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         // stays DRIVEN but is capped at the hardest-shot ceiling (~38 m/s) so it
         // no longer launches at the measured 44-56 m/s.
         aSpeed = std::min(aSpeed, intoBox ? 300.0 : 270.0);   // 108 / 97 km/h — real driven-cross band
-        b.vx = adx / aDist * aSpeed;
-        b.vy = ady / aDist * aSpeed;
+        driveBall(b, adx, ady, aDist, aSpeed);
         // Low driven cross vs whipped loft. A runner attacking the near post or
         // the 6-yard box gets the ball SKIDDED low and hard across the face —
         // too quick for the keeper to claim, a tap-in if it's met. The runner
@@ -653,12 +646,11 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         bool lowDriven = tgdCross < 112.0 && std::abs(predY - PITCH_H / 2.0) < 120.0;
         if (lowDriven) {
             double lowSpeed = clamp(aDist * 0.90, 205.0, 265.0);  // 74-95 km/h low-driven band
-            b.vx = adx / aDist * lowSpeed;
-            b.vy = ady / aDist * lowSpeed;
+            driveBall(b, adx, ady, aDist, lowSpeed);
             b.z = 0;
             b.vz = std::min(lowSpeed * 0.12, 24.0);
             double cz = adx * (PITCH_H / 2.0 - f.y) - ady * (goalX - f.x);
-            b.curl = (cz >= 0 ? 1.0 : -1.0) * CROSS_CURL_MIN * 0.6;
+            b.curl = signedCurl(cz, CROSS_CURL_MIN * 0.6);
         } else {
             applyWhipDelivery(aDist, aSpeed, goalX, CROSS_CURL_MIN, CROSS_CURL_RANGE, &f);
         }
@@ -670,13 +662,12 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         // apex 7.6m over ~13m of travel). A whip is a FLAT fast arc: solve vz
         // from the flight time to the target so the ball dips ON the receiver
         // (same construction as the FK dipper), never steeper than ~50°.
-        b.vx *= 1.30;
-        b.vy *= 1.30;
+        scaleBallSpeed(b, 1.30);
         double whipH = std::hypot(b.vx, b.vy);
         double whipT = whipH > 1.0 ? dist(b.x, b.y, t.x, t.y) / whipH : 0.5;
-        b.vz = clamp(0.5 * GRAVITY * whipT * 0.90, 80.0, std::min(235.0, whipH * 1.2));
+        b.vz = clamp(apexDipVz(whipT, 0.90), 80.0, std::min(235.0, whipH * 1.2));
         double crossz = b.vx * (PITCH_H / 2.0 - b.y) - b.vy * (goalX - b.x);
-        b.curl = (crossz >= 0 ? 1.0 : -1.0) * (0.18 + rng.random() * 0.12);
+        b.curl = signedCurl(crossz, 0.18 + rng.random() * 0.12);
     }
     // Pivot the passer's body onto the ball's launch line for a CROSS or any
     // lofted delivery. A player swinging a ball across his body kicks THROUGH
@@ -691,7 +682,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // No pass is a mortar: cap climb at ~50° of the horizontal pace. Every
     // legitimate lofted pass (chips, whips, clears) lives inside this; only
     // the broken short-loft corner cases exceeded it and they read as absurd.
-    b.vz = std::min(b.vz, std::hypot(b.vx, b.vy) * 1.2);
+    capSteepness(b, 1.2);
     if (std::hypot(b.vx, b.vy) > 1.0) {
         double launchAng = std::atan2(b.vy, b.vx);
         double offF = std::abs(std::atan2(std::sin(launchAng - f.facing), std::cos(launchAng - f.facing)));
@@ -852,8 +843,7 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     blockReboundFor(f.id, 900);
     b.lastTouchTeam = f.team;
     b.lastToucherId = f.id;
-    b.vx = tdx / tDist * speed;
-    b.vy = tdy / tDist * speed;
+    driveBall(b, tdx, tdy, tDist, speed);
     b.intendedReceiverId = t.id;
     receiverShieldTargetId = t.id;
     b.z = 0;
@@ -1405,7 +1395,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     if (shotType == 1 || shotType == 2) {
         double tLine = d / std::max(speed, 1.0);
         double zTarget = 2.0 + rng.random() * (GK_STAND_Z - 2.0);
-        loft = std::min((zTarget + 0.5 * GRAVITY * tLine * tLine) / std::max(tLine, 0.1),
+        loft = std::min(landOnTargetVz(tLine, std::max(tLine, 0.1), zTarget),
                         std::sqrt(2.0 * GRAVITY * GK_STAND_Z));
     }
     // Curl: give it just enough air to keep the spin alive (curl dies fast on
@@ -1422,7 +1412,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     // Chip: loft sized so the parabola loops OVER the advanced keeper and is just
     // descending through the frame at the line. vz≈0.5·g·t (lands at the line)
     // ×1.08 so it crosses a hair above the deck, not bouncing short of it.
-    if (shotType == 4) loft = clamp(0.5 * GRAVITY * (d / std::max(speed, 1.0)) * 1.08, 150.0, 340.0);
+    if (shotType == 4) loft = clamp(apexDipVz(d / std::max(speed, 1.0), 1.08), 150.0, 340.0);
     b.intendedReceiverId = -1;
     b.z = 0;
     b.vz = loft;
@@ -1441,8 +1431,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
         // "looked like a lob... no power perception"). 300-380 keeps elevation
         // under ~30° across the direct-FK range and the whip look real.
         double fkSpeed = clamp(speed * 1.35, 300.0, 380.0);
-        b.vx = dx / d * fkSpeed;
-        b.vy = dy / d * fkSpeed;
+        driveBall(b, dx, dy, d, fkSpeed);
         double vxSign = (dx >= 0.0 ? 1.0 : -1.0);
         // §FK variety (Commit 2): ~30% a FLOATED DIPPER — lobbed higher over the wall (parabola peaks
         // well clear, distance-sized loft so it dips under the bar by the line) with LESS curl; else the
@@ -1453,7 +1442,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
         bool fkDipper = ((static_cast<uint32_t>(s.id) * 48271u + static_cast<uint32_t>(state.clockMs)) % 100u < 18u) && shotDistance < 235.0; // ~18% (a special occasional shot, not a third of FKs — the floated dipper over-converts vs the curler, +0.29 at 30%; keep it a small variety)
         b.z = 2.5;   // above the z>2 airborne gate: launch-tick curl decays at the air rate, not the harsh grounded one
         if (fkDipper) {
-            b.vz = clamp(0.5 * GRAVITY * (d / std::max(fkSpeed, 1.0)) * 1.05, 170.0, 330.0);
+            b.vz = clamp(apexDipVz(d / std::max(fkSpeed, 1.0), 1.05), 170.0, 330.0);
             b.curl = openSide * vxSign * (0.10 + accuracy * 0.07);
         } else {
             // Distance-SIZED loft (was a flat fkSpeed*0.72, distance-blind):
@@ -1465,7 +1454,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
             // at the line (0.5·g·d/fkSpeed) with a lower peak than the dipper
             // (×1.0 vs ×1.05) so it arrives flat-ish and the curl still lives;
             // floor 150 keeps the peak above the 20px wall-clearance height.
-            b.vz = clamp(0.5 * GRAVITY * (d / std::max(fkSpeed, 1.0)) * 1.0, 150.0, 330.0);
+            b.vz = clamp(apexDipVz(d / std::max(fkSpeed, 1.0), 1.0), 150.0, 330.0);
             b.curl = openSide * vxSign * (0.20 + accuracy * 0.15);
         }
     }
