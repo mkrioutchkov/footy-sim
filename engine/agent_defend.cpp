@@ -188,6 +188,12 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     {
         double meFacingCarrier = std::cos(player.facing) * (-toTacklerX) + std::sin(player.facing) * (-toTacklerY);
         if (meFacingCarrier < -0.2) sc -= 0.20;
+        // 2:11 (seed 111): he TURNED the ball square into me while I'm facing
+        // him — the "tackle often" case; arbitration must not let my own
+        // jockey/contain score outbid the challenge (Xavi rode 17px with the
+        // ball shown for ~0.35s while the ASSIGNED presser contained from
+        // 38px). The shield mirror keeps its penalties above.
+        if (d < TACKLE_RANGE && ballShownDot > 0.55 && meFacingCarrier > 0.3) sc += 0.15;
     }
 
     double goalDx = ownGoalX - ctrl->x;

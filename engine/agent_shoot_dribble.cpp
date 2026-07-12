@@ -196,6 +196,24 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     double tx = gx, ty = p.y;
     CarrierPressure cp = assessCarrierPressure(engine, p);
 
+    // Escape-lane check (seed 111 2:11): evadeSide is picked from the ONE man
+    // being evaded, so the chosen side can rotate the carry square INTO a
+    // SECOND defender standing there — pid20's escape from pid9-behind pointed
+    // the ball through Xavi's tackle zone at 42px, reproduced to the pixel.
+    // A candidate escape target is only kept if no OTHER opponent sits within
+    // ~35px of the path to it.
+    auto escapeLaneBlocked = [&](double cx, double cy, const Player* evaded) {
+        double sx = cx - p.x, sy = cy - p.y, seg2 = sx * sx + sy * sy;
+        if (seg2 < 1e-6) return false;
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+            if (evaded && o.id == evaded->id) continue;
+            double t2 = clamp(((o.x - p.x) * sx + (o.y - p.y) * sy) / seg2, 0.0, 1.0);
+            if (dist(o.x, o.y, p.x + sx * t2, p.y + sy * t2) < 35.0) return true;
+        }
+        return false;
+    };
+
     // Evade nearest opponent if close
     if (per.nearestOpponentDist < DRIBBLE_EVADE_DIST && !per.nearbyOpponents.empty()) {
         Player* n = nullptr;
@@ -219,6 +237,14 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                     }
                     tx = p.x + fd * 24.0;
                     ty = p.y + evadeSide * 72.0;
+                    if (escapeLaneBlocked(tx, ty, n)) {
+                        evadeSide = -evadeSide;
+                        evadeSideUntilMs = engine.state.clockMs + 750.0;
+                        ty = p.y + evadeSide * 72.0;
+                        // Both sides shut: shield it — a straight drop-back
+                        // beat, not a rotation through anyone's tackle zone.
+                        if (escapeLaneBlocked(tx, ty, n)) { tx = p.x - fd * 28.0; ty = p.y; }
+                    }
                 } else {
                     tx = p.x + ex * 70.0;
                     ty = p.y + ey * 70.0;
@@ -492,6 +518,16 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                 double retreat = cp.exposed > 0.35 ? -fd * 34.0 : 0.0;
                 tx = p.x + ax / ad * 44.0 + retreat;
                 ty = p.y + evadeSide * 48.0;
+            }
+            // 2:11 (seed 111): the escape from the ONE presser must not point
+            // into a SECOND defender on the chosen side — flip the side, and
+            // if both sides are shut, shield with a straight drop-back beat.
+            if (escapeLaneBlocked(tx, ty, cp.nearestPlayer)) {
+                bool acrossBranch = (ax / ad) * fd < -0.25 && pitch::forwardProgress(p.x, p.team) < PITCH_W * 0.55;
+                evadeSide = -evadeSide;
+                evadeSideUntilMs = engine.state.clockMs + 750.0;
+                ty = p.y + evadeSide * (acrossBranch ? 72.0 : 48.0);
+                if (escapeLaneBlocked(tx, ty, cp.nearestPlayer)) { tx = p.x - fd * 28.0; ty = p.y; }
             }
             // Re-apply the edge guard — this block runs after it, so the evade
             // could walk the carry into the touchline pocket the guard exists
