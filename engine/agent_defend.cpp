@@ -165,8 +165,12 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         if (dist(o->x, o->y, ctrl->x, ctrl->y) < 60.0) oppsClose++;
     }
     if (pitch::distToOwnGoal(ctrl->x, player.team) < 300.0 && oppsClose < 2) sc += 0.08;
-    if (d < TACKLE_RANGE + 4.0 && oppsClose >= 2) sc += 0.18;
-    if (d < TACKLE_RANGE) sc += 0.14;
+    // Round-17 trim (owner, again: "yeah maybe too many tackles" — attempts
+    // still ~292/match after the round-16 rebalance vs the ~250 baseline):
+    // the generic proximity urgencies come down; the SPECIFIC reads (shown
+    // ball, turned into me, counter-press prize) keep their prices.
+    if (d < TACKLE_RANGE + 4.0 && oppsClose >= 2) sc += 0.13;
+    if (d < TACKLE_RANGE) sc += 0.10;
 
     bool oppFacingAway = (ctrl->team == Team::Home) ? ctrl->vx < 0.0 : ctrl->vx > 0.0;
     if (oppFacingAway && d < TACKLE_RANGE + 20.0) sc += 0.10;
