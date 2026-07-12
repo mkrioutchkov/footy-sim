@@ -47,10 +47,15 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     // shielding carrier the container rode without challenging) must RESOLVE — treat it as a nick
     // chance so the contain-gate doesn't suppress it. Brief grazes (<0.15s) stay jockey.
     bool sustainedContest = ballContestTicks > 9;   // ~0.15s+ glued (the no-tackle overlap); resolved via the nick path, not force-boosted
-    bool nickOpportunity = d < TACKLE_RANGE && (
+    bool nickOpportunity = (d < TACKLE_RANGE && (
             (exposedDot > 0.10 && (ctrl->dribbleType == 2 || ctrl->dribbleType == 3))
          || ballShownDot > 0.45
-         || sustainedContest);
+         || sustainedContest))
+        // Round-14 geometry audit: a CLEARLY shown ball a half-step outside
+        // contact range is still a nick — the 18-26px band was doctrine-vetoed
+        // for everyone without a press job, and shown balls escaped 76% of
+        // sustained touch-tight moments.
+        || (d < TACKLE_RANGE + 4.0 && ballShownDot > 0.60);
     // 3v1 squeeze (watched replay seed 107 0:16: three defenders ringed a
     // shielding carrier at 24-41px and nobody engaged — the ball was never
     // "shown", so everyone contained forever). With numbers up close and the
@@ -174,6 +179,16 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     if (nickOpportunity) sc += 0.16;
     if (exposedDot > 0.35 && d < TACKLE_RANGE + 22.0) sc += 0.12;
     if (exposedDot < -0.35 && !emergencyBoxChallenge) sc -= 0.18;
+    // Round-14 tackle-geometry audit (owner: shown balls escape too often):
+    // 76 sustained shown-ball episodes at touch-tight range in one match,
+    // only 24% punished — a ball shown square at a marker inside TACKLE_RANGE
+    // for a beat must usually be taken. And the mirror: a defender with his
+    // BACK to the duel has to turn before he can challenge.
+    if (d < TACKLE_RANGE && ballShownDot > 0.55) sc += 0.22;
+    {
+        double meFacingCarrier = std::cos(player.facing) * (-toTacklerX) + std::sin(player.facing) * (-toTacklerY);
+        if (meFacingCarrier < -0.2) sc -= 0.20;
+    }
 
     double goalDx = ownGoalX - ctrl->x;
     double goalDy = PITCH_H / 2.0 - ctrl->y;

@@ -1020,7 +1020,9 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     if (exposedToFacingTackler) shieldingBonus += 0.10; // and he's squared up
 
     double chance = clamp(0.20 + tackleSkill * 0.38 - carrierControl * 0.15 + facingBonus - (carrierShielded ? 0.20 : 0) - (fromBehind ? 0.18 : 0) + (approachDot > 0.3 && approachDot < 0.85 ? 0.06 : 0) + dribbleBonus + shieldingBonus
-                          - (contactDist > TACKLE_RANGE ? 0.08 : 0.0), 0.06, 0.75);   // stretched step-in lunge is harder
+                          - (contactDist > TACKLE_RANGE ? 0.08 : 0.0)                 // stretched step-in lunge is harder
+                          - (tacklerFacingCarrierDot < -0.2 ? 0.22 : 0.0)             // back to the duel: he must turn first (round-14 geometry audit)
+                          + (ballExposureDot > 0.55 && contactDist < TACKLE_RANGE ? 0.12 : 0.0), 0.06, 0.78);   // ball shown square, touch-tight: take it
     // Contain by default: a defender only COMMITS to a challenge when he has a
     // real chance of winning it (or it's an emergency, or the carrier has
     // stopped and exposed the ball). Otherwise he stays on his feet and
