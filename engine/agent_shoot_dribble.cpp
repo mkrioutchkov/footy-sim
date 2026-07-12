@@ -92,6 +92,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     for (auto& o : engine.state.players) {
         if (o.team != p.team && o.role == Role::GK) { gk = &o; break; }
     }
+    double gkOpenness = 0.0;   // 0 = keeper plumb on the shot line, ~1 = a post effectively open
     if (gk) {
         // Judge the KEEPER'S coverage of this shot, not raw y-difference: his
         // perpendicular offset from the shot line (shooter -> goal centre) at
@@ -106,11 +107,21 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
             double yLine = p.y + frac * (PITCH_H / 2.0 - p.y);
             double hw = GOAL_W / 2.0 * frac;
             double openness = clamp((std::abs(gk->y - yLine) - 6.0) / std::max(hw, 10.0), 0.0, 1.2);
+            gkOpenness = openness;
             sc += openness * 0.16;
             if (openness < 0.12 && shotDistance > 120.0) sc -= 0.08; // set keeper, long shot: the old damper
         }
         if (std::abs(gk->x - gx) > 50.0) sc += 0.08; // well off his line: chip/beat him
     }
+
+    // Open net is DECISIVE (seed 173 0:54: Bale faced a gaping goal at an angle
+    // and kept carrying — the openness term above tops out at ~+0.27, which lost
+    // to the dribble). When the keeper is well off the shot cone, or missing
+    // entirely (up for a corner), a real look means shoot NOW.
+    bool openNet = (gk == nullptr || gkOpenness > 0.85
+                    || dist(gk->x, gk->y, gx, PITCH_H / 2.0) > GOAL_W * 1.15)
+                && shotDistance < 260.0 && angleDeg > 5.0;
+    if (openNet) sc += per.pressureCount == 0 ? 0.50 : 0.30;
 
     if (shotDistance < 100.0) sc += 0.14;
     if (shotDistance < 60.0)  sc += 0.12;
@@ -123,11 +134,13 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     sc -= clamp(cp.score - 0.55, 0.0, 0.75) * 0.18;
     if (cp.exposed > 0.45 && shotDistance > 85.0) sc -= 0.12;
 
-    bool credibleOpening = angleDeg >= 7.5 || shotDistance < 115.0;
+    bool credibleOpening = angleDeg >= 7.5 || shotDistance < 115.0 || openNet;
     // The big shoot reward is for genuine box/edge chances, NOT 20-yard pot-shots:
     // close shots convert ~40%, long ones ~4%, so working it closer must win.
-    if (shotDistance < 150.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.38 : 0.16;
-    if (shotDistance < 135.0 && credibleOpening) sc += per.pressureCount == 0 ? 0.46 : 0.16;
+    // An open net stretches the bands (0:54: the byline carry hovered at 155-158,
+    // 5px outside every bonus while the goal stood empty).
+    if (shotDistance < (openNet ? 175.0 : 150.0) && credibleOpening) sc += per.pressureCount == 0 ? 0.38 : 0.16;
+    if (shotDistance < (openNet ? 175.0 : 135.0) && credibleOpening) sc += per.pressureCount == 0 ? 0.46 : 0.16;
     if (shotDistance < 70.0  && credibleOpening) sc += per.pressureCount <= 1 ? 0.22 : 0.05;
     if (shotDistance < 40.0)  sc += per.pressureCount <= 1 ? 0.18 : 0.04;
     bool longCarryShotZone = engine.carrierTracker.carryTrackerId == p.id && engine.carrierTracker.carryPathDistance >= 200.0
@@ -283,6 +296,16 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         ty = clamp(lerp(p.y, PITCH_H / 2.0, 0.42), 70.0, PITCH_H - 70.0);          // cut inside toward center
     } else if (nearGoal) {
         tx = lerp(tx, gx, 0.55);
+        // seed 173 0:54: y was never steered here, so Bale's open-net carry drove
+        // x to the goal line at his own wide lane — toward the corner flag, parked
+        // 5px outside every shot band. Pull the carry toward the mouth so an
+        // angled carrier attacks the goal, unless he's actively evading (the
+        // evade block picked ty deliberately).
+        if (per.nearestOpponentDist >= DRIBBLE_EVADE_DIST) {
+            double mouthY = clamp(p.y, PITCH_H / 2.0 - GOAL_W / 2.0 + 12.0,
+                                       PITCH_H / 2.0 + GOAL_W / 2.0 - 12.0);
+            ty = lerp(ty, mouthY, 0.55);
+        }
     } else {
         tx = lerp(tx, gx, 0.20);
     }

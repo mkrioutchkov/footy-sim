@@ -749,6 +749,31 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
     // endpoint; slow balls keep the point test (byte-identical). prev = undo the step applyBallPhysics
     // just applied (b.x += b.vx*sec). Live shots stay protected by the shot-in-flight gate below.
     double prevX = b.x - b.vx * sec, prevY = b.y - b.vy * sec;
+    // Shared incidental-ricochet geometry: surface the ball on the body, reflect
+    // the into-body velocity component, damp, and stamp the restart-attribution
+    // memory (lastRicochetTeam — never possession/offside; see engine.h).
+    auto ricochetOffBody = [&](Player& p, double damp) {
+        double nx = b.x - p.x, ny = b.y - p.y, nd = std::hypot(nx, ny);
+        if (nd < 1e-6) {
+            nx = -b.vx / bs;
+            ny = -b.vy / bs;
+            nd = 1.0;
+        }
+        nx /= nd;
+        ny /= nd;
+        b.x = p.x + nx * (PLAYER_R + BALL_R);
+        b.y = p.y + ny * (PLAYER_R + BALL_R);
+        double dot = b.vx * nx + b.vy * ny;
+        if (dot < 0) {
+            b.vx -= COLLISION_REFLECT_FACTOR * dot * nx;
+            b.vy -= COLLISION_REFLECT_FACTOR * dot * ny;
+        }
+        lastRicochetTeam = p.team;
+        lastRicochetMs = state.clockMs;
+        b.vx *= damp;
+        b.vy *= damp;
+        recordBallImpulse();
+    };
     Player* contact = nullptr;
     contactRadius = collectRadius;
     double bestContactScore = 1e9;
@@ -781,34 +806,18 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
             // offside / restart-attribution side effects), no new lockouts.
             // Exempt: GK (own handling paths), sent-off (parked off-pitch), armed
             // set-pieces (everyone is contest-blocked while the ball is placed),
-            // live shots (the pre-rolled-blocker rule owns those), aerial balls.
-            if (p.role != Role::GK && !p.sentOff && !setPiece.armed && b.controllerId < 0 && b.z < 15.0 && bs > 30.0 && !(lastLooseOrigin == LooseOrigin::Shot && bs > 95.0)) {
+            // aerial balls. Live shots USED to be exempt too ("the blocker rule
+            // owns those") — but that made locked bodies fully transparent to
+            // shots (seed 173 0:54: Bale's strike ran 7.2px THROUGH Marcelo and
+            // out, no corner). A dead-center shot hit deflects like any other;
+            // the blocker rule only governs DELIBERATE ball-winning.
+            if (p.role != Role::GK && !p.sentOff && !setPiece.armed && b.controllerId < 0 && b.z < 15.0 && bs > 30.0) {
                 double sx = b.x - prevX, sy = b.y - prevY, seg2 = sx * sx + sy * sy;
                 double tg = seg2 > 1e-6 ? clamp(((p.x - prevX) * sx + (p.y - prevY) * sy) / seg2, 0.0, 1.0) : 0.0;
                 double dg = dist(p.x, p.y, prevX + sx * tg, prevY + sy * tg);
                 double toward = (p.x - b.x) * b.vx + (p.y - b.y) * b.vy;
-                if (dg < 8.0 && toward > 0.0) {
-                    double nx = b.x - p.x, ny = b.y - p.y, nd = std::hypot(nx, ny);
-                    if (nd < 1e-6) {
-                        nx = -b.vx / bs;
-                        ny = -b.vy / bs;
-                        nd = 1.0;
-                    }
-                    nx /= nd;
-                    ny /= nd;
-                    b.x = p.x + nx * (PLAYER_R + BALL_R);
-                    b.y = p.y + ny * (PLAYER_R + BALL_R);
-                    double dot = b.vx * nx + b.vy * ny;
-                    if (dot < 0) {
-                        b.vx -= COLLISION_REFLECT_FACTOR * dot * nx;
-                        b.vy -= COLLISION_REFLECT_FACTOR * dot * ny;
-                    }
-                    lastRicochetTeam = p.team;
-                    lastRicochetMs = state.clockMs;
-                    b.vx *= 0.72;
-                    b.vy *= 0.72; // a leggy, messy ricochet, not a clean block
-                    recordBallImpulse();
-                }
+                if (dg < 8.0 && toward > 0.0)
+                    ricochetOffBody(p, 0.72);   // a leggy, messy ricochet, not a clean block
             }
             continue;
         }
@@ -833,7 +842,16 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
             const auto* task = assignmentFor(p.id);
             designatedWall = task && task->role == DefensiveTask::ShotLane;
         }
-        if (shotInFlight && p.role != Role::GK && p.id != shot.blockerId && !designatedWall) continue;
+        if (shotInFlight && p.role != Role::GK && p.id != shot.blockerId && !designatedWall) {
+            // Bystanders can't deliberately EAT a live shot — but a TRUE center
+            // hit (<8px; d is already swept at shot speed) is physical contact:
+            // the ball strikes the body and deflects, and the ricochet memory
+            // awards the restart (seed 173 0:54: the shot off Marcelo that ran
+            // behind must be a corner, not a goal kick). Grazes still pass by.
+            if (d < 8.0 && b.z < AERIAL_HEIGHT)
+                ricochetOffBody(p, 0.80);   // a deflection keeps more pace than a leggy loose-ball ricochet
+            continue;
+        }
         double r = (bs > COLLISION_FAST_CONTACT && p.team != b.lastTouchTeam) ? fastContactRadius : collectRadius;
         // Micro audit #4: a fast FRIENDLY ball dead-center through a teammate's
         // body tunneled straight through (24 times/5min) — the fast-contact

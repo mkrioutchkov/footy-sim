@@ -233,11 +233,18 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         gk.targetX = goalX + fd * stepOut;
         gk.targetY = clamp(lerp(state.ball.y, projectedY, acrossGoal ? 0.22 : 0.45), PITCH_H * 0.13, PITCH_H * 0.87);
     } else if (opponentCarrier && inArea) {
-        // A wide/byline carrier about to pull it back: same audit class —
-        // don't get dragged to the near post, protect the middle.
+        // Stand ON the ball-goal line (seed 173 0:54: the old
+        // lerp-from-own-stale-y toward ball.y parked Buffon 5.2m OUTSIDE the
+        // ball->posts cone with 0% of the mouth shadowed through a byline
+        // carry — the mouth was open for a full second). Same angle-play
+        // geometry as the ballInOurHalf branch, shallower depth for a wide/
+        // byline carrier so the middle stays protected.
         bool wideCarrier = pitch::lateralFromCenter(state.ball.y) > 120.0;
-        gk.targetX = goalX + fd * clamp(ballGoalDist * (wideCarrier ? 0.30 : 0.52), 30.0, wideCarrier ? 70.0 : 135.0);
-        gk.targetY = clamp(lerp(gk.y, state.ball.y, wideCarrier ? 0.30 : 0.55), PITCH_H * 0.14, PITCH_H * 0.86);
+        double depth = clamp(ballGoalDist * (wideCarrier ? 0.30 : 0.52), 30.0, wideCarrier ? 70.0 : 135.0);
+        double lineT = clamp(depth / std::max(ballGoalDist, 1.0), 0.0, 1.0);
+        gk.targetX = goalX + fd * depth;
+        gk.targetY = clamp(gk.homeY + (state.ball.y - gk.homeY) * lineT,
+                           gk.homeY - GOAL_W * 0.55, gk.homeY + GOAL_W * 0.55);
     } else if (ballGoalDist < GK_RUSH_DIST && ballLoose) {
         gk.targetX = goalX + fd * clamp(ballGoalDist * 0.55, 24.0, 155.0);
         gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);
