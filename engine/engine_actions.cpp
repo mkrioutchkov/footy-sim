@@ -829,12 +829,14 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     // orientation right after winning a duel is a SHANK, not a laser: scale
     // power down with the off-facing angle when possession is fresh (<600ms),
     // and always square the body onto the release line like passBallTo does.
+    double shankMul = 1.0;
     {
         double wantAng = std::atan2(tdy, tdx);
         double offF = std::abs(std::atan2(std::sin(wantAng - f.facing), std::cos(wantAng - f.facing)));
         double heldMs = state.clockMs - carrierTracker.carryStartMs;
         if (carrierTracker.carryTrackerId == f.id && heldMs < 600.0 && offF > 0.6)
-            speed *= clamp(1.0 - (offF - 0.6) * 0.30, 0.55, 1.0);
+            shankMul = clamp(1.0 - (offF - 0.6) * 0.30, 0.55, 1.0);
+        speed *= shankMul;
         f.facing = wantAng;
     }
     auto& b = state.ball;
@@ -847,7 +849,11 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     b.intendedReceiverId = t.id;
     receiverShieldTargetId = t.id;
     b.z = 0;
-    b.vz = boxHoof ? std::max(speed * 0.62, 200.0) : speed * 0.40;   // high, up and over the presser
+    // The vz floor must shank WITH the horizontal power (seed 173 1:03: the
+    // off-facing scaler cut horizontal to ~176 while the floor stayed 200 —
+    // a 49-degree mortar that "zapped up like crazy out of nowhere"). A
+    // shanked hoof is a scuff in EVERY axis.
+    b.vz = boxHoof ? std::max(speed * 0.62, 200.0 * shankMul) : speed * 0.40;   // high, up and over the presser
     beginTrackedPass(f, t);
 }
 
