@@ -284,6 +284,41 @@ Action PlayerAI::scoreChase(const Perception& per) {
         && approachDot > 0.35 && arrivalTime < 1.25;
     bool deadBallRecoveryRun = !canContest && b.z <= AERIAL_HEIGHT && ballSpeed < 35.0 && per.ballDist < 70.0;
     bool closeLooseBall = canContest && b.z <= AERIAL_HEIGHT && per.ballDist < 45.0;
+    // ── Attack the drop point (seed 173 0:51 + anticipation pass) ── every
+    // chase branch above is gated z <= AERIAL_HEIGHT, so for the ~0.9s an
+    // opponent's cross hung in the air Pique stood ON the landing spot, then
+    // walked off it goal-side and let the ball drop to Ronaldo's feet. A
+    // defender reads the flight: when an AIRBORNE ball is coming down for an
+    // OPPONENT (or loose), and I can reach its predicted landing before/with
+    // it, I attack the drop point now.
+    bool attackDropPoint = false;
+    double dropX = 0.0, dropY = 0.0;
+    if (canContest && b.z > AERIAL_HEIGHT && b.vz < 40.0 && ballSpeed > 40.0) {
+        Player* intd = engine.playerById(b.intendedReceiverId);
+        bool oppBall = intd ? intd->team != player.team
+                            : (b.controllerId < 0 && b.lastTouchTeam != player.team);
+        if (oppBall) {
+            // Walk the flight forward to the touchdown (predictBallPos handles
+            // drag/gravity/bounce); coarse 0.15s steps are plenty at 60Hz.
+            double tLand = 0.0;
+            for (double t = 0.15; t <= 1.8; t += 0.15) {
+                double bx2, by2;
+                engine.predictBallPos(t, bx2, by2);
+                double zApprox = b.z + b.vz * t - 0.5 * GRAVITY * t * t;
+                if (zApprox <= AERIAL_HEIGHT) { tLand = t; dropX = bx2; dropY = by2; break; }
+            }
+            if (tLand > 0.0) {
+                double dDrop = dist(player.x, player.y, dropX, dropY);
+                double mySprint = std::max(45.0, attrFactor(player.attrs.speed) * SPEED_SPRINT);
+                if (dDrop < 170.0 && dDrop / mySprint < tLand + 0.35)
+                    attackDropPoint = true;
+            }
+        }
+    }
+    if (attackDropPoint) {
+        double sc = clamp(0.88 - dist(player.x, player.y, dropX, dropY) / 500.0, 0.60, 0.88);
+        return Action{ActionType::Chase, sc, nullptr, dropX, dropY, ActionPurpose::MeetIncoming};
+    }
     // A teammate's pass in flight is HIS ball — the urgency rules above made
     // off-ball players shadow-chase every pass that rolled near them,
     // oscillating at the carrier's elbow instead of holding shape.
