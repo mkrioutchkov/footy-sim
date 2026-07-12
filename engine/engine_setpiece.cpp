@@ -834,21 +834,44 @@ void GameEngine::releaseThrowIn(Player& holder) {
 
 void GameEngine::releaseCornerKick(Player& holder) {
     double goalX = holder.x < HALF_X ? HOME_GOAL_X : AWAY_GOAL_X;
-    // Short corner: ~18% are worked SHORT to a nearby teammate (the short option who stayed near
-    // the flag) instead of the whipped cross — set-piece variety. The receiver then plays on in
-    // open play (cross/cutback/dribble). Falls through to the cross if no near option is present.
-    if (rng.random() < 0.18) {
+    // ── SHORT CORNER (owner, seed-111 replay @1:47: "5 is completely free [near the
+    // corner]... i think more likely a short corner would be taken here") ──
+    // The old version fired ~18% UNCONDITIONALLY and picked the nearest teammate to
+    // the TAKER with NO openness check — so it worked short into a marked man just as
+    // readily as into acres, and did it on a quarter of all corners (probe: 24.3%).
+    // Re-gated on the picture the owner actually described: play it short ONLY when a
+    // teammate is GENUINELY FREE by the flag — inside SHORT_CORNER_NEAR_R of the
+    // corner SPOT (not the taker), outside SHORT_CORNER_MIN_R (not standing on him),
+    // and with his nearest defender beyond SHORT_CORNER_FREE_D (unmarked, the "5 is
+    // completely free" frame). If the defence has posted a short-lane cover man
+    // (setPiecePositioning defending-corner branch, agent_setpiece.cpp) the receiver
+    // is inside SHORT_CORNER_FREE_D of that cover and this gate FAILS — so a covered
+    // corner is whipped, exactly as the owner wants. The rng draw is the SAME single
+    // per-corner draw the old branch already spent (no new call site); it only trims
+    // the free-man corners down to a minority so the whip stays the norm. On release
+    // the receiver is on the byline and the normal open-play AI takes over; the
+    // corner is offside-EXEMPT here (setPiece.type is still Corner at beginTrackedPass
+    // — a corner can't be offside directly), and clearReleasedSetPiece's
+    // restartRetouchBlockedId = taker still fires after we return, so the taker's
+    // double-touch law holds until the short receiver plays it.
+    {
+        double cx = setPiece.spotX, cy = setPiece.spotY;
         Player* shortOpt = nullptr;
-        double bestD = 125.0;
+        double bestFree = -1e9;
         for (auto& p : state.players) {
             if (p.team != holder.team || p.id == holder.id || p.role == Role::GK || p.sentOff) continue;
-            double d = dist(holder.x, holder.y, p.x, p.y);
-            if (d > 35.0 && d < bestD) {
-                bestD = d;
-                shortOpt = &p;
+            double dCorner = dist(p.x, p.y, cx, cy);
+            if (dCorner < SHORT_CORNER_MIN_R || dCorner > SHORT_CORNER_NEAR_R) continue;
+            double nearestDef = 1e9;
+            for (auto& o : state.players) {
+                if (!isActiveOpponent(o, holder.team)) continue;
+                nearestDef = std::min(nearestDef, dist(o.x, o.y, p.x, p.y));
             }
+            if (nearestDef < SHORT_CORNER_FREE_D) continue;   // marked — not a free short option
+            double score = nearestDef - dCorner * 0.15;       // freest man; tiebreak nearest the flag
+            if (score > bestFree) { bestFree = score; shortOpt = &p; }
         }
-        if (shortOpt) {
+        if (shortOpt && rng.random() < SHORT_CORNER_PROB) {
             double dx = shortOpt->x - holder.x, dy = shortOpt->y - holder.y, d = std::max(1.0, std::hypot(dx, dy));
             auto& b = state.ball;
             b.controllerId = -1;

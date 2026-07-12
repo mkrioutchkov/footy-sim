@@ -175,6 +175,61 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
         if (spType == SetPiece::Corner) {
             double by = engine.state.ball.y;
             bool nearTop = by < PITCH_H / 2.0;
+            // ── SHORT-CORNER COVER (owner, seed-111 replay @1:47: "really a blue
+            // player perhaps 11 should be coming closer") ── the defending shape had
+            // NO answer to a worked short corner: everyone camped the posts/box while
+            // an attacker stood free at the flag, so the short ball was always on.
+            // When the attackers stack the flag for a short option — 2+ of them within
+            // SHORT_CORNER_LURK_R of the corner spot, COUNTING the taker on the spot —
+            // post ONE cover man on the short lane. Selection is the nearest SPARE
+            // outfielder (a CM/WM, never a CB or post-guard FB with a critical box job)
+            // to the short receiver; computed identically by every defender so exactly
+            // one takes it (id tiebreak). He sits SHORT_CORNER_COVER_R (10.15m) out on
+            // the spot→receiver lane — JUST beyond the 9.15m ring so it's law-legal
+            // (enforceRestartDistance leaves him be) and squarely in the pass lane.
+            // Marking the receiver drops him inside the attack's "genuinely free" gate
+            // (releaseCornerKick), so a covered corner gets whipped instead of worked
+            // short — which is the whole point of coming to cover.
+            {
+                double cx = engine.setPiece.spotX, cy = engine.setPiece.spotY;
+                const Player* recv = nullptr;
+                double recvD = 1e9;
+                int lurkers = 0;
+                for (auto& a : engine.state.players) {
+                    if (a.team == p.team || a.role == Role::GK || a.sentOff) continue;
+                    double d = dist(a.x, a.y, cx, cy);
+                    if (d > SHORT_CORNER_LURK_R) continue;
+                    lurkers++;                                   // includes the taker on the spot
+                    if (a.id == engine.setPiece.takerId) continue;
+                    if (d < recvD) { recvD = d; recv = &a; }
+                }
+                // Eligible = a SPARE midfielder (CM/WM — never a CB/FB with a post/box
+                // job, nor the CF counter outlet) who is ALREADY within
+                // SHORT_CORNER_COMMIT_R of the SHORT RECEIVER: a man close enough to step
+                // across and mark him. A defence with no spare mid near the short man
+                // simply can't cover — that corner goes UNCOVERED and the short stays
+                // live. This is what keeps short corners a genuine (not smothered-to-
+                // zero) minority: cover suppresses them when a marker is at hand, and
+                // lets them happen when the defence is caught with nobody spare nearby.
+                double myD = recv ? dist(p.x, p.y, recv->x, recv->y) : 1e9;
+                bool spareCover = (isCentralMidfielder() || isWideMidfielder()) && myD < SHORT_CORNER_COMMIT_R;
+                if (lurkers >= 2 && recv && spareCover) {
+                    bool iAmCover = true;
+                    for (auto& q : engine.state.players) {
+                        if (q.team != p.team || q.id == p.id || q.role == Role::GK || q.sentOff) continue;
+                        if (!(roles::isCentralMidfielder(q.role) || roles::isWideMidfielder(q.role))) continue;
+                        double qd = dist(q.x, q.y, recv->x, recv->y);
+                        if (qd >= SHORT_CORNER_COMMIT_R) continue;   // he can't reach either — not a rival for the role
+                        if (qd < myD - 1e-6 || (std::abs(qd - myD) <= 1e-6 && q.id < p.id)) { iAmCover = false; break; }
+                    }
+                    if (iAmCover) {
+                        double lx = recv->x - cx, ly = recv->y - cy, ll = std::max(1.0, std::hypot(lx, ly));
+                        p.targetX = clamp(cx + lx / ll * SHORT_CORNER_COVER_R, 35.0, PITCH_W - 35.0);
+                        p.targetY = clamp(cy + ly / ll * SHORT_CORNER_COVER_R, 35.0, PITCH_H - 35.0);
+                        return;   // committed to the short lane; skip the normal box shape
+                    }
+                }
+            }
             if (isDefenderRole()) {
                 bool postGuard = isFullBack();
                 p.targetX = ownGoalX + fd * (postGuard ? 42.0 : 68.0);

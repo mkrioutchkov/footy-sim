@@ -51,6 +51,24 @@ inline constexpr double RUNUP_SIDE_OFFSET = 18.0;   // lateral offset of a SHOOT
 inline constexpr double RUNUP_OVERRUN     = 10.0;   // the dash target sits just BEYOND the ball so he strikes through it
 inline constexpr double RUNUP_STRIKE_DIST = 8.0;    // he's "on the ball" — bring the release forward to this moment
 
+// ── Short corner (owner, seed-111 replay @1:47: "5 is completely free [near the
+// corner]... really a blue player perhaps 11 should be coming closer but as is i
+// think more likely a short corner would be taken here") ──
+// The taker plays the SHORT ball infield instead of the whip ONLY when a teammate
+// is GENUINELY FREE by the flag (geometry gates below), and even then only a
+// MINORITY of the time — the whipped delivery stays the norm. See releaseCornerKick
+// (engine_setpiece.cpp) for the attack side and setPiecePositioning's defending
+// Corner branch (agent_setpiece.cpp) for the short-lane cover.
+inline constexpr double SHORT_CORNER_NEAR_R    = 130.0;  // a short option must stand within this of the corner spot
+inline constexpr double SHORT_CORNER_MIN_R     = 40.0;   // ...but not on top of the taker (min radius from the flag)
+inline constexpr double SHORT_CORNER_FREE_D    = 60.0;   // "genuinely free": his nearest defender must be beyond this
+inline constexpr double SHORT_CORNER_PROB      = 0.55;   // minority tie-break AMONG free-man corners (whip stays the norm)
+inline constexpr double SHORT_CORNER_LURK_R    = 140.0;  // defence: attackers this close to the spot are lurking a short option
+inline constexpr double SHORT_CORNER_COVER_R   = 101.5;  // defence: cover sits here on the lane — JUST outside the 91.5px ring (LAW)
+inline constexpr double SHORT_CORNER_COMMIT_R  = 120.0;  // defence: only a spare mid ALREADY this near the short RECEIVER can step across to
+                                                         // mark him — no marker at hand ⇒ that corner goes uncovered and the short stays
+                                                         // live. Probe-tuned (seeds 101-116, 25min): 130px→3.7%, 120px→13.2%, 110px→20.4%.
+
 // ── Ball speed / physics ──
 // 2026-07-02 audit ("passes look weird"): base 136/slope 0.105 makes launch
 // speed near-UNIFORM — an 18px tap leaves the boot at 96% the speed of a
