@@ -785,9 +785,15 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // see — the Overlap assignment needs a wide carrier, and De Bruyne was
     // central).
     bool sprintingFB = t.role == Role::FB && runnerRawSpd > 38.0 && (t.vx * fd) > 18.0;
-    bool ledRunnerLoft = d >= 250.0 && d <= 460.0
+    // Kickoff-migration guard (seed 173 0:03): for ~2 ticks after a kickoff the
+    // whole team's positioning targets flip from the scripted kickoff shape to
+    // open play, manufacturing phantom "runs" (Ronaldinho read 30.9px/s off a
+    // one-tick target flip and drew a 42m loft straight through the CF still
+    // parked on the centre circle). No killer-ball class arms in the first 4s.
+    bool kickoffMigration = engine.state.clockMs - engine.phase.lastKickoffMs < 4000.0;
+    bool ledRunnerLoft = !kickoffMigration && d >= 250.0 && d <= 460.0
         && (targetAttacker || ((t.role == Role::CM || t.role == Role::FB) && runnerAssignment) || sprintingFB)
-        && runnerRawSpd > 30.0 && (t.vx * fd) > 8.0
+        && runnerRawSpd > 40.0 && (t.vx * fd) > 16.0
         && rpEff == 0 && blEff == 0 && nearestOppProj > 75.0
         && fpEff > 40.0 && completion >= 0.58;
     // Over the top (1:33: Neymar on an InsideRun, 10-12m onside, 30m of grass
@@ -796,7 +802,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // ANY depth. Priced at the projected landing like the loft.
     double spaceBehindLine = std::isnan(offsideLine) ? 0.0
         : std::abs(goalXFor(p.team) - offsideLine) ;
-    bool overTheTop = runnerAssignment && d >= 230.0 && d <= 520.0
+    bool overTheTop = !kickoffMigration && runnerAssignment && d >= 230.0 && d <= 520.0
         && onsideGap > 25.0 && onsideGap < 200.0 && spaceBehindLine > 180.0
         && rpEff == 0 && blEff <= 1 && nearestOppProj > 70.0
         && runnerRawSpd > 28.0 && completion >= 0.50;
