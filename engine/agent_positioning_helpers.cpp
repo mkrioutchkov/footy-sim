@@ -73,9 +73,19 @@ void PlayerAI::posDefensiveCover(SmallVector<PositionCandidate, 32>& c, const Po
     // nearest man to the free header 108px away). Inside the defensive third
     // plus its approach band, EVERYONE defends first.
     bool immediateDanger = carrierDepth < 360.0;
-    if (!immediateDanger && isCenterForward()) {
-        c.push_back({ clamp(HALF_X + pc.fd * 95.0, 60.0, PITCH_W - 60.0), p.homeY, ActionPurpose::CounterOutlet });
-        c.push_back({ clamp(HALF_X + pc.fd * 70.0, 60.0, PITCH_W - 60.0), clamp(p.homeY + ((b.y < PITCH_H / 2.0) ? 45.0 : -45.0), 80.0, PITCH_H - 80.0), ActionPurpose::CounterOutlet });
+    if (isCenterForward()) {
+        // The lone striker stays UP as the out-ball even under immediateDanger
+        // — dropping EVERYONE left the clearer with no forward-central target,
+        // and the hoof hooked wide instead (seed 305 1:27: Messi sat at x=215
+        // in his own half while 2R cleared 88 degrees to his own byline;
+        // owner: "why is the furthest R player (10) so far away from goal?").
+        // Pinned, his station pulls back toward halfway so he's a REACHABLE
+        // out-ball rather than marooned beyond every clearance.
+        double outletX = immediateDanger ? clamp(HALF_X - pc.fd * 60.0, 60.0, PITCH_W - 60.0)
+                                         : clamp(HALF_X + pc.fd * 95.0, 60.0, PITCH_W - 60.0);
+        c.push_back({ outletX, p.homeY, ActionPurpose::CounterOutlet });
+        if (!immediateDanger)
+            c.push_back({ clamp(HALF_X + pc.fd * 70.0, 60.0, PITCH_W - 60.0), clamp(p.homeY + ((b.y < PITCH_H / 2.0) ? 45.0 : -45.0), 80.0, PITCH_H - 80.0), ActionPurpose::CounterOutlet });
     }
     if (!immediateDanger && isWideMidfielder() && std::abs(p.homeY - b.y) > 190.0) {
         c.push_back({ clamp(HALF_X + pc.fd * 45.0, 60.0, PITCH_W - 60.0), p.homeY, ActionPurpose::RestForward });

@@ -219,15 +219,22 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                         // 130px-ahead sprinters projected 70px free, it
                         // re-tagged ~5 hoofs/match as through balls and
                         // halved conversion — the lever needs its own pass.)
+                        // Width was REWARDED here (+lat*0.35) and it hooked the
+                        // clear onto a wide man near our own byline: seed 305
+                        // 1:27, 2R hoofed 88 degrees across the face of his own
+                        // box to the touchline corner, entirely on the width
+                        // bonus (the central CF outscored him on forward gain).
+                        // Prefer the CENTRAL forward out-ball — the middle is
+                        // where the danger actually leaves.
                         double fx = pitch::forwardProgress(t.x, player.team)
-                                  + pitch::lateralFromCenter(t.y) * 0.35;
-                        // A SQUARE ball across the face of our own box is
-                        // never the clear (seed 111 2:02: pid19's 43.6m
-                        // switch across the top of his own box went straight
-                        // to the interception) — wide only counts when it's
-                        // also FORWARD.
-                        if ((t.x - player.x) * fdFor(player.team) < 50.0
-                            && std::abs(t.y - player.y) > 200.0) fx -= 400.0;
+                                  - pitch::lateralFromCenter(t.y) * 0.20;
+                        // Square-hoof guard, on the ball's actual travel RATIO
+                        // (the old forward-gain<50 test passed a ball going
+                        // 320px sideways for 94px forward): far more sideways
+                        // than forward across our own face is never the clear.
+                        double relFwd = (t.x - player.x) * fdFor(player.team);
+                        double relLat = std::abs(t.y - player.y);
+                        if (relLat > relFwd * 1.5 + 120.0) fx -= 400.0;
                         if (fx > bestFx) { bestFx = fx; tgt = &t; }
                     }
                     if (tgt) {
