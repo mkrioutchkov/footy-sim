@@ -221,6 +221,13 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                         // halved conversion — the lever needs its own pass.)
                         double fx = pitch::forwardProgress(t.x, player.team)
                                   + pitch::lateralFromCenter(t.y) * 0.35;
+                        // A SQUARE ball across the face of our own box is
+                        // never the clear (seed 111 2:02: pid19's 43.6m
+                        // switch across the top of his own box went straight
+                        // to the interception) — wide only counts when it's
+                        // also FORWARD.
+                        if ((t.x - player.x) * fdFor(player.team) < 50.0
+                            && std::abs(t.y - player.y) > 200.0) fx -= 400.0;
                         if (fx > bestFx) { bestFx = fx; tgt = &t; }
                     }
                     if (tgt) {

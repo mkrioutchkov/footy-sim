@@ -57,6 +57,12 @@ public:
         // swing direction), and one-shot markers.
         double carryStartMs = 0;
         double carryStartX = 0;   // x at carry start — net forward-progress gate for the moving-marathon release
+        // Facing at possession-gain: the clearance shank must measure "across
+        // the body" against where he FACED when he won it — the body rotates
+        // freely during even a 400ms hold, so the live facing reads square by
+        // release and the shank never fired (seed 111 2:05, pid19's 43.6m
+        // first-time switch at full pace).
+        double carryStartFacing = 0;
         int carryRevsY = 0, carryLastDirY = 0;
         double carryPivotY = 0;
         bool marathonRecorded = false, shuttleRecorded = false;

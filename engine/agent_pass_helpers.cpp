@@ -157,6 +157,21 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - blCost
             - std::min(laneRisk, 2.2) * 0.10 - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),
         0.08, 0.98);
+    // First-touch discount (owner, seed 111 2:05: "first touch is harder —
+    // make sure that's in mechanics"): a ball released before the carrier has
+    // settled it is likelier sprayed than the space model says — the execution
+    // side now genuinely sprays it (passBallTo freshTouch), so the scorer must
+    // price that in or the agent keeps choosing the 43m first-time switch.
+    // Short lay-offs stay cheap; long and across-the-body pays most.
+    {
+        double heldMs = engine.state.clockMs - engine.carrierTracker.carryStartMs;
+        if (engine.carrierTracker.carryTrackerId == p.id && heldMs < 500.0) {
+            double wantAng = std::atan2(t.y - p.y, t.x - p.x);
+            double offF = std::abs(std::atan2(std::sin(wantAng - p.facing), std::cos(wantAng - p.facing)));
+            completion -= clamp(d / 260.0, 0.0, 1.0)
+                        * (0.10 + 0.14 * clamp((offF - 0.4) / 1.6, 0.0, 1.0));
+        }
+    }
     // ── Arrival contest ── a long ball hangs long enough for a defender to beat
     // it to the receive point: price the race explicitly. The step-in blocker
     // model extends reach by at most 13px (~0.26s of closing) while a 450px

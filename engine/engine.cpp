@@ -409,6 +409,7 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
             carrierTracker.carryPathDistance = 0;
             carrierTracker.carryStartMs = state.clockMs;
             carrierTracker.carryStartX = c->x;
+            carrierTracker.carryStartFacing = c->facing;
             carrierTracker.carryRevsY = 0;
             carrierTracker.carryLastDirY = 0;
             carrierTracker.carryPivotY = c->y;

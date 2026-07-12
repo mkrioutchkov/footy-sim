@@ -506,6 +506,27 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // Footedness: a ball forced onto the weak side sprays more and carries
     // less. Two-footed players (foot=0) never pay it.
     if (weakFootStrike(f, dx, dy)) { inacc *= 1.28; speed *= 0.93; }
+    // First touch is harder (owner, seed 111 2:05: "first touch is harder —
+    // make sure that's in mechanics"; pid19 struck a 43.6m first-time
+    // cross-field ball 400ms after winning a tackle, at full pace, dead
+    // straight — no mechanic anywhere priced it). A ball struck before it's
+    // settled sprays, worst of all a LONG ball hit ACROSS the body; a short
+    // lay-off to feet barely pays. Keyed on carryStartMs<500 (the settle
+    // window alone maxes at ~165ms and misses the 200-400ms turn-and-hits).
+    {
+        double heldMs = state.clockMs - carrierTracker.carryStartMs;
+        bool freshTouch = f.id >= 0 && f.id < 22
+            && ((firstTouchUntilMs[f.id] > state.clockMs)
+                || (carrierTracker.carryTrackerId == f.id && heldMs < 500.0));
+        if (freshTouch) {
+            double wantAng = std::atan2(dy, dx);
+            double offF = std::abs(std::atan2(std::sin(wantAng - f.facing), std::cos(wantAng - f.facing)));
+            double distTerm = clamp(rawDist / 260.0, 0.0, 1.0);
+            double faceTerm = clamp((offF - 0.4) / 1.6, 0.0, 1.0);
+            inacc *= 1.0 + 0.9 * distTerm + 0.6 * faceTerm;
+            speed *= 1.0 - 0.15 * (distTerm * 0.5 + faceTerm * 0.5);
+        }
+    }
     if (secure) inacc *= 0.12; // rolled accurately to feet
     double tdx = dx + (rng.random() - 0.5) * inacc;
     double tdy = dy + (rng.random() - 0.5) * inacc;
@@ -832,7 +853,14 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     double shankMul = 1.0;
     {
         double wantAng = std::atan2(tdy, tdx);
-        double offF = std::abs(std::atan2(std::sin(wantAng - f.facing), std::cos(wantAng - f.facing)));
+        // Measure "across the body" against the facing AT POSSESSION-GAIN, not
+        // the live facing — the body rotates freely during even a 400ms hold,
+        // so by release the live facing already reads square and the shank
+        // never fired (seed 111 2:05: pid19's 43.6m first-time cross-field
+        // clear, struck 400ms after a tackle win at full pace, dead straight).
+        double refFacing = carrierTracker.carryTrackerId == f.id
+            ? carrierTracker.carryStartFacing : f.facing;
+        double offF = std::abs(std::atan2(std::sin(wantAng - refFacing), std::cos(wantAng - refFacing)));
         double heldMs = state.clockMs - carrierTracker.carryStartMs;
         if (carrierTracker.carryTrackerId == f.id && heldMs < 600.0 && offF > 0.6)
             shankMul = clamp(1.0 - (offF - 0.6) * 0.30, 0.55, 1.0);

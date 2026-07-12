@@ -333,6 +333,8 @@ int main(int argc, char* argv[]) {
         engine.carrierTracker.carryTrackerId = st.ball.controllerId;
         engine.carrierTracker.carryStartMs = st.clockMs;
         engine.carrierTracker.carryStartX = st.ball.x;
+        if (Player* rc = engine.playerById(st.ball.controllerId))
+            engine.carrierTracker.carryStartFacing = rc->facing;
         engine.carrierTracker.marathonReleased = false;
         // RNG stream restore (owner: "can't the RNG stream be snapshotted too?").
         // Only --snapshot-out snapshots carry it (traces don't record RNG state);
