@@ -171,7 +171,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
                 b.z = std::max(b.z, 12.0);
                 b.vz = 70.0 + rng.random() * 80.0;
                 b.lastTouchTeam = receiver.team;
-                b.lastToucherId = receiver.id;
+                b.lastToucherId = receiver.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
                 pendingPass.active = false;
                 blockReboundFor(receiver.id, 500);
                 return true;
@@ -198,7 +198,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
                         b.z = std::max(b.z * 0.5, 10.0);
                         b.vz = 35.0;
                         b.lastTouchTeam = receiver.team;
-                        b.lastToucherId = receiver.id;
+                        b.lastToucherId = receiver.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
                         lastLooseOrigin = LooseOrigin::HeaderClearance;
                         pendingPass.active = false;
                         recordBallImpulse();
@@ -216,7 +216,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             b.z = 18.0;
             b.vz = 95.0;
             b.lastTouchTeam = receiver.team;
-            b.lastToucherId = receiver.id;
+            b.lastToucherId = receiver.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
             lastLooseOrigin = LooseOrigin::HeaderClearance;
             pendingPass.active = false;
             recordBallImpulse();
@@ -294,7 +294,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             b.z = 12.0;
             b.vz = 45.0;
             b.lastTouchTeam = receiver.team;
-            b.lastToucherId = receiver.id;
+            b.lastToucherId = receiver.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
             lastLooseOrigin = LooseOrigin::HeaderLayoff;
             pendingPass.active = false;
             recordBallImpulse();
@@ -481,8 +481,12 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // Lead scales with the ball's own length (seed 111 1:35: a 195px through
     // ball took the full 90-210px lead and landed in Neuer's arms 100px past
     // the runner). A short slipped ball leads a stride; only the long killer
-    // earns the full channel lead.
-    double throughLead = throughBall ? fd * (90 + attrFactor(f.attrs.creativity) * 120) * clamp(rawDist / 450.0, 0.35, 1.0) : 0;
+    // earns the full channel lead. And with the RECEIVER'S actual run (seed
+    // 437 1:14: a near-standing collector was led 90px+ into empty grass,
+    // straight to the sweeping defender — the channel lead is for a runner at
+    // pace; a static man gets it to feet).
+    double throughLead = throughBall ? fd * (90 + attrFactor(f.attrs.creativity) * 120) * clamp(rawDist / 450.0, 0.35, 1.0)
+                                     * clamp(receiverSpeed / 40.0, 0.15, 1.0) : 0;
     // NOTE: clamping the through-ball aim point inside the field (weighting it
     // to stay in) was A/B'd and REVERTED — the most valuable killer balls are
     // aimed exactly at the deep byline channel, and pulling them up cost the
@@ -523,11 +527,17 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         bool freshTouch = f.id >= 0 && f.id < 22
             && ((firstTouchUntilMs[f.id] > state.clockMs)
                 || (carrierTracker.carryTrackerId == f.id && heldMs < 500.0));
+        double wantAng = std::atan2(dy, dx);
+        double offF = std::abs(std::atan2(std::sin(wantAng - f.facing), std::cos(wantAng - f.facing)));
+        double faceTerm = clamp((offF - 0.4) / 1.6, 0.0, 1.0);
+        // A SETTLED carrier striking across the body pays a mild spray too —
+        // the turn-before-release gate lets go within ~54deg, and a pressured
+        // release mid-turn can still be well off-axis (round-17 low-level
+        // audit: the "unnatural cross" class was 100% spray-free when held
+        // >500ms). Fresh touches keep the full first-touch penalty on top.
+        inacc *= 1.0 + 0.35 * faceTerm;
         if (freshTouch) {
-            double wantAng = std::atan2(dy, dx);
-            double offF = std::abs(std::atan2(std::sin(wantAng - f.facing), std::cos(wantAng - f.facing)));
             double distTerm = clamp(rawDist / 260.0, 0.0, 1.0);
-            double faceTerm = clamp((offF - 0.4) / 1.6, 0.0, 1.0);
             inacc *= 1.0 + 0.9 * distTerm + 0.6 * faceTerm;
             speed *= 1.0 - 0.15 * (distTerm * 0.5 + faceTerm * 0.5);
         }
@@ -570,7 +580,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // whose ball deflected dead nearby reclaims it instead of jogging beside it.
     blockReboundFor(f.id, 450);
     b.lastTouchTeam = f.team;
-    b.lastToucherId = f.id;
+    b.lastToucherId = f.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     driveBall(b, tdx, tdy, tDist, speed);
     b.intendedReceiverId = t.id;
     receiverShieldTargetId = t.id;
@@ -788,7 +798,7 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
             sb.controllerId = -1;
             placeBallForRelease(f, svx, svy);
             sb.lastTouchTeam = f.team;
-            sb.lastToucherId = f.id;
+            sb.lastToucherId = f.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
             sb.vx = svx;
             sb.vy = svy;
             sb.z = 4.0;
@@ -877,7 +887,7 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     placeBallForRelease(f, tdx, tdy);
     blockReboundFor(f.id, 900);
     b.lastTouchTeam = f.team;
-    b.lastToucherId = f.id;
+    b.lastToucherId = f.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     driveBall(b, tdx, tdy, tDist, speed);
     b.intendedReceiverId = t.id;
     receiverShieldTargetId = t.id;
@@ -971,7 +981,7 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
             b.controllerId = -1;
             b.intendedReceiverId = -1;
             b.lastTouchTeam = carrier.team;
-            b.lastToucherId = carrier.id;
+            b.lastToucherId = carrier.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
             lastLooseOrigin = LooseOrigin::None;
             blockReboundFor(tackler.id, 650);
             double defendingGoalX = ownGoalXFor(tackler.team);
@@ -1144,7 +1154,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         b.vx = b.vy = b.z = b.vz = 0;
         b.curl = 0;
         b.lastTouchTeam = tackler.team;
-        b.lastToucherId = tackler.id;
+        b.lastToucherId = tackler.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
         b.intendedReceiverId = -1;
         receiverShieldUntil = state.clockMs + 260;
         receiverShieldedPlayerId = tackler.id;
@@ -1187,7 +1197,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     if (kickSpeed > 180) { stats.recordSlideTackleDistance(); }
     if (b.x < 10 || b.x > PITCH_W - 10 || b.y < 10 || b.y > PITCH_H - 10) { stats.recordSlideTackleOob(); }
     b.lastTouchTeam = tackler.team;
-    b.lastToucherId = tackler.id;
+    b.lastToucherId = tackler.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     b.intendedReceiverId = -1;
     b.z = b.vz = 0;
     lastLooseOrigin = LooseOrigin::TackleDeflection;
@@ -1506,7 +1516,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
         }
     }
     b.lastTouchTeam = s.team;
-    b.lastToucherId = s.id;
+    b.lastToucherId = s.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     metrics.shotLaunchSpeedTotal += speed;
     metrics.shotLaunchCount++;
     stats.recordShotLaunch(speed);
@@ -1592,7 +1602,7 @@ bool GameEngine::knockBallAhead(Player& carrier, double targetX, double targetY)
     b.vy = ny * launchSpeed;
     b.z = b.vz = 0;
     b.lastTouchTeam = carrier.team;
-    b.lastToucherId = carrier.id;
+    b.lastToucherId = carrier.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     lastLooseOrigin = LooseOrigin::KnockAhead;
     recordBallImpulse();
     stats.recordKnockAhead(launchSpeed);
