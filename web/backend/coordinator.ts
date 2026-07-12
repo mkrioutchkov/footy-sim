@@ -453,5 +453,4 @@ export function joinLiveMatch(
   return m;
 }
 
-export function liveMatchFor(key: string): LiveMatch | undefined { return activeMatches.get(key); }
 export { hasHumanStake };

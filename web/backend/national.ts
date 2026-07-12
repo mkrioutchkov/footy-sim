@@ -54,9 +54,20 @@ export function fieldableNations(worldId: number): FieldableNation[] {
       SELECT p.nationality FROM players p JOIN teams t ON t.id = p.team_id WHERE t.league_id IN (${ph})
       UNION ALL SELECT nationality FROM free_agents WHERE league_id IN (${ph})
     ) GROUP BY nationality HAVING c >= 11`).all(...leagueIds, ...leagueIds) as { nat: string; c: number }[];
+  // Batch the strength read: one club + one free-agent scan for the WHOLE world, then bucket OVRs by
+  // nationality (was a poolFor per fieldable nation — 2 queries + a worldLeagues() lookup each). Club
+  // rows are bucketed before free agents, matching poolFor's [...club, ...fas] order so the top-11 pick
+  // is identical. Only ovr is needed for strength, so personality/foot are not read here.
+  const ovrsByNat = new Map<string, number[]>();
+  const bucket = (nat: string, role: string, attrs: string) => {
+    const ovr = overall(JSON.parse(attrs) as Record<string, number>, role);
+    const arr = ovrsByNat.get(nat); if (arr) arr.push(ovr); else ovrsByNat.set(nat, [ovr]);
+  };
+  for (const p of db.prepare(`SELECT p.nationality AS nat, p.role, p.attrs FROM players p JOIN teams t ON t.id = p.team_id WHERE t.league_id IN (${ph})`).all(...leagueIds) as { nat: string; role: string; attrs: string }[]) bucket(p.nat, p.role, p.attrs);
+  for (const f of db.prepare(`SELECT nationality AS nat, role, attrs FROM free_agents WHERE league_id IN (${ph})`).all(...leagueIds) as { nat: string; role: string; attrs: string }[]) bucket(f.nat, f.role, f.attrs);
   return rows.filter(r => NATION_BY_KEY.has(r.nat)).map(r => {
-    const top = poolFor(worldId, r.nat).sort((a, b) => b.ovr - a.ovr).slice(0, 11);
-    const strength = top.length ? Math.round(top.reduce((s, p) => s + p.ovr, 0) / top.length) : 0;
+    const top = (ovrsByNat.get(r.nat) ?? []).sort((a, b) => b - a).slice(0, 11);
+    const strength = top.length ? Math.round(top.reduce((s, v) => s + v, 0) / top.length) : 0;
     return { key: r.nat, confed: NATION_BY_KEY.get(r.nat)!.confed, count: r.c, strength };
   });
 }

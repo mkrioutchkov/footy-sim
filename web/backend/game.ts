@@ -334,6 +334,28 @@ export function generateFixtures(leagueId: number): void {
   void arr;
 }
 
+// Create the two-division league shell of a world: a tier-1 "Division 1" (its id becomes the
+// world_id) and a tier-2 "Division 2" sharing that world_id, so promotion/relegation + rollover can
+// move teams between them. Returns both league ids. Shared prefix of both world builders below (the
+// difference is only the display-name prefix + which clubs then fill the two divisions).
+function createWorldLeagues(namePrefix: string): { worldId: number; secondId: number } {
+  const top = db.prepare("INSERT INTO leagues (name, season, status, tier) VALUES (?, 1, 'running', 1)")
+    .run(`${namePrefix} — Division 1`);
+  const worldId = Number(top.lastInsertRowid);
+  db.prepare('UPDATE leagues SET world_id = ? WHERE id = ?').run(worldId, worldId);
+  const second = db.prepare("INSERT INTO leagues (name, season, status, tier, world_id) VALUES (?, 1, 'running', 2, ?)")
+    .run(`${namePrefix} — Division 2`, worldId);
+  return { worldId, secondId: Number(second.lastInsertRowid) };
+}
+
+// Fixtures + free-agent pools for both divisions + the world cup (all 16 clubs). Call order feeds the
+// seeded RNG stream, so do NOT reorder — shared tail of both world builders (runs after team creation).
+function finalizeWorld(worldId: number, secondId: number): void {
+  generateFixtures(worldId); generateFixtures(secondId);
+  seedFreeAgents(worldId); seedFreeAgents(secondId);
+  createCup(secondId);                                   // a knockout cup of all 16 clubs
+}
+
 // Create a fresh two-division WORLD: a top division (tier 1, all AI, stronger) and a
 // second division (tier 2) where the user starts among weaker AI, so the first goal is
 // to win promotion. Both divisions get fixtures + a free-agent pool. The two leagues
@@ -342,14 +364,7 @@ export function generateFixtures(leagueId: number): void {
 export function newSeasonForUser(userId: number, username: string, teamName: string, tactics: Tactics): {
   leagueId: number; teamId: number; worldId: number;
 } {
-  const top = db.prepare("INSERT INTO leagues (name, season, status, tier) VALUES (?, 1, 'running', 1)")
-    .run(`${username}'s World — Division 1`);
-  const worldId = Number(top.lastInsertRowid);
-  db.prepare('UPDATE leagues SET world_id = ? WHERE id = ?').run(worldId, worldId);
-  const second = db.prepare("INSERT INTO leagues (name, season, status, tier, world_id) VALUES (?, 1, 'running', 2, ?)")
-    .run(`${username}'s World — Division 2`, worldId);
-  const secondId = Number(second.lastInsertRowid);
-
+  const { worldId, secondId } = createWorldLeagues(`${username}'s World`);
   const fin1 = TIER_FINANCE[1], fin2 = TIER_FINANCE[2];
   // user starts in the second division (Championship money)
   const teamId = createTeam({ leagueId: secondId, userId, name: teamName, manager: username, tactics, base: 70, budget: fin2.transferBudget, wageBudget: fin2.wageBudget });
@@ -360,9 +375,7 @@ export function newSeasonForUser(userId: number, username: string, teamName: str
   for (let i = 0; i < LEAGUE_SIZE; i++) {
     createTeam({ leagueId: worldId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(70 + Math.random() * 15), budget: fin1.transferBudget, wageBudget: fin1.wageBudget }); // 70..85
   }
-  generateFixtures(worldId); generateFixtures(secondId);
-  seedFreeAgents(worldId); seedFreeAgents(secondId);
-  createCup(secondId);                                   // a knockout cup of all 16 clubs
+  finalizeWorld(worldId, secondId);
   // the board's opening expectation: a strong fresh club in the second tier is expected to go up
   // (2 = PROMOTE; passed as a literal to keep game.ts free of a season.ts import cycle).
   setSeasonObjective(teamId, 1, deriveObjective({ tier: 2, size: LEAGUE_SIZE, promote: 2, isTopTier: false }));
@@ -374,17 +387,11 @@ export function newSeasonForUser(userId: number, username: string, teamName: str
 // Advanced only by the scheduler (worlds.mode = 'shared'). Structurally identical to newSeasonForUser
 // minus the human team + objective. Nationalities are backfilled separately (see nations backfill).
 export function createSharedWorld(name: string): { worldId: number; secondId: number } {
-  const top = db.prepare("INSERT INTO leagues (name, season, status, tier) VALUES (?, 1, 'running', 1)").run(`${name} — Division 1`);
-  const worldId = Number(top.lastInsertRowid);
-  db.prepare('UPDATE leagues SET world_id = ? WHERE id = ?').run(worldId, worldId);
-  const second = db.prepare("INSERT INTO leagues (name, season, status, tier, world_id) VALUES (?, 1, 'running', 2, ?)").run(`${name} — Division 2`, worldId);
-  const secondId = Number(second.lastInsertRowid);
+  const { worldId, secondId } = createWorldLeagues(name);
   const fin1 = TIER_FINANCE[1], fin2 = TIER_FINANCE[2];
   for (let i = 0; i < LEAGUE_SIZE; i++) createTeam({ leagueId: worldId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(70 + Math.random() * 15), budget: fin1.transferBudget, wageBudget: fin1.wageBudget });
   for (let i = 0; i < LEAGUE_SIZE; i++) createTeam({ leagueId: secondId, userId: null, name: randomTeamName(), manager: 'AI', tactics: randomTactics(), base: Math.round(55 + Math.random() * 15), budget: fin2.transferBudget, wageBudget: fin2.wageBudget });
-  generateFixtures(worldId); generateFixtures(secondId);
-  seedFreeAgents(worldId); seedFreeAgents(secondId);
-  createCup(secondId);
+  finalizeWorld(worldId, secondId);
   registerWorld(worldId, name, 'shared', { joinOpen: true });
   // Nationalities normally backfill at boot / season rollover — a world created at RUNTIME
   // would otherwise field ~270 nationality-less players for its whole first season (empty

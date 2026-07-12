@@ -110,6 +110,16 @@ function validTactics(t: any): Tactics {
     defensiveLineHeight: clamp(t?.defensiveLineHeight),
   };
 }
+// The all-but-universal route preamble: require a logged-in user who manages a club, and return
+// that club's id (401 logged-out, 404 'no team' otherwise — after which the caller just `return`s).
+// The handful of routes that also need the `user` object (admin checks) keep the explicit pair.
+function requireTeam(req: any, reply: any): number | null {
+  const user = requireUser(req, reply);
+  if (!user) return null;
+  const teamId = teamForUser(user.id);
+  if (!teamId) { reply.code(404).send({ error: 'no team' }); return null; }
+  return teamId;
+}
 
 // ── auth routes ──
 app.post('/api/register', async (req: any, reply) => {
@@ -169,9 +179,7 @@ app.post('/api/team', async (req: any, reply) => {
 // Generate personalities for the user's squad if any are missing (backfills teams
 // created before this feature, and resolves the post-creation race). Returns the team.
 app.post('/api/personalities', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   if (needsPersonalities(teamId)) await assignPersonalities(teamId);
   return getTeamWithPlayers(teamId);
 });
@@ -186,9 +194,7 @@ app.get('/api/team', async (req: any, reply) => {
 // §2.11: name the club captain (a squad slot) — a strong leader steadies squad morale each matchday.
 // slot null/-1 clears it (back to auto: the highest-leadership player wears the armband).
 app.put('/api/captain', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const raw = req.body?.slot;
   if (raw == null || Number(raw) === -1) { db.prepare('UPDATE teams SET captain_slot = NULL WHERE id = ?').run(teamId); return { ok: true, captainSlot: null }; }
   const slot = Number(raw);
@@ -202,9 +208,7 @@ app.put('/api/captain', async (req: any, reply) => {
 // the engine's default). Validated against the squad; emitted as per-player directives the engine reads at
 // the restart. getTeamWithPlayers returns the current selection (team.setPieceTakers), so no GET needed.
 app.post('/api/set-piece-takers', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slots = new Set((db.prepare('SELECT slot FROM players WHERE team_id = ?').all(teamId) as { slot: number }[]).map(r => r.slot));
   const pick = (v: unknown): number | null => { const n = Number(v); return v != null && Number.isInteger(n) && slots.has(n) ? n : null; };
   const takers = { fk: pick(req.body?.fk), corner: pick(req.body?.corner), pen: pick(req.body?.pen), longThrow: pick(req.body?.longThrow) };
@@ -223,9 +227,7 @@ function ownUnplayedFixture(teamId: number, fixtureId: number): { ok: true } | {
   return { ok: true };
 }
 app.get('/api/teamtalk', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const fixtureId = Number(req.query?.fixture);
   const chk = ownUnplayedFixture(teamId, fixtureId);
   if (!chk.ok) return reply.code(chk.code).send({ error: chk.error });
@@ -234,9 +236,7 @@ app.get('/api/teamtalk', async (req: any, reply) => {
   return { tones: TALK_TONES, pending, tone, reactions: previewTalk(teamId, tone) };
 });
 app.post('/api/teamtalk', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const fixtureId = Number(req.body?.fixtureId);
   const chk = ownUnplayedFixture(teamId, fixtureId);
   if (!chk.ok) return reply.code(chk.code).send({ error: chk.error });
@@ -246,15 +246,11 @@ app.post('/api/teamtalk', async (req: any, reply) => {
 
 // §2.9: the youth academy — the club's developing prospects + promote one to the senior squad.
 app.get('/api/academy', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return { prospects: getAcademy(teamId) };
 });
 app.post('/api/academy/:id/promote', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const r = promoteProspect(teamId, Number(req.params.id));
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, prospects: getAcademy(teamId) };
@@ -264,9 +260,7 @@ app.post('/api/academy/:id/promote', async (req: any, reply) => {
 // ids) and persist both the text + the compiled plan. Empty text clears the plan. Graceful — if
 // the compiler is unreachable, the text is saved with no directives + a note (plays the neutral base).
 app.post('/api/team/plan', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const text = String(req.body?.text ?? '').trim().slice(0, 600);
   const t = getTeamWithPlayers(teamId)!;
   // team-relative XI: the first 11 by slot, id = 0..10 (resolved to engine ids at spec-build time)
@@ -291,9 +285,7 @@ app.post('/api/team/plan', async (req: any, reply) => {
 // §2 quick-tactics: one-tap team mentality (deterministic, no LLM) — sets a coherent plan_text + team-wide
 // directives in one write. Replaces the standing plan with the chosen stance (the user refines via the prompt).
 app.post('/api/team/quick-tactics', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const preset = String(req.body?.preset ?? '');
   if (!(preset in QUICK_TACTICS)) return reply.code(400).send({ error: 'unknown preset' });
   const plan = buildQuickPlan(preset as QuickTactic, 0);   // team-relative scope; resolved to engine ids at spec-build
@@ -304,9 +296,7 @@ app.post('/api/team/quick-tactics', async (req: any, reply) => {
 });
 
 app.put('/api/tactics', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const tactics = validTactics(req.body?.tactics);
   db.prepare('UPDATE teams SET tactics = ? WHERE id = ?').run(JSON.stringify(tactics), teamId);
   return { tactics };
@@ -318,9 +308,7 @@ app.put('/api/tactics', async (req: any, reply) => {
 // resolved XI + note. Storing the default 4-3-3 identity as NULL keeps the
 // byte-identical spec path for un-customised teams.
 app.put('/api/lineup', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const text = String(req.body?.text ?? '').trim();
   if (!text) return reply.code(400).send({ error: 'say how you want to line up' });
   const team = getTeamWithPlayers(teamId)!;
@@ -354,9 +342,7 @@ function strongestXI(players: { slot: number; role: string; attrs: Record<string
 
 // §auto-XI: field the strongest role-correct XI for the CURRENT formation.
 app.post('/api/lineup/auto', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const team = getTeamWithPlayers(teamId)!;
   const formation = team.formation ?? '4-3-3';
   const players = team.players.slice().sort((a, b) => a.slot - b.slot);
@@ -372,9 +358,7 @@ app.post('/api/lineup/auto', async (req: any, reply) => {
 // or invalid lineup falls back to the strongest role-fit XI for that shape. Keeps the byte-identical guard
 // (default 4-3-3 identity persists as NULL). No opponent, no LLM latency — a shape/slot change is instant.
 app.post('/api/lineup/set', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const formation = String(req.body?.formation ?? '');
   if (!FORMATIONS[formation]) return reply.code(400).send({ error: 'unknown formation' });
   const team = getTeamWithPlayers(teamId)!;
@@ -402,9 +386,7 @@ app.post('/api/lineup/set', async (req: any, reply) => {
 // against VALID_KINDS (man_mark dropped — live-only), then persisted to plan_directives exactly like the
 // text/quick paths, so spec-build + the engine consume it unchanged. No opponent, no LLM.
 app.post('/api/team/plan-structured', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const directives = sanitizeStructuredDirectives(req.body?.directives, 0);   // team-relative (home scope 0); resolved at spec-build
   const summary = (String(req.body?.summary ?? '').trim().slice(0, 280)) || (directives.length ? 'Tactics set from the tactics board.' : 'No special team instructions.');
   const plan = { summary, directives };
@@ -421,9 +403,7 @@ app.get('/api/formations', async (req: any, reply) => {
 
 // ── transfer market (pillar 1) ──
 app.get('/api/market', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const market = getMarket(teamId);
   if (!market) return reply.code(404).send({ error: 'no team' });
   // how the board frames recruitment (confidence + objective) — pure framing, never a budget change
@@ -432,9 +412,7 @@ app.get('/api/market', async (req: any, reply) => {
 });
 
 app.post('/api/market/buy', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const agentId = Number(req.body?.agentId);
   if (!Number.isInteger(agentId)) return reply.code(400).send({ error: 'agentId required' });
   const r = buyFreeAgent(teamId, agentId);
@@ -443,9 +421,7 @@ app.post('/api/market/buy', async (req: any, reply) => {
 });
 
 app.post('/api/market/list', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.body?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
   const price = req.body?.price != null ? Number(req.body.price) : undefined;
@@ -455,9 +431,7 @@ app.post('/api/market/list', async (req: any, reply) => {
 });
 
 app.post('/api/market/unlist', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.body?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
   unlistPlayer(teamId, slot);
@@ -467,9 +441,7 @@ app.post('/api/market/unlist', async (req: any, reply) => {
 // Bid for another club's player (club-to-club, window-gated, with negotiation). A rejection /
 // counter is a normal outcome (200 + status), only a malformed/illegal bid is a 4xx.
 app.post('/api/transfer/bid', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const playerId = Number(req.body?.playerId), fee = Number(req.body?.fee);
   if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
   const r = bidForPlayer(teamId, playerId, fee);
@@ -479,9 +451,7 @@ app.post('/api/transfer/bid', async (req: any, reply) => {
 
 // Loan in another club's player for the season (no fee, window-gated).
 app.post('/api/transfer/loan', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const playerId = Number(req.body?.playerId);
   if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
   const r = loanIn(teamId, playerId);
@@ -492,9 +462,7 @@ app.post('/api/transfer/loan', async (req: any, reply) => {
 // §2.1 (free-agent half): offer a free agent terms (wage + length) — he considers it and answers at the
 // next matchday — and the manager's free-agent negotiations in progress.
 app.post('/api/freeagent/offer', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const agentId = Number(req.body?.agentId), wage = Number(req.body?.wage), years = Number(req.body?.years);
   if (!Number.isInteger(agentId)) return reply.code(400).send({ error: 'agentId required' });
   const r = offerToFreeAgent(teamId, agentId, wage, years);
@@ -502,18 +470,14 @@ app.post('/api/freeagent/offer', async (req: any, reply) => {
   return { ...r, market: getMarket(teamId), faOffers: freeAgentOffersForTeam(teamId) };
 });
 app.get('/api/freeagent/offers', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return { offers: freeAgentOffersForTeam(teamId) };
 });
 
 // §loan-out: send one of your own players out on loan to a world club for the season (frees his wage; he
 // returns at rollover). Optional clubId picks the destination; otherwise a club short in his role is chosen.
 app.post('/api/transfer/loan-out', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.body?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
   const clubId = req.body?.clubId != null ? Number(req.body.clubId) : undefined;
@@ -524,9 +488,7 @@ app.post('/api/transfer/loan-out', async (req: any, reply) => {
 
 // §2.12: send a loaned-in player back to his parent club early (frees the slot + wage).
 app.post('/api/transfer/loan/end', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.body?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
   const r = endLoan(teamId, slot);
@@ -537,23 +499,17 @@ app.post('/api/transfer/loan/end', async (req: any, reply) => {
 // §2.1 signing drama: a buyer's outgoing offers (live + recently resolved), withdraw a live one,
 // or match a counter (completes the deal at the seller's named price).
 app.get('/api/offers', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return { offers: offersForTeam(teamId) };
 });
 app.post('/api/offer/:id/withdraw', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const r = withdrawOffer(teamId, Number(req.params.id));
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, offers: offersForTeam(teamId) };
 });
 app.post('/api/offer/:id/match', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const r = matchCounter(teamId, Number(req.params.id));
   if (r.status === 'error') return reply.code(400).send({ error: r.error });
   return { ...r, market: getMarket(teamId), offers: offersForTeam(teamId) };
@@ -561,23 +517,17 @@ app.post('/api/offer/:id/match', async (req: any, reply) => {
 
 // §2.1: INCOMING bids — other clubs bidding for YOUR listed players. List them, accept (sell), or reject.
 app.get('/api/incoming-offers', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return { incoming: incomingOffersForTeam(teamId) };
 });
 app.post('/api/offer/:id/accept', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const r = acceptIncomingOffer(teamId, Number(req.params.id));
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, market: getMarket(teamId), incoming: incomingOffersForTeam(teamId) };
 });
 app.post('/api/offer/:id/reject', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const r = rejectIncomingOffer(teamId, Number(req.params.id));
   if (!r.ok) return reply.code(400).send({ error: r.error });
   return { ...r, incoming: incomingOffersForTeam(teamId) };
@@ -588,9 +538,7 @@ app.post('/api/offer/:id/reject', async (req: any, reply) => {
 // training rate + transfer value read the dials live, so editing the story changes the
 // player's underlying weights). LLM-primary with a deterministic keyword fallback.
 app.put('/api/player/:slot/story', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.params.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
   const backstory = String(req.body?.backstory ?? '').trim().slice(0, 400);
@@ -611,9 +559,7 @@ app.put('/api/player/:slot/story', async (req: any, reply) => {
 // Propose a renewal (§2.2): the manager offers a wage + length; the player resolves it at the next
 // matchday (accept / counter / reject). Replaces the old instant one-click renewal with a negotiation.
 app.post('/api/player/:slot/renew-offer', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.params.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
   const wage = Number(req.body?.wage);
@@ -625,17 +571,13 @@ app.post('/api/player/:slot/renew-offer', async (req: any, reply) => {
 
 // The club's contract negotiations (outgoing renewal offers + their status).
 app.get('/api/contract-offers', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return { offers: contractOffersForTeam(teamId) };
 });
 
 // Match the player's counter — strike the renewal at his terms (budget permitting).
 app.post('/api/contract-offer/:id/match', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const id = Number(req.params.id);
   const r = matchContractCounter(teamId, id);
   if (!r.ok) return reply.code(400).send({ error: r.error });
@@ -644,9 +586,7 @@ app.post('/api/contract-offer/:id/match', async (req: any, reply) => {
 
 // Withdraw a live renewal offer.
 app.post('/api/contract-offer/:id/withdraw', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const id = Number(req.params.id);
   const r = withdrawContractOffer(teamId, id);
   if (!r.ok) return reply.code(400).send({ error: r.error });
@@ -655,9 +595,7 @@ app.post('/api/contract-offer/:id/withdraw', async (req: any, reply) => {
 
 // Preview a renewal (§1.14): the recomputed wage + delta + affordability, WITHOUT committing.
 app.get('/api/player/:slot/renew-preview', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.params.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
   const r = previewRenewal(teamId, slot, 3);
@@ -672,9 +610,7 @@ const pressInFlight = new Set<number>();   // a presser is mid-judge (multi-seco
 // Interactive press: a context-aware journalist question + tone-keyed response options (LLM, with a
 // deterministic template fallback). The frontend shows the question + lets the manager pick a tone.
 app.get('/api/press', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   if (!pressAvailable(teamId)) return { available: false };
   const team = getTeamWithPlayers(teamId)!;
   const last5 = db.prepare('SELECT home_team_id, away_team_id, home_score, away_score FROM fixtures WHERE (home_team_id = ? OR away_team_id = ?) AND played = 1 ORDER BY round DESC LIMIT 5')
@@ -708,9 +644,7 @@ app.get('/api/press', async (req: any, reply) => {
 });
 
 app.post('/api/press', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const text = String(req.body?.text ?? '').trim().slice(0, 400);
   const tone = typeof req.body?.tone === 'string' ? req.body.tone : undefined;   // the chosen option's tone (board effect)
   if (!text) return reply.code(400).send({ error: 'say something to the media' });
@@ -732,15 +666,11 @@ app.post('/api/press', async (req: any, reply) => {
 
 // §shortlist: the manager's transfer watchlist (resolved to live rows) + the tracked id set for the ★ toggle.
 app.get('/api/shortlist', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return { shortlist: getShortlist(teamId), ids: shortlistIds(teamId) };
 });
 app.post('/api/shortlist', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const playerId = Number(req.body?.playerId);
   if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
   const add = req.body?.add !== false;   // default to add unless explicitly false
@@ -751,9 +681,7 @@ app.post('/api/shortlist', async (req: any, reply) => {
 // §scouting-centre: search the whole player population of the user's world by role/age/overall/value/
 // name, with attributes fogged to the club's scout depth. Filters come in as query params (all optional).
 app.get('/api/search', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const q = req.query ?? {};
   const num = (v: unknown): number | undefined => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) ? n : undefined; };
   return searchPlayers(teamId, {
@@ -768,9 +696,7 @@ app.get('/api/search', async (req: any, reply) => {
 
 // §stat-leaders: the current division's top scorers + top assisters this season.
 app.get('/api/leaders', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const l = leagueLeaders(teamId);
   if (!l) return reply.code(404).send({ error: 'no team' });
   return l;
@@ -779,9 +705,7 @@ app.get('/api/leaders', async (req: any, reply) => {
 // §player-interaction: a private 1-to-1 word with one player (praise/encourage/warn/criticise) that moves
 // his morale via his personality dials. One chat per player per matchday (cooldown enforced in the module).
 app.post('/api/player/:slot/interact', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.params?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
   if (!isInteractTone(req.body?.tone)) return reply.code(400).send({ error: 'unknown tone' });
@@ -793,9 +717,7 @@ app.post('/api/player/:slot/interact', async (req: any, reply) => {
 // A squad player's archived career — one row per finished season (goals/assists/apps/avg-rating),
 // resolved slot → stable players.id within the user's own club (career only for players you manage).
 app.get('/api/player/:slot/career', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.params?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
   const row = db.prepare('SELECT id FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as { id: number } | undefined;
@@ -806,9 +728,7 @@ app.get('/api/player/:slot/career', async (req: any, reply) => {
 // A squad player's attribute-progression series — one snapshot per developed matchday (attr_snapshots),
 // for the Development graph. Same slot → stable players.id resolution as /career (auth boundary).
 app.get('/api/player/:slot/progression', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.params?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
   const row = db.prepare('SELECT id FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as { id: number } | undefined;
@@ -818,16 +738,12 @@ app.get('/api/player/:slot/progression', async (req: any, reply) => {
 
 // Unsettled players (§2.3 depth) — the dressing-room concerns the manager can act on, + resolving one.
 app.get('/api/concerns', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return { concerns: getConcerns(teamId) };
 });
 
 app.post('/api/concerns/:slot', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.params?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot must be an integer' });   // reject a bad param at the boundary (matches every other slot route)
   const action = String(req.body?.action ?? '') as ConcernAction;
@@ -839,16 +755,12 @@ app.post('/api/concerns/:slot', async (req: any, reply) => {
 
 // Board meeting (board interaction) — the once-a-season audience state, and requesting backing.
 app.get('/api/board', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return getBoardMeeting(teamId);
 });
 
 app.post('/api/board/request', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const kind = String(req.body?.kind ?? '') as BoardRequestKind;
   if (kind !== 'funds' && kind !== 'wages') return reply.code(400).send({ error: 'kind must be funds or wages' });
   const r = requestBoardBacking(teamId, kind);
@@ -866,9 +778,7 @@ app.get('/api/career', async (req: any, reply) => {
 // Set the club's training focus ('balanced' or a trainable attribute). Drives the
 // development tick that runs each matchday.
 app.put('/api/training', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const focus = String(req.body?.focus ?? '');
   if (!VALID_FOCUS.has(focus)) return reply.code(400).send({ error: `focus must be one of: balanced, position, ${TRAINABLE.join(', ')}` });
   return setTrainingFocus(teamId, focus);
@@ -877,9 +787,7 @@ app.put('/api/training', async (req: any, reply) => {
 // Set ONE player's training focus, overriding the club focus (audit §2.7). An empty value (or
 // 'club') clears the override so he follows the club focus again.
 app.put('/api/training/player', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.body?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot must be an integer' });
   const focus = String(req.body?.focus ?? '');
@@ -892,9 +800,7 @@ app.put('/api/training/player', async (req: any, reply) => {
 
 // Set ONE player's training intensity (double|normal|half|rest). ''/'normal'/invalid clears to the normal default.
 app.put('/api/training/player-intensity', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.body?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot must be an integer' });
   const value = String(req.body?.value ?? '');
@@ -907,9 +813,7 @@ app.put('/api/training/player-intensity', async (req: any, reply) => {
 // Set the CLUB-WIDE training intensity dial (light|normal|heavy). 'normal'/invalid = the byte-identical
 // default; the whole squad trains at this level unless a player carries his own intensity override.
 app.put('/api/training/team-intensity', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const level = String(req.body?.value ?? '');
   if (level && !VALID_TEAM_INTENSITY.has(level)) return reply.code(400).send({ error: 'intensity must be one of: light, normal, heavy' });
   return setTeamTrainingIntensity(teamId, level);
@@ -918,9 +822,7 @@ app.put('/api/training/team-intensity', async (req: any, reply) => {
 // Apply a one-click training PRESET (a named focus + club-intensity schedule). Sets both the club
 // focus and the club intensity dial in one go (per-player overrides untouched).
 app.put('/api/training/preset', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const name = String(req.body?.name ?? '');
   if (!Object.prototype.hasOwnProperty.call(TRAINING_PRESETS, name)) return reply.code(400).send({ error: `preset must be one of: ${Object.keys(TRAINING_PRESETS).join(', ')}` });
   const r = applyTrainingPreset(teamId, name);
@@ -931,9 +833,7 @@ app.put('/api/training/preset', async (req: any, reply) => {
 // Start/clear a position RETRAIN for one player ('' or his current role clears it → he settles).
 // A valid different role starts a settling-in period during which he develops a little slower.
 app.put('/api/training/retrain', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const slot = Number(req.body?.slot);
   if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot must be an integer' });
   const role = String(req.body?.role ?? '');
@@ -946,17 +846,13 @@ app.put('/api/training/retrain', async (req: any, reply) => {
 // The latest per-matchday training report for the club (null until the first matchday develops
 // the squad): attribute drift per player + the factors behind it + the staff/harmony contribution.
 app.get('/api/training-report', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return { report: getTrainingReport(teamId) };
 });
 
 // The cup bracket for the user's world this season.
 app.get('/api/cup', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const team = getTeamWithPlayers(teamId)!;
   return { ...cupView(team.leagueId), myTeamId: teamId };
 });
@@ -1035,9 +931,7 @@ app.get('/api/league', async (req: any, reply) => {
 
 // Play a specific fixture (must be in my league). Returns result + standings.
 app.post('/api/fixtures/:id/play', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const fx = getFixture(Number(req.params.id));
   if (!fx) return reply.code(404).send({ error: 'fixture not found' });
   const team = getTeamWithPlayers(teamId)!;
@@ -1052,9 +946,7 @@ app.post('/api/fixtures/:id/play', async (req: any, reply) => {
 // Post-match report + ratings for a played fixture (cached; generated from the recording on
 // first view). 404 if the match has no recording (e.g. a distant AI-vs-AI game).
 app.get('/api/report', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   // §cup-report: a cup tie's report (the recording exists for the user's ties). Same builder, kind='cup'.
   if (req.query?.cup != null) {
     const tie = db.prepare('SELECT * FROM cup_ties WHERE id = ?').get(Number(req.query.cup)) as { id: number; world_id: number; home_team_id: number | null; away_team_id: number | null; seed: number; played: number; home_score: number | null; away_score: number | null; home_pens: number | null; away_pens: number | null; winner_team_id: number | null } | undefined;
@@ -1097,9 +989,7 @@ app.get('/api/report', async (req: any, reply) => {
 // {minute, text, what-it-changed}. Empty `shouts` if the match was watched without shouting
 // (or never live-watched). Reads the durable events log MatchStream writes on socket close.
 app.get('/api/tactics', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const fx = getFixture(Number(req.query?.fixture));
   if (!fx) return reply.code(404).send({ error: 'fixture not found' });
   const team = getTeamWithPlayers(teamId)!;
@@ -1112,9 +1002,7 @@ app.get('/api/tactics', async (req: any, reply) => {
 // Pre-match opponent scouting report for an upcoming fixture the user is in (form, table
 // position, danger men, a read of how they play). 404 if the fixture isn't the user's.
 app.get('/api/scout', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const report = buildScoutReport(Number(req.query?.fixture), teamId);
   if (!report) return reply.code(404).send({ error: 'no scout report for this fixture' });
   return report;
@@ -1122,9 +1010,7 @@ app.get('/api/scout', async (req: any, reply) => {
 
 // The club's player-news feed (events that evolved a player's story this/past seasons).
 app.get('/api/news', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const limit = Math.min(200, Math.max(1, Number((req.query as any)?.limit) || 20));   // §2.14: the archive asks for more
   return { news: recentNews(teamId, limit) };
 });
@@ -1132,31 +1018,23 @@ app.get('/api/news', async (req: any, reply) => {
 // §inbox: the persistent matchday feed (results/transfers/injuries/contracts/cup/board/awards), newest
 // first + the unread count. Written server-side at /api/advance; survives rollover, grouped by season.
 app.get('/api/inbox', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const limit = Math.min(200, Math.max(1, Number((req.query as any)?.limit) || 50));
   return { inbox: getInbox(teamId, limit), unread: countUnread(teamId) };
 });
 app.post('/api/inbox/read', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   markInboxRead(teamId, { id: req.body?.id != null ? Number(req.body.id) : undefined, all: !!req.body?.all });
   return { ok: true, unread: countUnread(teamId) };
 });
 
 // Backroom staff: the club's coaches/physios/scouts + the world's hire pool + current effects.
 app.get('/api/staff', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return getStaffView(teamId);
 });
 app.post('/api/staff/hire', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const staffId = Number(req.body?.staffId);
   if (!Number.isInteger(staffId)) return reply.code(400).send({ error: 'staffId required' });
   const r = hireStaff(teamId, staffId);
@@ -1164,9 +1042,7 @@ app.post('/api/staff/hire', async (req: any, reply) => {
   return { ...r, ...getStaffView(teamId) };
 });
 app.post('/api/staff/fire', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const staffId = Number(req.body?.staffId);
   if (!Number.isInteger(staffId)) return reply.code(400).send({ error: 'staffId required' });
   const r = fireStaff(teamId, staffId);
@@ -1177,9 +1053,7 @@ app.post('/api/staff/fire', async (req: any, reply) => {
 // Save the category→coach assignment (what ACTIVATES per-category development). A missing/empty assignment reverts
 // to the flat coaching factor (byte-identical). Returns the refreshed staff view so the board re-renders.
 app.put('/api/staff/assignment', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const assignment = (req.body && typeof req.body.assignment === 'object') ? req.body.assignment : null;
   saveCoachAssignment(teamId, assignment);
   return getStaffView(teamId);
@@ -1187,9 +1061,7 @@ app.put('/api/staff/assignment', async (req: any, reply) => {
 
 // The club's finances statement: balance, this-season income/expense by category, recent movements.
 app.get('/api/finances', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const fin = getFinances(teamId);
   if (!fin) return reply.code(404).send({ error: 'no team' });
   return fin;
@@ -1197,9 +1069,7 @@ app.get('/api/finances', async (req: any, reply) => {
 
 // Dressing-room harmony: a read-only read of how settled the squad is (from dials + morale).
 app.get('/api/harmony', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const h = getSquadHarmony(teamId);
   if (!h) return reply.code(404).send({ error: 'no squad' });
   return h;
@@ -1208,9 +1078,7 @@ app.get('/api/harmony', async (req: any, reply) => {
 // Fitness & rotation guidance (§2.10): per-player fitness band + injury-risk %, and "rest X, start Y"
 // suggestions. Read-only.
 app.get('/api/rotation', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const v = getRotationView(teamId);
   if (!v) return reply.code(404).send({ error: 'no squad' });
   return v;
@@ -1218,9 +1086,7 @@ app.get('/api/rotation', async (req: any, reply) => {
 
 // Apply one rotation swap (bench a starter, start a bench player) by editing the stored XI directly.
 app.post('/api/rotation/apply', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const r = applyRotation(teamId, Number(req.body?.outSlot), Number(req.body?.inSlot));
   if (!r.ok) return reply.code(400).send({ error: r.error ?? 'could not apply' });
   return { ...r, rotation: getRotationView(teamId) };
@@ -1228,9 +1094,7 @@ app.post('/api/rotation/apply', async (req: any, reply) => {
 
 // The club's season-by-season history + honours (populated at each rollover).
 app.get('/api/history', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   return { history: getHistory(teamId), records: getClubRecords(teamId) };
 });
 
@@ -1472,9 +1336,7 @@ app.get('/api/nations', async () => {
 // §national-teams: this world's international tournaments (World Cup / continental) + their brackets, and
 // the nations that can currently field a squad (with strength). Scoped to the caller's world.
 app.get('/api/tournaments', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const wid = worldForTeam(teamId);
   if (wid == null) return reply.code(404).send({ error: 'no world' });
   return { tournaments: getWorldTournaments(wid), fieldable: fieldableNations(wid).sort((a, b) => b.strength - a.strength) };
@@ -1482,9 +1344,7 @@ app.get('/api/tournaments', async (req: any, reply) => {
 
 // §national-teams: a nation's current best XI in the caller's world.
 app.get('/api/nation/:key/squad', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const wid = worldForTeam(teamId);
   if (wid == null) return reply.code(404).send({ error: 'no world' });
   const xi = selectNationalSquad(wid, String(req.params?.key));
@@ -1573,9 +1433,7 @@ app.post('/api/worlds/:id/claim', async (req: any, reply) => {
 
 // §autonomous: leave your club — it returns to AI control and its seat re-opens for another player.
 app.post('/api/worlds/leave', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const wid = worldForTeam(teamId);
   const w = wid != null ? getWorld(wid) : null;
   if (!w || w.mode !== 'shared') return reply.code(400).send({ error: 'you can only leave a shared world' });
@@ -1586,9 +1444,7 @@ app.post('/api/worlds/leave', async (req: any, reply) => {
 // §autonomous: opt into full autonomy (the assistant also makes transfers while you're away) or back to
 // the default 'assistant' tier (tactics + XI only, never spends). Read on the team payload.
 app.post('/api/autonomy', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const mode = req.body?.mode === 'full' ? 'full' : 'assistant';
   db.prepare('UPDATE teams SET autonomy = ? WHERE id = ?').run(mode, teamId);
   return { ok: true, autonomy: mode };
@@ -1604,9 +1460,7 @@ app.post('/api/admin/world', async (req: any, reply) => {
 
 // Convenience: play my next unplayed fixture.
 app.post('/api/play-next', async (req: any, reply) => {
-  const user = requireUser(req, reply); if (!user) return;
-  const teamId = teamForUser(user.id);
-  if (!teamId) return reply.code(404).send({ error: 'no team' });
+  const teamId = requireTeam(req, reply); if (teamId == null) return;
   const team = getTeamWithPlayers(teamId)!;
   const fx = db.prepare(
     `SELECT id FROM fixtures WHERE league_id = ? AND played = 0

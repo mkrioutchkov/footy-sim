@@ -54,10 +54,3 @@ export function interactWithPlayer(teamId: number, slot: number, tone: InteractT
   db.prepare('UPDATE players SET morale = ?, last_interact_round = ? WHERE team_id = ? AND slot = ?').run(newMorale, played, teamId, slot);
   return { ok: true, delta, morale: newMorale, reaction: reactionLine(tone, delta, d), name: row.name };
 }
-
-// Whether the manager may still have a word with this player this matchday (for the UI).
-export function interactAvailable(teamId: number, slot: number): boolean {
-  const row = db.prepare('SELECT last_interact_round FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as { last_interact_round: number | null } | undefined;
-  if (!row) return false;
-  return row.last_interact_round == null || row.last_interact_round < playedCount(teamId);
-}
