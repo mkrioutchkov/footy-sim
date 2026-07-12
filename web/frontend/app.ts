@@ -4522,7 +4522,7 @@ async function screenReport(fixtureId: number, cup = false) {
 // ── club finances ──
 const FIN_LABEL: Record<string, string> = {
   prize: 'Prize money', transfer_in: 'Transfers in', transfer_out: 'Transfers out',
-  staff: 'Staff fees', sponsor: 'Sponsorship', gate: 'Gate & TV', other: 'Other',
+  staff: 'Staff fees', wages: 'Player wages', sponsor: 'Sponsorship', gate: 'Gate & TV', other: 'Other',
 };
 async function screenFinances() {
   const alive = screenGuard();
