@@ -229,6 +229,16 @@ public:
         // ROLLING out under friction until this clock, then snaps to the spot —
         // it used to teleport mid-flight ("goal kicks look weird"). 0 = placed.
         double placeBallAtMs = 0;
+        // Free-kick RUN-UP (owner: "free kicks especially shot ones should have
+        // run ups"). Planned ONCE when the FK taker reaches the ball: he holds at
+        // (runUpStartX,runUpStartY) — a few steps behind the ball along the strike
+        // axis, angled to the side for a shot — then dashes along (runUpDir) THROUGH
+        // the ball in the last RUNUP_LEAD_MS and strikes on arrival. Geometry+ids
+        // only, no rng. runUpActive=false ⇒ legacy stand-and-poke (fast FK / other
+        // restarts / the never-arrived backstop path).
+        bool runUpActive = false;
+        double runUpStartX = 0, runUpStartY = 0;
+        double runUpDirX = 0, runUpDirY = 0;
         std::string reason;
     } setPiece;
 

@@ -1354,6 +1354,88 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                     phase.actionTimer = setPiece.fast ? 300.0
                         : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX));
                 }
+                // ── Plan the FREE-KICK RUN-UP (owner: "free kicks especially shot
+                // ones should have run ups") now that the taker is on the ball. A
+                // fast FK skips it (the whole point of a fast FK is no theatre).
+                // Deterministic: goal/spot geometry + the taker id, never rng.
+                setPiece.runUpActive = false;
+                if (setPiece.type == SetPiece::FreeKick && !setPiece.fast) {
+                    double gx = goalXFor(taker->team);          // opponent goal-mouth centre
+                    double gy = PITCH_H / 2.0;
+                    double shotDist = std::hypot(gx - setPiece.spotX, gy - setPiece.spotY);
+                    bool central = std::abs(setPiece.spotY - gy) < 170.0;
+                    // Direct-shot range ⇒ aim the run-up at goal; otherwise up-pitch
+                    // toward the opponent goal (the pass target isn't chosen until
+                    // releaseSetPiece — owner's "else toward the opponent goal").
+                    bool shotRange = shotDist < 330.0 && central;
+                    double sdx, sdy;
+                    if (shotRange) { sdx = gx - setPiece.spotX; sdy = gy - setPiece.spotY; }
+                    else           { sdx = fdFor(taker->team);  sdy = 0.0; }
+                    double sl = std::hypot(sdx, sdy);
+                    if (sl < 1e-6) { sdx = fdFor(taker->team); sdy = 0.0; sl = 1.0; }
+                    sdx /= sl; sdy /= sl;
+                    double runDist = shotRange ? RUNUP_DIST_SHOT : RUNUP_DIST_PASS;
+                    // A SHOOTING run-up comes in from an angle (the curler's stutter
+                    // steps around the wall); a short pass is a straight compact
+                    // approach. Side keyed off the taker id — deterministic variety,
+                    // no rng draw. perp = (-dir.y, dir.x).
+                    double perpX = -sdy, perpY = sdx;
+                    double side = (setPiece.takerId % 2 == 0) ? 1.0 : -1.0;
+                    double lat = shotRange ? RUNUP_SIDE_OFFSET * side : 0.0;
+                    setPiece.runUpDirX = sdx;
+                    setPiece.runUpDirY = sdy;
+                    setPiece.runUpStartX = clamp(setPiece.spotX - sdx * runDist + perpX * lat, 6.0, PITCH_W - 6.0);
+                    setPiece.runUpStartY = clamp(setPiece.spotY - sdy * runDist + perpY * lat, 6.0, PITCH_H - 6.0);
+                    setPiece.runUpActive = true;
+                }
+            }
+        }
+    }
+
+    // ══ Free-kick RUN-UP drive ══ (owner: "free kicks especially shot ones should
+    // have run ups"). For the bulk of the hold the taker "sets" at his run-up start
+    // a few steps BEHIND the ball; in the final RUNUP_LEAD_MS he accelerates THROUGH
+    // it and the kick fires the moment he arrives. The generic hold-position at the
+    // foot of this function is suppressed for a run-up FK (this block owns the taker
+    // instead); the ball stays pinned to the spot there until the strike.
+    if (setPiece.takerArrived && setPiece.type == SetPiece::FreeKick && setPiece.runUpActive) {
+        Player* taker = playerById(setPiece.takerId);
+        if (taker) {
+            if (phase.actionTimer > RUNUP_LEAD_MS) {
+                // Set over the ball: steer back to the run-up start (never snap — a
+                // one-tick hop is exactly the teleport the anomaly audit flags),
+                // facing the ball like a taker measuring his steps.
+                double dx = setPiece.runUpStartX - taker->x;
+                double dy = setPiece.runUpStartY - taker->y;
+                double d = std::hypot(dx, dy);
+                double step = std::min(SPEED_SPRINT * (sdt / 1000.0), d);
+                if (d > 0.5) { taker->x += dx / d * step; taker->y += dy / d * step; }
+                taker->targetX = setPiece.runUpStartX;
+                taker->targetY = setPiece.runUpStartY;
+                taker->vx = taker->vy = 0;
+                if (dist(taker->x, taker->y, setPiece.spotX, setPiece.spotY) > 0.5)
+                    taker->facing = std::atan2(setPiece.spotY - taker->y, setPiece.spotX - taker->x);
+            } else {
+                // The approach: dash from the start THROUGH the ball to a point just
+                // beyond it, at an explosive-but-human pace (< LUNGE_DASH_SPEED).
+                double tx = setPiece.spotX + setPiece.runUpDirX * RUNUP_OVERRUN;
+                double ty = setPiece.spotY + setPiece.runUpDirY * RUNUP_OVERRUN;
+                double dx = tx - taker->x, dy = ty - taker->y, d = std::hypot(dx, dy);
+                double step = std::min(RUNUP_DASH_SPEED * (sdt / 1000.0), d);
+                if (d > 0.1) { taker->x += dx / d * step; taker->y += dy / d * step; }
+                taker->vx = setPiece.runUpDirX * RUNUP_DASH_SPEED;
+                taker->vy = setPiece.runUpDirY * RUNUP_DASH_SPEED;
+                taker->targetX = tx;
+                taker->targetY = ty;
+                taker->facing = std::atan2(setPiece.runUpDirY, setPiece.runUpDirX);
+                // Strike-on-arrival: he's reached the ball — bring the scheduled
+                // release forward to THIS tick (the compliance/release gates below
+                // run after this and fire immediately). The kick therefore NEVER
+                // launches with the taker still short of the ball; the countdown
+                // timer survives only as the deadlock backstop.
+                if (dist(taker->x, taker->y, setPiece.spotX, setPiece.spotY) <= RUNUP_STRIKE_DIST
+                    && phase.actionTimer > 0.0)
+                    phase.actionTimer = 0.0;
             }
         }
     }
@@ -1407,6 +1489,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         setPiece.reason.clear();
         setPiece.takerId = -1;
         setPiece.takerArrived = false;
+        setPiece.runUpActive = false;
         releaseSetPiece();
     } else if (!setPiece.takerArrived && phase.actionTimer <= 0) {
         if (setPiece.takerId >= 0) {
@@ -1453,7 +1536,12 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     updateControlledBall(sec);
     if (setPiece.takerArrived) {
         Player* taker = playerById(setPiece.takerId);
-        if (taker) placeTakerForRestart(*taker, false);
+        // A run-up FK is owned by the RUN-UP drive block above (hold-at-start,
+        // then the dash) — don't yank the taker back to the generic stand-back
+        // here, which would fight his approach. The ball still pins to the spot
+        // until the strike, exactly as for every other held restart.
+        bool fkRunUp = setPiece.type == SetPiece::FreeKick && setPiece.runUpActive;
+        if (taker && !fkRunUp) placeTakerForRestart(*taker, false);
         state.ball.x = setPiece.spotX;
         state.ball.y = setPiece.spotY;
         state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;

@@ -73,8 +73,14 @@ void GameEngine::awardOffsideFreeKick(Team defTeam, const Player& offsidePlayer)
     setPiece.spotX = b.x;
     setPiece.spotY = b.y;
     setPiece.takerArrived = false;
+    setPiece.runUpActive = false;   // planned fresh when the taker reaches the ball
     Player* best = findNearestOutfieldPlayer(defTeam, b.x, b.y);
     setPiece.takerId = best ? best->id : -1;
+    // Restart marker for the replay feed — free kicks were the ONE restart that
+    // emitted no event (corner/throw/goal_kick all do), so the feed and any
+    // trace probe couldn't see them. Team derives from the taker's id.
+    if (setPiece.takerId >= 0)
+        emitEvent("free_kick", setPiece.spotX, setPiece.spotY, setPiece.takerId, -1, true);
 }
 
 bool GameEngine::isOffsideTarget(const Player& passer, const Player& receiver) const {
@@ -941,6 +947,7 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
     setPiece.team = tm;
     setPiece.armed = true;
     setPiece.fast = false;   // default; the FreeKick branch may set it true
+    setPiece.runUpActive = false;   // FK run-up is planned fresh when the taker arrives
     setPiece.reason = std::string(to_string(t));
     setPiece.spotX = b.x;
     setPiece.spotY = b.y;
@@ -1039,6 +1046,11 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
             break;
         }
     }
+    // Restart marker for the replay feed / trace probes — free kicks were the ONE
+    // restart that emitted no event (corner/throw/goal_kick all do). Team derives
+    // from the taker's id.
+    if (setPiece.takerId >= 0)
+        emitEvent("free_kick", setPiece.spotX, setPiece.spotY, setPiece.takerId, -1, true);
 }
 
 void GameEngine::awardCorner(Team attackingTeam, bool atHomeEnd, double y) {

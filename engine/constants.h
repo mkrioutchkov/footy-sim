@@ -35,6 +35,22 @@ inline constexpr double MOMENTUM_REVERSAL_BRAKE_MUL = 2.2;
 // single-tick snap (~900px/s, seed 305 0:09).
 inline constexpr double LUNGE_DASH_SPEED = 170.0;
 
+// ── Free-kick RUN-UP (owner: "free kicks especially shot ones should have run ups") ──
+// The old choreography stood the taker ~14px off the ball for the WHOLE hold and
+// then launched the kick the instant the timer hit 0 — a standing-start poke, no
+// approach. Now he waits a few steps BEHIND the ball along the strike axis for the
+// bulk of the hold, then in the last RUNUP_LEAD_MS he accelerates THROUGH it and
+// the kick releases the moment he arrives ("strikes as he arrives"). Pace is
+// explosive-but-human — bounded UNDER the tackle lunge (LUNGE_DASH_SPEED 170) so a
+// run-up can never read as the teleport blip the OffBallOverspeed flag hunts.
+inline constexpr double RUNUP_LEAD_MS     = 900.0;  // window (before the scheduled release) when the approach begins
+inline constexpr double RUNUP_DASH_SPEED  = 132.0;  // approach pace, px/s — a burst, still < LUNGE_DASH_SPEED (170)
+inline constexpr double RUNUP_DIST_SHOT   = 52.0;   // ~4-5 steps back for a direct-shot free kick
+inline constexpr double RUNUP_DIST_PASS   = 30.0;   // compact ~2-step approach for a short-pass free kick
+inline constexpr double RUNUP_SIDE_OFFSET = 18.0;   // lateral offset of a SHOOTING run-up — the angled curler's approach
+inline constexpr double RUNUP_OVERRUN     = 10.0;   // the dash target sits just BEYOND the ball so he strikes through it
+inline constexpr double RUNUP_STRIKE_DIST = 8.0;    // he's "on the ball" — bring the release forward to this moment
+
 // ── Ball speed / physics ──
 // 2026-07-02 audit ("passes look weird"): base 136/slope 0.105 makes launch
 // speed near-UNIFORM — an 18px tap leaves the boot at 96% the speed of a
