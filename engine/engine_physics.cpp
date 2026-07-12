@@ -174,8 +174,16 @@ void GameEngine::predictBallPos(double tAhead, double& outX, double& outY) const
 }
 
 void GameEngine::clampBallPosition() {
-    state.ball.x = clamp(state.ball.x, -40., PITCH_W + 40);
-    state.ball.y = clamp(state.ball.y, -40., PITCH_H + 40);
+    auto& b = state.ball;
+    double px = b.x, py = b.y;
+    b.x = clamp(b.x, -40., PITCH_W + 40);
+    b.y = clamp(b.y, -40., PITCH_H + 40);
+    // Settle at the runoff wall (micro audit: a corner out-ball sat pinned at
+    // the wall for 450ms with outward velocity still set, then flung to the
+    // flag): kill the outward component and bleed the slide so the dead ball
+    // visibly comes to rest instead of vibrating against an invisible fence.
+    if (b.x != px) { b.vx = 0; b.vy *= 0.80; }
+    if (b.y != py) { b.vy = 0; b.vx *= 0.80; }
 }
 
 bool GameEngine::checkGoal() {

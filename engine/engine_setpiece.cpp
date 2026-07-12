@@ -925,9 +925,17 @@ void GameEngine::awardThrowIn(Team lastTouchTeam, double y) {
 
 void GameEngine::awardSetPiece(SetPiece t, Team tm) {
     auto& b = state.ball;
-    // Goal kicks restore these for the out-ball glide; fouls/pens stay dead.
+    // Goal kicks restore these for the out-ball glide; pens stay dead. Free
+    // kicks (fouls/offside) keep a decaying roll-out for ~0.4s before being
+    // placed — the whistle stops PLAY, not the ball mid-frame (micro audit:
+    // the offside ball warped 2.3m to the spot in one tick).
     double keepVx = b.vx, keepVy = b.vy, keepZ = b.z, keepVz = b.vz;
     b.vx = b.vy = b.z = b.vz = 0;
+    if (t == SetPiece::FreeKick && std::hypot(keepVx, keepVy) > 60.0) {
+        b.vx = keepVx * 0.45;
+        b.vy = keepVy * 0.45;
+        setPiece.placeBallAtMs = state.clockMs + 420.0;
+    }
     b.controllerId = -1;
     setPiece.type = t;
     setPiece.team = tm;

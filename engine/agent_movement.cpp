@@ -381,6 +381,18 @@ void PlayerAI::applyMovement(double sdt) {
         double nowOff  = std::abs(std::atan2(std::sin(facing - moveAngle), std::cos(facing - moveAngle)));
         double prevOff = std::abs(std::atan2(std::sin(prevFacing - moveAngle), std::cos(prevFacing - moveAngle)));
         if (nowOff < prevOff) maxFacingTurn = std::max(maxFacingTurn, 0.28);
+        // Moonwalk fix (micro audit: 141 backward-at-speed runs, worst 5s of
+        // 51px/s backpedal by an attacker) — a sustained RUN turns the body
+        // into the travel line. Legit ball-watching backpedal is preserved:
+        // only forced when the ball is far (>220px), i.e. nothing to track.
+        if (offBallFacing && spdAfter > 38.0 && nowOff > 1.75) {
+            double bd2 = dist(p.x, p.y, engine.state.ball.x, engine.state.ball.y);
+            if (bd2 > 220.0) {
+                double align = std::atan2(std::sin(moveAngle - prevFacing), std::cos(moveAngle - prevFacing));
+                requestedFacingDelta = clamp(align, -0.28, 0.28);
+                maxFacingTurn = std::max(maxFacingTurn, 0.28);
+            }
+        }
     }
     requestedFacingDelta = clamp(requestedFacingDelta, -maxFacingTurn, maxFacingTurn);
     facing = prevFacing + requestedFacingDelta;

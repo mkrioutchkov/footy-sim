@@ -382,7 +382,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         && fp < 75.0;
     // cross_early extends the cross window deeper (whip it in early, don't dribble
     // to the byline first).
-    double crossRange = engine.directiveBias[p.id].crossEarly ? 420.0 : 340.0;
+    double crossRange = engine.directiveBias[p.id].crossEarly ? 420.0 : 300.0;   // 340 -> 300: cross volume ran ~95/90 (~2.5x real); the supply gate protects quality, this trims supply
     // §C byline-carry: an UNPRESSED wide carrier still far out should carry to the BYLINE (the dribble
     // byline-seek) rather than crossing early -> shrink the cross window so the deeper carry + onside
     // cutback wins. Pressed / crossEarly-directive carriers still whip it in early (unchanged).
