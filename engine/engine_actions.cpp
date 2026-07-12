@@ -1078,6 +1078,19 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // of an open-field lunge (a clumsy one is still a penalty, just far rarer).
     double boxFoulScale = inPenaltyBox ? 0.54 : 1.0; // 0.5 -> 0.54: penalties ~0.14 -> ~0.3/match (still careful in the box)
     stats.recordTackleAttempt();
+    // LUNGE (micro audit #3: every duel resolved with the bodies 21-25px apart
+    // and the winner moving 1-2px — the steal happened across a gap). Commit
+    // the tackler's body toward the ball: 60% of the gap now, so contact
+    // reads as contact whichever way the roll goes.
+    {
+        double lx = b.x - tackler.x, ly = b.y - tackler.y, ld = std::hypot(lx, ly);
+        if (ld > 4.0) {
+            double step = std::min(ld * 0.6, 16.0);
+            tackler.x += lx / ld * step;
+            tackler.y += ly / ld * step;
+            tackler.facing = std::atan2(ly, lx);
+        }
+    }
     if (rng.random() >= chance) {
         resolveTackleFoul(tackler, carrier, fromBehind, cynical, boxFoulScale);
         return false;

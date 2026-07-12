@@ -125,6 +125,20 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
     if (pc.myTeam && !per.iAmController) {
         Player* carrier = engine.playerById(engine.state.ball.controllerId);
         if (carrier && carrier->team == p.team) {
+            // SPOT-BAND RUN (both audits: cutback receivers arrive at ~19.5m —
+            // outside the first-time-finish gate — and 0 of 195 crosses scored;
+            // the engine's own note says the runner must attack the 80-140px
+            // band). A teammate carrying in the byline zone pulls the nearest
+            // CM/CF into the penalty-spot band to meet the pull-back.
+            if ((isCentralMidfielder() || isCenterForward())
+                && pitch::forwardProgress(carrier->x, p.team) > PITCH_W * 0.80
+                && pitch::lateralFromCenter(carrier->y) > 130.0
+                && pitch::forwardProgress(p.x, p.team) > PITCH_W * 0.55) {
+                double gxs = goalXFor(p.team);
+                double spotX = gxs - pc.fd * 110.0;
+                double spotY = PITCH_H / 2.0 + (carrier->y > PITCH_H / 2.0 ? -26.0 : 26.0);
+                c.push_back({ clampToLegalX(spotX, pc.fd), spotY, ActionPurpose::InsideRun });
+            }
             int carrierPressure = 0;
             for (auto& o : engine.state.players) {
                 if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, carrier->x, carrier->y) < 60.0) carrierPressure++;

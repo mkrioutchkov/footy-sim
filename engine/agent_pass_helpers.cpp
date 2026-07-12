@@ -410,24 +410,36 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         sc += 0.05;   // was 0.26 — this helper is the 2nd cross source; trimmed with the wide-carrier override to pull total crosses toward realistic (~40-60/match)
         // A crowded box makes the cross a coin-flip turnover — count the bodies
         // and recycle/pull it back instead (mirrors the override's crowd gate).
+        // SUPPLY GATE (high-level audit #1: 100 crosses/90 — 3x real — with 0
+        // goals and only 3 headed shots across 5 matches; the whip went in
+        // regardless of whether anyone attacked it): the cross's positive
+        // stack scales with the ATTACKERS actually in/arriving at the box —
+        // no targets, no ball. Defender crowding still subtracts separately.
+        double boxSupply = 0.0;
         {
             double gxc = goalXFor(p.team);
-            int boxDefenders = 0;
+            int boxDefenders = 0, boxAttackers = 0;
             for (auto& o : engine.state.players) {
-                if (!isActiveOpponent(o, p.team)) continue;
-                if (std::abs(o.x - gxc) < 200.0 && pitch::lateralFromCenter(o.y) < 170.0) boxDefenders++;
+                if (o.sentOff || o.role == Role::GK) continue;
+                bool inBoxBand = std::abs(o.x - gxc) < 210.0 && pitch::lateralFromCenter(o.y) < 175.0;
+                bool arriving = std::abs(o.x + o.vx * 0.9 - gxc) < 210.0
+                    && pitch::lateralFromCenter(o.y + o.vy * 0.9) < 175.0;
+                if (o.team != p.team && inBoxBand) boxDefenders++;
+                if (o.team == p.team && o.id != p.id && (inBoxBand || arriving)) boxAttackers++;
             }
             sc -= std::max(0, boxDefenders - 2) * 0.10;
+            boxSupply = clamp(boxAttackers / 2.0, 0.0, 1.0);
         }
-        if (engine.directiveBias[p.id].crossEarly) sc += 0.55;   // "whip it in early"
-        if (t.role == Role::CF) sc += 0.30;
-        else if (t.role == Role::WM) sc += 0.10;
+        if (engine.directiveBias[p.id].crossEarly) sc += 0.55;   // "whip it in early" (explicit order: exempt from the supply gate)
+        if (t.role == Role::CF) sc += 0.30 * boxSupply;
+        else if (t.role == Role::WM) sc += 0.10 * boxSupply;
         else if (t.role == Role::CM) sc -= 0.34;
         bool headerZone = boxTargetGoalDist > 85.0 && boxTargetGoalDist < 205.0
             && pitch::lateralFromCenter(t.y) < 165.0;
-        if (headerZone && t.role == Role::CF && receiverPressure <= 1) sc += 0.24;
-        if (headerZone && t.role == Role::WM && receiverPressure == 0) sc += 0.10;
-        if (aerialTarget) sc += 0.24;
+        if (headerZone && t.role == Role::CF && receiverPressure <= 1) sc += 0.24 * boxSupply;
+        if (headerZone && t.role == Role::WM && receiverPressure == 0) sc += 0.10 * boxSupply;
+        if (aerialTarget) sc += 0.24 * boxSupply;
+        if (boxSupply < 0.5) sc -= 0.14;   // an empty box makes the whip a giveaway, not an attack
         if (boxTargetGoalDist > 245.0) sc -= 0.22;
         if (pitch::lateralFromCenter(t.y) > 185.0) sc -= 0.12;
     }

@@ -831,6 +831,14 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
         }
         if (shotInFlight && p.role != Role::GK && p.id != shot.blockerId && !designatedWall) continue;
         double r = (bs > COLLISION_FAST_CONTACT && p.team != b.lastTouchTeam) ? fastContactRadius : collectRadius;
+        // Micro audit #4: a fast FRIENDLY ball dead-center through a teammate's
+        // body tunneled straight through (24 times/5min) — the fast-contact
+        // radius was opponents-only, and the ghost-body ricochet covers only
+        // contest-locked players. A true center hit (<8px) on a teammate who
+        // is NOT the intended receiver connects like any body would.
+        if (bs > COLLISION_FAST_CONTACT && p.team == b.lastTouchTeam
+            && p.id != b.intendedReceiverId && d < 8.0)
+            r = std::max(r, 8.0);
         // A dead ball is collectible from a stride away — opponent separation
         // (24px) parked two players 10-12px from it, just outside the 8px
         // radius, in a 2.8s Mexican standoff ~43 times a match.
@@ -1222,8 +1230,29 @@ void GameEngine::updateControlledBall(double sec) {
             dy /= len;
         }
     }
-    double tx = clamp(c->x + dx * CONTROL_DIST, 5.0, PITCH_W - 5.0);
-    double ty = clamp(c->y + dy * CONTROL_DIST, 5.0, PITCH_H - 5.0);
+    // Touch cadence (micro audit #1: a 7s carry held the ball at 6.8px +-0.1
+    // — welded): the control offset follows a stride sawtooth — at each
+    // "touch" the ball is knocked ahead (bigger at pace), then the carrier
+    // closes on it until the next touch. Tight pressure shortens the leash
+    // (close control in traffic). Deterministic — no rng, golden-safe apart
+    // from geometry.
+    double knockExtra = 0.0;
+    if (c->role != Role::GK && sec > 1e-6) {
+        if (carryTouchCarrier != c->id) {
+            carryTouchCarrier = c->id;
+            carryTouchTravel = 0.0;
+            carryLastPx = c->x; carryLastPy = c->y;
+        }
+        carryTouchTravel += dist(c->x, c->y, carryLastPx, carryLastPy);
+        carryLastPx = c->x; carryLastPy = c->y;
+        double stride = 34.0 + speed * 0.25;
+        if (carryTouchTravel >= stride) carryTouchTravel = 0.0;   // the next touch
+        double peak = clamp(speed * 0.22, 2.0, 15.0);
+        knockExtra = peak * (1.0 - carryTouchTravel / std::max(stride, 1.0));
+        if (nearestOppDist < 40.0) knockExtra *= 0.3;
+    }
+    double tx = clamp(c->x + dx * (CONTROL_DIST + knockExtra), 5.0, PITCH_W - 5.0);
+    double ty = clamp(c->y + dy * (CONTROL_DIST + knockExtra), 5.0, PITCH_H - 5.0);
     // Step the carried ball toward its control offset instead of hard-snapping.
     // The snap was THE dominant "ball flows weird" artifact: 89% of receptions
     // jumped the ball 10-21px in a single tick (first-4-min audit, fixture

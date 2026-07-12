@@ -67,7 +67,7 @@ inline constexpr double INTENDED_COLLECT_DIST = 26.0;
 inline constexpr double CONTROL_DIST   = 12.0;
 // Max distance the ball may be repositioned in one tick at kick release;
 // keeps release placement from reading as a teleport across the kicker's body.
-inline constexpr double BALL_RELEASE_MAX_STEP = 14.0;
+inline constexpr double BALL_RELEASE_MAX_STEP = 6.0;   // was 14: every launch popped ~1m off the boot (micro audit #2 — median 9.7px overshoot, clustering at the 14px cap)
 inline constexpr double PLAYER_AWARE_RANGE = 120.0;
 inline constexpr double SHOOT_MIN_DIST = 100.0;
 inline constexpr double SHOOT_MAX_DIST = 340.0;

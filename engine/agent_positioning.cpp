@@ -207,12 +207,18 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
                 if (cd < 95.0) crowd += (95.0 - cd) / 95.0 * 0.26;
             }
         }
+        // Incumbency (micro audit #5: 33k target-jitter windows/5min — the
+        // argmax re-ran every tick with zero hysteresis, and the target noise
+        // passed straight into velocity as direction flips and in-place
+        // shivering). The candidate nearest the CURRENT target gets a small
+        // edge, so a genuinely better spot still wins but ties stop strobing.
+        double incumbency = dist(cn.x, cn.y, p.targetX, p.targetY) < 45.0 ? 0.05 : 0.0;
         double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;
         double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 6.0;
 
         options.push_back(Action{
             ActionType::Position,
-            clamp(0.15 + sf * 0.3 + tf * 0.25 + tac - bp2 + db + ob + onsideScoreAdjust - crowd, 0.0, 1.0),
+            clamp(0.15 + sf * 0.3 + tf * 0.25 + tac - bp2 + db + ob + onsideScoreAdjust - crowd + incumbency, 0.0, 1.0),
             nullptr,
             clamp(targetX + jx, 40.0, PITCH_W - 40.0),
             clamp(targetY + jy, 40.0, PITCH_H - 40.0),

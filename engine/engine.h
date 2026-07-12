@@ -183,6 +183,12 @@ public:
     // by a teammate is feet-only — no protected hold, no hold choreography,
     // no from-hands punt. Set at collect, cleared at release/next collect.
     bool gkHoldFeetOnly = false;
+    // Carry touch texture (micro audit #1: the dribbled ball sat at a
+    // mathematically constant offset — welded to the foot, zero touches).
+    // Tracks distance traveled since the last knock so the control offset
+    // breathes: push ahead at each stride-touch, close up in between.
+    int    carryTouchCarrier = -1;
+    double carryTouchTravel = 0.0, carryLastPx = 0.0, carryLastPy = 0.0;
     // Keeper-distribution choreography latch (set per tick in fixedUpdate):
     // while a GK holds the ball in his box, goal-kick shapes own everyone's
     // targets and executeAction defers (see the anti-swarm tombstone).
