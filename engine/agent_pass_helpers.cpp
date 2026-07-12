@@ -805,7 +805,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool overTheTop = !kickoffMigration && runnerAssignment && d >= 230.0 && d <= 520.0
         && onsideGap > 25.0 && onsideGap < 200.0 && spaceBehindLine > 180.0
         && rpEff == 0 && blEff <= 1 && nearestOppProj > 70.0
-        && runnerRawSpd > 28.0 && completion >= 0.50;
+        // seed 305 1:39: an UNMARKED shoulder man doesn't need to already be
+        // sprinting — the ball SETS UP the run (owner: "a good chance to set
+        // them up for a run is on"). Moving runner OR free stander both qualify.
+        && (runnerRawSpd > 28.0 || nearestOppRecv > 70.0)
+        && completion >= 0.48;
     if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall || genuinelyOpenAdvanced || ledRunnerLoft || overTheTop) {
         pur = ActionPurpose::Through;
         if (genuinelyOpenAdvanced) sc += 0.14;   // capped re-rank so the open forward ball beats the safe square

@@ -488,6 +488,7 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
 // ── Phase 12: Defensive line ──
 
 void GameEngine::assignDefensiveLine(DefenseContext& ctx, Player& carrier) {
+    int lineIds[8]; int lineCount = 0;
     for (auto& defender : state.players) {
         if (defender.team != ctx.team || ctx.used(&defender) || defender.sentOff
             || !roles::isDefenderRole(defender.role)) continue;
@@ -496,5 +497,24 @@ void GameEngine::assignDefensiveLine(DefenseContext& ctx, Player& carrier) {
             : ctx.ownGoalX + ctx.fd * agentFor(defender)->defensiveLineOffsetX(false, ctx.lineProgress);
         double targetY = agentFor(defender)->defensiveLineTargetY(defender.homeY, PITCH_H / 2.0, carrier.y);
         setAssignment(defender, agentFor(defender)->defensiveLineRoleTask(), targetX, targetY);
+        if (lineCount < 8) lineIds[lineCount++] = defender.id;
+    }
+    // Shade the line onto the shoulder runner (owner, seed 305 1:39: 10R sat
+    // free on the last line — "defenders should be tighter marking the 10R").
+    // For each opposing CF lurking at line depth, the y-nearest line defender
+    // pulls his station 45% toward him; the rest hold the line's shape.
+    for (auto& cf : state.players) {
+        if (cf.team == ctx.team || cf.sentOff || cf.role != Role::CF) continue;
+        int best = -1; double bd = 1e9;
+        for (int i = 0; i < lineCount; ++i) {
+            auto& t = assignmentByPlayer[lineIds[i]];
+            if (std::abs(cf.x - t.targetX) > 150.0) continue;   // not a shoulder threat at line depth
+            double dy = std::abs(t.targetY - cf.y);
+            if (dy < bd) { bd = dy; best = lineIds[i]; }
+        }
+        if (best >= 0 && bd > 25.0 && bd < 130.0) {
+            auto& t = assignmentByPlayer[best];
+            t.targetY = clamp(t.targetY + (cf.y - t.targetY) * 0.45, 30.0, PITCH_H - 30.0);
+        }
     }
 }

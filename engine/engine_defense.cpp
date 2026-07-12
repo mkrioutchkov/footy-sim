@@ -378,6 +378,12 @@ void GameEngine::assignAttackingRoles(Team team, Player& carrier) {
     }
     if (runAhead) {
         double tx = (fd > 0.0 ? std::max(line, carrier.x) : std::min(line, carrier.x)) - fd * 5.0;
+        // Trap-testing darts (owner, seed 305 1:39: "10R should be trying to
+        // test offside trap"): the shoulder man doesn't statue on the line —
+        // every ~2.4s he darts beyond it for ~0.7s and resets, dragging the
+        // trap and varying his onside timing for the over-the-top ball.
+        // Clock+id keyed, deterministic, no rng.
+        if (std::fmod(state.clockMs + runAhead->id * 617.0, 2400.0) < 700.0) tx += fd * 26.0;
         double ty = clamp(cy + ballSide * 60.0, 60.0, PITCH_H - 60.0);
         setAssignment(*runAhead, DefensiveTask::RunAhead, tx, ty, -1);
     }
