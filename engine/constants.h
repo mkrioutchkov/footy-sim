@@ -30,6 +30,10 @@ inline constexpr double MAX_PLAYER_SPEED = 50.0;
 // anticipation pass models their early reads) — see the tombstone note.
 inline constexpr double MOMENTUM_ACCEL             = 340.0;
 inline constexpr double MOMENTUM_REVERSAL_BRAKE_MUL = 2.2;
+// Tackle lunge dash pace: the committed closing step toward the ball plays out
+// at this speed (~2.5x sprint — explosive but continuous) instead of the old
+// single-tick snap (~900px/s, seed 305 0:09).
+inline constexpr double LUNGE_DASH_SPEED = 170.0;
 
 // ── Ball speed / physics ──
 // 2026-07-02 audit ("passes look weird"): base 136/slope 0.105 makes launch

@@ -6,6 +6,9 @@ void PlayerAI::applyMovement(double sdt) {
     auto& p = player;
     if (isGoalkeeper()) return;
     if (setPieceHold) return;
+    // A committed tackle dash owns the body until it lands (fixedUpdate moves
+    // him): stacking normal movement on top pushed combined pace past 250px/s.
+    if (p.id >= 0 && p.id < 22 && engine.lungeDashRemainPx[p.id] > 0.0) return;
 
     double secs = sdt / 1000.0;
     double spd = std::sqrt(p.vx * p.vx + p.vy * p.vy);
@@ -334,6 +337,15 @@ void PlayerAI::applyMovement(double sdt) {
         double desVx = (dx / d) * desSpd;
         double desVy = (dy / d) * desSpd;
         double curSpd = std::hypot(p.vx, p.vy);
+        // A bookkeeping velocity (separation shove, exempt-mode displacement
+        // math after a snap) can arrive far beyond human pace — integrating
+        // it here would BE the teleport. Clamp to plausible flesh first.
+        double vCap = ms * 1.35 + 40.0;
+        if (curSpd > vCap && curSpd > 1.0) {
+            p.vx *= vCap / curSpd;
+            p.vy *= vCap / curSpd;
+            curSpd = vCap;
+        }
         double headDot = (curSpd > 40.0 && desSpd > 1.0)
             ? (p.vx * desVx + p.vy * desVy) / (curSpd * desSpd)
             : 1.0;

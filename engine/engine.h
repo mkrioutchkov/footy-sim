@@ -163,6 +163,19 @@ public:
     // shot / hard forward drive (owner, seed 111 1:13: Messi intercepted 31m
     // out, feinted backward, was dispossessed 2.3s later).
     std::array<double, 22> lastTurnoverWinMs = {};
+    // Tackle lunge dash (seed 305 0:09/0:42: the round-11 commit-the-body snap
+    // moved the tackler 60% of the gap in ONE tick ≈ 900px/s — read as a
+    // teleport). Same commitment, now played out over the next few ticks at a
+    // bounded burst pace in fixedUpdate (runs for controller and off-ball alike).
+    std::array<double, 22> lungeDashDirX = {};
+    std::array<double, 22> lungeDashDirY = {};
+    std::array<double, 22> lungeDashRemainPx = {};
+    // OffBallOverspeed tripwire: last-tick positions for the displacement
+    // check in fixedUpdate. Invalidated on restarts/kickoffs/halves/subs so
+    // legitimate repositioning teleports don't count.
+    std::array<double, 22> qfPrevX = {};
+    std::array<double, 22> qfPrevY = {};
+    bool qfPrevValid = false;
     // Law 13-17 double-touch: the restart taker (FK/corner/throw/goal kick/
     // penalty/kickoff) may not touch again until another player has. Enforced
     // by prevention (the engine's referee idiom): set at release, cleared on

@@ -241,6 +241,38 @@ void GameEngine::fixedUpdate(double sdt) {
         p.targetY = p.y;
         p.vx = p.vy = 0;
     }
+    // Tackle lunge dash: play the committed closing step out at a bounded
+    // burst pace (see attemptTackle). Runs for controller and off-ball alike,
+    // which the agent movement path cannot (it skips controllers).
+    for (auto& p : state.players) {
+        double& rem = lungeDashRemainPx[p.id];
+        if (rem <= 0.0) continue;
+        if (p.sentOff) { rem = 0.0; continue; }
+        double step = std::min(rem, LUNGE_DASH_SPEED * sdt / 1000.0);
+        p.x = clamp(p.x + lungeDashDirX[p.id] * step, 5.0, PITCH_W - 5.0);
+        p.y = clamp(p.y + lungeDashDirY[p.id] * step, 5.0, PITCH_H - 5.0);
+        rem -= step;
+    }
+    // OffBallOverspeed tripwire (owner: "moves stupidly fast for a split
+    // second... biggest issue — also make it a quality flag"): any outfield
+    // player whose ACTUAL displacement this tick exceeds every designed
+    // motion (sprint ~90, lunge dash 170) is a teleport-grade blip, whatever
+    // system caused it. Suppressed across restarts/kickoffs/halves (legit
+    // repositioning) — those invalidate the previous-position snapshot.
+    {
+        bool measurable = !setPiece.armed && !phase.kickoffPhase && phase.halfTimePause <= 0
+            && sdt > 1e-3;
+        if (measurable && qfPrevValid) {
+            double maxStep = 250.0 * sdt / 1000.0;
+            for (auto& p : state.players) {
+                if (p.sentOff || p.role == Role::GK) continue;
+                if (dist(p.x, p.y, qfPrevX[p.id], qfPrevY[p.id]) > maxStep)
+                    stats.recordQualityFlag(QualityFlag::OffBallOverspeed);
+            }
+        }
+        for (auto& p : state.players) { qfPrevX[p.id] = p.x; qfPrevY[p.id] = p.y; }
+        qfPrevValid = measurable;
+    }
     // Played-advantage recall: the ref waved a foul on. If, within ~4s, the fouled
     // side LOSES the ball to an outfield opponent (a clean turnover — not a keeper
     // save, which means the advantage produced a shot), bring the free kick BACK to

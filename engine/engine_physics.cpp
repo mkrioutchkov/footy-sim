@@ -1317,6 +1317,13 @@ void GameEngine::updateControlledBall(double sec) {
 void GameEngine::moveBallCarrier(double sdt) {
     Player* c = playerById(state.ball.controllerId);
     if (!c) return;
+    if (c->id >= 0 && c->id < 22 && lungeDashRemainPx[c->id] > 0.0) {
+        // A tackle winner still finishing his committed dash (fixedUpdate is
+        // moving him) — don't stack the carry step on top; just keep the ball
+        // glued to him while the dash lands.
+        updateControlledBall(0);
+        return;
+    }
     if (c->dribbleType == 0) {
         c->targetX = c->x;
         c->targetY = c->y;

@@ -253,6 +253,7 @@ class StatsCollector {
     // these — nonzero means a forced path is leaking no-look bombs).
     void recordBlindPass() { blindPasses++; }
     void recordSuicidePass() { suicidePasses++; }   // own-third lateral ball cut by a closing lane defender <800ms
+    void recordOffBallOverspeed() { offBallOverspeed++; }   // teleport-grade single-tick displacement (seed 305 0:09)
     // A corner conceded by the defender's own deliberate kick (not a save,
     // duel or deflection) — the "player kicks it out of his own end" class.
     void recordOwnCornerConcession() { ownCornerConcessions++; }
@@ -387,6 +388,7 @@ class StatsCollector {
     int ghostHeaders = 0;
     int blindPasses = 0;
     int suicidePasses = 0;
+    int offBallOverspeed = 0;
     int ownCornerConcessions = 0;
     int goalsFromFreeKick = 0, goalsFromCorner = 0, goalsFromThrowIn = 0,
         goalsFromPenaltyPhase = 0, goalsOpenPlay = 0;

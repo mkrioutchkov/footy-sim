@@ -1076,14 +1076,16 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     stats.recordTackleAttempt();
     // LUNGE (micro audit #3: every duel resolved with the bodies 21-25px apart
     // and the winner moving 1-2px — the steal happened across a gap). Commit
-    // the tackler's body toward the ball: 60% of the gap now, so contact
-    // reads as contact whichever way the roll goes.
+    // the tackler's body toward the ball — but as a DASH over the next few
+    // ticks, not the old instant 60%-of-gap snap: that snap was a one-tick
+    // ~900px/s teleport, the biggest visual artifact of the round-13 build
+    // (seed 305 0:09, 0:42). fixedUpdate plays the dash out at LUNGE_DASH_SPEED.
     {
         double lx = b.x - tackler.x, ly = b.y - tackler.y, ld = std::hypot(lx, ly);
-        if (ld > 4.0) {
-            double step = std::min(ld * 0.6, 16.0);
-            tackler.x += lx / ld * step;
-            tackler.y += ly / ld * step;
+        if (ld > 4.0 && tackler.id >= 0 && tackler.id < 22) {
+            lungeDashDirX[tackler.id] = lx / ld;
+            lungeDashDirY[tackler.id] = ly / ld;
+            lungeDashRemainPx[tackler.id] = std::min(ld * 0.6, 16.0);
             tackler.facing = std::atan2(ly, lx);
         }
     }
