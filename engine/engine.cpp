@@ -1150,6 +1150,19 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
                 d = std::hypot(dx, dy);
             }
+            // FK defenders clear the ring toward their OWN GOAL, not to the
+            // radial-nearest (often ball-side) arc point — a forward caught
+            // inside otherwise gets parked LEVEL with the ball, velocity
+            // zeroed, target == own position, and stands there for the whole
+            // hold (seed 305 17:31: Bale, statue on the ball-side arc for 5.6s
+            // while a shooting FK was lined up; owner: "should be running back").
+            if (!pen && setPiece.type == SetPiece::FreeKick && p.team != restartTeam) {
+                double gs = ownGoalXFor(p.team) - setPiece.spotX;   // spot -> own goal
+                if (std::abs(gs) > 1.0) {
+                    dx = (gs > 0 ? 1.0 : -1.0) * std::max(std::abs(dx), 20.0);
+                    d = std::hypot(dx, dy);
+                }
+            }
             double tx = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
             double ty = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
             if (goalSide) {
