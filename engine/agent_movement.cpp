@@ -166,7 +166,33 @@ void PlayerAI::applyMovement(double sdt) {
         }
     }
 
-    double cruiseMul = (isObserving && !recoverySprint)
+    // ── Step with the pass (anticipation pass, tombstone prerequisite) ── an
+    // opponent pass IN FLIGHT is the defender's cue to move NOW: real defenders
+    // break toward their man as the ball leaves the boot, arriving WITH it.
+    // Here the sprint gates go dead for the whole flight — committedPress keys
+    // on distance to the BALL (mid-flight: far), and every defendSprint branch
+    // above requires a live carrier (controllerId >= 0) — so the man assigned
+    // to the receiver ambled through the flight and only sprinted once the
+    // ball was controlled, always a step late. Whoever is assigned to the
+    // receiver, or already near him, executes his current job at full urgency
+    // for the flight. Target is unchanged (no swarming) — only the weight shift.
+    bool stepWithPass = false;
+    if (!defendSprint && engine.state.ball.controllerId < 0
+        && engine.state.ball.intendedReceiverId >= 0
+        && std::hypot(engine.state.ball.vx, engine.state.ball.vy) > 40.0) {
+        Player* rcv = engine.playerById(engine.state.ball.intendedReceiverId);
+        if (rcv && rcv->team != p.team) {
+            double rd = dist(p.x, p.y, rcv->x, rcv->y);
+            auto* flightTask = engine.assignmentFor(p.id);
+            bool myMan = flightTask && flightTask->opponentId == rcv->id;
+            if ((myMan || rd < 140.0) && rd > 20.0) {
+                stepWithPass = true;
+                defendSprint = true;
+            }
+        }
+    }
+
+    double cruiseMul = (isObserving && !recoverySprint && !stepWithPass)
         ? observingCruiseMul()
         : 1.0;
 
