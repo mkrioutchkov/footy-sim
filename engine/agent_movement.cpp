@@ -256,6 +256,16 @@ void PlayerAI::applyMovement(double sdt) {
     }
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
 
+    // ── Momentum (TOMBSTONE, round 12b) ── a real accel/turn-rate model
+    // (launch 300-340px/s^2, speed-limited heading carve, brake-through-
+    // reversal) was implemented and A/B'd twice: shots +62% then +71%,
+    // tackles -19% then -28%, completion -1.5pp. Reactive defenders pay the
+    // momentum tax far harder than proactive runners because the AI has ZERO
+    // anticipation — giving pursuit states 47% more accel did not close the
+    // gap (carriers cash the turn-brake softening faster than defenders cash
+    // the launch parity). Do NOT retry with constants; visible momentum needs
+    // a defensive-anticipation pass (pre-turn reads, early weight shifts)
+    // FIRST. Reverted to command kinematics.
     double px = p.x, py = p.y;
     if (d > 1.0) {
         double step = std::min(ms * secs, d);
