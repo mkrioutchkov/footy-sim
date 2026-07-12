@@ -842,6 +842,39 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     // Success scales with creativity; the beaten defender is briefly frozen
     // and locked out of an immediate tackle.
     bool ownDefensiveThird = pitch::inOwnDefensiveThird(p.x, p.team);
+    // ── Awareness: a presser CHARGING STRAIGHT AT ME (owner, seed 437 0:33:
+    // "this guy is running straight at me, let me not face him head on and
+    // rotate as he tries to get around me... maybe beat him with skill") ──
+    // The random skill roll below excludes touch-tight range (>18px) and
+    // fires ~5% per beat, so a carrier who turned the ball square to a
+    // sprinting presser mostly just showed it and hoped. A genuine
+    // straight-line charge is a DETERMINISTIC read: shield-turn the carry to
+    // the shoulder AWAY from his approach, body between him and the ball.
+    // Hard-gated (real sprint >40px/s, chargeDot >0.60, ~5s cooldown) so it
+    // can't become trick-spam or a free escape from ordinary pressing.
+    if (skillMoveCooldown == 0 && cp.nearestPlayer && !ownDefensiveThird) {
+        Player* chg = cp.nearestPlayer;
+        double rx = p.x - chg->x, ry = p.y - chg->y, rd = std::max(1.0, std::hypot(rx, ry));
+        double ds = std::hypot(chg->vx, chg->vy);
+        double chargeDot = ds > 8.0 ? (chg->vx * rx + chg->vy * ry) / (ds * rd) : 0.0;
+        // ...and I'M FACING HIM — the complaint case is the carrier square-on
+        // to the charge showing the ball, not any pressed carry (without this
+        // gate the read fired on cooldown all match: 375 "skill moves" vs the
+        // ~25 band; every presser sprints at his carrier).
+        double faceChgDot = std::cos(p.facing) * (-rx / rd) + std::sin(p.facing) * (-ry / rd);
+        if (rd < 38.0 && ds > 55.0 && chargeDot > 0.72 && faceChgDot > 0.5) {
+            double appAng = std::atan2(chg->vy, chg->vx);
+            double side = std::sin(p.facing - appAng) >= 0.0 ? 1.0 : -1.0;   // shoulder away from his line
+            double fdc = fdFor(p.team);
+            p.targetX = clamp(p.x - fdc * 20.0 + std::cos(appAng + side * 1.9) * 44.0, 30.0, PITCH_W - 30.0);
+            p.targetY = clamp(p.y + std::sin(appAng + side * 1.9) * 44.0, 30.0, PITCH_H - 30.0);
+            engine.markActiveShield(p.id);   // the turn is a shield, not a free nick
+            engine.emitEvent("dragback", p.x, p.y, p.id, chg->id);
+            engine.stats.recordSkillMove();
+            skillMoveCooldown = 300;
+            return;
+        }
+    }
     if (skillMoveCooldown == 0 && cp.nearestPlayer && nearbyOpps <= 2 && !ownDefensiveThird
         && cp.score > 0.72 && nearestOppDist > 18.0 && nearestOppDist < 58.0) {
         double skillChance = 0.013 + attrFactor(p.attrs.creativity) * 0.050;   // G3 razzle: trimmed ~0.6x (was 0.022+0.085) toward real ~20-30/match; goal-safe (skill-moves don't score)
