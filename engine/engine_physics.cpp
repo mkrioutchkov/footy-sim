@@ -402,7 +402,13 @@ bool GameEngine::checkOutOfPlay() {
             if (lt != Team::Home) flagSenselessOut();   // away attacker put it behind for a goal kick
             clearState();
             if (lt == Team::Home
-                || (state.clockMs - lastRicochetMs < 700.0 && lastRicochetTeam == Team::Home))
+                // Validity, not a 700ms stopwatch (seed 437 1:04: a charged-down
+                // cross hung ~2.1s before crossing the line and the window
+                // expired — goal kick instead of the corner off the defender's
+                // body). Every GENUINE touch now clears the ricochet memory, so
+                // a live stamp here means the ricochet IS the last thing that
+                // touched the ball, however long it flew.
+                || (lastRicochetMs > -1e8 && lastRicochetTeam == Team::Home))
                 awardCorner(Team::Away, true, b.y);
             else
                 awardSetPiece(SetPiece::GoalKick, Team::Home);
@@ -419,7 +425,7 @@ bool GameEngine::checkOutOfPlay() {
             if (lt != Team::Away) flagSenselessOut();   // home attacker put it behind for a goal kick
             clearState();
             if (lt == Team::Away
-                || (state.clockMs - lastRicochetMs < 700.0 && lastRicochetTeam == Team::Away))
+                || (lastRicochetMs > -1e8 && lastRicochetTeam == Team::Away))   // validity, not a stopwatch — see the Home mirror above
                 awardCorner(Team::Home, false, b.y);
             else
                 awardSetPiece(SetPiece::GoalKick, Team::Away);
@@ -772,6 +778,13 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
         lastRicochetMs = state.clockMs;
         b.vx *= damp;
         b.vy *= damp;
+        // A body clips the loft too (seed 437 1:04: a charged-down cross kept
+        // its full vz through THIS path and floated up 6m — the round-16 fix
+        // damped vz only in the resolveBallContact block-path). Same
+        // restitution on the vertical, and never exit steeper than the
+        // surviving horizontal allows.
+        b.vz *= damp;
+        capSteepness(b, 1.2);
         recordBallImpulse();
     };
     Player* contact = nullptr;
@@ -967,7 +980,7 @@ void GameEngine::resolveBallContact(double sec) {
                 b.vz = 60.0 + rng.random() * 90.0;
                 b.z = std::max(b.z, 1.0);
                 b.lastTouchTeam = contact->team;
-                b.lastToucherId = contact->id;
+                b.lastToucherId = contact->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
                 pendingPass.active = false;
                 blockReboundFor(contact->id, 500);
                 return;
@@ -1020,7 +1033,7 @@ void GameEngine::resolveBallContact(double sec) {
         b.vx += ny * bs * glance;
         b.vy += -nx * bs * glance;
         b.lastTouchTeam = contact->team;
-        b.lastToucherId = contact->id;
+        b.lastToucherId = contact->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
         if (contact->team == lastCollectionTeam) lastSameTeamCollectionMs = state.clockMs - 500;
         blockReboundFor(contact->id, 600);
         bool wallBlock = false;
@@ -1189,7 +1202,7 @@ void GameEngine::collectBall(Player& c) {
     b.vy *= .3;
     b.z = b.vz = 0;
     b.lastTouchTeam = c.team;
-    b.lastToucherId = c.id;
+    b.lastToucherId = c.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     c.dribbleType = 0;
     double fd = fdFor(c.team);
     c.targetX = clampToPitchX(c.x + fd * 28.0, 35.0);
@@ -1330,7 +1343,7 @@ void GameEngine::updateControlledBall(double sec) {
         state.ball.vy = (state.ball.y - prevBy) / sec;
     }
     state.ball.lastTouchTeam = c->team;
-    state.ball.lastToucherId = c->id;
+    state.ball.lastToucherId = c->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
 }
 
 void GameEngine::moveBallCarrier(double sdt) {

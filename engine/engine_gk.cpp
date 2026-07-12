@@ -457,7 +457,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
         b.controllerId = gk.id;
         b.intendedReceiverId = -1;
         blockReboundFor(shooterId, 250);
-        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
+        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
         goalKickMonitor.distributeTimer = gkDistributeMs(gk);
         lastLooseOrigin = LooseOrigin::GoalkeeperCatch;
         recordBallImpulse();
@@ -519,7 +519,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
     b.curl = 0;
     b.intendedReceiverId = -1;
     blockReboundFor(shooterId, punch ? 900 : 1400);
-    b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
+    b.lastTouchTeam = gk.team; b.lastToucherId = gk.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     lastLooseOrigin = punch ? LooseOrigin::GoalkeeperPunch : LooseOrigin::GoalkeeperParry;
     recordBallImpulse();
 }
@@ -557,7 +557,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
         b.vx = b.vy = b.vz = b.z = 0; b.curl = 0;
         b.controllerId = gk.id;
         b.intendedReceiverId = -1;
-        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
+        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
         goalKickMonitor.distributeTimer = gkDistributeMs(gk);
         lastLooseOrigin = LooseOrigin::GoalkeeperClaim;
         stats.recordClaimCatch();
@@ -589,7 +589,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
         b.z = 6; b.vz = clearSpeed * 0.30;
         b.curl = 0;
         b.intendedReceiverId = -1;
-        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id;
+        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
         lastLooseOrigin = LooseOrigin::GoalkeeperPunch;
         blockReboundFor(gk.id, 900);
         blockReboundFor(pendingPass.fromId, 900);
@@ -621,7 +621,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
     b.z = std::max(b.z, 20.0);
     b.intendedReceiverId = -1;
     b.lastTouchTeam = gk.team;
-    b.lastToucherId = gk.id;
+    b.lastToucherId = gk.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     blockReboundFor(gk.id, 700);
     if (pendingPass.active && !pendingPass.offsideExempt) {
         offsideAtShot = pendingPass.offsideAtPass;   // a tip is a save: offside memory survives

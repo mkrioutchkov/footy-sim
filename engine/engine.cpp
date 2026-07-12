@@ -97,12 +97,20 @@ bool GameEngine::canContestBall(Player& player) {
         // play. Watched replay seed 133 4:02: a pass ricocheted off a
         // reaction-locked CB, died 6px from his boots, and he stood over it
         // while the intended receiver strolled 30px to collect.
-        // Guarded to balls LAST TOUCHED BY SOMEONE ELSE — dissolving a passer's
-        // own lockout let him re-grab his own under-hit pass (the stale-grab
-        // churn the lockout exists to stop).
+        // Guarded to the DELIBERATE PASSER of a still-live pending pass —
+        // dissolving a passer's own lockout let him re-grab his own under-hit
+        // pass (the stale-grab churn the lockout exists to stop). The old
+        // blanket last-toucher exclusion ALSO froze a player who INCIDENTALLY
+        // deflected a ball dead at his own feet: he owned BOTH the rebound
+        // lockout and the last touch, so neither this hatch nor the
+        // 'another player touched' reset ever fired — a statue welded to the
+        // stationary ball for the full lockout (seed 437 1:12, Chiellini over
+        // his GK's deflected goal kick; 34 such freezes in one match).
         double looseRest = std::hypot(state.ball.vx, state.ball.vy);
+        bool selfRegrabOfOwnPass = state.ball.lastToucherId == player.id
+            && pendingPass.active && pendingPass.fromId == player.id;
         if (!(state.ball.controllerId < 0 && looseRest < LOOSE_BALL_STALL_SPEED
-              && state.ball.lastToucherId != player.id)) return false;
+              && !selfRegrabOfOwnPass)) return false;
     }
     contestBlockedUntil[player.id] = 0;
     return true;
@@ -169,7 +177,7 @@ void GameEngine::kickoff(Team t, double holdMs) {
             p.targetY = p.y;
             b.controllerId = p.id;
             b.lastTouchTeam = t;
-            b.lastToucherId = p.id;
+            b.lastToucherId = p.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
             break;
         }
     }
@@ -810,7 +818,7 @@ void GameEngine::detectSimulationFreeze(double sdt) {
                     fb.z = 0.0;
                     fb.curl = 0.0;
                     fb.lastTouchTeam = best->team;
-                    fb.lastToucherId = best->id;
+                    fb.lastToucherId = best->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
                     fb.intendedReceiverId = -1;
                     lastLooseOrigin = LooseOrigin::None;
                 } else {
@@ -1345,7 +1353,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 setPiece.walkMs = 0;
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
-                state.ball.lastToucherId = taker->id;
+                state.ball.lastToucherId = taker->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
                 // Goal kick: the 6s award budget (awardSetPiece: "6s total") keeps
                 // counting through the keeper's walk — re-arming on arrival stacked
                 // another full hold on top (observed 10-13s frozen restarts).
@@ -1517,7 +1525,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 }
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
-                state.ball.lastToucherId = taker->id;
+                state.ball.lastToucherId = taker->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
                 taker->x = state.ball.x;
                 taker->y = state.ball.y;
                 taker->targetX = state.ball.x;
