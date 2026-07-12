@@ -1009,6 +1009,13 @@ void GameEngine::resolveBallContact(double sec) {
         double damp = (b.lastTouchTeam == contact->team) ? COLLISION_DAMP_SAME_TEAM : COLLISION_DAMP_OPPONENT;
         b.vx *= damp;
         b.vy *= damp;
+        // A block that kills the horizontal must kill the vertical too — a
+        // charged-down whipped cross (H 300->136) kept its full vz=280 and
+        // rocketed up at 64 degrees (seed 305 1:20, "ball just wobbled up").
+        // Damp vz with the pace, and never leave a deflection steeper than
+        // its surviving horizontal allows.
+        b.vz *= damp;
+        capSteepness(b, 1.2);
         double glance = (b.lastTouchTeam == contact->team) ? COLLISION_GLANCE_SAME : COLLISION_GLANCE_OPPONENT;
         b.vx += ny * bs * glance;
         b.vy += -nx * bs * glance;
