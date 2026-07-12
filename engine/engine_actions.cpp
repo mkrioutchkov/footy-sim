@@ -327,6 +327,11 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         if (receiver.id >= 0 && receiver.id < 22) lastTurnoverWinMs[receiver.id] = state.clockMs;
         if (pendingPass.suicideRisk && state.clockMs - pendingPass.releaseMs < 800.0)
             stats.recordQualityFlag(QualityFlag::SuicidePass);
+        // Owner ask (seed 437 0:03, a giveaway straight off the kickoff with
+        // easy options everywhere): census of passes RELEASED within 5s of a
+        // kickoff that the opponent cuts out. Measurement only.
+        if (pendingPass.releaseMs - phase.lastKickoffMs < 5000.0 && pendingPass.releaseMs >= phase.lastKickoffMs)
+            stats.recordQualityFlag(QualityFlag::EarlyKickoffGiveaway);
         // Senseless-giveaway census (owner ask, 0:06 "senseless loss"): an
         // UNPRESSURED passer whose plain (non-cross, non-through) ball was cut
         // out — a poor giveaway, not a forced or deliberately-risky ball. Pressure

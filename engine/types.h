@@ -57,7 +57,8 @@ enum class QualityFlag : uint8_t {
     BlindPass,
     SuicidePass,   // own-third lateral/backward ball cut by an already-closing lane defender within 800ms
     OwnCornerConcession,
-    OffBallOverspeed   // a player's actual per-tick displacement exceeded any designed motion (teleport-grade blip)
+    OffBallOverspeed,   // a player's actual per-tick displacement exceeded any designed motion (teleport-grade blip)
+    EarlyKickoffGiveaway   // a pass released within 5s of a kickoff, cut out by the opponent (seed 437 0:03)
 };
 
 inline constexpr std::string_view to_string(Team t) { return t == Team::Home ? "home" : "away"; }
@@ -155,6 +156,7 @@ inline constexpr std::string_view to_string(QualityFlag flag) {
         case QualityFlag::WhyPlayerRunningDirection: return "why_player_running_direction";
         case QualityFlag::StationaryHold500ms: return "stationary_hold_500ms";
         case QualityFlag::OffBallOverspeed: return "off_ball_overspeed";
+        case QualityFlag::EarlyKickoffGiveaway: return "pass_giveaway_first_5s";
         case QualityFlag::Unknown: return "unknown";
     }
     return "unknown";
