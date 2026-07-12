@@ -188,7 +188,12 @@ void PlayerAI::applyMovement(double sdt) {
             double rd = dist(p.x, p.y, rcv->x, rcv->y);
             auto* flightTask = engine.assignmentFor(p.id);
             bool myMan = flightTask && flightTask->opponentId == rcv->id;
-            if ((myMan || rd < 140.0) && rd > 20.0) {
+            // 140 -> 115 (round-16 rebalance): step-with-the-pass put a
+            // full-urgency body on EVERY reception within 14m — part of why
+            // build-up suffocated (completion -1.3pp, duels +29% across the
+            // defensive rounds). The assigned man still breaks from anywhere;
+            // bystanders only inside 11.5m.
+            if ((myMan || rd < 115.0) && rd > 20.0) {
                 stepWithPass = true;
                 defendSprint = true;
             }

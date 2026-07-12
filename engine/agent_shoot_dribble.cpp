@@ -583,6 +583,22 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         }
     }
 
+    // Round-16 (owner: turn-into-traffic is "better but still not punished
+    // enough. Players should still avoid it a bit more"): whatever branch
+    // produced the final target, a carry that must TURN (>60deg off current
+    // travel) through a defender's reach is priced down so the pass/hold wins
+    // that beat. Straight-ahead take-ons keep their price — this only taxes
+    // the rotation into traffic.
+    {
+        double spd = std::hypot(p.vx, p.vy);
+        if (spd > 20.0) {
+            double newAng = std::atan2(ty - p.y, tx - p.x);
+            double curAng = std::atan2(p.vy, p.vx);
+            double turn = std::abs(std::atan2(std::sin(newAng - curAng), std::cos(newAng - curAng)));
+            if (turn > 1.05 && escapeLaneBlocked(tx, ty, nullptr)) sc -= 0.18;
+        }
+    }
+
     return Action{ActionType::Dribble, clamp(sc, 0.0, 1.0), nullptr,
                   clamp(tx, 35.0, PITCH_W - 35.0),
                   clamp(ty, 35.0, PITCH_H - 35.0),

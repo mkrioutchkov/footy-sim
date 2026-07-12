@@ -1153,7 +1153,11 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // so possession churned ~2.4x too often (~390 strips/match, no 20+ build-up).
     // A good carrier (control/dribble/shield, harder still from behind) rides the
     // tackle and plays on; the beaten defender is briefly off-balance.
-    double retainChance = clamp(carrierControl * 0.6 + (carrier.dribbleType == 3 ? 0.12 : 0.0) + (carrierShielded ? 0.18 : 0.0) + (fromBehind ? 0.10 : 0.0) - tackleSkill * 0.15, 0.0, 0.60);
+    // Round-16 rebalance (owner: "need attackers to get better at retention
+    // and build up play"): a good carrier rides more of the extra challenges
+    // the defensive rounds added — control weighs heavier, shielding pays
+    // more, cap up 0.60 -> 0.66.
+    double retainChance = clamp(carrierControl * 0.66 + (carrier.dribbleType == 3 ? 0.12 : 0.0) + (carrierShielded ? 0.22 : 0.0) + (fromBehind ? 0.10 : 0.0) - tackleSkill * 0.15, 0.0, 0.66);
     if (rng.random() < retainChance) {
         emitEvent("skill", carrier.x, carrier.y, carrier.id, tackler.id);
         blockReboundFor(tackler.id, 520);

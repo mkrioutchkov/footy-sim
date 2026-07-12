@@ -55,7 +55,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
         // contact range is still a nick — the 18-26px band was doctrine-vetoed
         // for everyone without a press job, and shown balls escaped 76% of
         // sustained touch-tight moments.
-        || (d < TACKLE_RANGE + 4.0 && ballShownDot > 0.60);
+        || (d < TACKLE_RANGE + 4.0 && ballShownDot > 0.70);   // 0.60 -> 0.70 (round-16 rebalance: the stretched nick only for a FULLY shown ball)
     // 3v1 squeeze (watched replay seed 107 0:16: three defenders ringed a
     // shielding carrier at 24-41px and nobody engaged — the ball was never
     // "shown", so everyone contained forever). With numbers up close and the
@@ -184,7 +184,10 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     // only 24% punished — a ball shown square at a marker inside TACKLE_RANGE
     // for a beat must usually be taken. And the mirror: a defender with his
     // BACK to the duel has to turn before he can challenge.
-    if (d < TACKLE_RANGE && ballShownDot > 0.55) sc += 0.22;
+    // 0.22 -> 0.14 (round-16 rebalance: owner "maybe too many tackles now" —
+    // attempts had climbed 248 -> 320/match across the defensive rounds; the
+    // shown-ball urgency stays, just less of it).
+    if (d < TACKLE_RANGE && ballShownDot > 0.55) sc += 0.14;
     {
         double meFacingCarrier = std::cos(player.facing) * (-toTacklerX) + std::sin(player.facing) * (-toTacklerY);
         if (meFacingCarrier < -0.2) sc -= 0.20;
