@@ -787,8 +787,7 @@ void GameEngine::detectSimulationFreeze(double sdt) {
                     // wobbling back into life; he collects it naturally on arrival,
                     // and the 5s re-arm re-rolls if it under-reaches.
                     double rs = clamp(rd * 0.9, 120.0, 260.0);
-                    fb.vx = rdx / rd * rs;
-                    fb.vy = rdy / rd * rs;
+                    driveBall(fb, rdx, rdy, rd, rs);
                     fb.vz = 0.0;
                     fb.z = 0.0;
                     fb.curl = 0.0;
@@ -1009,8 +1008,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 setPiece.placeBallAtMs = 0.0;
             } else {
                 double sp = clamp(gd / 0.40, 240.0, 760.0);   // arrive in ~0.4-0.6s
-                gb.vx = gdx / gd * sp;
-                gb.vy = gdy / gd * sp;
+                driveBall(gb, gdx, gdy, gd, sp);
                 gb.vz = 0;
                 gb.z *= 0.72;                                  // settle out of the air
                 gb.x += gb.vx * sec;

@@ -2,6 +2,7 @@
 #include "rng.h"
 #include "constants.h"
 #include "types.h"
+#include "ball_flight.h"
 #include "pitch_zones.h"
 #include "role_traits.h"
 #include "stats.h"
