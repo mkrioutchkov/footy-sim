@@ -183,7 +183,19 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                 || (prog < PITCH_W * 0.30 && tackleComing && per.nearestOpponentDist < 78.0);
             bool swarmed = prog < PITCH_W * 0.30
                 && (per.pressureCount >= 2 || (isDefenderLike() && per.pressureCount >= 1 && tackleComing));
-            if (emergency || swarmed) {
+            // "Hoof away" (owner, seed 111 1:36: ball dropping in the danger
+            // area — 4R's only concerns should be head it clear / corner /
+            // back to GK, "or to check down and hoof away. really want to see
+            // a hoof away introduced"). A defender holding the ball INSIDE his
+            // own box with bodies anywhere near doesn't need a sprinting
+            // tackler to justify getting rid — the check-down is the bestSafe
+            // test below (a genuinely clean out-ball still wins), the hoof is
+            // the answer when there isn't one.
+            bool boxDanger = isDefenderLike()
+                && pitch::distToOwnGoal(player.x, player.team) < PENALTY_AREA_W + 25.0
+                && pitch::lateralFromCenter(player.y) < PENALTY_AREA_H / 2.0 + 30.0
+                && per.nearestOpponentDist < 140.0;
+            if (emergency || swarmed || boxDanger) {
                 double bestSafe = 0.0;
                 // Judge "a genuinely clean pass out" on the PLAYABLE score, not raw
                 // completion: the old check read audit.expectedCompletion, so a pass
@@ -196,7 +208,7 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                 // losses of possession in [the defensive] third, would prefer
                 // more clearances") — a pass out of a swarm must be genuinely
                 // safe to beat the hoof, not merely coin-flip playable.
-                if (bestSafe < (emergency ? 0.78 : 0.70)) {
+                if (bestSafe < (emergency ? 0.78 : swarmed ? 0.70 : 0.66)) {
                     Player* tgt = nullptr; double bestFx = -1e9;
                     for (auto& t : engine.state.players) {
                         if (t.team != player.team || t.id == player.id || t.role == Role::GK) continue;
@@ -217,7 +229,8 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                         au.forwardProgress = (tgt->x - player.x) * fdFor(player.team);
                         au.expectedCompletion = 0.4;
                         double sc = emergency ? 1.05 + per.pressureCount * 0.05
-                                              : 0.74 + std::max(0, per.pressureCount - 2) * 0.05;
+                                  : swarmed  ? 0.74 + std::max(0, per.pressureCount - 2) * 0.05
+                                             : 0.68;   // boxDanger: the hoof is on the menu, a truly clean out-ball can still beat it
                         a.push_back(Action{ActionType::Pass, sc,
                                            tgt, 0, 0, ActionPurpose::Clear, au});
                     }
