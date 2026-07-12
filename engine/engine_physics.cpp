@@ -1259,6 +1259,11 @@ void GameEngine::updateControlledBall(double sec) {
     // (close control in traffic). Deterministic — no rng, golden-safe apart
     // from geometry.
     double knockExtra = 0.0;
+    // A carrier still inside his first-touch settle window (set by collectBall
+    // at every fresh collect/interception/tackle win) is bringing the ball
+    // under control, not striding with it.
+    bool freshControl = c->role != Role::GK && c->id >= 0 && c->id < 22
+        && firstTouchUntilMs[c->id] > state.clockMs;
     if (c->role != Role::GK && sec > 1e-6) {
         if (carryTouchCarrier != c->id) {
             carryTouchCarrier = c->id;
@@ -1285,7 +1290,14 @@ void GameEngine::updateControlledBall(double sec) {
     double prevBx = state.ball.x, prevBy = state.ball.y;
     double mx = tx - state.ball.x, my = ty - state.ball.y;
     double md = std::hypot(mx, my);
-    double maxStep = (std::hypot(c->vx, c->vy) + 300.0) * sec;
+    // First-touch settle (seed 305 1:58: Alves' CLEAN interception rendered as
+    // a phantom deflection — the undiminished +300 firm-touch allowance flung
+    // the ball to the forward control offset at ~300-335px/s AGAINST its
+    // incoming roll on the very first control tick, and the honest velocity
+    // derivation below faithfully reported the reversal). A fresh carrier
+    // EASES the ball onto his foot; steady-state carries keep the firm
+    // allowance so close control still converges in 2-3 ticks.
+    double maxStep = (std::hypot(c->vx, c->vy) + (freshControl ? 60.0 : 300.0)) * sec;
     bool firstTimedCallThisTick = sec > 1e-6 && state.clockMs != glueStepDoneMs;
     if (firstTimedCallThisTick) glueStepDoneMs = state.clockMs;
     if (md < 60.0 && !(firstTimedCallThisTick && md <= maxStep)) {
