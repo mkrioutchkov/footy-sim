@@ -568,8 +568,16 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
         if (a.target && a.purpose != ActionPurpose::Clear) {
             double wantAng = std::atan2(a.target->y - p.y, a.target->x - p.x);
             double offT = std::atan2(std::sin(wantAng - p.facing), std::cos(wantAng - p.facing));
-            if (std::abs(offT) > 1.35) {
-                facing = p.facing + clamp(offT, -0.55, 0.55);   // ~19 rad/s at 34ms ticks: a sharp half-turn beat
+            // Round-17 low-level audit (owner: "crosses that are unnatural —
+            // facing forward but cross back inside milliseconds"): this gate
+            // existed but spun the body at 0.55rad/tick (~33rad/s — a full 180
+            // in 100ms) and released up to 77deg misaligned, so 27% of all
+            // releases still flew >100deg off the facing of 200ms earlier
+            // (180/677 measured, mostly SETTLED carriers at full power). Human
+            // pivot: ~0.22rad/tick (180deg in ~250ms), release within ~54deg.
+            // Pressure can force a different choice mid-turn — that's real.
+            if (std::abs(offT) > 0.95) {
+                facing = p.facing + clamp(offT, -0.22, 0.22);
                 p.facing = facing;
                 return;   // release next tick(s), body coming around
             }
