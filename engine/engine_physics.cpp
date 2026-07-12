@@ -1004,6 +1004,15 @@ void GameEngine::resolveBallContact(double sec) {
                 stats.recordPenaltyAwarded();
                 emitEvent("handball", contact->x, contact->y, contact->id, shot.shooterId);
                 awardSetPiece(SetPiece::Penalty, shot.team);
+            } else if (!hbInBox && rng.random() < 0.022) {
+                // Law 12 completeness: the OUT-of-box block handball — a direct
+                // free kick from the contact spot (rarer than the box variant:
+                // arms come down naturally outside the area).
+                shot.active = false;
+                shot.tracked = false;
+                lastLooseOrigin = LooseOrigin::ShotBlock;
+                emitEvent("handball", contact->x, contact->y, contact->id, shot.shooterId);
+                awardSetPiece(SetPiece::FreeKick, shot.team);
             } else {
                 stats.recordShotBlocked();
                 emitEvent("block", contact->x, contact->y, contact->id, shot.shooterId);
