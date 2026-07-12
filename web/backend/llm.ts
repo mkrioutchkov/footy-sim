@@ -29,9 +29,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 export type LlmProvider = 'http' | 'claude-code';
-export function llmProvider(): LlmProvider {
-  return process.env.TACTICS_LLM_PROVIDER === 'claude-code' ? 'claude-code' : 'http';
-}
 
 // Failure carrying a message meant for the manager (shown in the tactics receipt).
 // (Explicit field + assignment, not a constructor parameter property — the backend's

@@ -84,9 +84,6 @@ export const NATIONS_BY_CONFED = (() => {
   return m;
 })();
 
-export function flagFor(key: string | null | undefined): string {
-  return (key && NATION_BY_KEY.get(key)?.flag) || '🏳️';
-}
 export function nationName(key: string | null | undefined): string {
   return (key && NATION_BY_KEY.get(key)?.name) || 'Unknown';
 }
