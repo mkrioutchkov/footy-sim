@@ -86,7 +86,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // standing markers don't double count.
         bool stepInWins = false;
         if (perp >= effBlocker && perp < 112.0 && t2 > 0.10 && t2 < 0.92 && closing > 25.0) {
-            double passSpeed = std::min(std::max(150.0 + d * 0.32, PASS_SPEED_BASE + d * PASS_SPEED_DIST), 300.0);
+            // 0.82: average in-flight drag — the launch-speed estimate gave the
+            // stepper ~18% less time than the ball actually takes to reach his
+            // gate, which is how the 1:14/1:29 (seed 437) covered-lane balls
+            // priced as playable.
+            double passSpeed = 0.82 * std::min(std::max(150.0 + d * 0.32, PASS_SPEED_BASE + d * PASS_SPEED_DIST), 300.0);
             double tGate = t2 * d / passSpeed;                       // when the ball crosses his gate
             double sprint = std::max(80.0, attrFactor(o.attrs.speed) * SPEED_SPRINT);
             stepInWins = (perp - 18.0) / sprint + 0.05 < tGate;
@@ -290,7 +294,31 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // to an unmarked man with a clean lane, or the carrier stands holding
     // unplayable options until he's tackled (seed 129 0:37-0:40).
     bool pressedSafeOut = oppClosingSoon && d < 260.0 && receiverPressure == 0 && bl == 0;
-    if (!keeperOutlet && !pressedSafeOut && !reliefBall && longBall <= 0.0 && ownProgress < PITCH_W * 0.42) {
+    // Led-runner bypass (seed 437 0:40: the clearly-on over-the-top to Neymar
+    // was FLOORED here before the killer-ball classes ever evaluated it — his
+    // CURRENT feet read near-lateral while his run was a line-break). A ball
+    // in behind to a flying attacker with a genuinely open reception is not
+    // timid own-half build-up; same goalward-sprint test the killer classes
+    // use, computed early.
+    bool ledRunnerBypass = false;
+    // Tight gates (first cut at completion>=0.50/rfs>26/any range blew through
+    // balls 73 -> 178/90 — the exact volume regression the tombstones warn
+    // about): killer-ball RANGE only, a genuine full sprint, a clearly open
+    // reception, and a solid completion floor of its own.
+    if (roles::isAttacker(t.role) && completion >= 0.55 && nearestOppRecv > 85.0
+        && d >= 230.0 && d <= 520.0) {
+        double fdB = fdFor(p.team);
+        double tgx = goalXFor(p.team) - t.x, tgy = PITCH_H / 2.0 - t.y;
+        double tgl = std::hypot(tgx, tgy);
+        double spdT = std::hypot(t.vx, t.vy);
+        double rfs = t.vx * fdB;
+        if (tgl > 1.0 && tgl < 320.0 && spdT > 34.0) {
+            double radial = (t.vx * tgx + t.vy * tgy) / tgl;
+            if (radial > spdT * 0.55) rfs = std::max(rfs, radial);
+        }
+        ledRunnerBypass = rfs > 40.0;   // full flight only — 34 still fed the volume dial
+    }
+    if (!keeperOutlet && !pressedSafeOut && !reliefBall && !ledRunnerBypass && longBall <= 0.0 && ownProgress < PITCH_W * 0.42) {
         bool breaksLine = fp > 120.0 && receiverPressure == 0 && bl == 0 && laneRisk < 0.8;
         double buildFloor = breaksLine ? 0.50 : 0.66;
         if (completion < buildFloor) return std::nullopt;
@@ -317,8 +345,14 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // play_it_long also SUPPRESSES safe recycling — a long-ball side stops passing
     // it square and commits forward. This is what makes the order actually "commit".
     double recycleSuppress = clamp(1.0 - longBall * 0.7, 0.2, 1.0);
-    bool safeConnector = completion > 0.74 && bl == 0 && receiverPressure == 0 && d < 300.0 && fp > -45.0 && fp < 95.0;
-    bool recyclePass = completion > 0.78 && bl == 0 && receiverPressure == 0 && d < 260.0 && fp >= -80.0 && fp <= 25.0;
+    // laneRisk < 0.7 (seed 437 0:03; 0.6 demoted too many ordinary safe balls and shifted arbitration toward risky forward ones): a defender READING the lane must not be
+    // priced as a secure connector — Iniesta's first pass of the match went to
+    // the wide man with a jogging interceptor 54px abeam (laneRisk 0.76, cut
+    // out 500ms later) and still banked the safeConnector + patient-build
+    // stack, beating the genuinely clean 11m square. Demotion, not veto:
+    // the contested ball can still win on its own merit.
+    bool safeConnector = completion > 0.74 && bl == 0 && receiverPressure == 0 && d < 300.0 && fp > -45.0 && fp < 95.0 && laneRisk < 0.7;
+    bool recyclePass = completion > 0.78 && bl == 0 && receiverPressure == 0 && d < 260.0 && fp >= -80.0 && fp <= 25.0 && laneRisk < 0.7;
     if (safeConnector) sc += (ownProgress < PITCH_W * 0.68 ? 0.18 : 0.10) * recycleMul * recycleSuppress;
     if (recyclePass) sc += (per.pressureCount <= 1 ? 0.12 : 0.20) * recycleMul * recycleSuppress;
     if ((recyclePass || safeConnector) && engine.directiveBias[p.id].simplifyBias > 0.0)
@@ -737,7 +771,17 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
             if (ls2 > 1.0 && o.role != Role::GK) {
                 double t3 = clamp(((ox - p.x) * dx2 + (oy - p.y) * dy2) / ls2, 0.0, 1.0);
                 double perp = std::hypot(ox - p.x - t3 * dx2, oy - p.y - t3 * dy2);
-                if (perp < PASS_BLOCKER_PERP) blEff++;
+                // A body ON THE PASSER'S BOOT is cleared by a genuine LOFT —
+                // long balls only (d>=250): the exclusion feeds every killer
+                // class via blEff==0, and un-gated it reclassified every
+                // sandwiched carrier's forward poke as a through ball
+                // (attempts 73 -> 212/90 in the first two cuts). A short
+                // slipped ball never gets up and over the presser; only the
+                // over-the-top range does (seed 437 0:40: Iniesta's two
+                // sandwich pressers killed the clearly-on 300px+ ball to
+                // Neymar).
+                bool bootPresser = d >= 300.0 && dist(ox, oy, p.x, p.y) < 45.0;   // 250 -> 300: true over-the-top range only
+                if (!bootPresser && perp < PASS_BLOCKER_PERP) blEff++;
             }
         }
     }
