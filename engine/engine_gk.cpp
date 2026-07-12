@@ -418,10 +418,13 @@ void GameEngine::resolvePendingSave() {
     // #1b: count on-target + save only for a ball actually going IN — under the
     // bar at contact. The 2D save model is z-blind, so a laterally-on-frame but
     // OVER-bar shot reaches here; it is neither on target nor a real save.
-    if (b.z + BALL_R <= GOAL_H) {
-        stats.recordShotOnTarget();
-        stats.recordSave();
-    }
+    // seed 305 24:42: it isn't a PARRY either — applySaveOutcome yanked a ball
+    // sailing over the bar at z=45 down 5.3m onto the keeper's feet (the "ball
+    // teleport into GK"), manufacturing a phantom rebound. Over the bar: hands
+    // off, let it fly out for the goal kick.
+    if (b.z + BALL_R > GOAL_H) return;
+    stats.recordShotOnTarget();
+    stats.recordSave();
     emitEvent("save", gk->x, gk->y, gk->id);
     applySaveOutcome(*gk, pendingSave.shooterId, pendingSave.reach);
 }
