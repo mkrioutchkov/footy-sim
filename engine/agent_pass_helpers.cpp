@@ -340,7 +340,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // passingDirectness (centred at 50): high -> reward forward passes more and
     // value safe recycling less (vertical, direct); low -> patient possession.
     double directness = engine.configFor(p.team).passingDirectness / 50.0; // 0..2, 1 at 50
-    double sc = completion * (0.34 + std::max(0.0, progression) * 0.34 * directness) - (1.0 - completion) * turnoverCost;
+    double sc = completion * (0.34 + std::max(0.0, progression) * 0.27 * directness) - (1.0 - completion) * turnoverCost;   // Round-20: progression reward 0.34->0.27 (~20%) to ease the forward scoring tilt (59% fwd)
     if (reliefBall) sc += 0.12;   // press-pinned escape beats the 15th sterile square recycle
     if (!engine.setPiece.armed && offFacing > 1.62) sc -= offFacing > 2.45 ? 0.24 : 0.14;   // blind-pass tax on top of the completion hit (stiffer past the old veto line)
     if (longBall > 0.0 && fp > 80.0) {                          // play_it_long: make the direct long ball win
@@ -628,7 +628,9 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     sc -= bl * (d > 170.0 ? 0.09 : 0.12);   // chippable range: the lofted ball goes over (see blCost note)
     sc -= std::min(laneRisk, 2.2) * 0.075;   // steer away from lanes a defender can step into (see pass audit)
     if (fp > 0.0) {
-        sc += 0.08 + (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.20;
+        // Round-20: universal fp>0 directness bonus trimmed ~40% (0.08/0.20 ->
+        // 0.05/0.12) — it rewarded ANY forward ball and tilted the mix to 59% fwd.
+        sc += 0.05 + (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.12;
     } else {
         sc -= (engine.configFor(p.team).passingDirectness - 50.0) / 100.0 * 0.15;
     }
