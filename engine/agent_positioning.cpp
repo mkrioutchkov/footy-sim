@@ -212,9 +212,17 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
         // passed straight into velocity as direction flips and in-place
         // shivering). The candidate nearest the CURRENT target gets a small
         // edge, so a genuinely better spot still wins but ties stop strobing.
-        double incumbency = dist(cn.x, cn.y, p.targetX, p.targetY) < 45.0 ? 0.05 : 0.0;
-        double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 6.0;
-        double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 6.0;
+        // 0.05/45 -> 0.12/70 (2-min audit, seed 629 52-56s: candidates ~40px
+        // apart tie-strobed THROUGH the old bonus — pid7 flip-flopped targets
+        // 87 times in 1.5s, velocity flipping ~176deg per tick while standing
+        // still). The stronger edge makes a genuinely better spot still win
+        // while adjacent ties stay put.
+        double incumbency = dist(cn.x, cn.y, p.targetX, p.targetY) < 70.0 ? 0.12 : 0.0;
+        // Jitter ±6 -> ±2: the deliberate sinusoid moved every target 12px
+        // peak-to-peak per axis EVERY tick — under momentum that renders as
+        // in-place shiver, not liveliness.
+        double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 2.0;
+        double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 2.0;
 
         options.push_back(Action{
             ActionType::Position,
