@@ -268,7 +268,7 @@ bool GameEngine::checkGoal() {
             state.awayScore++;
         shot.active = false;
         shot.clearFlags();
-        kickoff(scoringTeam == Team::Home ? Team::Away : Team::Home, 6000.0); // celebration + reset breather
+        kickoff(scoringTeam == Team::Home ? Team::Away : Team::Home, 9000.0); // goal celebration (owner: "have delays after goal") — stoppage accrues via kickoffPhase, so it feeds real added time
     };
     if (b.x + BALL_R < HOME_GOAL_X) {
         finishGoal(Team::Away, HOME_GOAL_X);
@@ -1394,6 +1394,10 @@ void GameEngine::updateControlledBall(double sec) {
                 blockReboundFor(c->id, 350);
                 lastRicochetTeam = o.team;
                 lastRicochetMs = state.clockMs;
+                // Classify the loose ball (guard tripped: a body knock-off
+                // that rolled in scored as an UNKNOWN loose goal) — this is
+                // the tackle-deflection family for every downstream consumer.
+                lastLooseOrigin = LooseOrigin::TackleDeflection;
                 recordBallImpulse();
                 return;
             }

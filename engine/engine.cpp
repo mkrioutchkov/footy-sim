@@ -316,6 +316,11 @@ void GameEngine::fixedUpdate(double sdt) {
             // Ratio is exactly 1.0 for a 90-min match → standard game unchanged.
             double addedScale = std::min(1.0, halfDurationMs / (45.0 * 60000.0));
             phase.announcedAddedMs = clamp(std::round(phase.stoppageMs * 0.35 / 60000.0), 1.0, 5.0) * 60000.0 * addedScale;
+            // The board goes up (owner: "added time... should be communicated
+            // properly") — the viewer renders this as the +N banner. playerId
+            // carries the announced minutes, targetId the half.
+            emitEvent("added_time", HALF_X, 20.0,
+                      static_cast<int>(std::round(phase.announcedAddedMs / 60000.0)), phase.half);
         }
         phase.addedTimeActive = true;
         double overtimeMs = state.clockMs - halfEndMs;
@@ -2017,6 +2022,11 @@ void GameEngine::updateSubstitutions() {
     // in the closing stretch, while subs remain.
     if (state.clockMs < nextSubCheckMs) return;
     nextSubCheckMs = state.clockMs + 8000.0;
+    // Substitutions happen at STOPPAGES, and they cost time (owner: "added
+    // time... should be a real thing - so substitutions should take actual
+    // time"). The swap waits for a dead ball, visibly extends the hold, and
+    // credits the board the ~20s a real change burns.
+    if (!setPiece.armed && !phase.kickoffPhase) return;
     double minute = state.clockMs / 60000.0;
     for (int t = 0; t < 2; ++t) {
         if (subsRemaining[t] <= 0) continue;
@@ -2057,6 +2067,10 @@ void GameEngine::updateSubstitutions() {
         if (!injuredFound && rng.random() > 0.45) continue;
         substituteSlot(*worst, *best);
         subsRemaining[t]--;
+        // The change burns real time: extend the current hold so the swap is
+        // visible, and credit the board the rest of the ~20s a real sub takes.
+        if (setPiece.armed) phase.actionTimer += 2500.0;
+        phase.stoppageMs += 15000.0;
     }
 }
 
