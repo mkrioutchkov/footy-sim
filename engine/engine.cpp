@@ -1053,7 +1053,13 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 gb.vx = gb.vy = gb.z = gb.vz = 0;
                 setPiece.placeBallAtMs = 0.0;
             } else {
-                double sp = clamp(gd / 0.40, 240.0, 760.0);   // arrive in ~0.4-0.6s
+                // Round-19 (audit): the old 240-760px/s cap made a restart-ball
+                // retrieval read as a ghost-struck ball at up to 760px/s. Cap
+                // near a rolled-ball speed instead — a far retrieval simply takes
+                // longer to arrive, which reads naturally and never rushes the
+                // restart (the hold timer only starts once the taker is on the
+                // placed ball, so slower placement cannot fire the restart early).
+                double sp = clamp(gd / 0.40, 200.0, 300.0);
                 driveBall(gb, gdx, gdy, gd, sp);
                 gb.vz = 0;
                 gb.z *= 0.72;                                  // settle out of the air
