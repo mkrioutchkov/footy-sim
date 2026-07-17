@@ -809,11 +809,34 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
             }
         }
     }
+    // Nearest defender PROJECTED to the receive point at arrival (only for a
+    // runner already at pace — rawSpd>30; a slower man is judged at his spot).
+    // Hoisted above the killer-ball classes (Round-20) so clearOnsideAttacker
+    // can see the closing defender it used to ignore (seed 477 0:11: a CB
+    // projected 39px at arrival still read as a clean lane). Also feeds
+    // ledRunnerLoft below.
+    double nearestOppProj = 1e9;
+    if (runnerRawSpd > 30.0) {
+        double leadT = clamp(d / 300.0 + 0.3, 0.4, 1.1);
+        for (auto& o : engine.state.players)
+            if (o.team != p.team && o.role != Role::GK && !o.sentOff)
+                nearestOppProj = std::min(nearestOppProj,
+                    dist(o.x + o.vx * leadT, o.y + o.vy * leadT, rxEff, ryEff));
+    }
     // USERWATCH A3 (Leon Kovac ~4:33 missed it): a teammate CLEAR & ONSIDE in behind with an
     // open lane is a through-ball target even BEFORE he sprints — the obvious killer pass a
     // human expects. Strict gates (unmarked, lane fully clear, genuine range) so it never spams.
+    // Round-20 (seed 477 0:11: WM's "aimless throughball to nobody" — a 32m
+    // "clean killer ball" to a CF 154px short of the line, drifting laterally
+    // (goalward speed 3.3) with a CB stepping in, cut out). The class demanded
+    // no runner intent and accepted a target 15m short of the line, so a static
+    // shirt in a momentarily-clean lane read as an on ball. Require a genuine
+    // forward run, a shoulder-of-the-line position (onsideGap<90, not <170), and
+    // — for a runner already at pace — no defender projected to step in (>60px).
     bool clearOnsideAttacker = targetAttacker && rpEff == 0 && blEff == 0
-                            && onsideGap > 3.0 && onsideGap < 170.0 && goalDistEff < 430.0;
+                            && runnerForwardSpeed > 20.0
+                            && onsideGap > 3.0 && onsideGap < 90.0 && goalDistEff < 430.0
+                            && nearestOppProj > 60.0;
     bool runnerIntent =
         (assignment && (assignment->role == DefensiveTask::RunAhead
                      || assignment->role == DefensiveTask::InsideRun
@@ -892,15 +915,8 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // and a CLEAN projected reception (no pressure, no lane blockers, nearest
     // projected marker 75px+, real forward gain, completes). Executed as a
     // Through (led + lofted at range by passBallTo), exempt from the sanity
-    // penalty like every deliberate killer ball.
-    double nearestOppProj = 1e9;
-    if (runnerRawSpd > 30.0) {
-        double leadT = clamp(d / 300.0 + 0.3, 0.4, 1.1);
-        for (auto& o : engine.state.players)
-            if (o.team != p.team && o.role != Role::GK && !o.sentOff)
-                nearestOppProj = std::min(nearestOppProj,
-                    dist(o.x + o.vx * leadT, o.y + o.vy * leadT, rxEff, ryEff));
-    }
+    // penalty like every deliberate killer ball. (nearestOppProj is computed
+    // once above, hoisted so clearOnsideAttacker can see the closing defender.)
     bool runnerAssignment = assignment && (assignment->role == DefensiveTask::RunAhead
         || assignment->role == DefensiveTask::InsideRun || assignment->role == DefensiveTask::Overlap
         || assignment->role == DefensiveTask::CrossLane);
@@ -929,10 +945,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool overTheTop = !kickoffMigration && runnerAssignment && d >= 230.0 && d <= 520.0
         && onsideGap > 25.0 && onsideGap < 200.0 && spaceBehindLine > 180.0
         && rpEff == 0 && blEff <= 1 && nearestOppProj > 70.0
-        // seed 305 1:39: an UNMARKED shoulder man doesn't need to already be
-        // sprinting — the ball SETS UP the run (owner: "a good chance to set
-        // them up for a run is on"). Moving runner OR free stander both qualify.
-        && (runnerRawSpd > 28.0 || nearestOppRecv > 70.0)
+        // Round-20 (seed 477 0:11): an over-the-top needs BOTH a moving runner
+        // AND space behind — a free STANDER with grass gets the ball to feet,
+        // not lofted into a channel he isn't attacking. Was OR (a stander alone
+        // armed it), now AND.
+        && (runnerRawSpd > 28.0 && nearestOppRecv > 70.0)
         && completion >= 0.48;
     if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall || genuinelyOpenAdvanced || ledRunnerLoft || overTheTop) {
         pur = ActionPurpose::Through;
