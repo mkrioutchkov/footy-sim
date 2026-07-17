@@ -193,7 +193,13 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // interceptor to move at walking pace (20px/s over the flight) yet priced
     // as a normal 1-blocker ball. Opponents already inside the receiver-press
     // radius are priced above — this term is the RANGE extension only.
-    if (d > 240.0) {
+    // ...and for a PRESSED passer's own-third lateral the race runs from 130px
+    // up (seed 111 1:24: a 151px lateral from 302px out, presser on the boot,
+    // cut by a reader at t2=0.93 — under 240 it skipped every race and priced
+    // as a clean switch, outbidding the safe keeper ball). Calm build-up
+    // laterals skip it — racing them all starved the deep short menu under
+    // the build floor and clearances blew 164 -> 273/90.
+    if (d > 240.0 || (d > 130.0 && fp < 40.0 && ownProgress < PITCH_W * 0.34 && oppClosingSoon)) {
         double tFlight = d / std::min(std::max(150.0 + d * 0.32, PASS_SPEED_BASE + d * PASS_SPEED_DIST), 300.0);
         double tOpp = 1e9;
         for (auto& o : engine.state.players) {
@@ -429,7 +435,25 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     // ── Wide delivery classification ──
     double dgW = dg2;
+    // A ball into a CENTRAL, roughly-onside attacker in behind is a THROUGH
+    // ball, not a wide delivery — even from a wide player (seed 111 0:11:
+    // RED9(WM)->RED10(CF) satisfied goodThroughWindow's whole geometry but
+    // this tag shunted it into the cutback branch, where every killer class
+    // is switched off, and it died as a bare +0.18 recycle).
+    bool inBehindCentral = false;
+    {
+        double olW = engine.offsideLineFor(p.team);
+        double ogW = std::isnan(olW) ? 1e9 : (olW - t.x) * fdFor(p.team);
+        // Tight window (the 170px onside band reclassified enough wide-player
+        // balls to blow Through volume +23/90): only the man genuinely ON THE
+        // SHOULDER, central, final 30m.
+        inBehindCentral = roles::isAttacker(t.role)
+            && ogW > -12.0 && ogW < 80.0
+            && pitch::lateralFromCenter(t.y) < 120.0
+            && pitch::distToOppGoal(t.x, p.team) < 300.0;
+    }
     bool isWideDelivery = isWidePlayer()
+        && !inBehindCentral
         && dgW < 430.0
         && pitch::lateralFromCenter(p.y) > 75.0
         && std::abs(t.x - (goalXFor(p.team))) < 310.0

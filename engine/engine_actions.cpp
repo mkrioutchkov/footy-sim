@@ -73,13 +73,16 @@ void GameEngine::beginTrackedPass(Player& from, Player& to, bool isCross, bool i
     // actually cut inside 800ms (the Chiellini->Van Dijk ball died in 650ms).
     pendingPass.releaseMs = state.clockMs;
     pendingPass.suicideRisk = false;
-    if (pitch::distToOwnGoal(from.x, from.team) < 300.0 && forwardProgress <= 40.0) {
+    // 300 -> 320 and t2 0.15/0.85 -> 0.12/0.95 (seed 111 1:24: a textbook
+    // suicide ball from 302.4px missed the zone gate by 2.4px, and its
+    // interceptor read the ball at t2=0.93 — outside the old scan band).
+    if (pitch::distToOwnGoal(from.x, from.team) < 320.0 && forwardProgress <= 40.0) {
         double sdx = to.x - from.x, sdy = to.y - from.y, sls = sdx * sdx + sdy * sdy;
         if (sls > 1.0) {
             for (auto& o : state.players) {
                 if (o.team == from.team || o.role == Role::GK || o.sentOff) continue;
                 double t2 = ((o.x - from.x) * sdx + (o.y - from.y) * sdy) / sls;
-                if (t2 < 0.15 || t2 > 0.85) continue;
+                if (t2 < 0.12 || t2 > 0.95) continue;
                 double cx = from.x + t2 * sdx, cy = from.y + t2 * sdy;
                 double perp = dist(o.x, o.y, cx, cy);
                 if (perp > 60.0) continue;

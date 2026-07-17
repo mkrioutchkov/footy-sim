@@ -160,6 +160,33 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
         // jockey holding his standoff) — the shared trigger for the deep-carrier
         // release valves below. Proximity/projection variants of this were tried
         // and reverted (see the tempo-brake note).
+        // Deep defenders read an IMMINENT steady closer as trouble too (seed
+        // 111 0:45: pid5 closed 2B at 44-45px/s — under the 50 sprint bar —
+        // so no valve armed, the GK ball never reached the menu, and 2B
+        // turned into the traffic and was stripped). A flat lower bar (38)
+        // was tried and REVERTED: it sits below normal press-approach speed,
+        // the valve went permanent and clearances blew 164 -> 274/90. The
+        // deep-defender clause instead requires the closer already INSIDE
+        // 65px and still coming — contact inside ~1.5s, not a distant cruise.
+        bool deepDefValve = isDefenderLike()
+            && pitch::forwardProgress(player.x, player.team) < PITCH_W * 0.34;
+        // NOTE (round 18, seed 111 0:45): wiring a lower/imminence closing bar
+        // into tackleComing for deep defenders was tried THREE ways (flat 38,
+        // 65px@34, banded 30-65px@34) and each kept the clearance valve
+        // near-permanent (+84 to +110 clears/90) — deep defenders always have
+        // someone closing at press pace. The 0:45 fix is the DRIBBLE TAX
+        // below instead: same imminence read, but it only demotes turning
+        // into the traffic, never mints a hoof.
+        bool imminentDeepCloser = false;
+        if (deepDefValve) {
+            for (auto& o : engine.state.players) {
+                if (!isActiveOpponent(o, player.team)) continue;
+                double dxo = player.x - o.x, dyo = player.y - o.y;
+                double d2 = std::hypot(dxo, dyo);
+                if (d2 < 30.0 || d2 > 65.0) continue;
+                if ((o.vx * dxo + o.vy * dyo) / d2 > 34.0) { imminentDeepCloser = true; break; }
+            }
+        }
         bool tackleComing = tackleArriving(engine.state.players, player.x, player.y, player.team);
         {
             double prog = pitch::forwardProgress(player.x, player.team);
@@ -194,7 +221,10 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             bool boxDanger = isDefenderLike()
                 && pitch::distToOwnGoal(player.x, player.team) < PENALTY_AREA_W + 25.0
                 && pitch::lateralFromCenter(player.y) < PENALTY_AREA_H / 2.0 + 30.0
-                && per.nearestOpponentDist < 140.0;
+                // <140 -> arriving-or-<60 (seed 111 22:37: a LONE presser 64px
+                // away drove three first-touch clears in 0.8s — the pinball.
+                // The hoof needs pressure genuinely ARRIVING, not just present).
+                && (tackleComing || per.nearestOpponentDist < 60.0);
             if (emergency || swarmed || boxDanger) {
                 double bestSafe = 0.0;
                 // Judge "a genuinely clean pass out" on the PLAYABLE score, not raw
@@ -294,6 +324,10 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             if (x.type == ActionType::Pass)    x.score += pc * 0.04;
             if (x.type == ActionType::Shoot)   x.score += pc * 0.03;
             if (x.type == ActionType::Dribble && pc == 1) x.score += 0.10;
+            // Seed 111 0:45: a deep defender with a closer arriving does NOT
+            // turn on the ball and carry into him — the pass menu (CB, and
+            // the keeper when the press is real) must win that beat.
+            if (x.type == ActionType::Dribble && imminentDeepCloser) x.score -= 0.22;
             if (x.type == ActionType::Dribble && pc >= 3) x.score -= 0.10;
             if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space && carryLaunchZone && hasGrassToCarry) {
                 x.score += spaceCarryRoleBonus();
@@ -353,7 +387,11 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             // exempting it unconditionally made the GK the only playable ball of
             // every braked deep hold, and build-up degenerated into a
             // defender→GK→defender loop (measured 28-47 backpasses/match).
-            bool panicClear = x.purpose == ActionPurpose::Clear
+            // A clearance is only "no time to think" when the press is REAL
+            // (seed 111 22:37: dwell-exempt Clears pinballed first-time hoofs
+            // between three own clearers in 0.8s). Un-pressed, the receiver of
+            // a clearance takes a settling touch like anyone else.
+            bool panicClear = (x.purpose == ActionPurpose::Clear && (tightPress || tackleComing))
                 || (x.purpose == ActionPurpose::KeeperBackpass
                     && (tackleComing || pc >= 2));
             if (!tightPress && x.type == ActionType::Pass && !killerBall && !lineBreakOutlet && !panicClear) {

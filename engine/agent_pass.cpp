@@ -71,6 +71,12 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
     // two-man corner trap because the second presser sat outside the cone) —
     // it arms the secure-outlet waiver so the easy out-ball to a CB behind
     // is a candidate instead of being backward-penalised to score<=0.
+    // NOTE (round 18): lowering this bar for deep defenders (38, then 43) to
+    // mint the GK outlet earlier was tried and REVERTED — keeper backpasses
+    // blew 36 -> 98/90 (then 70), the defender->GK->defender loop the old
+    // tombstone warns about. The 0:45 complaint is answered by the CLEARANCE
+    // valve's 38px/s bar in agent.cpp instead: the pressed deep defender now
+    // hoofs rather than turning into traffic; the GK mint keeps the 50 bar.
     bool oppClosingSoon = tackleArriving(engine.state.players, p.x, p.y, p.team);
     CarrierPressure cpPass = assessCarrierPressure(engine, p);
     bool touchlinePinned = p.y < PASS_TOUCHLINE_TRAPPED || p.y > PITCH_H - PASS_TOUCHLINE_TRAPPED;
