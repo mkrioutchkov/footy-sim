@@ -93,7 +93,13 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 
     // Carrier holding still — easier target, but not a guaranteed lunge: the
     // old +0.30 meant every pause triggered a challenge from anyone in range.
-    if (ctrl->dribbleType == 0 && d < TACKLE_ZONE_MAX) sc += 0.18;
+    // Round-20 (seed 477 0:06: a three-turnover pinball in the centre circle in
+    // the first 7 seconds): this term rewards a lunge at a slow/stationary
+    // carrier ~1s after receipt — the manufactured nick that feeds the pinball.
+    // Trimmed 0.18 -> 0.08 to price that eager challenge as a weaker draw
+    // (aggregate tackle attempts already sit in the target band after prior
+    // trims; this is a behaviour trim on the stationary nick, goals-neutral).
+    if (ctrl->dribbleType == 0 && d < TACKLE_ZONE_MAX) sc += 0.08;
 
     double ownGoalX = ownGoalXFor(player.team);
     bool emergencyBoxChallenge = pitch::distToOwnGoal(ctrl->x, player.team) < EMERGENCY_BOX_DIST
