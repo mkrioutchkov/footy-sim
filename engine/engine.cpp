@@ -1697,6 +1697,16 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     if (jumpDist > expectedMax && jumpDist > 25.0 && !recentImpulse && !setPiece.armed && !phase.kickoffPhase && state.ball.controllerId < 0) {
         stats.recordBallJump();
     }
+    // Round-19 (seed 629 0:48): the velocity-gated ball_jump check above is
+    // suppressed during the impulse grace window, so a save-punch that snapped
+    // the ball 191px in one tick slipped through. A pure POSITION discontinuity
+    // is never legitimate for a loose ball: real one-tick flight is <15px, so a
+    // >55px jump is a teleport regardless of impulse. Suppressed only for genuine
+    // placements (armed set piece, kickoff, out-ball glide/restart retrieval).
+    if (jumpDist > 55.0 && state.ball.controllerId < 0 && !setPiece.armed
+        && !phase.kickoffPhase && setPiece.placeBallAtMs <= 0.0) {
+        stats.recordQualityFlag(QualityFlag::BallTeleport);
+    }
     if (ballImpulseGraceTicks > 0) ballImpulseGraceTicks--;
     cacheBallState();
 }

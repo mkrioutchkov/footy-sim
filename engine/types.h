@@ -59,7 +59,8 @@ enum class QualityFlag : uint8_t {
     OwnCornerConcession,
     OffBallOverspeed,   // a player's actual per-tick displacement exceeded any designed motion (teleport-grade blip)
     EarlyKickoffGiveaway,   // a pass released within 5s of a kickoff, cut out by the opponent (seed 437 0:03)
-    CarriedBallOverspeed   // the glued/carried ball stepped faster than the carrier + firm-touch allowance (seed 437 0:59 orbit-teleport)
+    CarriedBallOverspeed,   // the glued/carried ball stepped faster than the carrier + firm-touch allowance (seed 437 0:59 orbit-teleport)
+    BallTeleport   // a loose ball's one-tick position jumped beyond any legal flight (seed 629 0:48 save-punch snap)
 };
 
 inline constexpr std::string_view to_string(Team t) { return t == Team::Home ? "home" : "away"; }
@@ -159,6 +160,7 @@ inline constexpr std::string_view to_string(QualityFlag flag) {
         case QualityFlag::OffBallOverspeed: return "off_ball_overspeed";
         case QualityFlag::EarlyKickoffGiveaway: return "pass_giveaway_first_5s";
         case QualityFlag::CarriedBallOverspeed: return "carried_ball_overspeed";
+        case QualityFlag::BallTeleport: return "ball_teleport";
         case QualityFlag::Unknown: return "unknown";
     }
     return "unknown";

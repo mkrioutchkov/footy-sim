@@ -18,8 +18,11 @@ void GameEngine::recordBallImpulse() {
     double spd = std::hypot(state.ball.vx, state.ball.vy);
     metrics.peakBallSpeed = std::max(metrics.peakBallSpeed, spd);
     stats.recordBallSpeedSample(spd);
-    prevBallX = state.ball.x;
-    prevBallY = state.ball.y;
+    // Round-19 (seed 629 0:48): a kicked ball changes VELOCITY, not position —
+    // resetting prevBallX/prevBallY to the post-impulse position here (mid-tick,
+    // before the jump check runs) blinded the position-continuity tripwire to a
+    // 191px save-punch teleport (jumpDx computed as 0). Reset only the velocity
+    // baseline; position continuity must be measured against the pre-impulse spot.
     prevBallVx = state.ball.vx;
     prevBallVy = state.ball.vy;
     prevControllerId = state.ball.controllerId;
