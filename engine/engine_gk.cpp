@@ -422,6 +422,11 @@ void GameEngine::resolvePendingSave() {
         || (b.x - gk->x) * fdFor(gk->team) < 0.0;
     if (segDist > PLAYER_R + BALL_R + 14.0 && !passedDepth) return;
     pendingSave.active = false;
+    // Round-19 (seed 629 0:48): a byline shot curled wide and crossed the keeper's
+    // depth 209px below him; the x-only passedDepth trigger resolved a "save" and
+    // the punch placement teleported the ball 191px onto the keeper. Depth-cross
+    // only counts when the ball is actually within reach.
+    if (segDist > 55.0) return;
     // Beaten dive: he committed but the ball's past him — no save, let it run.
     if (!pendingSave.willSave) return;
     // #1b: count on-target + save only for a ball actually going IN — under the
