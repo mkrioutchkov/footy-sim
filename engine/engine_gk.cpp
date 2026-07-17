@@ -252,7 +252,16 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         // Angle play: stand ON the ball-goal line, stepping out with threat —
         // narrowing the angle is most of goalkeeping. The old Y-lerp toward
         // the ball left near-post gaps off the line.
+        // Depth cap 64 -> 110 for a CENTRAL threat bearing in with a confident
+        // keeper (seed 111 21:11: an 11m central carry with the keeper glued
+        // 37px off his line read as "GK positioning is really stupid" — the
+        // cone was covered but the passivity showed). Wide balls and timid
+        // keepers keep the old cap so a chip is always recoverable.
+        bool centralThreat = pitch::lateralFromCenter(state.ball.y) < 140.0
+            && (gk.team == Team::Home ? state.ball.vx < -8.0 : state.ball.vx > 8.0);
         double standDepth = clamp(14.0 + (PITCH_W * 0.55 - ballGoalDist) * 0.10 + agentFor(gk)->rushAggression() * 16.0, 12.0, 64.0);
+        if (centralThreat && agentFor(gk)->rushAggression() > 0.5)
+            standDepth = std::max(standDepth, clamp(ballGoalDist * 0.22, 40.0, 110.0));
         double lineT = clamp(standDepth / std::max(ballGoalDist, 1.0), 0.0, 1.0);
         gk.targetX = goalX + fd * standDepth;
         gk.targetY = clamp(gk.homeY + (state.ball.y - gk.homeY) * lineT,

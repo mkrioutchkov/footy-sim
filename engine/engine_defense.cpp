@@ -412,7 +412,13 @@ void GameEngine::assignAttackingRoles(Team team, Player& carrier) {
     // visible. More committed fullbacks = more wide overhang; a deliberate, user-
     // sanctioned attacking risk ("bumping goals a bit is fine, we can improve defending").
     bool wingerCarryWide = carrier.role == Role::WM && carrierWide && ballAdvance > 0.28;
-    if ((ballAdvance > 0.32 && carrierWide) || wingerCarryWide || (allOut && ballAdvance > 0.30)) {
+    // ballAdvance > 0.45 central clause (seed 111 1:54 "why only one red
+    // player in box?"): a CENTRAL advanced carry sent NO Overlap FB and NO
+    // AdvanceMidfield CM — only the CF (+ weak-side WM) ever attacked the
+    // box. A genuinely advanced carry commits the midfield runner wherever
+    // the carrier stands.
+    if ((ballAdvance > 0.32 && carrierWide) || wingerCarryWide || (allOut && ballAdvance > 0.30)
+        || ballAdvance > 0.45) {
         Player* fbOver = nullptr; double bestFb = -1e9;
         for (auto& p : state.players) {
             if (p.team != team || p.id == carrier.id || p.role != Role::FB) continue;

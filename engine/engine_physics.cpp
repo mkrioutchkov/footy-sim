@@ -865,7 +865,15 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
                 ricochetOffBody(p, 0.80);   // a deflection keeps more pace than a leggy loose-ball ricochet
             continue;
         }
-        double r = (bs > COLLISION_FAST_CONTACT && p.team != b.lastTouchTeam) ? fastContactRadius : collectRadius;
+        // A same-team CHASER who is NOT the intended receiver contests a live
+        // overrun exactly like an opponent — give him the fast-contact reach
+        // too. The team-asymmetric radius let a 12.9px near-miss on an 82px/s
+        // ball thread the 8-13.5px band only the OPPONENT was allowed to use,
+        // and the opponent cut it out (seed 111 1:39: 7R "should have got
+        // there... ball drifted past him").
+        double r = (bs > COLLISION_FAST_CONTACT
+                    && (p.team != b.lastTouchTeam || p.id != b.intendedReceiverId))
+                   ? fastContactRadius : collectRadius;
         // Micro audit #4: a fast FRIENDLY ball dead-center through a teammate's
         // body tunneled straight through (24 times/5min) — the fast-contact
         // radius was opponents-only, and the ghost-body ricochet covers only

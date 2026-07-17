@@ -288,7 +288,10 @@ void GameEngine::releaseSetPiece() {
     if (setPiece.type == SetPiece::FreeKick) {
         double gx2 = goalXFor(holder->team), gy2 = PITCH_H / 2.0;
         double fkDist = std::hypot(gx2 - holder->x, gy2 - holder->y);
-        bool wideFK = std::abs(holder->y - gy2) > 120.0;
+        // 120 -> 85 (seed 111 1:54: a 94px-off-center FK became a lone-CF
+        // direct shot with ONE red in the box — a wide-central spot is a
+        // whipped delivery into a populated box, not a solo pot-shot).
+        bool wideFK = std::abs(holder->y - gy2) > 85.0;
         if (wideFK && fkDist > 250.0 && fkDist < 560.0) {
             Player* tgt = nullptr;
             double best = -1e9;
@@ -680,6 +683,13 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         // penalty happened.
         double openNeed = closeKeeperPressure >= 2 ? 85.0 : 58.0;
         bool safe = clearLane && nearestOpp > openNeed && d < 320.0 && !trapped;
+        // An UNPRESSURED keeper must not shovel a short ball to a man under
+        // MORE pressure than himself (seed 111 22:37: a comfortable 1.68s
+        // hold ended in a short pass to a pressed man in the box corner —
+        // three first-touch clears and a turnover followed). Holding costs a
+        // keeper nothing; a short ball must IMPROVE the picture.
+        if (nearestKeeperPressure > 60.0 && d < 140.0
+            && nearestOpp < nearestKeeperPressure - 10.0) safe = false;
         double roleBonus = sp::weight(sp::DIST_SAFE, p.role);
         double openness = clamp(nearestOpp / 90.0, 0.0, 1.0);
         double prox = 1.0 - clamp(d / 520.0, 0.0, 1.0); // shorter = safer
