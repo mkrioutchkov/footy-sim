@@ -813,8 +813,10 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
             // recent-toucher frame-hits per match where a grounded ball rolled
             // DEAD-CENTER (<8px) through a body with velocity unchanged. A locked
             // player can't WIN the ball, but he still has legs — a true center
-            // hit ricochets off him (grazes at 8-13.5px still pass by, matching
-            // the whiff branch's "passes clean" intent for near-misses). The
+            // hit ricochets off him (grazes at 10.5-13.5px still pass by, matching
+            // the whiff branch's "passes clean" intent for near-misses; the band
+            // was <8 but fast balls threading 9-11px through a body still read
+            // as passing through a leg on replay). The
             // ricochet is incidental: lastTouch is NOT updated (no possession /
             // offside / restart-attribution side effects), no new lockouts.
             // Exempt: GK (own handling paths), sent-off (parked off-pitch), armed
@@ -829,7 +831,7 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
                 double tg = seg2 > 1e-6 ? clamp(((p.x - prevX) * sx + (p.y - prevY) * sy) / seg2, 0.0, 1.0) : 0.0;
                 double dg = dist(p.x, p.y, prevX + sx * tg, prevY + sy * tg);
                 double toward = (p.x - b.x) * b.vx + (p.y - b.y) * b.vy;
-                if (dg < 8.0 && toward > 0.0)
+                if (dg < 10.5 && toward > 0.0)
                     ricochetOffBody(p, 0.72);   // a leggy, messy ricochet, not a clean block
             }
             continue;
