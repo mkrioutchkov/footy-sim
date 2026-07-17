@@ -385,7 +385,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // circulation", it is the sterile ping the owner keeps flagging —
         // the keep bonus thins as the receiver's space disappears (2:26).
         double openScale = clamp((nearestOppRecv - 30.0) / 50.0, 0.55, 1.0);
-        if (safeConnector || recyclePass) sc += 0.30 * pressScale * openScale;
+        // Round-20: thinned 0.30 -> 0.20 (~a third) — the patient-circulation
+        // keep-bonus was over-rewarding the sterile square recycle and inflating
+        // pass volume (876 -> target 550-700/team/90). Mechanism kept; magnitude cut.
+        if (safeConnector || recyclePass) sc += 0.20 * pressScale * openScale;
         sc -= (1.0 - completion) * 0.45;
     }
     if (keeperOutlet) {

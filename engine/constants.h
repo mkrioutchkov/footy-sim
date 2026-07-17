@@ -191,7 +191,7 @@ inline constexpr double PRESS_COMMIT_MAX_DIST   = 145.0;
 // ── Pass scoring ──
 // (old pass-completion-probability / turnover / pass-scoring weight constants
 //  removed — dead after the pass-decision rework; the live pass geometry below stays.)
-inline constexpr double PASS_MIN_DISTANCE       = 42.0;
+inline constexpr double PASS_MIN_DISTANCE       = 58.0;   // Round-20: 42 -> 58 (4.2m -> 5.8m) to cut the sub-6m ping-pong that inflated pass volume
 inline constexpr double PASS_MAX_DISTANCE       = 550.0;
 inline constexpr double PASS_MAX_DISTANCE_KEEPER = 455.0;
 inline constexpr double PASS_DIST_NORMALIZATION = 850.0;
