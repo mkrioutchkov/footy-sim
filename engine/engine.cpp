@@ -925,7 +925,12 @@ static double actionTimerFor(SetPiece sp, double spotDistToOppGoal) {
     // Deep own-half free kick: no box routine to stage, so the full 7s hold is
     // just dead air (seed 103 @41s sat 9.6s on a kick that was always a short pass).
     if (sp == SetPiece::FreeKick && spotDistToOppGoal > 380.0) return 3000.0;
-    return 7000.0; // corner / attacking free kick
+    // Round-19 (audit): a shared 7s hold left the corner-taker standing over the
+    // ball for 7-12s. A corner has no wall to stage, so it needs only enough time
+    // for the box crowd to form (~4s). Short-distance corner retrieval (<300px ->
+    // ~1.5s at the capped roll speed) completes well inside this hold.
+    if (sp == SetPiece::Corner) return 4000.0;
+    return 7000.0; // attacking free kick (wall setup justifies the longer hold)
 }
 
 // Gaylord seam (16:48): the engine id of the team's designated taker for this set-piece type
