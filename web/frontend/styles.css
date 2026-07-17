@@ -213,6 +213,11 @@ input[type=range]:focus { box-shadow: none; }
 .watch-toast.wt-card { border-left-color: #ffd900; }
 .watch-toast.wt-pen { border-left-color: #ff6b6b; }
 .watch-toast.wt-sub { border-left-color: #66dd88; }
+.watch-toast.wt-foul { border-left-color: #ff7a5c; }
+.watch-toast.wt-adv { border-left-color: #5fd39a; }
+.watch-toast.wt-adv .wt-tx { color: #7fe3b0; }
+.watch-toast.wt-offside { border-left-color: #ff9f43; }
+.watch-toast.wt-inj { border-left-color: #ff5a49; }
 @media (prefers-reduced-motion: reduce) { .watch-toast { animation: none !important; } }
 .watch-tip { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .watch-tip button { flex: 0 0 auto; padding: 0 8px; line-height: 1.6; }

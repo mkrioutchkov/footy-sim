@@ -126,6 +126,9 @@ export class MatchRenderer {
   private static readonly TOAST_MS = 4000;
   private static readonly TOAST_MAX = 3;
   private replayMode = false;            // a goal replay is driving sync() — show a REPLAY overlay, suppress the live goal banner
+  private atBoardEl: HTMLDivElement | null = null;   // 4th-official "+N" added-time board (pops on announcement)
+  private atBoardHideAt = 0;
+  private prevAddedMin = 0;
   private panelEl: HTMLDivElement | null = null;
   private panelHideAt = 0;
   private prevHomeScore = 0;
@@ -345,6 +348,18 @@ export class MatchRenderer {
       display: 'none', whiteSpace: 'pre', textAlign: 'center',
     } as Partial<CSSStyleDeclaration>);
     document.body.appendChild(this.panelEl);
+    // ── added-time board ── a 4th-official "+N" board that pops when the stoppage minutes are
+    // announced at a half-end (mirrors the replay-viewer board). The persistent HUD "+N" (wh-added)
+    // remains the ongoing ADDED-TIME indicator while the clock runs past 45'/90'. Dormant until the
+    // engine sets state.addedTime — coded defensively so a frame without it still type-checks.
+    this.atBoardEl = document.createElement('div');
+    Object.assign(this.atBoardEl.style, {
+      position: 'fixed', top: '46%', left: '50%', transform: 'translate(-50%,-50%)',
+      zIndex: '31', fontFamily: 'monospace', fontWeight: 'bold', color: '#ffe97a',
+      background: 'rgba(8,12,20,0.9)', padding: '14px 30px', borderRadius: '10px',
+      border: '2px solid #ffcf5c', pointerEvents: 'none', display: 'none', textAlign: 'center',
+    } as Partial<CSSStyleDeclaration>);
+    document.body.appendChild(this.atBoardEl);
     // version display — engine + UI
     const versionText = new Text({ text: '...', style: new TextStyle({ fill: 0xffffff, fontSize: 8, fontFamily: 'monospace' }) });
     versionText.position.set(this.app.screen.width - 6, this.app.screen.height - 12);
@@ -440,7 +455,7 @@ export class MatchRenderer {
 
   // Push a transient reporting toast (newest on top, capped, deadline-pruned in renderFrame). Suppressed
   // while a replay/rewind drives the renderer so a rewound goal/card doesn't re-pop. No timers held.
-  private pushToast(icon: string, text: string, kind: 'goal' | 'card' | 'pen' | 'sub' | 'og'): void {
+  private pushToast(icon: string, text: string, kind: 'goal' | 'card' | 'pen' | 'sub' | 'og' | 'foul' | 'adv' | 'offside' | 'inj'): void {
     if (!this.toastEl || this.replayMode) return;
     const el = document.createElement('div');
     el.className = `watch-toast wt-${kind}`;
@@ -1582,6 +1597,21 @@ export class MatchRenderer {
       put('time', r.time, `${min}:${sec}`);
       const added = state.addedTime && state.addedTimeAnnouncedMin ? `+${state.addedTimeAnnouncedMin}` : '';
       if (this.prevHud.added !== added) { this.prevHud.added = added; r.added.textContent = added; r.added.style.display = added ? '' : 'none'; }
+      // 4th-official board — pop once when the added minutes are announced (not while a replay drives sync)
+      const annMin = state.addedTime ? (state.addedTimeAnnouncedMin ?? 0) : 0;
+      if (this.atBoardEl) {
+        if (annMin > 0 && annMin !== this.prevAddedMin && !this.replayMode) {
+          this.atBoardEl.innerHTML =
+            '<div style="font-size:11px;letter-spacing:3px;color:#9fb3a7">ADDED TIME</div>'
+            + `<div style="font-size:44px;line-height:1.1;color:#ffcf5c">+${annMin}</div>`;
+          this.atBoardEl.style.display = '';
+          this.atBoardHideAt = performance.now() + 4000;
+        }
+        this.prevAddedMin = annMin;
+        if (this.atBoardEl.style.display !== 'none' && performance.now() > this.atBoardHideAt) {
+          this.atBoardEl.style.display = 'none';
+        }
+      }
       const pct = Math.round(state.possessionPct ?? 50);
       put('shots', r.shots, `Shots ${state.homeShots ?? 0}–${state.awayShots ?? 0}`);
       put('poss', r.poss, `Poss ${pct}%`);
@@ -1744,7 +1774,7 @@ export class MatchRenderer {
       this.feedEntries.unshift({ minute, team: actor?.team ?? null, text: this.commentary(ev.type, who, target), goal: ev.type === 'goal' });
       // ── reporting toast (top-right) ── fires off the SAME de-duped event stream as the feed, so a toast
       // shows exactly once per event. Only the "big moment" subset gets one; pushToast no-ops under replay.
-      this.maybeToast(ev, who, minute);
+      this.maybeToast(ev, who, minute, target);
     }
     if (this.feedEntries.length > 8) this.feedEntries.length = 8;
     if (this.seenEventKeys.size > 400) this.seenEventKeys.clear();
@@ -1763,17 +1793,38 @@ export class MatchRenderer {
   // Map a de-duped notable event to a reporting toast (the "big moments" only): goal (own-goal distinguished
   // when the engine flags it), yellow/red card, penalty awarded, substitution. 'sub' is wired ahead of the
   // engine emitting it — harmless if never fired. pushToast itself no-ops under replay.
-  private maybeToast(ev: EngineState['events'][number], who: string, minute: number): void {
+  private maybeToast(ev: EngineState['events'][number], who: string, minute: number, target = ''): void {
     const nm = this.shortName(who);
     const m = `${minute}'`;
+    const where = (ev.x != null && ev.y != null) ? ` · ${this.zoneLabel(ev.x, ev.y)}` : '';
     switch (ev.type) {
       case 'goal':    this.pushToast('⚽', ev.ownGoal ? `${m}  ${nm || 'Own goal'} (O.G.)` : `${m}  ${nm || 'Goal'}`, ev.ownGoal ? 'og' : 'goal'); break;
       case 'yellow':  this.pushToast('🟨', `${m}  ${nm}`, 'card'); break;
       case 'red':     this.pushToast('🟥', `${m}  ${nm}`, 'card'); break;
       case 'penalty': this.pushToast('❗', `${m}  Penalty awarded`, 'pen'); break;
-      case 'sub':     this.pushToast('🔁', `${m}  ${nm || 'Substitution'}`, 'sub'); break;
+      case 'sub':     this.pushToast('🔁', `${m}  ${nm || 'Substitution'} off`, 'sub'); break;
+      // event-communication (owner: "not clear what happened — off-ball foul? advantage?"): brief
+      // who/what/where popups. 'foul' names the offender + the fouled player (ev.targetId) when known;
+      // an 'advantage' event reads "play on"; offside/injury name the player.
+      case 'foul': {
+        const vic = this.shortName(target);
+        this.pushToast('⚑', `${m}  Foul — ${nm}${vic ? ' on ' + vic : ''}${where}`, 'foul'); break;
+      }
+      case 'advantage': this.pushToast('▶', `${m}  Advantage — ${nm ? nm + ' plays on' : 'play on'}${where}`, 'adv'); break;
+      case 'offside':   this.pushToast('🚩', `${m}  Offside — ${nm}${where}`, 'offside'); break;
+      case 'injury':    this.pushToast('✚', `${m}  Injury — ${nm || 'stoppage'}`, 'inj'); break;
       default: break;
     }
+  }
+
+  // brief spatial tag for an event popup ("who, what, WHERE") — thirds + penalty boxes, engine coords.
+  private zoneLabel(x: number, y: number): string {
+    const cy = PITCH_H / 2, inBox = Math.abs(y - cy) <= 201.5;
+    if (x <= 165 && inBox) return 'left box';
+    if (x >= PITCH_W - 165 && inBox) return 'right box';
+    if (x < PITCH_W / 3) return 'left third';
+    if (x > PITCH_W * 2 / 3) return 'right third';
+    return 'midfield';
   }
 
   // Compact display name for a toast: prefer the parenthetical short name the frame carries
