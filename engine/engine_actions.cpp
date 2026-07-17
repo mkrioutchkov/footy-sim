@@ -1172,6 +1172,13 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         stats.recordTackleWin(true);
         if (tackler.id >= 0 && tackler.id < 22) pStats[tackler.id].tackles++;
         emitEvent("tackle_won", (tackler.x + carrier.x) / 2.0, (tackler.y + carrier.y) / 2.0, tackler.id, carrier.id);
+        // Round-20 (seed 477: an early loss stayed silent): the first-5s-of-kickoff
+        // giveaway census (pass_giveaway_first_5s) only fired on an intercepted
+        // pass — a carrier DISPOSSESSED by a tackle in that window was invisible.
+        // A clean tackle-won is the definitive possession loss (the recordPassIntercepted
+        // analog), so mirror the pass site's kickoff-relative scoping. Census only.
+        if (state.clockMs - phase.lastKickoffMs < 5000.0 && state.clockMs >= phase.lastKickoffMs)
+            stats.recordQualityFlag(QualityFlag::EarlyKickoffGiveaway);
         b.controllerId = tackler.id;
         b.vx = b.vy = b.z = b.vz = 0;
         b.curl = 0;
