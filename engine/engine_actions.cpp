@@ -587,7 +587,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     driveBall(b, tdx, tdy, tDist, speed);
     b.intendedReceiverId = t.id;
     receiverShieldTargetId = t.id;
-    b.z = 0;
+    b.z = clamp(b.z, 0.0, HEADER_REACH_Z);   // a first-time pass off an aerial ball leaves from strike height (13:35 volley-snap class)
     b.vz = 0;
     // Loft over a blocker in the lane (watched replay seed 105 0:55: a pass hit
     // low straight into a defender who should have been chipped over). Read the
@@ -1490,7 +1490,11 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     // ×1.08 so it crosses a hair above the deck, not bouncing short of it.
     if (shotType == 4) loft = clamp(apexDipVz(d / std::max(speed, 1.0), 1.08), 150.0, 340.0);
     b.intendedReceiverId = -1;
-    b.z = 0;
+    // A VOLLEY keeps its strike height (seed 111 13:35, owner twice: the
+    // first-touch volley snapped z 18.6 -> 0 in one tick — "looked glitchy
+    // visually"). The ball leaves the boot where it was met; grounded
+    // strikes are unchanged (z was already 0).
+    b.z = clamp(b.z, 0.0, HEADER_REACH_Z);
     b.vz = loft;
     // Direct free kick with a wall: CHIP it over, don't blast it through.
     // The old vz=speed*0.50 was tuned for ~470px/s shots; with realistic
