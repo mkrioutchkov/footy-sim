@@ -494,7 +494,13 @@ void PlayerAI::applyMovement(double sdt) {
         // only forced when the ball is far (>220px), i.e. nothing to track.
         if (offBallFacing && spdAfter > 38.0 && nowOff > 1.75) {
             double bd2 = dist(p.x, p.y, engine.state.ball.x, engine.state.ball.y);
-            if (bd2 > 220.0) {
+            // 220 -> 120 with a speed tier (2-min audit, seed 629: 27 sustained
+            // backpedal windows, worst 2.45s at 45-50px/s with facing WELDED to
+            // a ball well inside 220px — a full-speed backward glide). Real
+            // players ball-watch a backpedal only to ~4px/s-per-tick jog; above
+            // 42px/s they turn and run unless actively jockeying ON the ball
+            // (bd<120 keeps the containment stance).
+            if (bd2 > 220.0 || (spdAfter > 42.0 && bd2 > 120.0)) {
                 double align = std::atan2(std::sin(moveAngle - prevFacing), std::cos(moveAngle - prevFacing));
                 requestedFacingDelta = clamp(align, -0.28, 0.28);
                 maxFacingTurn = std::max(maxFacingTurn, 0.28);
