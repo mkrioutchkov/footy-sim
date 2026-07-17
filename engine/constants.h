@@ -31,9 +31,10 @@ inline constexpr double MAX_PLAYER_SPEED = 50.0;
 inline constexpr double MOMENTUM_ACCEL             = 340.0;
 inline constexpr double MOMENTUM_REVERSAL_BRAKE_MUL = 2.2;
 // Tackle lunge dash pace: the committed closing step toward the ball plays out
-// at this speed (~2.5x sprint — explosive but continuous) instead of the old
-// single-tick snap (~900px/s, seed 305 0:09).
-inline constexpr double LUNGE_DASH_SPEED = 170.0;
+// at this speed instead of the old single-tick snap (~900px/s, seed 305 0:09).
+// 170 -> 120 (seed 111 0:56 + 13:10: 2.5x sprint still read as "an unrealistic
+// rapid burst of speed to win the ball" — 120 is a hard step, not a teleport).
+inline constexpr double LUNGE_DASH_SPEED = 120.0;
 
 // ── Free-kick RUN-UP (owner: "free kicks especially shot ones should have run ups") ──
 // The old choreography stood the taker ~14px off the ball for the WHOLE hold and
@@ -41,8 +42,7 @@ inline constexpr double LUNGE_DASH_SPEED = 170.0;
 // approach. Now he waits a few steps BEHIND the ball along the strike axis for the
 // bulk of the hold, then in the last RUNUP_LEAD_MS he accelerates THROUGH it and
 // the kick releases the moment he arrives ("strikes as he arrives"). Pace is
-// explosive-but-human — bounded UNDER the tackle lunge (LUNGE_DASH_SPEED 170) so a
-// run-up can never read as the teleport blip the OffBallOverspeed flag hunts.
+// explosive-but-human, well under the 250px/s OffBallOverspeed line.
 inline constexpr double RUNUP_LEAD_MS     = 900.0;  // window (before the scheduled release) when the approach begins
 inline constexpr double RUNUP_DASH_SPEED  = 132.0;  // approach pace, px/s — a burst, still < LUNGE_DASH_SPEED (170)
 inline constexpr double RUNUP_DIST_SHOT   = 52.0;   // ~4-5 steps back for a direct-shot free kick

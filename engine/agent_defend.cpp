@@ -191,7 +191,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
     // 0.22 -> 0.14 (round-16 rebalance: owner "maybe too many tackles now" —
     // attempts had climbed 248 -> 320/match across the defensive rounds; the
     // shown-ball urgency stays, just less of it).
-    if (d < TACKLE_RANGE && ballShownDot > 0.55) sc += 0.14;
+    if (d < TACKLE_RANGE && ballShownDot > 0.55) sc += 0.10;   // round-18: third trim (owner: probs too many tackles)
     {
         double meFacingCarrier = std::cos(player.facing) * (-toTacklerX) + std::sin(player.facing) * (-toTacklerY);
         if (meFacingCarrier < -0.2) sc -= 0.20;

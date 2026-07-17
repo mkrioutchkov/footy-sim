@@ -535,10 +535,10 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
         // release mid-turn can still be well off-axis (round-17 low-level
         // audit: the "unnatural cross" class was 100% spray-free when held
         // >500ms). Fresh touches keep the full first-touch penalty on top.
-        inacc *= 1.0 + 0.35 * faceTerm;
+        inacc *= 1.0 + 0.28 * faceTerm;   // round-18 trim
         if (freshTouch) {
             double distTerm = clamp(rawDist / 260.0, 0.0, 1.0);
-            inacc *= 1.0 + 0.9 * distTerm + 0.6 * faceTerm;
+            inacc *= 1.0 + 0.75 * distTerm + 0.5 * faceTerm;   // round-18 trim (turnover volume)
             speed *= 1.0 - 0.15 * (distTerm * 0.5 + faceTerm * 0.5);
         }
     }
@@ -794,6 +794,22 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
             } else {
                 svx = -fdc * (20.0 + rng.random() * 50.0);          // slight backward lean only
                 svy = sliceSide * (150.0 + rng.random() * 80.0);    // out over the touchline
+            }
+            // An honest slice behind must NEVER scuff into our own net (seed
+            // 103 guard trip: a central clearer's slice crossed the line
+            // inside the post — an own goal recorded as an unknown loose
+            // ball). If the scuff ray crosses the mouth, re-aim it just
+            // outside the near post; the corner is still conceded honestly.
+            if (svx * -fdc > 1.0) {
+                double travel = (clrLine - f.x) / svx;
+                if (travel > 0.0) {
+                    double crossY = f.y + svy * travel;
+                    double half = GOAL_W / 2.0 + BALL_R + 10.0;
+                    if (std::abs(crossY - PITCH_H / 2.0) < half) {
+                        double want = PITCH_H / 2.0 + sliceSide * (half + 26.0);
+                        svy = (want - f.y) / travel;
+                    }
+                }
             }
             sb.controllerId = -1;
             placeBallForRelease(f, svx, svy);
@@ -1130,7 +1146,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         if (ld > 4.0 && tackler.id >= 0 && tackler.id < 22) {
             lungeDashDirX[tackler.id] = lx / ld;
             lungeDashDirY[tackler.id] = ly / ld;
-            lungeDashRemainPx[tackler.id] = std::min(ld * 0.6, 16.0);
+            lungeDashRemainPx[tackler.id] = std::min(ld * 0.55, 11.0);   // 16 -> 11px: shorter committed step, same contact read (seed 111 burst complaint)
             tackler.facing = std::atan2(ly, lx);
         }
     }
@@ -1172,7 +1188,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // and build up play"): a good carrier rides more of the extra challenges
     // the defensive rounds added — control weighs heavier, shielding pays
     // more, cap up 0.60 -> 0.66.
-    double retainChance = clamp(carrierControl * 0.66 + (carrier.dribbleType == 3 ? 0.12 : 0.0) + (carrierShielded ? 0.22 : 0.0) + (fromBehind ? 0.10 : 0.0) - tackleSkill * 0.15, 0.0, 0.66);
+    double retainChance = clamp(carrierControl * 0.70 + (carrier.dribbleType == 3 ? 0.12 : 0.0) + (carrierShielded ? 0.24 : 0.0) + (fromBehind ? 0.10 : 0.0) - tackleSkill * 0.15, 0.0, 0.72);   // round-18: third retention step (owner: still too many turnovers)
     if (rng.random() < retainChance) {
         emitEvent("skill", carrier.x, carrier.y, carrier.id, tackler.id);
         blockReboundFor(tackler.id, 520);
