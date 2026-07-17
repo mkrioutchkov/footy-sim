@@ -61,6 +61,14 @@ void GameEngine::assignPrimaryPress(DefenseContext& ctx, Player& carrier) {
     double standoff = clamp(30.0 - carrierDrive * 0.45, 12.0, 30.0)
                            - directiveBias[primary->id].pressTightness * 13.0
                            + directiveBias[primary->id].containBias * 22.0;
+    // Round-19 (seed 629 0:27): CF received and pirouetted 180 degrees with the
+    // ball at his feet while the assigned presser sat the full 30px "composure"
+    // gap and never engaged. A carrier turning/shielding at low forward speed is
+    // the MOST nickable target - deny him the breathing room when the presser is
+    // already touch-tight so a nick can open before he releases.
+    bool carrierTurning = std::hypot(carrier.vx, carrier.vy) < 34.0
+        && dist(primary->x, primary->y, carrier.x, carrier.y) < 34.0;
+    if (carrierTurning) standoff = std::min(standoff, TACKLE_RANGE - 6.0);
     // ── Escort resolution (stage 3 of the press redesign) ── a shadow that
     // is NOT being beaten does not ride forever: once the same presser has
     // jockeyed the same carrier ~1.5s with the carrier making no real progress
