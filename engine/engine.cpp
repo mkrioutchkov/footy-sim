@@ -1377,7 +1377,8 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 if (setPiece.type != SetPiece::GoalKick) {
                     double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
                     phase.actionTimer = setPiece.fast ? 300.0
-                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX));
+                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX))
+                              * (arenaMode ? ARENA_RESTART_SCALE : 1.0);   // Round-21 (arena audit): tighter restart pacing in the duel
                 }
                 // ── Plan the FREE-KICK RUN-UP (owner: "free kicks especially shot
                 // ones should have run ups") now that the taker is on the ball. A
@@ -1553,7 +1554,8 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                 if (setPiece.type != SetPiece::GoalKick) {
                     double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
                     phase.actionTimer = setPiece.fast ? 300.0
-                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX));
+                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX))
+                              * (arenaMode ? ARENA_RESTART_SCALE : 1.0);   // Round-21 (arena audit): tighter restart pacing in the duel
                 }
             }
         }

@@ -274,7 +274,9 @@ bool GameEngine::checkGoal() {
             state.awayScore++;
         shot.active = false;
         shot.clearFlags();
-        kickoff(scoringTeam == Team::Home ? Team::Away : Team::Home, 9000.0); // goal celebration (owner: "have delays after goal") — stoppage accrues via kickoffPhase, so it feeds real added time
+        // goal celebration (owner: "have delays after goal") — stoppage accrues via kickoffPhase, so it feeds real added time.
+        // Round-21 (arena audit): the duel doesn't need the 9s celebration — ~3s.
+        kickoff(scoringTeam == Team::Home ? Team::Away : Team::Home, arenaMode ? 3000.0 : 9000.0);
     };
     if (b.x + BALL_R < HOME_GOAL_X) {
         finishGoal(Team::Away, HOME_GOAL_X);

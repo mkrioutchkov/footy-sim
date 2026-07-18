@@ -288,6 +288,13 @@ inline constexpr double GK_DISTRIBUTE_MS        = 2000.0;
 // keeper distributes himself instead of being force-passed as a "stuck carrier".
 inline constexpr double GK_MAX_HOLD_MS          = 1800.0;
 
+// Round-21 (arena audit): a 2-a-side duel doesn't need 11v11's restart-hold
+// budgets (wall setup, box crowds forming) — those hold two players still for
+// seconds and left even freeze-free arena matches ~40% non-action. Scale the
+// set-piece action-timer budgets DOWN in arenaMode only (FK 7s->~2.5s, corner
+// 4s->~1.4s, throw 4s->~1.4s). 11v11 is untouched (the factor is exactly 1.0).
+inline constexpr double ARENA_RESTART_SCALE     = 0.35;
+
 // ── Goal-kick long-distribution mix ── even a possession side mixes in a
 // longer distribution to a target man rather than ALWAYS playing out short
 // (watched replay seed 105: goal kicks were taken short unrealistically

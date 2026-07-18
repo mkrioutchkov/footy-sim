@@ -572,9 +572,21 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
                 outlet = &p;
             }
         }
-        double targetX = clamp(holder.x + fd * 575.0, 45.0, PITCH_W - 45.0);
-        double targetY = outlet ? outlet->y : (nearestPress ? (nearestPress->y < PITCH_H / 2.0 ? PITCH_H * 0.72 : PITCH_H * 0.28) : holder.y);
-        targetY = clamp(targetY, 55.0, PITCH_H - 55.0);
+        double targetX, targetY;
+        if (arenaMode && outlet) {
+            // Round-21 (arena audit): a punt to the fixed fd*575 spot dropped into
+            // an empty channel the lone CF had to chase from a standstill. Lead his
+            // ACTUAL projected position (pos + velocity over the flight) so the ball
+            // is contestable — he runs onto it instead of hunting a dead spot.
+            double raw = dist(holder.x, holder.y, outlet->x, outlet->y);
+            double eta = clamp(raw / 300.0, 0.4, 2.2);   // driven punt ~300px/s
+            targetX = clamp(outlet->x + outlet->vx * eta, 45.0, PITCH_W - 45.0);
+            targetY = clamp(outlet->y + outlet->vy * eta, 55.0, PITCH_H - 55.0);
+        } else {
+            targetX = clamp(holder.x + fd * 575.0, 45.0, PITCH_W - 45.0);
+            targetY = outlet ? outlet->y : (nearestPress ? (nearestPress->y < PITCH_H / 2.0 ? PITCH_H * 0.72 : PITCH_H * 0.28) : holder.y);
+            targetY = clamp(targetY, 55.0, PITCH_H - 55.0);
+        }
         double dx = targetX - holder.x, dy = targetY - holder.y;
         double d = std::max(1.0, std::hypot(dx, dy));
         auto& b = state.ball;
@@ -1084,7 +1096,8 @@ void GameEngine::awardSetPiece(SetPiece t, Team tm) {
         // ~100px on every restart (the most frequent visual pop left).
         // 6s total (was 1.55s): a goal kick is a breather, not a quick restart —
         // part of the restart-pacing pass that brings in-play time toward real.
-        phase.actionTimer = 6000;
+        // Round-21 (arena audit): the duel doesn't need the full breather — ~2s.
+        phase.actionTimer = arenaMode ? 2000 : 6000;
         setPiece.takerId = -1;
         for (auto& p : state.players) {
             if (p.team == tmTeam && p.role == Role::GK) {
