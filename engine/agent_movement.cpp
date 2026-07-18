@@ -124,11 +124,45 @@ void PlayerAI::applyMovement(double sdt) {
     bool committedPress = (pressTask && bd > 45.0 && (bd < PRESS_COMMIT_MAX_DIST || pitch::inDangerZone(engine.state.ball.x, p.team)))
                         || predatorial;
 
+    // Round-25 (2v2 audit defect 3): a loose ball >300px from everyone trips the
+    // observing crawl below (bd>300) and the loose-ball sprint only fires bd<230
+    // near a goal, so a ~380px ball sat untouched until the 3s freeze watchdog
+    // teleport-rolled it. The SINGLE nearest man of each team to a live loose ball
+    // pursues at full pace regardless of range: exempt him from the crawl and from
+    // the bd<230 sprint gate. Nearest-of-team is naturally self-limiting (two
+    // chasers max), so everyone else's gates stay untouched and 11v11 midfield
+    // pile-on suppression is preserved.
+    // Two guards keep this safe: (1) bd>230 — inside the normal sprint range the
+    // existing gates already pursue, so short-range play is byte-unchanged; (2)
+    // the man must already be moving BALLWARD (his chosen action targets the ball
+    // — i.e. scoreChase gave him a Chase). Without (2), exempting the crawl merely
+    // sped the far man toward his POSITIONING spot (away from the ball), which
+    // over-ran the naturally-spread duelists in 1v1 (arena goals down, stalls).
+    // With it, the exemption only ever helps a man genuinely fetching a stranded
+    // ball reach it before the 3s watchdog; it never sends anyone the wrong way.
+    // The "nearest man of my TEAM" selection is only meaningful with >=2
+    // outfielders per side; in a 1v1 the lone outfielder is trivially always the
+    // nearest, so the concept degenerates and (measured) perturbs the duel into
+    // extra freezes (1v1: base 0/12 seeds -> 5/12). Skip pure 1v1; 2v2/3v3 and
+    // 11v11 (all >=2 outfielders) keep it.
+    bool meaningfulTeamNearest = !engine.arenaMode || engine.arenaOutfielders >= 2;
+    bool nearestChaserToLoose = false;
+    if (meaningfulTeamNearest
+        && engine.state.ball.controllerId < 0 && engine.state.ball.intendedReceiverId < 0
+        && bd > 230.0 && (dx * bdx + dy * bdy) > 0.0 && p.role != Role::GK && !p.sentOff) {
+        nearestChaserToLoose = true;
+        for (auto& o : engine.state.players) {
+            if (o.team != p.team || o.id == p.id || o.role == Role::GK || o.sentOff) continue;
+            if (dist(o.x, o.y, engine.state.ball.x, engine.state.ball.y) < bd) { nearestChaserToLoose = false; break; }
+        }
+    }
+
     // A dead ball is never "observed": during a hold the choreography (box
     // crowd, wall, build-up spread) IS the job, and the crawl multiplier meant
     // a CB sent forward for a corner covered ~250 of 440px in a 10s hold — the
     // box stayed empty however good the targets were (seed 133 0:40).
-    bool isObserving = !committedChase && !committedPress && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5
+    bool isObserving = !committedChase && !committedPress && !nearestChaserToLoose
+                    && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5
                     && !engine.setPiece.armed;
 
     // Defenders sprint when carrier is in their half
@@ -246,8 +280,8 @@ void PlayerAI::applyMovement(double sdt) {
     // to. Midfield 50/50s stay at normal pursuit pace (this isn't a blanket sprint-everywhere).
     bool looseBallHighValue = pitch::distToOppGoal(engine.state.ball.x, p.team) < 300.0
                            || pitch::distToOwnGoal(engine.state.ball.x, p.team) < 300.0;
-    bool pursuingLooseBall = engine.state.ball.controllerId < 0 && looseBallHighValue
-        && bd < 230.0 && (dx * bdx + dy * bdy) > 0.0;
+    bool pursuingLooseBall = engine.state.ball.controllerId < 0 && (dx * bdx + dy * bdy) > 0.0
+        && ((looseBallHighValue && bd < 230.0) || nearestChaserToLoose);
     // Attacking the delivery (mirror of E1's sprint-back): a runner whose chosen
     // position is in the opponent's box while HIS OWN team's carrier is wide /
     // advanced in the final third must BURST there — real cutback and low-cross
