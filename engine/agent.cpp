@@ -1133,25 +1133,27 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 engine.markActiveShield(p.id);   // body past him first — no free nick
                 return;
             } else {
-                // Beaten: the ball runs loose to the defender's side (he reads
-                // the feint) — NOT a foul. Mirror the tackle-deflection loose
-                // plumbing so every downstream consumer classifies it correctly.
+                // Round-21 (take-on audit) COMMIT 3: beaten — a GENUINE turnover.
+                // The old 70px/s nudge stalled ~12px on and the momentum-committed
+                // carrier (nearest, and the at-rest hatch dissolved his lockout)
+                // re-grabbed ~70% within ~220ms — 1.33s machine-gun retries; a
+                // fast squirt past the defender overshot into empty space and
+                // rolled uncollected. Award the defender who read the feint direct
+                // control — mirror a clean tackle-won, same brief settle window —
+                // and lock the beaten carrier out. NOT a foul.
                 auto& b = engine.state.ball;
-                double lx = def->x - p.x, ly = def->y - p.y, ll = std::max(1.0, std::hypot(lx, ly));
-                b.controllerId = -1;
-                b.vx = lx / ll * 70.0;
-                b.vy = ly / ll * 70.0;
-                b.z = b.vz = 0;
-                b.x = clamp(b.x, 5.0, PITCH_W - 5.0);
-                b.y = clamp(b.y, 5.0, PITCH_H - 5.0);
-                b.lastTouchTeam = p.team;
-                b.lastToucherId = p.id;
+                b.controllerId = def->id;
+                b.vx = b.vy = b.z = b.vz = 0;
+                b.curl = 0;
+                b.lastTouchTeam = def->team;
+                b.lastToucherId = def->id;
                 b.intendedReceiverId = -1;
                 engine.lastRicochetMs = -1e9;
-                engine.lastLooseOrigin = LooseOrigin::TackleDeflection;
-                engine.recordBallImpulse();
+                engine.receiverShieldUntil = engine.state.clockMs + 260;   // "he read the feint" settle
+                engine.receiverShieldedPlayerId = def->id;
+                engine.lastLooseOrigin = LooseOrigin::None;                // controlled now — not a loose ball
+                engine.blockReboundFor(p.id, 900);   // beaten carrier can't instantly re-challenge
                 p.dribbleType = 0;
-                engine.blockReboundFor(p.id, 600);   // can't instantly re-grab
                 p.vx = p.vy = 0;
                 return;
             }
