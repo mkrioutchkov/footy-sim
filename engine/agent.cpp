@@ -14,6 +14,11 @@ void PlayerAI::tick(double sdt) {
     shotCooldown = std::max(0, shotCooldown - 1);
     skillMoveCooldown = std::max(0, skillMoveCooldown - 1);
     takeOnCooldown = std::max(0, takeOnCooldown - 1);
+    // Round-21 (take-on audit) COMMIT 6b: the jockey-lock only means something
+    // while THIS player holds the ball. Reset it whenever he isn't the carrier —
+    // otherwise the lock survived possession loss / a restart / half-time and a
+    // stale count let him commit a take-on the instant he next touched the ball.
+    if (engine.state.ball.controllerId != player.id) { jockeyLockTicks = 0; jockeyLockDefId = -1; }
 
     if (ballMemoryAge == 0 && ballMemoryX == 0 && ballMemoryY == 0) {
         ballMemoryX = engine.state.ball.x;
@@ -1044,7 +1049,24 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             if (dist(p.x, p.y, o.x, o.y) < 120.0) nearOpps120++;
         }
         bool isolated = nearOpps120 <= 1;
-        if (def && takeOnCooldown == 0 && jockeyLockTicks >= 30 && isolated && !ownDefensiveThird) {
+        // Round-21 (take-on audit) COMMIT 6a: placement. The bare !ownDefensiveThird
+        // gate produced 50+ take-ons/team/90 (real ~12-18), 94% of them in the
+        // middle third. Normally require the ATTACKING HALF; allow a middle-third
+        // take-on only for a genuinely elite dribbler (creativity >= 70), or when a
+        // counter is on — few opponents goal-side of the carrier. Never in his own
+        // defensive third. The lock also runs an extra beat (60 ticks, ~1s escort).
+        bool attackingHalf = !pitch::inOwnHalf(p);
+        bool middleThird   = !ownDefensiveThird && !attackingHalf;
+        double gxc = goalXFor(p.team);
+        int oppsGoalSide = 0;
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+            if ((gxc > p.x) ? (o.x > p.x) : (o.x < p.x)) oppsGoalSide++;
+        }
+        bool counterOn      = oppsGoalSide <= 2;
+        bool eliteDribbler  = attrFactor(p.attrs.creativity) >= 0.70;
+        bool placementOk    = attackingHalf || (middleThird && (eliteDribbler || counterOn));
+        if (def && takeOnCooldown == 0 && jockeyLockTicks >= 60 && isolated && placementOk) {
             double ddx = def->x - p.x, ddy = def->y - p.y, ddl = std::max(1.0, std::hypot(ddx, ddy));
             // Slip to the defender's blind side: the side away from his BODY offset
             // (the ball ends up on the far side from him). Only when he is squared
@@ -1118,10 +1140,17 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             odds = clamp(odds, 0.08, 0.88);
             bool won = engine.rng.random() < odds;
             const char* mv = lateralFace > 0.4 ? "roulette" : "stepover";
-            engine.emitEvent(mv, p.x, p.y, p.id, def->id);
+            engine.emitEvent(mv, p.x, p.y, p.id, def->id);          // feint visual (viewer)
+            engine.emitEvent("takeon", p.x, p.y, p.id, def->id, /*traceOnly=*/true);   // COMMIT 6c: distinct forensics marker
             engine.stats.recordTakeOn(won);
-            engine.stats.recordSkillMove();
-            takeOnCooldown = 70 + static_cast<int>(engine.rng.random() * 41.0);   // COMMIT 5: jitter [70,110] ticks off the 1.33s grid
+            // COMMIT 6c: do NOT recordSkillMove here — takeOnAttempts already
+            // counts the beat; double-counting inflated the tuned skillMoves band.
+            // COMMIT 6a/5: base cooldown ~5s in open play so a team takes a man on
+            // ~12-18x/90, jittered off the 1.33s grid. Keep the arena lively —
+            // scale the base down there and for dribble_more carriers (~15-30/10min).
+            double cdBase = engine.arenaMode ? 85.0 : 300.0;
+            if (engine.directiveBias[p.id].dribbleBonus > 0.0) cdBase *= engine.arenaMode ? 0.9 : 0.6;
+            takeOnCooldown = static_cast<int>(cdBase + engine.rng.random() * 40.0);
             jockeyLockTicks = 0;
             if (won) {
                 // Explosive cut past him: a carrier-side lunge-dash (fixedUpdate
