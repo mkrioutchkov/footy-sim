@@ -1061,11 +1061,27 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             if (std::abs(ddy) > 6.0)          side = ddy > 0 ? -1.0 : 1.0;
             else if (std::abs(def->vy) > 8.0) side = def->vy > 0 ? -1.0 : 1.0;
             else                              side = (p.y < PITCH_H / 2.0) ? 1.0 : -1.0;
-            // Near a touchline, always beat him back toward the middle — repeated
-            // beats to the same shoulder walked the carrier into the corner and
-            // strangled the shooting angle (seed 99: four beats up to y=60, stuck).
-            if (p.y < 130.0)               side = 1.0;
-            else if (p.y > PITCH_H - 130.0) side = -1.0;
+            // Round-21 (take-on audit) COMMIT 2: touchline shoulder choice. The
+            // old override flipped `side` inward UNCONDITIONALLY near a touchline;
+            // on the wing — exactly where 11v11's isolation gate concentrates
+            // attempts — the defender shepherds inside, so the forced-inward beat
+            // cut straight across his face (lateralFace huge, odds floored at
+            // 5-9%; 28% of attempts). Beat him on whichever shoulder is his BLIND
+            // side: inward when he shades outside, else down the line on the
+            // outside shoulder when there's touchline room. If BOTH shoulders are
+            // bad here (crammed on the line, shading inside), DON'T roll a doomed
+            // attempt — short-set the cooldown and keep escorting (the lock keeps
+            // accruing) until the geometry opens up.
+            bool committed = true;
+            bool nearTop = p.y < 130.0, nearBot = p.y > PITCH_H - 130.0;
+            if (nearTop || nearBot) {
+                double inward = nearTop ? 1.0 : -1.0, outward = -inward;
+                bool outsideRoom = nearTop ? (p.y > 58.0) : (p.y < PITCH_H - 58.0);
+                if (inward * ddy <= 0.0)                      side = inward;
+                else if (outward * ddy <= 0.0 && outsideRoom) side = outward;
+                else { takeOnCooldown = 40; committed = false; }
+            }
+          if (committed) {
             // Beat vector: strongly toward goal, a modest lateral slip to the side.
             double bx = fdc * 0.88, by = side * 0.48, bl = std::hypot(bx, by);
             bx /= bl; by /= bl;
@@ -1139,6 +1155,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 p.vx = p.vy = 0;
                 return;
             }
+          }   // if (committed) — a doomed touchline geometry falls through to jockey
         }
     }
 
