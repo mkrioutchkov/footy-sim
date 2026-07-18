@@ -135,6 +135,13 @@ public:
     int weather = 0;
     double windX = 0.0, windY = 0.0;   // §weather v2: per-match wind accel vector (units/s^2), seed-derived when weather==2
 
+    // §arena: 1v1 exhibition mode (GK + one outfielder a side on the full
+    // pitch). Set from --arena before initWithSeed. The spare outfielders are
+    // parked off-pitch exactly like sent-off players — the fixed-22 array and
+    // every lookup stay valid — but no red cards are recorded (it's a mode,
+    // not a match event) and subs are disabled (nobody to legally replace).
+    bool arenaMode = false;
+
     // Substitutions: an in-place identity swap (the on-pitch slot keeps its
     // id/role/position; only name+attrs+freshness change), so the 22-slot
     // player array and every pointer into it stay valid — no bench array to

@@ -1803,6 +1803,7 @@ void GameEngine::auditStuckCarrier(double sdt) {
         double bestD = 1e9;
         for (auto& p : state.players) {
             if (p.team != carrier->team || p.id == carrier->id || p.role == Role::GK) continue;
+            if (p.sentOff) continue;   // Round-21: never force a pass to an off-pitch (sent-off/arena-parked) team-mate — it hoofed the stuck ball to a phantom at y=-40 (arena: only the GK remains, so this falls through to the forward hoof below)
             double d = dist(carrier->x, carrier->y, p.x, p.y);
             if (d < bestD) {
                 bestD = d;
@@ -1937,6 +1938,23 @@ void GameEngine::initWithSeed(int seed) {
         if (p.id >= 0 && p.id < 22) playerLookup[p.id] = &p;
     }
     initBench();
+    // §arena: park everyone except the two GKs (0/11) and the two CFs (9/20)
+    // off-pitch, sent-off style, so the whole engine — press assignment, pass
+    // menus, set pieces, offside — sees a legitimate 2-a-side match. No red
+    // cards recorded, no subs (an ejected slot can't be replaced anyway, and
+    // there is nobody on the pitch worth swapping).
+    if (arenaMode) {
+        for (auto& p : state.players) {
+            if (p.id == 0 || p.id == 11 || p.id == 9 || p.id == 20) continue;
+            p.sentOff = true;
+            p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
+            p.y = -40.0;
+            p.targetX = p.x;
+            p.targetY = p.y;
+            p.vx = p.vy = 0;
+        }
+        subsRemaining = {0, 0};
+    }
     lastReceiveFrom.fill(-1);
     for (auto& p : state.players) {
         agents.push_back(makeAgentFor(p, *this));
@@ -2006,6 +2024,11 @@ void GameEngine::initBench() {
 }
 
 void GameEngine::sendOff(Player& p) {
+    // §arena: never eject the duelists — with 9 team-mates already parked,
+    // every foul is a "last man" foul and the first tackle of the match drew
+    // a straight red, leaving GK-vs-attacker for the remaining 9 minutes.
+    // Fouls and yellows still happen; the ejection is the mode-breaking part.
+    if (arenaMode) return;
     p.sentOff = true;
     stats.recordRedCard();
     // Park him off the pitch by his own touchline — the slot stays in the

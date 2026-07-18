@@ -159,12 +159,14 @@ int main(int argc, char* argv[]) {
     std::string matchPath;
     double streamFromMs = 0;   // suppress frame output before this clock (live re-sim resume)
     bool forceLive = false;    // --live (or FOOTY_LIVE env): self-pace the engine to wall-clock (§1.1)
+    bool arenaFlag = false;    // --arena: 1v1 exhibition (GK + one outfielder a side)
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--summary") summaryOnly = true;
         else if (arg == "--live") forceLive = true;
         else if (arg == "--no-debug") debugMode = false;
+        else if (arg == "--arena") arenaFlag = true;
         else if (arg == "--trace" && i + 1 < argc) tracePath = argv[++i];
         else if (arg == "--snapshot-in" && i + 1 < argc) snapshotPath = argv[++i];
         else if (arg == "--snapshot-out" && i + 1 < argc) snapshotOutPath = argv[++i];
@@ -272,6 +274,7 @@ int main(int argc, char* argv[]) {
         else if (w == "rain" || w == "wet" || w == "1" || w[0] == 'r') engine.weather = 1;
     }
 
+    engine.arenaMode = arenaFlag;
     engine.initWithSeed(seed);
     engine.setMatchLengthMinutes(minutes);
     if (debugMode) engine.equalizeAttributes(65);

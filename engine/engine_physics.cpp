@@ -35,6 +35,12 @@ void GameEngine::separateTeammates(double sdt) {
         for (size_t j = i + 1; j < state.players.size(); ++j) {
             Player& a = state.players[i];
             Player& b = state.players[j];
+            // Round-21: a sent-off (or arena-parked) player has no body on the
+            // pitch — separating him dragged him off his y=-40 touchline back to
+            // the y=5 edge, where the arena's nine parked men then formed a wall
+            // the duelling carrier collided with (the corner-stall / touchline
+            // pile-up). Never push a player who isn't in play.
+            if (a.sentOff || b.sentOff) continue;
             // GKs separate too (at the opponent distance) — exempting them let
             // outfielders stand INSIDE the keeper for seconds.
             bool gkPair = a.role == Role::GK || b.role == Role::GK;

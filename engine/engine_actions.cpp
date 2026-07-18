@@ -965,13 +965,20 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
             // residual keeps it human.
             bool straightRed = (cynical && rng.random() < 0.92)
                 || (fromBehind && rng.random() < 0.0032); // non-DOGSO wild lunges stay rare
+            // Round-21 (arena 1v1): no ejection and no escalation to red — the
+            // duel must never collapse to GK-vs-attacker. The card ESCALATION,
+            // not just sendOff(), fires here, so the "red" event and the
+            // second-yellow send-off are both suppressed at this site. The rng
+            // draws above stay (straightRed is zeroed AFTER them) so the
+            // deterministic stream — and 11v11 — is byte-identical.
+            if (arenaMode) straightRed = false;
             if (straightRed || rng.random() < cardChance) {
                 if (!straightRed) {
                     yellowCards[tackler.id]++;
                     stats.recordYellowCard();
                     emitEvent("yellow", foulX, foulY, tackler.id, carrier.id);
                 }
-                if (straightRed || yellowCards[tackler.id] >= 2) {
+                if ((straightRed || yellowCards[tackler.id] >= 2) && !arenaMode) {
                     sendOff(tackler);
                     emitEvent("red", foulX, foulY, tackler.id, carrier.id);
                 }
