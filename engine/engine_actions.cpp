@@ -525,7 +525,13 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // only 4 arrived — every one as a dead ball the receiver walked back to).
     // Real switches are struck: ~1.6s flight instead of ~2.8s+roll. Crosses
     // set their own pace below; through balls keep the led-runner solve.
-    if (rawDist > 260.0 && !throughBall && !lob)
+    // Round-24 (underhit census: the 180-260px band fell to the soft gradient
+    // ~160px/s and died a mean ~149px short of a moving receiver — the biggest
+    // visible "misplaced pass" class). Lower the driven floor 260->180 so the
+    // medium ball is struck, not lobbed onto the gradient; the >300px through
+    // floor below stays a separate, gentler solve and the led-runner semantics
+    // are untouched.
+    if (rawDist > 180.0 && !throughBall && !lob)
         speed = std::max(speed, std::min(300.0, 150.0 + rawDist * 0.32));
     // Round-23 (11v11 0:10 "why would 9R just pass it to the opposition"): a LONG
     // through ball ("over the top") was exempt from the driven floor and floated
@@ -540,6 +546,13 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     double receiverSpeed = std::hypot(t.vx, t.vy);
     double fd = fdFor(f.team);
     bool movingForward = t.vx * fd > 5;
+    // Round-24 TOMBSTONE: raising the moving-receiver leadFactor (0.90->0.95
+    // and ->1.05) to "cure" underhit was A/B'd on the misplaced census and
+    // REVERTED. With the ball now DRIVEN (floor above), the extra lead over-ran
+    // the runner into empty grass — census misplaced 20.7 -> 22.0/23.9, the
+    // 260-360 band worsened, and turnovers rose (poss changes 508 -> 550) for
+    // no completion gain (~85% either way). The driven floor alone reaches the
+    // moving receiver before he vacates; the 0.90/0.55 lead stays.
     double leadFactor = throughBall ? (movingForward && receiverSpeed > 14 ? 1.32 : 0.80) : (movingForward && receiverSpeed > 20 ? 0.90 : 0.55);
     // Lead scales with the ball's own length (seed 111 1:35: a 195px through
     // ball took the full 90-210px lead and landed in Neuer's arms 100px past
