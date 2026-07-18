@@ -1380,7 +1380,13 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
         bool tightAngleFlag = angleDeg < 8.0 && shotDistance > 120.0;
         stats.recordShotSelection(angleDeg, pressureCount, 0, 0, 0, 0, 0, 0, false, tightAngleFlag);
     }
-    if (shotDistance > 210 || acuteGeometry || (audit && audit->bestPassScore > audit->score + 0.12)) { stats.recordQuestionableShot(); }
+    // Round-23 (11v11 0:32/33): the flag auto-branded EVERY shot >210px regardless
+    // of geometry, which would fight the clean-long-shot fix. A clean look
+    // (unpressured, real opening) is a legitimate choice out to ~26m; only a
+    // genuinely long strike (>265), a non-clean >210, an acute angle, or a clearly
+    // better pass is questionable.
+    bool cleanLong = pressureCount == 0 && angleDeg > 9.0;
+    if ((shotDistance > 210 && !cleanLong) || shotDistance > 265 || acuteGeometry || (audit && audit->bestPassScore > audit->score + 0.12)) { stats.recordQuestionableShot(); }
     double anglePenalty = clamp(std::abs(s.y - goalCenterY) / 230, 0.0, 1.0);
     double distancePenalty = clamp((shotDistance - 70) / 270, 0.0, 1.0);
     double longRangePenalty = clamp((shotDistance - 120) / 130, 0.0, 1.0);

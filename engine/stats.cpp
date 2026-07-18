@@ -202,7 +202,7 @@ std::string StatsCollector::summaryJSON() const {
     j["unknownLooseGoals"] = unknownLooseGoals;
 
     j["shotsByDistance"] = {
-        {"close", shotDistClose}, {"medium", shotDistMedium}, {"long", shotDistLong}, {"average", totalShots > 0 ? std::round(shotDistTotal / totalShots * 10) / 10 : 0}, {"questionable", questionableShots}};
+        {"close", shotDistClose}, {"medium", shotDistMedium}, {"long", shotDistLong}, {"long200_260", shotDistLong200_260}, {"veryLong260", shotDistVeryLong260}, {"average", totalShots > 0 ? std::round(shotDistTotal / totalShots * 10) / 10 : 0}, {"questionable", questionableShots}};
     j["shotsByRole"] = {
         {"GK", shotsGK}, {"CB", shotsCB}, {"FB", shotsFB}, {"CM", shotsCM}, {"WM", shotsWM}, {"CF", shotsCF}, {"unknown", shotsUnknownRole}};
     j["controlledTouchesByRole"] = {

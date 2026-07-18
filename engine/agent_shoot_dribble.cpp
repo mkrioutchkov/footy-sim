@@ -20,8 +20,12 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     // Fresh windfall (possession won off the opponent <2s ago) in range: the
     // long pot shot is ON — the defence is unset, exactly when real players
     // let fly (owner, seed 111 1:13).
+    // Round-23 (11v11 0:32/33): the windfall long-shot range was a flat 345 for
+    // ANYONE — the only thing feeding the >22.5m tail, and skill-blind. Scale it
+    // to the shooter: a poor striker gets 245, a legend up to ~355.
+    double windfallRange = 245.0 + attrFactor(p.attrs.shooting) * 110.0;
     bool windfall = engine.state.clockMs - engine.lastTurnoverWinMs[p.id] < 2000.0
-        && engine.lastTurnoverWinMs[p.id] > 0.0 && shotDistance < 345.0;
+        && engine.lastTurnoverWinMs[p.id] > 0.0 && shotDistance < windfallRange;
     bool outsideGoalLane = pitch::lateralFromCenter(p.y) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < SHOT_ANGLE_ACUTE_THRESH && shotDistance > 150.0;
 
@@ -37,7 +41,14 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     double hardMax = shotMaxDistance() + engine.teamTactics[teamIndex(p.team)].shootDistBias;   // shoot_from_distance extends the HARD cap too (line-36 gate); 0 = default
     if (freshCross) hardMax = std::max(hardMax, freshCrossMax);
     if (shootOnSight) hardMax = std::max(hardMax, 330.0);
-    if (windfall) hardMax = std::max(hardMax, 345.0);
+    if (windfall) hardMax = std::max(hardMax, windfallRange);
+    // Round-23 (11v11 0:32/33 "should really try a shot... threshold a few meters
+    // off"): a CLEAN, central, unpressured look extends the hard cap so a legend's
+    // ~25m dead-central strike isn't distance-VETOED before scoring ever runs (the
+    // CF cap of 225 killed a Messi look at 24.8m). The scorer may still prefer a
+    // better option — but the unconditional distance veto is what must go.
+    if (per.pressureCount == 0 && angleDeg > 9.0 && pitch::lateralFromCenter(p.y) < 160.0)
+        hardMax += 45.0;
     if (shotDistance > hardMax)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     if (!shootOnSight && isCentralMidfielder() && shotDistance > 225.0 && (angleDeg < 9.0 || per.pressureCount > 1))
@@ -180,6 +191,12 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (cleanLongLook) potShotTax *= 0.35;
     if (shotDistance > 175.0) sc -= potShotTax;
     if (shotDistance > 175.0 && cleanLongLook) sc += 0.10;
+    // Round-23 (11v11 0:32/33): beyond 175px only the tax existed — no positive
+    // term — so a 96-shooting legend on a clean 25m look scored ~0.14 and always
+    // lost to a sideways recycle. Reward the SKILL on a clean strike so the
+    // long-range shot the owner wanted becomes a live, skill-gated choice.
+    if (cleanLongLook && shotDistance > 175.0 && attrFactor(p.attrs.shooting) > 0.60)
+        sc += 0.18 + (attrFactor(p.attrs.shooting) - 0.60) * 0.9;
     if (lateGame && shotDistance > 175.0 && shotDistance < 250.0 && per.pressureCount == 0 && angleDeg > 8.0)
         sc += 0.24;
 

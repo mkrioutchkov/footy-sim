@@ -130,8 +130,13 @@ class StatsCollector {
             shotDistClose++;
         else if (distance < 200)
             shotDistMedium++;
-        else
-            shotDistLong++;
+        else {
+            shotDistLong++;   // kept as the total >=200 band (JSON-stable)
+            // Round-23 (11v11 0:32/33): the flat <100/<200/>=200 bands couldn't see
+            // the 22.5m+ cliff — split the long band so the new mid-long tail shows.
+            if (distance < 260) shotDistLong200_260++;
+            else shotDistVeryLong260++;
+        }
     }
     void recordShotOnTarget();
     void recordSave() { saves++; }
@@ -417,6 +422,7 @@ class StatsCollector {
     int backLineSamples = 0, backLineSingleDrop = 0, backLineLaneBlockSingleDrop = 0;
     double backLineGapTotal = 0, backLineSingleDropGapTotal = 0, backLineGapMax = 0;
     int shotDistClose = 0, shotDistMedium = 0, shotDistLong = 0;
+    int shotDistLong200_260 = 0, shotDistVeryLong260 = 0;
     double shotDistTotal = 0;
     int goalDistClose = 0, goalDistMedium = 0, goalDistLong = 0;
     int dribbleClose = 0, dribbleMedium = 0, dribbleFast = 0;
