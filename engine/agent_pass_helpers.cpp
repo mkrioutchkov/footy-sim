@@ -191,7 +191,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // (through-ball chip loft rationale untouched).
     if (blClosing > bl) blClosing = bl;
     double base = d > 170.0 ? 0.18 : 0.23;
-    double blCost = bl * base + blClosing * base * 0.6;
+    double blCost = bl * base + blClosing * base * 0.45;
     double completion = clamp(
         0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - blCost
             - std::min(laneRisk, 2.2) * 0.10 - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),

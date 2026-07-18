@@ -588,9 +588,14 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // inaccuracy by ~40m while sub-260px balls are already 98% on-line — the
     // long switch sprayed laterally far more than a good passer's execution
     // warrants. Trim the quadratic 7.0->5.0; the linear term and the freshTouch
+    // Round-25 (SPACING/PATIENCE co-tune): the wider standoff + composure brake
+    // + middle-third offer package left more balls threaded through pressured
+    // zones, so completion sank ~2pp below band and lane interceptions ticked up.
+    // The quadratic still has margin against the 6px normal-ball median — trim
+    // 5.0->4.5 to buy execution accuracy back without touching short balls.
     // (0.75/0.5) / settled (0.28) face terms below are untouched (round-17 spray
     // is exonerated — median lateral miss 6px on normal balls).
-    double inacc = skillMiss * (rawDist * 0.085 + (rawDist / 200.0) * (rawDist / 200.0) * 5.0);
+    double inacc = skillMiss * (rawDist * 0.085 + (rawDist / 200.0) * (rawDist / 200.0) * 4.5);
     // Fatigue: a tired passer sprays it — error grows as the tank empties
     // (up to +80% at empty). No-op at full stamina, so early passes are clean.
     inacc *= 1.0 + (1.0 - staminaFrac(f.stamina)) * 0.8;
