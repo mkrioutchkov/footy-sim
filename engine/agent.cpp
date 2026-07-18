@@ -1075,14 +1075,16 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             double lateralFace = std::max(0.0, side * (ddy / ddl));
             double closing = -((def->vx - p.vx) * ddx + (def->vy - p.vy) * ddy) / ddl;
             double commitBonus = clamp(closing / 55.0, 0.0, 1.0) * 0.10;
-            double odds = 0.26
-                + attrFactor(p.attrs.creativity) * 0.32
-                + attrFactor(p.attrs.speed) * 0.12
-                - attrFactor(def->attrs.tackling) * 0.44
-                - attrFactor(def->attrs.positioning) * 0.13
-                + commitBonus
-                - lateralFace * 0.18;
-            odds = clamp(odds, 0.05, 0.90);
+            // Round-21 (take-on audit): differential odds — score the ATTACKER's
+            // edge OVER THIS defender, not raw attribute LEVELS. The level form
+            // capped equal-65s at ~17.6% and only the arena's cre97-vs-tkl26 ever
+            // cleared ~0.5, so 11v11 take-ons died at ~6%. atk/dfd are weighted
+            // composites; their gap (scaled ×1.1) is the real contest. Sanity:
+            // equal-65s ≈ 44%; elite winger (cre85/spd88) over avg FB (tkl72/pos70) ≈ 60%.
+            double atk = 0.72 * attrFactor(p.attrs.creativity) + 0.28 * attrFactor(p.attrs.speed);
+            double dfd = 0.78 * attrFactor(def->attrs.tackling) + 0.22 * attrFactor(def->attrs.positioning);
+            double odds = 0.44 + 1.1 * (atk - dfd) + commitBonus - lateralFace * 0.18;
+            odds = clamp(odds, 0.08, 0.88);
             bool won = engine.rng.random() < odds;
             const char* mv = lateralFace > 0.4 ? "roulette" : "stepover";
             engine.emitEvent(mv, p.x, p.y, p.id, def->id);

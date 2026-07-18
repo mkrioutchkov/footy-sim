@@ -7,7 +7,7 @@
       {"name": "R2", "attrs": {}}, {"name": "R3", "attrs": {}}, {"name": "R4", "attrs": {}},
       {"name": "R5", "attrs": {}}, {"name": "R6", "attrs": {}}, {"name": "R7", "attrs": {}},
       {"name": "R8", "attrs": {}}, {"name": "R9", "attrs": {}},
-      {"name": "Messi", "foot": -1, "attrs": {"speed": 93, "passing": 85, "creativity": 97, "shooting": 90, "tackling": 24, "positioning": 40, "stamina": 99, "height": 30}},
+      {"name": "Messi", "foot": -1, "attrs": {"speed": 93, "passing": 85, "creativity": 97, "shooting": 90, "tackling": 76, "positioning": 72, "stamina": 99, "height": 30}},
       {"name": "R11", "attrs": {}}
     ]
   },
@@ -19,7 +19,7 @@
       {"name": "B2", "attrs": {}}, {"name": "B3", "attrs": {}}, {"name": "B4", "attrs": {}},
       {"name": "B5", "attrs": {}}, {"name": "B6", "attrs": {}}, {"name": "B7", "attrs": {}},
       {"name": "B8", "attrs": {}}, {"name": "B9", "attrs": {}},
-      {"name": "Ronaldo", "foot": 1, "attrs": {"speed": 94, "passing": 82, "creativity": 92, "shooting": 93, "tackling": 26, "positioning": 42, "stamina": 99, "height": 60}},
+      {"name": "Ronaldo", "foot": 1, "attrs": {"speed": 94, "passing": 82, "creativity": 92, "shooting": 93, "tackling": 76, "positioning": 72, "stamina": 99, "height": 60}},
       {"name": "B11", "attrs": {}}
     ]
   },
