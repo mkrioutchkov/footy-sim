@@ -275,8 +275,11 @@ bool GameEngine::checkGoal() {
         shot.active = false;
         shot.clearFlags();
         // goal celebration (owner: "have delays after goal") — stoppage accrues via kickoffPhase, so it feeds real added time.
-        // Round-21 (arena audit): the duel doesn't need the 9s celebration — ~3s.
-        kickoff(scoringTeam == Team::Home ? Team::Away : Team::Home, arenaMode ? 3000.0 : 9000.0);
+        // Round-23 (arena reaudit): players WALK to the reset over the hold (walkIn)
+        // instead of teleporting; the arena hold grows 3s -> 6s to fit the scorer's
+        // celebration + the stroll back (11v11 keeps its 9s, already ample). The
+        // hold snaps to the exact formation at the end, so the tap is unchanged.
+        kickoff(scoringTeam == Team::Home ? Team::Away : Team::Home, arenaMode ? 6000.0 : 9000.0, /*walkIn=*/true);
     };
     if (b.x + BALL_R < HOME_GOAL_X) {
         finishGoal(Team::Away, HOME_GOAL_X);
@@ -1354,7 +1357,13 @@ void GameEngine::updateControlledBall(double sec) {
     // derivation below faithfully reported the reversal). A fresh carrier
     // EASES the ball onto his foot; steady-state carries keep the firm
     // allowance so close control still converges in 2-3 ticks.
-    double maxStep = (std::hypot(c->vx, c->vy) + (freshControl ? 60.0 : 300.0)) * sec;
+    // Round-23 (arena reaudit): the +300 steady-state allowance let the ball HOP
+    // 360.7px/s between touches during a fast carry — a visible teleport ahead of
+    // the carrier. Trim it to +220 (~285px/s peak): the ball still converges to
+    // the control offset in 2-3 ticks, but stays under the carrier's own stride
+    // rather than sling-shotting past him. Well below the +320 CarriedBallOverspeed
+    // tripwire, so the census margin is preserved.
+    double maxStep = (std::hypot(c->vx, c->vy) + (freshControl ? 60.0 : 220.0)) * sec;
     bool firstTimedCallThisTick = sec > 1e-6 && state.clockMs != glueStepDoneMs;
     if (firstTimedCallThisTick) glueStepDoneMs = state.clockMs;
     if (md < 60.0 && !(firstTimedCallThisTick && md <= maxStep)) {

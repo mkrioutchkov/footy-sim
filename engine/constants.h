@@ -44,7 +44,8 @@ inline constexpr double LUNGE_DASH_SPEED = 120.0;
 // the kick releases the moment he arrives ("strikes as he arrives"). Pace is
 // explosive-but-human, well under the 250px/s OffBallOverspeed line.
 inline constexpr double RUNUP_LEAD_MS     = 900.0;  // window (before the scheduled release) when the approach begins
-inline constexpr double RUNUP_DASH_SPEED  = 132.0;  // approach pace, px/s — a burst, still < LUNGE_DASH_SPEED (170)
+inline constexpr double RUNUP_DASH_SPEED  = 132.0;  // approach pace, px/s — an explosive burst (above the LUNGE_DASH_SPEED=120 tackle-dash, but capped at the RUNUP_STRIKE_MAX strike ceiling below)
+inline constexpr double RUNUP_STRIKE_MAX   = 180.0;  // hard ceiling on the run-up strike-tick step (px/s) — a human stride into the ball, never a sprint-teleport onto it
 inline constexpr double RUNUP_DIST_SHOT   = 52.0;   // ~4-5 steps back for a direct-shot free kick
 inline constexpr double RUNUP_DIST_PASS   = 30.0;   // compact ~2-step approach for a short-pass free kick
 inline constexpr double RUNUP_SIDE_OFFSET = 18.0;   // lateral offset of a SHOOTING run-up — the angled curler's approach

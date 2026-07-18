@@ -115,6 +115,17 @@ public:
         double stoppageMs = 0;            // accumulated dead time this half
         double announcedAddedMs = 0;      // the board: +N minutes
     } phase;
+    // Round-23 (arena reaudit): post-goal WALK-IN. Instead of teleporting all 22
+    // dots to their kickoff spots in one 80ms tick (then a statue hold), players
+    // stroll to the formation over the hold and the scorer wheels away to
+    // celebrate. Targets are the EXACT formation spots and the hold snaps to them
+    // at the end, so the kickoff (and everything after) stays byte-identical —
+    // only the dead-ball visual changes. Deterministic drift only, no rng.
+    bool kickoffWalkActive = false;
+    int kickoffWalkScorerId = -1;
+    double kickoffWalkPresentMs = 0.0;
+    std::array<double, 22> kickoffWalkTargetX = {};
+    std::array<double, 22> kickoffWalkTargetY = {};
     std::array<int, 22> yellowCards = {};
 
     // Match length is a RUNTIME parameter (default 90'), not the compile-time
@@ -783,7 +794,7 @@ public:
     // holdMs: how long the teams stand in formation before the tap. Opening /
     // second-half kickoffs use the short default; a post-goal kickoff passes a
     // longer hold (the celebration-and-reset breather).
-    void kickoff(Team t, double holdMs = 1500.0);
+    void kickoff(Team t, double holdMs = 1500.0, bool walkIn = false);
     void update(double dM);
     bool step();   // §1.4 LIVE: one fixed tick, returns false at full-time (while(step()) loop + runner-ready)
     void fixedUpdate(double sdt);

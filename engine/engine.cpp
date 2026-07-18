@@ -128,7 +128,12 @@ void GameEngine::startMatch() {
     kickoff(Team::Home);
 }
 
-void GameEngine::kickoff(Team t, double holdMs) {
+void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
+    // Post-goal walk-in: remember where every dot stands NOW (at the goal) so the
+    // formation reset below can be re-expressed as a stroll rather than a teleport.
+    std::array<double, 22> walkFromX{}, walkFromY{};
+    if (walkIn)
+        for (auto& p : state.players) { walkFromX[p.id] = p.x; walkFromY[p.id] = p.y; }
     phase.nextKickoffTeam = (t == Team::Home) ? Team::Away : Team::Home;
     contestBlockedUntil.fill(0);
     receiverShieldUntil = 0;
@@ -193,6 +198,24 @@ void GameEngine::kickoff(Team t, double holdMs) {
             p.x = fdp > 0 ? std::min(p.x, legalX) : std::max(p.x, legalX);
             p.targetX = p.x;
         }
+    }
+    // Post-goal walk-in: the formation above is now the TARGET. Send every dot
+    // back to where it stood at the goal and let updateKickoffPhase stroll it to
+    // the spot over the hold (snapping exactly at the end). The ball stays dead on
+    // the centre spot; the taker walks up to it. Byte-identical at the tap.
+    kickoffWalkActive = false;
+    if (walkIn) {
+        for (auto& p : state.players) {
+            if (p.sentOff) continue;
+            kickoffWalkTargetX[p.id] = p.targetX;
+            kickoffWalkTargetY[p.id] = p.targetY;
+            p.x = walkFromX[p.id];
+            p.y = walkFromY[p.id];
+            p.vx = p.vy = 0;
+        }
+        kickoffWalkActive = true;
+        kickoffWalkScorerId = lastGoal.toucherId;
+        kickoffWalkPresentMs = std::min(3000.0, holdMs * 0.5);   // scorer wheels away for the first ~3s
     }
     phase.kickoffPhase = true;
     phase.actionTimer = holdMs;
@@ -1494,14 +1517,18 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
                     taker->facing = std::atan2(setPiece.spotY - taker->y, setPiece.spotX - taker->x);
             } else {
                 // The approach: dash from the start THROUGH the ball to a point just
-                // beyond it, at an explosive-but-human pace (< LUNGE_DASH_SPEED).
+                // beyond it, at an explosive-but-human pace. RUNUP_DASH_SPEED (132)
+                // sits above the LUNGE_DASH_SPEED (120) tackle-dash but is held under
+                // the RUNUP_STRIKE_MAX (180) strike ceiling — so the strike tick is a
+                // stride into the ball, not a sprint-teleport onto it.
+                double dashSpeed = std::min(RUNUP_DASH_SPEED, RUNUP_STRIKE_MAX);
                 double tx = setPiece.spotX + setPiece.runUpDirX * RUNUP_OVERRUN;
                 double ty = setPiece.spotY + setPiece.runUpDirY * RUNUP_OVERRUN;
                 double dx = tx - taker->x, dy = ty - taker->y, d = std::hypot(dx, dy);
-                double step = std::min(RUNUP_DASH_SPEED * (sdt / 1000.0), d);
+                double step = std::min(dashSpeed * (sdt / 1000.0), d);
                 if (d > 0.1) { taker->x += dx / d * step; taker->y += dy / d * step; }
-                taker->vx = setPiece.runUpDirX * RUNUP_DASH_SPEED;
-                taker->vy = setPiece.runUpDirY * RUNUP_DASH_SPEED;
+                taker->vx = setPiece.runUpDirX * dashSpeed;
+                taker->vy = setPiece.runUpDirY * dashSpeed;
                 taker->targetX = tx;
                 taker->targetY = ty;
                 taker->facing = std::atan2(setPiece.runUpDirY, setPiece.runUpDirX);
@@ -1629,7 +1656,51 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
 
 void GameEngine::updateKickoffPhase(double sdt) {
     phase.actionTimer -= sdt;
+    // Post-goal walk-in: stroll each dot toward its formation spot over the
+    // remaining hold (lerp-to-arrive, so the per-tick step is small and eases to
+    // zero — never the 80px teleport of the old snap). Deterministic drift only.
+    if (kickoffWalkActive && phase.actionTimer > 0.0) {
+        double sec = sdt / 1000.0;
+        double remainMs = std::max(sdt, phase.actionTimer);
+        // lerp-to-arrive: close this fraction of the REMAINING distance each tick.
+        // With the whole hold ahead the early steps are a few px (never a slide),
+        // easing to zero as the dot settles onto its spot exactly at the snap.
+        double frac = clamp(sdt / remainMs, 0.0, 1.0);
+        double elapsed = state.clockMs - phase.lastKickoffMs;
+        for (auto& p : state.players) {
+            if (p.sentOff) continue;
+            double dx = kickoffWalkTargetX[p.id] - p.x, dy = kickoffWalkTargetY[p.id] - p.y;
+            double stepX = dx * frac, stepY = dy * frac;
+            // Micro idle: a tiny deterministic sway (no rng) so a dot that has
+            // reached its spot breathes rather than freezing dead.
+            double idle = std::sin((state.clockMs + p.id * 211.0) * 0.005) * 0.6 * sec * 60.0;
+            p.x += stepX;
+            p.y += stepY + idle;
+            p.vx = stepX / std::max(sec, 1e-6);
+            p.vy = stepY / std::max(sec, 1e-6);
+            // The scorer WHEELS AWAY to celebrate — face the nearest corner for the
+            // presentation window; everyone else faces their walk direction.
+            if (p.id == kickoffWalkScorerId && elapsed < kickoffWalkPresentMs) {
+                double cx = (p.x < HALF_X) ? 0.0 : PITCH_W;
+                double cy = (p.y < PITCH_H / 2.0) ? 0.0 : PITCH_H;
+                p.facing = std::atan2(cy - p.y, cx - p.x);
+            } else if (std::hypot(dx, dy) > 2.0) {
+                p.facing = std::atan2(dy, dx);
+            }
+        }
+    }
     if (phase.actionTimer <= 0) {
+        // Snap to the EXACT formation so the tap (and everything after) is
+        // byte-identical to a straight-to-staging kickoff.
+        if (kickoffWalkActive) {
+            for (auto& p : state.players) {
+                if (p.sentOff) continue;
+                p.x = kickoffWalkTargetX[p.id];
+                p.y = kickoffWalkTargetY[p.id];
+                p.vx = p.vy = 0;
+            }
+            kickoffWalkActive = false;
+        }
         phase.kickoffPhase = false;
         kickoffTap();
     }
