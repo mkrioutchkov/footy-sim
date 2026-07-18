@@ -1201,7 +1201,19 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // only commits to a clear chance. Centred at dial 50 = the old 0.30.
     // tackle_hard lowers the commit bar (dives in on lower-% challenges);
     // stay_on_feet raises it (jockey, only commit to a clear chance).
-    double commitBar = clamp(0.30 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.50);
+    // Round-24 (largest turnover bucket, contain-first): committed tackles ran
+    // ~830/90 (real 60-90). Measurement showed the exposure auto-commit clauses
+    // below are INERT on tackle volume — even disabling them entirely moved
+    // attempts by ~0 (the chance>=commitBar path drives essentially all
+    // commitment). So the honest contain-first lever is commitBar itself: raise
+    // the base 0.30->0.40 so a defender only commits to a clearer chance and
+    // jockeys the rest. This is NOT the win-chance formula or a scoring term —
+    // it is the commit threshold. Deliberately PARTIAL: 0.40 cuts committed
+    // tackles ~826->704/90 (12-seed A/B, REAL) with marathonCarries and
+    // dizzy_spin still in noise; pushing to 0.45+ reached the 450-550 band but
+    // spiked marathonCarries (carriers running free) — the regression this round
+    // must avoid. Upper clamp 0.50->0.56 to keep the stay_on_feet headroom.
+    double commitBar = clamp(0.40 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.56);
     // Deliberate (cynical) foul: the last man, genuinely beaten on a transition
     // break OUTSIDE the box, brings the carrier down to stop the counter. Pure
     // state (no rng); it forces commitment so the challenge reaches the existing
@@ -1225,8 +1237,15 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
                    && state.ball.controllerId == carrier.id                                                                                                               // he's in control (a real break, not a loose 50/50)
                    && directiveBias[tackler.id].stayOnFeet < 0.5                                                                                                          // a stay_on_feet order suppresses it
                    && rng.random() < 0.30;                                                                                                                                // most pros do NOT pull him down — willingness, not certainty
-    bool committed = chance >= commitBar || boxEmergency || cynical || (carrier.dribbleType == 0 && ballExposureDot > 0.0) || (ballPushedAhead && ballExposureDot > 0.15) // nick the loose touch off an open carry
-                     || (ballExposureDot > 0.40);                                                                                                                         // ball shown front-to-front at me — go, whatever the carry type
+    // Round-24: raise the exposure auto-commit thresholds (0.0->0.25, 0.40->0.55)
+    // so a MARGINALLY shown ball stays a jockey rather than auto-committing a
+    // tackle regardless of win chance. NOTE: measured inert on tackle VOLUME on
+    // its own (the chance>=commitBar path above dominates commitment); the real
+    // contain-first cut is the commitBar raise. Kept because it is directionally
+    // correct and harmless — a faintly exposed ball is not worth a committed
+    // lunge. The win-chance formula and round-19/20 scoring terms are untouched.
+    bool committed = chance >= commitBar || boxEmergency || cynical || (carrier.dribbleType == 0 && ballExposureDot > 0.25) || (ballPushedAhead && ballExposureDot > 0.15) // nick the loose touch off an open carry
+                     || (ballExposureDot > 0.55);                                                                                                                         // ball shown front-to-front at me — go, whatever the carry type
     if (!committed) return false;
     // Even a committed challenge inside the box is careful — half the foul risk
     // of an open-field lunge (a clumsy one is still a penalty, just far rarer).
