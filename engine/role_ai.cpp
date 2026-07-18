@@ -12,6 +12,41 @@ bool PlayerAI::pressedTightOrClosing() const {
     return tackleArriving(engine.state.players, player.x, player.y, player.team, 100.0, 55.0);
 }
 
+// In-possession last man (seed 264 1:09): the carrier has NO own outfield
+// teammate goal-side of him (between him and his own goal). Mirrors the
+// goalSideCover scan the defensive cynical-foul detector runs over the OTHER
+// team — here it is inverted onto the carrier's own team. The keeper never
+// counts (a GK behind is not outfield cover); an outfield man goal-side, at
+// any width, means he is not the last man.
+bool PlayerAI::carrierIsLastMan() const {
+    double fd = fdFor(player.team);
+    for (auto& d : engine.state.players) {
+        if (d.team != player.team || d.id == player.id || d.role == Role::GK || d.sentOff) continue;
+        if ((d.x - player.x) * fd < 0.0) return false;   // teammate goal-side => not last man
+    }
+    return true;
+}
+
+// The forensic case (seed 264 1:09) is a last man DEEP and genuinely CORNERED —
+// not any deep CB calmly playing out. That common case ("deep defender, someone
+// closing") is exactly the permanent-valve trap the round-18 note warns about:
+// pricing it floods clearances and erodes completion. So require BOTH a tight
+// opponent already inside 38px AND a genuine arriving tackle (sprinting in) on
+// top of last-man + deep. "Tight AND arriving" (not "tight OR closing") is the
+// difference between a cornered carrier and a jockeyed one, and keeps this rare
+// enough to leave aggregate completion untouched.
+bool PlayerAI::carrierLastManTrapped() const {
+    if (!carrierIsLastMan()) return false;
+    if (pitch::forwardProgress(player.x, player.team) >= PITCH_W * 0.42) return false;
+    bool tight = false;
+    for (auto& o : engine.state.players) {
+        if (o.team == player.team || o.role == Role::GK || o.sentOff) continue;
+        if (dist(o.x, o.y, player.x, player.y) < 38.0) { tight = true; break; }
+    }
+    return tight
+        && tackleArriving(engine.state.players, player.x, player.y, player.team, 90.0, 45.0);
+}
+
 void CFPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     if (!isController) return;

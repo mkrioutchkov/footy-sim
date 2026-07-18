@@ -265,6 +265,10 @@ protected:
     virtual void          adjustActionScores(SmallVector<Action, 24>& actions, bool isController);
     // Tight press now, or arriving within ~0.6s — the defender quick-release trigger.
     bool                  pressedTightOrClosing() const;
+    // In-possession last man: no own outfield teammate goal-side of the carrier.
+    bool                  carrierIsLastMan() const;
+    // Last man, deep, and genuinely pressed — the "cornered" release trigger.
+    bool                  carrierLastManTrapped() const;
     Action                resolveChoice(SmallVector<Action, 24>& actions);
 
     // resolveChoice() pipeline helpers — each returns nullptr to continue, or a chosen action

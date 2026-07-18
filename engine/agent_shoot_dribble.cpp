@@ -659,6 +659,11 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         }
     }
 
+    // In-possession last man, deep and cornered (seed 264 1:09): dribbling out of
+    // it with nobody goal-side is the riskiest possible carry — tax it so the long
+    // relief / recycle out-prices a jink into the traffic. Inert otherwise.
+    if (carrierLastManTrapped()) sc -= 0.15;
+
     return Action{ActionType::Dribble, clamp(sc, 0.0, 1.0), nullptr,
                   clamp(tx, 35.0, PITCH_W - 35.0),
                   clamp(ty, 35.0, PITCH_H - 35.0),

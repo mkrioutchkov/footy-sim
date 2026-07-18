@@ -362,11 +362,24 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // keeper — picked off, instant chance). Losing it there must terrify.
     if (pitch::distToOwnGoal(p.x, p.team) < 190.0 && pitch::lateralFromCenter(p.y) > 200.0)
         turnoverCost = 0.62;
+    // In-possession last man, deep and cornered (seed 264 1:09): losing it with
+    // nobody goal-side is the highest-leverage giveaway there is — inflate the
+    // turnover cost so the long relief / keeper recycle out-prices the square ball
+    // into the press. Tightly gated (carrierLastManTrapped) so ordinary play-out-
+    // from-the-back is untouched; the short-lateral/backward tax below then
+    // demotes threading it into traffic.
+    bool lastManCarrier = carrierLastManTrapped();
+    if (lastManCarrier) turnoverCost *= 1.35;
     // passingDirectness (centred at 50): high -> reward forward passes more and
     // value safe recycling less (vertical, direct); low -> patient possession.
     double directness = engine.configFor(p.team).passingDirectness / 50.0; // 0..2, 1 at 50
     double sc = completion * (0.34 + std::max(0.0, progression) * 0.27 * directness) - (1.0 - completion) * turnoverCost;   // Round-20: progression reward 0.34->0.27 (~20%) to ease the forward scoring tilt (59% fwd)
     if (reliefBall) sc += 0.12;   // press-pinned escape beats the 15th sterile square recycle
+    // A pressed last man playing it short-and-square hands the press the ball in
+    // the worst place — tax the short lateral/backward option so the long relief
+    // wins (keeper recycle / longBall are unaffected: GK passes run long, and the
+    // longBall reward+forgiveness below out-scores this).
+    if (lastManCarrier && d < 140.0 && fp < 40.0) sc -= 0.15;
     if (!engine.setPiece.armed && offFacing > 1.62) sc -= offFacing > 2.45 ? 0.24 : 0.14;   // blind-pass tax on top of the completion hit (stiffer past the old veto line)
     if (longBall > 0.0 && fp > 80.0) {                          // play_it_long: make the direct long ball win
         sc += longBall * (0.38 + std::min(fp, 360.0) / 360.0 * 0.46);   // longer => bigger reward (boosted to commit)
