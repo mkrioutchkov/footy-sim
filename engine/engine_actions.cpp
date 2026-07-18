@@ -584,7 +584,13 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     if (adjDist < 1) return false;
     double passSkill = attrFactor(f.attrs.passing);
     double skillMiss = std::pow(1.0 - passSkill, 1.4);
-    double inacc = skillMiss * (rawDist * 0.085 + (rawDist / 200.0) * (rawDist / 200.0) * 7.0);
+    // Round-24 (long-ball lateral spray census): the distance-quadratic doubled
+    // inaccuracy by ~40m while sub-260px balls are already 98% on-line — the
+    // long switch sprayed laterally far more than a good passer's execution
+    // warrants. Trim the quadratic 7.0->5.0; the linear term and the freshTouch
+    // (0.75/0.5) / settled (0.28) face terms below are untouched (round-17 spray
+    // is exonerated — median lateral miss 6px on normal balls).
+    double inacc = skillMiss * (rawDist * 0.085 + (rawDist / 200.0) * (rawDist / 200.0) * 5.0);
     // Fatigue: a tired passer sprays it — error grows as the tank empties
     // (up to +80% at empty). No-op at full stamina, so early passes are clean.
     inacc *= 1.0 + (1.0 - staminaFrac(f.stamina)) * 0.8;
