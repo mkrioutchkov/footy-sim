@@ -493,8 +493,26 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
         // dedicated 'tip' event so reports/commentary/viewer see the iconic over-the-bar save.
         stats.recordClaimTip();
         emitEvent("tip", gk.x, gk.y, gk.id, shooterId);
-        Team attackingTeam = gk.team == Team::Home ? Team::Away : Team::Home;
-        awardCorner(attackingTeam, gk.team == Team::Home, b.y);
+        // Round-24 (arena seed 7 0:30): the tip was the only save outcome that
+        // left the ball untouched — it flew its unchanged parabola on INTO the
+        // mouth while a corner was awarded in-flight from 29px away, reading as
+        // a stolen goal rather than a save. Physically deflect it behind (the
+        // cross-cut corner precedent: never award instantly) and let
+        // checkOutOfPlay give the corner when the ball actually crosses. The
+        // y-velocity is solved to cross OUTSIDE the near post on the dive side,
+        // so the tipped ball can never continue in as a goal.
+        double lineX = ownGoalXFor(gk.team);
+        b.vx = -fieldDir * std::max(std::abs(b.vx) * 0.85, 130.0);
+        double t = std::abs((b.x - lineX) / b.vx);
+        double clearY = (diveSide > 0 ? 376.5 : 303.5) + diveSide * 12.0;
+        double needVy = (clearY - b.y) / std::max(t, 0.05);
+        b.vy = diveSide * std::max(std::abs(needVy), 60.0);
+        b.vz = std::max(b.vz, 0.0) * 0.4 + 90.0;   // lifted — tipped over/around
+        b.z  = std::max(b.z, 2.0);
+        b.curl = 0;
+        b.lastTouchTeam = gk.team; b.lastToucherId = gk.id; lastRicochetMs = -1e9;
+        blockReboundFor(shooterId, 500);
+        recordBallImpulse();
         return;
     }
     // Punch when hands are unavailable, when pressured, or against real heat:
