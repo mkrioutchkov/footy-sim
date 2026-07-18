@@ -1051,10 +1051,23 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             // directly ahead do we fall back to his lateral drift's blind side, then
             // to the open pitch. Choosing by body offset first keeps the across-face
             // penalty below consistent with the side we actually take.
+            // Round-21 (take-on audit) COMMIT 5: side choice with variety. A
+            // fixed blind-side rule staircased 41/44 beats onto the same shoulder
+            // (corner-bound). Take his blind side when he clearly shades (>20px)
+            // or drifts one way; but when he is squared up / marginally offset,
+            // blend the open-pitch pull (toward the middle third) with a
+            // per-attempt rng draw so consecutive beats genuinely alternate.
             double side;
-            if (std::abs(ddy) > 6.0)          side = ddy > 0 ? -1.0 : 1.0;
+            if (std::abs(ddy) > 20.0)         side = ddy > 0 ? -1.0 : 1.0;
             else if (std::abs(def->vy) > 8.0) side = def->vy > 0 ? -1.0 : 1.0;
-            else                              side = (p.y < PITCH_H / 2.0) ? 1.0 : -1.0;
+            else {
+                double openBias  = (p.y < PITCH_H / 2.0) ? 1.0 : -1.0;
+                double bodyBlind = (ddy > 0.0) ? -1.0 : 1.0;
+                double s = openBias * 0.55
+                         + bodyBlind * (std::abs(ddy) / 20.0) * 0.45
+                         + (engine.rng.random() - 0.5) * 1.1;
+                side = s >= 0.0 ? 1.0 : -1.0;
+            }
             // Round-21 (take-on audit) COMMIT 2: touchline shoulder choice. The
             // old override flipped `side` inward UNCONDITIONALLY near a touchline;
             // on the wing — exactly where 11v11's isolation gate concentrates
@@ -1076,15 +1089,23 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 else { takeOnCooldown = 40; committed = false; }
             }
           if (committed) {
-            // Beat vector: strongly toward goal, a modest lateral slip to the side.
-            double bx = fdc * 0.88, by = side * 0.48, bl = std::hypot(bx, by);
-            bx /= bl; by /= bl;
             // Angle modulation (both real): a residual cut toward the side his body
             // shades is riskier (across the face), while a defender COMMITTING —
             // closing hard at the ball — is easier to slip than a patient jockey.
             double lateralFace = std::max(0.0, side * (ddy / ddl));
             double closing = -((def->vx - p.vx) * ddx + (def->vy - p.vy) * ddy) / ddl;
             double commitBonus = clamp(closing / 55.0, 0.0, 1.0) * 0.10;
+            // COMMIT 5: vary the cut so beats don't all fire the same ~29°/58px
+            // shape. Lateral slip in [0.30,0.65] and burst length in [45,75]px,
+            // scaled by creativity (sharper, longer for the tricky) and damped by
+            // lateralFace (can't cut as hard across his body), plus an rng jitter.
+            double creF = attrFactor(p.attrs.creativity);
+            double j = engine.rng.random();
+            double latMag  = clamp(0.34 + creF * 0.22 - lateralFace * 0.14 + (j - 0.5) * 0.14, 0.30, 0.65);
+            double dashLen = clamp(48.0 + creF * 22.0 + (j - 0.5) * 18.0, 45.0, 75.0);
+            // Beat vector: strongly toward goal, a varied lateral slip to the side.
+            double bx = fdc * 0.88, by = side * latMag, bl = std::hypot(bx, by);
+            bx /= bl; by /= bl;
             // Round-21 (take-on audit): differential odds — score the ATTACKER's
             // edge OVER THIS defender, not raw attribute LEVELS. The level form
             // capped equal-65s at ~17.6% and only the arena's cre97-vs-tkl26 ever
@@ -1100,7 +1121,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             engine.emitEvent(mv, p.x, p.y, p.id, def->id);
             engine.stats.recordTakeOn(won);
             engine.stats.recordSkillMove();
-            takeOnCooldown = 80;   // ~1.3s — no machine-gunning
+            takeOnCooldown = 70 + static_cast<int>(engine.rng.random() * 41.0);   // COMMIT 5: jitter [70,110] ticks off the 1.33s grid
             jockeyLockTicks = 0;
             if (won) {
                 // Explosive cut past him: a carrier-side lunge-dash (fixedUpdate
@@ -1108,7 +1129,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 // beaten-defender contest lockout so he can't insta-recover.
                 engine.lungeDashDirX[p.id] = bx;
                 engine.lungeDashDirY[p.id] = by;
-                engine.lungeDashRemainPx[p.id] = 58.0;
+                engine.lungeDashRemainPx[p.id] = dashLen;
                 p.facing = std::atan2(by, bx);
                 p.dribbleType = 3;   // drive on after the burst
                 // Once the body is past him, STRAIGHTEN onto goal — the beat is a
