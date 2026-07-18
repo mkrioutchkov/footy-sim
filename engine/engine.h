@@ -142,6 +142,11 @@ public:
     // not a match event) and subs are disabled (nobody to legally replace).
     bool arenaMode = false;
 
+    // Round-21 (arena audit): set true when equalizeAttributes() ran (the bare-CLI
+    // debug default flattens every attribute to 65). Surfaced in getJSON so tuning
+    // scripts can't silently mix an equalized regime with a real-attribute one.
+    bool attrsEqualized = false;
+
     // Substitutions: an in-place identity swap (the on-pitch slot keeps its
     // id/role/position; only name+attrs+freshness change), so the 22-slot
     // player array and every pointer into it stay valid — no bench array to

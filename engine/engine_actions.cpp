@@ -973,7 +973,15 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
             // deterministic stream — and 11v11 — is byte-identical.
             if (arenaMode) straightRed = false;
             if (straightRed || rng.random() < cardChance) {
-                if (!straightRed) {
+                // ^ the rng.random() < cardChance draw still fires in arena
+                //   (straightRed is always false there), so the stream is intact.
+                // Round-21 (arena audit): with no send-off in the duel, a booked
+                // player used to keep collecting 4-5 meaningless yellows. Book him
+                // ONCE — suppress the second+ yellow record/emit. yellowCards>=1 is
+                // the threshold for both the foulChance and cardChance damping, so
+                // holding the count at 1 rather than incrementing changes no draw.
+                bool arenaAlreadyBooked = arenaMode && yellowCards[tackler.id] >= 1;
+                if (!straightRed && !arenaAlreadyBooked) {
                     yellowCards[tackler.id]++;
                     stats.recordYellowCard();
                     emitEvent("yellow", foulX, foulY, tackler.id, carrier.id);

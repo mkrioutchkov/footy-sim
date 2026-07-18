@@ -1852,6 +1852,7 @@ std::string GameEngine::getJSON() const {
     j["speed"] = state.speed;
     j["homeScore"] = state.homeScore;
     j["awayScore"] = state.awayScore;
+    j["attrsEqualized"] = attrsEqualized;   // Round-21 (arena audit): true when equalizeAttributes ran (bare-CLI debug default)
 
     j["ball"] = {
         {"x", std::round(b.x * 10) / 10}, {"y", std::round(b.y * 10) / 10}, {"vx", std::round(b.vx * 10) / 10}, {"vy", std::round(b.vy * 10) / 10}, {"z", std::round(b.z * 10) / 10}, {"curl", std::round(b.curl * 1000) / 1000}, {"cutback", pendingPass.active && pendingPass.isCutback}, {"controllerId", b.controllerId >= 0 ? nlohmann::json(b.controllerId) : nlohmann::json(nullptr)}, {"intendedReceiverId", b.intendedReceiverId >= 0 ? nlohmann::json(b.intendedReceiverId) : nlohmann::json(nullptr)}, {"lastTouchTeam", std::string(to_string(b.lastTouchTeam))}, {"lastToucherId", b.lastToucherId >= 0 ? nlohmann::json(b.lastToucherId) : nlohmann::json(nullptr)}};
@@ -2121,6 +2122,7 @@ void GameEngine::updateSubstitutions() {
 }
 
 void GameEngine::equalizeAttributes(int val) {
+    attrsEqualized = true;   // Round-21 (arena audit): flag the equalized regime for the summary JSON
     for (auto& p : state.players) {
         p.attrs.speed = val;
         p.attrs.passing = val;
