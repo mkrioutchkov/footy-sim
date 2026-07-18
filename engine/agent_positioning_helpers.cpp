@@ -173,8 +173,19 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
             // — lateral/deeper, on the side AWAY from the presser — instead of
             // standing on his anchor. Own-40% carriers only, so this never
             // perturbs midfield/attacking shape.
-            if (carrierPressure >= 1 && isDefenderLike()
-                && pitch::forwardProgress(carrier->x, p.team) < PITCH_W * 0.40
+            // Round-25 (SPACING/PATIENCE): the deep-defender out above kept a
+            // PRESSED holder from recycling backward-only, but only in the own
+            // 40%. A pressed holder in the middle third had the same problem —
+            // patience became a square recycle because no teammate offered a
+            // forward-facing angle. Broaden the same offer (exact geometry) to
+            // central midfielders across the middle third, so the pressed
+            // holder gets a real open angle rather than holding into the tackle.
+            bool deepDefenderOffer = isDefenderLike()
+                && pitch::forwardProgress(carrier->x, p.team) < PITCH_W * 0.40;
+            bool cmMiddleThirdOffer = isCentralMidfielder()
+                && pitch::forwardProgress(carrier->x, p.team) >= PITCH_W * 0.33
+                && pitch::forwardProgress(carrier->x, p.team) < PITCH_W * 0.66;
+            if (carrierPressure >= 1 && (deepDefenderOffer || cmMiddleThirdOffer)
                 && dist(p.x, p.y, carrier->x, carrier->y) < 260.0) {
                 Player* presser = nullptr; double pd = 1e9;
                 for (auto& o : engine.state.players) {
