@@ -299,9 +299,9 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
             bool carrierBacktracking = (carrier->team == Team::Home) ? carrier->vx < -8.0 : carrier->vx > 8.0;
             if (!(tackleDistance && carrierBacktracking)) {
                 double goalSide = (p.team == Team::Home) ? -1.0 : 1.0;
-                double containX = clamp(carrier->x + goalSide * 18.0, 35.0, PITCH_W - 35.0);
+                double containX = clamp(carrier->x + goalSide * 34.0, 35.0, PITCH_W - 35.0);
                 double side = (p.y < carrier->y) ? -1.0 : 1.0;
-                double containY = clamp(carrier->y + side * 10.0, 35.0, PITCH_H - 35.0);
+                double containY = clamp(carrier->y + side * 16.0, 35.0, PITCH_H - 35.0);
                 double score = emergencyCloseDown
                     ? clamp(0.97 - carrierDist / 900.0, 0.90, 0.96)
                     : clamp(0.96 - carrierDist / 700.0, 0.72, 0.94);

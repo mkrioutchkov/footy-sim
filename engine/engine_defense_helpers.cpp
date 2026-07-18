@@ -58,7 +58,7 @@ void GameEngine::assignPrimaryPress(DefenseContext& ctx, Player& carrier) {
     // A carrier who HOLDS the ball keeps the 30px gap — which is exactly what
     // lets the composure dwell breathe (tempo) without the defense leaking.
     double carrierDrive = std::max(0.0, -(carrier.vx * ctx.fd));   // px/s driving at our goal
-    double standoff = clamp(30.0 - carrierDrive * 0.45, 12.0, 30.0)
+    double standoff = clamp(42.0 - carrierDrive * 0.45, 12.0, 42.0)
                            - directiveBias[primary->id].pressTightness * 13.0
                            + directiveBias[primary->id].containBias * 22.0;
     // Round-19 (seed 629 0:27): CF received and pirouetted 180 degrees with the
