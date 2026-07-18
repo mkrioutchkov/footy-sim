@@ -934,8 +934,18 @@ void GameEngine::releaseCornerKick(Player& holder) {
             return;
         }
     }
-    setPiece.armed = true;
-    phase.actionTimer = 450;
+    // Round-21 (arena audit): the empty-targets fallback used to re-arm
+    // (armed=true, timer=450) into a taker-less held-ball state that NO branch of
+    // updateSetPiecePhase can service — the watchdog needs controllerId<0, the
+    // taker-walk needs takerId>=0, the release needs takerArrived, and
+    // auditStuckCarrier is disabled while armed. The taker (still holding the
+    // ball) statued until the half whistle. In arena the corner target loop above
+    // always skips every sent-off ghost, so it is ALWAYS empty and every corner
+    // froze (up to 51% of the match). This is the SAME defect the free-kick path
+    // already retired (tombstone at ~line 374). Fix: DON'T re-arm — fall through.
+    // clearReleasedSetPiece() runs the moment releaseCornerKick returns
+    // (releaseSetPiece), armed goes false, and the holder plays on as a normal
+    // carrier next tick. 11v11 is unaffected: its target list is never empty.
 }
 
 void GameEngine::awardThrowIn(Team lastTouchTeam, double y) {
