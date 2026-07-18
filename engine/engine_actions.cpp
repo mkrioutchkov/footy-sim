@@ -1442,7 +1442,17 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
         bool wideAngle = outsideGoalLane && angleDeg >= 7.0 && angleDeg <= 22.0;
         // Keeper has rushed well off his line and the shooter is behind him with
         // a clear sight: dink it over his head into the empty net.
-        bool keeperRushed = gkAdvance > 72.0 && shotDistance > gkAdvance + 50.0 && shotDistance < 340.0 && angleDeg > 10.0;
+        // Round-23 (arena reaudit): the old gkAdvance>72 gate branded a
+        // FORMULA-DEPTH keeper (engine_gk parks him at clamp(ballGoalDist*0.52,
+        // 30,135) => 72+ from ~139px out, and the arena 1v1 smother sits him at a
+        // trace-measured 83-89px) as "rushed", so a chip led the priority chain on
+        // ~2-in-3 arena possessions — 12-17 bar hits/match. A keeper standing at
+        // his positional depth is NOT rushed; require a genuine deep commit
+        // (>100px AND past ~45% of the way to the shooter). A fully-committed
+        // 150px smother still qualifies (gkAdvance is his real off-line distance
+        // regardless of which GK branch drove it).
+        bool keeperRushed = gkAdvance > 100.0 && gkAdvance > shotDistance * 0.45
+            && shotDistance > gkAdvance + 50.0 && shotDistance < 340.0 && angleDeg > 10.0;
         if (keeperRushed && clearSight)
             shotType = 4; // chip
         else if (credibleFinish && shotDistance < 175.0 && pressureCount <= 1 && accuracy > 0.50)
@@ -1577,10 +1587,19 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
         double footCurl = weakFootShotMul > 1.0 ? 0.6 : 1.15;
         b.curl = openSide * vxSign * (0.12 + accuracy * 0.08) * footCurl; // bend enough to round the keeper, not so far it sails the post
     }
-    // Chip: loft sized so the parabola loops OVER the advanced keeper and is just
-    // descending through the frame at the line. vz≈0.5·g·t (lands at the line)
-    // ×1.08 so it crosses a hair above the deck, not bouncing short of it.
-    if (shotType == 4) loft = clamp(apexDipVz(d / std::max(speed, 1.0), 1.08), 150.0, 340.0);
+    // Chip: loft sized so the parabola loops OVER the advanced keeper yet DIPS
+    // genuinely under the bar at the line. The old apexDipVz(t, 1.08) crested a
+    // hair past the target and arrived z≈13-20 in vacuum; the launch offset
+    // (+~23px, ball released ahead of the striker) and the 6.5px-early goal-plane
+    // check pushed the real arrival straight into the 18.5px bar band, so ~half
+    // of every chip clanged the crossbar. Solve the loft to LAND at shin height
+    // (z≈5) at the line instead — the apex still peaks 3.5-7m up (clears the
+    // onrushing keeper by a wide margin) but the ball is descending under the bar
+    // when it reaches the frame.
+    if (shotType == 4) {
+        double tLine = d / std::max(speed, 1.0);
+        loft = clamp(landOnTargetVz(tLine, std::max(tLine, 0.1), 5.0), 150.0, 340.0);
+    }
     b.intendedReceiverId = -1;
     // A VOLLEY keeps its strike height (seed 111 13:35, owner twice: the
     // first-touch volley snapped z 18.6 -> 0 in one tick — "looked glitchy
