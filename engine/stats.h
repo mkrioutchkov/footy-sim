@@ -269,6 +269,10 @@ class StatsCollector {
     }
     void recordOpenPlayGoal() { goalsOpenPlay++; }
     void recordSkillMove() { skillMoves++; }
+    // Round-21 (arena 1v1): a genuine take-on — a jockey-locked carrier committing
+    // to beat his man with a feint + explosive burst. Counted separately from the
+    // ambient skill-move flourish so duel quality is measurable.
+    void recordTakeOn(bool won) { takeOnAttempts++; if (won) takeOnWins++; }
     void recordShotBlocked() { shotsBlocked++; }
     void recordTaskSelection(DefensiveTask role);
 
@@ -388,6 +392,7 @@ class StatsCollector {
     int restartLawViolations = 0;
     int nonsensePasses = 0;
     int decisionMoments = 0, playerDecisions = 0, staleGrabs = 0, skillMoves = 0, shotsBlocked = 0;
+    int takeOnAttempts = 0, takeOnWins = 0;
     int ghostHeaders = 0;
     int blindPasses = 0;
     int suicidePasses = 0;

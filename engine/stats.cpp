@@ -179,6 +179,8 @@ std::string StatsCollector::summaryJSON() const {
     j["stuckCarrierAlerts"] = stuckAlerts;
     j["simulationFreezes"] = simFreezes;
     j["skillMoves"] = skillMoves;
+    j["takeOnAttempts"] = takeOnAttempts;
+    j["takeOnWins"] = takeOnWins;
     j["shotsBlocked"] = shotsBlocked;
     j["dizzySpins"] = dizzySpins;
     j["woodworkHits"] = woodworkHits;

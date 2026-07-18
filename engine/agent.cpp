@@ -13,6 +13,7 @@ void PlayerAI::tick(double sdt) {
     stunLockTicks = std::max(0, stunLockTicks - 1);
     shotCooldown = std::max(0, shotCooldown - 1);
     skillMoveCooldown = std::max(0, skillMoveCooldown - 1);
+    takeOnCooldown = std::max(0, takeOnCooldown - 1);
 
     if (ballMemoryAge == 0 && ballMemoryX == 0 && ballMemoryY == 0) {
         ballMemoryX = engine.state.ball.x;
@@ -1004,6 +1005,130 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             skillMoveCooldown = 450;                       // ~7.5s between tricks (G3 razzle: was 300/~5s — trim skill-move spam)
         } else {
             skillMoveCooldown = 400;                       // failed read — wait ~6.7s (G3: was 280)
+        }
+    }
+
+    // ── Take-on: beat the escorting defender with a feint + explosive burst ──
+    // Round-21 (arena 1v1; benefits 11v11 wing iso): the ambient skill-move roll
+    // above fires ~5% and gains no ground against an equal-pace jockey — a
+    // carrier can be escorted at a constant ~22px for 9s and never separate. A
+    // genuine take-on is a DELIBERATE commit: once a single defender has shadowed
+    // him close, goal-side and at matched pace for ~700ms (the jockey-lock), the
+    // carrier picks the defender's blind side, sells a feint (an existing skill
+    // event) and explodes past with a real burst — the carrier-side twin of the
+    // tackle lunge-dash — while the beaten man eats the contest lockout.
+    {
+        double fdc = fdFor(p.team);
+        Player* def = cp.nearestPlayer;
+        bool locked = false;
+        if (def && def->role != Role::GK && !ownDefensiveThird) {
+            double dx = def->x - p.x, dy = def->y - p.y, dd = std::hypot(dx, dy);
+            bool goalSideX = (fdc > 0 ? def->x >= p.x - 6.0 : def->x <= p.x + 6.0);
+            double relv = std::hypot(p.vx - def->vx, p.vy - def->vy);
+            if (dd < 44.0 && goalSideX && relv < 55.0) locked = true;
+        }
+        if (locked && def) {
+            if (jockeyLockDefId != def->id) { jockeyLockDefId = def->id; jockeyLockTicks = 0; }
+            jockeyLockTicks++;
+        } else {
+            jockeyLockTicks = 0;
+            jockeyLockDefId = -1;
+        }
+        // Isolation gate (11v11): only take a man on with room to attack — no
+        // SECOND opponent within 120px. The arena has one defender, so it is
+        // always satisfied there; in open play it fires on the wing iso / break.
+        int nearOpps120 = 0;
+        for (auto& o : engine.state.players) {
+            if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+            if (dist(p.x, p.y, o.x, o.y) < 120.0) nearOpps120++;
+        }
+        bool isolated = nearOpps120 <= 1;
+        if (def && takeOnCooldown == 0 && jockeyLockTicks >= 30 && isolated && !ownDefensiveThird) {
+            double ddx = def->x - p.x, ddy = def->y - p.y, ddl = std::max(1.0, std::hypot(ddx, ddy));
+            // Slip to the defender's blind side: the side away from his BODY offset
+            // (the ball ends up on the far side from him). Only when he is squared
+            // directly ahead do we fall back to his lateral drift's blind side, then
+            // to the open pitch. Choosing by body offset first keeps the across-face
+            // penalty below consistent with the side we actually take.
+            double side;
+            if (std::abs(ddy) > 6.0)          side = ddy > 0 ? -1.0 : 1.0;
+            else if (std::abs(def->vy) > 8.0) side = def->vy > 0 ? -1.0 : 1.0;
+            else                              side = (p.y < PITCH_H / 2.0) ? 1.0 : -1.0;
+            // Near a touchline, always beat him back toward the middle — repeated
+            // beats to the same shoulder walked the carrier into the corner and
+            // strangled the shooting angle (seed 99: four beats up to y=60, stuck).
+            if (p.y < 130.0)               side = 1.0;
+            else if (p.y > PITCH_H - 130.0) side = -1.0;
+            // Beat vector: strongly toward goal, a modest lateral slip to the side.
+            double bx = fdc * 0.88, by = side * 0.48, bl = std::hypot(bx, by);
+            bx /= bl; by /= bl;
+            // Angle modulation (both real): a residual cut toward the side his body
+            // shades is riskier (across the face), while a defender COMMITTING —
+            // closing hard at the ball — is easier to slip than a patient jockey.
+            double lateralFace = std::max(0.0, side * (ddy / ddl));
+            double closing = -((def->vx - p.vx) * ddx + (def->vy - p.vy) * ddy) / ddl;
+            double commitBonus = clamp(closing / 55.0, 0.0, 1.0) * 0.10;
+            double odds = 0.26
+                + attrFactor(p.attrs.creativity) * 0.32
+                + attrFactor(p.attrs.speed) * 0.12
+                - attrFactor(def->attrs.tackling) * 0.44
+                - attrFactor(def->attrs.positioning) * 0.13
+                + commitBonus
+                - lateralFace * 0.18;
+            odds = clamp(odds, 0.05, 0.90);
+            bool won = engine.rng.random() < odds;
+            const char* mv = lateralFace > 0.4 ? "roulette" : "stepover";
+            engine.emitEvent(mv, p.x, p.y, p.id, def->id);
+            engine.stats.recordTakeOn(won);
+            engine.stats.recordSkillMove();
+            takeOnCooldown = 80;   // ~1.3s — no machine-gunning
+            jockeyLockTicks = 0;
+            if (won) {
+                // Explosive cut past him: a carrier-side lunge-dash (fixedUpdate
+                // plays it out at LUNGE_DASH_SPEED with the ball glued), plus the
+                // beaten-defender contest lockout so he can't insta-recover.
+                engine.lungeDashDirX[p.id] = bx;
+                engine.lungeDashDirY[p.id] = by;
+                engine.lungeDashRemainPx[p.id] = 58.0;
+                p.facing = std::atan2(by, bx);
+                p.dribbleType = 3;   // drive on after the burst
+                // Once the body is past him, STRAIGHTEN onto goal — the beat is a
+                // means to a shooting angle, not an end. A target still aimed along
+                // the (lateral) beat vector zig-zagged the carrier into the corner
+                // and killed the shot; drive at the goal with only a small residual
+                // clearance to the beat side.
+                double gx = goalXFor(p.team);
+                double gy = PITCH_H / 2.0;
+                p.targetX = clamp(p.x + fdc * 130.0, 30.0, PITCH_W - 30.0);
+                p.targetY = clamp(p.y + by * 34.0 + (gy - p.y) * 0.25, 30.0, PITCH_H - 30.0);
+                (void)gx;
+                engine.agentFor(*def)->stunLock(24);
+                engine.blockReboundFor(def->id, 850);
+                engine.markActiveShield(p.id);   // body past him first — no free nick
+                return;
+            } else {
+                // Beaten: the ball runs loose to the defender's side (he reads
+                // the feint) — NOT a foul. Mirror the tackle-deflection loose
+                // plumbing so every downstream consumer classifies it correctly.
+                auto& b = engine.state.ball;
+                double lx = def->x - p.x, ly = def->y - p.y, ll = std::max(1.0, std::hypot(lx, ly));
+                b.controllerId = -1;
+                b.vx = lx / ll * 70.0;
+                b.vy = ly / ll * 70.0;
+                b.z = b.vz = 0;
+                b.x = clamp(b.x, 5.0, PITCH_W - 5.0);
+                b.y = clamp(b.y, 5.0, PITCH_H - 5.0);
+                b.lastTouchTeam = p.team;
+                b.lastToucherId = p.id;
+                b.intendedReceiverId = -1;
+                engine.lastRicochetMs = -1e9;
+                engine.lastLooseOrigin = LooseOrigin::TackleDeflection;
+                engine.recordBallImpulse();
+                p.dribbleType = 0;
+                engine.blockReboundFor(p.id, 600);   // can't instantly re-grab
+                p.vx = p.vy = 0;
+                return;
+            }
         }
     }
 

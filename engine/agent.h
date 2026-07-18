@@ -199,6 +199,13 @@ private:
     int    tackleShadowTicks = 0;
     int    tackleShadowCarrierId = -1;
     int    skillMoveCooldown = 0;
+    // Round-21 (arena 1v1): take-on state. A carrier being escorted by a single
+    // jockeying defender (close, goal-side, small relative velocity) accrues
+    // jockeyLockTicks; once sustained he commits to a beat (feint + burst).
+    // Mirrors how skillMoveCooldown gates the ambient flourish.
+    int    jockeyLockTicks = 0;
+    int    jockeyLockDefId = -1;
+    int    takeOnCooldown = 0;
     int    ballContestTicks = 0;   // audit #1: ticks glued within TACKLE_RANGE of an opponent carrier's ball
     double evadeSide = 1.0;
     double evadeSideUntilMs = -1e9;
