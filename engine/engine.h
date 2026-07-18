@@ -722,7 +722,7 @@ public:
     std::vector<Directive> directives;
     // Per-player score nudges the scorers read THIS tick; rebuilt every tick by
     // applyDirectives() (stateless, so deterministic).
-    struct DirectiveBias { bool shootOnSight=false; int passTargetId=-1; double passTargetBias=0.0; double overlapBias=0.0;
+    struct DirectiveBias { double shootOnSight=0.0; int passTargetId=-1; double passTargetBias=0.0; double overlapBias=0.0;
         bool crossEarly=false; double switchBias=0.0; double simplifyBias=0.0; double cutbackBias=0.0;
         double runAheadBias=0.0; double comeShortBias=0.0; double pocketBias=0.0; double cutInsideBias=0.0; double dribbleBonus=0.0; double stayBackBias=0.0;
         double holdUpBias=0.0;

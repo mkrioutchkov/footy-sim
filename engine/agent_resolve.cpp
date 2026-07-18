@@ -139,8 +139,15 @@ Action* PlayerAI::tryLongCarryOverride(SmallVector<Action, 24>& a, Action& best,
     }
 
     // Long carry → take the shot if angle is decent
+    // Round-23 (arena reaudit): a 205px+ carry could fire the shot out to 255px,
+    // so every arena duel ended in a 20-26m launch — zero shots inside the box.
+    // In the arena, hold the long-carry trigger until the carry is genuinely into
+    // shooting range (~125px), so the won duel is driven into the box first. 11v11
+    // approach play (where a supporting shape rewards the earlier release) keeps
+    // the 255px trigger.
+    double longCarryShotMax = engine.arenaMode ? 125.0 : 255.0;
     if (carryDistance >= 205.0 && shootOpt
-        && shootOpt->audit.distance < 255.0
+        && shootOpt->audit.distance < longCarryShotMax
         && shootOpt->audit.angleDeg > SHOT_ANGLE_ACUTE_THRESH
         && shootOpt->score > best.score - 0.22) {
         return shootOpt;

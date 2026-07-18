@@ -253,7 +253,7 @@ void GameEngine::applyDirectives() {
                 setAssignment(*p, DefensiveTask::LaneBlock, tx, ty, d.targetId);
                 break;
             }
-            case DirectiveKind::ShootOnSight: directiveBias[p->id].shootOnSight = true; break;
+            case DirectiveKind::ShootOnSight: directiveBias[p->id].shootOnSight = d.intensity; break;   // Round-23: carry the 0..1 INTENSITY (was a bare `true` that discarded the spec's 0.4)
             // Set-piece taker designations are read at the RESTART (designatedTakerFor); no per-tick action.
             case DirectiveKind::FkTaker:
             case DirectiveKind::CornerTaker:

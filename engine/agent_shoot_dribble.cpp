@@ -3,7 +3,8 @@
 
 Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     const auto& p = player;
-    bool shootOnSight = engine.directiveBias[p.id].shootOnSight;   // directive: shoot from range
+    double soIntensity = engine.directiveBias[p.id].shootOnSight;   // directive: shoot-from-range INTENSITY (0..1)
+    bool shootOnSight = soIntensity > 0.0;                          // presence gate for the distance-veto exemptions below
     double gx = goalXFor(p.team);
     double shotDistance = pitch::distToGoalMouth(p.x, p.y, p.team);
     double angleDeg = engine.goalOpeningAngleDeg(p.x, p.y, gx);
@@ -40,7 +41,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 
     double hardMax = shotMaxDistance() + engine.teamTactics[teamIndex(p.team)].shootDistBias;   // shoot_from_distance extends the HARD cap too (line-36 gate); 0 = default
     if (freshCross) hardMax = std::max(hardMax, freshCrossMax);
-    if (shootOnSight) hardMax = std::max(hardMax, 330.0);
+    if (shootOnSight) hardMax = std::max(hardMax, lerp(hardMax, 330.0, soIntensity));   // intensity-scaled cap extension (reaches 330 only at full intensity)
     if (windfall) hardMax = std::max(hardMax, windfallRange);
     // Round-23 (11v11 0:32/33 "should really try a shot... threshold a few meters
     // off"): a CLEAN, central, unpressured look extends the hard cap so a legend's
@@ -61,7 +62,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     // Clear sight of goal extends range: unpressured with a real opening,
     // a strike from just outside the usual band beats recycling sideways.
     double clearSightBoost = (per.pressureCount == 0 && angleDeg > 9.0) ? 24.0 : 0.0;
-    if (shootOnSight) clearSightBoost += 60.0;
+    if (shootOnSight) clearSightBoost += 60.0 * soIntensity;
     if (shotDistance > std::min(maxShootRange + 18.0 + clearSightBoost, hardMax + 12.0 + clearSightBoost))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
@@ -137,7 +138,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (shotDistance < 100.0) sc += 0.14;
     if (shotDistance < 60.0)  sc += 0.12;
     sc += shotScoreBonus();
-    if (shootOnSight) sc += 0.55;   // directive: bias toward pulling the trigger
+    if (shootOnSight) sc += 0.55 * soIntensity;   // directive: bias toward pulling the trigger — now INTENSITY-scaled (the arena spec's 0.4 => +0.22, was a flat +0.55 that buried every close-drive option)
     sc += shotDistancePenalty(shotDistance);
     if (pitch::lateralFromCenter(p.y) < 140.0) sc += centralShootBonus();
     if (pitch::lateralFromCenter(p.y) > 100.0) sc -= wideShootPenalty();
@@ -199,6 +200,35 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
         sc += 0.18 + (attrFactor(p.attrs.shooting) - 0.60) * 0.9;
     if (lateGame && shotDistance > 175.0 && shotDistance < 250.0 && per.pressureCount == 0 && angleDeg > 8.0)
         sc += 0.24;
+
+    // Round-23 (arena reaudit): a duel WINNER attacks the box first. Every arena
+    // shot was a first-eligibility 16-26m launch — the moment the carrier beat his
+    // man he pot-shot instead of driving in. While the beat window is live, OR the
+    // lane to goal is open with room ahead (the read agent_resolve's clear_path
+    // drive uses), tax a long strike so the drive wins. The tax is DISTANCE-SCALED
+    // because tryLongCarryOverride fires a shot whenever it scores within 0.22 of
+    // the best drive, and both score ~1.0 — so a light flat tax was hidden by the
+    // [0,1] clamp; the paired LCD carry-in cap (agent_resolve) does the rest.
+    // Arena-only: 11v11 long-shot selection is left to the existing model.
+    if (engine.arenaMode) {
+        bool beatWindow = engine.beatWindowUntilMs[p.id] > engine.state.clockMs;
+        bool clearPathDrive = false;
+        double lx = gx - p.x, ly = PITCH_H / 2.0 - p.y, ll = std::hypot(lx, ly);
+        if (ll > 1.0) {
+            int blk = 0; double nOpp = 1e9;
+            for (auto& o : engine.state.players) {
+                if (o.team == p.team || o.role == Role::GK || o.sentOff) continue;
+                double along = ((o.x - p.x) * lx + (o.y - p.y) * ly) / ll;
+                double perp = std::abs((o.x - p.x) * ly - (o.y - p.y) * lx) / ll;
+                if (along > 5.0 && along < ll && perp < 80.0) blk++;
+                double od = dist(o.x, o.y, p.x, p.y);
+                if (od < nOpp) nOpp = od;
+            }
+            clearPathDrive = blk <= 1 && nOpp > 35.0;
+        }
+        if (beatWindow || clearPathDrive)
+            sc -= clamp((shotDistance - 170.0) * 0.010, 0.0, 0.50);
+    }
 
     return Action{ActionType::Shoot, clamp(sc, 0.0, 1.0), nullptr, 0, 0, ActionPurpose::Keep, audit};
 }
@@ -344,10 +374,15 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         // 5px outside every shot band. Pull the carry toward the mouth so an
         // angled carrier attacks the goal, unless he's actively evading (the
         // evade block picked ty deliberately).
-        if (per.nearestOpponentDist >= DRIBBLE_EVADE_DIST) {
+        // Arena reaudit: normally this pull is skipped when a defender is close
+        // (the evade steer owns the target), but in an arena 1v1 the ONLY nearby
+        // man is the keeper — skipping it steered the carry to the byline at a
+        // dead angle (beat the keeper, ended beside the goal, no shot). Centralise
+        // onto the mouth regardless, so a won 1v1 finishes from in front of goal.
+        if (per.nearestOpponentDist >= DRIBBLE_EVADE_DIST || engine.arenaMode) {
             double mouthY = clamp(p.y, PITCH_H / 2.0 - GOAL_W / 2.0 + 12.0,
                                        PITCH_H / 2.0 + GOAL_W / 2.0 - 12.0);
-            ty = lerp(ty, mouthY, 0.55);
+            ty = lerp(ty, mouthY, engine.arenaMode ? 0.70 : 0.55);
         }
     } else {
         tx = lerp(tx, gx, 0.20);
@@ -359,8 +394,16 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     // this, the freshThrough shot bonus fired from wherever the ball was
     // collected (~180-250px), which is why 27 completed through balls/match
     // produced almost no close-range chances (shot mix: close 2% vs real ~20%).
+    // Round-23 (arena reaudit): EXTEND it to the arena duel. The carrier who beat
+    // his man was driving at goal on his WIDE lane and ending at the byline (the
+    // evade steer + the near-keeper gate skipped the goal-mouth pull), launching
+    // from 20m+ instead of driving in. In the arena, ANY clear run at goal (no
+    // outfield defender ahead, checked below) routes to the central ~9m position
+    // so the won duel is finished from the box. Arena-gated so 11v11 approach play
+    // is byte-untouched (the beat window alone is too brief — 1.5s — to sustain a
+    // full-pitch arena drive-in).
     bool breakawayDrive = false;
-    if (freshThrough && distToGoal > 120.0 && distToGoal < 310.0) {
+    if ((freshThrough || engine.arenaMode) && distToGoal > 120.0 && distToGoal < 310.0) {
         // A defender only kills the 1v1 if he can actually make the drive lane:
         // goal-side AND within ~60px lateral of the carrier-to-goal line. The
         // first version counted anyone goal-side within 120y — with a retreating
