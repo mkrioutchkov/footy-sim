@@ -1104,6 +1104,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 (void)gx;
                 engine.agentFor(*def)->stunLock(24);
                 engine.blockReboundFor(def->id, 850);
+                engine.beatenSlowUntilMs[def->id] = engine.state.clockMs + 550.0;   // off-balance: the burst earns a real gap
                 engine.markActiveShield(p.id);   // body past him first — no free nick
                 return;
             } else {

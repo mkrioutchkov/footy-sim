@@ -183,6 +183,11 @@ public:
     std::array<double, 22> lungeDashDirX = {};
     std::array<double, 22> lungeDashDirY = {};
     std::array<double, 22> lungeDashRemainPx = {};
+    // Round-21 (take-on): a defender just beaten by a take-on is off-balance and
+    // wrong-footed — his pursuit pace is cut until this clock, so the carrier's
+    // beat burst opens a REAL gap instead of the beaten man re-gluing at 22px.
+    // (Benefits 11v11 too: beating your man should buy a yard.)
+    std::array<double, 22> beatenSlowUntilMs = {};
     // Carried-ball control-offset direction memory (seed 437 0:59: the offset
     // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
     // the full converge cap — a 337px/s phantom that rendered as a teleport

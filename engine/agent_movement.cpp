@@ -289,6 +289,10 @@ void PlayerAI::applyMovement(double sdt) {
         }
     }
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
+    // Round-21 (take-on): a just-beaten defender is off-balance — cut his pace
+    // briefly so the beat burst earns a real gap (see executeDribble take-on).
+    if (p.id >= 0 && p.id < 22 && engine.beatenSlowUntilMs[p.id] > engine.state.clockMs)
+        ms *= 0.55;
 
     // ── Momentum v3 (tombstone lifted, round 13) ── v1/v2 taxed EVERYONE with
     // a real accel/turn model and died twice (shots +62%/+71%, tackles
