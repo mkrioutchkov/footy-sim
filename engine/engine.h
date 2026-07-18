@@ -193,6 +193,13 @@ public:
     // beat burst opens a REAL gap instead of the beaten man re-gluing at 22px.
     // (Benefits 11v11 too: beating your man should buy a yard.)
     std::array<double, 22> beatenSlowUntilMs = {};
+    // Round-21 (take-on audit) COMMIT 4a: the exploit window after a WON take-on.
+    // While this clock is live the carry-speed classifier is forced to
+    // DRIBBLE_FAST — otherwise the next decision tick re-classified (the beaten
+    // man is now the nearest opp, killing the burst gates) and the carry collapsed
+    // to DRIBBLE_MEDIUM (52) while the recovering defender sprinted (68) and
+    // reeled him straight back in. The beat has to buy a real running start.
+    std::array<double, 22> beatWindowUntilMs = {};
     // Carried-ball control-offset direction memory (seed 437 0:59: the offset
     // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
     // the full converge cap — a 337px/s phantom that rendered as a teleport

@@ -1397,6 +1397,11 @@ void GameEngine::updateControlledBall(double sec) {
         double sx = state.ball.x - prevBx, sy = state.ball.y - prevBy, seg2 = sx * sx + sy * sy;
         for (auto& o : state.players) {
             if (o.team == c->team || o.role == Role::GK || o.sentOff) continue;
+            // Round-21 (take-on audit) COMMIT 4c: a defender the carrier just beat
+            // is off-balance and trailing — don't let this body-block sweep knock
+            // the ball loose off him ~100ms after the win (stats say win, pitch
+            // showed a turnover). He can't cancel the beat he just lost.
+            if (beatenSlowUntilMs[o.id] > state.clockMs) continue;
             double t = seg2 > 1e-6 ? clamp(((o.x - prevBx) * sx + (o.y - prevBy) * sy) / seg2, 0.0, 1.0) : 0.0;
             double dg = dist(o.x, o.y, prevBx + sx * t, prevBy + sy * t);
             if (dg < 8.0) {

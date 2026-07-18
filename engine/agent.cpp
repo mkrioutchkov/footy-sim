@@ -889,8 +889,8 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     if (cp.score > 0.80) nearbyOpps = std::max(nearbyOpps, 2);
 
     // ── Skill move: pressed 1v1, try to beat the man with a sharp cut ──
-    // Success scales with creativity; the beaten defender is briefly frozen
-    // and locked out of an immediate tackle.
+    // Success scales with creativity; the beaten defender is locked out of an
+    // immediate tackle (the contest rebound lockout below).
     bool ownDefensiveThird = pitch::inOwnDefensiveThird(p.x, p.team);
     // ── Awareness: a presser CHARGING STRAIGHT AT ME (owner, seed 437 0:33:
     // "this guy is running straight at me, let me not face him head on and
@@ -943,15 +943,13 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 // Nutmeg: straight through the squared-up defender's ground.
                 p.targetX = clamp(p.x + ddx / dd * (dd + 64.0), 30.0, PITCH_W - 30.0);
                 p.targetY = clamp(p.y + ddy / dd * (dd + 64.0), 30.0, PITCH_H - 30.0);
-                engine.agentFor(*def)->stunLock(30);
-                engine.blockReboundFor(def->id, 950);
+                engine.blockReboundFor(def->id, 950);   // rebound lockout (the dead stunLock on a non-controller was removed)
                 moveType = "nutmeg";
             } else if (defAhead) {
                 // Drag-back: turn away from the presser and open up sideways.
                 double side = (p.y < PITCH_H / 2.0) ? 1.0 : -1.0;
                 p.targetX = clamp(p.x - fd * 26.0, 30.0, PITCH_W - 30.0);
                 p.targetY = clamp(p.y + side * 58.0, 30.0, PITCH_H - 30.0);
-                engine.agentFor(*def)->stunLock(16);
                 engine.blockReboundFor(def->id, 600);
                 moveType = "dragback";
             } else {
@@ -968,7 +966,6 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                     // Nutmeg: ball THROUGH the defender, carrier darts around.
                     p.targetX = clamp(def->x + fd * 48.0, 30.0, PITCH_W - 30.0);
                     p.targetY = clamp(p.y + ((def->y >= p.y) ? -20.0 : 20.0), 30.0, PITCH_H - 30.0);
-                    engine.agentFor(*def)->stunLock(30);
                     engine.blockReboundFor(def->id, 950);
                     moveType = "nutmeg";
                 } else if (fromBehindSide && defD < 34.0) {
@@ -976,7 +973,6 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                     double side = (def->y >= p.y) ? -1.0 : 1.0;
                     p.targetX = clamp(p.x + fd * 40.0, 30.0, PITCH_W - 30.0);
                     p.targetY = clamp(p.y + side * 36.0, 30.0, PITCH_H - 30.0);
-                    engine.agentFor(*def)->stunLock(26);
                     engine.blockReboundFor(def->id, 850);
                     moveType = "roulette";
                 } else if (finalThird) {
@@ -985,7 +981,6 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                     double side = (def->y >= p.y) ? -1.0 : 1.0;
                     p.targetX = clamp(def->x + fd * 56.0, 30.0, PITCH_W - 30.0);
                     p.targetY = clamp(def->y + side * 44.0, 30.0, PITCH_H - 30.0);
-                    engine.agentFor(*def)->stunLock(24);
                     engine.blockReboundFor(def->id, 800);
                     moveType = "stepover";
                 } else {
@@ -1002,7 +997,6 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                     double dnY = clamp(p.y + 64.0, 30.0, PITCH_H - 30.0);
                     p.targetX = clamp(p.x + fd * 52.0, 30.0, PITCH_W - 30.0);
                     p.targetY = sideCrowd(upY) <= sideCrowd(dnY) ? upY : dnY;
-                    engine.agentFor(*def)->stunLock(22);
                     engine.blockReboundFor(def->id, 700);
                     moveType = "skill";
                 }
@@ -1127,9 +1121,15 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 p.targetX = clamp(p.x + fdc * 130.0, 30.0, PITCH_W - 30.0);
                 p.targetY = clamp(p.y + by * 34.0 + (gy - p.y) * 0.25, 30.0, PITCH_H - 30.0);
                 (void)gx;
-                engine.agentFor(*def)->stunLock(24);
+                // COMMIT 4a: hold DRIBBLE_FAST for ~1.5s so the next tick can't
+                // re-classify the carry down to DRIBBLE_MEDIUM while the beaten
+                // man recovers at sprint pace — the beat must buy a running start.
+                engine.beatWindowUntilMs[p.id] = engine.state.clockMs + 1500.0;
                 engine.blockReboundFor(def->id, 850);
-                engine.beatenSlowUntilMs[def->id] = engine.state.clockMs + 550.0;   // off-balance: the burst earns a real gap
+                // COMMIT 4b: a REAL two-stage off-balance (agent_movement honours
+                // beatenSlowUntilMs) — replaces the dead stunLock(24), which was
+                // only ever read on a controller. Extended 550 -> ~1100ms total.
+                engine.beatenSlowUntilMs[def->id] = engine.state.clockMs + BEATEN_SLOW_TOTAL_MS;
                 engine.markActiveShield(p.id);   // body past him first — no free nick
                 return;
             } else {
@@ -1257,6 +1257,14 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     bool mayBurst = engine.canKnockBallAhead(p.id) && cp.score < (needsCarryShotWindow ? 0.82 : 0.65)
         && (openBurst || speculativeBurst || finalThirdBurst || needsCarryShotWindow || breakawayBurst || chaseEscapeBurst);
     int dribbleType = mayBurst ? 3 : (nearbyOpps >= 2 ? 1 : 2);
+    // COMMIT 4a: inside the post-beat exploit window, force DRIBBLE_FAST and keep
+    // driving at goal — don't let the beaten man (now nearest, killing the burst
+    // gates) collapse the carry to DRIBBLE_MEDIUM while he recovers at sprint pace.
+    if (engine.beatWindowUntilMs[p.id] > engine.state.clockMs) {
+        dribbleType = 3;
+        p.targetX = clamp(p.x + fd * 130.0, 30.0, PITCH_W - 30.0);
+        p.targetY = clamp(p.y + (PITCH_H / 2.0 - p.y) * 0.25, 30.0, PITCH_H - 30.0);
+    }
 
     bool newEpisode = (p.dribbleType != dribbleType);
     if (newEpisode) {

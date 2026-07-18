@@ -136,6 +136,10 @@ inline constexpr double THIRD_2         = 2.0 * PITCH_W / 3.0; // 700
 // watches a stationary loose ball and, after this long, hands it to the nearest player.
 inline constexpr double LOOSE_BALL_STALL_MS    = 3000.0;
 inline constexpr double LOOSE_BALL_STALL_SPEED = 24.0;   // px/s below which a loose ball counts as 'at rest'
+// Round-21 (take-on audit) COMMIT 4b: a defender beaten by a take-on is off-balance
+// for this long — a two-stage stun applied to his pursuit pace (see agent_movement).
+inline constexpr double BEATEN_SLOW_TOTAL_MS = 1100.0;   // total off-balance window
+inline constexpr double BEATEN_SLOW_HARD_MS  = 250.0;    // first stage (planted/wrong-footed, 0.25x); then 0.55x
 // A half must not overrun announced added time indefinitely — a persistent
 // final-third camp would otherwise starve the !inFinalThird whistle. Blow the
 // whistle this far past announced added time regardless of where the ball is.

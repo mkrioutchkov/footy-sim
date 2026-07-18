@@ -289,10 +289,16 @@ void PlayerAI::applyMovement(double sdt) {
         }
     }
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
-    // Round-21 (take-on): a just-beaten defender is off-balance — cut his pace
-    // briefly so the beat burst earns a real gap (see executeDribble take-on).
-    if (p.id >= 0 && p.id < 22 && engine.beatenSlowUntilMs[p.id] > engine.state.clockMs)
-        ms *= 0.55;
+    // Round-21 (take-on audit) COMMIT 4b: a just-beaten defender is off-balance
+    // and wrong-footed. A REAL two-stage stun on his pursuit pace (this replaces
+    // the take-on's dead stunLock, which was only ever read on a controller):
+    // ~0.25x planted for the first ~250ms, then ~0.55x recovering out to ~1100ms,
+    // so the carrier's beat burst opens a genuine gap instead of the man re-gluing
+    // at 22px. Applies before the momentum block, so committed pursuit obeys it.
+    if (p.id >= 0 && p.id < 22 && engine.beatenSlowUntilMs[p.id] > engine.state.clockMs) {
+        double remain = engine.beatenSlowUntilMs[p.id] - engine.state.clockMs;
+        ms *= (remain > BEATEN_SLOW_TOTAL_MS - BEATEN_SLOW_HARD_MS) ? 0.25 : 0.55;
+    }
 
     // ── Momentum v3 (tombstone lifted, round 13) ── v1/v2 taxed EVERYONE with
     // a real accel/turn model and died twice (shots +62%/+71%, tackles
