@@ -479,6 +479,15 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     // set their own pace below; through balls keep the led-runner solve.
     if (rawDist > 260.0 && !throughBall && !lob)
         speed = std::max(speed, std::min(300.0, 150.0 + rawDist * 0.32));
+    // Round-23 (11v11 0:10 "why would 9R just pass it to the opposition"): a LONG
+    // through ball ("over the top") was exempt from the driven floor and floated
+    // out at ~166px/s (the base gradient) while the selection model priced it at
+    // 150+d*0.32 — systematic step-in optimism, the ball arriving at walking pace
+    // for the sweeper. Give a >300px through ball its own (slightly gentler)
+    // driven floor so it actually arrives; short slipped balls keep the led-runner
+    // solve untouched.
+    if (rawDist > 300.0 && throughBall && !lob)
+        speed = std::max(speed, std::min(260.0, 140.0 + rawDist * 0.28));
     double travelTime = rawDist / std::max(speed, 1.0);
     double receiverSpeed = std::hypot(t.vx, t.vy);
     double fd = fdFor(f.team);

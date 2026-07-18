@@ -866,7 +866,13 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                           && onsideGap < 170.0        // was 130; the 1:15 channel runner sat at 133
                           && blEff <= 1
                           && rpEff <= 1
-                          && goalDistEff < 300.0;   // was 480 (nearly half-pitch), then 255 judged at the CURRENT spot; 300 at the PROJECTED receive point is the same real-ball philosophy
+                          && goalDistEff < 300.0   // was 480 (nearly half-pitch), then 255 judged at the CURRENT spot; 300 at the PROJECTED receive point is the same real-ball philosophy
+                          // Round-23 (11v11 0:10 "why would 9R just pass it to the opposition"): the window
+                          // read blEff/rpEff but never laneRisk, so a SHORT slipped ball on a lane a defender
+                          // was already standing in (0:10: 151px, laneRisk 1.59, never airborne) slipped the
+                          // gate. A short through (d<240) now needs a GENUINELY clean lane; a long ball is the
+                          // deliberate-risk class the tolerance was written for and keeps it.
+                          && (d >= 240.0 || (blEff == 0 && laneRisk < 1.0));
     bool releasedRunner = (assignment && (assignment->role == DefensiveTask::RunAhead
                                        || assignment->role == DefensiveTask::InsideRun
                                        || (assignment->role == DefensiveTask::CrossLane && t.role == Role::WM)))
@@ -944,8 +950,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // whole team's positioning targets flip from the scripted kickoff shape to
     // open play, manufacturing phantom "runs" (Ronaldinho read 30.9px/s off a
     // one-tick target flip and drew a 42m loft straight through the CF still
-    // parked on the centre circle). No killer-ball class arms in the first 4s.
-    bool kickoffMigration = engine.state.clockMs - engine.phase.lastKickoffMs < 4000.0;
+    // parked on the centre circle). No killer-ball class arms in the first 5s.
+    // Round-23 (11v11 0:05): 4000 lapsed 833ms BEFORE the pass_giveaway_first_5s
+    // census window closes, so an over-the-top could still arm at 4.833s and gift
+    // possession inside the guarded window — extend it to cover the full 5s.
+    bool kickoffMigration = engine.state.clockMs - engine.phase.lastKickoffMs < 5000.0;
     bool ledRunnerLoft = !kickoffMigration && d >= 250.0 && d <= 460.0
         && (targetAttacker || ((t.role == Role::CM || t.role == Role::FB) && runnerAssignment) || sprintingFB)
         && runnerRawSpd > 40.0 && (t.vx * fd) > 16.0
@@ -965,6 +974,11 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // not lofted into a channel he isn't attacking. Was OR (a stander alone
         // armed it), now AND.
         && (runnerRawSpd > 28.0 && nearestOppRecv > 70.0)
+        // Round-23 (11v11 0:05 "why would 9R just pass it to the opposition"):
+        // the raw-speed gate has no FORWARD component, so a RETREATING runner
+        // sprang an over-the-top that led him +129px into two defenders. Require a
+        // real forward velocity, exactly as ledRunnerLoft already does.
+        && (t.vx * fd) > 16.0
         && completion >= 0.48;
     if ((!isWideDelivery && releasedRunner && goodThroughWindow) || cleanKillerBall || cmKillerBall || genuinelyOpenAdvanced || ledRunnerLoft || overTheTop) {
         pur = ActionPurpose::Through;
