@@ -178,6 +178,9 @@ inline constexpr double DRIBBLE_MEDIUM_SPEED = SPEED_RUN;
 inline constexpr double DRIBBLE_FAST_SPEED   = SPEED_SPRINT * 0.95;
 inline constexpr double DRIBBLE_KNOCK_SPEED_ADVANTAGE = -25.0;
 inline constexpr double DRIBBLE_KNOCK_OFFSET = CONTROL_DIST + BALL_R + 5.0;
+// The opener off a kickoff is a controlled carry for this window — never a
+// blind knock-ahead into the man in front (Round-23 "kickoff mugging").
+inline constexpr double POST_KICKOFF_CARRY_MS = 1500.0;
 
 // ── Collect ──
 inline constexpr double COLLECT_SPEED_MAX       = 80.0;

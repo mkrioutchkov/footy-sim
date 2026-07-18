@@ -157,6 +157,17 @@ void GameEngine::kickoffTap() {
                 best = &p;
                 break;
             }
+    if (!best && arenaMode)
+        // Round-23 (arena reaudit): a 1v1 kickoff has NO outfield outlet (the CMs
+        // are ejected), so the taker kept the ball and immediately knocked it into
+        // the lone defender 45px away — possession lost ~every kickoff. Fall back
+        // to the OWN GK, the textbook 1v1 backpass, to keep the ball. Arena-gated:
+        // 11v11 always finds a receiver (or a CM) first, so this never fires there.
+        for (auto& p : state.players)
+            if (p.team == holder->team && p.id != holder->id && p.role == Role::GK && !p.sentOff) {
+                best = &p;
+                break;
+            }
     if (!best) return;
     Player& target = *best;
     double dx = target.x - holder->x, dy = target.y - holder->y, rawDist = std::hypot(dx, dy);

@@ -181,6 +181,19 @@ void GameEngine::kickoff(Team t, double holdMs) {
             break;
         }
     }
+    // Round-23 (arena reaudit): stage the lone defender at the legal 10-yard
+    // (91.5px) distance from the centre spot, not the 45px (margin) that let him
+    // mug the opener the instant the ball moved. Arena-only; the 11v11 staging
+    // (every non-kicking man at his clamped homeX) is byte-untouched.
+    if (arenaMode) {
+        for (auto& p : state.players) {
+            if (p.team == t || p.role == Role::GK || p.sentOff) continue;
+            double fdp = fdFor(p.team);
+            double legalX = HALF_X - fdp * 91.5;   // 91.5px into the defender's own half
+            p.x = fdp > 0 ? std::min(p.x, legalX) : std::max(p.x, legalX);
+            p.targetX = p.x;
+        }
+    }
     phase.kickoffPhase = true;
     phase.actionTimer = holdMs;
     phase.lastKickoffMs = state.clockMs;

@@ -1322,6 +1322,22 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
         p.targetY = clamp(p.y + (PITCH_H / 2.0 - p.y) * 0.25, 30.0, PITCH_H - 30.0);
     }
 
+    // COMMIT 2c (Round-23): the opener off a kickoff is a CONTROLLED carry, never
+    // a blind ~300px/s knock-ahead into the man in front (the "kickoff mugging" —
+    // a 1.5-3s statue freeze then a knock straight to the defender 45px away). For
+    // the first ~1.5s after the whistle, downgrade a burst to a controlled dribble
+    // so the first touch settles the ball. Time-gated, so it is inert once open
+    // play is under way (and a normal 11v11 opener rarely bursts in that window).
+    // Arena-gated: making this universal changes 11v11 openers (a receiver
+    // occasionally bursts inside the window), and 11v11 kickoffs must stay
+    // byte-identical. In the arena the taker/receiver settling the ball is the
+    // whole point (2v2/3v3 receivers, and a belt-and-braces guard for the 1v1
+    // GK-backpass path).
+    if (engine.arenaMode && dribbleType == 3
+        && engine.state.clockMs >= engine.phase.lastKickoffMs
+        && engine.state.clockMs - engine.phase.lastKickoffMs < POST_KICKOFF_CARRY_MS)
+        dribbleType = nearbyOpps >= 1 ? 1 : 2;
+
     bool newEpisode = (p.dribbleType != dribbleType);
     if (newEpisode) {
         engine.stats.recordDribble(dribbleType);
