@@ -171,7 +171,14 @@ void PlayerAI::applyMovement(double sdt) {
     // on the wrong side of the ball while the opponent has it sprints home,
     // however far away the play is.
     bool recoverySprint = false;
-    if (isDefenderLike() && !defendSprint && engine.state.ball.controllerId >= 0) {
+    // Round-25 (2v2 audit defect 2): this caught-upfield recovery is gated
+    // isDefenderLike(), so an arena CF stranded upfield of a counter ambles home
+    // (cover goal-side only 51-65% of possession frames). In a small-sided game
+    // EVERY outfielder is a cover defender, so in arenaMode extend the wrong-side
+    // recovery sprint to any outfielder. 11v11 is unchanged (CFs staying high is
+    // by design there).
+    if ((isDefenderLike() || (engine.arenaMode && p.role != Role::GK))
+        && !defendSprint && engine.state.ball.controllerId >= 0) {
         Player* oppCarrier = engine.playerById(engine.state.ball.controllerId);
         if (oppCarrier && oppCarrier->team != p.team) {
             double fdMe = fdFor(p.team);
