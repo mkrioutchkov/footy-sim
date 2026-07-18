@@ -242,7 +242,14 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                 if (bestSafe < (emergency ? 0.78 : swarmed ? 0.70 : 0.66)) {
                     Player* tgt = nullptr; double bestFx = -1e9;
                     for (auto& t : engine.state.players) {
-                        if (t.team != player.team || t.id == player.id || t.role == Role::GK) continue;
+                        // Round-21 (arena audit): a sent-off ghost is parked at
+                        // y=-40 — hoofing the panic clearance at it gifted 85% of
+                        // arena "clearances" straight to the opponent (the owner's
+                        // "0:45 passing to each other"). Skip ejected men; if none
+                        // survive, tgt stays null and the Clear is never pushed —
+                        // the carrier prices dribble/take-on/hold normally instead
+                        // of a blind hoof to nobody. Inert in 11v11.
+                        if (t.team != player.team || t.id == player.id || t.role == Role::GK || t.sentOff) continue;
                         // The panic ball goes long AND wide — up the channel,
                         // not through the middle where losing it is fatal.
                         // (A "directed outlet into a breakaway runner's path"

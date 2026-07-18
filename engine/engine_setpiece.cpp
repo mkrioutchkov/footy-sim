@@ -148,7 +148,12 @@ void GameEngine::kickoffTap() {
     }
     if (!best)
         for (auto& p : state.players)
-            if (p.team == holder->team && p.id != holder->id && p.role == Role::CM) {
+            // Round-21 (arena audit): the CM fallback ignored sentOff, so in arena
+            // (every CM ejected, parked at y=-40) every kickoff tapped to a ghost
+            // and sailed to the top touchline to die (5.5-7.1s chase). Skip ejected
+            // men; with no CM left, best stays null and the taker keeps the ball
+            // and dribbles (the existing return). Inert in 11v11 (a CM is present).
+            if (p.team == holder->team && p.id != holder->id && p.role == Role::CM && !p.sentOff) {
                 best = &p;
                 break;
             }
@@ -331,7 +336,11 @@ void GameEngine::releaseSetPiece() {
     }
     SmallVector<Player*, 11> targets;
     for (auto& p : state.players) {
-        if (p.team != holder->team || p.id == holder->id || p.role == Role::GK) continue;
+        // Round-21 (arena audit): never build a FK/restart pass to a sent-off
+        // ghost (parked at y=-40). With no legal target the list is empty, the
+        // pass loop is skipped, and the existing clearReleasedSetPiece fallthrough
+        // disarms and lets the taker play on. Inert in 11v11.
+        if (p.team != holder->team || p.id == holder->id || p.role == Role::GK || p.sentOff) continue;
         if (setPiece.type == SetPiece::FreeKick && dist(holder->x, holder->y, p.x, p.y) < 55.0) continue;
         targets.push_back(&p);
     }
@@ -823,6 +832,61 @@ void GameEngine::releaseThrowIn(Player& holder) {
         b.intendedReceiverId = t.id;
         receiverShieldTargetId = t.id;
         beginTrackedPass(holder, t, false);
+        return;
+    }
+    // Round-21 (arena audit): with ZERO scored outfield candidates (arena: every
+    // outfield team-mate is ejected) the old blind up-the-line hoof gifted the
+    // opponent. Throw to our own keeper if he's within range — a legal, safe
+    // outlet; only if he isn't do we throw the fallback AWAY from the nearest
+    // opponent. Reached ONLY when targets is empty, which never happens in 11v11
+    // (nine outfield team-mates always populate the list), so the golden path
+    // below is byte-identical.
+    if (targets.empty()) {
+        // Prefer a legal throw to our own keeper.
+        if (Player* gk = findGK(holder.team); gk && !gk->sentOff) {
+            double dx = gk->x - holder.x, dy = gk->y - holder.y, d = std::hypot(dx, dy);
+            if (d >= 30.0 && d <= 400.0) {
+                double speed = 120.0 + d * 0.15;
+                auto& b = state.ball;
+                b.controllerId = -1;
+                placeBallForRelease(holder, dx, dy);
+                blockReboundFor(holder.id, 600);
+                b.lastTouchTeam = holder.team;
+                b.lastToucherId = holder.id;
+                driveBall(b, dx, dy, d, speed);
+                b.vz = speed * 1.4;
+                b.z = 0;
+                b.intendedReceiverId = gk->id;
+                receiverShieldTargetId = gk->id;
+                beginTrackedPass(holder, *gk, false);
+                return;
+            }
+        }
+        // No keeper outlet: throw the untargeted ball AWAY from the nearest
+        // opponent (flip the up-line forward component if he sits ahead) rather
+        // than blindly handing it to him.
+        auto& b = state.ball;
+        double side = holder.y < PITCH_H / 2.0 ? 1.0 : -1.0;
+        double throwFd = fd, bd = 1e9, onx = holder.x;
+        for (auto& o : state.players) {
+            if (!isActiveOpponent(o, holder.team)) continue;
+            double d2 = dist(o.x, o.y, holder.x, holder.y);
+            if (d2 < bd) { bd = d2; onx = o.x; }
+        }
+        if (bd < 1e8 && (onx - holder.x) * fd > 0.0) throwFd = -fd;
+        double dx = throwFd * 80.0, dy = side * 130.0, d = std::hypot(dx, dy);
+        double speed = 155.0;
+        b.controllerId = -1;
+        placeBallForRelease(holder, dx, dy);
+        blockReboundFor(holder.id, 600);
+        b.lastTouchTeam = holder.team;
+        b.lastToucherId = holder.id;
+        driveBall(b, dx, dy, d, speed);
+        b.vz = speed * 0.95;
+        b.z = 0;
+        b.intendedReceiverId = -1;
+        receiverShieldTargetId = -1;
+        pendingPass.active = false;
         return;
     }
     auto& b = state.ball;
