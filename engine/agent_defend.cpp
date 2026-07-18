@@ -353,6 +353,65 @@ Action PlayerAI::scoreChase(const Perception& per) {
         double sc = clamp(0.88 - dist(player.x, player.y, dropX, dropY) / 500.0, 0.60, 0.88);
         return Action{ActionType::Chase, sc, nullptr, dropX, dropY, ActionPurpose::MeetIncoming};
     }
+    // ── Grounded loose-ball anticipation (seed 264 0:32) ── attackDropPoint
+    // above reads the FLIGHT, but is gated b.z > AERIAL_HEIGHT; every GROUNDED
+    // chase branch below is proximity/speed gated (incomingLooseBall d<100;
+    // free-ball bs<130; lane-cut within a stride). So a FAST clearance rolling
+    // into the covering defender's channel sat un-anticipated for ~2.85s while
+    // his mark drifted the wrong way, then he snapped to it in one tick — a pure
+    // decision gap. A covering defender reads the ROLL: when a grounded loose /
+    // opponent ball is rolling into his own defensive third and he is the nearest
+    // goal-side defender who can reach an interception point at-or-before the
+    // ball, he attacks that point now. Defender + own-third gated, and nearest-of
+    // -goal-side self-limited, so the midfield converger cap still suppresses
+    // pile-ons and this is near-inert elsewhere.
+    bool groundedAnticipate = false;
+    double gaX = 0.0, gaY = 0.0;
+    bool teammatePassInFlight = false;
+    if (Player* intd0 = engine.playerById(b.intendedReceiverId))
+        teammatePassInFlight = (intd0->team == player.team);
+    if (canContest && isDefenderRole() && per.ballIsLoose && !isIntendedReceiver
+        && !teammatePassInFlight && b.z <= AERIAL_HEIGHT && ballSpeed > 60.0) {
+        double restX, restY;
+        engine.predictBallPos(3.0, restX, restY);   // drag-decayed roll rest/slow point
+        double fpRest = pitch::forwardProgress(restX, player.team);
+        bool rollingIntoOwnThird = pitch::forwardGain(b.x, restX, player.team) < -30.0
+            && pitch::inOwnDefensiveThird(restX, player.team);
+        if (rollingIntoOwnThird) {
+            double myDistToRest = dist(player.x, player.y, restX, restY);
+            // Am I the nearest goal-side (own team, ~behind the rest point) man?
+            bool nearestGoalSide = pitch::forwardProgress(player) <= fpRest + 20.0;
+            if (nearestGoalSide) {
+                for (auto& q : engine.state.players) {
+                    if (q.team != player.team || q.id == player.id || q.role == Role::GK) continue;
+                    if (!engine.canContestBall(q)) continue;
+                    if (pitch::forwardProgress(q) <= fpRest + 20.0
+                        && dist(q.x, q.y, restX, restY) + 20.0 < myDistToRest) {
+                        nearestGoalSide = false;
+                        break;
+                    }
+                }
+            }
+            if (nearestGoalSide) {
+                double mySprint = std::max(45.0, attrFactor(player.attrs.speed) * SPEED_SPRINT);
+                for (double t = 0.15; t <= 3.0; t += 0.15) {
+                    double bx2, by2;
+                    engine.predictBallPos(t, bx2, by2);
+                    if (dist(player.x, player.y, bx2, by2) / mySprint <= t + 0.15) {
+                        gaX = bx2; gaY = by2; groundedAnticipate = true;
+                        if (engine.passDebug) fprintf(stderr, "GROUNDANT id=%d t=%d d=%d\n", player.id, (int)(engine.state.clockMs/1000), (int)dist(player.x,player.y,bx2,by2));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (groundedAnticipate) {
+        double sc = clamp(0.94 - dist(player.x, player.y, gaX, gaY) / 500.0, 0.65, 0.94);
+        return Action{ActionType::Chase, sc, nullptr,
+                      clamp(gaX, 10.0, PITCH_W - 10.0), clamp(gaY, 10.0, PITCH_H - 10.0),
+                      ActionPurpose::MeetIncoming};
+    }
     // A teammate's pass in flight is HIS ball — the urgency rules above made
     // off-ball players shadow-chase every pass that rolled near them,
     // oscillating at the carrier's elbow instead of holding shape.
