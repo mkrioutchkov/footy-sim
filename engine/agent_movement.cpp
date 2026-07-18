@@ -34,10 +34,21 @@ void PlayerAI::applyMovement(double sdt) {
 
     double slowThreshold = STAMINA_SLOW_THRESHOLD * 100.0;
     double fatigueFloor = 0.54 + staminaSkill * 0.20;
-    double sf = 1.0;
+    // Round-23 (arena reaudit): a busy player drains only to his fit floor (50-62,
+    // above the 35 crash threshold), so the SPEED curve was dormant — a duelist
+    // sprinted a flat p95 ~72.5px/s from minute 0 to 10. Give a GENTLE, visible
+    // sag as stamina settles onto that floor: ~0.93 (7% off pace) pinned at the
+    // floor, easing back to full pace 15 points above it. A fresh or rotating
+    // player (stamina > floor+15) is untouched, so 11v11 barely moves; the
+    // relentless arena duelist visibly tires.
+    double fitFloor = STAMINA_MATCH_FLOOR + staminaSkill * 12.0;
+    double sf = lerp(0.93, 1.0, clamp((p.stamina - fitFloor) / 15.0, 0.0, 1.0));
     if (p.stamina < slowThreshold) {
+        // Heavy sprinting can drain below the floor; the steeper legacy crash
+        // curve then takes over (kept as a floor on the gentle band, so the two
+        // are continuous at the threshold).
         double fatigueBlend = clamp(p.stamina / std::max(1.0, slowThreshold), 0.0, 1.0);
-        sf = lerp(fatigueFloor, 1.0, fatigueBlend);
+        sf = std::min(sf, lerp(fatigueFloor, 1.0, fatigueBlend));
     }
     // A knock costs pace and fades over ~90s of match time.
     if (p.injurySeverity > 0.0) {
