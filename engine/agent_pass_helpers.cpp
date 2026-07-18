@@ -55,6 +55,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
 
     int bl = 0;
     int onBootBl = 0;
+    int blClosing = 0;
     double laneRisk = 0.0;
     double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
     if (ls < 1.0) return std::nullopt;
@@ -108,6 +109,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (perp < effBlocker || stepInWins) {
             bl++;
             if (onBootPresser) onBootBl++;
+            // Round-24 (seed 512 0:07: settled pid1 threaded a 106px forward
+            // ball through a lane defender closing at ~50px/s — perp 19px, it
+            // counted as one blocker but blCost only cut completion to ~0.6, so
+            // it beat the safe backward outs). A blocker whose velocity projects
+            // INTO the lane is arriving; price him harder than a static screen.
+            if (closing > 30.0) blClosing++;
         }
         else if (perp < 112.0 && t2 > 0.10 && t2 < 0.92) laneRisk += clamp((112.0 - perp) / 76.0, 0.0, 1.0);
         // Opponent right on the boot at release, in the NEAR half of the lane:
@@ -176,7 +183,15 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // line was "quite likely at this level" (watched replay 0:50) yet scored
     // as if it would be cut on the ground. Short passes keep the full price
     // (no room to get it up and over).
-    double blCost = bl * (d > 170.0 ? 0.18 : 0.23);
+    // Round-24: a blocker CLOSING into the lane (>30px/s toward closest approach)
+    // is arriving, not a static screen — price him 1.6x the flat per-blocker cost
+    // so the medium forced ball through a converging defender loses to the safe
+    // out (seed 512 0:07). Clamp to the counted blockers so the on-boot escape
+    // exemption above isn't re-charged. Static screens keep the base price
+    // (through-ball chip loft rationale untouched).
+    if (blClosing > bl) blClosing = bl;
+    double base = d > 170.0 ? 0.18 : 0.23;
+    double blCost = bl * base + blClosing * base * 0.6;
     double completion = clamp(
         0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - blCost
             - std::min(laneRisk, 2.2) * 0.10 - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),

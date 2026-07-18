@@ -921,7 +921,11 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
         if (p.id == b.intendedReceiverId) continue;
         if (pendingPass.active && intendedNearby && p.team == pendingPass.team && bs < INTENDED_PASS_SPEED_LIMIT) continue;
         double score = d / std::max(1.0, r);
-        if (p.team != b.lastTouchTeam) score -= 0.10;
+        // Round-24: the flat 50/50 loose-ball edge to the defending team (0.10)
+        // is half the interception/turnover story — every contested loose ball
+        // tilted to the opponent. Halve it 0.10->0.05 so a marginal 50/50 is
+        // genuinely even and the attacking side keeps its fair share.
+        if (p.team != b.lastTouchTeam) score -= 0.05;
         if (score < bestContactScore) {
             bestContactScore = score;
             contact = &p;
