@@ -33,6 +33,16 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool keeperRecycle = ownProgress < PITCH_W * 0.36 && isDefenderLike()
         && ((oppClosingSoon && per.nearestOpponentDist < 110.0) || per.pressureCount >= 2
             || (per.pressureCount >= 1 && !hasClearOutfieldOutlet));
+    // Round-21 (arena audit): the recycle above requires isDefenderLike(), so a
+    // pressed lone CF pinned in his own half with an EMPTY outfield menu had no
+    // legal ball — his only "pass" was the phantom hoof. Extend the valve to ANY
+    // jockey-locked carrier deep in his own ~42% whose outfield menu is empty
+    // under pressure. The empty-menu gate (clearOutfieldOutletExists, which also
+    // skips sent-off men) keeps 11v11 unchanged for anyone with a real outfield
+    // option; only a genuine dead-end press deep in his own third opens it, so
+    // the keeper-backpass uptick is a slight, intended one.
+    keeperRecycle = keeperRecycle
+        || (ownProgress < PITCH_W * 0.42 && per.pressureCount >= 1 && !hasClearOutfieldOutlet);
     // NOTE: a static-tight admission (marker <45px, outlets open) was A/B'd
     // twice for the 0:42 trapped-squares case and REVERTED — keeper ping-pong
     // blew to 112 then 96 backpasses/90 (real ~30-40). The safe-angle support
