@@ -390,7 +390,7 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             // valve only when the tackler is already at contact — measured
             // match-wide, deep defenders released at 22-28px on all nine holds,
             // two of them turnovers (seed 129 0:40, 4:01).
-            bool tightPress = per.nearestOpponentDist < 30.0 || pc >= 2
+            bool tightPress = per.nearestOpponentDist < 20.0 || pc >= 2
                 || (tackleComing && progress < PITCH_W * 0.42);
             // A panic Clear is never "composing" — braking it (esp. the −2.0
             // hard gate below: Clear is a Pass, deep zone, fresh touch — all
