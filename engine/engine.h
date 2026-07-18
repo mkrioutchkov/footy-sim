@@ -430,6 +430,14 @@ public:
         // within 800ms (spec confirmed on the Chiellini->Van Dijk turnover).
         bool suicideRisk = false;
         double releaseMs = 0.0;
+        // Round-23 gifted_pass (the "retard pass" outcome flag): geometry judged at
+        // the moment the ball is played. passerSpaceAtRelease = nearest-opponent
+        // distance to the passer; laneDistAtRelease[id] = that opponent's
+        // point-to-segment distance to the release lane. A cut ball whose passer had
+        // space yet threaded it through the very opponent already in the lane (looked
+        // up by the interceptor's id, not the nearest man to the lane) is a gift.
+        double passerSpaceAtRelease = 0.0;
+        std::array<double, 22> laneDistAtRelease{};
     } pendingPass;
     bool passDebug = false;   // FOOTY_PASSDEBUG: dump each intercepted pass's decision context to stderr
     struct ActiveKnockAhead {

@@ -75,6 +75,31 @@ void GameEngine::beginTrackedPass(Player& from, Player& to, bool isCross, bool i
     // middle of the lane at release. Fires as a quality flag only if the ball is
     // actually cut inside 800ms (the Chiellini->Van Dijk ball died in 650ms).
     pendingPass.releaseMs = state.clockMs;
+    // Round-23 gifted_pass geometry (owner explicitly expects the "retard pass"
+    // alert): snapshot the passer's space and the closest opponent to the release
+    // lane, judged the moment the ball is played. The lane is the ball's actual
+    // launch direction (a through ball is led ahead, so passer->receiver would lie
+    // about the path); each opponent is projected onto that ray (point-to-segment).
+    {
+        double avx = state.ball.vx, avy = state.ball.vy, asp = std::hypot(avx, avy);
+        double dirx, diry;
+        if (asp > 1.0) { dirx = avx / asp; diry = avy / asp; }
+        else {
+            double ddx = to.x - from.x, ddy = to.y - from.y, dd = std::hypot(ddx, ddy);
+            if (dd > 1.0) { dirx = ddx / dd; diry = ddy / dd; } else { dirx = fd; diry = 0.0; }
+        }
+        double segLen = std::max(40.0, dist(from.x, from.y, to.x, to.y));
+        double nearestOpp = 1e9;
+        pendingPass.laneDistAtRelease.fill(1e9);   // a non-computed id (teammate/GK) never satisfies the <40 gate
+        for (auto& o : state.players) {
+            if (o.team == from.team || o.role == Role::GK || o.sentOff) continue;
+            nearestOpp = std::min(nearestOpp, dist(o.x, o.y, from.x, from.y));
+            double t2 = clamp((o.x - from.x) * dirx + (o.y - from.y) * diry, 0.0, segLen);
+            double cx = from.x + dirx * t2, cy = from.y + diry * t2;
+            if (o.id >= 0 && o.id < 22) pendingPass.laneDistAtRelease[o.id] = dist(o.x, o.y, cx, cy);
+        }
+        pendingPass.passerSpaceAtRelease = nearestOpp;
+    }
     pendingPass.suicideRisk = false;
     // 300 -> 320 and t2 0.15/0.85 -> 0.12/0.95 (seed 111 1:24: a textbook
     // suicide ball from 302.4px missed the zone gate by 2.4px, and its
@@ -351,6 +376,29 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
                         np = std::min(np, dist(o.x, o.y, pendingPass.passerX, pendingPass.passerY));
                 if (np > 65.0) stats.recordSenselessGiveaway();
             }
+        }
+        // Round-23 gifted_pass (owner explicitly expects the "retard pass" alert):
+        // an OUTCOME flag that the coverage holes miss — Through balls are exempt
+        // from nonsense_pass/senseless_giveaway, and nonsense_pass needs the
+        // engine's OWN expectedCompletion<0.5 (the mispricing that chose the ball
+        // hides it). Here: the passer HAD space (>55px) yet threaded it straight to
+        // the very opponent already sitting IN its path (<25px off the release lane),
+        // cut promptly (<1200ms — a ball that took longer went far / the man
+        // converged, an ambitious ball, not a gift-to-a-stander). NO isThrough
+        // exemption — a race lost in behind is a deliberate risk; a body standing in
+        // the ball's path is not. Crosses are excluded (an aerial delivery has no
+        // ground lane, and a headed-away cross is not a "pass to the opposition").
+        // The lane<25 / <1200ms thresholds tighten the spec's 40px/2000ms starting
+        // point, which also swept up long balls a distant defender converged on.
+        {
+            const Player* fromG = playerById(pendingPass.fromId);
+            bool interceptorInLane = receiver.id >= 0 && receiver.id < 22
+                                     && pendingPass.laneDistAtRelease[receiver.id] < 25.0;
+            if (fromG && fromG->role != Role::GK && !pendingPass.isCross
+                && state.clockMs - pendingPass.releaseMs < 1200.0
+                && pendingPass.passerSpaceAtRelease > 55.0
+                && interceptorInLane)
+                stats.recordQualityFlag(QualityFlag::GiftedPass);
         }
         emitEvent("intercept", receiver.x, receiver.y, receiver.id, pendingPass.toId);
         if (passDebug) {
