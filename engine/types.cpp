@@ -45,6 +45,7 @@ QualityFlag qualityFlagFromStr(std::string_view s) {
     if (s == "why_player_running_direction") return QualityFlag::WhyPlayerRunningDirection;
     if (s == "stationary_hold_500ms") return QualityFlag::StationaryHold500ms;
     if (s == "ball_teleport") return QualityFlag::BallTeleport;
+    if (s == "carrier_overspeed") return QualityFlag::CarrierOverspeed;
     return QualityFlag::Unknown;
 }
 

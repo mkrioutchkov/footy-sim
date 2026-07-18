@@ -1433,10 +1433,12 @@ void GameEngine::updateControlledBall(double sec) {
 void GameEngine::moveBallCarrier(double sdt) {
     Player* c = playerById(state.ball.controllerId);
     if (!c) return;
-    if (c->id >= 0 && c->id < 22 && lungeDashRemainPx[c->id] > 0.0) {
-        // A tackle winner still finishing his committed dash (fixedUpdate is
-        // moving him) — don't stack the carry step on top; just keep the ball
-        // glued to him while the dash lands.
+    if (c->id >= 0 && c->id < 22 && (lungeDashRemainPx[c->id] > 0.0
+                                     || lungeDashDoneMs[c->id] == state.clockMs)) {
+        // A tackle/take-on winner still finishing his committed dash, OR the
+        // exact tick it just ended (Round-23): fixedUpdate already moved him this
+        // tick, so stacking a full carry step on top spikes him to ~17 m/s for
+        // one tick. Keep the ball glued while the dash lands / on the handoff tick.
         updateControlledBall(0);
         return;
     }

@@ -1159,6 +1159,12 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 engine.lungeDashDirX[p.id] = bx;
                 engine.lungeDashDirY[p.id] = by;
                 engine.lungeDashRemainPx[p.id] = dashLen;
+                // Round-23 (carrier burst realism): seed the ramp from the
+                // carrier's CURRENT pace up to a speed-scaled peak (~80-104px/s),
+                // so a won take-on accelerates into the burst and settles out of
+                // it instead of snapping flat to 120 for the whole 45-75px.
+                engine.lungeDashSpd[p.id]  = std::hypot(p.vx, p.vy);
+                engine.lungeDashPeak[p.id] = clamp(72.0 + 32.0 * attrFactor(p.attrs.speed), 80.0, 104.0);
                 p.facing = std::atan2(by, bx);
                 p.dribbleType = 3;   // drive on after the burst
                 // Once the body is past him, STRAIGHTEN onto goal — the beat is a

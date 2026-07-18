@@ -1168,6 +1168,10 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
             lungeDashDirX[tackler.id] = lx / ld;
             lungeDashDirY[tackler.id] = ly / ld;
             lungeDashRemainPx[tackler.id] = std::min(ld * 0.55, 11.0);   // 16 -> 11px: shorter committed step, same contact read (seed 111 burst complaint)
+            // Round-23: seed spd=peak=LUNGE_DASH_SPEED so this short defender
+            // contact step stays the flat 11px/90ms hard step round-14 tuned.
+            lungeDashSpd[tackler.id]  = LUNGE_DASH_SPEED;
+            lungeDashPeak[tackler.id] = LUNGE_DASH_SPEED;
             tackler.facing = std::atan2(ly, lx);
         }
     }

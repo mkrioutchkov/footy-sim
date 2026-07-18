@@ -256,26 +256,64 @@ void GameEngine::fixedUpdate(double sdt) {
         double& rem = lungeDashRemainPx[p.id];
         if (rem <= 0.0) continue;
         if (p.sentOff) { rem = 0.0; continue; }
-        double step = std::min(rem, LUNGE_DASH_SPEED * sdt / 1000.0);
+        // Round-23 (carrier burst realism): RAMP the pace up toward the seeded
+        // peak (agent.cpp / engine_actions.cpp) at ~150px/s^2 instead of the old
+        // one-tick snap to a flat 120, and DECAY it back toward the carrier's
+        // dribble pace over the last stretch — a burst that accelerates and
+        // settles, not an on/off block. The tackler path seeds spd=peak=
+        // LUNGE_DASH_SPEED so its short committed contact step stays ~flat.
+        double& spd = lungeDashSpd[p.id];
+        double rampRate = 150.0 * sdt / 1000.0;
+        spd = std::min(lungeDashPeak[p.id], spd + rampRate);
+        if (rem < 14.0) {
+            double settle = attrFactor(p.attrs.speed) * DRIBBLE_FAST_SPEED;
+            spd = std::max(settle, spd - rampRate);
+        }
+        double step = std::min(rem, spd * sdt / 1000.0);
         p.x = clamp(p.x + lungeDashDirX[p.id] * step, 5.0, PITCH_W - 5.0);
         p.y = clamp(p.y + lungeDashDirY[p.id] * step, 5.0, PITCH_H - 5.0);
+        // Truthful velocity (Round-23): the dash wrote position but never vx/vy,
+        // so every velocity reader saw 0 for the whole burst. Derive the real
+        // per-tick velocity from the step actually taken (mirrors the FK run-up).
+        double stepSpd = step / (sdt / 1000.0);
+        p.vx = lungeDashDirX[p.id] * stepSpd;
+        p.vy = lungeDashDirY[p.id] * stepSpd;
         rem -= step;
+        // Handoff-spike guard (Round-23): stamp the tick the dash ends so
+        // moveBallCarrier doesn't add a full carry step on top of this one.
+        if (rem <= 0.0) { rem = 0.0; lungeDashDoneMs[p.id] = state.clockMs; }
     }
     // OffBallOverspeed tripwire (owner: "moves stupidly fast for a split
     // second... biggest issue — also make it a quality flag"): any outfield
     // player whose ACTUAL displacement this tick exceeds every designed
-    // motion (sprint ~90, lunge dash 170) is a teleport-grade blip, whatever
-    // system caused it. Suppressed across restarts/kickoffs/halves (legit
-    // repositioning) — those invalidate the previous-position snapshot.
+    // motion (sprint ~90, lunge-dash peak ~104) is a teleport-grade blip,
+    // whatever system caused it. Suppressed across restarts/kickoffs/halves
+    // (legit repositioning) — those invalidate the previous-position snapshot.
     {
         bool measurable = !setPiece.armed && !phase.kickoffPhase && phase.halfTimePause <= 0
             && sdt > 1e-3;
         if (measurable && qfPrevValid) {
             double maxStep = 250.0 * sdt / 1000.0;
+            // Round-23 (carrier burst): a CARRIER body stepping faster than the
+            // ramped dash peak (~104px/s) is the flat-120 burst artifact the
+            // off-ball 250 line (and the dead-by-construction carried-ball cap)
+            // could never catch. 112 sits just above the peak.
+            double carrierMaxStep = 112.0 * sdt / 1000.0;
             for (auto& p : state.players) {
                 if (p.sentOff || p.role == Role::GK) continue;
-                if (dist(p.x, p.y, qfPrevX[p.id], qfPrevY[p.id]) > maxStep)
+                double dispStep = dist(p.x, p.y, qfPrevX[p.id], qfPrevY[p.id]);
+                if (dispStep > maxStep)
                     stats.recordQualityFlag(QualityFlag::OffBallOverspeed);
+                // Exempt the sanctioned DEFENDER-contact dash (engine_actions:
+                // won tackle → carrier for its 11px/90ms step, seeded peak=120):
+                // round-14 tuned it and the spec keeps it. The take-on carry
+                // ramps to peak <=104, so it stays measured (a regression to
+                // flat-120 would still trip this line).
+                bool contactDash = (lungeDashRemainPx[p.id] > 0.0
+                                    || lungeDashDoneMs[p.id] == state.clockMs)
+                                   && lungeDashPeak[p.id] > 112.0;
+                if (state.ball.controllerId == p.id && dispStep > carrierMaxStep && !contactDash)
+                    stats.recordQualityFlag(QualityFlag::CarrierOverspeed);
             }
         }
         for (auto& p : state.players) { qfPrevX[p.id] = p.x; qfPrevY[p.id] = p.y; }

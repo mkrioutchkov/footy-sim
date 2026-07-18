@@ -191,6 +191,15 @@ public:
     std::array<double, 22> lungeDashDirX = {};
     std::array<double, 22> lungeDashDirY = {};
     std::array<double, 22> lungeDashRemainPx = {};
+    // Round-23 (carrier burst realism, arena 0:05 "sudden bursts of pace with
+    // the ball... unrealistic"): the dash now RAMPS toward a per-player peak and
+    // decays back to dribble pace as it lands, instead of snapping to a flat
+    // 120px/s for its whole length. lungeDashSpd is the live pace, lungeDashPeak
+    // the ceiling; lungeDashDoneMs stamps the tick a dash finishes so the carry
+    // step isn't stacked on top of the last dash step (a one-tick handoff spike).
+    std::array<double, 22> lungeDashSpd    = {};
+    std::array<double, 22> lungeDashPeak   = {};
+    std::array<double, 22> lungeDashDoneMs = {};
     // Round-21 (take-on): a defender just beaten by a take-on is off-balance and
     // wrong-footed — his pursuit pace is cut until this clock, so the carrier's
     // beat burst opens a REAL gap instead of the beaten man re-gluing at 22px.
@@ -382,7 +391,15 @@ public:
     void sampleVelocityOrigins() { for (auto& p : state.players) { velSampleX[p.id] = p.x; velSampleY[p.id] = p.y; } }
     void finalizeVelocities(double secs) {
         if (secs < 1e-4) return;
-        for (auto& p : state.players) { p.vx = (p.x - velSampleX[p.id]) / secs; p.vy = (p.y - velSampleY[p.id]) / secs; }
+        for (auto& p : state.players) {
+            // Round-23 (carrier burst): a lunge-dash player is moved by the
+            // fixedUpdate dash loop BEFORE velocity origins are sampled, so his
+            // dash displacement is invisible here and would finalize to 0 (the
+            // "velocity reads 0 all burst" bug). The dash loop already wrote his
+            // truthful per-tick velocity — keep it.
+            if (lungeDashRemainPx[p.id] > 0.0 || lungeDashDoneMs[p.id] == state.clockMs) continue;
+            p.vx = (p.x - velSampleX[p.id]) / secs; p.vy = (p.y - velSampleY[p.id]) / secs;
+        }
     }
     int receiverShieldTargetId = -1, receiverShieldedPlayerId = -1;
     double receiverShieldUntil = 0;
