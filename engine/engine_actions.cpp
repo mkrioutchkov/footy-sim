@@ -1219,6 +1219,18 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // spiked marathonCarries (carriers running free) — the regression this round
     // must avoid. Upper clamp 0.50->0.56 to keep the stay_on_feet headroom.
     double commitBar = clamp(0.40 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.56);
+    // Round-25 (2v2 audit top defect): with a LONE container, contain-first never
+    // resolves — carriers ride one jockey 15-24s (marathonCarries 14-17/10min; a
+    // 50-rated CM dribbled the full pitch with a defender glued 19-40px away). The
+    // flat 0.40 bar means the container waits forever for a clear chance that a
+    // lone jockey can never manufacture. Decay the bar as the CURRENT carry runs
+    // long: a container who has ridden ONE man >4s progressively commits (fully by
+    // ~12s). Reuses the carryStartMs idiom; deterministic, no rng; near-inert in
+    // 11v11 where >4s single-carries are rare (cover arrives / the ball moves on).
+    if (carrierTracker.carryTrackerId == carrier.id) {
+        double carryMs = state.clockMs - carrierTracker.carryStartMs;
+        commitBar -= clamp((carryMs - 4000.0) / 8000.0, 0.0, 1.0) * 0.18;
+    }
     // Deliberate (cynical) foul: the last man, genuinely beaten on a transition
     // break OUTSIDE the box, brings the carrier down to stop the counter. Pure
     // state (no rng); it forces commitment so the challenge reaches the existing
