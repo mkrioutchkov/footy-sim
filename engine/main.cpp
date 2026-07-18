@@ -159,14 +159,20 @@ int main(int argc, char* argv[]) {
     std::string matchPath;
     double streamFromMs = 0;   // suppress frame output before this clock (live re-sim resume)
     bool forceLive = false;    // --live (or FOOTY_LIVE env): self-pace the engine to wall-clock (§1.1)
-    bool arenaFlag = false;    // --arena: 1v1 exhibition (GK + one outfielder a side)
+    bool arenaFlag = false;    // --arena [N]: small-sided exhibition (GK + N outfielders a side)
+    int arenaSize = 1;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--summary") summaryOnly = true;
         else if (arg == "--live") forceLive = true;
         else if (arg == "--no-debug") debugMode = false;
-        else if (arg == "--arena") arenaFlag = true;
+        else if (arg == "--arena") {
+            arenaFlag = true;
+            // Optional size: "--arena 2" = 2v2 (next arg, if a bare number 1-3).
+            if (i + 1 < argc && argv[i + 1][0] >= '1' && argv[i + 1][0] <= '3' && argv[i + 1][1] == '\0')
+                arenaSize = std::atoi(argv[++i]);
+        }
         else if (arg == "--trace" && i + 1 < argc) tracePath = argv[++i];
         else if (arg == "--snapshot-in" && i + 1 < argc) snapshotPath = argv[++i];
         else if (arg == "--snapshot-out" && i + 1 < argc) snapshotOutPath = argv[++i];
@@ -275,6 +281,7 @@ int main(int argc, char* argv[]) {
     }
 
     engine.arenaMode = arenaFlag;
+    engine.arenaOutfielders = arenaSize;
     engine.initWithSeed(seed);
     engine.setMatchLengthMinutes(minutes);
     if (debugMode) engine.equalizeAttributes(65);

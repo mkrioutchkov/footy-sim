@@ -1941,14 +1941,28 @@ void GameEngine::initWithSeed(int seed) {
         if (p.id >= 0 && p.id < 22) playerLookup[p.id] = &p;
     }
     initBench();
-    // §arena: park everyone except the two GKs (0/11) and the two CFs (9/20)
+    // §arena: park everyone except the GKs (0/11) and N outfielders per side
     // off-pitch, sent-off style, so the whole engine — press assignment, pass
-    // menus, set pieces, offside — sees a legitimate 2-a-side match. No red
+    // menus, set pieces, offside — sees a legitimate small-sided match. No red
     // cards recorded, no subs (an ejected slot can't be replaced anyway, and
-    // there is nobody on the pitch worth swapping).
+    // there is nobody on the pitch worth swapping). Kept slots grow from the
+    // CF outward (a good engine should look normal in unfamiliar scenarios:
+    // 1v1, 2v2, 3v3 all reuse the same duel/press/take-on machinery).
     if (arenaMode) {
+        static constexpr int ARENA_KEEP[3][3] = {{9, -1, -1},   // 1v1: CF
+                                                 {9, 5, -1},    // 2v2: CF + CM
+                                                 {9, 5, 8}};    // 3v3: CF + CM + WM
+        int n = clamp(arenaOutfielders, 1, 3);
+        auto kept = [&](int id) {
+            if (id == 0 || id == 11) return true;               // GKs always play
+            for (int k = 0; k < n; ++k) {
+                int slot = ARENA_KEEP[n - 1][k];
+                if (slot >= 0 && (id == slot || id == slot + 11)) return true;
+            }
+            return false;
+        };
         for (auto& p : state.players) {
-            if (p.id == 0 || p.id == 11 || p.id == 9 || p.id == 20) continue;
+            if (kept(p.id)) continue;
             p.sentOff = true;
             p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
             p.y = -40.0;

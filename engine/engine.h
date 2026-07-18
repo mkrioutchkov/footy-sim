@@ -141,6 +141,9 @@ public:
     // every lookup stay valid — but no red cards are recorded (it's a mode,
     // not a match event) and subs are disabled (nobody to legally replace).
     bool arenaMode = false;
+    // Outfielders per side in arena mode: 1 (1v1, default), 2 (2v2), 3 (3v3).
+    // Kept slots are chosen in initWithSeed; GKs always play.
+    int arenaOutfielders = 1;
 
     // Round-21 (arena audit): set true when equalizeAttributes() ran (the bare-CLI
     // debug default flattens every attribute to 65). Surfaced in getJSON so tuning
