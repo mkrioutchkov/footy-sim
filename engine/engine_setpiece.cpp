@@ -759,7 +759,24 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
     //    never opened, stop stalling and play the best ball he has, or hoof long.
     if (goalKickMonitor.holdSinceMs < 0) goalKickMonitor.holdSinceMs = state.clockMs;
     if (state.clockMs - goalKickMonitor.holdSinceMs > GK_MAX_HOLD_MS) {
+        // Round-21 (arena audit): at max-hold the old code force-fed the best-
+        // scored outlet regardless of its safe flag — drilling the ball through
+        // the presser's lane into the marked lone striker, a deterministic
+        // interception within 5s (arena: the CF is the only outlet and always
+        // marked). Punt long instead when the best outlet isn't genuinely safe,
+        // or when the sole outlet is marked tight (<60px). Only a safe outlet is
+        // force-fed.
+        bool badFeed = outs.empty() || !outs.front().safe;
+        if (!badFeed && outs.size() == 1) {
+            double nd = 1e9;
+            for (auto& o2 : state.players)
+                if (isActiveOpponent(o2, holder.team))
+                    nd = std::min(nd, dist(o2.x, o2.y, outs.front().p->x, outs.front().p->y));
+            if (nd < 60.0) badFeed = true;
+        }
+        if (badFeed) { puntLong(); return; }
         for (auto& o : outs) {
+            if (!o.safe) continue;
             if (passBallTo(holder, *o.p, false, false, nullptr)) {
                 onRelease(o.p->id);
                 return;
