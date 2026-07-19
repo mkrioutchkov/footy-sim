@@ -59,6 +59,12 @@ export class MatchRenderer {
   private shotTrailBuffer: { x: number; y: number; z: number }[] = [];
   private playerEntries: Map<number, PlayerEntry> = new Map();
   private ringGfx: Graphics;
+  // Round-27 COMMIT 8a: cross-fade the possession ring over ~150ms on a change
+  // instead of snapping it in one keyframe. ringCurController tracks the live
+  // controller for change detection; ringFadeFrom holds the one fading out.
+  private ringCurController: number | null = null;
+  private ringFadeFrom: number | null = null;
+  private ringChangeAtMs = 0;
   private ballBody: Graphics;
   private ballGlow: Graphics;
   private ballHighlight: Graphics;   // faint elevation halo hugging a lofted ball → reads as lit/floating
@@ -704,28 +710,54 @@ export class MatchRenderer {
       const ix = lerp(tg.px, tg.tx, t);
       const iy = lerp(tg.py, tg.ty, t);
       let v = this.visualPlayers.get(id);
-      if (!v) { v = { x: ix, y: iy }; this.visualPlayers.set(id, v); } else { v.x = ix; v.y = iy; }
-      entry.shadow.position.set(ix, iy);
-      entry.body.position.set(ix, iy);
-      entry.arrow.position.set(ix, iy);
+      // Round-27 COMMIT 8b: a light EMA pass over the interpolated position (like
+      // the renderFacing damping) so residual telemetry wobble reads as a smooth
+      // curve, not per-keyframe kinks. A big step (teleport/seek/restart) snaps
+      // through instead of gliding, mirroring the ball's jump handling.
+      if (!v) { v = { x: ix, y: iy }; this.visualPlayers.set(id, v); }
+      else if (Math.abs(ix - v.x) > 40 || Math.abs(iy - v.y) > 40) { v.x = ix; v.y = iy; }
+      else { v.x += (ix - v.x) * 0.4; v.y += (iy - v.y) * 0.4; }
+      const sx = v.x, sy = v.y;
+      entry.shadow.position.set(sx, sy);
+      entry.body.position.set(sx, sy);
+      entry.arrow.position.set(sx, sy);
       // F7: redraw the boot/head arrow at the LERPED facing every tick (was keyframe-rate → boots lagged turns).
       const pp = byId.get(id);
-      if (pp) this.drawPlayerArrow(entry, pp, this.lerpedFacing(id, t, pp.team), ix, iy, ibx, iby);
-      entry.label.position.set(ix, iy + DISC_R + 3);
-      if (entry.dirTag.visible) entry.dirTag.position.set(ix, iy + DISC_R + 16);
+      if (pp) this.drawPlayerArrow(entry, pp, this.lerpedFacing(id, t, pp.team), sx, sy, ibx, iby);
+      entry.label.position.set(sx, sy + DISC_R + 3);
+      if (entry.dirTag.visible) entry.dirTag.position.set(sx, sy + DISC_R + 16);
     }
 
     // ── carrier ring (rides the carrier's tweened pos + pulses on animTime) ──
     this.ringGfx.clear();
     let bylineRun = false;
+    // COMMIT 8a: on a possession change, start a 150ms cross-fade — the old
+    // controller's ring fades out while the new one's fades in.
+    if (b.controllerId !== this.ringCurController) {
+      this.ringFadeFrom = this.ringCurController;
+      this.ringChangeAtMs = now;
+      this.ringCurController = b.controllerId;
+    }
+    const ringFade = clamp((now - this.ringChangeAtMs) / 150, 0, 1);
+    const pulseNow = 0.25 + 0.35 * Math.sin(this.animTime * 0.08);
+    if (ringFade < 1 && this.ringFadeFrom !== null && this.ringFadeFrom !== b.controllerId) {
+      const old = byId.get(this.ringFadeFrom);
+      if (old) {
+        const vo = this.visualPlayers.get(old.id) ?? { x: old.x, y: old.y };
+        const oc = old.team === 'home' ? HOME_COLOR : AWAY_COLOR;
+        const oa = (old.dribbleType === 3 ? Math.min(0.85, pulseNow + 0.25) : pulseNow) * (1 - ringFade);
+        this.ringGfx.circle(vo.x, vo.y, DISC_R + (old.dribbleType === 3 ? 9 : 6));
+        this.ringGfx.stroke({ width: old.dribbleType === 3 ? 4 : 3, color: oc, alpha: oa });
+      }
+    }
     if (b.controllerId !== null) {
       const ctrl = byId.get(b.controllerId);
       if (ctrl) {
         const vc = this.visualPlayers.get(ctrl.id) ?? { x: ctrl.x, y: ctrl.y };
-        const pulse = 0.25 + 0.35 * Math.sin(this.animTime * 0.08);
+        const pulse = pulseNow;
         const rc = ctrl.team === 'home' ? HOME_COLOR : AWAY_COLOR;
         this.ringGfx.circle(vc.x, vc.y, DISC_R + (ctrl.dribbleType === 3 ? 9 : 6));
-        this.ringGfx.stroke({ width: ctrl.dribbleType === 3 ? 4 : 3, color: rc, alpha: ctrl.dribbleType === 3 ? Math.min(0.85, pulse + 0.25) : pulse });
+        this.ringGfx.stroke({ width: ctrl.dribbleType === 3 ? 4 : 3, color: rc, alpha: (ctrl.dribbleType === 3 ? Math.min(0.85, pulse + 0.25) : pulse) * ringFade });
         // ── GK ball-held cue ── a keeper holding the ball for distribution (he's the controller, the ball
         // is dead at his feet: not thrown/rolled/kicked yet) gets a distinct glove-clasp marker so the hold
         // reads clearly (owner ask: a GK-holding animation). Two glove pads cup the ball + a bright pulsing
