@@ -278,6 +278,26 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
                         double relFwd = (t.x - player.x) * fdFor(player.team);
                         double relLat = std::abs(t.y - player.y);
                         if (relLat > relFwd * 1.5 + 120.0) fx -= 400.0;
+                        // Round-26: the clear scan had NO lane check, so it could
+                        // pick a teammate whose lane the pass-scorer's own point-
+                        // blank veto (perp<17, near half, presser within the fresh
+                        // release radius) rejects for identical geometry on the
+                        // same tick — the owner's 0:09 pid3 clear drilled 65px
+                        // straight to an opponent. Penalise (never skip: one
+                        // presser can straddle two lanes and null every target in
+                        // a swarm, the starved-carrier Hold tombstone) any target
+                        // with an opponent point-blank in front of the release
+                        // lane. Same magnitude as the square-hoof guard; the
+                        // guaranteed fallback (least-bad target still wins) holds.
+                        double cdx = t.x - player.x, cdy = t.y - player.y, cls = cdx * cdx + cdy * cdy;
+                        if (cls >= 1.0) {
+                            for (auto& o : engine.state.players) {
+                                if (o.team == player.team || o.role == Role::GK || o.sentOff) continue;
+                                double t2 = clamp(((o.x - player.x) * cdx + (o.y - player.y) * cdy) / cls, 0.0, 1.0);
+                                double perp = std::hypot(o.x - player.x - t2 * cdx, o.y - player.y - t2 * cdy);
+                                if (perp < 17.0 && t2 < 0.5 && dist(o.x, o.y, player.x, player.y) < 70.0) { fx -= 400.0; break; }
+                            }
+                        }
                         if (fx > bestFx) { bestFx = fx; tgt = &t; }
                     }
                     if (tgt) {

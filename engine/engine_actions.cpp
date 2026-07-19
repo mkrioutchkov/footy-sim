@@ -949,10 +949,25 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     // defensive quarter → the already-tuned hoof treatment (loft over him,
     // scatter, real distance) instead of the flat measured ball.
     double pressOnClear = 1e9;
-    if (audit)
-        for (auto& o : state.players)
-            if (isActiveOpponent(o, f.team)) pressOnClear = std::min(pressOnClear, dist(o.x, o.y, f.x, f.y));
-    bool swarmedClear = audit && pressOnClear < 45.0 && std::abs(f.x - ownGoalX) < PENALTY_AREA_W * 1.7;
+    // Round-26: the radial 45px check missed chargedown pressers who sit 2-35px
+    // OUTSIDE the band but directly ON the kick line (~10/28 flat clears in the
+    // audit were charged down within 800ms — a presser <15px perpendicular to
+    // the release ray, within ~90px along it). Project each opponent onto the
+    // kick line and loft the clear over him too, regardless of the radial check.
+    bool presserOnKickLine = false;
+    if (audit) {
+        double kl = std::hypot(tdx, tdy);
+        double kux = kl > 1.0 ? tdx / kl : fdFor(f.team), kuy = kl > 1.0 ? tdy / kl : 0.0;
+        for (auto& o : state.players) {
+            if (!isActiveOpponent(o, f.team)) continue;
+            pressOnClear = std::min(pressOnClear, dist(o.x, o.y, f.x, f.y));
+            double along = (o.x - f.x) * kux + (o.y - f.y) * kuy;
+            double perp = std::hypot(o.x - f.x - along * kux, o.y - f.y - along * kuy);
+            if (along > 2.0 && along < 90.0 && perp < 15.0) presserOnKickLine = true;
+        }
+    }
+    bool swarmedClear = audit && std::abs(f.x - ownGoalX) < PENALTY_AREA_W * 1.7
+                        && (pressOnClear < 45.0 || presserOnKickLine);
     bool boxHoof = (audit && std::abs(f.x - ownGoalX) < PENALTY_AREA_W) || swarmedClear;
     if (boxHoof) {
         // Clear the DANGER — boot it out to around midfield, not a pinpoint
