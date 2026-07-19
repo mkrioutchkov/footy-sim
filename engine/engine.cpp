@@ -413,7 +413,19 @@ void GameEngine::fixedUpdate(double sdt) {
                 phase.halfTimePause = 5000; // a visible break, not a real 15min
                 // Law: the team that did NOT kick off the match starts H2.
                 phase.nextKickoffTeam = phase.matchKickoffTeam == Team::Home ? Team::Away : Team::Home;
+                // Round-27 COMMIT 10 (owner 17:59 "stuck incident then goes to
+                // restart" — it was HALFTIME with no cue): mark the pause with a
+                // half_time event so the viewer can render a banner and park the
+                // abandoned ball (it hangs mid-flight with stale velocity for 5s,
+                // then snaps to center). The SETTLE is done in the viewer, NOT the
+                // engine: zeroing state.ball here perturbs the agents that tick
+                // through the dead pause and diverges the entire second half. The
+                // event is traceOnly => no RNG/golden effect, byte-identical play.
+                emitEvent("half_time", HALF_X, PITCH_H / 2.0, 1, -1, /*traceOnly=*/true);
             } else {
+                // Round-27 COMMIT 10: full_time marker for the viewer (the viewer
+                // parks the ball). Same reason the settle stays out of the engine.
+                emitEvent("full_time", HALF_X, PITCH_H / 2.0, 2, -1, /*traceOnly=*/true);
                 state.matchState = "finished";
                 stats.recordScore(state.homeScore, state.awayScore);
                 return;
