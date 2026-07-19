@@ -1839,6 +1839,10 @@ void GameEngine::resolveKnockAhead(Player* collector, const std::string& stopped
         stats.recordKnockAheadRetained();
     } else {
         stats.recordKnockAheadTurnover(activeKnockAhead.risky);
+        // Round-26 (observability, trace-only): the knock-ahead turnover also
+        // resolves possession silently. Mark it for the same future audit as the
+        // body-block steal. traceOnly => no gameplay/RNG/golden-hash effect.
+        if (collector) emitEvent("steal", collector->x, collector->y, collector->id, activeKnockAhead.playerId, /*traceOnly=*/true);
     }
     activeKnockAhead.active = false;
 }

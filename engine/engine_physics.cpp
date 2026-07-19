@@ -1434,6 +1434,12 @@ void GameEngine::updateControlledBall(double sec) {
                 // that rolled in scored as an UNKNOWN loose goal) — this is
                 // the tackle-deflection family for every downstream consumer.
                 lastLooseOrigin = LooseOrigin::TackleDeflection;
+                // Round-26 (observability, trace-only): this body-block knock-off
+                // resolves a possession change with NO event, hiding ~9% of all
+                // possession changes from event-based tooling. Mark it so a future
+                // round can safely measure/reduce this bucket. traceOnly => zero
+                // gameplay/RNG/golden-hash effect; new trace line only.
+                emitEvent("steal", o.x, o.y, o.id, c->id, /*traceOnly=*/true);
                 recordBallImpulse();
                 return;
             }
