@@ -953,6 +953,14 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     if (skillMoveCooldown == 0 && cp.nearestPlayer && nearbyOpps <= 2 && !ownDefensiveThird
         && cp.score > 0.72 && nearestOppDist > 18.0 && nearestOppDist < 58.0) {
         double skillChance = 0.013 + attrFactor(p.attrs.creativity) * 0.050;   // G3 razzle: trimmed ~0.6x (was 0.022+0.085) toward real ~20-30/match; goal-safe (skill-moves don't score)
+        // Round-27 COMMIT 3 (owner 13:09 "improve CB decision making to be safer"):
+        // the take-on trigger had NO role gate — a CB rolled a skill-move under
+        // press in his own half and was stripped in 33ms. A defender in his own
+        // half almost never dribbles out of trouble; slash the take-on chance
+        // there (a stray elite roll can still fire, but ~0.15x). Attackers and
+        // anyone in the opposition half are untouched.
+        if (roles::isDefenderRole(p.role) && pitch::inOwnHalf(p.x, p.team))
+            skillChance *= 0.15;
         // Take-ons live in the final third — that's where beating a man is
         // worth the risk.
         bool inFinalThirdAtk = pitch::inFinalThird(p.x, p.team);
