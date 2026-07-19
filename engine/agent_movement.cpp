@@ -351,6 +351,15 @@ void PlayerAI::applyMovement(double sdt) {
         double remain = engine.beatenSlowUntilMs[p.id] - engine.state.clockMs;
         ms *= (remain > BEATEN_SLOW_TOTAL_MS - BEATEN_SLOW_HARD_MS) ? 0.25 : 0.55;
     }
+    // Round-27 COMMIT 2 (eased stop): a just-dispossessed victim keeps his
+    // momentum (set at the tackle win) and bleeds it down over ~3 ticks rather
+    // than snapping to a dead stop. Decay the carried velocity and cap the
+    // command speed to it so he can't re-accelerate mid-glide.
+    if (p.id >= 0 && p.id < 22 && engine.tackleStopEaseUntilMs[p.id] > engine.state.clockMs) {
+        p.vx *= 0.55;
+        p.vy *= 0.55;
+        ms = std::min(ms, std::hypot(p.vx, p.vy) + 4.0);
+    }
 
     // ── Momentum v3 (tombstone lifted, round 13) ── v1/v2 taxed EVERYONE with
     // a real accel/turn model and died twice (shots +62%/+71%, tackles

@@ -216,6 +216,16 @@ public:
     // beat burst opens a REAL gap instead of the beaten man re-gluing at 22px.
     // (Benefits 11v11 too: beating your man should buy a yard.)
     std::array<double, 22> beatenSlowUntilMs = {};
+    // Round-27 COMMIT 2 (tackle jitter): stabilize the committed/contain decision
+    // in attemptTackle. When chance hovers at the (decayed) commitBar the raw
+    // decision flip-flops every tick — fire-retract-fire target thrash. Latch the
+    // mode and hold it >=150ms unless the carrier situation changes sharply.
+    std::array<double, 22> tackleModeUntilMs = {};   // dwell window end
+    std::array<int, 22>    tackleModeLatch   = {};   // 0 unset, +1 committed, -1 contain
+    // Round-27 COMMIT 2 (eased stop): a tackle victim's velocity was hard-zeroed
+    // on the win (~8% of tackles show the abrupt halt). Instead bleed his momentum
+    // over ~3 ticks while this clock is live (applyMovement reads it).
+    std::array<double, 22> tackleStopEaseUntilMs = {};
     // Round-21 (take-on audit) COMMIT 4a: the exploit window after a WON take-on.
     // While this clock is live the carry-speed classifier is forced to
     // DRIBBLE_FAST — otherwise the next decision tick re-classified (the beaten

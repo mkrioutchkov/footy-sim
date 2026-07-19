@@ -236,6 +236,11 @@ private:
     double commitTargetX  = 0;
     double commitTargetY  = 0;
     double commitUntilMs  = 0;
+    // Round-27 COMMIT 2 (tackle jitter): latch the contain-point Y side. The bare
+    // sign-flip (containY = carrier.y +/- 16) made a jockeying defender cross the
+    // carrier's Y line and jump his target 32px every time noise nudged him past
+    // it -> a limit-cycle lateral shuffle. Only flip once past a ~22px deadband.
+    int    containSideLatch = 0;   // 0 unset, -1 above carrier, +1 below
 
     GameContext           buildContext();
     SmallVector<Action, 24> evaluateActions(const Perception& per, bool isController, const GameContext& ctx);

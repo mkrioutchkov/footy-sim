@@ -300,7 +300,19 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
             if (!(tackleDistance && carrierBacktracking)) {
                 double goalSide = (p.team == Team::Home) ? -1.0 : 1.0;
                 double containX = clamp(carrier->x + goalSide * 34.0, 35.0, PITCH_W - 35.0);
-                double side = (p.y < carrier->y) ? -1.0 : 1.0;
+                // Round-27 COMMIT 2: latch the Y side with a ~22px deadband. The old
+                // bare (p.y < carrier->y ? -1 : 1) flipped the instant the defender
+                // drifted a pixel across the carrier's Y line, jumping the contain
+                // point 32px and driving a lateral limit-cycle shuffle. Hold the
+                // side until |p.y - carrier->y| clears the deadband on the far side.
+                double dySigned = p.y - carrier->y;   // >0 => defender is below the carrier
+                if (containSideLatch == 0)
+                    containSideLatch = (dySigned < 0.0) ? -1 : 1;
+                else if (containSideLatch < 0 && dySigned > 22.0)
+                    containSideLatch = 1;
+                else if (containSideLatch > 0 && dySigned < -22.0)
+                    containSideLatch = -1;
+                double side = (double)containSideLatch;
                 double containY = clamp(carrier->y + side * 16.0, 35.0, PITCH_H - 35.0);
                 double score = emergencyCloseDown
                     ? clamp(0.97 - carrierDist / 900.0, 0.90, 0.96)
