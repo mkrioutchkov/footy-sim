@@ -1781,17 +1781,44 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
             double ry = b.y - receiver->y;
             double receiverDist = std::hypot(rx, ry);
             double receiverSpeed = std::max(36.0, SPEED_SPRINT * attrFactor(receiver->attrs.speed));
-            double leadTime = clamp(receiverDist / receiverSpeed, 0.14, 0.46);
-            double maxLead = clamp(receiverDist * 0.72, 18.0, 74.0);
-            double leadDist = std::min(ballSpeed * leadTime, maxLead);
-            double targetX = b.x;
-            double targetY = b.y;
-            if (ballSpeed > 12.0) {
-                targetX += (b.vx / ballSpeed) * leadDist;
-                targetY += (b.vy / ballSpeed) * leadDist;
+            // Round-26: this post-tick override rewrites the receiver's target to a
+            // near meet-early point EVERY tick, clobbering agent_defend's properly-
+            // led Chase aim (ball_pos + ball_vel*0.7). For a ball LED AHEAD of a
+            // forward run its nearer point pulls the receiver BACKWARD into the
+            // presser (owner's 0:03.4->0:05.18 seed-264 moment: pid8 abandoned a
+            // wing run, reversed 46px down the ball line, and was dispossessed at
+            // the standing reception). Gate the override OFF when the ball is
+            // aimed ahead of the receiver's own running direction AND he can reach
+            // the flight line before the ball arrives -- then agent_defend's lead
+            // target stands and he runs ONTO the ball. Meet-early is kept for
+            // backward/square balls and standing/relief receptions (dot<=0, or no
+            // genuine run), so round-25's patient-defending interception cost is
+            // not extended by a blanket removal.
+            bool letRunStand = false;
+            double recvSp = std::hypot(receiver->vx, receiver->vy);
+            if (ballSpeed > 40.0 && recvSp > 45.0) {
+                double flightT = clamp(receiverDist / std::max(ballSpeed, 1.0), 0.0, 1.2);
+                double aimX, aimY;
+                predictBallPos(flightT, aimX, aimY);   // drag/bounce-correct, not linear (overruns 100px+)
+                double toAimX = aimX - receiver->x, toAimY = aimY - receiver->y;
+                if (toAimX * receiver->vx + toAimY * receiver->vy > 0.0) {   // ball led ahead of the run
+                    double aimDist = std::hypot(toAimX, toAimY);
+                    if (aimDist / receiverSpeed <= flightT + 0.15) letRunStand = true;   // reaches the flight line in time
+                }
             }
-            receiver->targetX = clamp(targetX, PLAYER_R, PITCH_W - PLAYER_R);
-            receiver->targetY = clamp(targetY, PLAYER_R, PITCH_H - PLAYER_R);
+            if (!letRunStand) {
+                double leadTime = clamp(receiverDist / receiverSpeed, 0.14, 0.46);
+                double maxLead = clamp(receiverDist * 0.72, 18.0, 74.0);
+                double leadDist = std::min(ballSpeed * leadTime, maxLead);
+                double targetX = b.x;
+                double targetY = b.y;
+                if (ballSpeed > 12.0) {
+                    targetX += (b.vx / ballSpeed) * leadDist;
+                    targetY += (b.vy / ballSpeed) * leadDist;
+                }
+                receiver->targetX = clamp(targetX, PLAYER_R, PITCH_W - PLAYER_R);
+                receiver->targetY = clamp(targetY, PLAYER_R, PITCH_H - PLAYER_R);
+            }
         }
     }
     updateControlledBall(sec);
