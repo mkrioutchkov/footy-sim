@@ -1406,7 +1406,14 @@ void GameEngine::updateControlledBall(double sec) {
     // defender). A body dead-center (<8px, the same threshold the loose-ball
     // ghost path trusts) on this tick's carried-ball sweep knocks it loose —
     // deterministic, no rng; the beaten carrier can't instantly re-collect.
-    if (firstTimedCallThisTick && c->role != Role::GK) {
+    // Round-27 COMMIT 1 (owner 0:30 "ball magically went loose"): a controller
+    // who just won a tackle (or read a feint) holds a possession shield
+    // (receiverShieldUntil / receiverShieldedPlayerId, engine_actions.cpp:1345).
+    // The body-block sweep below ignored that shield and stripped Van Dijk 17ms
+    // after he won the ball (tackle_won 30.200 -> traceOnly steal 30.217). Honor
+    // the shield here exactly like the beaten-defender guard honors an off-balance
+    // opponent: no body-block strip of a freshly-shielded controller.
+    if (firstTimedCallThisTick && c->role != Role::GK && !isCarrierShielded(c->id)) {
         double sx = state.ball.x - prevBx, sy = state.ball.y - prevBy, seg2 = sx * sx + sy * sy;
         for (auto& o : state.players) {
             if (o.team == c->team || o.role == Role::GK || o.sentOff) continue;
