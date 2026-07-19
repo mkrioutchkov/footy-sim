@@ -132,6 +132,7 @@ void PlayerAI::applyMovement(double sdt) {
     bool rblForwardFlee = dist(p.targetX, p.targetY, engine.state.ball.x, engine.state.ball.y) > 120.0
                        && (p.targetX - p.x) * fdRbl > 30.0;
     bool ownReboundBlockedLoose = p.id >= 0 && p.id < 22
+        && !engine.arenaMode   // 11v11 only: in a 1v1 the jockey redirect recreates the round-25 freeze
         && engine.contestBlockedUntil[p.id] > engine.state.clockMs
         && engine.state.ball.controllerId < 0
         && engine.state.ball.intendedReceiverId != p.id

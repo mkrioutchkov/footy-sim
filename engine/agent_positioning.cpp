@@ -306,13 +306,18 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const 
                 // point 32px and driving a lateral limit-cycle shuffle. Hold the
                 // side until |p.y - carrier->y| clears the deadband on the far side.
                 double dySigned = p.y - carrier->y;   // >0 => defender is below the carrier
-                if (containSideLatch == 0)
-                    containSideLatch = (dySigned < 0.0) ? -1 : 1;
-                else if (containSideLatch < 0 && dySigned > 22.0)
-                    containSideLatch = 1;
-                else if (containSideLatch > 0 && dySigned < -22.0)
-                    containSideLatch = -1;
-                double side = (double)containSideLatch;
+                double side;
+                if (engine.arenaMode) {
+                    side = (dySigned < 0.0) ? -1.0 : 1.0;   // 1v1: keep the original bare flip (latch/dwell freeze risk)
+                } else {
+                    if (containSideLatch == 0)
+                        containSideLatch = (dySigned < 0.0) ? -1 : 1;
+                    else if (containSideLatch < 0 && dySigned > 22.0)
+                        containSideLatch = 1;
+                    else if (containSideLatch > 0 && dySigned < -22.0)
+                        containSideLatch = -1;
+                    side = (double)containSideLatch;
+                }
                 double containY = clamp(carrier->y + side * 16.0, 35.0, PITCH_H - 35.0);
                 double score = emergencyCloseDown
                     ? clamp(0.97 - carrierDist / 900.0, 0.90, 0.96)

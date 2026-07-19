@@ -1295,7 +1295,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // hold that mode >=150ms unless the carrier situation changes sharply (he no
     // longer controls the ball, or a hard auto-commit clause fires). A resolved
     // committed attempt rebound-blocks the tackler, so this cannot loop fouls.
-    if (tackler.id >= 0 && tackler.id < 22) {
+    if (tackler.id >= 0 && tackler.id < 22 && !arenaMode) {   // 11v11 only: a 1v1 dwell can starve the lone container's resolution (round-25 freeze)
         bool hardCommit = boxEmergency || cynical || ballExposureDot > 0.55;   // situation-sharp: never hold contain over these
         bool sharpChange = state.ball.controllerId != carrier.id;             // carrier released the ball -> re-evaluate now
         int desired = committed ? 1 : -1;
@@ -1367,7 +1367,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         // Round-27 COMMIT 2 (eased stop): don't hard-zero the victim's momentum —
         // that abrupt one-tick halt was ~8% of the tackle-jitter screengrabs.
         // Keep his velocity and let applyMovement bleed it over the next ~3 ticks.
-        if (carrier.id >= 0 && carrier.id < 22) tackleStopEaseUntilMs[carrier.id] = state.clockMs + 50.0;
+        if (carrier.id >= 0 && carrier.id < 22 && !arenaMode) tackleStopEaseUntilMs[carrier.id] = state.clockMs + 50.0;
         return true;
     }
     // Carry security — the carrier BEATS the man and keeps it. This outcome was
