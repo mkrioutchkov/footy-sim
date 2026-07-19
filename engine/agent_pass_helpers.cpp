@@ -370,10 +370,25 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // demotes threading it into traffic.
     bool lastManCarrier = carrierLastManTrapped();
     if (lastManCarrier) turnoverCost *= 1.35;
+    // Round-27 COMMIT 4a (owner 14:31 "defenders doing over-creative passes"):
+    // a defender in his own half must value RETENTION — a square/threaded ball
+    // with a presser in the lane is the highest-cost giveaway. Tax his turnover
+    // cost so those get demoted below the safe recycle. Scoped OFF the escape
+    // valves (keeper recycle / press-relief / long ball): the retention tax must
+    // demote risky infield balls, not the reliefs a pinned defender needs.
+    if (roles::isDefenderRole(p.role) && pitch::inOwnHalf(p.x, p.team)
+        && !keeperOutlet && !pressedSafeOut && !reliefBall && longBall <= 0.0)
+        turnoverCost *= 1.35;
     // passingDirectness (centred at 50): high -> reward forward passes more and
     // value safe recycling less (vertical, direct); low -> patient possession.
     double directness = engine.configFor(p.team).passingDirectness / 50.0; // 0..2, 1 at 50
-    double sc = completion * (0.34 + std::max(0.0, progression) * 0.27 * directness) - (1.0 - completion) * turnoverCost;   // Round-20: progression reward 0.34->0.27 (~20%) to ease the forward scoring tilt (59% fwd)
+    // Round-27 COMMIT 4b (owner theme: "attackers doing the opposite" — too timid
+    // going forward): the round-20 progression-reward cut (0.34->0.27) was applied
+    // to EVERYONE, blunting attackers' pricing of the obvious forward ball. Give
+    // attackers (CF/WM) their bravery back at ~0.34; keep the safer 0.27 for
+    // DEF/MID so the retention side stays priced conservatively.
+    double progReward = roles::isAttacker(p.role) ? 0.34 : 0.27;
+    double sc = completion * (0.34 + std::max(0.0, progression) * progReward * directness) - (1.0 - completion) * turnoverCost;   // Round-20: progression reward 0.34->0.27; Round-27: 0.34 restored for attackers only
     if (reliefBall) sc += 0.12;   // press-pinned escape beats the 15th sterile square recycle
     // A pressed last man playing it short-and-square hands the press the ball in
     // the worst place — tax the short lateral/backward option so the long relief
