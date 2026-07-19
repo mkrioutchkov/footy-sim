@@ -449,6 +449,14 @@ public:
         // up by the interceptor's id, not the nearest man to the lane) is a gift.
         double passerSpaceAtRelease = 0.0;
         std::array<double, 22> laneDistAtRelease{};
+        // Round-26: this tracked "pass" is really an ActionPurpose::Clear release
+        // (forced hoof/scatter or a slower flat clear) routed through forcePassTo.
+        // A clearance is ALREADY counted via stats.recordClearance(), so it must
+        // NOT also land in the pass-completion ledger (passesAttempted/Completed/
+        // Intercepted) — doing so double-booked every panic clearance as a failed
+        // pass. All other resolvePendingPass bookkeeping (quality-flag census,
+        // assist chain, keeper-backpass, events) still runs.
+        bool isClear = false;
     } pendingPass;
     bool passDebug = false;   // FOOTY_PASSDEBUG: dump each intercepted pass's decision context to stderr
     struct ActiveKnockAhead {
@@ -594,7 +602,7 @@ public:
     void emitEvent(const std::string&, double, double, int=-1, int=-1, bool traceOnly=false);
     void blockReboundFor(int playerId, double ms);
     void recordBallImpulse();
-    void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false, bool isCutback = false);
+    void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false, bool isCutback = false, bool isClear = false);
     bool resolvePendingPass(Player& receiver);
     void auditStuckCarrier(double sdt);
     // FOOTY_BLOBDEBUG=1: stderr-log each 6+-players-in-50px knot with every

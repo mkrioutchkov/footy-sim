@@ -40,8 +40,13 @@ void GameEngine::emitEvent(const std::string& type, double x, double y, int play
     while (visualEvents.size() > 32) visualEvents.erase(visualEvents.begin());
 }
 
-void GameEngine::beginTrackedPass(Player& from, Player& to, bool isCross, bool isThrough, bool isCutback) {
-    stats.recordPassAttempt();
+void GameEngine::beginTrackedPass(Player& from, Player& to, bool isCross, bool isThrough, bool isCutback, bool isClear) {
+    // Round-26: a Clear-purpose release is booked as a clearance elsewhere
+    // (stats.recordClearance in agent.cpp), so it must not ALSO enter the
+    // pass-completion ledger. Suppress passesAttempted here (and the matching
+    // Completed/Intercepted in resolvePendingPass) while leaving every other
+    // side effect below untouched.
+    if (!isClear) stats.recordPassAttempt();
     if (from.id >= 0 && from.id < 22) pStats[from.id].passes++; // per-player rating input
     if (isThrough) stats.recordThroughBallAttempt();
     lastLooseOrigin = LooseOrigin::None;
@@ -61,6 +66,7 @@ void GameEngine::beginTrackedPass(Player& from, Player& to, bool isCross, bool i
     bool beyondLine = fd > 0.0 ? to.x > line + OFFSIDE_TOLERANCE : to.x < line - OFFSIDE_TOLERANCE;
     bool receiverOffsideAtPass = beyondHalf && beyondPasser && beyondLine;
     pendingPass = {true, from.id, to.id, from.team, isCross, isThrough, isCutback, offsideExempt, receiverOffsideAtPass, from.x, from.y, line};
+    pendingPass.isClear = isClear;   // Round-26: keep Clear releases out of the pass-completion ledger
     // Snapshot EVERY attacking teammate's offside status now (the law judges position when the ball is played).
     pendingPass.offsideAtPass = {};
     for (auto& tm : state.players) {
@@ -346,7 +352,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             lastReceiveFrom[receiver.id] = pendingPass.fromId;
             lastReceiveMs[receiver.id] = state.clockMs;
         }
-        stats.recordPassComplete();
+        if (!pendingPass.isClear) stats.recordPassComplete();   // Round-26: a completed Clear is a clearance, not a pass
         if (pendingPass.fromId >= 0 && pendingPass.fromId < 22) pStats[pendingPass.fromId].passesCompleted++;
         if (pendingPass.isThrough) stats.recordThroughBallComplete();
         if (receiver.id == pendingPass.toId)
@@ -354,7 +360,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         else
             stats.recordPassWrongTeammate();
     } else {
-        stats.recordPassIntercepted();
+        if (!pendingPass.isClear) stats.recordPassIntercepted();   // Round-26: a cut Clear is a clearance that didn't retain, not a failed pass
         if (receiver.id >= 0 && receiver.id < 22) lastTurnoverWinMs[receiver.id] = state.clockMs;
         if (pendingPass.suicideRisk && state.clockMs - pendingPass.releaseMs < 800.0)
             stats.recordQualityFlag(QualityFlag::SuicidePass);
@@ -1000,7 +1006,12 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     // a 49-degree mortar that "zapped up like crazy out of nowhere"). A
     // shanked hoof is a scuff in EVERY axis.
     b.vz = boxHoof ? std::max(speed * 0.62, 200.0 * shankMul) : speed * 0.40;   // high, up and over the presser
-    beginTrackedPass(f, t);
+    // Round-26: audit != nullptr uniquely identifies the ActionPurpose::Clear
+    // path (agent.cpp is the only caller that passes an audit; the engine-internal
+    // calm outlets pass nullptr). Flag it so the completion ledger skips it —
+    // scopes to ALL clear releases (boxHoof/scatter AND slower flat clears), not
+    // just the in-box slice branch.
+    beginTrackedPass(f, t, /*isCross=*/false, /*isThrough=*/false, /*isCutback=*/false, /*isClear=*/audit != nullptr);
 }
 
 // Resolve a committed tackle that missed the ball (rng >= chance): foul odds,
