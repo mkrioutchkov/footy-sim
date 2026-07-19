@@ -117,6 +117,35 @@ void PlayerAI::applyMovement(double sdt) {
     double bdx = engine.state.ball.x - p.x, bdy = engine.state.ball.y - p.y;
     double bd  = std::sqrt(bdx * bdx + bdy * bdy);
 
+    // Round-27 COMMIT 5 (owner 15:06 "sudden forward movement of 10R is weird"):
+    // a player poked loose (his OWN rebound-block live) with the ball still within
+    // reach fired a 220px forward off-ball run at ~112-125px/s (>SPEED_SPRINT),
+    // then snapped back to chase when the block lifted. While his own rebound
+    // block is live and the ball is loose within ~150px, suppress the forward run:
+    // hold a jockey stance ON the ball (a step to the goal-side, facing it) and
+    // cap pace to SPEED_RUN so there is no overspeed burst — ready to pounce at
+    // expiry. Pure state, no rng.
+    double fdRbl = fdFor(p.team);
+    // The pathology (not the benign case of a man already jockeying the ball at
+    // his feet): a REACHABLE loose ball (40-150px, not underfoot) that he ignores
+    // to sprint a far-forward off-ball target.
+    bool rblForwardFlee = dist(p.targetX, p.targetY, engine.state.ball.x, engine.state.ball.y) > 120.0
+                       && (p.targetX - p.x) * fdRbl > 30.0;
+    bool ownReboundBlockedLoose = p.id >= 0 && p.id < 22
+        && engine.contestBlockedUntil[p.id] > engine.state.clockMs
+        && engine.state.ball.controllerId < 0
+        && engine.state.ball.intendedReceiverId != p.id
+        && bd > 40.0 && bd < 150.0
+        && rblForwardFlee;
+    if (ownReboundBlockedLoose) {
+        double jx = engine.state.ball.x, jy = engine.state.ball.y;
+        double gsx = ownGoalXFor(p.team) - jx;
+        double gnorm = std::abs(gsx) > 1e-6 ? gsx / std::abs(gsx) : 0.0;
+        p.targetX = clamp(jx + gnorm * 22.0, 30.0, PITCH_W - 30.0);
+        p.targetY = clamp(jy, 30.0, PITCH_H - 30.0);
+        dx = p.targetX - p.x; dy = p.targetY - p.y; d = std::sqrt(dx * dx + dy * dy);
+    }
+
     bool carrierCornered = (engine.state.ball.x < 80.0 || engine.state.ball.x > PITCH_W - 80.0)
                         && (engine.state.ball.y < 80.0 || engine.state.ball.y > PITCH_H - 80.0);
     bool predatorial = (pressTask || secondaryPress) && carrierCornered;
@@ -341,6 +370,9 @@ void PlayerAI::applyMovement(double sdt) {
         }
     }
     double ms = attrFactor(p.attrs.speed) * baseSpeed * sf * df * cruiseMul;
+    // Round-27 COMMIT 5: a rebound-blocked player jockeying the loose ball never
+    // exceeds a run — no forward-burst overspeed while he waits to pounce.
+    if (ownReboundBlockedLoose) ms = std::min(ms, SPEED_RUN * sf);
     // Round-21 (take-on audit) COMMIT 4b: a just-beaten defender is off-balance
     // and wrong-footed. A REAL two-stage stun on his pursuit pace (this replaces
     // the take-on's dead stunLock, which was only ever read on a controller):
