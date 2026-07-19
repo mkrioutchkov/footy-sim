@@ -1027,6 +1027,15 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     // scopes to ALL clear releases (boxHoof/scatter AND slower flat clears), not
     // just the in-box slice branch.
     beginTrackedPass(f, t, /*isCross=*/false, /*isThrough=*/false, /*isCutback=*/false, /*isClear=*/audit != nullptr);
+    // Round-27 COMMIT 9a (observability, trace-only): a forcePassTo with a NULL
+    // audit is an engine-internal DELIBERATE outlet to a teammate (stuck-carrier
+    // watchdog, calm relief) — it set intendedReceiver but emitted NO event, so
+    // ~9% of deliberate passes (M5: 4R->3R 14:39.6) were invisible to event
+    // tooling. Emit the missing `pass` as traceOnly (the agent Clear path, audit
+    // != nullptr, emits its own clearance; skip it here to avoid a double label).
+    // traceOnly => zero gameplay/RNG/golden-hash effect; new trace line only.
+    if (audit == nullptr && t.team == f.team)
+        emitEvent("pass", f.x, f.y, f.id, t.id, /*traceOnly=*/true);
 }
 
 // Resolve a committed tackle that missed the ball (rng >= chance): foul odds,

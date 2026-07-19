@@ -1404,10 +1404,21 @@ PassSelectionAudit PlayerAI::passSelectionAudit(const Action& choice,
     double saferComp = 0;
     for (auto& a : actions) {
         if (a.type != ActionType::Pass || !a.target || a.target->id == choice.target->id) continue;
-        if (!a.audit.expectedCompletion || !a.audit.forwardProgress) continue;
+        // Must have a valid completion estimate. (The old `|| !a.audit.forwardProgress`
+        // guard also excluded every SQUARE/backward recycle — fwd ~ 0 — i.e. the
+        // classic safer option; drop it so those count.)
+        if (!a.audit.expectedCompletion) continue;
+        // Round-27 COMMIT 9b (observability, trace-only): the "an obviously safer
+        // option existed" test was populated on ~1 of 38 intercepts because it
+        // required the safer ball to score within 0.04 of the chosen one — but
+        // recklessness is exactly picking a lower-scored RISKY ball over a much
+        // safer alternative. Anchor on a clearly higher completion (+0.12) and
+        // relax the forward-loss and score bands so the field is populated on
+        // more decisions and per-role recklessness becomes measurable next round.
+        // Pure audit/stat field — no gameplay/RNG effect.
         if (a.audit.expectedCompletion >= chosen.expectedCompletion + 0.12
-            && a.audit.forwardProgress >= chosen.forwardProgress - 35.0
-            && a.score >= choice.score - 0.04)
+            && a.audit.forwardProgress >= chosen.forwardProgress - 70.0
+            && a.score >= choice.score - 0.18)
         {
             if (!safer || a.audit.expectedCompletion > saferComp) {
                 safer = &a;
