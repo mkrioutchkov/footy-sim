@@ -566,9 +566,10 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         // stack scales with the ATTACKERS actually in/arriving at the box —
         // no targets, no ball. Defender crowding still subtracts separately.
         double boxSupply = 0.0;
+        int boxDefenders = 0;
         {
             double gxc = goalXFor(p.team);
-            int boxDefenders = 0, boxAttackers = 0;
+            int boxAttackers = 0;
             for (auto& o : engine.state.players) {
                 if (o.sentOff || o.role == Role::GK) continue;
                 bool inBoxBand = std::abs(o.x - gxc) < 210.0 && pitch::lateralFromCenter(o.y) < 175.0;
@@ -579,6 +580,24 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
             }
             sc -= std::max(0, boxDefenders - 2) * 0.10;
             boxSupply = clamp(boxAttackers / 2.0, 0.0, 1.0);
+        }
+        // Round-26 (b): the base completion formula (~line 195) has NO aerial-
+        // contest term, so a whipped ball is priced like a ground pass before the
+        // supply-bonus stack below inflates it further. Charge the real coin-flip:
+        // an honest cross completes ~24-28%, so replicate discounting the cross's
+        // completion in BOTH halves of the score (line ~376: the progression
+        // reward AND the (1-completion)*turnoverCost risk) WITHOUT mutating the
+        // `completion` value that ~15 other gates read (build-floor, safeConnector,
+        // tight gate, completion penalties). Strictly isCross-scoped. The
+        // boxSupply bonuses below then keep genuinely SUPPORTED crosses (CF with
+        // box presence) scoring — over-suppression here reproduces the tombstoned
+        // "100 crosses/90, 0 goals, 3 headed shots" collapse.
+        {
+            double crossCompDrop = clamp(0.20 + std::max(0, boxDefenders - 2) * 0.06
+                                         + receiverPressure * 0.07 + (1.0 - boxSupply) * 0.12,
+                                         0.0, 0.44);
+            double rewardSlope = 0.34 + std::max(0.0, progression) * 0.27 * directness;
+            sc -= crossCompDrop * (rewardSlope + turnoverCost);
         }
         if (engine.directiveBias[p.id].crossEarly) sc += 0.55;   // "whip it in early" (explicit order: exempt from the supply gate)
         if (t.role == Role::CF) sc += 0.30 * boxSupply;

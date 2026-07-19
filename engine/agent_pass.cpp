@@ -165,8 +165,9 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
         // the area is crowded — whipping it into 4+ defenders is a turnover, and
         // indiscriminate crossing is why the engine sat at ~76 crosses (real
         // 30-40) with every attack looking identical.
+        int boxDefenders = 0, boxAttackers = 0;
+        double crossComp = 0.46;   // honest completion estimate of the whip; scoped out for the push below
         if (bestRunner) {
-            int boxDefenders = 0, boxAttackers = 0;
             for (auto& o : engine.state.players) {
                 if (o.role == Role::GK || o.sentOff || o.id == p.id) continue;
                 bool inZone = pitch::distToOppGoal(o.x, p.team) < 200.0 && pitch::lateralFromCenter(o.y) < 170.0;
@@ -174,6 +175,17 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
                 if (o.team == p.team) boxAttackers++; else boxDefenders++;
             }
             bestScore -= std::max(0, boxDefenders - 2) * 0.13;
+            // Round-26: honest completion of the whip, mirroring the helper's
+            // box-supply/defender logic PLUS the runner's own marker (the flat
+            // 0.72 ignored all three). Real crosses complete ~24-28%.
+            int runnerPress = 0;
+            for (auto& o : engine.state.players)
+                if (o.team != p.team && o.role != Role::GK && !o.sentOff
+                    && dist(o.x, o.y, bestRunner->x, bestRunner->y) < 48.0) runnerPress++;
+            double boxSupply = clamp(boxAttackers / 2.0, 0.0, 1.0);
+            crossComp = clamp(0.46 - std::max(0, boxDefenders - 2) * 0.06
+                              - runnerPress * 0.09 - (1.0 - boxSupply) * 0.10,
+                              0.12, 0.50);
             // Populated-box gate: you don't whip it in for ONE runner vs a set
             // defense — real wing play waits for bodies. This is the structural
             // volume cut the score threshold couldn't deliver (per-tick
@@ -184,6 +196,14 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
             // box-burst runs + breakaway + cutback channels now live, the
             // populated-box moments carry the load.
             if (boxAttackers < 2) bestRunner = nullptr;
+            // Round-26 honest-completion gate: a whip whose honest completion is
+            // low (crowded box AND/OR the runner already marked) is a turnover
+            // dressed up as an attack. Null it so the carrier recycles/dribbles/
+            // cuts back instead — the SAME structural lever as the box-occupancy
+            // gate, now reading the marker too. Gated (not a blanket removal, and
+            // crossEarly "whip it in early" orders are exempt) so genuinely
+            // SUPPORTED crosses — the goal-producing ones — still fire.
+            else if (!crossEarly && crossComp < 0.24) bestRunner = nullptr;
         }
         // Threshold calibrated by attribution test: this override produced ~50 of
         // the ~72 crosses/match (helper ~21 + corners ~11 are the rest). The score
@@ -194,8 +214,13 @@ SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameCon
         if (bestRunner && bestScore > (crossEarly ? 0.15 : 1.05)) {
             double d = dist(p.x, p.y, bestRunner->x, bestRunner->y);
             double fp = pitch::forwardGain(p.x, bestRunner->x, p.team);
+            // The flat 0.72 expectedCompletion priced the whip as a safe ball to
+            // every downstream arbitration gate (agent_resolve's 0.58-0.70
+            // "safe/chance" thresholds) regardless of whether anyone could reach
+            // it. Ship the honest crossComp so those gates stop promoting a
+            // crowded cross over a shot/dribble.
             r.push_back(Action{ActionType::Pass, clamp(0.55 + bestScore * 0.25, 0.0, 0.90), bestRunner, 0, 0,
-                               ActionPurpose::Cross, ActionAudit{d, fp, 0.72, 0, 0, 0, 0}});
+                               ActionPurpose::Cross, ActionAudit{d, fp, crossComp, 0, 0, 0, 0}});
         }
     }
     return r;
