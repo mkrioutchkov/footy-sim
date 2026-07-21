@@ -45,6 +45,9 @@ double GKPlayerAI::punchPower() const {
 }
 
 bool GKPlayerAI::shouldRushOut(double threatDist, double ballSpeed, bool throughBall) const {
+    // R28 C5(3): threatDist is now the 2D keeper->ball distance (engine_gk.cpp:278),
+    // not just the x-gap, so a wing-to-wing ball no longer clears this gate and
+    // strands the keeper charging a ball he can't reach.
     if (threatDist > GK_RUSH_DIST + 10.0) return false;
     if (!throughBall && ballSpeed < GK_SAVE_MIN_BALL_SPEED + 20.0) return false;
     double confidence = attrFactor(player.attrs.positioning) * 0.5 + attrFactor(player.attrs.speed) * 0.5;

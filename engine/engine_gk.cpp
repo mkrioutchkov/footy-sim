@@ -248,6 +248,52 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     } else if (ballGoalDist < GK_RUSH_DIST && ballLoose) {
         gk.targetX = goalX + fd * clamp(ballGoalDist * 0.55, 24.0, 155.0);
         gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);
+    } else if (ballLoose && state.ball.intendedReceiverId >= 0
+               && state.ball.lastTouchTeam != gk.team && towardGoal
+               && ballGoalDist < PITCH_W * 0.42 && ballSpeed > 60.0) {
+        // Round-28 C5 (2nd-goal anticipation): an opponent pass is in flight into
+        // our defensive third. Project the ARRIVAL live from the ball's vx/vy/z
+        // EACH TICK (never cache the receiver id) and slide the angle-play target
+        // toward the arrival bisector — blended from the current-ball bisector by
+        // flight progress, CAPPED at 60%. The cap protects the R25 conversion
+        // lever: a keeper who fully commits to the arrival collects almost
+        // everything (engine_gk.cpp:120-131), so a placed finish must still beat
+        // him. Ranked below shot-track / cross-claim (they return early) and above
+        // angle-play, and it does NOT outrank the through-ball rush below.
+        double x = state.ball.x, y = state.ball.y, z = state.ball.z;
+        double vx = state.ball.vx, vy = state.ball.vy, vz = state.ball.vz;
+        double arrX = x, arrY = y, tFlight = 0.05;
+        const double dt = 0.05;
+        for (double tt = 0.0; tt < 1.4; tt += dt) {
+            bool air = z > 2.0;
+            double f = std::pow(air ? BALL_AIR_DRAG : BALL_FRICTION, dt);
+            if (air && lastLooseOrigin != LooseOrigin::Shot) {
+                double sp = std::hypot(vx, vy);
+                if (sp > 180.0) f *= (1.0 - clamp((sp - 180.0) / 900.0, 0.0, 0.14) * dt);
+            }
+            vx *= f; vy *= f; x += vx * dt; y += vy * dt;
+            if (air || vz != 0.0) {
+                z += vz * dt; vz -= GRAVITY * dt;
+                if (z <= 0.0) { z = 0.0; if (vz < -75.0) { vz *= -0.30; vx *= 0.70; vy *= 0.70; } else vz = 0.0; }
+            }
+            arrX = x; arrY = y; tFlight = tt + dt;
+            if (z < 3.0 && std::hypot(vx, vy) < 130.0) break;   // landed & receivable
+            if (std::abs(x - goalX) < 25.0) break;              // reached the goal band
+            if (vx * vx + vy * vy < 36.0) break;                // at rest
+        }
+        auto bisector = [&](double bx, double by, double& tx, double& ty) {
+            double gd = std::max(std::abs(bx - goalX), 1.0);
+            double depth = clamp(gd * 0.30, 24.0, 90.0);
+            double lineT = clamp(depth / gd, 0.0, 1.0);
+            tx = goalX + fd * depth;
+            ty = clamp(gk.homeY + (by - gk.homeY) * lineT, gk.homeY - GOAL_W * 0.55, gk.homeY + GOAL_W * 0.55);
+        };
+        double curX, curY, arrTX, arrTY;
+        bisector(state.ball.x, state.ball.y, curX, curY);
+        bisector(arrX, arrY, arrTX, arrTY);
+        double w = std::min(0.60, clamp(1.15 - tFlight / 0.85, 0.15, 0.60));
+        gk.targetX = lerp(curX, arrTX, w);
+        gk.targetY = lerp(curY, arrTY, w);
     } else if (ballInOurHalf) {
         // Angle play: stand ON the ball-goal line, stepping out with threat —
         // narrowing the angle is most of goalkeeping. The old Y-lerp toward
@@ -275,7 +321,10 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     // (watched replay seed 107, the FK cross that rolled in untouched: keeper
     // 160px off his line under a z=44 cross he could never play). High
     // deliveries belong to the CLAIM system, which only attacks in-envelope.
-    double rushDist = std::abs(gk.x - state.ball.x);
+    // C5(3): gate the rush on 2D distance (was |gk.x-ball.x| only) so a wing-to-
+    // wing ball 200px out laterally doesn't strand him charging its x-shadow; the
+    // lateral term is weighted 0.8 so a slightly-off-centre through ball still rushes.
+    double rushDist = std::hypot(gk.x - state.ball.x, (gk.y - state.ball.y) * 0.8);
     bool rushable = state.ball.z <= AERIAL_HEIGHT + 6.0;
     bool rushing = !deferToTeammate && !backpassToMe
         && (smother1v1 || (ballLoose && rushable && agentFor(gk)->shouldRushOut(rushDist, ballSpeed, throughBall)));
@@ -312,6 +361,17 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     }
 
     double moveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.86;
+    // C5(2): urgency tier — when he's caught well off his target AND a threat is
+    // close to goal, ease his positional pace up to ~1.3x so anticipation actually
+    // arrives inside the flight window. Eased in/out (continuous ramps, no snap;
+    // off_ball_overspeed must stay 0 — 1.3x of ~24px/s is well under any tripwire).
+    {
+        double gtd = std::hypot(gk.targetX - gk.x, gk.targetY - gk.y);
+        if (gtd > 30.0 && ballGoalDist < 250.0) {
+            double ramp = clamp((gtd - 30.0) / 50.0, 0.0, 1.0) * clamp((250.0 - ballGoalDist) / 120.0, 0.0, 1.0);
+            moveSpeed *= 1.0 + 0.30 * ramp;
+        }
+    }
     if (rushing || backpassToMe) moveSpeed += agentFor(gk)->rushOutSpeed();
 
     double dx = gk.targetX - gk.x, dy = gk.targetY - gk.y, d = std::hypot(dx, dy);
