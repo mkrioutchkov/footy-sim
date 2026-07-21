@@ -84,6 +84,17 @@ class Frame:
     agent_ms: float = 0
 
 
+# Known trace event `type` values (mirror of the trace.h comment). Kept in sync
+# whenever the engine emits a new event so downstream tooling has a vocabulary.
+# R28 C3 adds "takeon_lost" (the winner's grant on a read feint); C8 adds "chop"
+# (the two-stage beat cut).
+KNOWN_EVENT_TYPES = frozenset({
+    'goal', 'tackle', 'tackle_won', 'tackle_loose', 'takeon', 'takeon_lost',
+    'chop', 'skill', 'stepover', 'roulette', 'steal', 'pass', 'intercept',
+    'foul', 'stuck', 'freeze', 'throw_in', 'free_kick', 'half_time', 'full_time',
+})
+
+
 @dataclass
 class Event:
     clock_ms: float = 0

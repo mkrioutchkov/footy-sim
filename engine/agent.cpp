@@ -1237,6 +1237,21 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 engine.receiverShieldedPlayerId = def->id;
                 engine.lastLooseOrigin = LooseOrigin::None;                // controlled now — not a loose ball
                 engine.blockReboundFor(p.id, 900);   // beaten carrier can't instantly re-challenge
+                // Round-28 C3(a) (owner 0:21): the winner used to be granted the
+                // ball and pass it 33ms later — the grant read as a magic flip.
+                // Give him the SAME 24-tick (~400ms) gather stun a clean tackle
+                // win gets (:733), so the ball visibly settles at his foot before
+                // any outlet, and amortize its travel across the duel gap over
+                // 2-3 ticks (gather window). Deterministic grant is kept (round-21
+                // tombstone: a loose squirt machine-gunned re-grabs).
+                // Scoped OFF arena (like tackleStopEase / tackleModeLatch): a 1v1
+                // stun+rebound double-static is the round-25/27 dwell-freeze family.
+                if (!engine.arenaMode) {
+                    engine.agentFor(*def)->stunLock(24);
+                    if (def->id >= 0 && def->id < 22)
+                        engine.carrierGatherUntilMs[def->id] = engine.state.clockMs + 100.0;
+                }
+                engine.emitEvent("takeon_lost", def->x, def->y, def->id, p.id);
                 p.dribbleType = 0;
                 p.vx = p.vy = 0;
                 return;

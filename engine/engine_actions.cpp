@@ -1371,6 +1371,10 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         b.intendedReceiverId = -1;
         receiverShieldUntil = state.clockMs + 260;
         receiverShieldedPlayerId = tackler.id;
+        // Round-28 C3(b): amortize the ball across the 17-25px duel gap to the
+        // winner's foot over 2-3 ticks (no knock-ahead, faster pull) instead of
+        // letting it settle at the carry offset far from him.
+        if (tackler.id >= 0 && tackler.id < 22 && !arenaMode) carrierGatherUntilMs[tackler.id] = state.clockMs + 100.0;
         lastLooseOrigin = LooseOrigin::None;
         blockReboundFor(carrier.id, 450);
         // Round-27 COMMIT 2 (eased stop): don't hard-zero the victim's momentum —

@@ -1324,6 +1324,11 @@ void GameEngine::updateControlledBall(double sec) {
         knockExtra = peak * (1.0 - carryTouchTravel / std::max(stride, 1.0));
         if (nearestOppDist < 40.0) knockExtra *= 0.3;
     }
+    // Round-28 C3: during the post-duel gather window tuck the ball to the foot
+    // (no knock-ahead) so the winner's separation converges to ~CONTROL_DIST
+    // (12px) rather than settling at the carry offset — the "he's got it" read.
+    bool gatheringWin = c->id >= 0 && c->id < 22 && carrierGatherUntilMs[c->id] > state.clockMs;
+    if (gatheringWin) knockExtra = 0.0;
     // Offset swing-rate limit (seed 437 0:59, watched at 0.25x: "ball seems to
     // teleport a small distance around the body"): the facing/movement blend
     // swung the control offset ~95deg in 3 ticks, so the glued ball ORBITED
@@ -1367,7 +1372,10 @@ void GameEngine::updateControlledBall(double sec) {
     // the control offset in 2-3 ticks, but stays under the carrier's own stride
     // rather than sling-shotting past him. Well below the +320 CarriedBallOverspeed
     // tripwire, so the census margin is preserved.
-    double maxStep = (std::hypot(c->vx, c->vy) + (freshControl ? 60.0 : 220.0)) * sec;
+    // C3: the gather window pulls the just-won ball in faster (300 allowance,
+    // held under the +320px/s CarriedBallOverspeed tripwire) so it reaches the
+    // foot in 2-3 ticks; a clean fresh interception still eases at 60.
+    double maxStep = (std::hypot(c->vx, c->vy) + (gatheringWin ? 300.0 : freshControl ? 60.0 : 220.0)) * sec;
     bool firstTimedCallThisTick = sec > 1e-6 && state.clockMs != glueStepDoneMs;
     if (firstTimedCallThisTick) glueStepDoneMs = state.clockMs;
     if (md < 60.0 && !(firstTimedCallThisTick && md <= maxStep)) {

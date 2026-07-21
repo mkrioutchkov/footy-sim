@@ -65,7 +65,9 @@ struct TraceFrame {
 
 struct TraceEvent {
     double   clockMs;
-    char     type[24];    // "goal", "tackle", "foul", "stuck", "freeze", "throw_in", "free_kick"
+    char     type[24];    // "goal", "tackle", "tackle_won", "tackle_loose", "takeon",
+                          // "takeon_lost" (R28 C3: winner grant of a read feint),
+                          // "foul", "stuck", "freeze", "throw_in", "free_kick"
     double   x, y;
     int32_t  playerId;
     int32_t  teamId;      // 0=home, 1=away, -1=unknown

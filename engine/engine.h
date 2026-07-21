@@ -233,6 +233,12 @@ public:
     // to DRIBBLE_MEDIUM (52) while the recovering defender sprinted (68) and
     // reeled him straight back in. The beat has to buy a real running start.
     std::array<double, 22> beatWindowUntilMs = {};
+    // Round-28 C3 (duel legibility): the gather window after a duel WIN (clean
+    // tackle or read-the-feint take-on). While this clock is live the carried
+    // ball tucks straight to the foot (no knock-ahead) and pulls in faster (still
+    // under the CarriedBallOverspeed tripwire), so a won ball reads as gathered
+    // within 2-3 ticks instead of floating 17-25px away across the duel gap.
+    std::array<double, 22> carrierGatherUntilMs = {};
     // Carried-ball control-offset direction memory (seed 437 0:59: the offset
     // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
     // the full converge cap — a 337px/s phantom that rendered as a teleport
