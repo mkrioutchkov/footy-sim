@@ -1318,11 +1318,20 @@ void GameEngine::updateControlledBall(double sec) {
         }
         carryTouchTravel += dist(c->x, c->y, carryLastPx, carryLastPy);
         carryLastPx = c->x; carryLastPy = c->y;
-        double stride = 34.0 + speed * 0.25;
+        // Round-28 C6 (Messi control model — "how Messi plays"): the old cadence
+        // touched every ~1.4s and crushed the knock to ~1.8px under pressure — a
+        // welded, invisible ball. Model close control as touch cadence: stride
+        // ~speed*0.55 (a touch every ~0.5-0.7s), and in TIGHT space HALVE the
+        // stride (more, smaller-but-visible touches) rather than crush the
+        // amplitude. Knock floors VISIBLE (7px open, 5px pressed) and scales to
+        // ~17px at sprint. NO friction decay between touches (round-11 reception-
+        // teleport class + the arena ball-at-rest deadlock).
+        bool tight = nearestOppDist < 40.0;
+        double stride = std::max(6.0, speed * 0.55);
+        if (tight) stride *= 0.5;
         if (carryTouchTravel >= stride) carryTouchTravel = 0.0;   // the next touch
-        double peak = clamp(speed * 0.22, 2.0, 15.0);
+        double peak = clamp(speed * 0.24, tight ? 5.0 : 7.0, 17.0);
         knockExtra = peak * (1.0 - carryTouchTravel / std::max(stride, 1.0));
-        if (nearestOppDist < 40.0) knockExtra *= 0.3;
     }
     // Round-28 C3: during the post-duel gather window tuck the ball to the foot
     // (no knock-ahead) so the winner's separation converges to ~CONTROL_DIST
