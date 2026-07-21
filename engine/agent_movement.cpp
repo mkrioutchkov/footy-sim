@@ -344,9 +344,21 @@ void PlayerAI::applyMovement(double sdt) {
     // goals +40% — both flat at 10 min).
     bool committedTackle = lastActionType == ActionType::Tackle && engine.state.ball.controllerId >= 0
         && d < 90.0;
+    // Round-28 C4(4): episode sprint cap. The shepherd recovery burst must not
+    // sprint all match (stamina bleed -> late-half defensive collapse — the exact
+    // 30-min A/B regression the comment above warns of). After ~2s of CONTINUOUS
+    // committed-tackle sprint, throttle to run pace until the pursuit resets; the
+    // closure floor (df) and momentum exemption below stay so he still arrives.
+    if (committedTackle) {
+        if (shepherdSprintSinceMs < -1e8) shepherdSprintSinceMs = engine.state.clockMs;
+    } else {
+        shepherdSprintSinceMs = -1e9;
+    }
+    bool committedTackleSprint = committedTackle
+        && (engine.state.clockMs - shepherdSprintSinceMs <= 2000.0);
     double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)
         ? DRIBBLE_FAST_SPEED
-        : (lastActionType == ActionType::Chase || committedPress || committedTackle || defendSprint || pursuingLooseBall || boxBurst ? SPEED_SPRINT : SPEED_RUN);
+        : (lastActionType == ActionType::Chase || committedPress || committedTackleSprint || defendSprint || pursuingLooseBall || boxBurst ? SPEED_SPRINT : SPEED_RUN);
 
     // Shielding: slow down when near opponents with ball
     bool isController = (engine.state.ball.controllerId == p.id);

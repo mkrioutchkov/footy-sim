@@ -752,26 +752,64 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
                 // edge over a dribbling carrier he gets goal-side, the ball is
                 // shown, and the duel actually happens.
                 double cs = std::hypot(a.target->vx, a.target->vy);
-                double aroundX = 0.0, aroundY = 0.0;
-                if (td < 40.0 && cs > 8.0) {
-                    double bx = (p.x - a.target->x) / std::max(td, 1.0);
-                    double by = (p.y - a.target->y) / std::max(td, 1.0);
-                    if ((bx * a.target->vx + by * a.target->vy) / cs < -0.3) {
-                        lead = 1.25;
-                        // Route AROUND the body: the straight line to a cut-off
-                        // point up the running lane drives the chaser INTO the
-                        // carrier's back, and the separation force cancels the
-                        // approach into a net crawl at exactly the dribble pace
-                        // (measured: 23px behind, 30px/s, for 10s). Swing out on
-                        // the goal side of the run and come around.
-                        double perpX = -a.target->vy / cs, perpY = a.target->vx / cs;
-                        double side = (perpX * (ownGoalXFor(player.team) - a.target->x)) >= 0.0 ? 1.0 : -1.0;
-                        aroundX = perpX * side * 26.0;
-                        aroundY = perpY * side * 26.0;
-                    }
+                // C4(1): re-key the swing-around on the carrier->own-goal ALONG-AXIS
+                // projection of the defender (positive = defender is goal-side).
+                // The old velocity-dot gate flickered every ~200ms; this is a
+                // slow-moving positional read with a 20px release hysteresis and a
+                // ~500ms minimum hold once engaged — persistence, not gate widening
+                // (widening adot to 0 without dwell revived the round-27 orbit).
+                double ogx = ownGoalXFor(player.team);
+                double axX = ogx - a.target->x, axY = PITCH_H / 2.0 - a.target->y;
+                double axL = std::max(1.0, std::hypot(axX, axY));
+                axX /= axL; axY /= axL;
+                double alongProj = (p.x - a.target->x) * axX + (p.y - a.target->y) * axY;
+                bool movingCarrier = cs > 8.0 && td < 40.0;
+                bool wantEngage  = movingCarrier && alongProj < 10.0;
+                bool wantRelease = alongProj > 30.0 || td > 55.0 || cs < 6.0;
+                if (shepherdEngaged && shepherdCarrierId == a.target->id) {
+                    if (engine.state.clockMs >= shepherdHoldUntilMs && wantRelease)
+                        shepherdEngaged = false;
+                } else if (wantEngage) {
+                    shepherdEngaged = true;
+                    shepherdCarrierId = a.target->id;
+                    shepherdHoldUntilMs = engine.state.clockMs + 500.0;   // 450-600ms min hold
                 }
-                p.targetX = clamp(a.target->x + a.target->vx * lead + aroundX, 8.0, PITCH_W - 8.0);
-                p.targetY = clamp(a.target->y + a.target->vy * lead + aroundY, 8.0, PITCH_H - 8.0);
+                if (shepherdEngaged && shepherdCarrierId == a.target->id && p.id >= 0 && p.id < 22) {
+                    // C4: contain-first — hold the raised commit bar through the
+                    // swing AND the "then contains" phase after he re-establishes
+                    // goal-side (~900ms), so the recovery sprint doesn't nick-lunge
+                    // every tick it grazes tackle range (steals off the shield bubble).
+                    engine.containUntilMs[p.id] = engine.state.clockMs + 1100.0;
+                }
+                double aroundX = 0.0, aroundY = 0.0;
+                if (shepherdEngaged && shepherdCarrierId == a.target->id && cs > 6.0) {
+                    // Route AROUND the body to a cut-off point up the running lane:
+                    // a straight line to the lead point drives the chaser INTO the
+                    // carrier's back and the separation force cancels it to a crawl.
+                    double vux = a.target->vx / cs, vuy = a.target->vy / cs;
+                    double perpX = -vuy, perpY = vux;
+                    // C4(3): pure-x carriers make perpX*(ownGoalX-carrier.x) ~ 0 and
+                    // the side pick degenerates to a fixed +1 — fall back to showing
+                    // the carrier toward the NEAREST touchline (defender takes the
+                    // inside, toward center).
+                    double gsMetric = perpX * (ogx - a.target->x);
+                    double side;
+                    if (std::abs(gsMetric) < 8.0) {
+                        double towardCenterY = a.target->y < PITCH_H / 2.0 ? 1.0 : -1.0;
+                        side = (perpY * towardCenterY >= 0.0) ? 1.0 : -1.0;
+                    } else {
+                        side = gsMetric >= 0.0 ? 1.0 : -1.0;
+                    }
+                    // C4(2): a real cut-off LEAD ahead of the run (floor ~50px, was
+                    // vel*1.25 ~ 32px), plus a goal-side swing so he arrives level
+                    // and shows the ball, not glued to the back.
+                    double leadDist = clamp(cs * 1.6, 50.0, 120.0);
+                    p.targetX = clamp(a.target->x + vux * leadDist + perpX * side * 26.0, 8.0, PITCH_W - 8.0);
+                    p.targetY = clamp(a.target->y + vuy * leadDist + perpY * side * 26.0, 8.0, PITCH_H - 8.0);
+                } else {
+                    p.targetX = clamp(a.target->x + a.target->vx * lead, 8.0, PITCH_W - 8.0);
+                    p.targetY = clamp(a.target->y + a.target->vy * lead, 8.0, PITCH_H - 8.0);
+                }
             } else {
                 p.targetX = p.x;
                 p.targetY = p.y;
@@ -1233,7 +1271,10 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 b.lastToucherId = def->id;
                 b.intendedReceiverId = -1;
                 engine.lastRicochetMs = -1e9;
-                engine.receiverShieldUntil = engine.state.clockMs + 260;   // "he read the feint" settle
+                // C4: shield the winner for the FULL 400ms gather stun (was 260) —
+                // a stunned winner left challengeable at 260-400ms was drawing
+                // incidental re-challenges (inflated tackle count).
+                engine.receiverShieldUntil = engine.state.clockMs + 400;   // "he read the feint" settle
                 engine.receiverShieldedPlayerId = def->id;
                 engine.lastLooseOrigin = LooseOrigin::None;                // controlled now — not a loose ball
                 engine.blockReboundFor(p.id, 900);   // beaten carrier can't instantly re-challenge

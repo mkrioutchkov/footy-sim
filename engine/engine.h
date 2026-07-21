@@ -239,6 +239,11 @@ public:
     // under the CarriedBallOverspeed tripwire), so a won ball reads as gathered
     // within 2-3 ticks instead of floating 17-25px away across the duel gap.
     std::array<double, 22> carrierGatherUntilMs = {};
+    // Round-28 C4: a shepherd-engaged trailing defender is CONTAINING (get
+    // goal-side, force the turn) — not nicking. While this clock is live his
+    // tackle commit bar is raised so the recovery sprint into the shield bubble
+    // doesn't inflate incidental steals; he only commits to a clear chance.
+    std::array<double, 22> containUntilMs = {};
     // Carried-ball control-offset direction memory (seed 437 0:59: the offset
     // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
     // the full converge cap — a 337px/s phantom that rendered as a teleport

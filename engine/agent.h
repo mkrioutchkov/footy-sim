@@ -198,6 +198,14 @@ private:
     // stuck outside contact — the earned-lunge trigger (see executeAction).
     int    tackleShadowTicks = 0;
     int    tackleShadowCarrierId = -1;
+    // Round-28 C4 (trailing-defender shepherd): persistence for the swing-around
+    // cut-off. The old velocity-dot gate flickered (hysteresis-free limit cycle
+    // ~200ms). Re-keyed on the carrier->own-goal along-axis projection with a
+    // release hysteresis + a minimum hold once engaged.
+    bool   shepherdEngaged = false;
+    int    shepherdCarrierId = -1;
+    double shepherdHoldUntilMs = -1e9;
+    double shepherdSprintSinceMs = -1e9;   // episode sprint-cap anchor (agent_movement)
     int    skillMoveCooldown = 0;
     // Round-21 (arena 1v1): take-on state. A carrier being escorted by a single
     // jockeying defender (close, goal-side, small relative velocity) accrues

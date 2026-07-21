@@ -1254,6 +1254,13 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // spiked marathonCarries (carriers running free) — the regression this round
     // must avoid. Upper clamp 0.50->0.56 to keep the stay_on_feet headroom.
     double commitBar = clamp(0.40 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.56);
+    // R28 C4: a shepherd-engaged defender is CONTAINING — only commit to a clearly
+    // winnable challenge (bypasses the 0.56 contain-first clamp for this case only,
+    // so the recovery sprint into the shield bubble doesn't inflate incidental
+    // steals). The round-25 long-carry commitBar decay below still overrides it, so
+    // a genuinely stuck escort still resolves.
+    if (tackler.id >= 0 && tackler.id < 22 && containUntilMs[tackler.id] > state.clockMs)
+        commitBar = std::max(commitBar, 0.62);
     // Round-25 (2v2 audit top defect): with a LONE container, contain-first never
     // resolves — carriers ride one jockey 15-24s (marathonCarries 14-17/10min; a
     // 50-rated CM dribbled the full pitch with a defender glued 19-40px away). The
