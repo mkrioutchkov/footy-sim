@@ -57,6 +57,13 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     int onBootBl = 0;
     int blClosing = 0;
     double laneRisk = 0.0;
+    // Round-28 C2(b): accumulate a per-blocker DEPTH factor (0 at the edge of the
+    // blocker radius, ->1 dead-center) so a body squarely in the lane is priced
+    // harder than one clipping its shoulder. Only spent for UNPRESSED passers
+    // (per.pressureCount==0) at the cost site below — the tombstone at :126-133
+    // forbids harder pricing on pressed carriers (it cost -7pp completion and
+    // doubled marathon carries).
+    double blDepthSum = 0.0;
     double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
     if (ls < 1.0) return std::nullopt;
 
@@ -109,12 +116,20 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (perp < effBlocker || stepInWins) {
             bl++;
             if (onBootPresser) onBootBl++;
+            // C2(b): dead-center bodies (perp -> 0) sit fully in the lane; a
+            // step-in blocker (perp >= effBlocker) contributes nothing extra.
+            blDepthSum += clamp((effBlocker - perp) / std::max(effBlocker, 1.0), 0.0, 1.0);
             // Round-24 (seed 512 0:07: settled pid1 threaded a 106px forward
             // ball through a lane defender closing at ~50px/s — perp 19px, it
             // counted as one blocker but blCost only cut completion to ~0.6, so
             // it beat the safe backward outs). A blocker whose velocity projects
             // INTO the lane is arriving; price him harder than a static screen.
-            if (closing > 30.0) blClosing++;
+            // C2(a) (owner 0:22 gifted pass): the interceptor closed at 27.8px/s —
+            // a 2.2px/s miss of the old 30 gate, so his arriving-blocker surcharge
+            // never applied and the pass priced above the 0.66 build floor. Trim
+            // the closing-surcharge threshold 30->25: the 0:22 lane now prices
+            // comp 0.626 < buildFloor 0.66 and is vetoed.
+            if (closing > 25.0) blClosing++;
         }
         else if (perp < 112.0 && t2 > 0.10 && t2 < 0.92) laneRisk += clamp((112.0 - perp) / 76.0, 0.0, 1.0);
         // Opponent right on the boot at release, in the NEAR half of the lane:
@@ -192,6 +207,14 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     if (blClosing > bl) blClosing = bl;
     double base = d > 170.0 ? 0.18 : 0.23;
     double blCost = bl * base + blClosing * base * 0.45;
+    // C2(b): scale the per-blocker cost by (1 + 0.5*depth) for an UNPRESSED
+    // passer only — a calm build-up ball threaded past a dead-center body is
+    // riskier than the flat count says. CAP the surcharge at one dead-center
+    // blocker's worth (base*0.5) so a lone dead-center body on a short ball
+    // lands just under the 0.66 floor (vetoed) without nuking the price and
+    // starving the menu; pressed carriers are untouched (:126-133 tombstone).
+    if (per.pressureCount == 0)
+        blCost += std::min(base * 0.5 * blDepthSum, base * 0.5);
     double completion = clamp(
         0.89 + rs * 0.10 + rr * 0.06 - d / PASS_DIST_NORMALIZATION * 0.28 - blCost
             - std::min(laneRisk, 2.2) * 0.10 - receiverPressure * 0.15 - (fp > 130.0 ? 0.05 : 0.0),
