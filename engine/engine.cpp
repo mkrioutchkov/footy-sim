@@ -1066,10 +1066,58 @@ void GameEngine::populateThrowInSupport(Team spTeam) {
             double fd = fdFor(spTeam);
             double bx = setPiece.spotX;
             double by = setPiece.spotY;
+            double ownX = ownGoalXFor(spTeam);
+            // A throw won deep in our own corner is a BUILD-UP restart, not a
+            // spot-relative attack (mirrors the deep-FK spread in
+            // agent_setpiece.cpp): the spot-relative shape collapsed the whole
+            // team into ~210px in its own quarter — CBs walking past their own
+            // GK, five outfielders deeper than the keeper, the CF "stretch"
+            // landing at CM depth. Anchor targets on OUR goal instead.
+            bool deepThrow = std::abs(bx - ownX) < PITCH_W * 0.35;
+            // Which FB is nearer the throw (he stays as ladder support; the
+            // spare FB gives width on the far flank).
+            int nearFbId = -1; double nearFbD = 1e9;
+            for (auto& p : state.players)
+                if (p.team == spTeam && p.role == Role::FB && !p.sentOff && p.id != setPiece.takerId) {
+                    double dd = std::abs(p.homeY - by);
+                    if (dd < nearFbD) { nearFbD = dd; nearFbId = p.id; }
+                }
             for (auto& p : state.players) {
                 if (p.team != spTeam || p.role == Role::GK) continue;
                 if (p.id == setPiece.takerId) continue;
                 double tx, ty;
+                if (deepThrow) {
+                    double farY = by < PITCH_H / 2.0 ? PITCH_H * 0.75 : PITCH_H * 0.25;
+                    if (p.role == Role::CF) {
+                        tx = ownX + fd * 530.0;
+                        ty = PITCH_H / 2.0 + std::cos(p.id * 2.3) * 60.0;
+                    } else if (p.role == Role::WM) {
+                        if (std::abs(p.homeY - by) < PITCH_H * 0.35) {
+                            tx = bx + fd * 85.0;   // near WM: live combo option
+                            ty = by + (by < PITCH_H / 2.0 ? -50.0 : 50.0);
+                        } else {
+                            tx = ownX + fd * 455.0;   // far WM: switch outlet
+                            ty = farY;
+                        }
+                    } else if (p.role == Role::CM) {
+                        tx = ownX + fd * (175.0 + std::abs(std::sin(p.id * 1.7)) * 35.0);
+                        ty = PITCH_H / 2.0 + std::sin(p.id * 2.1) * 70.0;
+                    } else if (p.role == Role::FB) {
+                        if (p.id == nearFbId) {
+                            tx = ownX + fd * 175.0;   // ladder support under the throw
+                            ty = lerp(by, PITCH_H / 2.0, 0.35);
+                        } else {
+                            tx = ownX + fd * 275.0;   // spare FB: far-flank width
+                            ty = farY;
+                        }
+                    } else {   // CBs: goal-kick-style split, never behind the GK
+                        tx = ownX + fd * 115.0;
+                        ty = (p.homeY < PITCH_H / 2.0) ? PITCH_H * 0.30 : PITCH_H * 0.70;
+                    }
+                    bb.throwInSupport.targetX[p.id] = clamp(tx, 35.0, PITCH_W - 35.0);
+                    bb.throwInSupport.targetY[p.id] = clamp(ty, 35.0, PITCH_H - 35.0);
+                    continue;
+                }
                 if (p.role == Role::CF) {
                     tx = bx + fd * 170.0;
                     ty = PITCH_H / 2.0 + std::cos(p.id * 2.3) * 60.0;
@@ -1093,6 +1141,9 @@ void GameEngine::populateThrowInSupport(Team spTeam) {
                     tx = bx - fd * 55.0;
                     ty = p.homeY;
                 }
+                // Absolute depth floor: no support target ever sits goal-adjacent
+                // (a spot-relative -55 near our box aimed defenders AT our GK).
+                if ((tx - ownX) * fd < 95.0) tx = ownX + fd * 95.0;
                 bb.throwInSupport.targetX[p.id] = clamp(tx, 35.0, PITCH_W - 35.0);
                 bb.throwInSupport.targetY[p.id] = clamp(ty, 35.0, PITCH_H - 35.0);
             }
