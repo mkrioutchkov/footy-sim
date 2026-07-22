@@ -67,6 +67,7 @@ struct TraceEvent {
     double   clockMs;
     char     type[24];    // "goal", "tackle", "tackle_won", "tackle_loose", "takeon",
                           // "takeon_lost" (R28 C3: winner grant of a read feint),
+                          // "chop" (R28 C8: the two-stage beat cut, at the switch),
                           // "foul", "stuck", "freeze", "throw_in", "free_kick"
     double   x, y;
     int32_t  playerId;

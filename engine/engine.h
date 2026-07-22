@@ -252,6 +252,23 @@ public:
     // the zero-epoch never arms the trigger at kickoff.
     std::array<double, 22> committedTackleVsCarrierMs = {};
     std::array<int, 22> committedTackleVsCarrierBy = {};
+    // Round-28 C8 (Messi beat execution): two-stage chop for a WON take-on. The
+    // dash plays stage 1 (lungeDashDirX/Y — hard toward the chosen shoulder,
+    // 45-90° off the goal axis), then cuts onto lungeDashDir2X/Y once remaining
+    // <= lungeDashSwitchPx (~60% left), emitting a 'chop' trace event at the cut.
+    // switchPx==0 (the default, and every non-take-on seed) means single-stage —
+    // the tackler's short committed step is untouched.
+    std::array<double, 22> lungeDashDir2X = {};
+    std::array<double, 22> lungeDashDir2Y = {};
+    std::array<double, 22> lungeDashSwitchPx = {};
+    // Round-28 C8 probe: while this clock is live the carrier's dribble step is
+    // slowed to ~0.7x (moveBallCarrier) — the slow, ball-showing probe touch that
+    // INVITES the jockey's commit (which C7's commit-read then punishes). Renewed
+    // tick-by-tick by the agent, and ONLY inside a hard-capped 0.4-0.9s window of
+    // the jockey lock: the cap is structural — an uncapped probe against the
+    // round-27 contain deadband+dwell re-creates the static face-off / marathon /
+    // arena-freeze tombstones.
+    std::array<double, 22> probeSlowUntilMs = {};
     // Carried-ball control-offset direction memory (seed 437 0:59: the offset
     // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
     // the full converge cap — a 337px/s phantom that rendered as a teleport

@@ -1144,6 +1144,18 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
         // The commit itself is the signal — do NOT gate on jockeyLockTicks: a
         // defender's committing lunge spikes relative velocity, which breaks the
         // lock (resets the timer), so gating on it made the commit-read never fire.
+        // Round-28 C8 probe: half a second into the jockey lock, slow the carry to
+        // a probing ~0.7x touch for a HARD-CAPPED 0.4-0.9s (pair-jittered) window —
+        // show the ball, invite the commit, then let C7's commit-read punish it.
+        // Armed only where a take-on could actually fire (isolated, placement, off
+        // cooldown) and renewed per tick strictly INSIDE the window: the cap is
+        // structural (round-27 contain deadband+dwell = static face-off / marathon /
+        // arena-freeze tombstones; an uncapped probe re-creates them).
+        if (locked && def && takeOnCooldown == 0 && isolated && placementOk) {
+            int probeLen = 24 + ((p.id * 7 + def->id * 13) % 31);   // 24-54 ticks = 0.4-0.9s
+            if (jockeyLockTicks >= 30 && jockeyLockTicks < 30 + probeLen)
+                engine.probeSlowUntilMs[p.id] = engine.state.clockMs + 40.0;   // ~2 ticks — dies unless renewed
+        }
         bool defenderCommitted = def && def->role != Role::GK && def->id >= 0 && def->id < 22
             && engine.committedTackleVsCarrierMs[p.id] > 0.0
             && engine.committedTackleVsCarrierMs[p.id] > engine.state.clockMs - 250.0
@@ -1211,11 +1223,17 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             // lateralFace (can't cut as hard across his body), plus an rng jitter.
             double creF = attrFactor(p.attrs.creativity);
             double j = engine.rng.random();
-            double latMag  = clamp(0.34 + creF * 0.22 - lateralFace * 0.14 + (j - 0.5) * 0.14, 0.30, 0.65);
             double dashLen = clamp(48.0 + creF * 22.0 + (j - 0.5) * 18.0, 45.0, 75.0);
-            // Beat vector: strongly toward goal, a varied lateral slip to the side.
-            double bx = fdc * 0.88, by = side * latMag, bl = std::hypot(bx, by);
-            bx /= bl; by /= bl;
+            // R28 C8 (beat execution): the old beat vector (fdc*0.88 + a small
+            // lateral slip) hard-capped the cut at ~36°, so every won beat was a
+            // straight-line speed roll (realized median 11-18°). Stage 1 now SELLS
+            // THE SHOULDER: 45-90° off the goal axis toward the chosen side —
+            // sharper for the tricky, softened when cutting across his face — for
+            // the first ~40% of the dash; stage 2 (below) snaps goal-ward at the
+            // chop. Unit-length by construction, same ramp/peak speed model.
+            double chopDeg = clamp(45.0 + creF * 25.0 + (j - 0.5) * 24.0 - lateralFace * 18.0, 45.0, 90.0);
+            double chopRad = chopDeg * PI / 180.0;
+            double bx = fdc * std::cos(chopRad), by = side * std::sin(chopRad);
             // Round-21 (take-on audit): differential odds — score the ATTACKER's
             // edge OVER THIS defender, not raw attribute LEVELS. The level form
             // capped equal-65s at ~17.6% and only the arena's cre97-vs-tkl26 ever
@@ -1253,6 +1271,29 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 // it instead of snapping flat to 120 for the whole 45-75px.
                 engine.lungeDashSpd[p.id]  = std::hypot(p.vx, p.vy);
                 engine.lungeDashPeak[p.id] = clamp(72.0 + 32.0 * attrFactor(p.attrs.speed), 80.0, 104.0);
+                // R28 C8: stage 2 — re-aim goal-ward at ~60% remaining (the chop).
+                // Clamped away from the touchlines, and away from an OCCUPIED cover
+                // lane: markActiveShield/blockRebound only lock the BEATEN man, so a
+                // covering defender sitting in the exit lane is cut away from, not
+                // dashed into. engine.cpp swaps the dash onto dir2 at the switch
+                // point and emits the 'chop' event there.
+                double stage1 = clamp(dashLen * 0.4, 15.0, 25.0);
+                double cutX = p.x + bx * stage1, cutY = p.y + by * stage1;
+                double g2x = fdc, g2y = side * 0.25;
+                if (cutY < 95.0)                 g2y = std::max(g2y, 0.18);
+                else if (cutY > PITCH_H - 95.0)  g2y = std::min(g2y, -0.18);
+                for (auto& o : engine.state.players) {
+                    if (o.team == p.team || o.role == Role::GK || o.sentOff || o.id == def->id) continue;
+                    double lox = (o.x - cutX) * fdc, loy = o.y - cutY;
+                    if (lox > 0.0 && lox < 110.0 && std::abs(loy) < 34.0) {
+                        g2y += (loy >= 0.0 ? -0.30 : 0.30);   // exit lane occupied — cut to his empty side
+                        break;
+                    }
+                }
+                double g2l = std::hypot(g2x, g2y);
+                engine.lungeDashDir2X[p.id] = g2x / g2l;
+                engine.lungeDashDir2Y[p.id] = g2y / g2l;
+                engine.lungeDashSwitchPx[p.id] = dashLen - stage1;
                 p.facing = std::atan2(by, bx);
                 p.dribbleType = 3;   // drive on after the burst
                 // Once the body is past him, STRAIGHTEN onto goal — the beat is a
@@ -1263,7 +1304,9 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 double gx = goalXFor(p.team);
                 double gy = PITCH_H / 2.0;
                 p.targetX = clamp(p.x + fdc * 130.0, 30.0, PITCH_W - 30.0);
-                p.targetY = clamp(p.y + by * 34.0 + (gy - p.y) * 0.25, 30.0, PITCH_H - 30.0);
+                // C8: the post-burst drive aligns with the stage-2 exit lane, not
+                // the stage-1 shoulder sell (which now points up to 90° sideways).
+                p.targetY = clamp(p.y + engine.lungeDashDir2Y[p.id] * 34.0 + (gy - p.y) * 0.25, 30.0, PITCH_H - 30.0);
                 (void)gx;
                 // COMMIT 4a: hold DRIBBLE_FAST for ~1.5s so the next tick can't
                 // re-classify the carry down to DRIBBLE_MEDIUM while the beaten

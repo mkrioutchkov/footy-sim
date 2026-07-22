@@ -291,7 +291,23 @@ void GameEngine::fixedUpdate(double sdt) {
     for (auto& p : state.players) {
         double& rem = lungeDashRemainPx[p.id];
         if (rem <= 0.0) continue;
-        if (p.sentOff) { rem = 0.0; continue; }
+        if (p.sentOff) { rem = 0.0; lungeDashSwitchPx[p.id] = 0.0; lungeDashDir2X[p.id] = lungeDashDir2Y[p.id] = 0.0; continue; }
+        // R28 C8: two-stage chop — at the switch point of a won take-on's dash,
+        // cut off the shoulder-sell direction onto the goal-ward second stage
+        // (agent.cpp seeds both). Single 'chop' event marks the cut for the
+        // trace/viewer; speed model untouched (same ramp, same peak), so the
+        // per-tick displacement stays under the carrier tripwire.
+        if (lungeDashSwitchPx[p.id] > 0.0 && rem <= lungeDashSwitchPx[p.id]) {
+            double n2x = lungeDashDir2X[p.id], n2y = lungeDashDir2Y[p.id];
+            if (std::hypot(n2x, n2y) > 0.1) {
+                lungeDashDirX[p.id] = n2x;
+                lungeDashDirY[p.id] = n2y;
+                p.facing = std::atan2(n2y, n2x);
+                emitEvent("chop", p.x, p.y, p.id);
+            }
+            lungeDashSwitchPx[p.id] = 0.0;
+            lungeDashDir2X[p.id] = lungeDashDir2Y[p.id] = 0.0;
+        }
         // Round-23 (carrier burst realism): RAMP the pace up toward the seeded
         // peak (agent.cpp / engine_actions.cpp) at ~150px/s^2 instead of the old
         // one-tick snap to a flat 120, and DECAY it back toward the carrier's

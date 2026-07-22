@@ -1504,6 +1504,11 @@ void GameEngine::moveBallCarrier(double sdt) {
         double staminaSkill = attrFactor(c->attrs.stamina);
         speed *= lerp(0.54 + staminaSkill * 0.20, 1.0, clamp(c->stamina / std::max(1.0, dribSlowThr), 0.0, 1.0));
     }
+    // R28 C8 probe: jockey-locked carrier slows to a probing, ball-showing touch
+    // (~0.7x) that INVITES the defender's commit — which the C7 commit-read then
+    // punishes. The agent renews this only inside a hard-capped 0.4-0.9s window
+    // of the lock (engine.h), so the dip can never latch into a static face-off.
+    if (c->id >= 0 && c->id < 22 && probeSlowUntilMs[c->id] > state.clockMs) speed *= 0.7;
     double dx = c->targetX - c->x, dy = c->targetY - c->y, d = std::hypot(dx, dy);
     double secs = sdt / 1000.0, px = c->x, py = c->y;
     double previousSpeed = std::hypot(c->vx, c->vy);
