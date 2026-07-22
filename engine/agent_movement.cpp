@@ -125,12 +125,14 @@ void PlayerAI::applyMovement(double sdt) {
     // hold a jockey stance ON the ball (a step to the goal-side, facing it) and
     // cap pace to SPEED_RUN so there is no overspeed burst — ready to pounce at
     // expiry. Pure state, no rng.
-    double fdRbl = fdFor(p.team);
     // The pathology (not the benign case of a man already jockeying the ball at
     // his feet): a REACHABLE loose ball (40-150px, not underfoot) that he ignores
-    // to sprint a far-forward off-ball target.
+    // to walk off toward a far off-ball target. Round-29: the original gate only
+    // caught a FORWARD flee — a rebound-blocked player whose shape target was
+    // BACKWARD walked off the ball he just blocked all the same. Any move-away
+    // >30px from the nearby blocked ball triggers the jockey.
     bool rblForwardFlee = dist(p.targetX, p.targetY, engine.state.ball.x, engine.state.ball.y) > 120.0
-                       && (p.targetX - p.x) * fdRbl > 30.0;
+                       && dist(p.targetX, p.targetY, p.x, p.y) > 30.0;
     bool ownReboundBlockedLoose = p.id >= 0 && p.id < 22
         && !engine.arenaMode   // 11v11 only: in a 1v1 the jockey redirect recreates the round-25 freeze
         && engine.contestBlockedUntil[p.id] > engine.state.clockMs

@@ -184,9 +184,17 @@ Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
         // bookkeeping (claimed first-come by farther teammates) was vetoing
         // the best-placed chaser standing 10px from a rolling pass.
         double looseBallDist = dist(player.x, player.y, engine.state.ball.x, engine.state.ball.y);
+        // The guaranteed DEAD-BALL recovery (agent_defend: nearest eligible man
+        // to a stationary ball, score 1.60, "must WIN arbitration") was losing
+        // this slot check to two teammates 260-300px away who claimed the slots
+        // first — the nearest man to a dead ball walked away and the ball sat.
+        // The arbitration winner for a dead ball is never slot-vetoed.
+        double slotBallSpeed = std::hypot(engine.state.ball.vx, engine.state.ball.vy);
         bool priorityChaser = engine.state.ball.intendedReceiverId == player.id
                            || engine.isActiveKnockAheadRunner(player.id)
                            || looseBallDist < 30.0
+                           || (slotBallSpeed < 15.0 && best.purpose == ActionPurpose::RecoverLoose
+                               && best.score >= 1.5)
                            || (engine.lastLooseOrigin == LooseOrigin::GoalkeeperParry && looseBallDist < 230.0);
         auto ps = checkPressSlots(bb, player.id);
         if (!priorityChaser && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
