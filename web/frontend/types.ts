@@ -99,7 +99,7 @@ export interface MatchEvent {
   // NB: the string set is the wire contract with the engine — the C++ trace/WS emitter writes these
   // exact `type` names and the renderer keys its animations off them. `stepover` / `roulette` / `gk_punch`
   // are wired ahead of the engine commit that emits them; an unknown type degrades to the generic ring.
-  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'foul' | 'offside' | 'intercept' | 'save' | 'claim' | 'tip' | 'goal' | 'header' | 'punch' | 'skill' | 'nutmeg' | 'dragback' | 'stepover' | 'roulette' | 'gk_punch' | 'block' | 'penalty' | 'yellow' | 'sub' | 'injury' | 'assist' | 'advantage' | 'red' | 'woodwork' | 'handball' | 'corner_short' | 'clearance';
+  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'takeon_lost' | 'chop' | 'foul' | 'offside' | 'intercept' | 'save' | 'claim' | 'tip' | 'goal' | 'header' | 'punch' | 'skill' | 'nutmeg' | 'dragback' | 'stepover' | 'roulette' | 'gk_punch' | 'block' | 'penalty' | 'yellow' | 'sub' | 'injury' | 'assist' | 'advantage' | 'red' | 'woodwork' | 'handball' | 'corner_short' | 'clearance';
   x: number;
   y: number;
   age: number;

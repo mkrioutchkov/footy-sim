@@ -34,6 +34,12 @@ type PlayerEntry = {
   hadBall: boolean;
   slideAngle: number;
   diveAngle: number;
+  // ── R28 C9 duel legibility (render-only) ──
+  wasRawSliding: boolean;   // raw engine tackleAnim>0 last keyframe (latch onset detector)
+  slideLatchUntil: number;  // match-clock ms: keep displaying the tackle pose until then (min ~450ms —
+                            // a 220ms standing win is ~2.6 keyframes at 12fps, sub-perceptual without it)
+  latchSlideKind: boolean;  // latched pose: true = grounded slide, false = standing poke
+  pokeAngle: number;        // locked at onset — the poked leg aims at the BALL contact point, not the run direction
   lastDribbleType: number;
   wasSprinting: boolean;
   name: string;          // the label's base (short) name — the live rating is appended to it
@@ -1183,6 +1189,10 @@ export class MatchRenderer {
           hadBall: false,
           slideAngle: p.team === 'home' ? 0 : Math.PI,
           diveAngle: p.team === 'home' ? Math.PI : 0,
+          wasRawSliding: false,
+          slideLatchUntil: -1,
+          latchSlideKind: false,
+          pokeAngle: p.team === 'home' ? 0 : Math.PI,
           lastDribbleType: p.dribbleType,
           wasSprinting: false,
           armDrawn: false, armAngle: 0, armCtrlX: 0, armCtrlY: 0, armHasBall: false, armHeading: false, armKnock: false, armDive: false,
@@ -1205,7 +1215,25 @@ export class MatchRenderer {
       if (!tg) { tg = { id: p.id, px: p.x, py: p.y, tx: p.x, ty: p.y }; this.playerTargets.set(p.id, tg); }
       else { tg.px = vp.x; tg.py = vp.y; tg.tx = p.x; tg.ty = p.y; if (Math.hypot(p.x - vp.x, p.y - vp.y) > 120) { tg.px = p.x; tg.py = p.y; } }
       const diving = p.role === 'GK' && (p.diveAnim ?? 0) > 0;
-      const sliding = !diving && (p.tackleAnim ?? 0) > 0;
+      // R28 C9 (duel legibility, render-only): latch the tackle POSE for a minimum
+      // ~450ms of match clock from tackleAnim ONSET. The engine's 220ms standing win
+      // is ~2.6 keyframes at 12fps — sub-perceptual — but the ENGINE value must not
+      // change (tackleAnim feeds trace bytes + the scan_anomalies overlap-flag
+      // exemption), so the extension lives entirely here. A backwards clock jump
+      // (scrub/replay) resets the latch.
+      const rawSliding = !diving && (p.tackleAnim ?? 0) > 0;
+      if (entry.slideLatchUntil > state.clockMs + 450) entry.slideLatchUntil = -1;
+      if (rawSliding && !entry.wasRawSliding) {
+        entry.slideLatchUntil = state.clockMs + 450;
+        entry.latchSlideKind = p.slide === true;
+        // C9: aim the poked leg at the BALL — the contact point of the duel (C3
+        // amortizes the ball-close across the gather, so leg and ball now visually
+        // meet). Locked at onset like the GK diveAngle so the pose doesn't swing.
+        entry.pokeAngle = Math.atan2(b.y - vp.y, b.x - vp.x);
+      }
+      if (rawSliding && p.slide) entry.latchSlideKind = true;   // escalated to a grounded slide mid-anim
+      entry.wasRawSliding = rawSliding;
+      const sliding = rawSliding || (!diving && entry.slideLatchUntil > state.clockMs);
       const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
       const knockDribble = p.dribbleType === 3;
       const sprinting = knockDribble || speed > 39;
@@ -1255,9 +1283,12 @@ export class MatchRenderer {
           entry.body.lineTo(-reach * 1.15, r * 0.3);
           entry.body.stroke({ width: 2, color: 0xffffff, alpha: 0.4 });
         } else if (sliding) {
-          const angle = entry.slideAngle;
-          entry.body.rotation = angle;
-          if (p.slide) {
+          // C9: pose kind is LATCHED (p.slide drops with tackleAnim before the
+          // display latch expires); the grounded slide keeps the movement-locked
+          // slideAngle (dust trails the run), the standing poke aims at the ball.
+          const slideKind = entry.latchSlideKind || p.slide === true;
+          entry.body.rotation = slideKind ? entry.slideAngle : entry.pokeAngle;
+          if (slideKind) {
             // committed GROUNDED slide (engine flags p.slide = tackleAnim>400): long flat body + a dust trail
             entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
             entry.body.fill({ color, alpha: 0.7 });
@@ -1374,6 +1405,7 @@ export class MatchRenderer {
       const skillLike = ev.type === 'skill' || ev.type === 'dragback';
       const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : ev.type === 'nutmeg' ? 1000
         : ev.type === 'tip' ? 1600 : ev.type === 'stepover' ? 450 : ev.type === 'roulette' ? 520 : ev.type === 'gk_punch' ? 460
+        : ev.type === 'takeon_lost' ? 900 : ev.type === 'chop' ? 700
         : skillLike ? 650 : 2200;
       const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
       if (alpha <= 0) continue;
@@ -1481,6 +1513,74 @@ export class MatchRenderer {
         this.eventGfx.stroke({ width: 3, color: col, alpha });
         this.eventGfx.circle(cx + Math.cos(head) * rr, cy + Math.sin(head) * rr, 2.6);
         this.eventGfx.fill({ color: 0xffffff, alpha });
+        continue;
+      }
+      if (ev.type === 'takeon_lost') {
+        // R28 C9: a LOST take-on — the defender READ the feint and was granted the
+        // ball (engine C3). The possession-ring cross-fade (COMMIT 8a, renderFrame)
+        // already animates the ring swap on the controller change, so this cue is
+        // deliberately event-scoped and ring-free (no double-firing): a closing
+        // pincer on the winner (playerId) — "he clamped it" — plus stumble skid
+        // ticks trailing off the beaten carrier (targetId).
+        const winner = ev.playerId != null ? byId.get(ev.playerId) : undefined;
+        const wx = winner ? (this.visualPlayers.get(winner.id)?.x ?? winner.x) : ev.x;
+        const wy = winner ? (this.visualPlayers.get(winner.id)?.y ?? winner.y) : ev.y;
+        const t = ev.age / lifetime;
+        const rr = PLAYER_R + 11 - Math.min(t * 2, 1) * 7;   // pincer closes over the first half
+        for (const s of [1, -1]) {
+          const a0 = (s > 0 ? 0 : Math.PI) - 0.55;
+          this.eventGfx.arc(wx, wy, rr, a0, a0 + 1.1);
+          this.eventGfx.stroke({ width: 2.5, color: 0x7fe08a, alpha: alpha * 0.9 });
+        }
+        const loser = ev.targetId != null ? byId.get(ev.targetId) : undefined;
+        if (loser) {
+          const lx = this.visualPlayers.get(loser.id)?.x ?? loser.x;
+          const ly = this.visualPlayers.get(loser.id)?.y ?? loser.y;
+          const aa = Math.atan2(ly - wy, lx - wx);   // stumble trails away from the duel
+          for (let i = 0; i < 3; i++) {
+            const d0 = PLAYER_R + 2 + i * 4.5;
+            this.eventGfx.moveTo(lx + Math.cos(aa) * d0, ly + Math.sin(aa) * d0);
+            this.eventGfx.lineTo(lx + Math.cos(aa) * (d0 + 4), ly + Math.sin(aa) * (d0 + 4));
+          }
+          this.eventGfx.stroke({ width: 2, color: 0xff9d6b, alpha: alpha * 0.6 });
+        }
+        if (t < 0.55 && labelIdx < this.eventLabels.length) {
+          const label = this.eventLabels[labelIdx++];
+          label.text = 'READ!';
+          label.position.set(wx, Math.max(18, wy - rr - 14));
+          label.style.fill = 0x7fe08a;
+          label.alpha = clamp(1 - t / 0.55, 0, 1);
+          label.visible = true;
+        }
+        continue;
+      }
+      if (ev.type === 'chop') {
+        // R28 C9: the two-stage beat cut (engine C8 emits 'chop' at the dash's
+        // switch point). Anchored to the CUT POINT — the event spot, deliberately
+        // not the moving carrier — so the kink in the run stays marked while the
+        // carrier explodes away: a chevron across the new heading + a short flare
+        // along it + a fading scuff at the spot.
+        const t = ev.age / lifetime;
+        const mover = ev.playerId != null ? byId.get(ev.playerId) : undefined;
+        let ha = 0;
+        if (mover && Math.hypot(mover.vx, mover.vy) > 5) ha = Math.atan2(mover.vy, mover.vx);
+        else if (mover) { const mx = this.visualPlayers.get(mover.id)?.x ?? mover.x, my = this.visualPlayers.get(mover.id)?.y ?? mover.y; ha = Math.atan2(my - ev.y, mx - ev.x); }
+        const col = 0xffd24d;
+        const hx = Math.cos(ha), hy = Math.sin(ha), px = -hy, py = hx;
+        // chevron (the cut) across the exit heading
+        for (const s of [1, -1]) {
+          this.eventGfx.moveTo(ev.x + px * s * 7 - hx * 4, ev.y + py * s * 7 - hy * 4);
+          this.eventGfx.lineTo(ev.x, ev.y);
+        }
+        this.eventGfx.stroke({ width: 3, color: col, alpha });
+        // flare along the new heading (grows then fades — the explode-away)
+        const reach = 8 + t * 18;
+        this.eventGfx.moveTo(ev.x + hx * 4, ev.y + hy * 4);
+        this.eventGfx.lineTo(ev.x + hx * reach, ev.y + hy * reach);
+        this.eventGfx.stroke({ width: 2.5, color: 0xffffff, alpha: alpha * 0.7 });
+        // scuff at the cut point
+        this.eventGfx.circle(ev.x, ev.y, 2.4 + t * 2.5);
+        this.eventGfx.fill({ color: col, alpha: alpha * 0.5 });
         continue;
       }
       if (ev.type === 'gk_punch') {
