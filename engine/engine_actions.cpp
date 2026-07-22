@@ -1324,6 +1324,13 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         }
     }
     if (!committed) return false;
+    // R28 C7: mark that a defender COMMITTED a challenge against this carrier (the
+    // live commit/lunge hook the take-on reads). Set for every committed attempt,
+    // win or miss — a carrier who rides it then bursts past the committed man.
+    if (carrier.id >= 0 && carrier.id < 22) {
+        committedTackleVsCarrierMs[carrier.id] = state.clockMs;
+        committedTackleVsCarrierBy[carrier.id] = tackler.id;
+    }
     // Even a committed challenge inside the box is careful — half the foul risk
     // of an open-field lunge (a clumsy one is still a penalty, just far rarer).
     double boxFoulScale = inPenaltyBox ? 0.54 : 1.0; // 0.5 -> 0.54: penalties ~0.14 -> ~0.3/match (still careful in the box)

@@ -1132,7 +1132,26 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
         bool counterOn      = oppsGoalSide <= 2;
         bool eliteDribbler  = attrFactor(p.attrs.creativity) >= 0.70;
         bool placementOk    = attackingHalf || (middleThird && (eliteDribbler || counterOn));
-        if (def && takeOnCooldown == 0 && jockeyLockTicks >= 60 && isolated && placementOk) {
+        // Round-28 C7 (Messi beat trigger): replace the pure jockey timer with two
+        // paths. PRIMARY commit-read — a jockeying defender has actually committed
+        // a challenge (engine hook, not raw closing velocity: R27 made jockeys
+        // patient, so closing>35 qualified only 5/47); this is the beatable moment.
+        // SECONDARY stall-timeout — a jittered 1.5-2.5s fallback at TODAY'S baseline
+        // odds so the take-on doesn't dry up vs a patient jockey who never commits
+        // (this leg carries most volume; cutting its odds collapses the band). The
+        // jitter is (carrier,defender)-keyed so the inter-attempt histogram doesn't
+        // spike at the timeout value.
+        // The commit itself is the signal — do NOT gate on jockeyLockTicks: a
+        // defender's committing lunge spikes relative velocity, which breaks the
+        // lock (resets the timer), so gating on it made the commit-read never fire.
+        bool defenderCommitted = def && def->role != Role::GK && def->id >= 0 && def->id < 22
+            && engine.committedTackleVsCarrierMs[p.id] > 0.0
+            && engine.committedTackleVsCarrierMs[p.id] > engine.state.clockMs - 250.0
+            && engine.committedTackleVsCarrierBy[p.id] == def->id;
+        int stallThreshold = 90 + ((p.id * 13 + (def ? def->id : 0) * 7) % 61);   // 90-150 ticks = 1.5-2.5s
+        bool viaCommit = defenderCommitted;
+        bool stallTimeout = jockeyLockTicks >= stallThreshold;
+        if (def && takeOnCooldown == 0 && (defenderCommitted || stallTimeout) && isolated && placementOk) {
             double ddx = def->x - p.x, ddy = def->y - p.y, ddl = std::max(1.0, std::hypot(ddx, ddy));
             // Slip to the defender's blind side: the side away from his BODY offset
             // (the ball ends up on the far side from him). Only when he is squared
@@ -1182,7 +1201,10 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             // closing hard at the ball — is easier to slip than a patient jockey.
             double lateralFace = std::max(0.0, side * (ddy / ddl));
             double closing = -((def->vx - p.vx) * ddx + (def->vy - p.vy) * ddy) / ddl;
-            double commitBonus = clamp(closing / 55.0, 0.0, 1.0) * 0.10;
+            // C7: a defender who has COMMITTED is far easier to slip than a patient
+            // jockey — a flat 0.22 read bonus. The stall-timeout leg keeps today's
+            // closing-scaled baseline (do NOT cut it — it carries the volume).
+            double commitBonus = viaCommit ? 0.22 : clamp(closing / 55.0, 0.0, 1.0) * 0.10;
             // COMMIT 5: vary the cut so beats don't all fire the same ~29°/58px
             // shape. Lateral slip in [0.30,0.65] and burst length in [45,75]px,
             // scaled by creativity (sharper, longer for the tricky) and damped by
