@@ -394,7 +394,13 @@ bool GameEngine::checkOutOfPlay() {
     if (b.y < 0 || b.y > PITCH_H) {
         flagSenselessOut();
         clearState();
-        awardThrowIn(lt, b.y < 0 ? 0 : PITCH_H);
+        // Law 15: the body-block knock-off (ricochet) returns before stamping
+        // lastTouchTeam, so a ball rolled dead off a defender's shins was thrown
+        // in by the WRONG side. Genuine touches clear the ricochet memory, so a
+        // live stamp here means the ricochet IS the last contact — exactly the
+        // corner/goal-kick logic above, applied to the touchline.
+        Team outTeam = (lastRicochetMs > -1e8) ? lastRicochetTeam : lt;
+        awardThrowIn(outTeam, b.y < 0 ? 0 : PITCH_H);
         return true;
     }
     if (b.x < HOME_GOAL_X) {
