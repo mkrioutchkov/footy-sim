@@ -1119,14 +1119,20 @@ void GameEngine::populateThrowInSupport(Team spTeam) {
                     continue;
                 }
                 if (p.role == Role::CF) {
-                    tx = bx + fd * 170.0;
+                    // +170 parked the "stretch" man at CM depth — 240 with a
+                    // past-halfway floor makes him a genuine outlet again.
+                    tx = bx + fd * 240.0;
+                    if ((tx - HALF_X) * fd < 40.0) tx = HALF_X + fd * 40.0;
                     ty = PITCH_H / 2.0 + std::cos(p.id * 2.3) * 60.0;
                 } else if (p.role == Role::WM) {
                     if (std::abs(p.homeY - by) < PITCH_H * 0.35) {
-                        tx = bx + fd * 85.0;
+                        tx = bx + fd * 85.0;   // same-side WM: combo option
                         ty = by + (by < PITCH_H / 2.0 ? -50.0 : 50.0);
                     } else {
-                        tx = bx + fd * 30.0;
+                        // +30 put BOTH wingers behind all three CMs (inverted
+                        // ladder at 17/23 throws) — the far WM is the wide
+                        // SWITCH outlet, not a second bail-out.
+                        tx = bx + fd * 165.0;
                         ty = by < PITCH_H / 2.0 ? PITCH_H * 0.73 : PITCH_H * 0.27;
                     }
                 } else if (p.role == Role::CM) {
