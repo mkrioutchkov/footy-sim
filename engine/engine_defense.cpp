@@ -510,10 +510,28 @@ void GameEngine::assignDefensiveRoles(Team team, Player& carrier) {
     // onside-marked). offside_trap deliberately SKIPS this so the raised line can
     // step PAST a loitering attacker and spring him offside — the gamble.
     if (deepestRunner < 1e9 && !holdLine) lineProgress = std::min(lineProgress, std::max(70.0, deepestRunner - 26.0));
+    // Round-29 (owner 0:27): the linear 230px standoff tracked a SLOW mid-third
+    // carry all the way to box depth UNFORCED — Pique ordered to x~104 with the
+    // ball at x=334 and no runner in behind. Depth CURVE floor: retreat
+    // proportionally (55% of carrier distance), never below 140 — but ONLY when
+    // no deep runner pins the line (floor stays under the runner cap; a line
+    // held above a runner's marker would split the back line, and a runner in
+    // behind is exactly when dropping IS forced). Containment (press slot
+    // claimed, carrier slow) is the audited scene: a contained mid-third
+    // carrier gets shape, not a parked box.
+    if (!danger) {
+        double curveFloor = std::max(140.0, std::min(carrierGoalDist - 230.0, 0.55 * carrierGoalDist));
+        bool runnerPins = deepestRunner < 1e9 && !holdLine && deepestRunner - 26.0 < curveFloor;
+        if (!runnerPins)
+            lineProgress = std::max(lineProgress, curveFloor);
+    }
     lineProgress = clamp(lineProgress, 70.0, 360.0);
 
     DefenseContext ctx{team, fd, ownGoalX, danger, tactics, lineProgress, shootingRange, wideDanger,
-                       carrierGoalDist, {}, std::move(ranked), {}};
+                       carrierGoalDist, {}, {}, std::move(ranked), {}};
+    ctx.lineCohesionCap = (deepestRunner < 1e9 && !holdLine)
+        ? clamp(std::max(70.0, deepestRunner - 26.0), 70.0, 360.0)
+        : 360.0;
 
     // Sent-off defenders are parked off-pitch — pre-mark them assigned so every
     // phase below (press / lanes / cover / marking / box) skips them via ctx.used().

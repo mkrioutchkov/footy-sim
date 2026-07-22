@@ -497,12 +497,36 @@ void GameEngine::assignBoxProtection(DefenseContext& ctx, Player& carrier) {
 
 void GameEngine::assignDefensiveLine(DefenseContext& ctx, Player& carrier) {
     int lineIds[8]; int lineCount = 0;
+    // Round-29 (owner 0:27, "drop as a unit"): per-player depth targets had NO
+    // cohesion — on a drop order the nearest-to-spot man plummeted alone
+    // (engine self-report: avgSingleDropGap 111, maxBackLineGap 160). Find the
+    // shallowest line partner already AT his station; no member's target may
+    // sit more than ~60px goal-side of him, so the line steps down together.
+    // Capped at ctx.lineCohesionCap (the deepest-runner/offside limit) so the
+    // floor never lifts a member past a runner in behind.
+    double shallowestArrived = -1e9;
+    if (!ctx.danger) {
+        for (auto& defender : state.players) {
+            if (defender.team != ctx.team || ctx.used(&defender) || defender.sentOff
+                || !roles::isDefenderRole(defender.role)) continue;
+            double prog = (defender.x - ctx.ownGoalX) * ctx.fd;
+            double orderedProg = agentFor(defender)->defensiveLineOffsetX(false, ctx.lineProgress);
+            if (std::abs(prog - orderedProg) < 40.0)
+                shallowestArrived = std::max(shallowestArrived, prog);
+        }
+    }
     for (auto& defender : state.players) {
         if (defender.team != ctx.team || ctx.used(&defender) || defender.sentOff
             || !roles::isDefenderRole(defender.role)) continue;
-        double targetX = ctx.danger
-            ? ctx.ownGoalX + ctx.fd * agentFor(defender)->defensiveLineOffsetX(true, ctx.lineProgress)
-            : ctx.ownGoalX + ctx.fd * agentFor(defender)->defensiveLineOffsetX(false, ctx.lineProgress);
+        double targetX;
+        if (ctx.danger) {
+            targetX = ctx.ownGoalX + ctx.fd * agentFor(defender)->defensiveLineOffsetX(true, ctx.lineProgress);
+        } else {
+            double prog = agentFor(defender)->defensiveLineOffsetX(false, ctx.lineProgress);
+            if (shallowestArrived > -1e8)
+                prog = clamp(std::max(prog, shallowestArrived - 60.0), 70.0, ctx.lineCohesionCap);
+            targetX = ctx.ownGoalX + ctx.fd * prog;
+        }
         double targetY = agentFor(defender)->defensiveLineTargetY(defender.homeY, PITCH_H / 2.0, carrier.y);
         setAssignment(defender, agentFor(defender)->defensiveLineRoleTask(), targetX, targetY);
         if (lineCount < 8) lineIds[lineCount++] = defender.id;

@@ -682,6 +682,10 @@ public:
         bool shootingRange = false;
         bool wideDanger = false;
         double carrierGoalDist = 0;
+        // Round-29: max progress the line may hold (the deepest-runner/offside
+        // cap) — the cohesion floor in assignDefensiveLine must never push a
+        // member past it (that would play the runner onside behind the line).
+        double lineCohesionCap = 360.0;
         std::array<bool, 22> assigned = {};
         SmallVector<Rated, 12> ranked;
         SmallVector<Threat, 12> threats;
