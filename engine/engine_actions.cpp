@@ -845,6 +845,113 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     return true;
 }
 
+// ── Pass grading (round-29, owner 0:18) ── one grader for every forced-release
+// exit path. The watchdog releases (stationary-hold, marathon, circling, freeze,
+// stuck) each picked a receiver by their own ad-hoc "safest man" formula — the
+// circling release had NO lane check at all and forced a ball the pass scorer
+// had graded −0.89 that same tick (interceptor 24px off the lane; census: ~36
+// sub-0.2-grade passes/90 vs owner tolerance ~1/100min). Rubric:
+//   grade = pComplete*(0.55 + 0.45*threat) − (1−pComplete)*0.35*turnoverDanger
+// pComplete distills the scorer's lane machinery (blocker perp with the step-in
+// closing extension, graded mid-lane risk, receiver pressure, length); threat is
+// normalized forward gain; turnoverDanger scales with how close to OUR goal the
+// ball dies if cut. tools/pass_grade.py mirrors this rubric for trace audits —
+// keep them in sync.
+double GameEngine::gradePass(const Player& f, const Player& t, double* pCompleteOut) const {
+    double dx = t.x - f.x, dy = t.y - f.y;
+    double d = std::hypot(dx, dy);
+    if (d < 1.0 || t.sentOff) return -1.0;
+    double ls = d * d;
+    int bl = 0, blClosing = 0, recvPress = 0;
+    double laneRisk = 0.0;
+    for (auto& o : state.players) {
+        if (o.team == f.team || o.role == Role::GK || o.sentOff) continue;
+        if (dist(o.x, o.y, t.x, t.y) < PASS_RECEIVER_PRESS_MAX) recvPress++;
+        double t2 = clamp(((o.x - f.x) * dx + (o.y - f.y) * dy) / ls, 0.0, 1.0);
+        if (t2 * d < 40.0 && dist(o.x, o.y, f.x, f.y) < 42.0) continue;   // on-boot presser blocks every lane equally
+        double cx = f.x + t2 * dx, cy = f.y + t2 * dy;
+        double perp = dist(o.x, o.y, cx, cy);
+        double tlx = cx - o.x, tly = cy - o.y, tld = std::hypot(tlx, tly);
+        double closing = tld > 1.0 ? (o.vx * tlx + o.vy * tly) / tld : 0.0;
+        double effBlocker = PASS_BLOCKER_PERP + clamp(closing / 50.0, 0.0, 1.0) * 13.0;
+        if (perp < effBlocker) {
+            bl++;
+            if (closing > 25.0) blClosing++;
+        } else if (perp < 112.0 && t2 > 0.10 && t2 < 0.92) {
+            laneRisk += clamp((112.0 - perp) / 76.0, 0.0, 1.0);
+        }
+    }
+    double pComplete = clamp(0.92 - d / PASS_DIST_NORMALIZATION * 0.28
+                                  - bl * 0.23 - blClosing * 0.10
+                                  - std::min(laneRisk, 2.2) * 0.10
+                                  - recvPress * 0.15,
+                             0.05, 0.97);
+    if (pCompleteOut) *pCompleteOut = pComplete;
+    double fp = pitch::forwardGain(f.x, t.x, f.team);
+    double threat = clamp((fp + 60.0) / 300.0, 0.0, 1.0);
+    double turnoverDanger = clamp(1.25 - pitch::distToOwnGoal(t.x, f.team) / (PITCH_W * 0.8), 0.35, 1.10);
+    return pComplete * (0.55 + 0.45 * threat) - (1.0 - pComplete) * 0.35 * turnoverDanger;
+}
+
+// SAFEST receiver clearing the grade floor for a forced release, or nullptr
+// when nobody does — the caller then CLEARS to space instead of gifting an
+// interception. Ranked by pComplete, gated by grade: a watchdog bail-out is a
+// safety ball, not a line-breaker (ranking by grade let the threat term turn
+// every forced release into an attacking pass and pushed goals out of noise).
+Player* GameEngine::bestGradedReceiver(const Player& f, double maxDist, double floor, double* gradeOut) {
+    Player* best = nullptr;
+    double bestP = -1e9, bestG = -1.0;
+    for (auto& o : state.players) {
+        if (o.team != f.team || o.id == f.id || o.role == Role::GK || o.sentOff) continue;
+        double d = dist(f.x, f.y, o.x, o.y);
+        if (d < 30.0 || d > maxDist) continue;
+        double pc = 0.0;
+        double g = gradePass(f, o, &pc);
+        if (g < floor) continue;
+        if (pc > bestP) { bestP = pc; bestG = g; best = &o; }
+    }
+    if (gradeOut) *gradeOut = bestG;
+    return best;
+}
+
+// Forced-release fallback when no receiver clears the grade floor: hoof toward
+// the most open forward-ish direction. A throw-in conceded ≫ a gifted
+// interception (owner 0:18). Deterministic — direction from geometry only.
+void GameEngine::hoofClearToSpace(Player& f) {
+    double fd = fdFor(f.team);
+    double bestAng = 0.0, bestOpen = -1e9;
+    for (int i = -2; i <= 2; i++) {
+        double ang = i * 0.55;                        // fan of forward directions
+        double ux = fd * std::cos(ang), uy = std::sin(ang);
+        double px = f.x + ux * 220.0, py = f.y + uy * 220.0;
+        double open = 1e9;
+        for (auto& o : state.players) {
+            if (o.team == f.team || o.role == Role::GK || o.sentOff) continue;
+            open = std::min(open, dist(o.x, o.y, px, py));
+        }
+        // keep the hoof aimed inside the pitch when possible
+        if (py < 20.0 || py > PITCH_H - 20.0) open -= 120.0;
+        if (open > bestOpen) { bestOpen = open; bestAng = ang; }
+    }
+    auto& b = state.ball;
+    double ux = fd * std::cos(bestAng), uy = std::sin(bestAng);
+    placeBallForRelease(f, ux, uy);
+    b.controllerId = -1;
+    b.intendedReceiverId = -1;
+    receiverShieldTargetId = -1;
+    pendingPass.active = false;
+    driveBall(b, ux, uy, 1.0, 300.0);
+    b.vz = 90.0;
+    b.z = 0.0;
+    b.lastTouchTeam = f.team;
+    b.lastToucherId = f.id;
+    lastRicochetMs = -1e9;
+    blockReboundFor(f.id, 600);
+    stats.recordClearance();
+    emitEvent("clearance", f.x, f.y, f.id);
+    recordBallImpulse();
+}
+
 void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* audit) {
     double dx = t.x - f.x, dy = t.y - f.y, rawDist = std::hypot(dx, dy);
     if (rawDist < 1) return;

@@ -50,7 +50,12 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     bool keeperOutlet = t.role == Role::GK && ((urgentKeeperNeed && !hasClearOutfieldOutlet) || keeperRecycle);
     if (t.role == Role::GK && !keeperOutlet) return std::nullopt;
     double d = dist(p.x, p.y, t.x, t.y);
-    if (d < PASS_MIN_DISTANCE || d > (keeperOutlet ? PASS_MAX_DISTANCE_KEEPER : PASS_MAX_DISTANCE)) return std::nullopt;
+    // Round-29 (owner 0:18): the anti-ping-pong minimum (58px) barred the natural
+    // 5m escape ball for a SWARMED carrier — real players play the short give
+    // under a 2-man press constantly. Waive it down to 30px at pressureCount>=2;
+    // calm play keeps the full minimum so sub-6m ping-pong stays dead.
+    double minPassD = per.pressureCount >= 2 ? 30.0 : PASS_MIN_DISTANCE;
+    if (d < minPassD || d > (keeperOutlet ? PASS_MAX_DISTANCE_KEEPER : PASS_MAX_DISTANCE)) return std::nullopt;
     if (!keeperOutlet && engine.isOffsideTargetPerceived(p, t)) return std::nullopt;
 
     int bl = 0;

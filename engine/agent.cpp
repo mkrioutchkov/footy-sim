@@ -573,6 +573,35 @@ Action PlayerAI::resolveChoice(SmallVector<Action, 24>& a) {
     if (Action* r = tryFinalThirdOverride(a, best, ic)) return *r;
     if (Action* r = tryNearGoalShotBias(a, best, ic, nearGoal, gx)) return *r;
 
+    // ── Absolute pass-quality floor (round-29, owner 0:18) ── whatever menu
+    // arithmetic produced it, a chosen ordinary Pass whose shared grade is
+    // sub-floor loses to dribble/hold/shield — deliberate-risk classes
+    // (through/cross/cutback/clear) keep their aggression, and a genuinely
+    // swarmed carrier in his own third is left alone (the clearance valve is
+    // his out, not a shield that invites the swarm).
+    if (ic && best.type == ActionType::Pass && best.target
+        && best.purpose != ActionPurpose::Clear && best.purpose != ActionPurpose::Through
+        && best.purpose != ActionPurpose::Cross && best.purpose != ActionPurpose::Cutback
+        && engine.gradePass(player, *best.target) < 0.2) {
+        int pcFloor = cachedPerception.has_value() ? cachedPerception->pressureCount : 0;
+        bool emergency = pitch::distToOwnGoal(player.x, player.team) < PITCH_W * 0.33 && pcFloor >= 2;
+        if (!emergency) {
+            for (auto& x : a)
+                if (x.type == ActionType::Dribble && x.score > 0.15) return x;
+            double nearOpp = 1e9;
+            for (auto& o : engine.state.players)
+                if (o.team != player.team && o.role != Role::GK && !o.sentOff)
+                    nearOpp = std::min(nearOpp, dist(player.x, player.y, o.x, o.y));
+            if (nearOpp < 46.0) return Action{ActionType::Hold, 1.0};
+            double fd = fdFor(player.team);
+            double side = player.y < PITCH_H / 2.0 ? 1.0 : -1.0;
+            return Action{ActionType::Dribble, 0.20, nullptr,
+                          clamp(player.x + fd * 55.0, 35.0, PITCH_W - 35.0),
+                          clamp(player.y + side * 34.0, 35.0, PITCH_H - 35.0),
+                          ActionPurpose::Space};
+        }
+    }
+
     return best;
 }
 

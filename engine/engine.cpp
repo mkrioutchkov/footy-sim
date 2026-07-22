@@ -612,17 +612,12 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
             carrierTracker.stationaryHoldMs += sdt;
             if (carrierTracker.stationaryHoldMs >= 420.0) {
                 carrierTracker.stationaryHoldRecorded = true;
-                Player* best = nullptr;
-                double bestD = 1e9;
-                for (auto& p : state.players) {
-                    if (p.team != c->team || p.id == c->id || p.role == Role::GK) continue;
-                    double d = dist(c->x, c->y, p.x, p.y);
-                    if (d < bestD) {
-                        bestD = d;
-                        best = &p;
-                    }
-                }
-                if (best && bestD < 360.0) {
+                // Round-29: NEAREST teammate is not a graded ball — route this
+                // exit through the shared pass grader; below the floor, the
+                // dribble nudge is the honest escape (an unpressured stationary
+                // carrier must never gift a low-grade pass).
+                Player* best = bestGradedReceiver(*c, 360.0, 0.2);
+                if (best) {
                     forcePassTo(*c, *best, nullptr);
                 } else {
                     double side = c->y < PITCH_H / 2.0 ? 1.0 : -1.0;
@@ -703,6 +698,7 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
                     if (oppD < coverMin) continue;                 // covered — not a safe release
                     double lc = laneCost(o);
                     if (lc > 1e8) continue;                        // certain deflection
+                    if (gradePass(*c, o) < 0.2) continue;          // round-29: shared grade floor on every exit path
                     double score = oppD - lc - std::abs((o.x - c->x) * fd) * 0.15; // safest open man, near before far
                     double wantAng = std::atan2(o.y - c->y, o.x - c->x);
                     double offF = std::abs(std::atan2(std::sin(wantAng - c->facing), std::cos(wantAng - c->facing)));
@@ -715,6 +711,13 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
                 if (best) {
                     c->facing = std::atan2(best->y - c->y, best->x - c->x);   // square up with the release, not a no-looker
                     forcePassTo(*c, *best, nullptr);
+                    carrierTracker.marathonReleased = true;
+                } else if (desperate) {
+                    // Round-29: no receiver clears the grade floor and the carry
+                    // has dragged past 6.5s — clear to space rather than either
+                    // gifting a graded-refused ball or carrying forever (the
+                    // unfired-release tombstone above).
+                    hoofClearToSpace(*c);
                     carrierTracker.marathonReleased = true;
                 }
             }
@@ -738,6 +741,13 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
                     nearestOpp = std::min(nearestOpp, qd);
                 }
                 if (tightMarkers >= 2 && nearestOpp < 32.0) {
+                    // Round-29 (owner 0:18 — THE headline): this pick had NO lane
+                    // check — "wide-open" measured only the receiver's marker
+                    // distance, so it forced a ball the pass scorer had graded
+                    // −0.89 that same tick, straight down a covered lane
+                    // (interceptor 24px off the line, INTCPT comp=0). Route it
+                    // through the shared grader; if nobody clears the floor,
+                    // CLEAR — a throw-in conceded ≫ a gifted interception.
                     Player* best = nullptr;
                     double bestScore = -1e9;
                     for (auto& o : state.players) {
@@ -749,11 +759,15 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
                             if (q.team != c->team && q.role != Role::GK && !q.sentOff)
                                 oppD = std::min(oppD, dist(o.x, o.y, q.x, q.y));
                         if (oppD < 90.0) continue;                 // WIDE-open only
+                        if (gradePass(*c, o) < 0.2) continue;      // shared grade floor
                         double score = oppD - std::abs((o.x - c->x) * fd) * 0.15; // safest, not most forward
                         if (score > bestScore) { bestScore = score; best = &o; }
                     }
                     if (best) {
                         forcePassTo(*c, *best, nullptr);
+                        carrierTracker.marathonReleased = true;
+                    } else {
+                        hoofClearToSpace(*c);
                         carrierTracker.marathonReleased = true;
                     }
                 }
@@ -966,17 +980,10 @@ void GameEngine::detectSimulationFreeze(double sdt) {
         } else if (freezeDetector.freezeWatchMs > 1500 && state.clockMs - freezeDetector.lastFreezeAlertMs > 5000) {
             Player* frozen = playerById(cid);
             Player* best = nullptr;
-            double bestD = 1e9;
-            if (frozen && frozen->role != Role::GK) {
-                for (auto& p : state.players) {
-                    if (p.team != frozen->team || p.id == frozen->id || p.role == Role::GK) continue;
-                    double d = dist(frozen->x, frozen->y, p.x, p.y);
-                    if (d < bestD) {
-                        bestD = d;
-                        best = &p;
-                    }
-                }
-            }
+            if (frozen && frozen->role != Role::GK)
+                // Round-29: graded receiver, not nearest — below the floor the
+                // nudge branch below un-freezes him without gifting a bad ball.
+                best = bestGradedReceiver(*frozen, 380.0, 0.2);
             if (frozen && best) {
                 stats.recordSimulationFreeze();
                 forcePassTo(*frozen, *best, nullptr);
@@ -2035,27 +2042,14 @@ void GameEngine::auditStuckCarrier(double sdt) {
     }
     if (carrierTracker.watchedCarrierMs > STUCK_CARRIER_TIMEOUT_MS * 0.65) {
         stats.recordStuckCarrier();
-        Player* best = nullptr;
-        double bestD = 1e9;
-        for (auto& p : state.players) {
-            if (p.team != carrier->team || p.id == carrier->id || p.role == Role::GK) continue;
-            if (p.sentOff) continue;   // Round-21: never force a pass to an off-pitch (sent-off/arena-parked) team-mate — it hoofed the stuck ball to a phantom at y=-40 (arena: only the GK remains, so this falls through to the forward hoof below)
-            double d = dist(carrier->x, carrier->y, p.x, p.y);
-            if (d < bestD) {
-                bestD = d;
-                best = &p;
-            }
-        }
+        // Round-29: graded receiver, not nearest (bestGradedReceiver skips
+        // sent-off men — the round-21 phantom-target guard holds); when nobody
+        // clears the floor the forward hoof below is the honest escape.
+        Player* best = bestGradedReceiver(*carrier, 400.0, 0.2);
         if (best)
             forcePassTo(*carrier, *best, nullptr);
-        else {
-            auto& b = state.ball;
-            b.controllerId = -1;
-            b.vx = carrier->team == Team::Home ? 300 : -300;
-            b.vy = 0;
-            b.vz = 80;
-            b.z = 0;
-        }
+        else
+            hoofClearToSpace(*carrier);
         setPiece.armed = false;
         setPiece.type = SetPiece::None;
         setPiece.team = Team::Home;
