@@ -230,13 +230,57 @@ void PlayerAI::setPiecePositioning(SetPiece spType, Team spTeam) {
                     }
                 }
             }
-            if (isDefenderRole()) {
-                bool postGuard = isFullBack();
+            // ── Round-30 (arena audit D8): STAND-INS for missing box roles ──
+            // The jobs below are handed out purely BY ROLE: full backs guard the
+            // posts, centre backs guard the six-yard zone. When the side fields
+            // nobody of that role — every arena size, and an 11v11 mauled by red
+            // cards or injuries — the job silently fell through to the zonal
+            // `else` and a defended corner had the keeper alone on his line with
+            // the outfielders 14-18m upfield: nobody in the box, nobody marking.
+            // Fill the UNCLAIMED jobs with the nearest spare outfielders, ranked
+            // by distance to our own goal (id tiebreak), so every defender
+            // computes the same assignment with no shared state. Always leave at
+            // least one man out of the box as the counter outlet — unless no
+            // defender exists at all, in which case the box comes first.
+            // At full strength postOpen == boxOpen == 0, so nothing changes.
+            int nFb = 0, nCb = 0, nOut = 0;
+            for (auto& q : engine.state.players) {
+                if (q.team != p.team || q.role == Role::GK || q.sentOff) continue;
+                nOut++;
+                if (roles::isFullBack(q.role)) nFb++;
+                else if (roles::isCenterBack(q.role)) nCb++;
+            }
+            int postOpen = std::max(0, 2 - nFb);
+            int boxOpen  = std::max(0, 2 - nCb);
+            int spare    = nOut - nFb - nCb;
+            int fill = std::min(postOpen + boxOpen,
+                                std::max((nFb + nCb) == 0 ? 1 : 0, spare - 1));
+            int standIn = 0, standInRank = 0;   // 1 = post guard, 2 = box guard
+            if (fill > 0 && !isFullBack() && !isCenterBack()) {
+                double myD = dist(p.x, p.y, ownGoalX, PITCH_H / 2.0);
+                for (auto& q : engine.state.players) {
+                    if (q.team != p.team || q.id == p.id || q.role == Role::GK || q.sentOff) continue;
+                    if (roles::isFullBack(q.role) || roles::isCenterBack(q.role)) continue;
+                    double qd = dist(q.x, q.y, ownGoalX, PITCH_H / 2.0);
+                    if (qd < myD - 1e-9 || (std::abs(qd - myD) <= 1e-9 && q.id < p.id)) standInRank++;
+                }
+                if (standInRank < std::min(postOpen, fill)) standIn = 1;
+                else if (standInRank < fill)                standIn = 2;
+            }
+            if (isDefenderRole() || standIn != 0) {
+                bool postGuard = isFullBack() || standIn == 1;
                 p.targetX = ownGoalX + fd * (postGuard ? 42.0 : 68.0);
-                if (postGuard) {
+                if (postGuard && isFullBack()) {
                     p.targetY = nearTop
                         ? (p.homeY < PITCH_H / 2.0 ? PITCH_H * 0.25 : PITCH_H * 0.66)
                         : (p.homeY > PITCH_H / 2.0 ? PITCH_H * 0.75 : PITCH_H * 0.34);
+                } else if (postGuard) {
+                    // A stand-in's home anchor says nothing about which post is
+                    // his (a CF anchors on the centre line), so the ranked order
+                    // splits them instead.
+                    bool nearSide = (standInRank % 2) == 0;
+                    p.targetY = nearTop ? (nearSide ? PITCH_H * 0.25 : PITCH_H * 0.66)
+                                        : (nearSide ? PITCH_H * 0.75 : PITCH_H * 0.34);
                 } else {
                     p.targetY = PITCH_H / 2.0 + (p.id % 2 == 0 ? -54.0 : 54.0);
                 }
