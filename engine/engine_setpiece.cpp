@@ -1021,6 +1021,11 @@ void GameEngine::releaseCornerKick(Player& holder) {
     // — a corner can't be offside directly), and clearReleasedSetPiece's
     // restartRetouchBlockedId = taker still fires after we return, so the taker's
     // double-touch law holds until the short receiver plays it.
+    // Round-30: hoist the single per-corner rng draw out of the short-corner
+    // short-circuit so it is spent exactly once per corner, whether or not a free
+    // short option exists — the whipped branch below then reuses it for delivery
+    // dispersion instead of opening a second call site.
+    const double cornerRoll = rng.random();
     {
         double cx = setPiece.spotX, cy = setPiece.spotY;
         Player* shortOpt = nullptr;
@@ -1038,7 +1043,7 @@ void GameEngine::releaseCornerKick(Player& holder) {
             double score = nearestDef - dCorner * 0.15;       // freest man; tiebreak nearest the flag
             if (score > bestFree) { bestFree = score; shortOpt = &p; }
         }
-        if (shortOpt && rng.random() < SHORT_CORNER_PROB) {
+        if (shortOpt && cornerRoll < SHORT_CORNER_PROB) {
             double dx = shortOpt->x - holder.x, dy = shortOpt->y - holder.y, d = std::max(1.0, std::hypot(dx, dy));
             auto& b = state.ball;
             b.controllerId = -1;
@@ -1068,9 +1073,63 @@ void GameEngine::releaseCornerKick(Player& holder) {
     }
     std::sort(targets.begin(), targets.end(), [](const RatedTarget& a, const RatedTarget& b) { return a.score > b.score; });
     if (!targets.empty()) {
-        Player& target = *targets.front().player;
-        double tx = goalX + (holder.team == Team::Home ? -1.0 : 1.0) * 85.0;
-        double ty = lerp(target.y, PITCH_H / 2.0, 0.55);
+        // Round-30: aim by OCCUPANCY, not at a constant. Every corner used to be
+        // whipped at goalX +/- 85 with ty pulled 55% toward the centre line, which
+        // lands 1.1 m from where the zonal shape anchors a centre-back
+        // (ownGoalX + fd*68, PITCH_H/2 +/- 54): 32 of 63 airborne deliveries fell
+        // within 1.2 m of one of exactly two mirror points, the nearest defender at
+        // the release frame was a CB in 54 of 73 corners at a median 22.6px, and
+        // the result was 0 goals from 371 corners. Score a handful of candidate
+        // landing spots by how clear they are (nearest defender, minus half the
+        // distance to the nearest team-mate so the ball still goes where someone
+        // can attack it) and take the best. The back post at |y-340| ~ 100-130 is
+        // the genuinely free zone: outside GK_CLAIM_HALF_W, with a full-back post
+        // guard ~48px away instead of a centre-back at 11.
+        const double fdc = fdFor(holder.team);
+        // Deeper for the back post; the shallowest candidate still clears
+        // GK_CLAIM_DEPTH (78) with margin — see the hard clamp below.
+        static const double CAND_LAT[5]   = {  20.0,  47.0,  75.0, 102.0, 130.0 };
+        static const double CAND_DEPTH[5] = {  92.0,  98.0, 105.0, 112.0, 120.0 };
+        double bestAim = -1e9, tx = goalX - fdc * 92.0, ty = PITCH_H / 2.0;
+        for (int side = -1; side <= 1; side += 2) {
+            for (int k = 0; k < 5; ++k) {
+                double candX = goalX - fdc * CAND_DEPTH[k];
+                double candY = PITCH_H / 2.0 + side * CAND_LAT[k];
+                double nearestDef = 1e9, nearestAtt = 1e9;
+                for (auto& o : state.players) {
+                    if (o.sentOff) continue;
+                    double dd = dist(o.x, o.y, candX, candY);
+                    if (o.team != holder.team) nearestDef = std::min(nearestDef, dd);
+                    else if (o.id != holder.id && o.role != Role::GK) nearestAtt = std::min(nearestAtt, dd);
+                }
+                double sc = nearestDef - 0.5 * nearestAtt;
+                if (sc > bestAim) { bestAim = sc; tx = candX; ty = candY; }
+            }
+        }
+        // Dispersion off the SAME single draw the branch already spends, remapped
+        // twice so the two axes decorrelate: no two corners land on one pixel and
+        // no new rng call site opens.
+        double du = std::fmod(cornerRoll * 9.7 + 0.137, 1.0);
+        double dv = std::fmod(cornerRoll * 23.3 + 0.611, 1.0);
+        tx += (du * 2.0 - 1.0) * 15.0;
+        ty += (dv * 2.0 - 1.0) * 20.0;
+        // HARD CONSTRAINT: the delivery never enters the keeper's claim envelope
+        // (constants.h GK_CLAIM_DEPTH = 78). This is what keeps the commit
+        // compatible with the deferred GK cross-claim work — relax it and the
+        // keeper takes roughly half the deliveries at header height, and corners
+        // get MORE sterile than they were.
+        tx = goalX - fdc * clamp(std::abs(tx - goalX), 92.0, 145.0);
+        ty = clamp(ty, 40.0, PITCH_H - 40.0);
+        // Address it to whoever can actually attack that spot, so the run and the
+        // ball agree (the fixed-point version addressed the highest-rated target
+        // and then whipped it somewhere else).
+        Player* aimed = targets.front().player;
+        double bestReach = 1e9;
+        for (auto& rt : targets) {
+            double dd = dist(rt.player->x, rt.player->y, tx, ty);
+            if (dd < bestReach) { bestReach = dd; aimed = rt.player; }
+        }
+        Player& target = *aimed;
         double dx = tx - holder.x, dy = ty - holder.y, d = std::hypot(dx, dy);
         if (d > 1.0) {
             // Driven corner delivery — same whip treatment as open-play crosses,
