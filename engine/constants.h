@@ -311,6 +311,24 @@ inline constexpr double ARENA_RESTART_SCALE     = 0.35;
 // '1'..'3' and ran "--arena 7" as a 1v1 with no diagnostic).
 inline constexpr int    ARENA_MAX_OUTFIELDERS   = 10;
 
+// Round-30 (arena audit D3): the arena keeper's punt is aimed at the outlet's
+// LED position, but it is still a long ball played into space, not a pass to
+// feet — dropped exactly on the receiver it becomes a 50/50 with his marker on
+// the spot (measured at 1v1: fouls 46->124/90, tackles 372->1198/90). Land it
+// this far BEYOND the lead point so the receiver runs onto it with a head
+// start. The pre-round-30 launch was effectively a fixed ~575px carry, i.e. an
+// uncontrollable ~275px overshoot; this is the calibrated version of that idea.
+inline constexpr double ARENA_PUNT_RUN_ON       = 120.0;
+// ...and it is still a CLEARANCE: a keeper does not roll it 250px into his own
+// half to a man with a marker on his shoulder. Solving the range exactly did
+// that (1v1 corners 6.8->63/90 — the short punt was turned over on the edge of
+// the box, over and over). Never launch it shorter than this.
+inline constexpr double ARENA_PUNT_MIN_RANGE    = 420.0;
+// Lateral offset of the arena punt target, off the punt axis and away from the
+// receiver's nearest opponent — the ball is played into space beside him, not
+// onto his toes, and the delivery stops tracing one centre-line corridor.
+inline constexpr double ARENA_PUNT_SPACE        = 90.0;
+
 // ── Goal-kick long-distribution mix ── even a possession side mixes in a
 // longer distribution to a target man rather than ALWAYS playing out short
 // (watched replay seed 105: goal kicks were taken short unrealistically

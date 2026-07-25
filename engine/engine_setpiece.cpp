@@ -591,8 +591,36 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
             // is contestable — he runs onto it instead of hunting a dead spot.
             double raw = dist(holder.x, holder.y, outlet->x, outlet->y);
             double eta = clamp(raw / 300.0, 0.4, 2.2);   // driven punt ~300px/s
-            targetX = clamp(outlet->x + outlet->vx * eta, 45.0, PITCH_W - 45.0);
-            targetY = clamp(outlet->y + outlet->vy * eta, 55.0, PITCH_H - 55.0);
+            double leadX = outlet->x + outlet->vx * eta;
+            double leadY = outlet->y + outlet->vy * eta;
+            // Round-30 (arena audit D3/D4): once the punt actually REACHES its
+            // lead point (see the range solve below) it must not drop onto a
+            // marked man's toes — that is a 50/50 on the spot, and the arena
+            // punt otherwise always leaves at v(300,~0) straight down the centre
+            // line. Push the target sideways, off the punt axis, AWAY from the
+            // receiver's nearest opponent: he runs onto it into space, and the
+            // delivery finally varies laterally instead of tracing one corridor.
+            double ux = leadX - holder.x, uy = leadY - holder.y;
+            double ul = std::max(1.0, std::hypot(ux, uy));
+            double perpX = -uy / ul, perpY = ux / ul;
+            const Player* marker = nullptr;
+            double markD = 1e9;
+            for (const auto& o : state.players) {
+                if (o.team == holder.team || o.sentOff || o.role == Role::GK) continue;
+                double od = dist(o.x, o.y, outlet->x, outlet->y);
+                if (od < markD) { markD = od; marker = &o; }
+            }
+            double side = 1.0;
+            if (marker && (marker->x - outlet->x) * perpX + (marker->y - outlet->y) * perpY > 0.0)
+                side = -1.0;
+            // Only meaningful with a SECOND outfielder to cover the space (the
+            // same gate agent_movement's nearest-chaser concept uses). In a 1v1
+            // the lone receiver IS the only man who can reach it, so putting the
+            // ball beside him just recreates the stall it was meant to cure
+            // (measured: LOOSE_STALL 2.7 -> 10.9 per 10 min at N=1).
+            double lateral = arenaOutfielders >= 2 ? ARENA_PUNT_SPACE : 0.0;
+            targetX = clamp(leadX + perpX * side * lateral, 45.0, PITCH_W - 45.0);
+            targetY = clamp(leadY + perpY * side * lateral, 55.0, PITCH_H - 55.0);
         } else {
             targetX = clamp(holder.x + fd * 575.0, 45.0, PITCH_W - 45.0);
             targetY = outlet ? outlet->y : (nearestPress ? (nearestPress->y < PITCH_H / 2.0 ? PITCH_H * 0.72 : PITCH_H * 0.28) : holder.y);
@@ -605,11 +633,27 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         placeBallForRelease(holder, dx, dy);
         b.lastTouchTeam = holder.team;
         b.lastToucherId = holder.id;
-        driveBall(b, dx, dy, d, 300.0);   // punt at ~108 km/h (was 119)
         // Feet-only hold (back-pass law): the long ball is a driven low punt
-        // off the deck, never the from-hands launch.
-        b.vz = gkHoldFeetOnly ? 120.0 : 300.0;
-        b.z = gkHoldFeetOnly ? 0.0 : 28.0;
+        // off the deck, never the from-hands launch. Both launches are decided
+        // here because the arena punt has to SOLVE for its speed (below).
+        double puntVz = gkHoldFeetOnly ? 120.0 : 300.0;
+        double puntZ  = gkHoldFeetOnly ? 0.0 : 28.0;
+        // Round-30 (arena audit D3): driveBall normalises the direction and
+        // DISCARDS d, so a flat 300 always carried the ball ~575px — exactly
+        // what the 11v11 branch above is calibrated for (targetX = fd*575), but
+        // the arena branch aims at a LED receiver who is usually much nearer.
+        // Every arena punt therefore overshot its outlet by ~275px and sat dead
+        // while both strikers sprinted at it (the LOOSE_STALL x29 signature:
+        // stall points exactly 575px from each goal, every ~14s). Solve the
+        // launch speed that actually lands the ball on the lead point. The
+        // 11v11 branch keeps its calibrated constant, untouched.
+        double puntSpeed = 300.0;
+        if (arenaMode && outlet)
+            puntSpeed = driveSpeedForRange(std::max(d + ARENA_PUNT_RUN_ON, ARENA_PUNT_MIN_RANGE),
+                                           puntVz, puntZ, 150.0, 400.0);
+        driveBall(b, dx, dy, d, puntSpeed);   // 300 => ~108 km/h (was 119)
+        b.vz = puntVz;
+        b.z = puntZ;
         gkHoldFeetOnly = false;
         b.intendedReceiverId = -1;
         emitEvent("pass", holder.x, holder.y, holder.id, outlet ? outlet->id : -1); // tag the GK long distribution (audit #6)

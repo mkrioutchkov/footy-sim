@@ -73,3 +73,51 @@ inline void driveBall(Ball& b, double dirX, double dirY, double dirLen, double s
     b.vx = dirX / dirLen * speed;
     b.vy = dirY / dirLen * speed;
 }
+
+// ── Range <-> launch speed for a driven ball ──
+// NOTE: driveBall normalises the direction and DISCARDS dirLen, so a caller
+// that "aims at a point" only ever sets the DIRECTION — the distance travelled
+// is a pure function of `speed`. Callers that need the ball to actually ARRIVE
+// somewhere must solve for the speed; these two helpers do that.
+//
+// driveRange mirrors applyBallPhysics' drag / stop-rate / gravity / one-bounce
+// model (walls, bodies and wind excluded — same simplification predictBallPos
+// makes). Fixed step, fixed iteration bound: a pure, deterministic function of
+// its arguments.
+inline double driveRange(double speed, double vz0, double z0) {
+    double v = speed, vz = vz0, z = z0, x = 0.0;
+    constexpr double dt = 0.02;
+    for (int i = 0; i < 600; ++i) {                     // <= 12s of flight
+        bool airborne = z > 2.0;
+        double f = std::pow(airborne ? BALL_AIR_DRAG : BALL_FRICTION, dt);
+        if (airborne && v > 180.0)
+            f *= (1.0 - clamp((v - 180.0) / 900.0, 0.0, 0.14) * dt);
+        v *= f;
+        if (z < 1.0 && v > 0.0 && v < 65.0) v = std::max(0.0, v - 95.0 * dt);
+        if (z < 1.0 && v < 4.0) v = 0.0;
+        x += v * dt;
+        if (vz != 0.0 || z > 0.0) {
+            vz -= GRAVITY * dt;
+            z += vz * dt;
+            if (z <= 0.0) {
+                z = 0.0;
+                if (vz < -75.0) { vz *= -0.30; v *= 0.70; }
+                else             { vz = 0.0; }
+            }
+        }
+        if (v <= 0.0) break;
+    }
+    return x;
+}
+
+// Inverse of driveRange: the launch speed that carries the ball ~`range` px.
+// Range is monotonic in speed, so a fixed-iteration bisection over [lo,hi] is
+// both accurate to well under a pixel and byte-stable across runs.
+inline double driveSpeedForRange(double range, double vz0, double z0,
+                                 double lo, double hi) {
+    for (int i = 0; i < 28; ++i) {
+        double mid = 0.5 * (lo + hi);
+        if (driveRange(mid, vz0, z0) < range) lo = mid; else hi = mid;
+    }
+    return 0.5 * (lo + hi);
+}
