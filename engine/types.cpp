@@ -47,6 +47,7 @@ QualityFlag qualityFlagFromStr(std::string_view s) {
     if (s == "ball_teleport") return QualityFlag::BallTeleport;
     if (s == "carrier_overspeed") return QualityFlag::CarrierOverspeed;
     if (s == "gifted_pass") return QualityFlag::GiftedPass;
+    if (s == "offside_ball_relocation") return QualityFlag::OffsideBallRelocation;
     return QualityFlag::Unknown;
 }
 

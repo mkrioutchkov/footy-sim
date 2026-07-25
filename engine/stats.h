@@ -264,6 +264,11 @@ class StatsCollector {
     void recordCarrierOverspeed() { carrierOverspeed++; }   // carrier BODY stepped beyond the ramped dash peak (round-23 arena 0:05)
     void recordGiftedPass() { giftedPasses++; }   // unforced ball threaded into an opponent already in the lane (round-23 "retard pass")
     void recordBallTeleport() { ballTeleports++; }   // loose ball's one-tick position jumped beyond any legal flight (seed 629 0:48)
+    // Round-30: an offside award that RELOCATED the ball to the flagged player's
+    // feet. awardOffsideFreeKick arms the set piece in the same tick, which
+    // suppresses the ball_teleport tripwire — so a pre-arrival offside call could
+    // (and did) fling the ball 265px in one frame with nothing recording it.
+    void recordOffsideBallRelocation() { offsideBallRelocations++; }
     // A corner conceded by the defender's own deliberate kick (not a save,
     // duel or deflection) — the "player kicks it out of his own end" class.
     void recordOwnCornerConcession() { ownCornerConcessions++; }
@@ -397,6 +402,7 @@ class StatsCollector {
     int senselessOutOfPlay = 0, senselessGiveaways = 0;
     int unknownQualityFlags = 0;
     int restartLawViolations = 0;
+    int offsideBallRelocations = 0;
     int nonsensePasses = 0;
     int decisionMoments = 0, playerDecisions = 0, staleGrabs = 0, skillMoves = 0, shotsBlocked = 0;
     int takeOnAttempts = 0, takeOnWins = 0;

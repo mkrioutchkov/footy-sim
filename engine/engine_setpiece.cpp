@@ -59,6 +59,15 @@ bool GameEngine::checkOffside(const Player& receiver, const Player& passer) cons
 
 void GameEngine::awardOffsideFreeKick(Team defTeam, const Player& offsidePlayer) {
     auto& b = state.ball;
+    // Round-30 tripwire: this function RELOCATES the ball to the flagged
+    // player's feet, and it arms the set piece in the same tick — which is
+    // exactly what `!setPiece.armed` suppresses at the ball_teleport check, so a
+    // flag raised before the ball ever arrived could (and did) fling it 265px in
+    // one frame with nothing recording it. Measure the jump BEFORE overwriting
+    // the position. A correctly-timed call moves the ball ~13-25px (the receiver
+    // is already on it); anything past 40px means the ball had not arrived.
+    if (dist(b.x, b.y, offsidePlayer.x, offsidePlayer.y) > 40.0)
+        stats.recordQualityFlag(QualityFlag::OffsideBallRelocation);
     b.x = clamp(offsidePlayer.x, 20.0, PITCH_W - 20);
     b.y = clamp(offsidePlayer.y, 20.0, PITCH_H - 20);
     b.vx = b.vy = b.z = b.vz = 0;

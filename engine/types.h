@@ -62,7 +62,8 @@ enum class QualityFlag : uint8_t {
     CarriedBallOverspeed,   // the glued/carried ball stepped faster than the carrier + firm-touch allowance (seed 437 0:59 orbit-teleport)
     BallTeleport,   // a loose ball's one-tick position jumped beyond any legal flight (seed 629 0:48 save-punch snap)
     CarrierOverspeed,   // a ball carrier's BODY stepped faster than the ramped dash peak (~104px/s) — the flat-120 burst artifact (round-23 arena 0:05)
-    GiftedPass   // an unforced ball cut by an opponent already standing in the release lane while the passer had space (round-23 "retard pass" outcome flag)
+    GiftedPass,   // an unforced ball cut by an opponent already standing in the release lane while the passer had space (round-23 "retard pass" outcome flag)
+    OffsideBallRelocation   // an offside award moved the ball >40px to the flagged player's feet — the ball had NOT arrived when the flag went up (round-30)
 };
 
 inline constexpr std::string_view to_string(Team t) { return t == Team::Home ? "home" : "away"; }
@@ -165,6 +166,7 @@ inline constexpr std::string_view to_string(QualityFlag flag) {
         case QualityFlag::BallTeleport: return "ball_teleport";
         case QualityFlag::CarrierOverspeed: return "carrier_overspeed";
         case QualityFlag::GiftedPass: return "gifted_pass";
+        case QualityFlag::OffsideBallRelocation: return "offside_ball_relocation";
         case QualityFlag::Unknown: return "unknown";
     }
     return "unknown";

@@ -484,17 +484,6 @@ bool GameEngine::tryCutbackFirstTimeFinish(double bs) {
     if (b.controllerId < 0 && pendingPass.active && (pendingPass.isCross ? bs > 190.0 : pendingPass.isCutback && bs > 110.0) && b.intendedReceiverId >= 0 && b.z <= GROUND_MEET_MAX_Z + 6.0) {
         Player* rcv = playerById(b.intendedReceiverId);
         if (rcv && rcv->team == pendingPass.team && (rcv->role == Role::CF || rcv->role == Role::WM || rcv->role == Role::CM)) {
-            // Law 11 (audit HIGH): this path cleared pendingPass and shot
-            // without ever consulting the offside snapshot — a receiver
-            // offside at the whip could sweep it in unflagged. Same judgment
-            // as resolvePendingPass, from the same launch snapshot.
-            if (!pendingPass.offsideExempt && rcv->id == pendingPass.toId && pendingPass.receiverOffsideAtPass) {
-                stats.recordOffside();
-                emitEvent("offside", rcv->x, rcv->y, rcv->id, pendingPass.fromId);
-                pendingPass.active = false;
-                awardOffsideFreeKick(rcv->team == Team::Home ? Team::Away : Team::Home, *rcv);
-                return true;
-            }
             double goalX = goalXFor(rcv->team);
             double tgd = std::abs(rcv->x - goalX);
             double dRcv = dist(rcv->x, rcv->y, b.x, b.y);
@@ -519,6 +508,28 @@ bool GameEngine::tryCutbackFirstTimeFinish(double bs) {
                     frontPress++;
             }
             if (inBox && reachable && !keeperCloser) {
+                // Law 11 (audit HIGH): this path cleared pendingPass and shot
+                // without ever consulting the offside snapshot — a receiver
+                // offside at the whip could sweep it in unflagged. Same judgment
+                // as resolvePendingPass, from the same launch snapshot.
+                // Round-30: this test used to sit ABOVE the dRcv/inBox/reachable
+                // gates, and the enclosing guard is true on the FIRST tick after
+                // any low cross leaves the foot — so the flag went up at the
+                // STRIKE and awardOffsideFreeKick then dragged the ball up to
+                // 265px to the flagged player's feet while it was still on the
+                // kick spot. Offside is a decision about a player who BECOMES
+                // INVOLVED, so judge it where the involvement happens: the r9
+                // comment always said the point was to gate the SHOT. Deliberate
+                // consequence: when keeperCloser is true this now falls through
+                // and the keeper gathers with no offside given — correct, the
+                // offside-positioned attacker never became involved at all.
+                if (!pendingPass.offsideExempt && rcv->id == pendingPass.toId && pendingPass.receiverOffsideAtPass) {
+                    stats.recordOffside();
+                    emitEvent("offside", rcv->x, rcv->y, rcv->id, pendingPass.fromId);
+                    pendingPass.active = false;
+                    awardOffsideFreeKick(rcv->team == Team::Home ? Team::Away : Team::Home, *rcv);
+                    return true;
+                }
                 // A keeper right on top of the chance smothers the tap-in — proximity
                 // to the RUNNER (not just the ball) cuts the finish toward zero.
                 double gkProx = clamp((55.0 - gkDistToRcv) / 55.0, 0.0, 1.0);
