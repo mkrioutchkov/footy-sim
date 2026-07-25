@@ -132,6 +132,9 @@ public:
     // set when halfTimePause is armed, cleared when the restart fires.
     bool halfTimeWalkActive = false;
     std::array<int, 22> yellowCards = {};
+    // Round-30: per-team clock at which the next tired-legs change may be
+    // considered (the manager window). Injuries bypass it.
+    std::array<double, 2> nextSubWindowMs = {0.0, 0.0};
     // Round-30 (arena audit D5): fouls conceded per player, used ONLY by the
     // arena repeat-offender damping in resolveTackleFoul (11v11 never reads it).
     std::array<int, 22> arenaFoulCount = {};

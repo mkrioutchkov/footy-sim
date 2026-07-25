@@ -590,6 +590,15 @@ void GameEngine::fixedUpdate(double sdt) {
     }
     detectSimulationFreeze(sdt);
 
+    // Round-30: substitutions are made AT STOPPAGES, so the check has to run
+    // before the phase dispatch. It used to be the first statement of
+    // updateOpenPlayPhase, which the dispatch below only reaches when
+    // !setPiece.armed && !phase.kickoffPhase — while updateSubstitutions itself
+    // returns unless one of those is TRUE. Provably unsatisfiable, and measured
+    // as such: 290k entries, 663 cadence hits, 0 gate passes, 0 substitutions in
+    // 12 of 12 ninety-minute matches.
+    updateSubstitutions();
+
     if (setPiece.armed) {
         updateSetPiecePhase(sdt, sec);
         return;
@@ -1929,7 +1938,6 @@ void GameEngine::updateKickoffPhase(double sdt) {
 }
 
 void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
-    updateSubstitutions();
     sampleVelocityOrigins();
     auto& b = state.ball;
     if (b.controllerId >= 0) contestBlockedUntil[b.controllerId] = 0;
@@ -2402,28 +2410,62 @@ void GameEngine::creditGoal(int scorerId) {
 }
 
 void GameEngine::initBench() {
-    // Reserve names per side — flavour only; attrs are a notch below the
-    // starters (subs are squad players, not the legends they replace).
-    static const char* homeRes[] = {"Pirlo", "Casillas", "Maldini", "Zidane", "Carlos", "Puyol", "Kaka", "Villa"};
-    static const char* awayRes[] = {"Cannavaro", "Vidic", "Pirlo", "Toure", "Sneijder", "Silva", "Aguero", "Ferdinand"};
+    // Reserve identities. Round-30: a reserve is now a NAMED squad player with the
+    // SHAPE of the legend he is named after, put through the same elite compression
+    // the starting legends get (legendAttrsFor's cz) and then a notch below —
+    // instead of seven flat random rolls in bands that could hand a tiring Messi's
+    // shirt to a reserve with BETTER attributes than the man he replaced. The seven
+    // rng draws per reserve are kept, in the same order, and re-used as a small
+    // per-attribute form jitter, so the stream POSITION is unchanged; only the
+    // values move (and only once a substitution actually happens).
+    struct Reserve { const char* name; PlayerAttributes attrs; };
+    // {speed, passing, creativity, shooting, tackling, positioning, stamina}
+    static const Reserve homeRes[8] = {
+        {"Pirlo",     {58, 96, 92, 74, 50, 86, 78}},
+        {"Casillas",  {56, 58, 52, 30, 42, 90, 72}},
+        {"Maldini",   {74, 76, 62, 48, 92, 92, 84}},
+        {"Zidane",    {72, 92, 96, 80, 58, 84, 82}},
+        {"Carlos",    {88, 74, 76, 82, 70, 70, 86}},
+        {"Puyol",     {72, 66, 52, 46, 92, 88, 88}},
+        {"Kaka",      {86, 84, 88, 82, 44, 76, 82}},
+        {"Villa",     {82, 78, 82, 88, 40, 74, 82}},
+    };
+    static const Reserve awayRes[8] = {
+        {"Cannavaro", {74, 70, 56, 40, 90, 90, 84}},
+        {"Vidic",     {68, 64, 48, 52, 92, 86, 84}},
+        {"Pirlo",     {58, 96, 92, 74, 50, 86, 78}},
+        {"Toure",     {76, 80, 74, 70, 84, 82, 88}},
+        {"Sneijder",  {68, 90, 90, 82, 52, 80, 80}},
+        {"Silva",     {70, 92, 92, 72, 46, 80, 80}},
+        {"Aguero",    {86, 78, 86, 90, 38, 74, 80}},
+        {"Ferdinand", {74, 74, 58, 44, 88, 90, 82}},
+    };
+    // Same compression legendAttrsFor applies to the starting XI, then x0.97: a
+    // squad player, directly comparable to the man he comes on for.
+    auto squad = [](double v) { return clamp(63.0 + (v - 63.0) * 0.28, 38.0, 80.0) * 0.97; };
     for (int t = 0; t < 2; ++t) {
         bench[t].clear();
         for (int i = 0; i < 7; ++i) {
+            const Reserve& r = (t == 0) ? homeRes[i % 8] : awayRes[i % 8];
+            auto roll = [&](double base) { return squad(base) * (0.96 + rng.random() * 0.08); };
             PlayerAttributes a;
-            auto roll = [&](double lo, double hi) { return lo + rng.random() * (hi - lo); };
-            a.speed = roll(60, 84);
-            a.passing = roll(58, 84);
-            a.creativity = roll(55, 82);
-            a.shooting = roll(50, 82);
-            a.tackling = roll(55, 86);
-            a.positioning = roll(60, 86);
-            a.stamina = roll(74, 90);
-            const char* nm = t == 0 ? homeRes[i % 8] : awayRes[i % 8];
-            bench[t].push_back({nm, a, false});
+            a.speed = roll(r.attrs.speed);
+            a.passing = roll(r.attrs.passing);
+            a.creativity = roll(r.attrs.creativity);
+            a.shooting = roll(r.attrs.shooting);
+            a.tackling = roll(r.attrs.tackling);
+            a.positioning = roll(r.attrs.positioning);
+            a.stamina = roll(r.attrs.stamina);
+            // Derived, no extra draw — matches mkPlayer, and stops a substitute
+            // inheriting the flat 50 defaults for the aerial duel.
+            a.handling = a.positioning;
+            a.height = a.positioning;
+            bench[t].push_back({r.name, a, false});
         }
     }
     subsRemaining = {5, 5};
     nextSubCheckMs = 0;
+    nextSubWindowMs = {0.0, 0.0};
 }
 
 void GameEngine::sendOff(Player& p) {
@@ -2448,44 +2490,65 @@ void GameEngine::sendOff(Player& p) {
 
 void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
     in.used = true;
+    // Round-30: emit BEFORE the slot is overwritten. The event used to be raised
+    // after slot.name had already become the incoming player's, so every consumer
+    // that resolves the name from engine state at emit time named the man coming
+    // ON in a toast that reads "... off". (The live JSON stream serialises events
+    // and players from the same tick, so the shipping renderer still needs a
+    // payload/renderer-side change to say both names — noted, not done here.)
+    stats.recordSubstitution();
+    emitEvent("sub", slot.x, slot.y, slot.id);
     char prefix = slot.team == Team::Home ? 'H' : 'A';
     slot.name = std::format("{}{} {}", prefix, slot.id, in.name);
     slot.attrs = in.attrs;
     slot.stamina = 100.0; // fresh legs
     slot.injurySeverity = 0.0;
+    slot.needsReplacement = false;   // the latched knock leaves with him
     slot.sentOff = false;
     yellowCards[slot.id] = 0;
-    stats.recordSubstitution();
-    emitEvent("sub", slot.x, slot.y, slot.id);
 }
 
 void GameEngine::updateSubstitutions() {
     // Manager check on a coarse cadence (deterministic — clock-driven). A team
     // brings someone on for an injured player immediately, or for a spent one
     // in the closing stretch, while subs remain.
+    // §arena: no bench in an exhibition — the spare slots are parked off-pitch,
+    // there is nobody to legally replace, and a swap would resurrect a ghost.
+    if (arenaMode) return;
     if (state.clockMs < nextSubCheckMs) return;
-    nextSubCheckMs = state.clockMs + 8000.0;
     // Substitutions happen at STOPPAGES, and they cost time (owner: "added
     // time... should be a real thing - so substitutions should take actual
     // time"). The swap waits for a dead ball, visibly extends the hold, and
-    // credits the board the ~20s a real change burns.
+    // credits the board the ~20s a real change burns. Round-30: the cadence
+    // advance used to sit ABOVE this gate, so every open-play tick ate the 8s
+    // window and a short set piece could fall clean between two checks.
     if (!setPiece.armed && !phase.kickoffPhase) return;
-    double minute = state.clockMs / 60000.0;
+    nextSubCheckMs = state.clockMs + 8000.0;
+    // Round-30 manager window. The old test was `p.stamina < 32 && minute > 58`:
+    // 32 sits BELOW the drain floor (STAMINA_MATCH_FLOOR + staminaSkill*12 = 50-62),
+    // whole-match minimum measured at 82.4 over 44 player-matches, so it was
+    // unreachable — and an absolute minute-58 would never fire in a short
+    // exhibition match either. Score freshness SQUAD-RELATIVE instead (this
+    // commit changes no STAMINA_* constant and no physics), and scale the window
+    // off matchDurationMs exactly as the added-time board already does: changes
+    // open at two-thirds time and recur on a ~9-minute-at-90 cadence.
+    const double subsOpenMs  = matchDurationMs * (60.0 / 90.0);
+    const double subWindowMs = matchDurationMs * 0.09;
     for (int t = 0; t < 2; ++t) {
         if (subsRemaining[t] <= 0) continue;
         Team team = static_cast<Team>(t);
+        bool windowOpen = state.clockMs >= subsOpenMs && state.clockMs >= nextSubWindowMs[t];
         Player* worst = nullptr;
-        double worstScore = 0.0;
+        double worstScore = -1e9;
         bool injuredFound = false;
         for (auto& p : state.players) {
             if (p.team != team || p.role == Role::GK || p.sentOff) continue;
             if (p.id == state.ball.controllerId) continue; // never swap a man mid-carry
-            bool injured = p.injurySeverity > 0.18;
-            // Spent: low stamina, and only once the game is worth burning a
-            // sub on (after the hour, or any time if badly hurt).
-            bool spent = p.stamina < 32.0 && minute > 58.0;
-            if (!injured && !spent) continue;
-            double score = (injured ? 100.0 + p.injurySeverity * 100.0 : 0.0) + (100.0 - p.stamina);
+            // Latched: injurySeverity decays at 1/90 per second, so a 0.30 knock
+            // was gone in ~11s and the old `> 0.18` test almost never saw it.
+            bool injured = p.needsReplacement;
+            if (!injured && !windowOpen) continue;
+            double score = (injured ? 1000.0 + p.injurySeverity * 100.0 : 0.0) + (100.0 - p.stamina);
             if (score > worstScore) {
                 worstScore = score;
                 worst = &p;
@@ -2505,9 +2568,15 @@ void GameEngine::updateSubstitutions() {
             }
         }
         if (!best) continue;
-        // A tired-but-not-injured swap only fires sometimes per window, so
-        // teams don't empty the bench at minute 58 all at once.
-        if (!injuredFound && rng.random() > 0.45) continue;
+        // A tired-but-not-injured change is the manager's call: one roll per
+        // window, then the window closes either way so a side cannot empty its
+        // bench at the hour. Measured: ~4 windows a side over the closing third,
+        // so 0.57 lands the match at 5 changes (target band 4-6) — the rate was
+        // trimmed here rather than anywhere near the fatigue model.
+        if (!injuredFound) {
+            nextSubWindowMs[t] = state.clockMs + subWindowMs;
+            if (rng.random() > 0.57) continue;
+        }
         substituteSlot(*worst, *best);
         subsRemaining[t]--;
         // The change burns real time: extend the current hold so the swap is

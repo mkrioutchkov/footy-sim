@@ -1233,6 +1233,10 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
             double injChance = fromBehind ? 0.030 : 0.009;
             if (rng.random() < injChance) {
                 carrier.injurySeverity = std::max(carrier.injurySeverity, 0.30 + rng.random() * 0.45);
+                // Round-30: latch it. injurySeverity decays at 1/90 per second,
+                // so the manager had ~11s to spot a 0.30 knock at an 8s cadence
+                // that also needed a stoppage to land in — he never did.
+                carrier.needsReplacement = true;
                 stats.recordInjury();
                 emitEvent("injury", carrier.x, carrier.y, carrier.id);
             }

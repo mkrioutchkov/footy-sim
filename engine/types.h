@@ -217,6 +217,10 @@ struct Player {
     // Knock from a hard foul: decays over time, scales down max speed while
     // it lasts. A player carrying a real injury is a substitution candidate.
     double injurySeverity = 0.0;
+    // Round-30: LATCHED knock marker. injurySeverity decays at 1/90 per second,
+    // so the substitution test that read it directly had ~11s to notice a 0.30
+    // knock and never did. Set with the injury, cleared only by the swap.
+    bool needsReplacement = false;
     // Morale shading: deviation from neutral in [-1,1] (+ lifts effort/pace, - saps
     // it), decaying toward 0 over the match. Default 0 = NO effect (golden-safe).
     // Seeded from the spec (pre-match morale) / nudged by motivational shouts later —
