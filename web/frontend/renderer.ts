@@ -1143,6 +1143,23 @@ export class MatchRenderer {
 
     // ── players ──
     for (const p of state.players) {
+      // A sent-off player is NOT on the pitch — skip his sprite entirely. The
+      // engine always emits all 22 rows (the id is the array index) and parks
+      // the ejected ones outside the touchline, so without this a red card
+      // leaves a body loitering off the byline, and an arena match (where 16-18
+      // slots are parked at once) draws a whole rank of them.
+      if (p.sentOff) {
+        const gone = this.playerEntries.get(p.id);
+        if (gone) {
+          gone.shadow.visible = false;
+          gone.body.visible = false;
+          gone.arrow.visible = false;
+          gone.label.visible = false;
+          gone.dirTag.visible = false;
+        }
+        this.playerTargets.delete(p.id);   // and stop the 60fps tween from chasing him
+        continue;
+      }
       let entry = this.playerEntries.get(p.id);
       if (!entry) {
         const shortName = p.name.split('(')[1]?.replace(')', '') ?? p.name;
@@ -1200,6 +1217,12 @@ export class MatchRenderer {
         this.playerEntries.set(p.id, entry);
         this.syncNeedsImmediateDraw = true;   // position the just-created shapes this sync (else they'd flash at the origin)
       }
+      // Back on the pitch (a scrub/replay stepping back before the red card):
+      // undo the hide above. dirTag keeps its own per-frame visibility rule.
+      entry.shadow.visible = true;
+      entry.body.visible = true;
+      entry.arrow.visible = true;
+      entry.label.visible = true;
 
       const color = p.role === 'GK'
         ? (p.team === 'home' ? HOME_GK_COLOR : AWAY_GK_COLOR)

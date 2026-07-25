@@ -18,6 +18,16 @@ OOB_MARGIN = 12.0              # outside pitch by more than this
 OOB_MIN_MS = 1500
 SPIN_WINDOW_MS = 1500
 SPIN_DEG = 540.0
+# A player the engine has taken OUT OF PLAY (red card, or an arena match's
+# parked slots) is stood well clear of the canvas. The binary trace carries no
+# sentOff flag, so recognise him by position: nothing in play is ever this far
+# off the field. Without this every arena scan is dominated by ghosts —
+# PLAYER_OOB / PLAYER_OVERLAP fire on a rank of parked bodies, not on football.
+PARKED_Y = -100.0
+
+
+def in_play(p):
+    return p.y > PARKED_Y
 
 
 def speed(vx, vy):
@@ -66,6 +76,8 @@ def scan(path):
                         f"({prev.ball.x:.0f},{prev.ball.y:.0f})->({b.x:.0f},{b.y:.0f})"))
             # ── player teleports / overspeed ──
             for p, q in zip(prev.players, f.players):
+                if not (in_play(p) and in_play(q)):
+                    continue
                 moved = math.hypot(q.x - p.x, q.y - p.y)
                 inst = moved / pdt
                 max_spd_seen[q.id] = max(max_spd_seen.get(q.id, 0), inst)
@@ -75,7 +87,7 @@ def scan(path):
                         f"({p.x:.0f},{p.y:.0f})->({q.x:.0f},{q.y:.0f})"))
 
         # ── sustained player-player overlap (excluding tackles/headers) ──
-        ps = f.players
+        ps = [p for p in f.players if in_play(p)]
         for i in range(len(ps)):
             for k in range(i + 1, len(ps)):
                 a, c = ps[i], ps[k]

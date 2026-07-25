@@ -173,6 +173,10 @@ public:
     void updateSubstitutions();
     void substituteSlot(Player& slot, BenchPlayer& in);
     void sendOff(Player& p);
+    // Stand an out-of-play (sent-off / arena-parked) man off the field. Single
+    // source of truth for WHERE — three sites re-park him (init, kickoff, and
+    // the per-tick sweep) and they must agree.
+    void parkOffPitch(Player& p) const;
 
     // Per-player match tallies for the report (scorers, assists). Indexed by
     // slot id; a substitution inherits the slot's running tally, which is fine

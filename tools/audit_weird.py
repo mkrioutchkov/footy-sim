@@ -84,6 +84,11 @@ def main():
     for fi, f in enumerate(frames):
         ms = f.clock_ms
         players = f.players
+        # Out-of-play men (red-carded, or an arena match's parked slots) are stood
+        # well clear of the canvas; the trace carries no sentOff flag, so spot them
+        # by position. CROWD and LOITER fired almost exclusively on that parked
+        # rank — a pile of ghosts 40px past the touchline, never on live football.
+        live = [p for p in players if p.y > -100.0]
         # team possession flips
         c = f.ball.controller_id
         if c >= 0:
@@ -105,8 +110,8 @@ def main():
                 gk_alarm_until[gk_idx] = ms + 5000
         # crowding
         if ms > crowd_until:
-            for p in players:
-                near = sum(1 for q in players if math.hypot(p.x - q.x, p.y - q.y) < 50)
+            for p in live:
+                near = sum(1 for q in live if math.hypot(p.x - q.x, p.y - q.y) < 50)
                 if near >= 6:
                     issues.append((ms, 'CROWD', f"{near} players within 50px of ({p.x:.0f},{p.y:.0f})"))
                     crowd_until = ms + 4000
@@ -114,7 +119,7 @@ def main():
         # loiter near slow loose ball
         bs = math.hypot(f.ball.vx, f.ball.vy)
         if c < 0 and bs < 90:
-            for p in players:
+            for p in live:
                 d = math.hypot(p.x - f.ball.x, p.y - f.ball.y)
                 spd = math.hypot(p.vx, p.vy)
                 if d < 70 and spd < 18:

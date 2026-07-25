@@ -8,6 +8,24 @@
 #include <cmath>
 #include <numbers>
 
+// Stand an out-of-play man off the field.
+//
+// Round-30 (arena audit D9): y=-40 is only 40px outside the touchline, and
+// slots sharing a homeX stacked 2-3 bodies on one pixel — which is where every
+// LOITER / CROWD / PLAYER_OVERLAP / PLAYER_OOB anomaly flag at small N came
+// from (they fire on ghosts, not on live players). In arenaMode, where 16-18
+// slots are parked at once, stand them well clear of the canvas and fan them
+// along the row. An 11v11 red card keeps the historic -40 exactly: a body there
+// is still inside some 380px search radii, so moving it is a live-gameplay
+// change, and the ghost-rendering half of D9 is fixed in the renderer instead.
+void GameEngine::parkOffPitch(Player& p) const {
+    p.x = clamp(p.homeX + (arenaMode ? (p.id % 11) * 3.0 : 0.0), 30.0, PITCH_W - 30.0);
+    p.y = arenaMode ? -400.0 : -40.0;
+    p.targetX = p.x;
+    p.targetY = p.y;
+    p.vx = p.vy = 0;
+}
+
 // Role → role-AI factory. Single source of truth for the role-to-subclass map,
 // used by both the kickoff build and the mid-match reassignAgent() swap (was the
 // same switch copy-pasted in two places).
@@ -152,11 +170,7 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
     lastLooseOrigin = LooseOrigin::None;
     for (auto& p : state.players) {
         if (p.sentOff) {
-            p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
-            p.y = -40.0;
-            p.targetX = p.x;
-            p.targetY = p.y;
-            p.vx = p.vy = 0;
+            parkOffPitch(p);
             continue;
         }
         double margin = (p.team == t) ? 30.0 : 45.0;
@@ -279,11 +293,7 @@ void GameEngine::fixedUpdate(double sdt) {
             state.ball.intendedReceiverId = -1;
             lastLooseOrigin = LooseOrigin::None;
         }
-        p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
-        p.y = -40.0;
-        p.targetX = p.x;
-        p.targetY = p.y;
-        p.vx = p.vy = 0;
+        parkOffPitch(p);
     }
     // Tackle lunge dash: play the committed closing step out at a bounded
     // burst pace (see attemptTackle). Runs for controller and off-ball alike,
@@ -2224,11 +2234,7 @@ void GameEngine::initWithSeed(int seed) {
                 continue;
             }
             p.sentOff = true;
-            p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
-            p.y = -40.0;
-            p.targetX = p.x;
-            p.targetY = p.y;
-            p.vx = p.vy = 0;
+            parkOffPitch(p);
         }
         subsRemaining = {0, 0};
     }
@@ -2315,11 +2321,7 @@ void GameEngine::sendOff(Player& p) {
         state.ball.intendedReceiverId = -1;
         lastLooseOrigin = LooseOrigin::None;
     }
-    p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
-    p.y = -40.0;
-    p.targetX = p.x;
-    p.targetY = p.y;
-    p.vx = p.vy = 0;
+    parkOffPitch(p);
     p.injurySeverity = 0.0;
     assignmentByPlayer[p.id] = {};
 }
