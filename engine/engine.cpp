@@ -168,6 +168,54 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
     pendingSave.active = false; // no stale dive carried across a restart
     advantage.active = false;   // a goal/half-time supersedes any pending advantage
     lastLooseOrigin = LooseOrigin::None;
+    auto& b = state.ball;
+    b.x = HALF_X;
+    b.y = PITCH_H / 2;
+    b.vx = b.vy = b.z = b.vz = 0;
+    b.controllerId = -1;
+    b.intendedReceiverId = -1;
+    int takerId = stageKickoffFormation(t);
+    if (takerId >= 0) {
+        b.controllerId = takerId;
+        b.lastTouchTeam = t;
+        b.lastToucherId = takerId; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+    }
+    // Post-goal walk-in: the formation above is now the TARGET. Send every dot
+    // back to where it stood at the goal and let updateKickoffPhase stroll it to
+    // the spot over the hold (snapping exactly at the end). The ball stays dead on
+    // the centre spot; the taker walks up to it. Byte-identical at the tap.
+    kickoffWalkActive = false;
+    if (walkIn) {
+        for (auto& p : state.players) {
+            if (p.sentOff) continue;
+            kickoffWalkTargetX[p.id] = p.targetX;
+            kickoffWalkTargetY[p.id] = p.targetY;
+            p.x = walkFromX[p.id];
+            p.y = walkFromY[p.id];
+            p.vx = p.vy = 0;
+        }
+        kickoffWalkActive = true;
+        kickoffWalkScorerId = lastGoal.toucherId;
+        kickoffWalkPresentMs = std::min(3000.0, holdMs * 0.5);   // scorer wheels away for the first ~3s
+    }
+    phase.kickoffPhase = true;
+    phase.actionTimer = holdMs;
+    phase.lastKickoffMs = state.clockMs;
+    setPiece.armed = false;
+    setPiece.reason.clear();
+    // Record the restart so trace inspectors can tell a legitimate kickoff (ball
+    // to centre + 22-player reset + possession to the other team) from a bug.
+    // Without this, every kickoff (opening, post-goal, second-half) reads as a
+    // "phantom centre teleport" — it has been misdiagnosed as a bug three times.
+    emitEvent("kickoff", HALF_X, PITCH_H / 2.0, b.controllerId, -1, /*traceOnly=*/true);
+}
+
+// Stage every player for a kick-off by `t` and return the taker's id (-1 if the
+// kicking side has no available CF). Split out of kickoff() so the HALF-TIME
+// interval can pre-compute the exact H2 formation the restart will snap to and
+// walk the dots there over the break instead of playing on through the whistle.
+// Position-only: no ball, timer or phase state is touched here.
+int GameEngine::stageKickoffFormation(Team t) {
     for (auto& p : state.players) {
         if (p.sentOff) {
             parkOffPitch(p);
@@ -182,21 +230,14 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
         p.targetY = p.y;
         p.vx = p.vy = 0;
     }
-    auto& b = state.ball;
-    b.x = HALF_X;
-    b.y = PITCH_H / 2;
-    b.vx = b.vy = b.z = b.vz = 0;
-    b.controllerId = -1;
-    b.intendedReceiverId = -1;
+    int takerId = -1;
     for (auto& p : state.players) {
         if (p.team == t && p.role == Role::CF && !p.sentOff) {
             p.x = HALF_X;
             p.y = PITCH_H / 2;
             p.targetX = p.x;
             p.targetY = p.y;
-            b.controllerId = p.id;
-            b.lastTouchTeam = t;
-            b.lastToucherId = p.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+            takerId = p.id;
             break;
         }
     }
@@ -248,34 +289,7 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
             p.targetY = p.y;
         }
     }
-    // Post-goal walk-in: the formation above is now the TARGET. Send every dot
-    // back to where it stood at the goal and let updateKickoffPhase stroll it to
-    // the spot over the hold (snapping exactly at the end). The ball stays dead on
-    // the centre spot; the taker walks up to it. Byte-identical at the tap.
-    kickoffWalkActive = false;
-    if (walkIn) {
-        for (auto& p : state.players) {
-            if (p.sentOff) continue;
-            kickoffWalkTargetX[p.id] = p.targetX;
-            kickoffWalkTargetY[p.id] = p.targetY;
-            p.x = walkFromX[p.id];
-            p.y = walkFromY[p.id];
-            p.vx = p.vy = 0;
-        }
-        kickoffWalkActive = true;
-        kickoffWalkScorerId = lastGoal.toucherId;
-        kickoffWalkPresentMs = std::min(3000.0, holdMs * 0.5);   // scorer wheels away for the first ~3s
-    }
-    phase.kickoffPhase = true;
-    phase.actionTimer = holdMs;
-    phase.lastKickoffMs = state.clockMs;
-    setPiece.armed = false;
-    setPiece.reason.clear();
-    // Record the restart so trace inspectors can tell a legitimate kickoff (ball
-    // to centre + 22-player reset + possession to the other team) from a bug.
-    // Without this, every kickoff (opening, post-goal, second-half) reads as a
-    // "phantom centre teleport" — it has been misdiagnosed as a bug three times.
-    emitEvent("kickoff", HALF_X, PITCH_H / 2.0, b.controllerId, -1, /*traceOnly=*/true);
+    return takerId;
 }
 
 // §1.4 (docs/LIVE_MATCH_ARCHITECTURE.md): express the tick as a public bool step() — one fixed
@@ -484,13 +498,34 @@ void GameEngine::fixedUpdate(double sdt) {
                 phase.nextKickoffTeam = phase.matchKickoffTeam == Team::Home ? Team::Away : Team::Home;
                 // Round-27 COMMIT 10 (owner 17:59 "stuck incident then goes to
                 // restart" — it was HALFTIME with no cue): mark the pause with a
-                // half_time event so the viewer can render a banner and park the
-                // abandoned ball (it hangs mid-flight with stale velocity for 5s,
-                // then snaps to center). The SETTLE is done in the viewer, NOT the
-                // engine: zeroing state.ball here perturbs the agents that tick
-                // through the dead pause and diverges the entire second half. The
-                // event is traceOnly => no RNG/golden effect, byte-identical play.
+                // half_time event so the viewer can render a banner.
+                // Round-30: the settle is now done HERE, in the engine, not left
+                // to the viewer. The old note ("zeroing state.ball perturbs the
+                // agents that tick through the dead pause") described the very
+                // bug being fixed — nobody ticks through the whistle any more, so
+                // there is nothing left to perturb, and the shipping renderer
+                // (which has no half_time handling at all) gets a dead ball on
+                // the deck for free instead of one hovering 6px above its shadow.
                 emitEvent("half_time", HALF_X, PITCH_H / 2.0, 1, -1, /*traceOnly=*/true);
+                // Pre-stage the H2 formation kickoff() will snap to, then put
+                // everyone back where the whistle caught them: the break becomes
+                // a scripted walk to those spots (same rng-free lerp-to-arrive
+                // machinery as the post-goal walk-in), not five more seconds of
+                // football played with the referee's whistle in his mouth.
+                {
+                    std::array<double, 22> fromX{}, fromY{};
+                    for (auto& p : state.players) { fromX[p.id] = p.x; fromY[p.id] = p.y; }
+                    stageKickoffFormation(phase.nextKickoffTeam);
+                    for (auto& p : state.players) {
+                        kickoffWalkTargetX[p.id] = p.targetX;
+                        kickoffWalkTargetY[p.id] = p.targetY;
+                        p.x = fromX[p.id];
+                        p.y = fromY[p.id];
+                        p.vx = p.vy = 0;
+                    }
+                    kickoffWalkActive = false;
+                    halfTimeWalkActive = true;
+                }
             } else {
                 // Round-27 COMMIT 10: full_time marker for the viewer (the viewer
                 // parks the ball). Same reason the settle stays out of the engine.
@@ -503,8 +538,25 @@ void GameEngine::fixedUpdate(double sdt) {
     }
     if (phase.halfTimePause > 0) {
         phase.halfTimePause -= sdt;
-        if (phase.halfTimePause <= 0) kickoff(phase.nextKickoffTeam);
-        tickAgents(sdt, false);
+        // Round-30: play a real INTERVAL. This branch used to early-return before
+        // separateTeammates (engine.cpp) and before finalizeVelocities, and ran no
+        // ball physics at all — so for 5s a match 21 agents kept chasing with ZERO
+        // body-collision resolution (min pairwise distance 0.26px, the deepest
+        // overlap of the entire match, in every match measured) while the ball
+        // hung frozen in mid-air with stale velocity. Park the ball on the deck,
+        // walk the dots to their H2 spots, and keep the separation pass running.
+        auto& b = state.ball;
+        b.vx = b.vy = b.vz = 0;
+        b.z = 0;
+        b.controllerId = -1;
+        b.intendedReceiverId = -1;
+        if (phase.halfTimePause <= 0) {
+            halfTimeWalkActive = false;
+            kickoff(phase.nextKickoffTeam);
+        } else {
+            halfTimeWalk(sdt);
+            separateTeammates(sdt);   // belt and braces: nobody spends the break inside a team-mate
+        }
         cacheBallState();
         return;
     }
@@ -1797,6 +1849,30 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
         state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
     }
     cacheBallState();
+}
+
+// Round-30: the half-time interval. Exactly the post-goal walk-in motion model
+// (lerp-to-arrive over the remaining break + the sin() micro-idle sway + facing
+// along the walk vector), re-aimed at the H2 formation spots captured when the
+// pause was armed. No rng, no decisions, no ball physics — the players stroll to
+// their restart positions and stand there. kickoff() snaps them onto the exact
+// spots when the break ends, so the H2 tap is the same staging as any other.
+void GameEngine::halfTimeWalk(double sdt) {
+    if (!halfTimeWalkActive) return;
+    double sec = sdt / 1000.0;
+    double remainMs = std::max(sdt, phase.halfTimePause);
+    double frac = clamp(sdt / remainMs, 0.0, 1.0);
+    for (auto& p : state.players) {
+        if (p.sentOff) continue;
+        double dx = kickoffWalkTargetX[p.id] - p.x, dy = kickoffWalkTargetY[p.id] - p.y;
+        double stepX = dx * frac, stepY = dy * frac;
+        double idle = std::sin((state.clockMs + p.id * 211.0) * 0.005) * 0.6 * sec * 60.0;
+        p.x += stepX;
+        p.y += stepY + idle;
+        p.vx = stepX / std::max(sec, 1e-6);
+        p.vy = stepY / std::max(sec, 1e-6);
+        if (std::hypot(dx, dy) > 2.0) p.facing = std::atan2(dy, dx);
+    }
 }
 
 void GameEngine::updateKickoffPhase(double sdt) {

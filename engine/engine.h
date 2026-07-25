@@ -127,6 +127,10 @@ public:
     double kickoffWalkPresentMs = 0.0;
     std::array<double, 22> kickoffWalkTargetX = {};
     std::array<double, 22> kickoffWalkTargetY = {};
+    // Round-30: half time is an INTERVAL. The same walk machinery, re-aimed at
+    // the H2 formation spots that kickoff() will snap to when the break ends —
+    // set when halfTimePause is armed, cleared when the restart fires.
+    bool halfTimeWalkActive = false;
     std::array<int, 22> yellowCards = {};
     // Round-30 (arena audit D5): fouls conceded per player, used ONLY by the
     // arena repeat-offender damping in resolveTackleFoul (11v11 never reads it).
@@ -915,6 +919,8 @@ private:
     void updateSetPiecePhase(double sdt, double sec);
     void populateThrowInSupport(Team spTeam);
     void updateKickoffPhase(double sdt);
+    int  stageKickoffFormation(Team t);   // position-only staging; returns the taker's id
+    void halfTimeWalk(double sdt);        // scripted, rng-free stroll to the H2 spots
     void updateOpenPlayPhase(double sdt, double sec);
 public:
     void kickoffTap();
