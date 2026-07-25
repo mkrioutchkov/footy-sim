@@ -577,13 +577,40 @@ void PlayerAI::applyMovement(double sdt) {
         facing = facing + std::atan2(std::sin(memAngle - facing), std::cos(memAngle - facing)) * 0.02;
     }
 
+    bool offBallFacing = engine.state.ball.controllerId != p.id;
+    // Moonwalk constraint (round-30): cap how far the facing TARGET may sit off
+    // the run line, instead of overriding the delta after the dampers have run.
+    // The old override wrote its ±16° yank at the bottom of this function, AFTER
+    // the reversal damper, after the dizzy damper and after prevFacingDeltaSigned
+    // was captured — so the yank was never damped AND the stored sign was the
+    // pre-override value, which made the next tick's sign test read "same sign"
+    // and pass the counter-yank straight through. The guard written to kill
+    // exactly this oscillation was structurally blind to it, and the result was a
+    // sustained ±16°/50ms body judder. Constraining the target instead leaves the
+    // damper in charge of the whole tick and still beats the moonwalk fix on its
+    // own objective (frac >90° off travel at speed). Same gate as before.
+    bool runLineForced = false;
+    if (offBallFacing && spdAfter > 38.0) {
+        // Same ball distance the old override measured: taken AFTER this tick's
+        // movement integration, not the pre-move `bd` at the top of the function.
+        double bdNow = dist(p.x, p.y, engine.state.ball.x, engine.state.ball.y);
+        if (bdNow > 220.0 || (spdAfter > 42.0 && bdNow > 120.0)) {
+            constexpr double RUN_LINE_LIM = 1.55;   // ~89°: shoulder-on is fine, backwards is not
+            double moveAngle = std::atan2(p.vy, p.vx);
+            double off = std::atan2(std::sin(facing - moveAngle), std::cos(facing - moveAngle));
+            if (std::abs(off) > RUN_LINE_LIM) {
+                facing = moveAngle + (off > 0.0 ? RUN_LINE_LIM : -RUN_LINE_LIM);
+                runLineForced = true;
+            }
+        }
+    }
+
     double prevFacing = p.facing;
     double requestedFacingDelta = std::atan2(std::sin(facing - prevFacing), std::cos(facing - prevFacing));
     // G2 dizzy-spin: an OFF-BALL player whose facing TARGET oscillates (decision-flicker) chases it back and
     // forth → ~540°/1.5s pirouette. Damp a facing change that REVERSES the previous tick's direction (the
     // oscillation signature); CONSISTENT rotation (aligning body to travel, reacting to a threat) is same-sign
     // and passes through untouched. maxFacingTurn is UNTOUCHED (per the audit / turn-cap-perception note).
-    bool offBallFacing = engine.state.ball.controllerId != p.id;
     if (offBallFacing && requestedFacingDelta * prevFacingDeltaSigned < -1e-6)
         requestedFacingDelta *= 0.15;   // SysArch 2026-06-28: tightened 0.30→0.15 — the overlap/counter-press off-ball churn re-raised SPIN 16→38; stronger reversal-damp (Boris's suggested lever). Measure-gated.
     // Sustained-pirouette damp (2026-07-02 audit): the reversal-damp above kills
@@ -595,7 +622,6 @@ void PlayerAI::applyMovement(double sdt) {
     // untouched — perception gating (the turn-cap deadlock) stays intact.
     if (offBallFacing && dizzyRotationAccum > 360.0)
         requestedFacingDelta *= 0.2;
-    prevFacingDeltaSigned = requestedFacingDelta;
     double turnSpeedBlend = clamp((spdAfter - 12.0) / 58.0, 0.0, 1.0);
     double maxFacingTurn = lerp(0.24, 0.055, turnSpeedBlend);
     // Rotating INTO your direction of travel is natural at any speed — the
@@ -607,24 +633,22 @@ void PlayerAI::applyMovement(double sdt) {
         double prevOff = std::abs(std::atan2(std::sin(prevFacing - moveAngle), std::cos(prevFacing - moveAngle)));
         if (nowOff < prevOff) maxFacingTurn = std::max(maxFacingTurn, 0.28);
         // Moonwalk fix (micro audit: 141 backward-at-speed runs, worst 5s of
-        // 51px/s backpedal by an attacker) — a sustained RUN turns the body
-        // into the travel line. Legit ball-watching backpedal is preserved:
-        // only forced when the ball is far (>220px), i.e. nothing to track.
-        if (offBallFacing && spdAfter > 38.0 && nowOff > 1.75) {
-            double bd2 = dist(p.x, p.y, engine.state.ball.x, engine.state.ball.y);
-            // 220 -> 120 with a speed tier (2-min audit, seed 629: 27 sustained
-            // backpedal windows, worst 2.45s at 45-50px/s with facing WELDED to
-            // a ball well inside 220px — a full-speed backward glide). Real
-            // players ball-watch a backpedal only to ~4px/s-per-tick jog; above
-            // 42px/s they turn and run unless actively jockeying ON the ball
-            // (bd<120 keeps the containment stance).
-            if (bd2 > 220.0 || (spdAfter > 42.0 && bd2 > 120.0)) {
-                double align = std::atan2(std::sin(moveAngle - prevFacing), std::cos(moveAngle - prevFacing));
-                requestedFacingDelta = clamp(align, -0.28, 0.28);
-                maxFacingTurn = std::max(maxFacingTurn, 0.28);
-            }
-        }
+        // 51px/s backpedal by an attacker) — a sustained RUN turns the body into
+        // the travel line. Legit ball-watching backpedal is preserved: only
+        // forced when the ball is far (>220px), i.e. nothing to track. Round-30:
+        // the DELTA override that used to live here has moved above prevFacing
+        // as a target constraint (see the RUN_LINE_LIM block); all that is left
+        // here is the turn-cap raise that lets the damped delta get there in
+        // reasonable time — fired off the same gate (220 -> 120 with a speed
+        // tier; 2-min audit, seed 629: 27 sustained backpedal windows, worst
+        // 2.45s at 45-50px/s with facing WELDED to a ball well inside 220px).
+        if (runLineForced) maxFacingTurn = std::max(maxFacingTurn, 0.28);
     }
+    // Round-30 hygiene: capture the sign AFTER every modifier, so a future
+    // late write can never blind the reversal damper the way the moonwalk
+    // override did (it stored the pre-override sign and the counter-yank on the
+    // next tick then read as "same direction" and sailed through undamped).
+    prevFacingDeltaSigned = requestedFacingDelta;
     requestedFacingDelta = clamp(requestedFacingDelta, -maxFacingTurn, maxFacingTurn);
     facing = prevFacing + requestedFacingDelta;
     double facingDelta = std::abs(requestedFacingDelta);
