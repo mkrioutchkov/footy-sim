@@ -213,6 +213,41 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
             p.targetX = p.x;
         }
     }
+    // Round-30 (Law 8): no opponent may stand inside the 9.15 m centre circle
+    // until the ball is in play. The staging above knows only the flat 45px
+    // `margin`, which parks the defending centre-forward 45px from the spot —
+    // half the 91.5px ring the viewer draws — and fixedUpdate returns before
+    // tickAgents during the hold, so he is FROZEN there for the whole restart.
+    // Step him off the centre line in y FIRST: a pure radial push slides him
+    // along y=340 straight into his own centre-mid (13.5px apart, far inside
+    // SEPARATION_DIST, with no separation force running during the hold). Then
+    // take the smallest x, away from halfway, that clears the ring at that y.
+    // The arena block above already clears its lone defender, so this is a
+    // no-op there.
+    {
+        constexpr double CIRCLE_R = 91.5;    // 9.15 m, the ring viewer_template draws
+        constexpr double STEP_Y   = 42.0;    // off the centre line, clear of the CM slot
+        constexpr double CLEAR_R  = 92.5;    // sit just OUTSIDE the line, not on it
+        for (auto& p : state.players) {
+            if (p.team == t || p.role == Role::GK || p.sentOff) continue;
+            double dy = p.y - PITCH_H / 2;
+            if (std::hypot(p.x - HALF_X, dy) >= CIRCLE_R) continue;
+            // Deterministic side: whichever half of the pitch he already leans to,
+            // tie-broken by team so a dead-centre striker never picks at random.
+            double side = dy > 0 ? 1.0 : (dy < 0 ? -1.0 : (p.team == Team::Home ? -1.0 : 1.0));
+            if (std::abs(dy) < STEP_Y) {
+                dy = side * STEP_Y;
+                p.y = PITCH_H / 2 + dy;
+            }
+            double needX = std::abs(dy) >= CLEAR_R ? 0.0
+                                                   : std::sqrt(CLEAR_R * CLEAR_R - dy * dy);
+            double fdp = fdFor(p.team);
+            double legalX = HALF_X - fdp * needX;   // back into his own half
+            p.x = fdp > 0 ? std::min(p.x, legalX) : std::max(p.x, legalX);
+            p.targetX = p.x;
+            p.targetY = p.y;
+        }
+    }
     // Post-goal walk-in: the formation above is now the TARGET. Send every dot
     // back to where it stood at the goal and let updateKickoffPhase stroll it to
     // the spot over the hold (snapping exactly at the end). The ball stays dead on
