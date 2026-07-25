@@ -2173,25 +2173,36 @@ void GameEngine::initWithSeed(int seed) {
     // off-pitch, sent-off style, so the whole engine — press assignment, pass
     // menus, set pieces, offside — sees a legitimate small-sided match. No red
     // cards recorded, no subs (an ejected slot can't be replaced anyway, and
-    // there is nobody on the pitch worth swapping). Kept slots grow from the
-    // CF outward (a good engine should look normal in unfamiliar scenarios:
-    // 1v1, 2v2, 3v3 all reuse the same duel/press/take-on machinery).
+    // there is nobody on the pitch worth swapping).
     if (arenaMode) {
-        // Round-30 (arena generality): the table now covers every size the CLI
-        // accepts (1..ARENA_MAX_OUTFIELDERS) instead of stopping at 3. Rows 1-3
-        // are the round-21 shapes verbatim; 4+ keep growing outward through the
-        // default 4-3-3 slots so N>3 fields a real side rather than collapsing.
+        // Round-30 (arena generality): an N-AWARE SHAPE. The round-21 table kept
+        // attacking slots first ({9}, {9,5}, {9,5,8}) and every one of their
+        // 4-3-3 anchors sits in the TOP half (y=340/170/81.6), so no arena
+        // outfielder was ever a defender, the bottom half of the pitch was empty
+        // at kickoff, and the offside line was drawn by a midfielder loitering on
+        // halfway (3v3 measured ~44 offsides/90 against 11v11's ~4).
+        //
+        // Instead: keep a DEFENDER first, then a central mid, then the forward,
+        // then width — growing in slot PAIRS that are already symmetric about
+        // y=PITCH_H/2 (CB 2/3, CM 5/7, FB 1/4, WM 8/10) so every size fields a
+        // real small-sided shape with both halves of the pitch occupied.
+        //   1: 0-0-1   2: 1-0-1   3: 2-0-1   4: 2-1-1   5: 2-2-1
+        //   6: 2-3-1   7: 2-4-1   8: 4-3-1   9: 4-4-1  10: 4-3-3 (full XI)
+        // Slot 9 (the CF) is in every row — a match spec's star directives are
+        // written against it. N=1 is deliberately UNCHANGED: the same anchor move
+        // at 1v1 measured strictly WORSE (fouls 6.0->13.1, corners 0.8->9.0), the
+        // lone man having nobody to defend with.
         static constexpr int ARENA_KEEP[ARENA_MAX_OUTFIELDERS][ARENA_MAX_OUTFIELDERS] = {
-            {9, -1, -1, -1, -1, -1, -1, -1, -1, -1},   //  1v1: CF
-            {9,  5, -1, -1, -1, -1, -1, -1, -1, -1},   //  2v2: CF + CM
-            {9,  5,  8, -1, -1, -1, -1, -1, -1, -1},   //  3v3: CF + CM + WM
-            {9,  5,  8, 10, -1, -1, -1, -1, -1, -1},   //  4v4: + far WM
-            {9,  5,  8, 10,  3, -1, -1, -1, -1, -1},   //  5v5: + CB
-            {9,  5,  8, 10,  3,  2, -1, -1, -1, -1},   //  6v6: + CB
-            {9,  5,  8, 10,  3,  2,  6, -1, -1, -1},   //  7v7: + CM
-            {9,  5,  8, 10,  3,  2,  6,  7, -1, -1},   //  8v8: + CM
-            {9,  5,  8, 10,  3,  2,  6,  7,  1, -1},   //  9v9: + FB
-            {9,  5,  8, 10,  3,  2,  6,  7,  1,  4},   // 10v10: + FB (full XI)
+            {  9, -1, -1, -1, -1, -1, -1, -1, -1, -1},  //  1v1: CF
+            {  3,  9, -1, -1, -1, -1, -1, -1, -1, -1},  //  2v2: CB + CF
+            {  2,  3,  9, -1, -1, -1, -1, -1, -1, -1},  //  3v3: CB CB + CF
+            {  2,  3,  6,  9, -1, -1, -1, -1, -1, -1},  //  4v4: + central CM
+            {  2,  3,  5,  7,  9, -1, -1, -1, -1, -1},  //  5v5: CB CB, CM CM, CF
+            {  2,  3,  5,  6,  7,  9, -1, -1, -1, -1},  //  6v6: + central CM
+            {  2,  3,  5,  7,  8, 10,  9, -1, -1, -1},  //  7v7: + a winger pair
+            {  1,  2,  3,  4,  5,  6,  7,  9, -1, -1},  //  8v8: back four, CM x3
+            {  1,  2,  3,  4,  5,  7,  8, 10,  9, -1},  //  9v9: back four, CM x2 + wingers
+            {  1,  2,  3,  4,  5,  6,  7,  8,  9, 10},  // 10v10: the full XI (4-3-3)
         };
         int n = clamp(arenaOutfielders, 1, ARENA_MAX_OUTFIELDERS);
         auto kept = [&](int id) {
@@ -2203,7 +2214,15 @@ void GameEngine::initWithSeed(int seed) {
             return false;
         };
         for (auto& p : state.players) {
-            if (kept(p.id)) continue;
+            if (kept(p.id)) {
+                // A LONE centre-back (the 2v2 row) owns the whole width, so his
+                // 4-3-3 half-space anchor would leave one flank permanently open.
+                // Re-centre him. Every other row keeps a symmetric pair, whose
+                // default anchors already balance about the centre line.
+                if (n == 2 && (p.id == 3 || p.id == 14))
+                    p.homeY = p.y = p.targetY = PITCH_H / 2.0;
+                continue;
+            }
             p.sentOff = true;
             p.x = clamp(p.homeX, 30.0, PITCH_W - 30.0);
             p.y = -40.0;
