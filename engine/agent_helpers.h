@@ -14,12 +14,14 @@ struct PressSlotCheck {
     bool slot2Free;
 };
 
-/// Read the current press-slot state for a given player.
-inline PressSlotCheck checkPressSlots(const TeamBlackboard& bb, int playerId) {
+/// Read the current press-slot state for a given player. `slots` is how many
+/// pressers this side may commit (GameEngine::pressSlotCap()); at the 11-a-side
+/// default of 2 this is exactly the historic behaviour.
+inline PressSlotCheck checkPressSlots(const TeamBlackboard& bb, int playerId, int slots = 2) {
     return {
         bb.pressingPlayerId == playerId || bb.pressingPlayerId2 == playerId,
         bb.pressingPlayerId < 0,
-        bb.pressingPlayerId2 < 0
+        slots >= 2 && bb.pressingPlayerId2 < 0
     };
 }
 

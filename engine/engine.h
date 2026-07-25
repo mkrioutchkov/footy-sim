@@ -152,9 +152,38 @@ public:
     // every lookup stay valid — but no red cards are recorded (it's a mode,
     // not a match event) and subs are disabled (nobody to legally replace).
     bool arenaMode = false;
-    // Outfielders per side in arena mode: 1 (1v1, default), 2 (2v2), 3 (3v3).
-    // Kept slots are chosen in initWithSeed; GKs always play.
+    // Outfielders per side in arena mode: 1 (1v1, default) up to
+    // ARENA_MAX_OUTFIELDERS. Kept slots are chosen in initWithSeed; GKs always play.
     int arenaOutfielders = 1;
+
+    // ── The press-slot cap is a SHARE of the side (round-30, arena generality) ──
+    // The cap was a FIXED 2 pressers, written against an 11-a-side shape where
+    // that is 20% of the outfielders. Below 11-a-side the same absolute 2 is a
+    // far bigger share, and the pitch does not shrink with the squad: measured
+    // on traces, a 5v5 committed 31% of its outfielders to pressing the carrier
+    // where an 11v11 commits 16%, so a small-sided team swarmed the ball and
+    // left proportionally twice as much ground open. Scaling it lands 5v5/7v7
+    // discipline right on the 11v11 band (fouls 43/90 -> 22-25/90 against
+    // 11v11's 18; tackles 641-683/90 -> 243-327/90).
+    //
+    // The OTHER density cap — agent_defend's "nearest 3 converge on a loose
+    // ball" — was measured the same way and deliberately LEFT ALONE: scaling it
+    // to 30% of the side made 2v2/3v3 measurably worse (fouls 32.6 -> 47.2/90 at
+    // 3v3) because a 2-3 man side that lets only its single nearest man converge
+    // leaves loose balls uncontested. See the note at that site.
+    int sideOutfielders() const {
+        return arenaMode ? (arenaOutfielders < 1 ? 1
+                            : arenaOutfielders > ARENA_MAX_OUTFIELDERS ? ARENA_MAX_OUTFIELDERS
+                            : arenaOutfielders)
+                         : 10;
+    }
+    // Pressers allowed on the carrier at once: 20% of the side, at least 1.
+    // 10 outfielders -> 2, the historic constant, so 11v11 is byte-identical BY
+    // CONSTRUCTION rather than by luck.
+    int pressSlotCap() const {
+        int n = (sideOutfielders() + 2) / 5;      // round(n/5) for n in [1,10]
+        return n < 1 ? 1 : n > 2 ? 2 : n;
+    }
 
     // Round-21 (arena audit): set true when equalizeAttributes() ran (the bare-CLI
     // debug default flattens every attribute to 65). Surfaced in getJSON so tuning

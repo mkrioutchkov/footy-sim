@@ -196,7 +196,7 @@ Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
                            || (slotBallSpeed < 15.0 && best.purpose == ActionPurpose::RecoverLoose
                                && best.score >= 1.5)
                            || (engine.lastLooseOrigin == LooseOrigin::GoalkeeperParry && looseBallDist < 230.0);
-        auto ps = checkPressSlots(bb, player.id);
+        auto ps = checkPressSlots(bb, player.id, engine.pressSlotCap());
         if (!priorityChaser && !ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
             for (auto& x : a)
                 if (x.type != ActionType::Chase && x.type != ActionType::Tackle
@@ -221,7 +221,7 @@ Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
             reservePressSlot = true;
 
         if (reservePressSlot) {
-            auto ps = checkPressSlots(bb, player.id);
+            auto ps = checkPressSlots(bb, player.id, engine.pressSlotCap());
             // Every close-down (local OR emergency) obeys the 2-man press cap:
             // assignPrimaryPress always names one contester so the carrier is
             // never left unpressed, and the 3rd/4th/5th body that used to swarm
@@ -244,7 +244,7 @@ Action* PlayerAI::managePressSlots(SmallVector<Action, 24>& a, Action& best,
 
     // Tackle slot
     if (best.type == ActionType::Tackle && best.target) {
-        auto ps = checkPressSlots(bb, player.id);
+        auto ps = checkPressSlots(bb, player.id, engine.pressSlotCap());
         if (!ps.isSelf && !ps.slot1Free && !ps.slot2Free) {
             for (auto& x : a)
                 if (x.type != ActionType::Tackle

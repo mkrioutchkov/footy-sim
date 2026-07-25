@@ -566,6 +566,17 @@ Action PlayerAI::scoreChase(const Perception& per) {
         if (!engine.canContestBall(o)) continue;
         if (dist(o.x, o.y, b.x, b.y) < per.ballDist - 2.0) closerMates++;
     }
+    // Round-30 (arena generality) NEGATIVE RESULT — do not "fix" this to scale.
+    // The fixed 3 is 30% of an 11v11 side, so the obvious generalisation is
+    // clamp(round(0.3 * outfielders), 1, 3). Measured (8 seeds x 10 min per size)
+    // it is WORSE at every size it changes: 3v3 fouls 32.6 -> 47.2/90 and 2v2
+    // 49.5 -> 54.0/90, because a 2-3 man side that lets only its single nearest
+    // man converge leaves loose balls uncontested and every recovery becomes a
+    // last-ditch challenge. Unlike the press cap (which throttles how many men
+    // commit to a carrier already under control), this cap governs who may
+    // CONTEST a free ball — and a small side has no spare bodies to hold back.
+    // The 4th-man pile-on it exists to prevent cannot occur below 4 outfielders
+    // anyway, so leaving it fixed costs nothing at small N.
     bool tooManyClosing = closerMates >= 3 && !isIntendedReceiver && !urgentLooseBallRun && !needsRecovery;
     if (!per.ballIsLoose || (!canContest && !urgentLooseBallRun) || tooManyClosing
         || (!isIntendedReceiver && per.ballDist > 180.0 && !needsRecovery && !urgentLooseBallRun && !cfLoosePassSupport && !nearestEligibleFreeBall))
