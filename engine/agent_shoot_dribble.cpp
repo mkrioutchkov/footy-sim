@@ -278,20 +278,36 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                 if (ex * fd < -0.25) {
                     // Commit to an escape side for a beat — re-picking each tick
                     // flipped the dribble target side-to-side and spun the carrier.
-                    if (engine.state.clockMs > evadeSideUntilMs) {
-                        evadeSide = ey >= 0.0 ? 1.0 : -1.0;
-                        evadeSideUntilMs = engine.state.clockMs + 750.0;
-                    }
+                    //
+                    // Round-30: the blocked-lane rescue below used to write the
+                    // PERSISTENT member (`evadeSide = -evadeSide`) on every tick,
+                    // ignoring the 750ms latch it set itself. When both sides are
+                    // marginal the sign inverted at 60Hz, so the dribble target
+                    // mirrored about the carrier's own y every frame while his body
+                    // — capped by moveBallCarrier's turn limits — drifted ~110 deg
+                    // off both intents and the AI's chosen escape never executed
+                    // (the crab-walk). The side is now a LOCAL for this tick: both
+                    // candidates are tested, the unblocked one preferred, and a new
+                    // sign is committed ONLY when the latch has actually expired.
+                    // Geometry, gating and score are untouched — only which side
+                    // survives.
+                    const bool latchLive = engine.state.clockMs <= evadeSideUntilMs;
+                    double side = latchLive ? evadeSide : (ey >= 0.0 ? 1.0 : -1.0);
                     tx = p.x + fd * 24.0;
-                    ty = p.y + evadeSide * 72.0;
-                    if (escapeLaneBlocked(tx, ty, n)) {
-                        evadeSide = -evadeSide;
-                        evadeSideUntilMs = engine.state.clockMs + 750.0;
-                        ty = p.y + evadeSide * 72.0;
-                        // Both sides shut: shield it — a straight drop-back
-                        // beat, not a rotation through anyone's tackle zone.
-                        if (escapeLaneBlocked(tx, ty, n)) { tx = p.x - fd * 28.0; ty = p.y; }
+                    bool shut = escapeLaneBlocked(tx, p.y + side * 72.0, n);
+                    if (shut && !latchLive && !escapeLaneBlocked(tx, p.y - side * 72.0, n)) {
+                        side = -side;
+                        shut = false;
                     }
+                    if (!latchLive) {
+                        evadeSide = side;
+                        evadeSideUntilMs = engine.state.clockMs + 750.0;
+                    }
+                    ty = p.y + side * 72.0;
+                    // Latched side shut (or both shut on a fresh pick): shield it —
+                    // a straight drop-back beat, not a rotation through anyone's
+                    // tackle zone.
+                    if (shut) { tx = p.x - fd * 28.0; ty = p.y; }
                 } else {
                     tx = p.x + ex * 70.0;
                     ty = p.y + ey * 70.0;
@@ -552,10 +568,14 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         double ay = p.y - cp.nearestPlayer->y;
         double ad = std::hypot(ax, ay);
         if (ad > 1.0) {
-            if (engine.state.clockMs > evadeSideUntilMs) {
-                evadeSide = ay >= 0.0 ? 1.0 : -1.0;
-                evadeSideUntilMs = engine.state.clockMs + 750.0;
-            }
+            // Round-30: same latch repair as the close-evade branch above — the
+            // side is a LOCAL for this tick, both candidates are evaluated, and a
+            // new sign is committed only once the 750ms latch has expired. The
+            // rescue below used to invert the persistent member every tick, which
+            // is what mirrored the target at 60Hz. Duty cycle, geometry and score
+            // are deliberately unchanged (see the bisect note immediately below).
+            const bool latchLive = engine.state.clockMs <= evadeSideUntilMs;
+            double side = latchLive ? evadeSide : (ay >= 0.0 ? 1.0 : -1.0);
             // OWN-HALF ONLY (bisected): applied everywhere, this escape turned
             // pressing episodes that used to END possession (backward retreat →
             // recycle or dispossession) into retained forward carries, and the
@@ -564,7 +584,9 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
             // fixes (seed 129 0:17-0:24, a 7s backward touchline crawl) was a
             // DEEP corner trap — attacking-third cornered carriers keep the old
             // radial retreat and have to release instead of grinding upfield.
-            if ((ax / ad) * fd < -0.25 && pitch::forwardProgress(p.x, p.team) < PITCH_W * 0.55) {
+            const bool acrossBranch = (ax / ad) * fd < -0.25 && pitch::forwardProgress(p.x, p.team) < PITCH_W * 0.55;
+            const double lat = acrossBranch ? 72.0 : 48.0;
+            if (acrossBranch) {
                 // Radial retreat from a goal-side presser points BACKWARD —
                 // escape ACROSS the pitch instead (same idea as the committed
                 // lateral escape in the close-evade branch above). The pure
@@ -573,22 +595,25 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                 // the backward-target pricing, that retreat was never even
                 // scored as backward.
                 tx = p.x + fd * 24.0;
-                ty = p.y + evadeSide * 72.0;
             } else {
                 double retreat = cp.exposed > 0.35 ? -fd * 34.0 : 0.0;
                 tx = p.x + ax / ad * 44.0 + retreat;
-                ty = p.y + evadeSide * 48.0;
             }
             // 2:11 (seed 111): the escape from the ONE presser must not point
-            // into a SECOND defender on the chosen side — flip the side, and
-            // if both sides are shut, shield with a straight drop-back beat.
-            if (escapeLaneBlocked(tx, ty, cp.nearestPlayer)) {
-                bool acrossBranch = (ax / ad) * fd < -0.25 && pitch::forwardProgress(p.x, p.team) < PITCH_W * 0.55;
-                evadeSide = -evadeSide;
-                evadeSideUntilMs = engine.state.clockMs + 750.0;
-                ty = p.y + evadeSide * (acrossBranch ? 72.0 : 48.0);
-                if (escapeLaneBlocked(tx, ty, cp.nearestPlayer)) { tx = p.x - fd * 28.0; ty = p.y; }
+            // into a SECOND defender on the chosen side — prefer the open side,
+            // and if the side we are committed to is shut, shield with a straight
+            // drop-back beat.
+            bool shut = escapeLaneBlocked(tx, p.y + side * lat, cp.nearestPlayer);
+            if (shut && !latchLive && !escapeLaneBlocked(tx, p.y - side * lat, cp.nearestPlayer)) {
+                side = -side;
+                shut = false;
             }
+            if (!latchLive) {
+                evadeSide = side;
+                evadeSideUntilMs = engine.state.clockMs + 750.0;
+            }
+            ty = p.y + side * lat;
+            if (shut) { tx = p.x - fd * 28.0; ty = p.y; }
             // Re-apply the edge guard — this block runs after it, so the evade
             // could walk the carry into the touchline pocket the guard exists
             // to prevent.
