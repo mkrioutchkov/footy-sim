@@ -1162,7 +1162,19 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
         // cynically pull the man down. (SysArch 2026-06-30: reds measured ~0.60/match
         // ≈ 2.4× real ~0.25 — the booked-CYNICAL path was bypassing this damping.)
         if (yellowCards[tackler.id] >= 1) foulChance *= 0.38; // booked → VERY careful (now incl. cynical: trims second-yellow reds)
+        // Round-30 (arena audit D5): the booking above is the ONLY brake on a
+        // repeat offender, and arenaMode disables both the send-off and the
+        // second yellow. In a 1v1 both outfielders are booked within minutes,
+        // after which nothing escalates however often they foul — fouls measured
+        // 102/90 against an 11v11's 18. Real small-sided football answers this
+        // with a sin bin; the mode cannot afford to remove a man from a two-man
+        // team, so instead the referee's patience visibly runs out: every FURTHER
+        // foul by the same player makes his next challenge more cautious still.
+        // Arena-gated, and it draws no rng, so 11v11 is untouched.
+        if (arenaMode && arenaFoulCount[tackler.id] > 0)
+            foulChance *= std::pow(0.70, std::min(arenaFoulCount[tackler.id], 5));
         if (rng.random() < foulChance) {
+            if (tackler.id >= 0 && tackler.id < 22) arenaFoulCount[tackler.id]++;
             stats.recordTackleFoul();
             if (cynical) stats.recordTacticalFoul();
             double foulX = carrier.x;

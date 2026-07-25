@@ -127,6 +127,9 @@ public:
     std::array<double, 22> kickoffWalkTargetX = {};
     std::array<double, 22> kickoffWalkTargetY = {};
     std::array<int, 22> yellowCards = {};
+    // Round-30 (arena audit D5): fouls conceded per player, used ONLY by the
+    // arena repeat-offender damping in resolveTackleFoul (11v11 never reads it).
+    std::array<int, 22> arenaFoulCount = {};
 
     // Match length is a RUNTIME parameter (default 90'), not the compile-time
     // constant it used to be — the product needs 20/40/90-minute variants and

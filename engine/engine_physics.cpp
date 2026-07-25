@@ -279,7 +279,13 @@ bool GameEngine::checkGoal() {
         // instead of teleporting; the arena hold grows 3s -> 6s to fit the scorer's
         // celebration + the stroll back (11v11 keeps its 9s, already ample). The
         // hold snaps to the exact formation at the end, so the tap is unchanged.
-        kickoff(scoringTeam == Team::Home ? Team::Away : Team::Home, arenaMode ? 6000.0 : 9000.0, /*walkIn=*/true);
+        // Round-30 (arena audit D11): the post-goal walk-in is the ONE restart
+        // budget arenaMode never scaled — 6s of dead ball on the centre spot at
+        // arena scoring rates costs a real slice of a 10-minute match. Put it on
+        // the same ARENA_RESTART_SCALE the free kick / corner / throw budgets
+        // already use. 11v11 keeps its 9s exactly.
+        kickoff(scoringTeam == Team::Home ? Team::Away : Team::Home,
+                9000.0 * (arenaMode ? ARENA_RESTART_SCALE : 1.0), /*walkIn=*/true);
     };
     if (b.x + BALL_R < HOME_GOAL_X) {
         finishGoal(Team::Away, HOME_GOAL_X);
