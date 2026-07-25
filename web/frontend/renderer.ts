@@ -90,6 +90,7 @@ export class MatchRenderer {
   private seenEventKeys: Set<string> = new Set();
   private lastGoalScorer = '';   // most recent goal-event scorer name — fed to the goal banner
   private lastGoalScorerId: number | null = null;   // most recent goal-event scorer id — fed to the celebration (dot flash)
+  private lastGoalOwn = false;   // most recent goal-event ownGoal flag — the banner must not celebrate the defender
   private commentaryNth = 0;     // advances per rotated commentary line so same-minute events don't repeat phrasing
   // ── live stats + momentum ("PRESSURE" panel) ── per-team tallies accumulated off the SAME
   // de-duped event loop as the feed (so a goal counts once), plus a signed momentum scalar.
@@ -1831,7 +1832,11 @@ export class MatchRenderer {
       if (!this.replayMode && delta === 1) {
         const homeScored = hs > this.prevHomeScore;
         const who = this.lastGoalScorer;   // set by updateTicker when it logs the goal event
-        this.bannerEl.textContent = `GOAL!  ${who}\n${hn} ${hs} — ${as} ${an}`;
+        // Round-30: an own goal is not the scorer's moment — name it as one instead
+        // of shouting "GOAL! <defender>" at the man who put it in his own net.
+        this.bannerEl.textContent = this.lastGoalOwn
+          ? `OWN GOAL — ${who}\n${hn} ${hs} — ${as} ${an}`
+          : `GOAL!  ${who}\n${hn} ${hs} — ${as} ${an}`;
         this.bannerEl.style.whiteSpace = 'pre';
         this.bannerEl.style.color = homeScored ? '#ff8a8a' : '#9ecbff';
         this.bannerEl.style.borderColor = homeScored ? '#ff8a8a' : '#9ecbff';
@@ -1906,6 +1911,7 @@ export class MatchRenderer {
       this.seenEventKeys.clear();
       this.lastGoalScorer = '';
       this.lastGoalScorerId = null;
+      this.lastGoalOwn = false;
       this.clearToasts();
       this.resetMatchStats(state.clockMs);
     }
@@ -1924,7 +1930,7 @@ export class MatchRenderer {
       const actor = ev.playerId != null ? this.playerById.get(ev.playerId) : undefined;
       const who = actor?.name ?? '';
       const target = (ev.targetId != null ? this.playerById.get(ev.targetId) : undefined)?.name ?? '';
-      if (ev.type === 'goal') { this.lastGoalScorer = who; this.lastGoalScorerId = ev.playerId ?? null; }   // banner + celebration read these
+      if (ev.type === 'goal') { this.lastGoalScorer = who; this.lastGoalScorerId = ev.playerId ?? null; this.lastGoalOwn = !!ev.ownGoal; }   // banner + celebration read these
       // newest on top — a chronological feed row: minute stamp · team-coloured dot · commentary
       this.feedEntries.unshift({ minute, team: actor?.team ?? null, text: this.commentary(ev.type, who, target), goal: ev.type === 'goal' });
       // ── reporting toast (top-right) ── fires off the SAME de-duped event stream as the feed, so a toast
@@ -2131,20 +2137,27 @@ export class MatchRenderer {
       return t === 'home' ? 1 : t === 'away' ? -1 : 0;
     };
     const type = ev.type;
+    // Round-30: on an OWN goal the event's playerId is a defender of the side that
+    // CONCEDED, so the raw side credits xG, the shot-map dot and shots-on-target to
+    // the wrong team. Flip it for that one case; every other event is unaffected.
+    const scoringSideOf = (id: number | null | undefined): number => {
+      const s = sideOf(id);
+      return ev.ownGoal ? -s : s;
+    };
     // xG proxy (direction-agnostic: distance to the NEAREST goal, since shots go toward a goal)
     if (type === 'shot' || type === 'goal') {
       const dy = ev.y - PITCH_H / 2;
       const d = Math.min(Math.hypot(ev.x - 0, dy), Math.hypot(ev.x - PITCH_W, dy));
       const ang = 1 - Math.min(1, Math.abs(dy) / (GOAL_W * 1.6));
       const xg = Math.max(0.01, Math.min(0.95, 1.05 * Math.exp(-d / 95) * (0.32 + 0.68 * ang)));
-      const s = sideOf(ev.playerId);   // shot/goal playerId = the shooter
+      const s = scoringSideOf(ev.playerId);   // shot/goal playerId = the shooter (own goal: the other side)
       if (s > 0) { this.xgH += xg; if (xg >= 0.30) this.bigH++; }
       else if (s < 0) { this.xgA += xg; if (xg >= 0.30) this.bigA++; }
       // record the shot (shot map) + a cumulative-xG timeline sample (after the tallies update)
       if (s !== 0) { this.shots.push({ x: ev.x, y: ev.y, xg, side: s, goal: type === 'goal' }); this.xgSeries.push({ t: evClock, h: this.xgH, a: this.xgA }); }
     }
     // on-target: goal → scorer side; save/tip/punch/claim → keeper side, so credit the OTHER team
-    if (type === 'goal') { const s = sideOf(ev.playerId); if (s > 0) this.otH++; else if (s < 0) this.otA++; }
+    if (type === 'goal') { const s = scoringSideOf(ev.playerId); if (s > 0) this.otH++; else if (s < 0) this.otA++; }
     else if (type === 'save' || type === 'tip' || type === 'punch' || type === 'gk_punch' || type === 'claim') {
       const k = sideOf(ev.playerId); if (k > 0) this.otA++; else if (k < 0) this.otH++;
     }
