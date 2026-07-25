@@ -1963,7 +1963,14 @@ export class MatchRenderer {
       case 'yellow':  this.pushToast('🟨', `${m}  ${nm}`, 'card'); break;
       case 'red':     this.pushToast('🟥', `${m}  ${nm}`, 'card'); break;
       case 'penalty': this.pushToast('❗', `${m}  Penalty awarded`, 'pen'); break;
-      case 'sub':     this.pushToast('🔁', `${m}  ${nm || 'Substitution'} off`, 'sub'); break;
+      // The sub event carries ONE id — the pitch SLOT — and substituteSlot renames that slot to the
+      // incoming man in the same tick, so by the time the live JSON serialises the frame `nm` is the
+      // player coming ON, never the one going off. "... off" therefore named the wrong man on every
+      // swap (invisible until round-30 made substitutions fire at all). Say what the id actually is,
+      // matching the ticker line at eventNarration('sub'). Naming BOTH needs the outgoing NAME in the
+      // payload (there is no second id — the substitute inherits the slot's), i.e. a string field on
+      // VisualEvent plus a summary sub-log for the trace exporter: round-31, not a one-liner.
+      case 'sub':     this.pushToast('🔁', `${m}  ${nm ? nm + ' comes on' : 'Substitution'}`, 'sub'); break;
       // event-communication (owner: "not clear what happened — off-ball foul? advantage?"): brief
       // who/what/where popups. 'foul' names the offender + the fouled player (ev.targetId) when known;
       // an 'advantage' event reads "play on"; offside/injury name the player.
