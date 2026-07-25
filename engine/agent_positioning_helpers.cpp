@@ -354,21 +354,31 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
     } else if (pc.ballAdvance > 0.6 && isCentralMidfielder()) {
         double bGoalX = goalXFor(p.team);
         double bSide = (b.y < PITCH_H / 2.0) ? -1.0 : 1.0;
+        // Round-30: anchor every CM candidate to the player's OWN lane instead of
+        // absolute pitch y. All three CMs share a homeX (420/630), so an absolute
+        // y made these candidates bit-identical for the whole trio — and the
+        // anti-clump term cannot separate them because it measures distance to
+        // team-mates' CURRENT BODIES, which are 130-150px away while all three are
+        // converging, so crowd evaluates to 0.000 for the very point they are all
+        // running to. homeY (170/340/510) is the one thing that already
+        // distinguishes them; lerping it 55% toward the middle keeps the trio
+        // compact (lanes at 263/340/417) while the ball-side shift stays intact.
+        const double laneY = lerp(p.homeY, PITCH_H / 2.0, 0.55);
         c.push_back({ bGoalX - pc.fd * (150.0 + engine.rng.random() * 85.0),
-                      clamp(PITCH_H / 2.0 - bSide * 55.0, PITCH_H * 0.25, PITCH_H * 0.75), ActionPurpose::Offer });
+                      clamp(laneY - bSide * 55.0, PITCH_H * 0.25, PITCH_H * 0.75), ActionPurpose::Offer });
         c.push_back({ bGoalX - pc.fd * (180.0 + engine.rng.random() * 90.0),
-                      clamp(PITCH_H / 2.0 + bSide * 70.0, PITCH_H * 0.24, PITCH_H * 0.76), ActionPurpose::Space });
+                      clamp(laneY + bSide * 70.0, PITCH_H * 0.24, PITCH_H * 0.76), ActionPurpose::Space });
         Player* carrier = engine.playerById(engine.state.ball.controllerId);
         if (carrier && carrier->team == p.team && (engine.agentFor(*carrier)->isWideMidfielder() || engine.agentFor(*carrier)->isFullBack())
             && std::abs(carrier->y - PITCH_H / 2.0) > 130.0
             && std::abs(carrier->x - bGoalX) < 450.0) {
             double ballSide = carrier->y < PITCH_H / 2.0 ? -1.0 : 1.0;
-            c.push_back({ bGoalX - pc.fd * 165.0, PITCH_H / 2.0, ActionPurpose::Offer });
+            c.push_back({ bGoalX - pc.fd * 165.0, laneY, ActionPurpose::Offer });
             c.push_back({ bGoalX - pc.fd * 135.0,
-                          clamp(PITCH_H / 2.0 - ballSide * 46.0, PITCH_H * 0.27, PITCH_H * 0.73),
+                          clamp(laneY - ballSide * 46.0, PITCH_H * 0.27, PITCH_H * 0.73),
                           ActionPurpose::Space });
             c.push_back({ bGoalX - pc.fd * 210.0,
-                          clamp(PITCH_H / 2.0 + ballSide * 58.0, PITCH_H * 0.24, PITCH_H * 0.76),
+                          clamp(laneY + ballSide * 58.0, PITCH_H * 0.24, PITCH_H * 0.76),
                           ActionPurpose::Offer });
         }
     }
@@ -394,8 +404,13 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
             c.push_back({ clamp(p.homeX - pc.fd * 20.0, 60.0, PITCH_W - 60.0), clamp(p.homeY + 35.0, 40.0, PITCH_H - 40.0), ActionPurpose::Offer });
         }
         double bSide = (b.y < PITCH_H / 2.0) ? -1.0 : 1.0;
+        // Round-30: same lane anchor as the ball-advanced CM block above — this
+        // one is the worst offender in the build-up phase, since homeX is already
+        // identical across the trio, so an absolute y made the candidate literally
+        // bit-identical for all three and sent them to one point for 5-9 seconds.
+        const double laneY = lerp(p.homeY, PITCH_H / 2.0, 0.55);
         c.push_back({ clamp(p.homeX + pc.fd * 30.0 + pc.pushUp, 60.0, PITCH_W - 60.0), clamp(p.homeY + bSide * 50.0, 40.0, PITCH_H - 40.0), ActionPurpose::Space });
-        c.push_back({ clamp(p.homeX + pc.fd * 110.0 + pc.pushUp, 60.0, PITCH_W - 60.0), clamp(PITCH_H / 2.0 + bSide * 55.0, 50.0, PITCH_H - 50.0), ActionPurpose::Offer });
+        c.push_back({ clamp(p.homeX + pc.fd * 110.0 + pc.pushUp, 60.0, PITCH_W - 60.0), clamp(laneY + bSide * 55.0, 50.0, PITCH_H - 50.0), ActionPurpose::Offer });
         c.push_back({ clamp(b.x + pc.fd * 90.0, 60.0, PITCH_W - 60.0), clamp(p.homeY + bSide * 35.0, 45.0, PITCH_H - 45.0), ActionPurpose::Space });
     }
 
