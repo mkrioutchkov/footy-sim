@@ -415,12 +415,19 @@ void GameEngine::fixedUpdate(double sdt) {
             // second-half kickoff then landed mid-play and read as a glitch).
             // Ratio is exactly 1.0 for a 90-min match → standard game unchanged.
             double addedScale = std::min(1.0, halfDurationMs / (45.0 * 60000.0));
-            phase.announcedAddedMs = clamp(std::round(phase.stoppageMs * 0.35 / 60000.0), 1.0, 5.0) * 60000.0 * addedScale;
+            // Round-30: the ANNOUNCED figure is the whole-minute board number;
+            // announcedAddedMs is the scaled WHISTLE threshold. They were the
+            // same expression, so the sub-45-min scale (0.333 at 30 min) was
+            // being applied before the board read it back and every match under
+            // 90 minutes announced "+0". Keep the threshold exactly as it was —
+            // it must NOT become continuous (that moves the half-time whistle
+            // and rerolls the second half) — and publish the integer separately.
+            phase.announcedAddedMin = static_cast<int>(clamp(std::round(phase.stoppageMs * 0.35 / 60000.0), 1.0, 5.0));
+            phase.announcedAddedMs = phase.announcedAddedMin * 60000.0 * addedScale;
             // The board goes up (owner: "added time... should be communicated
             // properly") — the viewer renders this as the +N banner. playerId
             // carries the announced minutes, targetId the half.
-            emitEvent("added_time", HALF_X, 20.0,
-                      static_cast<int>(std::round(phase.announcedAddedMs / 60000.0)), phase.half);
+            emitEvent("added_time", HALF_X, 20.0, phase.announcedAddedMin, phase.half);
         }
         phase.addedTimeActive = true;
         double overtimeMs = state.clockMs - halfEndMs;
@@ -434,6 +441,7 @@ void GameEngine::fixedUpdate(double sdt) {
             phase.addedTimeActive = false;
             phase.stoppageMs = 0;
             phase.announcedAddedMs = 0;
+            phase.announcedAddedMin = 0;
             if (phase.half == 1) {
                 phase.half = 2;
                 phase.halfTimePause = 5000; // a visible break, not a real 15min
@@ -2085,7 +2093,7 @@ std::string GameEngine::getJSON() const {
     j["matchState"] = state.matchState;
     j["half"] = phase.half;
     j["addedTime"] = phase.addedTimeActive;
-    j["addedTimeAnnouncedMin"] = static_cast<int>(phase.announcedAddedMs / 60000.0);
+    j["addedTimeAnnouncedMin"] = phase.announcedAddedMin;
     j["version"] = nativeBuildVersion();
     j["speed"] = state.speed;
     j["homeScore"] = state.homeScore;
@@ -2121,7 +2129,8 @@ std::string GameEngine::getJSON() const {
                                {"y", std::round(ev.y * 10) / 10},
                                {"age", std::round(age)},
                                {"playerId", ev.playerId >= 0 ? nlohmann::json(ev.playerId) : nlohmann::json(nullptr)},
-                               {"targetId", ev.targetId >= 0 ? nlohmann::json(ev.targetId) : nlohmann::json(nullptr)}});
+                               {"targetId", ev.targetId >= 0 ? nlohmann::json(ev.targetId) : nlohmann::json(nullptr)},
+                               {"ownGoal", ev.ownGoal}});
     }
     j["possessionPct"] = summary["possessionPct"];
 

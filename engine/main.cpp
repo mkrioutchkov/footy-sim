@@ -393,6 +393,13 @@ int main(int argc, char* argv[]) {
             trace.writeFrame(engine.state);
             for (const auto& e : engine.traceEventQueue) {
                 int teamId = e.playerId < 0 ? -1 : (e.playerId < 11 ? 0 : 1);
+                // Round-30: the id->team synthesis is right for every event type
+                // EXCEPT an own goal, where the toucher plays for the side that
+                // CONCEDED. Flip only that one case. (Do NOT reach for
+                // e.targetId here: ~20 emit sites put a PLAYER id in it — pass,
+                // foul, card, intercept, take-on, block, tip — so using it as
+                // the team slot would corrupt team_id for thousands of events.)
+                if (e.ownGoal && e.type == "goal") teamId ^= 1;
                 trace.writeEvent(e.type, e.clockMs, e.x, e.y, e.playerId, teamId);
             }
         }

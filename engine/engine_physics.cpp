@@ -267,7 +267,12 @@ bool GameEngine::checkGoal() {
         if (lastGoal.source == GoalSource::Shot || lastGoal.source == GoalSource::Penalty) stats.recordShotOnTarget();
         if (passDebug && shot.tracked) fprintf(stderr, "GOALSCORED type=%d src=%d\n", shot.type, (int) lastGoal.source);
         if (!ownGoal) creditGoal(lastGoal.toucherId);
-        emitEvent("goal", goalLineX, b.y, lastGoal.toucherId);
+        // Round-30: carry the own-goal truth OUT of the engine. The event's
+        // player id is the toucher (a defender of the conceding side on an own
+        // goal), and every consumer synthesises the team from that id — so the
+        // flag is the only thing that tells them the goal belongs to the other
+        // team. Payload only; play is unchanged.
+        emitEvent("goal", goalLineX, b.y, lastGoal.toucherId, -1, /*traceOnly=*/false, ownGoal);
         if (scoringTeam == Team::Home)
             state.homeScore++;
         else

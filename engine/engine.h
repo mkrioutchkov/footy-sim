@@ -113,7 +113,8 @@ public:
         bool kickoffPhase = false;
         double actionTimer = 0;
         double stoppageMs = 0;            // accumulated dead time this half
-        double announcedAddedMs = 0;      // the board: +N minutes
+        double announcedAddedMs = 0;      // the whistle threshold (scaled to the real half length)
+        int announcedAddedMin = 0;        // the board: +N whole minutes, pre-scale
     } phase;
     // Round-23 (arena reaudit): post-goal WALK-IN. Instead of teleporting all 22
     // dots to their kickoff spots in one 80ms tick (then a statue hold), players
@@ -557,6 +558,12 @@ public:
         std::string type;
         double x = 0, y = 0, clockMs = 0;
         int playerId = -1, targetId = -1;
+        // Round-30: "goal" only — the toucher is a defender who put it into his
+        // OWN net, so the event's player id belongs to the CONCEDING side. The
+        // trace writer synthesises team from the player id, so without this the
+        // goal lands on the wrong team and the replay scorebug reads the wrong
+        // scoreline for the rest of the match.
+        bool ownGoal = false;
     };
     std::vector<VisualEvent> visualEvents;
     // Full event log for the trace file — the host drains this every tick
@@ -681,7 +688,7 @@ public:
 
     bool knockBallAhead(Player&, double, double);
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
-    void emitEvent(const std::string&, double, double, int=-1, int=-1, bool traceOnly=false);
+    void emitEvent(const std::string&, double, double, int=-1, int=-1, bool traceOnly=false, bool ownGoal=false);
     void blockReboundFor(int playerId, double ms);
     void recordBallImpulse();
     void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false, bool isCutback = false, bool isClear = false);

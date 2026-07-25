@@ -105,8 +105,9 @@ export interface MatchEvent {
   age: number;
   playerId?: number | null;
   targetId?: number | null;
-  // render-hint (engine, pending): distinguishes an own goal so the popup/feed can label it "O.G.".
-  // Harmless if never set — the goal path reads it optionally.
+  // Round-30: the engine now publishes this on "goal" events. True when the last
+  // toucher put it into his OWN net, i.e. the event's playerId belongs to the
+  // CONCEDING side — every consumer that derives a team from playerId must flip.
   ownGoal?: boolean;
 }
 
