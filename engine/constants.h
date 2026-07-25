@@ -303,6 +303,14 @@ inline constexpr double GK_MAX_HOLD_MS          = 1800.0;
 // 4s->~1.4s, throw 4s->~1.4s). 11v11 is untouched (the factor is exactly 1.0).
 inline constexpr double ARENA_RESTART_SCALE     = 0.35;
 
+// Round-30 (arena generality): the largest small-sided side the arena can
+// field — outfielders PER SIDE, so 10 is a full 11-a-side team. The engine
+// keeps a real shape for every value in [1, ARENA_MAX_OUTFIELDERS]; anything
+// outside it is rejected at the command line instead of silently collapsing
+// to a 1v1 (the pre-round-30 parser accepted only the single characters
+// '1'..'3' and ran "--arena 7" as a 1v1 with no diagnostic).
+inline constexpr int    ARENA_MAX_OUTFIELDERS   = 10;
+
 // ── Goal-kick long-distribution mix ── even a possession side mixes in a
 // longer distribution to a target man rather than ALWAYS playing out short
 // (watched replay seed 105: goal kicks were taken short unrealistically

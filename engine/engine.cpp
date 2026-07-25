@@ -2177,10 +2177,23 @@ void GameEngine::initWithSeed(int seed) {
     // CF outward (a good engine should look normal in unfamiliar scenarios:
     // 1v1, 2v2, 3v3 all reuse the same duel/press/take-on machinery).
     if (arenaMode) {
-        static constexpr int ARENA_KEEP[3][3] = {{9, -1, -1},   // 1v1: CF
-                                                 {9, 5, -1},    // 2v2: CF + CM
-                                                 {9, 5, 8}};    // 3v3: CF + CM + WM
-        int n = clamp(arenaOutfielders, 1, 3);
+        // Round-30 (arena generality): the table now covers every size the CLI
+        // accepts (1..ARENA_MAX_OUTFIELDERS) instead of stopping at 3. Rows 1-3
+        // are the round-21 shapes verbatim; 4+ keep growing outward through the
+        // default 4-3-3 slots so N>3 fields a real side rather than collapsing.
+        static constexpr int ARENA_KEEP[ARENA_MAX_OUTFIELDERS][ARENA_MAX_OUTFIELDERS] = {
+            {9, -1, -1, -1, -1, -1, -1, -1, -1, -1},   //  1v1: CF
+            {9,  5, -1, -1, -1, -1, -1, -1, -1, -1},   //  2v2: CF + CM
+            {9,  5,  8, -1, -1, -1, -1, -1, -1, -1},   //  3v3: CF + CM + WM
+            {9,  5,  8, 10, -1, -1, -1, -1, -1, -1},   //  4v4: + far WM
+            {9,  5,  8, 10,  3, -1, -1, -1, -1, -1},   //  5v5: + CB
+            {9,  5,  8, 10,  3,  2, -1, -1, -1, -1},   //  6v6: + CB
+            {9,  5,  8, 10,  3,  2,  6, -1, -1, -1},   //  7v7: + CM
+            {9,  5,  8, 10,  3,  2,  6,  7, -1, -1},   //  8v8: + CM
+            {9,  5,  8, 10,  3,  2,  6,  7,  1, -1},   //  9v9: + FB
+            {9,  5,  8, 10,  3,  2,  6,  7,  1,  4},   // 10v10: + FB (full XI)
+        };
+        int n = clamp(arenaOutfielders, 1, ARENA_MAX_OUTFIELDERS);
         auto kept = [&](int id) {
             if (id == 0 || id == 11) return true;               // GKs always play
             for (int k = 0; k < n; ++k) {

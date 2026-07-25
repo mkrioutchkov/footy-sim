@@ -169,9 +169,23 @@ int main(int argc, char* argv[]) {
         else if (arg == "--no-debug") debugMode = false;
         else if (arg == "--arena") {
             arenaFlag = true;
-            // Optional size: "--arena 2" = 2v2 (next arg, if a bare number 1-3).
-            if (i + 1 < argc && argv[i + 1][0] >= '1' && argv[i + 1][0] <= '3' && argv[i + 1][1] == '\0')
-                arenaSize = std::atoi(argv[++i]);
+            // Optional size: "--arena 5" = 5 outfielders per side (5v5 + keepers).
+            // Round-30: parse the REAL integer. The old test looked at a single
+            // character in '1'..'3', so "--arena 7" fell through and ran a 1v1
+            // with no diagnostic (verified: byte-equal summaries for 1/4/5/7).
+            // A token starting with a digit is meant as a size — validate it and
+            // fail loudly; anything else is the next flag and is left alone.
+            if (i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9') {
+                const char* tok = argv[++i];
+                char* end = nullptr;
+                long v = std::strtol(tok, &end, 10);
+                if (end == tok || *end != '\0' || v < 1 || v > ARENA_MAX_OUTFIELDERS) {
+                    std::cerr << "--arena size must be an integer 1-" << ARENA_MAX_OUTFIELDERS
+                              << " (outfielders per side); got \"" << tok << "\"\n";
+                    return 1;
+                }
+                arenaSize = static_cast<int>(v);
+            }
         }
         else if (arg == "--trace" && i + 1 < argc) tracePath = argv[++i];
         else if (arg == "--snapshot-in" && i + 1 < argc) snapshotPath = argv[++i];
