@@ -43,7 +43,15 @@ if [[ "$got" == "$want" ]]; then
   exit 0
 fi
 
-echo "✗ DRIFT — fingerprint mismatch. Per-seed breakdown:"
+echo "✗ DRIFT — fingerprint mismatch."
+if [[ ! -f "$BASE" ]]; then
+  # Committed since round-31 (.gitignore carries an explicit !-negation for it), so
+  # this only happens if someone deleted it. Do NOT regenerate: the baseline must
+  # come from the frozen reference build, not from the binary under test.
+  echo "  (no $BASE — restore it with: git checkout -- $BASE)"
+  exit 1
+fi
+echo "Per-seed breakdown:"
 mism=0
 i=1
 for s in $(seq "$SEED_LO" "$SEED_HI"); do

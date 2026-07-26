@@ -210,7 +210,9 @@ clock-driven event, so replays match.
 directives; everything is re-derived each tick (except the clock-driven morale bump).
 `tools/tactics_golden.py` hashes the **no-directive** match across 7 seeds — it locks
 the default path byte-for-byte, but does **not** regression-test that a given directive
-produces a given effect.
+produces a given effect. Both it and `tools/tactics_bench.py` read the committed
+`tools/tactics_fixture.json` (override with `TACTICS_SPEC`), so they run on a clean
+checkout; they previously required an untracked `web/backend/data/specs/fixture-1.json`.
 
 ## 6. Gaps & quirks (current)
 

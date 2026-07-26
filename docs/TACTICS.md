@@ -113,7 +113,10 @@ mid-match shout).
   (~691→726).
 - **Determinism guard**: `tools/tactics_golden.py check` hashes the no-directive
   match across 7 seeds; run it after every change to prove the default match
-  hasn't drifted as the vocabulary grows.
+  hasn't drifted as the vocabulary grows. It and `tools/tactics_bench.py` read
+  the **committed** `tools/tactics_fixture.json` (regenerate with
+  `python3 tools/tactics_fixture.py`), so both run on a clean checkout; set
+  `TACTICS_SPEC=<path>` to point them at a real league fixture instead.
 - **Compliance** (still to build): each directive weighted by
   `intensity x f(temperament, morale)` so disliked/impossible orders are resisted.
   Today an unmappable order is simply dropped. (Squad morale + the instruction→morale

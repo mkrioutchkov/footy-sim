@@ -17,7 +17,14 @@ from concurrent.futures import ThreadPoolExecutor as ProcessPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(ROOT, "build", "live.exe")
-BASE = json.load(open(os.path.join(ROOT, "web", "backend", "data", "specs", "fixture-1.json")))
+# The base spec is COMMITTED (tools/tactics_fixture.json). It used to be
+# web/backend/data/specs/fixture-1.json, which .gitignore excludes and which only
+# exists after a league bootstrap seeded by unseeded Math.random() — so on a clean
+# checkout this module raised FileNotFoundError at import and the "run the bench
+# after every change" ritual four docs prescribe was impossible to follow.
+# TACTICS_SPEC still points it at a real league fixture when you want one.
+SPEC = os.environ.get("TACTICS_SPEC", os.path.join(ROOT, "tools", "tactics_fixture.json"))
+BASE = json.load(open(SPEC))
 PITCH_H = 680.0
 
 def _spec(seed, minutes, directives):

@@ -10,7 +10,11 @@ import json, subprocess, os, sys, hashlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(ROOT, "build", "live.exe")
-SPEC = os.path.join(ROOT, "web", "backend", "data", "specs", "fixture-1.json")
+# Committed base spec — see the note in tools/tactics_bench.py. The old default
+# (web/backend/data/specs/fixture-1.json) is gitignored, so the hashes in
+# tactics_golden.json were bound to one developer's untracked file and this guard
+# could not run on a clean checkout at all.
+SPEC = os.environ.get("TACTICS_SPEC", os.path.join(ROOT, "tools", "tactics_fixture.json"))
 GOLDEN = os.path.join(ROOT, "tools", "tactics_golden.json")
 SEEDS = [40985, 1, 7, 13, 22, 99, 314]
 MINUTES = 90

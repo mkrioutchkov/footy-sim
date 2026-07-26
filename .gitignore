@@ -4,6 +4,11 @@ build/
 .scratch/
 *.bin
 *.jsonl
+# ...except the frozen golden reference. It is the byte-identical baseline the
+# fingerprint is taken over; without it verify.sh's per-seed drift breakdown
+# cannot work on a clean checkout, and regenerating it locally would just
+# re-derive it from whatever binary is under test.
+!tools/golden/baseline_summaries.jsonl
 *.jsonl.gz
 *.ndjson.gz
 __pycache__/
