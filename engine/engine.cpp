@@ -616,9 +616,7 @@ void GameEngine::updatePlayerAnimations(double sdt) {
         if (p.tackleAnim > 0) p.tackleAnim = std::max(0., p.tackleAnim - sdt);
         if (p.headingAnim > 0) p.headingAnim = std::max(0., p.headingAnim - sdt);
         if (p.diveAnim > 0) p.diveAnim = std::max(0., p.diveAnim - sdt);
-        if (p.crossCollected > 0) p.crossCollected = std::max(0., p.crossCollected - sdt);
         if (p.throughCollected > 0) p.throughCollected = std::max(0., p.throughCollected - sdt);
-        if (p.firstTouchFinish > 0) p.firstTouchFinish = std::max(0., p.firstTouchFinish - sdt);
     }
 }
 

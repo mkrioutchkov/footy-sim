@@ -32,7 +32,6 @@ export interface Player {
   headingAnim: number;
   diveAnim: number;
   facing: number;
-  crossCollected: number;
   dribbleType: number;
   goals?: number;
   assists?: number;

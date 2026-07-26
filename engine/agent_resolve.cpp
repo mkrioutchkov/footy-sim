@@ -11,8 +11,9 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ── Fresh ball collection overrides ──────────────────────────────────────────
-// After collecting a through-ball or cross, the player gets a brief window
-// where shooting or driving forward is heavily favoured.
+// After collecting a through-ball, the player gets a brief window where shooting
+// or driving forward is heavily favoured. (Round-31: the parallel cross branch is
+// gone — see the tombstone at the bottom of tryFreshBallOverride.)
 
 Action* PlayerAI::tryFreshBallOverride(SmallVector<Action, 24>& a, Action& best,
                                         bool ic, bool nearGoal) {
@@ -44,24 +45,17 @@ Action* PlayerAI::tryFreshBallOverride(SmallVector<Action, 24>& a, Action& best,
             && shootOpt->audit.distance < 245.0)
             return shootOpt;   // no viable carry — take the shot anyway
     }
-    if (ic && player.crossCollected > 0.0) {
-        Action* shootOpt = nullptr;
-        for (auto& x : a) {
-            if (x.type == ActionType::Shoot && x.score >= 0.0) {
-                if (!shootOpt || x.score > shootOpt->score) shootOpt = &x;
-            }
-        }
-        // G2 (user live-watch: "forced first-time shot"). The fresh-cross volley used to
-        // fire from angleDeg > 5.5 — below the 7.5 acute-shot threshold — i.e. a byline-
-        // tight wild first-timer, with a wide best-0.32 tolerance that overrode a clearly
-        // better touch/lay-off. Require a REAL opening (>11deg) and a tighter tolerance so
-        // a poorly-angled collection takes a touch instead of blazing it. A central, well-
-        // angled volley still fires (it keeps the fresh-finish keeper-beat bonus).
-        if (shootOpt && shootOpt->audit.distance < 245.0
-            && shootOpt->audit.angleDeg > 11.0
-            && shootOpt->score > best.score - 0.22)
-            return shootOpt;
-    }
+    // TOMBSTONE (Round-31): a "fresh-cross volley" override used to sit here,
+    // gated on `player.crossCollected > 0.0`. It NEVER EXECUTED — not once, in any
+    // recorded match. crossCollected was only ever set one statement before a
+    // shootBall() call that cleared it again before returning, so no agent tick
+    // could observe it. A past round tuned this branch against a live-watch
+    // complaint ("forced first-time shot"), raising its angle gate 5.5deg -> 11deg
+    // and tightening the score tolerance 0.32 -> 0.22. That tuning was applied to
+    // code that has never run, and therefore cannot have caused the complaint —
+    // whatever produced that shot is still out there. Do not re-derive a fix from
+    // those numbers. If a cross collector should be biased toward a first-time
+    // finish, that is a new, measured behaviour change, not a revived flag.
     return nullptr;
 }
 

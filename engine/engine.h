@@ -771,7 +771,13 @@ public:
     void hoofClearToSpace(Player& f);
     bool attemptTackle(Player& tackler, Player& carrier, double extraReach = 0.0);
     void resolveTackleFoul(Player& tackler, Player& carrier, bool fromBehind, bool cynical, double boxFoulScale);
-    void shootBall(Player& s, const ShotSelectionAudit* selectionAudit);
+    // headerFinish / firstTimeFinish describe HOW this shot is being struck, and
+    // are the ONLY source of that truth. Round-31: they used to be inferred from
+    // the decaying Player::crossCollected / Player::firstTouchFinish markers,
+    // which overloaded "this man just collected a cross" with "this shot is a
+    // header" — see the tombstone in shootBall().
+    void shootBall(Player& s, const ShotSelectionAudit* selectionAudit,
+                   bool headerFinish = false, bool firstTimeFinish = false);
     bool collectBall(Player& c, const std::string&, double allowedDist);
 
     // ── Quality flag logging ──

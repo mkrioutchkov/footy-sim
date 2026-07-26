@@ -538,10 +538,10 @@ bool GameEngine::tryCutbackFirstTimeFinish(double bs) {
                 double gkProx = clamp((55.0 - gkDistToRcv) / 55.0, 0.0, 1.0);
                 double finishChance = clamp(0.50 + attrFactor(rcv->attrs.shooting) * 0.30 - frontPress * 0.16 - gkProx * 0.45 - clamp((bs - 250.0) / 600.0, 0.0, 0.16), 0.12, 0.88);
                 if (rng.random() < finishChance) {
-                    rcv->firstTouchFinish = 1400.0; // flat, clean foot finish (not a header)
                     pendingPass.active = false;
                     b.intendedReceiverId = -1;
-                    shootBall(*rcv, nullptr);
+                    // Flat, clean foot finish — explicitly NOT a header (shot.header stays false).
+                    shootBall(*rcv, nullptr, /*headerFinish=*/false, /*firstTimeFinish=*/true);
                     return true;
                 }
                 // Scuffed the first-time effort — the ball runs loose.

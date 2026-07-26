@@ -302,13 +302,12 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
                         b.y = receiver.y + (b.y - receiver.y) / hbd * 10.0;
                     }
                 }
-                receiver.crossCollected = 900.0;
                 if (receiver.id >= 0 && receiver.id < 22 && pendingPass.fromId != receiver.id) {
                     lastReceiveFrom[receiver.id] = pendingPass.fromId;
                     lastReceiveMs[receiver.id] = state.clockMs;
                 }
                 pendingPass.active = false;
-                shootBall(receiver, nullptr);
+                shootBall(receiver, nullptr, /*headerFinish=*/true);
                 return true;
             }
 
@@ -437,8 +436,11 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
     }
     if (pendingPass.isCross && receiver.team == pendingPass.team) {
         stats.recordCrossComplete();
-        // (removed dead `if (plausibleHeader) receiver.crossCollected = 1500.0;`
-        //  — every plausibleHeader path above returns, so it was unreachable.)
+        // (Round-31: the historical dead `receiver.crossCollected = 1500.0;` here is
+        //  gone for good — the marker itself no longer exists. A cross collected on
+        //  the ground now simply becomes an ordinary carry; whether such a collector
+        //  should get a first-time-shot bias is an open question for a round that can
+        //  afford the A/B, not a flag to be re-lit. See the tombstone in shootBall().)
     }
     if (pendingPass.isThrough && receiver.team == pendingPass.team) {
         receiver.throughCollected = 1400.0;
@@ -1585,7 +1587,22 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     return true;
 }
 
-void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) {
+// ── Shot-type truth ────────────────────────────────────────────────────────
+// TOMBSTONE (Round-31). `headerFinish` and `firstTimeFinish` are parameters, not
+// player state. They used to be read off `s.crossCollected` / `s.firstTouchFinish`
+// — decaying markers set by the caller one line before the call and cleared again
+// at the bottom of this same function. That made `crossCollected` mean TWO things
+// at once: "this player just collected a cross" (its name) and "render this shot
+// as a HEADER" (its only actual effect). Two readers elsewhere tried to use the
+// first meaning — agent_resolve.cpp's fresh-cross volley override and
+// scoreShoot()'s freshCross branch — and could never fire, because the flag was
+// always already back to 0 by the time an agent ticked. Reviving them while the
+// overload stood would have branded a controlled GROUND shot a header: +headedShots,
+// shot.header true, and the CF error multiplier (0.46, a ~54% accuracy bonus).
+// Both dead readers were deleted in the same commit; see the tombstone at
+// agent_shoot_dribble.cpp scoreShoot().
+void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit,
+                           bool headerFinish, bool firstTimeFinish) {
     // Law 11 rebound snapshot: teammates offside NOW may not play the rebound.
     {
         double fdS = fdFor(s.team);
@@ -1618,7 +1635,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     double goalCenterY = PITCH_H / 2.0;
     double shotDistance = std::hypot(gx - s.x, goalCenterY - s.y);
     double freshCrossMax = agentFor(s)->freshCrossMaxDistance();
-    bool freshCross = s.crossCollected > 0.0 && shotDistance < freshCrossMax;
+    bool freshCross = headerFinish && shotDistance < freshCrossMax;
     if (freshCross) stats.recordHeadedShot();
     stats.recordShotDistance(shotDistance);
     // Penalty-area POLYGON census — the radial bands straddle the box edge, so
@@ -1718,15 +1735,17 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     // goal-side of the near post. The original clause (no pressure at all, out
     // to 14m) is untouched; this only adds the traffic-tolerant point-blank case,
     // and it still requires a genuinely CLEAR shooting lane.
+    // (firstTimeFinish is the explicit parameter that replaced the overloaded
+    // s.firstTouchFinish flag — same meaning, no longer doubling as a marker.)
     bool clearCutChance = (shotDistance < 140.0 && angleDeg > 11.0
                            && pressureCount == 0 && laneBlockers == 0
-                           && (freshThrough || s.firstTouchFinish > 0.0 || credibleFinish))
+                           && (freshThrough || firstTimeFinish || credibleFinish))
                        || (shotDistance < 85.0 && angleDeg > 13.0
                            && laneBlockers == 0 && pressureCount <= 2);
     // First-time foot finish off a low cross: struck clean and FLAT (not a
     // header, so shot.header stays false), with a tight error band — the whole
     // point is to turn a swept low cross into an on-target chance.
-    bool firstTouch = s.firstTouchFinish > 0.0 && shotDistance < 235.0;
+    bool firstTouch = firstTimeFinish && shotDistance < 235.0;
     bool directFreeKickShot = setPiece.type == SetPiece::FreeKick;
     // Dead ball, no pressure, twelve yards: penalty execution is near-pure
     // placement. Without this the open-play error model sprayed pens wide.
@@ -2012,11 +2031,11 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
             }
         }
     }
-    // Consume the first-time-finish flags now the shot has used them: they otherwise
-    // decay over 900-1400ms, so a SAME-player rebound shot inside that window would
-    // wrongly re-apply the header/first-touch error reduction (and re-count the shot).
-    s.crossCollected = 0.0;
-    s.firstTouchFinish = 0.0;
+    // Consume the through-ball marker now the shot has used it: it otherwise decays
+    // over 1400ms, so a SAME-player rebound shot inside that window would wrongly
+    // re-apply the through-ball error reduction. (The header / first-time markers
+    // used to be cleared here too; they are parameters now — a rebound shot simply
+    // isn't called with them.)
     s.throughCollected = 0.0;
 }
 

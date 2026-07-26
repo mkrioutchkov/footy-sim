@@ -14,9 +14,16 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     audit.angleDeg = angleDeg;
     audit.pressureCount = per.pressureCount;
     CarrierPressure cp = assessCarrierPressure(engine, p);
-    double freshCrossMax = freshCrossMaxDistance();
-    bool freshCross = p.crossCollected > 0.0 && shotDistance < freshCrossMax;
     bool freshThrough = p.throughCollected > 0.0 && shotDistance < 245.0;
+    // TOMBSTONE (Round-31): a parallel `freshCross` term ran through every gate
+    // below (`p.crossCollected > 0.0 && shotDistance < freshCrossMaxDistance()`).
+    // It was ALWAYS FALSE. crossCollected was set one statement before a
+    // shootBall() call that cleared it again before returning, so it was never
+    // non-zero on any agent tick — the whole fresh-cross shot-bias path, including
+    // the role-keyed `freshCrossShotBonus` it spent, has never executed. Removed
+    // rather than revived: reviving it is a real behaviour change (it lifts the
+    // distance/facing vetoes AND adds a score bonus) and belongs in a round that
+    // can pay for the A/B. See the tombstone in GameEngine::shootBall().
 
     // Fresh windfall (possession won off the opponent <2s ago) in range: the
     // long pot shot is ON — the defence is unset, exactly when real players
@@ -30,17 +37,16 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     bool outsideGoalLane = pitch::lateralFromCenter(p.y) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < SHOT_ANGLE_ACUTE_THRESH && shotDistance > 150.0;
 
-    if (!freshCross && !freshThrough && angleDeg < SHOT_ACUTE_SOFT_THRESH && shotDistance > 120.0)
+    if (!freshThrough && angleDeg < SHOT_ACUTE_SOFT_THRESH && shotDistance > 120.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    if ((!freshCross && shotDistance > (shootOnSight ? 360.0 : windfall ? 345.0 : 310.0)) || (freshCross && shotDistance > freshCrossMax) || (!freshCross && !shootOnSight && !windfall && acuteGeometry))
+    if (shotDistance > (shootOnSight ? 360.0 : windfall ? 345.0 : 310.0) || (!shootOnSight && !windfall && acuteGeometry))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
-    if (!freshCross && !freshThrough && shotDistance > 285.0 && angleDeg < SHOT_ACUTE_HARD_THRESH)
+    if (!freshThrough && shotDistance > 285.0 && angleDeg < SHOT_ACUTE_HARD_THRESH)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double hardMax = shotMaxDistance() + engine.teamTactics[teamIndex(p.team)].shootDistBias;   // shoot_from_distance extends the HARD cap too (line-36 gate); 0 = default
-    if (freshCross) hardMax = std::max(hardMax, freshCrossMax);
     if (shootOnSight) hardMax = std::max(hardMax, lerp(hardMax, 330.0, soIntensity));   // intensity-scaled cap extension (reaches 330 only at full intensity)
     if (windfall) hardMax = std::max(hardMax, windfallRange);
     // Round-23 (11v11 0:32/33 "should really try a shot... threshold a few meters
@@ -71,26 +77,26 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     double toGoalDist = std::hypot(toGoalX, toGoalY);
     if (toGoalDist < 1.0) toGoalDist = 1.0;
     double facingDot = (std::cos(p.facing) * toGoalX + std::sin(p.facing) * toGoalY) / toGoalDist;
-    if (!freshCross && !freshThrough && facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    // F6 (facing audit): a fresh cross/through finish skips the veto above (a volley/header
-    // can legitimately be side-on), but still refuse a TRUE back-to-goal shot (>120 deg off
-    // the goal) — that looked broken. Rear tolerance for glancing headers is preserved.
-    if ((freshCross || freshThrough) && facingDot < -0.5 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    if (!freshThrough && facingDot < 0.05 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    // F6 (facing audit): a fresh through-ball finish skips the veto above (a first-time
+    // strike can legitimately be side-on), but still refuse a TRUE back-to-goal shot
+    // (>120 deg off the goal) — that looked broken.
+    if (freshThrough && facingDot < -0.5 && shotDistance > 70.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     // OUTSIDE the box the side-on tolerance shrinks: a first-time finish from
     // 20m while barely facing the goal read as a no-look backheel bomb
     // (watched replay 8:45: scorer collected and struck in 200ms, body still
     // square to the arriving pass). Box-range volleys and flicks keep the
     // wide tolerance above.
-    if ((freshCross || freshThrough) && facingDot < 0.15 && shotDistance > 150.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    if (!freshCross && !freshThrough && facingDot < 0.35 && shotDistance > 135.0)
+    if (freshThrough && facingDot < 0.15 && shotDistance > 150.0) return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    if (!freshThrough && facingDot < 0.35 && shotDistance > 135.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
-    if (!freshCross && cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)
+    if (cp.score > 1.15 && cp.exposed > 0.45 && shotDistance > 105.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
     // Over-conversion residual (BORIS_OVERCONVERSION §NEW residual): a long-range
     // shot with defenders closing is low-quality — the keeper reads it, so it pads
     // on-frame/saves, not goals. Recycle and keep possession instead. A clear sight
-    // (no crowd), a shoot-on-sight directive, or a fresh cross/through finish still shoot.
-    if (!freshCross && !freshThrough && !shootOnSight && shotDistance > 195.0 && per.pressureCount >= 2)
+    // (no crowd), a shoot-on-sight directive, or a fresh through-ball finish still shoot.
+    if (!freshThrough && !shootOnSight && shotDistance > 195.0 && per.pressureCount >= 2)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
 
     double sc = attrFactor(p.attrs.shooting) * (1.0 - shotDistance / maxShootRange) * 0.55;
@@ -160,7 +166,6 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     if (longCarryShotZone && per.pressureCount <= 1) sc += 0.18;
     else if (longCarryShotZone) sc += 0.08;
 
-    if (freshCross) sc += freshCrossShotBonus();
     if (freshThrough) {
         // Distance-shaped (was flat +0.22 unpressured): an UNPRESSURED collector
         // still 18m+ out should carry his 1v1 in (the breakaway drive in

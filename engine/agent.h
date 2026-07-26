@@ -131,7 +131,6 @@ public:
     // Per-role placement-error offset added to the open-play shot spread — was a
     // role ternary in the shot path (CF tucks it tighter, CM sprays from range).
     virtual double  shotRoleError(bool freshCross, double shotDistance) const { (void)freshCross; (void)shotDistance; return 0.0; }
-    virtual double  freshCrossShotBonus() const { return profileFor(player.role).freshCrossShotBonus; }
     virtual double  finalThirdShotMaxDistance() const { return profileFor(player.role).finalThirdShotMaxDistance; }
     virtual double  finalThirdShotMinAngle() const { return profileFor(player.role).finalThirdShotMinAngle; }
     virtual double  dribbleOwnHalfExtraPenalty() const { return profileFor(player.role).dribbleOwnHalfExtraPenalty; }

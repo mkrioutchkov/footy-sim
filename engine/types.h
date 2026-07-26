@@ -209,9 +209,13 @@ struct Player {
     double tackleAnim  = 0.0;
     double headingAnim = 0.0;
     double diveAnim    = 0.0;   // keeper diving-save stretch (ms, render-only; set on dive/save, decays)
-    double crossCollected = 0.0;
+    // Round-31: `crossCollected` and `firstTouchFinish` used to live here as decaying
+    // markers. Both were set and cleared inside the SAME shootBall() call, so nothing
+    // could ever observe them — and `crossCollected` doubled as shootBall's header
+    // marker. They are shootBall parameters now (see the tombstone there).
+    // throughCollected is genuinely stateful: it is stamped on a through-ball
+    // collector who does NOT shoot immediately, and read on later ticks.
     double throughCollected = 0.0;
-    double firstTouchFinish = 0.0; // first-time foot finish off a low cross — flat & clean, but not a header
     bool   wall = false;           // in the defensive FK wall this tick (render-hint; reset each tick, set in setPiecePositioning)
     int    dribbleType = 0;
     // Knock from a hard foul: decays over time, scales down max speed while

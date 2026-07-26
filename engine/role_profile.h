@@ -32,7 +32,6 @@ struct RoleProfile {
     double shotMaxDistance;          // hard cap on open-play shot distance
     double freshCrossMaxDistance;    // max range to strike a just-collected cross first-time
     double shotScoreBonus;           // flat bonus to the shoot action score
-    double freshCrossShotBonus;      // shoot bonus specifically off a fresh cross
     double finalThirdShotMaxDistance;// max distance to take on a final-third shot
     double finalThirdShotMinAngle;   // min goal-opening angle (deg) for a final-third shot
     double centralShootBonus;        // bonus for shooting from a central position
@@ -74,7 +73,7 @@ struct RoleProfile {
 inline const RoleProfile& profileFor(Role r) {
     static const RoleProfile TABLE[] = {
         /* GK */ {
-            /*shoot*/    225.0, 250.0, 0.0,  0.42, 165.0,  8.0, 0.0,  0.08, 0.0, -1.0,
+            /*shoot*/    225.0, 250.0, 0.0,  165.0,  8.0, 0.0,  0.08, 0.0, -1.0,
             /*pass*/     0.0,
             /*tackle*/   0.60, 0.0,   0.40, 0.20,
             /*carry*/   -0.02, 0.08,  0.0,  0.0,
@@ -83,7 +82,7 @@ inline const RoleProfile& profileFor(Role r) {
             /*task*/     DefensiveTask::DefensiveLine,
         },
         /* CB */ {
-            /*shoot*/    180.0, 250.0, 0.0,  0.42, 165.0,  8.0, 0.0,  0.08, 0.0, -1.0,
+            /*shoot*/    180.0, 250.0, 0.0,  165.0,  8.0, 0.0,  0.08, 0.0, -1.0,
             /*pass*/     0.0,
             /*tackle*/   0.68, 0.0,   0.35, 0.22,
             /*carry*/   -0.02, 0.08,  0.0,  0.0,
@@ -92,7 +91,7 @@ inline const RoleProfile& profileFor(Role r) {
             /*task*/     DefensiveTask::DefensiveLine,
         },
         /* FB */ {
-            /*shoot*/    205.0, 250.0, 0.0,  0.42, 165.0,  8.0, 0.0,  0.08, 0.0, -1.0,
+            /*shoot*/    205.0, 250.0, 0.0,  165.0,  8.0, 0.0,  0.08, 0.0, -1.0,
             /*pass*/     0.0,
             /*tackle*/   0.50, 0.0,   0.35, 0.18,
             /*carry*/   -0.02, 0.12,  0.12, 135.0,
@@ -101,7 +100,7 @@ inline const RoleProfile& profileFor(Role r) {
             /*task*/     DefensiveTask::WideCover,
         },
         /* CM */ {
-            /*shoot*/    220.0, 250.0, 0.0,  0.42, 165.0, 10.0, 0.0,  0.08, 0.0, -1.0,
+            /*shoot*/    220.0, 250.0, 0.0,  165.0, 10.0, 0.0,  0.08, 0.0, -1.0,
             /*pass*/     0.0,
             /*tackle*/   0.60, 0.06,  0.40, 0.20,
             /*carry*/   -0.02, 0.18,  0.18, 165.0,
@@ -110,7 +109,7 @@ inline const RoleProfile& profileFor(Role r) {
             /*task*/     DefensiveTask::DefensiveLine,
         },
         /* WM */ {
-            /*shoot*/    215.0, 270.0, 0.0,  0.42, 175.0,  8.0, 0.08, 0.04, 0.0, -1.0,
+            /*shoot*/    215.0, 270.0, 0.0,  175.0,  8.0, 0.08, 0.04, 0.0, -1.0,
             /*pass*/     0.36,
             /*tackle*/   0.60, -0.04, 0.40, 0.20,
             /*carry*/    0.0,  0.18,  0.0,  0.0,
@@ -119,7 +118,7 @@ inline const RoleProfile& profileFor(Role r) {
             /*task*/     DefensiveTask::DefensiveLine,
         },
         /* CF */ {
-            /*shoot*/    225.0, 285.0, 0.20, 0.62, 210.0,  8.0, 0.0,  0.08, 0.18, 0.22,
+            /*shoot*/    225.0, 285.0, 0.20, 210.0,  8.0, 0.0,  0.08, 0.18, 0.22,
             /*pass*/     0.72,
             /*tackle*/   0.60, -0.15, 0.40, 0.20,
             /*carry*/   -0.02, 0.08,  0.0,  0.0,
