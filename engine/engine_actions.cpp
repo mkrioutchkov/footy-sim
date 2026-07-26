@@ -29,8 +29,9 @@ void GameEngine::recordBallImpulse() {
     ballImpulseGraceTicks = 2;
 }
 
-void GameEngine::emitEvent(const std::string& type, double x, double y, int playerId, int targetId, bool traceOnly, bool ownGoal) {
-    VisualEvent ev{type, x, y, state.clockMs, playerId, targetId, ownGoal};
+void GameEngine::emitEvent(const std::string& type, double x, double y, int playerId, int targetId, bool traceOnly, bool ownGoal,
+                           const std::string& outName, const std::string& inName) {
+    VisualEvent ev{type, x, y, state.clockMs, playerId, targetId, ownGoal, outName, inName};
     traceEventQueue.push_back(ev);
     // traceOnly events (e.g. kickoff/restart markers) go to the trace log but NOT
     // the capped renderer ticker — so they can't perturb the getJSON events[] the

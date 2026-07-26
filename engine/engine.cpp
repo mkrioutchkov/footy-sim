@@ -2241,13 +2241,29 @@ std::string GameEngine::getJSON() const {
     for (const auto& ev : visualEvents) {
         double age = state.clockMs - ev.clockMs;
         if (age > 2600.0) continue;
-        j["events"].push_back({{"type", ev.type},
-                               {"x", std::round(ev.x * 10) / 10},
-                               {"y", std::round(ev.y * 10) / 10},
-                               {"age", std::round(age)},
-                               {"playerId", ev.playerId >= 0 ? nlohmann::json(ev.playerId) : nlohmann::json(nullptr)},
-                               {"targetId", ev.targetId >= 0 ? nlohmann::json(ev.targetId) : nlohmann::json(nullptr)},
-                               {"ownGoal", ev.ownGoal}});
+        nlohmann::json je = {{"type", ev.type},
+                             {"x", std::round(ev.x * 10) / 10},
+                             {"y", std::round(ev.y * 10) / 10},
+                             {"age", std::round(age)},
+                             {"playerId", ev.playerId >= 0 ? nlohmann::json(ev.playerId) : nlohmann::json(nullptr)},
+                             {"targetId", ev.targetId >= 0 ? nlohmann::json(ev.targetId) : nlohmann::json(nullptr)},
+                             {"ownGoal", ev.ownGoal}};
+        // Substitutions only (see VisualEvent): playerId is the SLOT and resolves to
+        // the arriving man, so the departing one has to travel as a name.
+        if (!ev.outName.empty()) je["outName"] = ev.outName;
+        if (!ev.inName.empty()) je["inName"] = ev.inName;
+        j["events"].push_back(std::move(je));
+    }
+    // Whole-match substitution log — the .bin trace's fixed-width event record has
+    // no room for a name, so the replay exporter joins this to the trace's "sub"
+    // events on (clockMs, slotId).
+    j["substitutionLog"] = nlohmann::json::array();
+    for (const auto& s : substitutionLog) {
+        j["substitutionLog"].push_back({{"clockMs", std::round(s.clockMs)},
+                                        {"slotId", s.slotId},
+                                        {"team", std::string(to_string(s.team))},
+                                        {"outName", s.outName},
+                                        {"inName", s.inName}});
     }
     j["possessionPct"] = summary["possessionPct"];
 
@@ -2488,16 +2504,18 @@ void GameEngine::sendOff(Player& p) {
 
 void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
     in.used = true;
-    // Round-30: emit BEFORE the slot is overwritten. The event used to be raised
-    // after slot.name had already become the incoming player's, so every consumer
-    // that resolves the name from engine state at emit time named the man coming
-    // ON in a toast that reads "... off". (The live JSON stream serialises events
-    // and players from the same tick, so the shipping renderer still needs a
-    // payload/renderer-side change to say both names — noted, not done here.)
-    stats.recordSubstitution();
-    emitEvent("sub", slot.x, slot.y, slot.id);
+    // Round-31: carry BOTH identities. A substitution has two men but the pitch has
+    // one slot, and the slot is renamed below in this same tick — so the event's
+    // playerId always resolves to the man ARRIVING, whichever tick a consumer reads
+    // it on, and the man leaving is unrecoverable from engine state. Both names ride
+    // on the event (live JSON) and in substitutionLog (summary, for .bin replays).
     char prefix = slot.team == Team::Home ? 'H' : 'A';
-    slot.name = std::format("{}{} {}", prefix, slot.id, in.name);
+    std::string outName = slot.name;
+    std::string inName = std::format("{}{} {}", prefix, slot.id, in.name);
+    stats.recordSubstitution();
+    substitutionLog.push_back({state.clockMs, slot.id, slot.team, outName, inName});
+    emitEvent("sub", slot.x, slot.y, slot.id, -1, /*traceOnly=*/false, /*ownGoal=*/false, outName, inName);
+    slot.name = inName;
     slot.attrs = in.attrs;
     slot.stamina = 100.0; // fresh legs
     slot.injurySeverity = 0.0;

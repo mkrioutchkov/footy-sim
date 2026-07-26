@@ -1928,8 +1928,12 @@ export class MatchRenderer {
       const halfMs = half === 1 ? evClock : evClock - 45 * 60 * 1000;
       const minute = Math.max(0, Math.floor(halfMs / 60000)) + (half === 2 ? 45 : 0);
       const actor = ev.playerId != null ? this.playerById.get(ev.playerId) : undefined;
-      const who = actor?.name ?? '';
-      const target = (ev.targetId != null ? this.playerById.get(ev.targetId) : undefined)?.name ?? '';
+      let who = actor?.name ?? '';
+      let target = (ev.targetId != null ? this.playerById.get(ev.targetId) : undefined)?.name ?? '';
+      // A sub has TWO men and one slot id (which resolves to the arriving player, since
+      // the engine renames the slot in the same tick). Feed the pair through the
+      // existing who/target channel so the ticker line can name both.
+      if (ev.type === 'sub' && (ev.inName || ev.outName)) { who = ev.inName ?? who; target = ev.outName ?? ''; }
       if (ev.type === 'goal') { this.lastGoalScorer = who; this.lastGoalScorerId = ev.playerId ?? null; this.lastGoalOwn = !!ev.ownGoal; }   // banner + celebration read these
       // newest on top — a chronological feed row: minute stamp · team-coloured dot · commentary
       this.feedEntries.unshift({ minute, team: actor?.team ?? null, text: this.commentary(ev.type, who, target), goal: ev.type === 'goal' });
@@ -1964,13 +1968,14 @@ export class MatchRenderer {
       case 'red':     this.pushToast('🟥', `${m}  ${nm}`, 'card'); break;
       case 'penalty': this.pushToast('❗', `${m}  Penalty awarded`, 'pen'); break;
       // The sub event carries ONE id — the pitch SLOT — and substituteSlot renames that slot to the
-      // incoming man in the same tick, so by the time the live JSON serialises the frame `nm` is the
-      // player coming ON, never the one going off. "... off" therefore named the wrong man on every
-      // swap (invisible until round-30 made substitutions fire at all). Say what the id actually is,
-      // matching the ticker line at eventNarration('sub'). Naming BOTH needs the outgoing NAME in the
-      // payload (there is no second id — the substitute inherits the slot's), i.e. a string field on
-      // VisualEvent plus a summary sub-log for the trace exporter: round-31, not a one-liner.
-      case 'sub':     this.pushToast('🔁', `${m}  ${nm ? nm + ' comes on' : 'Substitution'}`, 'sub'); break;
+      // incoming man in the same tick, so `nm` is always the player coming ON, never the one going
+      // off. Round-31: the engine now ships both names on the event (outName/inName), so name both;
+      // fall back to the id-derived name (= the arriving man) if an old payload lacks them.
+      case 'sub': {
+        const off = this.shortName(ev.outName ?? ''), on = this.shortName(ev.inName ?? '') || nm;
+        this.pushToast('🔁', off && on ? `${m}  ${off} off, ${on} on` : `${m}  ${on ? on + ' comes on' : 'Substitution'}`, 'sub');
+        break;
+      }
       // event-communication (owner: "not clear what happened — off-ball foul? advantage?"): brief
       // who/what/where popups. 'foul' names the offender + the fouled player (ev.targetId) when known;
       // an 'advantage' event reads "play on"; offside/injury name the player.
@@ -2080,7 +2085,9 @@ export class MatchRenderer {
       case 'offside':    return `🚩 Offside against ${w}`;
       case 'handball':   return `✋ Handball! ${w}`;
       case 'woodwork':   return `😬 Off the woodwork! ${w}`;
-      case 'sub':        return `🔁 Sub — ${w} comes on`;
+      // Round-31: `target` carries the OUTGOING man for a sub (the event's single id
+      // is the slot, which resolves to the arriving player — see maybeToast).
+      case 'sub':        return target ? `🔁 Sub — ${target} off, ${w} on` : `🔁 Sub — ${w} comes on`;
       case 'injury':     return `🤕 ${w} is down injured`;
       case 'assist':     return `🅰 Assist — ${w}`;
       case 'advantage':  return `Referee waves play on — advantage`;

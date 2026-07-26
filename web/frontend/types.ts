@@ -108,6 +108,11 @@ export interface MatchEvent {
   // toucher put it into his OWN net, i.e. the event's playerId belongs to the
   // CONCEDING side — every consumer that derives a team from playerId must flip.
   ownGoal?: boolean;
+  // Round-31: "sub" events only. A substitution has two men but the pitch has ONE
+  // slot, and the engine renames that slot in the same tick — so `playerId` always
+  // resolves to the man ARRIVING and the outgoing man can only travel as a name.
+  outName?: string;
+  inName?: string;
 }
 
 export interface Formation {

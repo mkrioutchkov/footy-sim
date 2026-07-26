@@ -209,6 +209,17 @@ public:
     std::array<std::vector<BenchPlayer>, 2> bench;
     std::array<int, 2> subsRemaining = {5, 5};
     double nextSubCheckMs = 0;
+    // Round-31 summary-side sub log. The binary trace's event record is fixed-width
+    // with no room for a name, so a .bin replay cannot recover who went off from the
+    // event alone. The exporter joins this log to the trace's "sub" events on
+    // (clockMs, slotId) — it is published in getJSON as "substitutionLog".
+    struct SubstitutionRecord {
+        double clockMs = 0;
+        int slotId = -1;
+        Team team = Team::Home;
+        std::string outName, inName;
+    };
+    std::vector<SubstitutionRecord> substitutionLog;
     void initBench();
     void updateSubstitutions();
     void substituteSlot(Player& slot, BenchPlayer& in);
@@ -571,6 +582,11 @@ public:
         // goal lands on the wrong team and the replay scorebug reads the wrong
         // scoreline for the rest of the match.
         bool ownGoal = false;
+        // Round-31: "sub" only. A substitution has TWO identities but the pitch has
+        // ONE slot: substituteSlot renames the slot in the same tick, so the event's
+        // playerId always resolves to the man ARRIVING and the man leaving cannot be
+        // named from engine state at all. Carry both names on the event.
+        std::string outName, inName;
     };
     std::vector<VisualEvent> visualEvents;
     // Full event log for the trace file — the host drains this every tick
@@ -695,7 +711,8 @@ public:
 
     bool knockBallAhead(Player&, double, double);
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
-    void emitEvent(const std::string&, double, double, int=-1, int=-1, bool traceOnly=false, bool ownGoal=false);
+    void emitEvent(const std::string&, double, double, int=-1, int=-1, bool traceOnly=false, bool ownGoal=false,
+                   const std::string& outName={}, const std::string& inName={});
     void blockReboundFor(int playerId, double ms);
     void recordBallImpulse();
     void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false, bool isCutback = false, bool isClear = false);
