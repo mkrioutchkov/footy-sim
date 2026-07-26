@@ -531,6 +531,10 @@ public:
         double passerX = 0.0;
         double passerY = 0.0;
         double offsideLine = 0.0;
+        // Round-31: a genuine AERIAL long ball (>= AERIAL_LONG_BALL_DIST, not a
+        // cross). Set in beginTrackedPass AFTER the aggregate init there, so it
+        // stays out of that positional initialiser list.
+        bool isLofted = false;
         // Every attacking teammate's offside status AT THE PASS (the law) — judges an
         // UNINTENDED collector by his pass-time position, not where he chased the ball to.
         std::array<bool, 22> offsideAtPass{};

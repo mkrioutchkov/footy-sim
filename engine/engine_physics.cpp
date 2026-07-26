@@ -660,7 +660,11 @@ bool GameEngine::tryKeeperCrossClaim() {
     // it's MET (header), so the band-height arrival bypasses the speed gate.
 bool GameEngine::tryIntendedReceiverMeet(double bs) {
     auto& b = state.ball;
-    bool crossArrival = pendingPass.active && pendingPass.isCross && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT;
+    // Round-31: a lofted long ball arrives exactly like a cross does — in the
+    // air, to be met rather than trapped — so it takes the same aerial arrival
+    // treatment: header reach, the trap-speed bypass, and the aerial duel below.
+    bool crossArrival = pendingPass.active && (pendingPass.isCross || pendingPass.isLofted)
+                        && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT;
     if (b.intendedReceiverId >= 0 && (bs < 250 || crossArrival)) {
         Player* intended = playerById(b.intendedReceiverId);
         if (intended) {
@@ -944,6 +948,22 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
         if (pendingPass.active && pendingPass.isCross) {
             double dzc = std::max(0.0, b.z - HEADER_REACH_Z);
             if (std::sqrt(d * d + dzc * dzc) > std::max(r, MEET_REACH_HEAD)) continue;
+        } else if (pendingPass.active && pendingPass.isLofted
+                   && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT) {
+            // Round-31 — THE AERIAL LONG BALL. This `else if` used to be a bare
+            // `b.z > AERIAL_HEIGHT -> continue`, i.e. NOBODY except the intended
+            // receiver could touch any non-cross ball above 2m. That one line is
+            // why 97.9% of open-play 30m+ balls were collected at z=0, and why
+            // the simulation contained no aerial duel and no second-ball phase
+            // at all: the engine already LOFTS long balls (the rawDist>240 and
+            // >350 vz rules in engine_actions), they simply sailed over everyone
+            // untouchable and were picked up off the deck.
+            // A genuine lofted long ball is now contestable in the air by the
+            // same z-aware slant reach a cross uses — you can only head what
+            // your leap actually reaches. Distance-gated by construction
+            // (AERIAL_LONG_BALL_DIST), so short/medium passing is untouched.
+            double dzc = std::max(0.0, b.z - HEADER_REACH_Z);
+            if (std::sqrt(d * d + dzc * dzc) > std::max(r, MEET_REACH_HEAD)) continue;
         } else if (b.z > AERIAL_HEIGHT) continue;
         if (p.role == Role::GK) {
             continue;
@@ -977,8 +997,15 @@ void GameEngine::resolveBallContact(double sec) {
         // Cutting out a whipped delivery is a duel, not a given — the old
         // unconditional collect meant the first body on the flight line ate
         // every driven cross. A whiff locks the defender out so it flies past.
-        if (contact->team != pendingPass.team && bs > 300.0) {
-            double cutChance = clamp(CROSS_CUTOUT_BASE + attrFactor(contact->attrs.positioning) * CROSS_CUTOUT_SKILL - (bs - 300.0) / 700.0, 0.08, 0.58);
+        if (contact->team != pendingPass.team && bs > CROSS_CUTOUT_MIN_SPEED) {
+            // Round-31: the arming bar was a flat 300px/s. A CORNER arrives at
+            // ~250, so no corner delivery was ever a duel — the first defender
+            // on the flight line collected it deterministically and corner
+            // conversion fell to ~0%. Arm at any genuine delivery pace, and
+            // anchor the pace penalty at CROSS_CUTOUT_PACE_REF clamped at zero
+            // below it, so a slower ball no longer earns a cut-out BONUS.
+            double cutChance = clamp(CROSS_CUTOUT_BASE + attrFactor(contact->attrs.positioning) * CROSS_CUTOUT_SKILL
+                                     - std::max(0.0, bs - CROSS_CUTOUT_PACE_REF) / 700.0, 0.08, 0.58);
             if (rng.random() >= cutChance) {
                 blockReboundFor(contact->id, 420);
                 return;

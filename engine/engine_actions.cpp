@@ -67,6 +67,12 @@ void GameEngine::beginTrackedPass(Player& from, Player& to, bool isCross, bool i
     bool beyondLine = fd > 0.0 ? to.x > line + OFFSIDE_TOLERANCE : to.x < line - OFFSIDE_TOLERANCE;
     bool receiverOffsideAtPass = beyondHalf && beyondPasser && beyondLine;
     pendingPass = {true, from.id, to.id, from.team, isCross, isThrough, isCutback, offsideExempt, receiverOffsideAtPass, from.x, from.y, line};
+    // Round-31: mark the genuine aerial long ball. Not a cross (crosses already
+    // have their own airborne contest), struck the length of a real long ball,
+    // and actually leaving the ground — the loft itself is already applied by
+    // the rawDist>240 / rawDist>350 vz rules in passBallTo above.
+    pendingPass.isLofted = !isCross && dist(from.x, from.y, to.x, to.y) >= AERIAL_LONG_BALL_DIST
+                           && state.ball.vz > 40.0;
     pendingPass.isClear = isClear;   // Round-26: keep Clear releases out of the pass-completion ledger
     // Snapshot EVERY attacking teammate's offside status now (the law judges position when the ball is played).
     pendingPass.offsideAtPass = {};
@@ -156,7 +162,10 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
     auto& b = state.ball;
     double deliveryDist = dist(pendingPass.passerX, pendingPass.passerY, receiver.x, receiver.y);
     double deliverySpeed = std::hypot(b.vx, b.vy);
-    bool plausibleHeader = pendingPass.isCross && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT && deliveryDist >= HEADER_MIN_DELIVERY_DIST && deliverySpeed >= HEADER_MIN_SPEED;
+    // Round-31: a lofted long ball met in the air IS a header — book and render
+    // it as one, so aerial duels and second balls appear in the census instead
+    // of being silently resolved as ground control.
+    bool plausibleHeader = (pendingPass.isCross || pendingPass.isLofted) && b.z >= HEADER_MIN_HEIGHT && b.z <= HEADER_MAX_HEIGHT && deliveryDist >= HEADER_MIN_DELIVERY_DIST && deliverySpeed >= HEADER_MIN_SPEED;
     if (plausibleHeader) {
         // Tripwire (watched replay seed 133 0:28): the contact gates cap header
         // contact at leap reach — a header resolving above it means the ghost

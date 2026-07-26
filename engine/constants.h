@@ -240,6 +240,20 @@ inline constexpr double CROSS_DRIVE_SPEED_MAX    = 320.0;
 inline constexpr double CROSS_DIP_TARGET_Z       = 18.0;  // ball height at arrival
 inline constexpr double CROSS_CURL_MIN           = 0.27;  // rad/s — more visible whip on crosses + FK-crosses (was 0.20)
 inline constexpr double CROSS_CURL_RANGE         = 0.21;  // (was 0.17). Pre-rot scales with curl -> aim preserved.
+// ── Round-31: the aerial long ball ──
+// A pass struck at least this far, that is not a cross, is a genuine LOFTED
+// delivery: it must be contested in the AIR (aerial duel + second ball) rather
+// than sailing untouchable over everyone to be collected off the deck.
+// Distance-selective by construction, which is what keeps it clear of the
+// r24/r25 quadratic-trim tombstone — short and medium passing is not touched.
+inline constexpr double AERIAL_LONG_BALL_DIST = 300.0;
+// The cut-out duel used to arm only above 300px/s. A corner arrives at ~250,
+// so EVERY corner delivery was cut out deterministically by the first defender
+// on the flight line (17 of 21 aerial first contacts won by a defender) and
+// corner conversion collapsed to ~0%. Arm the duel at any genuine delivery
+// pace; the pace PENALTY below still keeps a driven ball harder to cut out.
+inline constexpr double CROSS_CUTOUT_MIN_SPEED = 210.0;
+inline constexpr double CROSS_CUTOUT_PACE_REF  = 300.0;  // pace above which cutting out gets harder
 inline constexpr double CROSS_CUTOUT_BASE        = 0.40;  // defender cut-out duel (0.28 -> 0.40: real defenses win first contact on ~50% of crosses. 0.48 was A/B'd and REJECTED: harder cut-outs just feed loose-ball box chaos — goals ROSE to 3.30 and headed share bounced back)
 inline constexpr double CROSS_CUTOUT_SKILL       = 0.28;
 inline constexpr double CROSS_MEET_BASE          = 0.55;  // runner timing roll
