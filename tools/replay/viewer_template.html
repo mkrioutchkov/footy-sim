@@ -1,0 +1,978 @@
+<title>Footy-Sim · Match Replay</title>
+<style>
+  :root{
+    --bg:#0c110e; --bg2:#121a15; --panel:#131b16; --panel2:#0e1611;
+    --line:#26332b; --ink:#eaf3ee; --ink-dim:#9fb3a7; --ink-faint:#66786d;
+    --amber:#ffcf5c; --home:#ec4d3f; --homegk:#f4d35e; --away:#37a6e6; --awaygk:#f9852f;
+    --grass1:#1f7a43; --grass2:#186637; --chalk:#eaf3ee;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(120% 90% at 50% -10%,#16241b 0%,var(--bg) 60%);
+    color:var(--ink);
+    font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;min-height:100vh;
+  }
+  .wrap{width:100%;max-width:1180px;margin:0 auto;padding:22px 20px 30px;display:flex;flex-direction:column;gap:14px;flex:1}
+
+  /* ---- header ---- */
+  header{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:10px}
+  .brand h1{font-size:15px;letter-spacing:.32em;text-transform:uppercase;margin:0;font-weight:700;color:var(--ink)}
+  .brand .sub{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-faint)}
+  .meta{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim);font-variant-numeric:tabular-nums}
+
+  /* ---- stage ---- */
+  .stage{position:relative;border-radius:14px;overflow:hidden;background:#0a120c;
+    box-shadow:0 22px 60px -24px #000, inset 0 0 0 1px #ffffff10}
+  canvas{display:block;width:100%;height:auto}
+
+  /* scorebug overlay */
+  .scorebug{position:absolute;top:14px;left:14px;display:flex;align-items:stretch;
+    background:linear-gradient(180deg,#0f1712f2,#0b110de8);backdrop-filter:blur(3px);
+    border:1px solid #ffffff14;border-radius:9px;overflow:hidden;
+    box-shadow:0 8px 26px -10px #000;font-variant-numeric:tabular-nums}
+  .sb-team{display:flex;align-items:center;gap:8px;padding:8px 12px}
+  .sb-team .dot{width:11px;height:11px;border-radius:50%}
+  .sb-team .abbr{font-size:12.5px;letter-spacing:.16em;font-weight:700;text-transform:uppercase}
+  .sb-score{padding:8px 12px;font-size:19px;font-weight:800;letter-spacing:.04em;background:#00000030}
+  .sb-mid{width:1px;background:#ffffff18}
+  .sb-clock{display:flex;align-items:center;gap:8px;padding:8px 13px;background:#00000038;
+    font-size:13px;font-weight:700;letter-spacing:.12em;color:var(--amber)}
+  .sb-clock .live{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber)}
+  .sb-clock.paused .live{background:var(--ink-faint);box-shadow:none}
+
+  /* goal flash / celebration */
+  .flash{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    pointer-events:none;opacity:0;transition:opacity .25s}
+  .flash.on{opacity:1}
+  .flash .card{background:#0b110dcc;border:1px solid #ffffff1f;border-radius:14px;
+    padding:20px 34px;text-align:center;box-shadow:0 20px 60px -16px #000}
+  .flash.celebrate .card{border-color:#ffcf5c66;box-shadow:0 20px 70px -14px #000,0 0 0 1px #ffcf5c22;
+    animation:pop .45s cubic-bezier(.2,1.3,.4,1)}
+  @keyframes pop{0%{transform:scale(.7);opacity:0}60%{transform:scale(1.05)}100%{transform:scale(1);opacity:1}}
+  .flash .big{font-size:46px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;
+    background:linear-gradient(180deg,#fff,var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .flash.celebrate .big{animation:goalpulse 1s ease-in-out infinite}
+  @keyframes goalpulse{0%,100%{filter:drop-shadow(0 0 0 #ffcf5c00)}50%{filter:drop-shadow(0 0 14px #ffcf5c99)}}
+  .flash .score{margin-top:10px;font-size:20px;font-weight:800;letter-spacing:.10em;
+    color:var(--ink);font-variant-numeric:tabular-nums}
+  .flash .score .dash{color:var(--ink-faint);margin:0 8px}
+  .flash .who{margin-top:8px;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+  /* Round-27 COMMIT 10b: halftime / full-time break banner (owner 17:59 "stuck
+     incident then goes to restart" — it was HALFTIME with no cue). */
+  .brk{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    pointer-events:none;opacity:0;transition:opacity .3s}
+  .brk.on{opacity:1}
+  .brk .card{background:#0b110de6;border:1px solid #ffffff2a;border-radius:14px;
+    padding:18px 40px;text-align:center;box-shadow:0 20px 60px -16px #000}
+  .brk .big{font-size:40px;font-weight:900;letter-spacing:.22em;text-transform:uppercase;
+    background:linear-gradient(180deg,#fff,#9ecbff);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .brk .sub{margin-top:8px;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint)}
+
+  /* replay watermark */
+  .replaywm{position:absolute;top:12px;left:50%;transform:translateX(-50%);
+    display:none;align-items:center;gap:9px;padding:6px 14px;border-radius:20px;
+    background:#7a1b1bcc;border:1px solid #ff6a5a55;box-shadow:0 6px 22px -8px #000;
+    font-size:12px;font-weight:800;letter-spacing:.28em;text-transform:uppercase;color:#ffe3de}
+  .replaywm.on{display:flex}
+  .replaywm .rec{width:9px;height:9px;border-radius:50%;background:#ff5a49;
+    box-shadow:0 0 9px #ff5a49;animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:.25}}
+
+  /* event toasts (fouls / cards / offside / injury / sub / advantage) */
+  .toasts{position:absolute;top:12px;left:50%;transform:translateX(-50%);
+    display:flex;flex-direction:column;gap:7px;align-items:center;pointer-events:none;
+    width:max-content;max-width:80%;z-index:5}
+  .toast{display:flex;align-items:center;gap:11px;padding:9px 15px 9px 12px;border-radius:11px;
+    background:linear-gradient(180deg,#141d17f2,#0d130ff0);border:1px solid #ffffff18;
+    border-left:4px solid var(--amber);box-shadow:0 12px 30px -12px #000;
+    opacity:0;transform:translateY(-10px);transition:opacity .22s,transform .22s;min-width:220px}
+  .toast.show{opacity:1;transform:translateY(0)}
+  .toast .tic{font-size:19px;line-height:1;width:24px;text-align:center;flex:0 0 auto}
+  .toast .tbody{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .toast .ttl{font-size:11px;font-weight:800;letter-spacing:.20em;text-transform:uppercase;color:var(--ink)}
+  .toast .tmain{font-size:13px;color:var(--ink)}
+  .toast .tmain b{font-weight:700}
+  .toast .twhere{font-size:10.5px;letter-spacing:.10em;text-transform:uppercase;color:var(--ink-faint)}
+  .toast .tadv{margin-left:6px;color:#5fd39a;font-weight:800;letter-spacing:.08em}
+  .toast.k-foul{border-left-color:#ff7a5c}
+  .toast.k-advantage{border-left-color:#5fd39a}
+  .toast.k-offside{border-left-color:#ff9f43}
+  .toast.k-injury{border-left-color:#ff5a49}
+  .toast.k-sub{border-left-color:#37a6e6}
+  .toast.k-yellow{border-left-color:#ffcf5c}
+  .toast.k-red{border-left-color:#ff3b30}
+  .toast.k-penalty{border-left-color:#ffcf5c}
+
+  /* added-time (fourth-official board) — data-driven, dormant unless present */
+  .atboard{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) scale(.8);
+    display:none;flex-direction:column;align-items:center;gap:4px;padding:16px 30px;border-radius:12px;
+    background:#0b110de8;border:1px solid #ffcf5c55;box-shadow:0 18px 50px -14px #000;
+    opacity:0;transition:opacity .3s,transform .3s}
+  .atboard.on{display:flex;opacity:1;transform:translate(-50%,-50%) scale(1)}
+  .atboard .lbl{font-size:10px;letter-spacing:.30em;text-transform:uppercase;color:var(--ink-faint)}
+  .atboard .plus{font-size:52px;font-weight:900;color:var(--amber);line-height:1;font-variant-numeric:tabular-nums}
+  .at-pill{display:none;align-items:center;gap:6px;padding:8px 11px;background:#00000038;
+    font-size:11px;font-weight:800;letter-spacing:.14em;color:var(--amber)}
+  .at-pill.on{display:flex}
+
+  /* ---- transport ---- */
+  .transport{display:flex;flex-direction:column;gap:10px}
+  .scrub{position:relative;height:26px}
+  .track{position:absolute;top:11px;left:0;right:0;height:4px;border-radius:3px;background:#1d271f;overflow:hidden}
+  .track .fill{position:absolute;top:0;left:0;bottom:0;background:linear-gradient(90deg,#2f7d4d,var(--amber));width:0}
+  .scrub input[type=range]{position:absolute;inset:0;width:100%;margin:0;-webkit-appearance:none;background:transparent;cursor:pointer}
+  .scrub input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+    background:#fff;border:2px solid var(--amber);box-shadow:0 2px 6px #000a;margin-top:-5px}
+  .scrub input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid var(--amber)}
+  .marks{position:absolute;top:4px;left:0;right:0;height:18px;pointer-events:none}
+  .mark{position:absolute;top:0;width:2px;height:12px;background:var(--amber);border-radius:2px;transform:translateX(-1px);box-shadow:0 0 6px var(--amber)}
+  .mark::after{content:attr(data-lbl);position:absolute;top:-14px;left:50%;transform:translateX(-50%);
+    font-size:9px;letter-spacing:.1em;color:var(--amber);white-space:nowrap;text-transform:uppercase}
+
+  .controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  button{font-family:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:8px 12px;font-size:12px;letter-spacing:.05em;cursor:pointer;transition:.14s;
+    display:inline-flex;align-items:center;gap:6px}
+  button:hover{border-color:#3c5045;background:#182219}
+  button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  button.primary{background:var(--amber);color:#20170a;border-color:var(--amber);font-weight:800;min-width:96px;justify-content:center}
+  button.primary:hover{filter:brightness(1.06)}
+  .jumps{display:inline-flex;gap:2px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px}
+  .jumps button{border:none;background:transparent;padding:5px 7px;border-radius:5px;font-size:10.5px;color:var(--ink-dim);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+  .jumps button:hover{background:#202b22;color:var(--ink)}
+  .scorebug{transition:opacity .25s}
+  .scorebug.ducked{opacity:.22}
+  .spd{display:flex;gap:3px;margin-left:auto;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px}
+  .spd button{border:none;background:transparent;padding:6px 10px;border-radius:6px;font-variant-numeric:tabular-nums;color:var(--ink-dim)}
+  .spd button.on{background:var(--amber);color:#20170a;font-weight:800}
+  .clocklbl{font-variant-numeric:tabular-nums;letter-spacing:.1em;font-size:12.5px;color:var(--ink-dim);min-width:118px}
+
+  /* ---- lower panels ---- */
+  .lower{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:720px){.lower{grid-template-columns:1fr}}
+  .panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+    border-radius:12px;padding:14px 15px;min-height:150px}
+  .panel h2{margin:0 0 10px;font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-faint);font-weight:700}
+  .ticker{display:flex;flex-direction:column;gap:2px;max-height:190px;overflow-y:auto;font-variant-numeric:tabular-nums}
+  .ev{display:flex;align-items:center;gap:10px;padding:5px 7px;border-radius:7px;font-size:12.5px}
+  .ev:hover{background:#ffffff08}
+  .ev .t{color:var(--ink-faint);font-size:11px;min-width:42px;letter-spacing:.05em}
+  .ev .ic{width:20px;text-align:center}
+  .ev .tx{color:var(--ink-dim)}
+  .ev .tx b{color:var(--ink);font-weight:600}
+  .ev.goal{background:#ffcf5c14}
+  .ev.goal .tx b,.ev.goal .ic{color:var(--amber)}
+
+  .lineups{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
+  .side .head{display:flex;align-items:center;gap:7px;margin-bottom:8px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  .side .head .dot{width:10px;height:10px;border-radius:50%}
+  .side .head .abbr{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+  .side ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+  .side li{display:flex;gap:8px;font-size:12px;padding:2px 4px;border-radius:5px;align-items:baseline}
+  .side li .no{color:var(--ink-faint);min-width:18px;font-variant-numeric:tabular-nums;text-align:right}
+  .side li .rl{color:var(--ink-faint);font-size:10px;letter-spacing:.08em;margin-left:auto}
+  .side li .nm{color:var(--ink)}
+  .hint{font-size:11px;color:var(--ink-faint);letter-spacing:.04em}
+  footer{color:var(--ink-faint);font-size:11px;letter-spacing:.06em;text-align:center;padding-top:4px}
+  kbd{background:#1a231c;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px;font-size:10.5px;font-family:inherit}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>Footy&nbsp;Sim</h1>
+      <span class="sub">Match Replay</span>
+    </div>
+    <div class="meta" id="metaline">—</div>
+  </header>
+
+  <div class="stage">
+    <canvas id="pitch" width="1130" height="760"></canvas>
+    <div class="scorebug" id="scorebug">
+      <div class="sb-team"><span class="dot" style="background:var(--home)"></span><span class="abbr" id="sbHomeAbbr">HOM</span></div>
+      <div class="sb-score" id="sbHome">0</div>
+      <div class="sb-mid"></div>
+      <div class="sb-score" id="sbAway">0</div>
+      <div class="sb-team"><span class="abbr" id="sbAwayAbbr">AWY</span><span class="dot" style="background:var(--away)"></span></div>
+      <div class="sb-clock" id="sbClock"><span class="live"></span><span id="sbTime">0'00</span></div>
+      <div class="at-pill" id="atPill">+<span id="atPillN">0</span>′</div>
+    </div>
+    <div class="replaywm" id="replaywm"><span class="rec"></span>Replay</div>
+    <div class="toasts" id="toasts"></div>
+    <div class="atboard" id="atboard"><span class="lbl" id="atBoardLbl">Added time</span><span class="plus">+<span id="atBoardN">0</span></span></div>
+    <div class="flash" id="flash"><div class="card"><div class="big">GOAL</div><div class="score" id="flashScore"></div><div class="who" id="flashWho"></div></div></div>
+    <div class="brk" id="brk"><div class="card"><div class="big" id="brkBig">HALF TIME</div><div class="sub" id="brkSub"></div></div></div>
+  </div>
+
+  <div class="transport">
+    <div class="scrub">
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <div class="marks" id="marks"></div>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek match time">
+    </div>
+    <div class="controls">
+      <button class="primary" id="play" aria-label="Play or pause">▶ Play</button>
+      <button id="restart" aria-label="Restart">⟲ Restart</button>
+      <button id="skipGoal" aria-label="Jump to goal">⚑ To goal</button>
+      <span class="jumps" id="rw" role="group" aria-label="Rewind">
+        <button data-j="-10">-10</button><button data-j="-5">-5</button><button data-j="-3">-3</button><button data-j="-2">-2</button><button data-j="-1">-1</button><button data-j="-0.5">-.5</button><button data-j="-0.25">-.25</button>
+      </span>
+      <span class="jumps" id="ff" role="group" aria-label="Fast forward">
+        <button data-j="0.25">+.25</button><button data-j="0.5">+.5</button><button data-j="1">+1</button><button data-j="2">+2</button><button data-j="3">+3</button><button data-j="5">+5</button><button data-j="10">+10</button>
+      </span>
+      <span class="clocklbl" id="clocklbl">0'00 / 0'00</span>
+      <div class="spd" id="spd" role="group" aria-label="Playback speed">
+        <button data-s="0.25">0.25×</button>
+        <button data-s="0.5">0.5×</button>
+        <button data-s="1" class="on">1×</button>
+        <button data-s="2">2×</button>
+        <button data-s="4">4×</button>
+        <button data-s="8">8×</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="lower">
+    <div class="panel">
+      <h2>Match Feed</h2>
+      <div class="ticker" id="ticker"></div>
+    </div>
+    <div class="panel">
+      <h2>Line-ups</h2>
+      <div class="lineups">
+        <div class="side" id="homeSide"></div>
+        <div class="side" id="awaySide"></div>
+      </div>
+      <p class="hint" style="margin:12px 0 0">The ball-carrier is ringed. <kbd>Space</kbd> play/pause · <kbd>←</kbd><kbd>→</kbd> scrub 5s</p>
+    </div>
+  </div>
+
+  <footer>Deterministic replay · seed <span id="seedn">—</span> · rendered from the engine per-tick trace</footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+</script>
+<script>
+(() => {
+  const D = DATA;
+  const FR = D.frames, EV = D.events, ROS = D.roster;
+  // Round-31 substitution log (exporter joins the engine's summary-side sub log to the
+  // trace's fixed-width "sub" events). Keyed by rounded clock, then by slot id: a trace
+  // sub event only carries the SLOT, which the end-of-match roster resolves to the man
+  // who came ON — the departing man exists nowhere else.
+  const SUBS = D.subs || [];
+  const subAt = {};
+  SUBS.forEach(s => { (subAt[Math.round(s.t)] ||= {})[s.slot] = s; });
+  const subFor = e => (subAt[Math.round(e.t)] || {})[e.pid] || null;
+  const PW = D.pitchW, PH = D.pitchH, GW = D.goalW;
+  const M = 40;                       // out-of-bounds margin (pitch units)
+  const cvs = document.getElementById('pitch');
+  const ctx = cvs.getContext('2d');
+  const DUR = FR.length ? FR[FR.length-1].t : 0;
+  // Touch timeline (owner: "8 touches ball but never lights up"): the ring only
+  // showed controller_id, so one-touch plays/deflections never registered.
+  // Collect every change of last-toucher as a touch instant; render flashes it.
+  const TOUCH=[];
+  { let plt=-1;
+    for(const f of FR){ const lt=(f.b.length>4?f.b[4]:-1);
+      if(lt>=0&&lt!==plt){ TOUCH.push({t:f.t,pid:lt}); plt=lt; } } }
+
+  // ----- colors / roster helpers -----
+  const short = n => n.replace(/^[HA]\d+\s+/, '');
+  const homeIds = ROS.filter(r=>r.team==='home');
+  const awayIds = ROS.filter(r=>r.team==='away');
+  const byId = {}; ROS.forEach(r=>byId[r.id]=r);
+  const shirt = id => { const r=byId[id]; if(!r) return ''; const arr = r.team==='home'?homeIds:awayIds; return arr.findIndex(x=>x.id===id)+1; };
+  function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+  const COL = { home:css('--home'), homegk:css('--homegk'), away:css('--away'), awaygk:css('--awaygk'), chalk:css('--chalk') };
+  const colorFor = r => r.role==='GK' ? (r.team==='home'?COL.homegk:COL.awaygk) : (r.team==='home'?COL.home:COL.away);
+  const abbr = t => t==='home'?'HOM':'AWY';
+
+  // ----- pitch static layer (offscreen) -----
+  const S = cvs.width/(PW+2*M);        // px per pitch-unit
+  const off = document.createElement('canvas'); off.width=cvs.width; off.height=cvs.height;
+  drawPitch(off.getContext('2d'));
+  function X(x){ return (x+M)*S } function Y(y){ return (y+M)*S }
+  function drawPitch(g){
+    // grass with mowing stripes
+    const stripes=18, sw=(PW)/stripes;
+    for(let i=0;i<stripes;i++){
+      g.fillStyle = i%2? css('--grass2'):css('--grass1');
+      g.fillRect(X(i*sw), Y(0), sw*S+1, PH*S);
+    }
+    // darken surround
+    g.fillStyle='#0a120c';
+    g.fillRect(0,0,cvs.width,Y(0)); g.fillRect(0,Y(PH),cvs.width,cvs.height-Y(PH));
+    g.fillRect(0,0,X(0),cvs.height); g.fillRect(X(PW),0,cvs.width-X(PW),cvs.height);
+    // vignette
+    const vg=g.createRadialGradient(cvs.width/2,cvs.height/2,cvs.height*0.3,cvs.width/2,cvs.height/2,cvs.height*0.75);
+    vg.addColorStop(0,'#00000000'); vg.addColorStop(1,'#00000055'); g.fillStyle=vg; g.fillRect(0,0,cvs.width,cvs.height);
+
+    g.strokeStyle='rgba(234,243,238,.55)'; g.lineWidth=Math.max(1.4,S*1.6); g.lineJoin='round';
+    const line=(x1,y1,x2,y2)=>{g.beginPath();g.moveTo(X(x1),Y(y1));g.lineTo(X(x2),Y(y2));g.stroke()};
+    const rect=(x1,y1,x2,y2)=>{g.beginPath();g.rect(X(x1),Y(y1),(x2-x1)*S,(y2-y1)*S);g.stroke()};
+    const arc=(cx,cy,r,a1,a2)=>{g.beginPath();g.arc(X(cx),Y(cy),r*S,a1,a2);g.stroke()};
+    const spot=(cx,cy)=>{g.beginPath();g.fillStyle='rgba(234,243,238,.7)';g.arc(X(cx),Y(cy),Math.max(1.6,S*1.6),0,7);g.fill()};
+    // boundary + halfway + centre
+    rect(0,0,PW,PH);
+    line(PW/2,0,PW/2,PH);
+    arc(PW/2,PH/2,91.5,0,Math.PI*2); spot(PW/2,PH/2);
+    // penalty + 6yd boxes both ends
+    const cy=PH/2;
+    // left
+    rect(0,cy-201.5,165,cy+201.5); rect(0,cy-91.5,55,cy+91.5); spot(110,cy);
+    arc(110,cy,91.5,-0.9,0.9);
+    // right
+    rect(PW-165,cy-201.5,PW,cy+201.5); rect(PW-55,cy-91.5,PW,cy+91.5); spot(PW-110,cy);
+    arc(PW-110,cy,91.5,Math.PI-0.9,Math.PI+0.9);
+    // goals
+    g.lineWidth=Math.max(2,S*2.4); g.strokeStyle='rgba(234,243,238,.85)';
+    rect(-11,cy-GW/2,0,cy+GW/2); rect(PW,cy-GW/2,PW+11,cy+GW/2);
+    // corner arcs
+    g.lineWidth=Math.max(1,S*1.2); g.strokeStyle='rgba(234,243,238,.4)';
+    arc(0,0,10,0,Math.PI/2); arc(PW,0,10,Math.PI/2,Math.PI);
+    arc(0,PH,10,-Math.PI/2,0); arc(PW,PH,10,Math.PI,Math.PI*1.5);
+  }
+
+  // ----- interpolation between frames -----
+  function frameAt(ms){
+    if(ms<=FR[0].t) return {a:FR[0],b:FR[0],f:0,i:0};
+    if(ms>=DUR) { const L=FR.length-1; return {a:FR[L],b:FR[L],f:0,i:L}; }
+    let lo=0,hi=FR.length-1;
+    while(lo<hi){ const mid=(lo+hi+1)>>1; if(FR[mid].t<=ms) lo=mid; else hi=mid-1; }
+    const a=FR[lo], b=FR[Math.min(lo+1,FR.length-1)];
+    const span=(b.t-a.t)||1; return {a,b,f:Math.max(0,Math.min(1,(ms-a.t)/span)),i:lo};
+  }
+  const lerp=(u,v,f)=>u+(v-u)*f;
+
+  // ----- draw a live frame -----
+  function render(ms){
+    ctx.drawImage(off,0,0);
+    const {a,b,f,i:idx}=frameAt(ms);
+    const am=FR[Math.max(idx-1,0)], c=FR[Math.min(idx+2,FR.length-1)];
+    // Stateless cubic B-spline over 4 keyframes: low-passes the sub-keyframe
+    // jockey zigzag (65% of tackles flap laterally at ~the keyframe period, so
+    // plain lerp aliases it into a kink at every keyframe). Convex hull => no
+    // overshoot; falls back to lerp across teleport-scale jumps (kickoff cuts).
+    function sm(k){
+      const p0=am.p[k],p1=a.p[k],p2=b.p[k],p3=c.p[k];
+      if(Math.abs(p2-p1)>40||Math.abs(p1-p0)>60||Math.abs(p3-p2)>60) return lerp(p1,p2,f);
+      const f2=f*f,f3=f2*f;
+      return ((1-3*f+3*f2-f3)*p0+(4-6*f2+3*f3)*p1+(1+3*f+3*f2-3*f3)*p2+f3*p3)/6;
+    }
+    // Possession-ring cross-fade (stateless): find where the current controller
+    // run began (bounded back-scan), fade the ring in over 150ms while the old
+    // carrier's ring fades out — kills the one-keyframe "ring pop" at steals.
+    const cur=a.b[3]; let changeT=-1e9, prevCtrl=-1;
+    if(cur>=0){ let j=idx; while(j>0 && idx-j<8 && FR[j-1].b[3]===cur) j--;
+      if(j===0 || FR[j-1].b[3]!==cur){ changeT=FR[j].t; prevCtrl=j>0?FR[j-1].b[3]:-1; } }
+    const fin=cur>=0?Math.max(0,Math.min(1,(ms-changeT)/150)):0;
+    // players
+    let gkHolder=-1;
+    for(let i=0;i<22;i++){
+      let px=sm(i*3), py=sm(i*3+1);
+      if(a.p[i*3+1] < -20) continue;
+      // Parked off-pitch (sent off, or benched in arena 2-a-side mode): the
+      // engine parks these at y=-40 — don't draw a ghost dot above the pitch.
+      // (checked on the RAW keyframe above, before spline smoothing)
+      const face=a.p[i*3+2];
+      const r=byId[i]; const isCtrl = a.b[3]===i;
+      if(isCtrl && r.role==='GK') gkHolder=i;
+      // Header jump: an airborne redirect used to read as a "ghost deflection"
+      // because the ball is drawn lifted while the header-winner just stands
+      // there. Hop him for ~0.45s around the header event so the contact reads.
+      let hop=0;
+      for(const e of EV){
+        if(e.type!=='header'||e.pid!==i) continue;
+        const dt=ms-e.t;
+        // Hop height matches the BALL's rendered lift (same 0.6 factor as the
+        // ball sprite): a leap header at z~35 lifts the ball ~21px, so the
+        // header-er must rise to it or the contact reads as a ghost a
+        // body-length above his dot (watched seed 133 0:28).
+        if(dt>-120&&dt<380){ const ph=(dt+120)/500; const bl=Math.min(a.b[2]||0,42)*S*0.6; hop=Math.sin(Math.PI*Math.max(0,Math.min(1,ph)))*Math.max(5,S*7,bl); break; }
+      }
+      // touch flash: a brief ring for any registered touch (one-touch passes,
+      // deflections) that never set controller_id — scrub-safe (timeline scan).
+      let ringA = i===cur ? fin : (i===prevCtrl ? 1-fin : 0);
+      if(ringA<1){ for(const tc of TOUCH){ if(tc.pid!==i) continue; const dtc=ms-tc.t; if(dtc>=-40&&dtc<260){ ringA=1; break; } if(tc.t>ms+40) break; } }
+      drawPlayer(X(px),Y(py)-hop,face,colorFor(r),shirt(i),ringA);
+      // (no glove emoji: platform emoji fonts rendered it as a smudged "stick"
+      // above the keeper — the controller ring + ball dot already read fine)
+      // R28 C9 duel legibility (stateless): FR keyframes carry no tackle_anim,
+      // so the challenge pose is driven purely from tackle EVENTS near ms
+      // (pure function of ms => scrub-safe — same pattern as the touch-flash
+      // timeline scan above). Any tackle by THIS player inside the last 450ms
+      // (the renderer-side minimum-display latch: a 220ms standing win is
+      // sub-perceptual at 12fps) draws his outstretched leg AT THE DUEL POINT
+      // (the event spot = the ball contact), with a foot dot that fades out.
+      for(const e of EV){
+        if(e.t>ms+60) break;
+        if(e.pid!==i || (e.type!=='tackle'&&e.type!=='tackle_won'&&e.type!=='tackle_loose')) continue;
+        const dtk=ms-e.t; if(dtk<-40||dtk>=450) continue;
+        const k=1-Math.max(0,dtk)/450;
+        const R=Math.max(6,S*10.5);
+        const pcx=X(px), pcy=Y(py)-hop, exx=X(e.x), eyy=Y(e.y);
+        let ddx=exx-pcx, ddy=eyy-pcy; const dl=Math.hypot(ddx,ddy)||1; ddx/=dl; ddy/=dl;
+        const reach=Math.min(dl, R*2.1);
+        ctx.beginPath(); ctx.moveTo(pcx+ddx*R*0.5, pcy+ddy*R*0.5);
+        ctx.lineTo(pcx+ddx*reach, pcy+ddy*reach);
+        ctx.strokeStyle=`rgba(255,255,255,${(0.85*k).toFixed(3)})`; ctx.lineWidth=Math.max(2,R*0.34); ctx.lineCap='round'; ctx.stroke();
+        ctx.beginPath(); ctx.arc(pcx+ddx*reach, pcy+ddy*reach, Math.max(2,R*0.3),0,7);
+        ctx.fillStyle=`rgba(255,255,255,${(0.9*k).toFixed(3)})`; ctx.fill();
+        break;
+      }
+    }
+    // ball — snap across sharp redirects instead of smoothing through them:
+    // lerping a first-time-pass kink at 12.5fps painted a fake curved "orbit"
+    // around nearby players.
+    const d1x=b.b[0]-a.b[0], d1y=b.b[1]-a.b[1], d2x=c.b[0]-b.b[0], d2y=c.b[1]-b.b[1];
+    const l1=Math.hypot(d1x,d1y), l2=Math.hypot(d2x,d2y);
+    const kink = l1>6 && l2>6 && (d1x*d2x+d1y*d2y)/(l1*l2) < 0.55;
+    // Round-30: ONE discontinuity rule, replacing r27's halftime-only special
+    // case. Any keyframe pair spanning a RESTART is a cut, not a glide: the
+    // engine scores and calls kickoff() in the SAME tick, so a single 83ms pair
+    // spans a ~515-unit ball jump that the kink guard (which needs BOTH segments
+    // >6) misses entirely, and the trail sampler paints a 6200 u/s comet away
+    // from the net. 60 units is safe: the measured physical ceiling is 33.5 u per
+    // 83ms pair over 225 sim-minutes, and the smallest observed restart cut is 66.
+    // Hold `a` and suppress the trail — the ball stays where it died until the
+    // next keyframe, then cuts. Exactly one rule: a SECOND rule layered after
+    // this would silently take the halftime pair back off r27's cut path.
+    const cut = l1 > 60;
+    let bx,by,bz;
+    if(kink){ const src=f<0.5?a:b; bx=src.b[0]; by=src.b[1]; bz=src.b[2]; }
+    else { bx=lerp(a.b[0],b.b[0],f); by=lerp(a.b[1],b.b[1],f); bz=lerp(a.b[2],b.b[2],f); }
+    // COMMIT 10b: during the halftime pause the whistle can abandon the ball
+    // mid-flight (stale z) — park it on the deck so it reads as a dead ball.
+    if(inHalfBreak(ms)) bz=0;
+    if(cut){ bx=a.b[0]; by=a.b[1]; bz=a.b[2]; if(inHalfBreak(ms)) bz=0; }
+    // Round-30: the held celebration beat must show the ball IN THE NET. 5 of 13
+    // goals land at f=0 on a pair whose far end is already the kickoff spot, so
+    // no distance guard can rescue them — pin the ball to the goal event itself
+    // (just behind the line, inside the drawn net) for the whole frozen beat.
+    if(cine.active && cine.phase==='celebrate' && cine.goal){
+      const g=cine.goal;
+      bx = g.x + (g.x < PW/2 ? -6 : 6); by = g.y; bz = 0;
+    }
+    // 3D by height: the sprite lifts off its shadow (pinned on the turf), grows
+    // toward the camera, and the shadow spreads wide + fades soft as it climbs.
+    // Two fixes so height reads WITHOUT the ball detaching from its carrier:
+    //  • when a player CONTROLS the ball (b[3]>=0) it's at their feet, so collapse
+    //    the lift/size — a collected ball sits ON the player, never floating above;
+    //  • ease the sprite down onto its shadow through the last units of the drop
+    //    (smoothstep on bz) so a landing settles instead of snapping to the deck.
+    const controlled=a.b[3]>=0;
+    const settle=(t=>t*t*(3-2*t))(Math.max(0,Math.min(1,bz/8)));
+    const damp=controlled?0.12:1;
+    const hr=Math.max(0,Math.min(1,bz/50))*settle*damp;
+    const lift=Math.min(bz,60)*S*0.6*settle*damp;
+    // Flight trail (owner: Bale FK "cool but visually unappealing — need more
+    // curl and power"): a tapered, glowing streak behind FAST in-flight balls.
+    // The path is sampled from the real frame positions at fixed lags (stateless
+    // binary-search = scrub-safe), so the streak follows the TRUE trajectory —
+    // a bending shot reads as a visible arc. Length + width + brightness scale
+    // with pace so shots/free-kicks look powerful. N<=12 samples, 2 stroke
+    // passes (amber glow + white-hot core) keeps it cheap.
+    {
+      const vNow=Math.hypot(b.b[0]-a.b[0],b.b[1]-a.b[1])/Math.max(1,b.t-a.t)*1000; // units/s
+      // Round-30: a restart cut is not a flight — the same pair that fools the
+      // position lerp fools vNow, which is where the 6200 u/s comet came from.
+      if(vNow>150 && a.b[3]<0 && !cut && !(cine.active && cine.phase==='celebrate')){
+        const pace=Math.max(0,Math.min(1,(vNow-150)/650));   // 0..1 speed factor
+        const N=Math.round(6+pace*5);                        // 6..11 samples (<=12)
+        const lag=42;                                        // ms between samples
+        const pts=[];
+        for(let k=0;k<=N;k++){
+          const tk=ms-k*lag; if(tk<0) break;
+          let lo=0,hi=FR.length-1; while(lo<hi){const mid=(lo+hi)>>1; if(FR[mid].t<tk) lo=mid+1; else hi=mid;}
+          const g=FR[Math.max(0,lo-1)], h=FR[lo];
+          if(k>0 && g.b[3]>=0) break;                        // stop at the kick origin (ball was controlled)
+          const f2=h.t>g.t?(tk-g.t)/(h.t-g.t):0;
+          const tx=g.b[0]+(h.b[0]-g.b[0])*f2, ty=g.b[1]+(h.b[1]-g.b[1])*f2, tz=g.b[2]+(h.b[2]-g.b[2])*f2;
+          pts.push({x:X(tx), y:Y(ty)-Math.min(tz,60)*S*0.6});
+        }
+        if(pts.length>2){
+          const wBase=Math.max(2,S*4.4)*(0.55+pace);
+          ctx.lineJoin='round'; ctx.lineCap='round';
+          for(let pass=0;pass<2;pass++){
+            for(let k=0;k<pts.length-1;k++){
+              const tail=1-k/pts.length;                     // 1 at ball -> 0 at tail end
+              ctx.beginPath(); ctx.moveTo(pts[k].x,pts[k].y); ctx.lineTo(pts[k+1].x,pts[k+1].y);
+              if(pass===0){ ctx.lineWidth=wBase*tail*2.2;
+                ctx.strokeStyle=`rgba(255,207,92,${(0.14*tail*(0.5+pace)).toFixed(3)})`; }
+              else { ctx.lineWidth=wBase*tail;
+                ctx.strokeStyle=`rgba(255,255,255,${(0.55*tail).toFixed(3)})`; }
+              ctx.stroke();
+            }
+          }
+        }
+      }
+    }
+    ctx.beginPath(); ctx.fillStyle=`rgba(0,0,0,${(0.34-hr*0.20).toFixed(3)})`;
+    ctx.ellipse(X(bx),Y(by),5.5*S*0.7*(1+hr*1.5),3.2*S*0.7*(0.6+hr*0.3),0,0,7); ctx.fill();
+    const br=Math.max(3,S*4.6)*(1+hr*0.5);
+    if(hr>0.02){ ctx.beginPath(); ctx.arc(X(bx),Y(by)-lift,br+Math.max(1,S*1.4),0,7);
+      ctx.fillStyle=`rgba(255,255,255,${(0.05+hr*0.12).toFixed(3)})`; ctx.fill(); }
+    ctx.beginPath(); ctx.arc(X(bx),Y(by)-lift,br,0,7);
+    ctx.fillStyle='#fff'; ctx.fill(); ctx.lineWidth=Math.max(1,S*1.1); ctx.strokeStyle='#1c2a20'; ctx.stroke();
+    // Never hide the ball under the scorebug — duck the bug while play is
+    // beneath it (watched replay 0:44: ball invisible at the top of the pitch).
+    const sb=document.getElementById('scorebug');
+    const rScale=cvs.clientWidth ? cvs.clientWidth/cvs.width : 1;
+    const bpx=X(bx)*rScale, bpy=(Y(by)-lift)*rScale;
+    const duck = bpx > sb.offsetLeft-24 && bpx < sb.offsetLeft+sb.offsetWidth+24
+              && bpy > sb.offsetTop-24 && bpy < sb.offsetTop+sb.offsetHeight+24;
+    sb.classList.toggle('ducked', duck);
+
+    // R28 C9 duel-legibility cues (stateless, event-driven, scrub-safe):
+    // takeon_lost — the defender READ the feint and was granted the ball; the
+    // stateless controller-ring cross-fade above already animates the ring
+    // swap, so this cue is deliberately ring-free (no double-firing): a closing
+    // pincer on the winner + stumble ticks trailing the beaten carrier + READ!.
+    // chop — the two-stage beat cut (engine R28 C8): chevron + exit flare at
+    // the CUT POINT (the event spot — the kink stays marked while the carrier
+    // explodes away). NB the exporter maps the trace's teamId slot onto e.team,
+    // which for duel events carries the TARGET id (beaten carrier).
+    for(const e of EV){
+      if(e.t>ms+60) break;
+      const dte=ms-e.t;
+      if(e.type==='takeon_lost' && dte>=0 && dte<900){
+        const t=dte/900, al=1-t;
+        const wpid=e.pid;
+        const wx = (wpid>=0&&wpid<22) ? X(lerp(a.p[wpid*3],b.p[wpid*3],f)) : X(e.x);
+        const wy = (wpid>=0&&wpid<22) ? Y(lerp(a.p[wpid*3+1],b.p[wpid*3+1],f)) : Y(e.y);
+        const R=Math.max(6,S*10.5);
+        const rr=R+Math.max(4,S*7)-Math.min(t*2,1)*Math.max(3,S*4.5);
+        ctx.lineWidth=Math.max(2,S*2.2); ctx.strokeStyle=`rgba(127,224,138,${(0.9*al).toFixed(3)})`; ctx.lineCap='round';
+        for(const s2 of [0,Math.PI]){
+          ctx.beginPath(); ctx.arc(wx,wy,rr,s2-0.55,s2+0.55); ctx.stroke();
+        }
+        const lpid=(e.team>=0&&e.team<22)?e.team:-1;
+        if(lpid>=0){
+          const lx2=X(lerp(a.p[lpid*3],b.p[lpid*3],f)), ly2=Y(lerp(a.p[lpid*3+1],b.p[lpid*3+1],f));
+          const aa=Math.atan2(ly2-wy,lx2-wx);
+          ctx.strokeStyle=`rgba(255,157,107,${(0.6*al).toFixed(3)})`; ctx.lineWidth=Math.max(1.5,S*1.6);
+          for(let q=0;q<3;q++){
+            const d0=R+2+q*Math.max(3,S*4);
+            ctx.beginPath();
+            ctx.moveTo(lx2+Math.cos(aa)*d0, ly2+Math.sin(aa)*d0);
+            ctx.lineTo(lx2+Math.cos(aa)*(d0+Math.max(3,S*3.5)), ly2+Math.sin(aa)*(d0+Math.max(3,S*3.5)));
+            ctx.stroke();
+          }
+        }
+        if(t<0.55){
+          ctx.font=`800 ${Math.round(Math.max(10,S*11))}px ui-sans-serif,system-ui,sans-serif`;
+          ctx.textAlign='center'; ctx.fillStyle=`rgba(127,224,138,${(1-t/0.55).toFixed(3)})`;
+          ctx.fillText('READ!', wx, Math.max(14, wy-rr-Math.max(6,S*7)));
+        }
+      }
+      if(e.type==='chop' && dte>=0 && dte<700){
+        const t=dte/700, al=1-t;
+        const pid=e.pid; let hx=1, hy=0;
+        if(pid>=0&&pid<22){
+          const g1=frameAt(e.t).a, g2=frameAt(e.t+240).a;    // exit heading from the REAL frames after the cut (stateless lookups)
+          const vx2=g2.p[pid*3]-g1.p[pid*3], vy2=g2.p[pid*3+1]-g1.p[pid*3+1];
+          const vl=Math.hypot(vx2,vy2); if(vl>1){ hx=vx2/vl; hy=vy2/vl; }
+        }
+        const cx2=X(e.x), cy2=Y(e.y), pxp=-hy, pyp=hx;
+        ctx.strokeStyle=`rgba(255,210,77,${(0.95*al).toFixed(3)})`; ctx.lineWidth=Math.max(2.5,S*2.6); ctx.lineCap='round';
+        for(const s2 of [1,-1]){
+          ctx.beginPath();
+          ctx.moveTo(cx2+pxp*s2*Math.max(5,S*6)-hx*Math.max(3,S*3.5), cy2+pyp*s2*Math.max(5,S*6)-hy*Math.max(3,S*3.5));
+          ctx.lineTo(cx2,cy2); ctx.stroke();
+        }
+        const reach2=Math.max(6,S*7)+t*Math.max(12,S*14);
+        ctx.beginPath(); ctx.moveTo(cx2+hx*Math.max(3,S*3.2), cy2+hy*Math.max(3,S*3.2));
+        ctx.lineTo(cx2+hx*reach2, cy2+hy*reach2);
+        ctx.strokeStyle=`rgba(255,255,255,${(0.7*al).toFixed(3)})`; ctx.lineWidth=Math.max(2,S*2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(cx2,cy2, Math.max(2,S*2.2)+t*Math.max(2,S*2.4),0,7);
+        ctx.fillStyle=`rgba(255,210,77,${(0.5*al).toFixed(3)})`; ctx.fill();
+      }
+    }
+
+    // Goal celebration burst — pulsing rings + rotating star rays on the scorer,
+    // drawn while the action is held during the celebration beat.
+    if(cine.active && cine.phase==='celebrate' && cine.goal && !isOwnGoal(cine.goal)){
+      const g=cine.goal, pid=g.pid, frm=frameAt(g.t).a;
+      if(pid>=0 && frm.p.length>pid*3+1){
+        const sx=X(frm.p[pid*3]), sy=Y(frm.p[pid*3+1]);
+        const now=performance.now();
+        for(let r=0;r<3;r++){
+          const rp=((now/1200)+r/3)%1;
+          const rad=Math.max(6,S*10)*(1+rp*3.6);
+          ctx.beginPath(); ctx.arc(sx,sy,rad,0,7);
+          ctx.strokeStyle=`rgba(255,207,92,${(0.55*(1-rp)).toFixed(3)})`;
+          ctx.lineWidth=Math.max(2,S*2.3); ctx.stroke();
+        }
+        const rays=10, rot=now/650;
+        ctx.lineCap='round';
+        for(let i=0;i<rays;i++){
+          const an=rot+i*Math.PI*2/rays;
+          const r1=Math.max(9,S*13), r2=r1+(10+7*Math.sin(now/120+i))*Math.max(1,S*0.9);
+          ctx.beginPath();
+          ctx.moveTo(sx+Math.cos(an)*r1, sy+Math.sin(an)*r1);
+          ctx.lineTo(sx+Math.cos(an)*r2, sy+Math.sin(an)*r2);
+          ctx.strokeStyle='rgba(255,255,255,.85)'; ctx.lineWidth=Math.max(1.5,S*1.7); ctx.stroke();
+        }
+      }
+    }
+  }
+  function drawPlayer(cx,cy,face,fill,num,ctrl){
+    // ctrl is a ring alpha 0..1 (cross-faded across possession changes so the
+    // ring hands over smoothly instead of popping between keyframes).
+    const ra=(ctrl===true)?1:Math.max(0,Math.min(1,+ctrl||0));
+    const R=Math.max(6,S*10.5);
+    // shadow
+    ctx.beginPath(); ctx.fillStyle='rgba(0,0,0,.3)'; ctx.ellipse(cx,cy+R*0.7,R*0.95,R*0.5,0,0,7); ctx.fill();
+    // facing tick
+    ctx.strokeStyle=fill; ctx.lineWidth=R*0.55; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(face)*R*1.35, cy+Math.sin(face)*R*1.35); ctx.stroke();
+    // body
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.fillStyle=fill; ctx.fill();
+    ctx.lineWidth=Math.max(1.4,R*0.16); ctx.strokeStyle=ra>0.5?css('--amber'):'#0d130f'; ctx.stroke();
+    if(ra>0.02){ ctx.save(); ctx.globalAlpha=ra;
+      ctx.beginPath(); ctx.arc(cx,cy,R+Math.max(3,S*3.4),0,7); ctx.strokeStyle=css('--amber'); ctx.lineWidth=Math.max(1.6,S*1.8); ctx.stroke(); ctx.restore(); }
+    // number
+    ctx.fillStyle = luminance(fill)>0.6 ? '#1a130a' : '#fff';
+    ctx.font=`700 ${Math.round(R*1.05)}px ui-sans-serif,system-ui,sans-serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(num, cx, cy+R*0.06);
+  }
+  function luminance(hex){ const h=hex.replace('#',''); const n=h.length===3?h.split('').map(c=>c+c).join(''):h;
+    const r=parseInt(n.slice(0,2),16)/255,g=parseInt(n.slice(2,4),16)/255,b=parseInt(n.slice(4,6),16)/255;
+    return 0.299*r+0.587*g+0.114*b; }
+
+  // ----- clock / score -----
+  const mmss = ms => { const s=Math.floor(ms/1000); return `${Math.floor(s/60)}'${String(s%60).padStart(2,'0')}`; };
+  // Round-30: the scorebug reads the ENGINE's own per-frame score (the exporter
+  // has always shipped hs/as on every frame), not a re-tally of goal events. The
+  // old tally credited an own goal to the team of the man who touched it last,
+  // so a match containing one read the wrong scoreline for the rest of the game.
+  // Raw = whatever the nearest EARLIER exported keyframe carried. The goal event
+  // can precede the frame that records it by up to one downsample step (80 ms),
+  // which is why the 25'12 own-goal card read "0 - 0": the celebration is drawn
+  // AT the goal instant, and the frame at-or-before it is still the pre-goal one.
+  function rawScoreAt(ms){ const {a}=frameAt(ms); return {hs:a.hs, as:a.as, t:a.t}; }
+  // Filled once the goal list exists (below); null during module init so scoreAt
+  // is safe to call before then. Each entry is a goal instant + the side it
+  // counts for, derived from the raw frames ONCE (own goals included).
+  let GOAL_BUMPS=null;
+  function scoreAt(ms){
+    const a=rawScoreAt(ms); let hs=a.hs, as=a.as;
+    if(GOAL_BUMPS) for(const b of GOAL_BUMPS){
+      if(b.t<=ms && b.t>a.t){ if(b.side===0) hs++; else if(b.side===1) as++; }
+    }
+    return {hs, as};
+  }
+  // The score DELTA across a goal instant is the authoritative side — used for
+  // the GOAL card so it can never disagree with the scorebug beside it. Returns
+  // 0 (home) / 1 (away) / -1 (unknown). Reads RAW frames: scoreAt depends on it,
+  // so it must not depend on scoreAt.
+  function scoringSide(t){
+    const before=rawScoreAt(t-1), after=rawScoreAt(t+400);
+    if(after.hs>before.hs) return 0;
+    if(after.as>before.as) return 1;
+    return -1;
+  }
+  // An own goal is exactly "the toucher's own team is NOT the crediting side".
+  function isOwnGoal(g){
+    const side = scoringSide(g.t);
+    if(side<0 || g.pid<0 || !byId[g.pid]) return false;
+    return byId[g.pid].team !== (side===0?'home':'away');
+  }
+  const elHome=document.getElementById('sbHome'), elAway=document.getElementById('sbAway'),
+        elTime=document.getElementById('sbTime'), elClockLbl=document.getElementById('clocklbl'),
+        elFill=document.getElementById('fill'), elSeek=document.getElementById('seek'),
+        elClockBug=document.getElementById('sbClock');
+
+  // ----- match feed -----
+  const EVICON={goal:'⚽',shot:'◎',save:'🧤',block:'⛊',header:'▲',penalty:'◉',foul:'⚑',offside:'🚩',corner:'⚐',goal_kick:'🥅',throw_in:'↥',tackle:'⊘',tackle_won:'✓',tackle_loose:'~',intercept:'⇄',clearance:'↑',pass:'→',kickoff:'●',skill:'✦',dragback:'↺',sub:'⇄'};
+  const SHOWN=new Set(['goal','shot','save','penalty','foul','offside','corner','goal_kick','block','header','clearance','skill','kickoff','sub']);
+  const feedEvents = EV.filter(e=>SHOWN.has(e.type));
+  const elTicker=document.getElementById('ticker');
+  let lastFeedKey='';
+  function updateFeed(ms){
+    const past=feedEvents.filter(e=>e.t<=ms).slice(-40).reverse();
+    const key=past.length?past[0].t+past[0].type:'';
+    if(key===lastFeedKey) return; lastFeedKey=key;
+    elTicker.innerHTML = past.map(e=>{
+      // restart markers carry the team's GK id purely for team colour — no name
+      // (except goal kicks, where the GK genuinely is the taker)
+      const sb = e.type==='sub' ? subFor(e) : null;
+      // A sub names two men (see subAt); the slot id alone would name only the arrival.
+      const who = sb ? `${short(sb.out)} off, ${short(sb['in'])} on`
+                     : ((e.type!=='corner'&&e.type!=='throw_in'&&e.pid>=0&&byId[e.pid])?short(byId[e.pid].name):'');
+      const tm = e.pid>=0&&byId[e.pid]?byId[e.pid].team:(e.team===0?'home':'away');
+      const label = {goal:'Goal',shot:'Shot',save:'Save',penalty:'Penalty',foul:'Foul',offside:'Offside',corner:'Corner',goal_kick:'Goal kick',throw_in:'Throw-in',block:'Block',header:'Header',clearance:'Clearance',skill:'Skill move',kickoff:'Kick-off',sub:'Substitution'}[e.type]||e.type;
+      const dot = who?`<span style="color:${tm==='home'?COL.home:COL.away}">●</span> `:'';
+      return `<div class="ev ${e.type==='goal'?'goal':''}"><span class="t">${mmss(e.t)}</span><span class="ic">${EVICON[e.type]||'·'}</span><span class="tx">${dot}<b>${label}</b>${who?' — '+who:''}</span></div>`;
+    }).join('');
+  }
+
+  // ===== event-communication + goal-cinematic infrastructure =====
+  const goals=EV.filter(e=>e.type==='goal').sort((x,y)=>x.t-y.t);
+  // Now that the goal list exists, arm the scoreAt correction (see rawScoreAt).
+  GOAL_BUMPS = goals.map(g=>({t:g.t, side:scoringSide(g.t)}));
+  // Round-27 COMMIT 10b: halftime / full-time break window from the engine's
+  // half_time / full_time markers — drives the break banner and the ball park.
+  const HT_EV = EV.find(e=>e.type==='half_time');
+  const FT_EV = EV.find(e=>e.type==='full_time');
+  const BREAK_MS = 5300;   // the engine's 5s halftime pause + margin
+  const inHalfBreak = ms => !!HT_EV && ms>=HT_EV.t && ms<HT_EV.t+BREAK_MS;
+  function breakAt(ms){
+    // Round-30: the engine emits full_time and returns, so no frame is written AT
+    // the event — the timeline can only ever reach DUR. The exporter now always
+    // keeps the final frame, and this min() is the belt-and-braces: the banner
+    // must be reachable at the last instant the scrubber can address.
+    if(FT_EV && ms >= Math.min(FT_EV.t, DUR)) return 'FULL TIME';
+    if(inHalfBreak(ms)) return 'HALF TIME';
+    return null;
+  }
+  const name = pid => (pid>=0&&byId[pid])?short(byId[pid].name):'';
+
+  // brief spatial description of where an event happened ("who, what, WHERE")
+  function zone(x,y){
+    const cy=PH/2, inBox=Math.abs(y-cy)<=201.5;
+    if(x<=165 && inBox) return 'left box';
+    if(x>=PW-165 && inBox) return 'right box';
+    if(x<PW/3) return 'left third';
+    if(x>PW*2/3) return 'right third';
+    return 'midfield';
+  }
+  // the fouled player isn't in the data — infer it as the nearest opponent to
+  // the foul spot so the toast can read "FOUL — Ramos on Robben" (owner ask).
+  function nearestOpp(team,x,y,ms){
+    const frm=frameAt(ms).a; let best=-1,bd=Infinity;
+    for(let i=0;i<22;i++){ const r=byId[i]; if(!r) continue;
+      const rt=r.team==='home'?0:1; if(rt===team) continue;
+      if(frm.p[i*3+1] < -20) continue;   // parked off-pitch (sent off / arena bench)
+      const dx=frm.p[i*3]-x, dy=frm.p[i*3+1]-y, dd=dx*dx+dy*dy;
+      if(dd<bd){ bd=dd; best=i; } }
+    return best;
+  }
+
+  // ----- event toasts (foul / advantage / offside / injury / sub / cards) -----
+  const elToasts=document.getElementById('toasts');
+  const advAt={}; EV.filter(e=>e.type==='advantage').forEach(a=>advAt[Math.round(a.t)]=a);
+  const foulT=new Set(EV.filter(e=>e.type==='foul').map(f=>Math.round(f.t)));
+  const TOASTS=[];
+  for(const e of EV){
+    const key=Math.round(e.t);
+    if(e.type==='foul'){
+      const adv=advAt[key], victim=nearestOpp(e.team,e.x,e.y,e.t);
+      TOASTS.push({t:e.t,kind:'foul',icon:'⚑',title:adv?'Advantage':'Foul',
+        main: adv ? `Play on — foul by <b>${name(e.pid)}</b>`
+                  : `<b>${name(e.pid)}</b>${victim>=0?' on <b>'+name(victim)+'</b>':''}`,
+        where:zone(e.x,e.y), adv:!!adv});
+    } else if(e.type==='advantage'){
+      if(foulT.has(key)) continue;               // shown as part of the foul toast
+      TOASTS.push({t:e.t,kind:'advantage',icon:'▶',title:'Advantage',
+        main:`<b>${name(e.pid)}</b> plays on`, where:zone(e.x,e.y), adv:true});
+    } else if(e.type==='offside'){
+      TOASTS.push({t:e.t,kind:'offside',icon:'🚩',title:'Offside',
+        main:`<b>${name(e.pid)}</b>`, where:zone(e.x,e.y)});
+    } else if(e.type==='injury'){
+      TOASTS.push({t:e.t,kind:'injury',icon:'✚',title:'Injury',
+        main:`<b>${name(e.pid)}</b> down`, where:zone(e.x,e.y)});
+    } else if(e.type==='sub'){
+      // The sub event carries one id — the pitch SLOT — and the roster we export comes from the
+      // END-of-match summary, so name(e.pid) is the man who came ON, never the one who went off.
+      // Round-31: the exporter now ships the engine's sub log alongside, which carries both
+      // names; fall back to the old single-name line for a trace exported before that.
+      const sb=subFor(e);
+      TOASTS.push({t:e.t,kind:'sub',icon:'⇄',title:'Substitution',
+        main: sb ? `<b>${short(sb.out)}</b> off, <b>${short(sb['in'])}</b> on`
+                 : `<b>${name(e.pid)}</b> comes on`, where:''});
+    } else if(e.type==='yellow'||e.type==='red'){       // defensive: not in this seed
+      TOASTS.push({t:e.t,kind:e.type,icon:'▮',title:e.type==='yellow'?'Yellow card':'Red card',
+        main:`<b>${name(e.pid)}</b>`, where:zone(e.x,e.y)});
+    } else if(e.type==='penalty'){
+      TOASTS.push({t:e.t,kind:'penalty',icon:'◉',title:'Penalty',
+        main:`${abbr(e.team===0?'home':'away')} awarded`, where:zone(e.x,e.y)});
+    }
+  }
+  TOASTS.sort((a,b)=>a.t-b.t);
+  function spawnToast(m){
+    const el=document.createElement('div');
+    el.className='toast k-'+m.kind;
+    el.innerHTML=`<div class="tic">${m.icon}</div><div class="tbody">`+
+      `<div class="ttl">${m.title}${(m.adv&&m.kind==='foul')?'<span class="tadv">▶ play on</span>':''}</div>`+
+      `<div class="tmain">${m.main}</div>`+
+      `<div class="twhere">${m.where?m.where+' · ':''}${mmss(m.t)}</div></div>`;
+    elToasts.appendChild(el);
+    requestAnimationFrame(()=>el.classList.add('show'));
+    setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=>el.remove(),260); },3200);
+    while(elToasts.children.length>3) elToasts.firstChild.remove();
+  }
+
+  // ----- added time (data-driven; dormant unless an added_time event exists) -----
+  // Round-30: the exporter ships the announced minute count in `pid` (the engine
+  // puts it in the event's playerId slot) — the lookup never listed that key, so
+  // n fell through to 0 and the pill rendered a literal "+0". Read pid too, and
+  // hard-guard: a board with nothing on it is not a board.
+  const AT=EV.filter(e=>/added.?time|stoppage/i.test(e.type||'')).map(e=>{
+    const n=[e.min,e.minutes,e.n,e.value,e.amount,e.added,e.pid].find(v=>v!=null) ?? 0;
+    const k=EV.filter(x=>x.type==='kickoff'&&x.t>e.t).sort((a,b)=>a.t-b.t)[0];
+    return {t:e.t, n:Math.max(0,Math.round(n)), half:e.half??e.period??0, end:k?k.t:DUR};
+  }).filter(a=>a.n>0);
+  const elAtBoard=document.getElementById('atboard'), elAtBoardN=document.getElementById('atBoardN'),
+        elAtBoardLbl=document.getElementById('atBoardLbl'),
+        elAtPill=document.getElementById('atPill'), elAtPillN=document.getElementById('atPillN');
+  let atBoardTimer=null;
+  function showATBoard(e){
+    elAtBoardN.textContent=e.n;
+    elAtBoardLbl.textContent = e.half===1?'Added time · 1st half':e.half===2?'Added time · 2nd half':'Added time';
+    elAtBoard.classList.add('on');
+    clearTimeout(atBoardTimer); atBoardTimer=setTimeout(()=>elAtBoard.classList.remove('on'),4000);
+  }
+  function updateAddedTimeIndicator(ms){
+    let a=null; for(const e of AT){ if(ms>=e.t && ms<e.end){ a=e; break; } }
+    if(a){ elAtPillN.textContent=a.n; elAtPill.classList.add('on'); }
+    else elAtPill.classList.remove('on');
+  }
+
+  // ----- goal celebration + auto-replay (cinematic) -----
+  const elFlash=document.getElementById('flash'), elFlashWho=document.getElementById('flashWho'),
+        elFlashScore=document.getElementById('flashScore'), elReplayWm=document.getElementById('replaywm');
+  const cine={active:false,phase:null,gi:-1,goal:null,holdUntil:0,savedSpeed:1};
+  function showCelebration(g){
+    // Round-30: side comes from the SCORE DELTA, never from the toucher's team —
+    // an own goal counts for the other side and the card must say so (and the
+    // star-burst on the scorer is suppressed; see the celebration draw block).
+    const sc=scoreAt(g.t), who=name(g.pid), side=scoringSide(g.t), og=isOwnGoal(g);
+    const tm=(side<0?(g.team===0?0:1):side)===0?abbr('home'):abbr('away');
+    elFlashScore.innerHTML=`${abbr('home')} ${sc.hs} <span class="dash">–</span> ${sc.as} ${abbr('away')}`;
+    elFlashWho.textContent=`${og?'OWN GOAL · ':''}${who} · ${tm} · ${mmss(g.t)}`;
+    elFlash.classList.add('on','celebrate');
+  }
+  function hideCelebration(){ elFlash.classList.remove('on','celebrate'); }
+
+  // ----- playback engine -----
+  let t=0, playing=false, speed=1, last=0, prevT=0;
+  const CELEBRATE_MS=2600, REPLAY_LEAD=8000, REPLAY_SPEED=0.5;
+
+  function setTime(ms,jump){
+    prevT=t;
+    t=Math.max(0,Math.min(DUR,ms));
+    render(t);
+    const sc=scoreAt(t); elHome.textContent=sc.hs; elAway.textContent=sc.as;
+    elTime.textContent=mmss(t); elClockLbl.textContent=`${mmss(t)} / ${mmss(DUR)}`;
+    const p=DUR?t/DUR:0; elFill.style.width=(p*100)+'%'; elSeek.value=Math.round(p*1000);
+    updateFeed(t); updateAddedTimeIndicator(t);
+    // COMMIT 10b: show a HALF TIME / FULL TIME banner during the break so the
+    // dead-ball pause reads as a scheduled interval, not a stuck sim.
+    { const br=breakAt(t); const el=document.getElementById('brk');
+      if(el){ if(br){ document.getElementById('brkBig').textContent=br;
+                       document.getElementById('brkSub').textContent = br==='HALF TIME' ? 'Second half kicks off shortly' : '';
+                       el.classList.add('on'); }
+              else el.classList.remove('on'); } }
+    if(!jump && !cine.active) crossEvents(prevT,t);
+    if(t>=DUR && playing) pause();
+  }
+  // fire once-off overlays when playback crosses their instant (forward, live)
+  function crossEvents(a,b){
+    if(b<=a) return;
+    for(let i=0;i<goals.length;i++){ const g=goals[i]; if(a<g.t && b>=g.t){ startGoalCine(i); return; } }
+    for(const m of TOASTS){ if(m.t>a && m.t<=b && b-m.t<2000) spawnToast(m); }
+    for(const e of AT){ if(e.t>a && e.t<=b && b-e.t<3000) showATBoard(e); }
+  }
+
+  // --- goal cinematic: hold the celebration beat, then 0.5x replay, then resume ---
+  function startGoalCine(gi){
+    const g=goals[gi];
+    cine.active=true; cine.phase='celebrate'; cine.gi=gi; cine.goal=g; cine.savedSpeed=speed;
+    cine.holdUntil=performance.now()+CELEBRATE_MS;
+    t=g.t;                                     // freeze the action on the goal
+    const sc=scoreAt(g.t); elHome.textContent=sc.hs; elAway.textContent=sc.as;
+    elTime.textContent=mmss(g.t); elClockLbl.textContent=`${mmss(g.t)} / ${mmss(DUR)}`;
+    const p=DUR?g.t/DUR:0; elFill.style.width=(p*100)+'%'; elSeek.value=Math.round(p*1000);
+    showCelebration(g); elReplayWm.classList.remove('on');
+    if(!playing){ playing=true; last=0; requestAnimationFrame(loop); }
+  }
+  function enterReplay(){
+    cine.phase='replay'; hideCelebration(); elReplayWm.classList.add('on');
+    speed=REPLAY_SPEED;                        // fixed slow-mo for the replay
+    setTime(Math.max(0,cine.goal.t-REPLAY_LEAD),true); last=0;
+  }
+  function endCine(){
+    cine.active=false; cine.phase=null;
+    hideCelebration(); elReplayWm.classList.remove('on');
+    speed=cine.savedSpeed; last=0;
+  }
+  // skippable: any control aborts the sequence, resuming from the goal moment
+  function cancelCine(){ if(!cine.active) return; const gt=cine.goal?cine.goal.t:t; endCine(); t=gt; }
+
+  function loop(now){
+    if(!playing) return;
+    if(!last) last=now;
+    const dt=(now-last)*speed; last=now;
+    if(cine.active){
+      if(cine.phase==='celebrate'){
+        render(cine.goal.t);                   // hold + animate the burst
+        if(now>=cine.holdUntil) enterReplay();
+        requestAnimationFrame(loop); return;
+      }
+      if(cine.phase==='replay'){
+        const nt=t+dt;
+        if(nt>=cine.goal.t){ const gt=cine.goal.t; endCine(); setTime(gt,true); requestAnimationFrame(loop); return; }
+        setTime(nt,false); requestAnimationFrame(loop); return;   // cine.active gates crossEvents
+      }
+    }
+    setTime(t+dt,false);
+    requestAnimationFrame(loop);
+  }
+  const elPlay=document.getElementById('play');
+  function play(){ if(t>=DUR) setTime(0,true); playing=true; last=0; elPlay.textContent='❚❚ Pause';
+    elClockBug.classList.remove('paused'); requestAnimationFrame(loop); }
+  function pause(){ playing=false; elPlay.textContent='▶ Play'; elClockBug.classList.add('paused'); }
+  function toggle(){
+    if(cine.active){ cancelCine(); if(!playing){ playing=true; last=0; requestAnimationFrame(loop); } return; }
+    playing?pause():play();
+  }
+
+  // ----- wire UI -----
+  elPlay.onclick=toggle;
+  document.getElementById('restart').onclick=()=>{ cancelCine(); setTime(0,true); };
+  document.getElementById('skipGoal').onclick=()=>{ cancelCine(); if(goals.length){ pause(); setTime(Math.max(0,goals[0].t-3000),true); play(); } };
+  elSeek.oninput=()=>{ cancelCine(); const wasPlaying=playing; pause(); setTime(DUR*elSeek.value/1000,true); if(wasPlaying) play(); };
+  document.getElementById('spd').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return;
+    cancelCine(); speed=parseFloat(b.dataset.s); cine.savedSpeed=speed;
+    [...e.currentTarget.children].forEach(c=>c.classList.toggle('on',c===b)); });
+  document.querySelectorAll('.jumps button').forEach(btn=>btn.addEventListener('click',()=>{
+    cancelCine(); const wasPlaying=playing; pause();
+    setTime(t+parseFloat(btn.dataset.j)*1000,true);
+    if(wasPlaying) play();
+  }));
+  window.addEventListener('keydown',e=>{
+    if(e.code==='Space'){ e.preventDefault(); toggle(); }
+    else if(e.code==='ArrowRight'){ cancelCine(); pause(); setTime(t+5000,true); }
+    else if(e.code==='ArrowLeft'){ cancelCine(); pause(); setTime(t-5000,true); }
+  });
+
+  // ----- static chrome -----
+  document.getElementById('sbHomeAbbr').textContent=abbr('home');
+  document.getElementById('sbAwayAbbr').textContent=abbr('away');
+  document.getElementById('seedn').textContent=D.seed;
+  document.getElementById('metaline').textContent=
+    `${DATA.final.shots} shots · ${Math.round(DATA.final.possHome)}% – ${100-Math.round(DATA.final.possHome)}% possession · ${mmss(DUR)}`;
+  // goal marks on scrubber
+  const elMarks=document.getElementById('marks');
+  elMarks.innerHTML=goals.map(g=>`<div class="mark" data-lbl="${short(byId[g.pid]?byId[g.pid].name:'')}" style="left:${(g.t/DUR*100).toFixed(2)}%"></div>`).join('');
+  // lineups
+  function sideHTML(side){
+    const list = side==='home'?homeIds:awayIds;
+    return `<div class="head"><span class="dot" style="background:${side==='home'?COL.home:COL.away}"></span><span class="abbr">${abbr(side)}</span></div>
+      <ul>${list.map(r=>`<li><span class="no">${shirt(r.id)}</span><span class="nm">${short(r.name)}</span><span class="rl">${r.role}</span></li>`).join('')}</ul>`;
+  }
+  document.getElementById('homeSide').innerHTML=sideHTML('home');
+  document.getElementById('awaySide').innerHTML=sideHTML('away');
+
+  setTime(0,true);
+  window.__seek = (ms) => setTime(ms, true);   // headless screenshot hook
+})();
+</script>
