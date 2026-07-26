@@ -426,9 +426,27 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     bool breakawayDrive = false;
     if ((freshThrough || engine.arenaMode) && distToGoal > 120.0 && distToGoal < 310.0) {
         // A defender only kills the 1v1 if he can actually make the drive lane:
-        // goal-side AND within ~60px lateral of the carrier-to-goal line. The
-        // first version counted anyone goal-side within 120y — with a retreating
-        // line that is ALWAYS someone, so the drive never fired (measured 0).
+        // goal-side AND within ~60px lateral of the carrier-to-goal line.
+        //
+        // ── Round-31 CORRECTION. The comment that stood here claimed the first
+        // version ("anyone goal-side within 120y") "never fired (measured 0)" and
+        // that this corridor rewrite was the fix. That reads as "fixed"; it is not.
+        // The rewrite did NOT make the 11v11 path work. Re-measured on this build:
+        // seeds 101-140 at 10 min fire the drive in 2 of 40 matches (110 and 119),
+        // and 1 of 5 measured 30-min seeds (606) — every hit a single continuous
+        // episode of 0.07-1.1 s, i.e. roughly ONE breakaway per 3-7 matches, or
+        // ~0.1-0.3 per 90 min. An earlier audit that sampled 607 evaluations saw
+        // defendersAhead never reach 0 and concluded the branch was DEAD; it is not
+        // dead, it is vanishingly rare, and an attempt to scope it arena-only in
+        // this round drifted the golden fingerprint on seed 110 and was reverted.
+        // Why it is that rare: an 11-man defence almost always leaves someone
+        // inside the 120px-wide channel over the 120-310px run to the goal centre,
+        // and the man on the collector's shoulder projects to t~0.05-0.2 so his raw
+        // 5-6px separation already counts as "in the lane". Do NOT widen the
+        // corridor to chase volume: the actual bottleneck is box ENTRY (a carrier
+        // is inside the opposition penalty area for ~8.7 SECONDS per 30-min match),
+        // which is chance-creation work, not a corridor-test problem. In arena
+        // modes the same block fires 1572/2431 evaluations and works as written.
         int defendersAhead = 0;
         double lx = gx - p.x, ly = PITCH_H / 2.0 - p.y, ll = std::hypot(lx, ly);
         for (auto& o : engine.state.players) {
