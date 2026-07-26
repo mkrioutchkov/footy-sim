@@ -481,8 +481,9 @@ public:
     // Render-only facing: a display copy of each player's facing that damps rapid
     // direction reversals, so a jockeying defender doesn't shimmer ~30deg
     // left-right in the watch view. NEVER read by logic (tackle geometry/dribble
-    // use the raw Player::facing) — purely the getJSON output, so gameplay is
-    // byte-identical. updated each tick after finalizeVelocities.
+    // use the raw Player::facing) — purely the getJSON output plus the trace's v3
+    // render-hint slot, so gameplay is byte-identical. Advanced by
+    // updateRenderFacing() at the END of every fixedUpdate, in every phase.
     std::array<double, 22> renderFacing = {};
     bool renderFacingInit = false;
     // First touch: after gaining a moving ball an outfielder must settle it
@@ -934,6 +935,8 @@ public:
     void update(double dM);
     bool step();   // §1.4 LIVE: one fixed tick, returns false at full-time (while(step()) loop + runner-ready)
     void fixedUpdate(double sdt);
+    void fixedUpdateTick(double sdt);   // the tick proper; fixedUpdate wraps it (see updateRenderFacing)
+    void updateRenderFacing();          // render-only facing low-pass; every tick, every phase
     void tickAgents(double sdt, bool ic);
 private:
     bool initialized_ = false;   // one-shot guard: GameEngine is one-match-per-instance (initWithSeed)

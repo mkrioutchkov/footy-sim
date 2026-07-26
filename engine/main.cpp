@@ -390,7 +390,9 @@ int main(int argc, char* argv[]) {
     auto emit = [&]() {
         // Write trace frame every tick; drain the engine's event log with it
         if (trace.isOpen()) {
-            trace.writeFrame(engine.state);
+            // v3: ship the smoothed display facing ALONGSIDE the raw angle, so a .bin
+            // replay renders what the live web viewer renders instead of the shimmer.
+            trace.writeFrame(engine.state, &engine.renderFacing);
             for (const auto& e : engine.traceEventQueue) {
                 int teamId = e.playerId < 0 ? -1 : (e.playerId < 11 ? 0 : 1);
                 // Round-30: the id->team synthesis is right for every event type

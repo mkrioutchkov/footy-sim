@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -18,7 +19,8 @@
 // post-process with Python/TS tools.
 
 static constexpr uint32_t TRACE_MAGIC   = 0x46545346; // "FSTF" (Footy-Sim Trace Format)
-static constexpr uint32_t TRACE_VERSION = 2;  // v2: + per-player `wall` bool + ball `curl` (render hints)
+static constexpr uint32_t TRACE_VERSION = 3;  // v3: + per-player `renderFacing` (smoothed display copy; raw `facing` kept)
+                                              // v2: + per-player `wall` bool + ball `curl` (render hints)
 
 #pragma pack(push, 1)
 
@@ -36,11 +38,16 @@ struct TracePlayerState {
     double   vx, vy;
     double   targetX, targetY;
     double   stamina;
-    double   facing;
+    double   facing;        // RAW body angle — the engine's truth. Gates the vision cone
+                            // (agent_movement.cpp) and every analysis tool reads THIS.
     int32_t  dribbleType;
     double   tackleAnim;
     double   headingAnim;
     int32_t  wall;          // v2: in the defensive FK wall this tick (render hint)
+    double   renderFacing;  // v3: low-passed display copy (EMA alpha 0.18, engine.cpp).
+                            // The live JSON stream has always shipped this instead of the
+                            // raw angle, so a .bin replay used to render a facing shimmer
+                            // the web viewer smoothed away. RENDER ONLY — never analysis.
 };
 
 struct TraceBallState {
@@ -109,7 +116,10 @@ public:
         return true;
     }
 
-    void writeFrame(const EngineState& state, double physicsMs = 0, double agentMs = 0) {
+    // `renderFacing` is the engine's smoothed display copy (GameEngine::renderFacing);
+    // pass nullptr and the raw angle is written into both slots.
+    void writeFrame(const EngineState& state, const std::array<double, 22>* renderFacing = nullptr,
+                    double physicsMs = 0, double agentMs = 0) {
         if (!active) return;
         TraceFrame frame{};
         frame.clockMs = state.clockMs;
@@ -142,6 +152,7 @@ public:
             tp.tackleAnim = p.tackleAnim;
             tp.headingAnim = p.headingAnim;
             tp.wall = p.wall ? 1 : 0;
+            tp.renderFacing = (renderFacing && p.id >= 0 && p.id < 22) ? (*renderFacing)[p.id] : p.facing;
         }
         std::fwrite(&frame, sizeof(frame), 1, f);
         frameCount++;

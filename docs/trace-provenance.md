@@ -55,6 +55,20 @@ default `physicsMs = agentMs = 0`), so a wall-clock difference between runs neve
 perturbs the bytes. A plain `cmp` of two traces built from the same commit is
 therefore exact: identical bytes ⟺ identical simulation.
 
+## Format version
+
+`TRACE_VERSION` (engine/trace.h) is stamped in every trace header, and
+`tools/trace_reader.py` picks the frame layout from it — so a trace written by an
+older engine still loads, and a trace written by a *newer* one fails loudly with a
+"newer than this reader" error instead of silently mis-parsing. A version bump
+changes the bytes by construction, so a `cmp` across a bump is meaningless; compare
+summaries (or re-baseline the reference) instead.
+
+| v | added |
+|---|---|
+| 2 | per-player `wall`, ball `curl` |
+| 3 | per-player `renderFacing` — the engine's low-passed **display** angle (what the live web stream has always sent). Raw `facing` is unchanged and is still the analysis truth: it is what gates the vision cone, so tools must keep reading `facing`, and only renderers should read `render_facing`. |
+
 ## Recipe
 
 ```sh

@@ -331,6 +331,38 @@ void GameEngine::cacheBallState() {
 }
 
 void GameEngine::fixedUpdate(double sdt) {
+    fixedUpdateTick(sdt);
+    // Runs LAST and unconditionally, whichever of the tick's several early-return
+    // paths was taken (half-time interval, kick-off hold, set piece, open play).
+    updateRenderFacing();
+}
+
+// Render-only facing smoothing (display copy; logic uses raw Player::facing).
+// Exponential low-pass of facing: a high-frequency ~30deg left-right shimmer
+// averages toward its centre (smooth), while a genuine sustained turn still
+// tracks within a few ticks. alpha 0.18 ~ 90ms settle — imperceptible lag, but
+// it kills the watched-match jitter. Logic is untouched -> gameplay identical.
+//
+// Round-31: this used to live INSIDE updateOpenPlayPhase, so it only advanced on
+// open-play ticks. Measured on a 30-min trace: 12.0% of ticks left the display
+// angle frozen while the real body turned — 44 windows, median 4.8 s, longest
+// 9.0 s, with the display up to 180 deg stale by the end of one. Every set piece,
+// kick-off hold and the half-time interval locked all 22 bodies at a stale angle
+// in the live web view. The trace now carries this value too, so a replay would
+// have inherited the same freeze; hoisted here instead.
+void GameEngine::updateRenderFacing() {
+    if (!renderFacingInit) {
+        for (auto& p : state.players) renderFacing[p.id] = p.facing;
+        renderFacingInit = true;
+        return;
+    }
+    for (auto& p : state.players) {
+        double dF = std::atan2(std::sin(p.facing - renderFacing[p.id]), std::cos(p.facing - renderFacing[p.id]));
+        renderFacing[p.id] = std::atan2(std::sin(renderFacing[p.id] + dF * 0.18), std::cos(renderFacing[p.id] + dF * 0.18));
+    }
+}
+
+void GameEngine::fixedUpdateTick(double sdt) {
     state.clockMs += sdt;
     // Hard pin: a sent-off player is held off the pitch every tick no matter
     // what any phase does to him, and can never hold the ball. This is the
@@ -2053,20 +2085,8 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     updateGK(sdt);
     separateTeammates(sdt);
     finalizeVelocities(sec); // authoritative velocity from this tick's true displacement
-    // Render-only facing smoothing (display copy; logic uses raw Player::facing).
-    // Exponential low-pass of facing: a high-frequency ~30deg left-right shimmer
-    // averages toward its centre (smooth), while a genuine sustained turn still
-    // tracks within a few ticks. alpha 0.18 ~ 90ms settle — imperceptible lag, but
-    // it kills the watched-match jitter. Logic is untouched -> gameplay identical.
-    if (!renderFacingInit) {
-        for (auto& p : state.players) renderFacing[p.id] = p.facing;
-        renderFacingInit = true;
-    } else {
-        for (auto& p : state.players) {
-            double dF = std::atan2(std::sin(p.facing - renderFacing[p.id]), std::cos(p.facing - renderFacing[p.id]));
-            renderFacing[p.id] = std::atan2(std::sin(renderFacing[p.id] + dF * 0.18), std::cos(renderFacing[p.id] + dF * 0.18));
-        }
-    }
+    // (Round-31: the render-facing low-pass used to sit here — see
+    //  GameEngine::updateRenderFacing, now driven from fixedUpdate every tick.)
     updateControlledBall(sec);
     updateGoalKickMonitor();
     tryGKSave();

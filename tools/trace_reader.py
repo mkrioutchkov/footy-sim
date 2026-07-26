@@ -25,15 +25,49 @@ from typing import List, Optional, Iterator
 
 HEADER_FMT = '<IIi d 32s'
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
+TRACE_MAGIC = 0x46545346  # "FSTF"
 
-PLAYER_FMT = '<i dd dd dd d d i dd i'  # v2: + wall (int32)
-PLAYER_SIZE = struct.calcsize(PLAYER_FMT)
+# Current writer version (engine/trace.h TRACE_VERSION). Older versions still load:
+# the frame layout is selected from the header's version field, so a v2 trace kept
+# from an earlier round is readable — its `render_facing` simply mirrors `facing`.
+TRACE_VERSION = 3
+
+# v2: id, x, y, vx, vy, targetX, targetY, stamina, facing, dribbleType,
+#     tackleAnim, headingAnim, wall
+_PLAYER_FMT_V2 = '<i dd dd dd d d i dd i'
+# v3: + renderFacing (smoothed display copy; `facing` stays the raw analysis truth)
+_PLAYER_FMT_V3 = '<i dd dd dd d d i dd i d'
 
 BALL_FMT = '<dddd dd ii i d'  # v2: + curl (double)
 BALL_SIZE = struct.calcsize(BALL_FMT)
 
-FRAME_FMT = f'<d {BALL_SIZE}s {PLAYER_SIZE * 22}s ii dd'
-FRAME_SIZE = struct.calcsize(FRAME_FMT)
+
+def _layout(version: int):
+    """(player_fmt, player_size, frame_fmt, frame_size) for a trace version."""
+    if version <= 2:
+        pf = _PLAYER_FMT_V2
+    elif version == 3:
+        pf = _PLAYER_FMT_V3
+    else:
+        raise ValueError(
+            f'trace version {version} is newer than this reader (max {TRACE_VERSION}). '
+            'Update tools/trace_reader.py to match engine/trace.h.')
+    ps = struct.calcsize(pf)
+    ff = f'<d {BALL_SIZE}s {ps * 22}s ii dd'
+    return pf, ps, ff, struct.calcsize(ff)
+
+
+def read_header(path: str) -> 'Header':
+    with open(path, 'rb') as f:
+        magic, version, seed, duration, version_bytes = struct.unpack(HEADER_FMT, f.read(HEADER_SIZE))
+    if magic != TRACE_MAGIC:
+        raise ValueError(f'{path}: not a footy-sim trace (magic {magic:#x})')
+    return Header(magic=magic, version=version, seed=seed, match_duration_ms=duration,
+                  engine_version=version_bytes.rstrip(b'\x00').decode('utf-8', errors='replace'))
+
+
+# Back-compat module constants: the CURRENT version's layout. Prefer _layout(version).
+PLAYER_FMT, PLAYER_SIZE, FRAME_FMT, FRAME_SIZE = _layout(TRACE_VERSION)
 
 EVENT_FMT = '<d 24s dd ii'
 EVENT_SIZE = struct.calcsize(EVENT_FMT)
@@ -71,6 +105,10 @@ class PlayerState:
     tackle_anim: float = 0
     heading_anim: float = 0
     wall: int = 0
+    # v3 render hint: the engine's smoothed display facing (EMA alpha 0.18). Use it to
+    # DRAW a player; keep using `facing` for anything that reasons about the sim (it is
+    # what gates the vision cone). On a v2 trace it mirrors `facing`.
+    render_facing: float = 0
 
 
 @dataclass
@@ -123,67 +161,33 @@ class TraceReader:
         self._read()
 
     def _read(self):
+        self.header = read_header(self.path)
+        # Frame layout depends on the header's version — a v2 trace kept from an
+        # earlier round still loads (its render_facing mirrors facing).
+        pf, ps, ff, fs = _layout(self.header.version)
+        self._player_fmt, self._player_size, self._frame_size = pf, ps, fs
         with open(self.path, 'rb') as f:
-            # Header
-            data = f.read(HEADER_SIZE)
-            magic, version, seed, duration, version_bytes = struct.unpack(HEADER_FMT, data)
-            self.header = Header(
-                magic=magic, version=version, seed=seed,
-                match_duration_ms=duration,
-                engine_version=version_bytes.rstrip(b'\x00').decode('utf-8', errors='replace')
-            )
-
-            # Calculate frame and event counts from file size
             file_size = f.seek(0, 2)
-            f.seek(HEADER_SIZE)
-            remaining = file_size - HEADER_SIZE - FOOTER_SIZE
-            num_frames = remaining // (FRAME_SIZE + EVENT_SIZE * 0)  # approximate
-            # We'll read until we hit the footer
-
-            f.seek(HEADER_SIZE)
-            self.frames = []
-            self.events = []
-
-            # Read frames and events until footer
-            while True:
-                pos = f.tell()
-                remaining = file_size - pos
-                if remaining <= FOOTER_SIZE:
-                    break
-
-                # Try reading a frame
-                if remaining >= FRAME_SIZE:
-                    frame_data = f.read(FRAME_SIZE)
-                    if len(frame_data) < FRAME_SIZE:
-                        break
-                    frame = self._parse_frame(frame_data)
-                    self.frames.append(frame)
-                else:
-                    break
-
-            # Read events after frames (events are written interleaved or after)
-            # Actually, events are written inline. Let me re-read with event support.
-            # The format writes frames and events interleaved.
-            # We need to detect which is which by trying both formats.
-            # For now, just read the footer.
             f.seek(file_size - FOOTER_SIZE)
             footer_data = f.read(FOOTER_SIZE)
-            if len(footer_data) == FOOTER_SIZE:
-                frame_count, event_count = struct.unpack(FOOTER_FMT, footer_data)
-                # Re-read with correct counts
-                f.seek(HEADER_SIZE)
-                self.frames = []
-                self.events = []
-                for _ in range(frame_count):
-                    frame_data = f.read(FRAME_SIZE)
-                    if len(frame_data) == FRAME_SIZE:
-                        self.frames.append(self._parse_frame(frame_data))
-                for _ in range(event_count):
-                    event_data = f.read(EVENT_SIZE)
-                    if len(event_data) == EVENT_SIZE:
-                        self.events.append(self._parse_event(event_data))
+            self.frames = []
+            self.events = []
+            if len(footer_data) != FOOTER_SIZE:
+                return
+            frame_count, event_count = struct.unpack(FOOTER_FMT, footer_data)
+            f.seek(HEADER_SIZE)
+            for _ in range(frame_count):
+                frame_data = f.read(fs)
+                if len(frame_data) == fs:
+                    self.frames.append(self._parse_frame(frame_data))
+            for _ in range(event_count):
+                event_data = f.read(EVENT_SIZE)
+                if len(event_data) == EVENT_SIZE:
+                    self.events.append(self._parse_event(event_data))
 
     def _parse_frame(self, data: bytes) -> Frame:
+        player_fmt = getattr(self, '_player_fmt', PLAYER_FMT)
+        player_size = getattr(self, '_player_size', PLAYER_SIZE)
         offset = 0
         clock_ms = struct.unpack_from('<d', data, offset)[0]; offset += 8
 
@@ -199,12 +203,13 @@ class TraceReader:
         # Players
         players = []
         for _ in range(22):
-            pd = struct.unpack_from(PLAYER_FMT, data, offset); offset += PLAYER_SIZE
+            pd = struct.unpack_from(player_fmt, data, offset); offset += player_size
             players.append(PlayerState(
                 id=pd[0], x=pd[1], y=pd[2], vx=pd[3], vy=pd[4],
                 target_x=pd[5], target_y=pd[6], stamina=pd[7],
                 facing=pd[8], dribble_type=pd[9],
-                tackle_anim=pd[10], heading_anim=pd[11], wall=pd[12]
+                tackle_anim=pd[10], heading_anim=pd[11], wall=pd[12],
+                render_facing=pd[13] if len(pd) > 13 else pd[8],
             ))
 
         home_score, away_score = struct.unpack_from('<ii', data, offset); offset += 8
@@ -227,11 +232,12 @@ class TraceReader:
     @staticmethod
     def read_events(path: str) -> List[Event]:
         """Read ONLY the events (small) without loading any frames — O(events) memory."""
+        frame_size = _layout(read_header(path).version)[3]
         with open(path, 'rb') as f:
             file_size = f.seek(0, 2)
             f.seek(file_size - FOOTER_SIZE)
             frame_count, event_count = struct.unpack(FOOTER_FMT, f.read(FOOTER_SIZE))
-            f.seek(HEADER_SIZE + frame_count * FRAME_SIZE)
+            f.seek(HEADER_SIZE + frame_count * frame_size)
             evs = []
             for _ in range(event_count):
                 d = f.read(EVENT_SIZE)
@@ -246,15 +252,17 @@ class TraceReader:
         """Yield frames ONE AT A TIME without holding them all in memory — O(1) frames.
         Use this (not TraceReader(path).frames) for long traces; a 90-min trace has
         ~325k frames and the full list balloons to multiple GB of Python objects."""
-        dummy = TraceReader.__new__(TraceReader)   # for _parse_frame (uses only module consts)
+        dummy = TraceReader.__new__(TraceReader)   # for _parse_frame (no instance state needed)
+        pf, ps, _ff, fs = _layout(read_header(path).version)
+        dummy._player_fmt, dummy._player_size, dummy._frame_size = pf, ps, fs
         with open(path, 'rb') as f:
             file_size = f.seek(0, 2)
             f.seek(file_size - FOOTER_SIZE)
             frame_count, _ = struct.unpack(FOOTER_FMT, f.read(FOOTER_SIZE))
             f.seek(HEADER_SIZE)
             for _ in range(frame_count):
-                d = f.read(FRAME_SIZE)
-                if len(d) < FRAME_SIZE:
+                d = f.read(fs)
+                if len(d) < fs:
                     break
                 yield dummy._parse_frame(d)
 
