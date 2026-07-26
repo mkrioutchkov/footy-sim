@@ -112,13 +112,15 @@ value is that it stays a single dependency-free file.
 Where a fix exists here but not there, it belongs on a follow-up list rather than
 in a copy-paste:
 
-- **`scoreAt` (goal-before-keyframe).** Known divergence. The template corrects
-  the scoreline for a goal event that precedes the keyframe carrying the new
-  score. The shipping renderer takes the score from live state, so it may not be
-  exposed to the same ordering — but its *replay* mode (`replayMode`, seeking
-  backwards through buffered state) plausibly is. Worth a targeted check:
-  seek to a goal instant in replay mode and confirm the banner's scoreline
-  matches the scorebug.
+- **`scoreAt` (goal-before-keyframe).** Known divergence, currently latent. The
+  template needs `scoreAt()` because its input is an 80 ms *keyframe* timeline, so
+  a goal event can precede the frame that records the new score. The shipping
+  renderer reads the live per-tick score and, under `replayMode`, suppresses the
+  goal banner outright (`renderer.ts` ~1832, ~1852), so it has nowhere to display
+  a stale scoreline today. The moment a goal card, scoreline, or scrubbable
+  keyframe timeline is added to its replay path, it needs the same correction —
+  port `scoreAt`'s idea (replay the goal list on top of the nearest earlier
+  score), not the code.
 
 Anything else found should be appended here, not silently ported.
 

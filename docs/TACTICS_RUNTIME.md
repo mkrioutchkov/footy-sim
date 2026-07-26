@@ -224,5 +224,10 @@ checkout; they previously required an untracked `web/backend/data/specs/fixture-
 - **Score-state auto-tactics** in `configFor` fire independently of any directive
   (always-on chasing/protecting nudges); a directive's `dialOverride` stacks on top
   before the same clamps.
-- **The golden guard locks only the no-directive match** — no per-directive effect
-  regression test exists.
+- **The golden guard locks only the no-directive match.** The per-directive effect
+  regression test is `tools/tactics_bench.py`, which since Round-31 asserts all 47
+  engine kinds (plus the phantom `gk_up_for_corners`) and asserts a *direction*,
+  not merely a change. Four kinds are pinned there as known-failing with the audit
+  evidence — `gk_up_for_corners` (inert), `contain` (self-cancelling) and the width
+  family (backwards in position space). Those are engine defects; the bench only
+  notices them, and it fails loudly if one silently changes state.

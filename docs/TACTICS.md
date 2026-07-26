@@ -111,6 +111,12 @@ mid-match shout).
   +8% was retracted as seed noise — it's now a volume-neutral timing nudge.)
   `play_it_long` now bites: it suppresses safe recycling so forward passes rise
   (~691→726).
+- **Effect guard**: `python3 tools/tactics_bench.py` asserts every one of the 47
+  directive kinds moves its metric the *intended direction* (paired per-seed sign
+  test; a wrong-direction move is a FAIL, not a shrug). Kinds with no directional
+  metric in `--summary` — `target_player` and the four set-piece takers — get a
+  bite test instead ("does this reach the engine at all"). Four kinds are pinned
+  known-failing against the round-31 audit and are round 32's job to fix.
 - **Determinism guard**: `tools/tactics_golden.py check` hashes the no-directive
   match across 7 seeds; run it after every change to prove the default match
   hasn't drifted as the vocabulary grows. It and `tools/tactics_bench.py` read
