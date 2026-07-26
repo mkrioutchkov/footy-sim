@@ -261,6 +261,9 @@ bool GameEngine::checkGoal() {
         if (lastGoal.source == GoalSource::Penalty) stats.recordPenaltyGoal();
         if (shot.dribble20m && lastGoal.source == GoalSource::Shot) stats.recordDribble20mGoal();
         stats.recordGoal(scoringTeam, lastGoal.source, goalDist, lastGoal.ballSpeed, scorerRole, ownGoal ? false : shot.header);
+        if (shot.tracked)
+            stats.recordGoalInBox(std::abs(shot.originX - goalLineX) < PENALTY_AREA_W
+                                  && pitch::lateralFromCenter(shot.originY) < PENALTY_AREA_H / 2.0);
         // A goal from a tracked shot never hit the shotsOnTarget ledger (only SAVED
         // shots did) — count it so shotsOnTarget includes scored shots. Only raises it,
         // so saves<=shotsOnTarget still holds.

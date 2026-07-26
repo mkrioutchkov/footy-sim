@@ -273,8 +273,21 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             double roleShotMax = receiver.role == Role::CM ? 235.0 : 285.0;
             // Pressure degrades the chance, not eligibility — strikers attack
             // headers in crowded boxes; a pressure veto turned them all into layoffs.
-            bool headerShot = (receiver.role == Role::CF || receiver.role == Role::WM || receiver.role == Role::CM) && shotDistance < roleShotMax && angleDeg > 4.0 && laneBlockers <= 3;
-            bool mustAttackHeader = shotDistance < 185.0 && angleDeg > 6.0 && pressure <= 2 && laneBlockers <= 1;
+            // Round-31 COMMIT 1: the BIG MAN. agent_setpiece sends a centre-back
+            // to the far post for every corner, and the role list here (CF/WM/CM
+            // only) then forbade him from attacking the goal with the header he
+            // was sent up to win — so the classic set-piece goal could not exist
+            // and corners scored ~1 in 200. Let a defender who is genuinely in
+            // the box, close and central, head at goal. Tightly gated (inside the
+            // area laterally, <15m, real opening) so a full-back glancing an
+            // open-play cross from the touchline is untouched.
+            bool bigManHeader = roles::isDefenderRole(receiver.role)
+                && shotDistance < 150.0 && angleDeg > 8.0
+                && pitch::lateralFromCenter(receiver.y) < PENALTY_AREA_H / 2.0;
+            bool headerShot = ((receiver.role == Role::CF || receiver.role == Role::WM || receiver.role == Role::CM) && shotDistance < roleShotMax && angleDeg > 4.0 && laneBlockers <= 3)
+                            || (bigManHeader && laneBlockers <= 3);
+            bool mustAttackHeader = (shotDistance < 185.0 && angleDeg > 6.0 && pressure <= 2 && laneBlockers <= 1)
+                                 || (bigManHeader && shotDistance < 110.0 && laneBlockers <= 1);
             double shotChance = clamp(0.32 + (roleShotMax - shotDistance) / 260.0 + angleDeg / 82.0 - pressure * 0.06 - laneBlockers * 0.08, 0.0, 0.85);
             if (headerShot && (mustAttackHeader || rng.random() < shotChance)) {
                 // Launch FROM the contact point: shootBall aims from the
@@ -1608,6 +1621,10 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     bool freshCross = s.crossCollected > 0.0 && shotDistance < freshCrossMax;
     if (freshCross) stats.recordHeadedShot();
     stats.recordShotDistance(shotDistance);
+    // Penalty-area POLYGON census — the radial bands straddle the box edge, so
+    // "goals from outside the box" could never be read off them.
+    stats.recordShotInBox(std::abs(s.x - gx) < PENALTY_AREA_W
+                          && pitch::lateralFromCenter(s.y) < PENALTY_AREA_H / 2.0);
     int pressureCount = 0;
     pressureCount = countPressure(state.players, s.x, s.y, s.team, PRESSURE_RANGE);
     double angleDeg = goalOpeningAngleDeg(s.x, s.y, gx);
@@ -1647,9 +1664,46 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     double closePressure = shotDistance < 130.0 ? pressureCount * (freshCross ? SHOT_ERROR_CLOSE_PRESSURE_CROSS : SHOT_ERROR_CLOSE_PRESSURE_NORMAL) : 0.0;
     double roleError = agentFor(s)->shotRoleError(freshCross, shotDistance);
     double weakFootShotMul = weakFootStrike(s, goalXFor(s.team) - s.x, PITCH_H / 2.0 - s.y) ? 1.22 : 1.0;
-    double executionError = weakFootShotMul * (SHOT_ERROR_BASE + (1 - accuracy) * SHOT_ERROR_SKILL + pressureCount * (freshCross ? SHOT_ERROR_PRESSURE_CROSS : SHOT_ERROR_PRESSURE_NORMAL) + closePressure + laneBlockers * (freshCross ? SHOT_ERROR_LANE_CROSS : SHOT_ERROR_LANE_NORMAL) + anglePenalty * SHOT_ERROR_ANGLE + distancePenalty * SHOT_ERROR_DISTANCE + longRangePenalty * SHOT_ERROR_LONG_RANGE);
+    // ── Round-31 COMMIT 1: the crowd penalty SATURATES ──
+    // It used to be linear and uncapped: pressureCount*34 + closePressure*28 +
+    // laneBlockers*58 with nothing to stop it, so a six-yard chance with three
+    // bodies around it carried ~320px of lateral spread across a 73px goal — a
+    // chance the engine was ARITHMETICALLY INCAPABLE of converting. The measured
+    // consequences were the whole "box is a lottery" complaint: conversion
+    // INVERTED against distance (6-11m 5.4% vs 11-16.5m 18.7%), a third of all
+    // goals from outside the box against a real ~15%, and corners that could not
+    // score because every corner chance is by construction a crowded one.
+    // Traffic must DEGRADE a chance, never erase it. Two changes:
+    //   (a) each additional body adds less than the last (exponential
+    //       saturation toward SHOT_ERROR_CROWD_SAT) — a fourth defender in a
+    //       six-yard scramble does not double the miss;
+    //   (b) a FLOOR ON ACHIEVABLE ACCURACY that tightens with range, so the
+    //       total spread on a point-blank chance is bounded no matter how
+    //       crowded it is. A striker six yards out in traffic still hits the
+    //       target most of the time; what he loses is the ability to PICK his
+    //       spot, and that is what the keeper roll is for.
+    // The cap is monotone increasing in distance and the saturation is monotone
+    // increasing in crowd, so "closer + cleaner converts better" still holds
+    // everywhere — the relationship is preserved, only its slope is sane.
+    double crowdRaw = pressureCount * (freshCross ? SHOT_ERROR_PRESSURE_CROSS : SHOT_ERROR_PRESSURE_NORMAL)
+                    + closePressure
+                    + laneBlockers * (freshCross ? SHOT_ERROR_LANE_CROSS : SHOT_ERROR_LANE_NORMAL);
+    double crowdError = SHOT_ERROR_CROWD_SAT * (1.0 - std::exp(-crowdRaw / SHOT_ERROR_CROWD_SAT));
+    double executionError = weakFootShotMul * (SHOT_ERROR_BASE + (1 - accuracy) * SHOT_ERROR_SKILL + crowdError + anglePenalty * SHOT_ERROR_ANGLE + distancePenalty * SHOT_ERROR_DISTANCE + longRangePenalty * SHOT_ERROR_LONG_RANGE);
     executionError = std::max(SHOT_ERROR_FLOOR, executionError + roleError);
-    bool credibleFinish = angleDeg > 9.0 && shotDistance < 200.0 && pressureCount <= 2 && laneBlockers <= 1;
+    double rangeErrorCap = SHOT_ERROR_CAP_CLOSE
+        + clamp((shotDistance - 60.0) / 160.0, 0.0, 1.0) * (SHOT_ERROR_CAP_FAR - SHOT_ERROR_CAP_CLOSE);
+    executionError = std::min(executionError, rangeErrorCap);
+    // A crowded-but-CLOSE chance is still a real chance. The old gate demanded
+    // pressureCount<=2 AND laneBlockers<=1 at every range, which structurally
+    // excluded every six-yard-box scramble from being treated as a finish at
+    // all — no execution multiplier, no speed bonus, extra loft, wide post aim.
+    // Inside ~11.5m a striker is allowed a crowd; the saturating error above is
+    // what prices it.
+    bool closeRange = shotDistance < 115.0;
+    bool credibleFinish = angleDeg > 9.0 && shotDistance < 200.0
+                       && (closeRange ? (pressureCount <= 4 && laneBlockers <= 2)
+                                      : (pressureCount <= 2 && laneBlockers <= 1));
     bool freshThrough = s.throughCollected > 0.0 && shotDistance < 245.0;
     // A CLEAR-CUT chance: close, clean sight of goal, unpressured — a real
     // striker BURIES these (~35-45%). The post-edge aim + full error spread
@@ -1658,9 +1712,17 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit) 
     // 101-116). Gated hard — close, no pressure, no blocker, real angle — so it
     // only catches genuine chances; contested/long shots keep the post-edge aim
     // and don't re-inflate on-target. Finished clinically below.
-    bool clearCutChance = shotDistance < 140.0 && angleDeg > 11.0
-                       && pressureCount == 0 && laneBlockers == 0
-                       && (freshThrough || s.firstTouchFinish > 0.0 || credibleFinish);
+    // Round-31: the second clause. Point-blank with NOBODY IN THE LANE is a big
+    // chance in real football even with defenders alongside the shooter — a
+    // six-yard tap-in does not stop being a tap-in because a centre-back is
+    // goal-side of the near post. The original clause (no pressure at all, out
+    // to 14m) is untouched; this only adds the traffic-tolerant point-blank case,
+    // and it still requires a genuinely CLEAR shooting lane.
+    bool clearCutChance = (shotDistance < 140.0 && angleDeg > 11.0
+                           && pressureCount == 0 && laneBlockers == 0
+                           && (freshThrough || s.firstTouchFinish > 0.0 || credibleFinish))
+                       || (shotDistance < 85.0 && angleDeg > 13.0
+                           && laneBlockers == 0 && pressureCount <= 2);
     // First-time foot finish off a low cross: struck clean and FLAT (not a
     // header, so shot.header stays false), with a tight error band — the whole
     // point is to turn a swept low cross into an on-target chance.

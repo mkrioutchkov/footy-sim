@@ -124,7 +124,20 @@ class StatsCollector {
 
     // ── Shot events ──
     void recordShot(Team team, bool onTarget, Role shooterRole);
+    // Round-31: the <100/<200/>=200 bands straddle every interesting boundary —
+    // the six-yard box, the penalty spot and the box edge all live inside one
+    // bucket, which is why an inverted 6-11m vs 11-16.5m conversion curve was
+    // invisible for thirty rounds. Band on the ANALYST's boundaries instead
+    // (0-6m, 6-11m, 11-16.5m, 16.5-25m, 25m+) for shots and goals alike.
+    static int distanceBandIndex(double distance) {
+        if (distance < 60.0) return 0;
+        if (distance < 110.0) return 1;
+        if (distance < 165.0) return 2;
+        if (distance < 250.0) return 3;
+        return 4;
+    }
     void recordShotDistance(double distance) {
+        shotBand[distanceBandIndex(distance)]++;
         shotDistTotal += distance;
         if (distance < 100)
             shotDistClose++;
@@ -138,6 +151,8 @@ class StatsCollector {
             else shotDistVeryLong260++;
         }
     }
+    void recordShotInBox(bool inBox) { if (inBox) shotsInBox++; }
+    void recordGoalInBox(bool inBox) { if (inBox) goalsInBox++; }
     void recordShotOnTarget();
     void recordSave() { saves++; }
     // Keeper cross-claims (separate from shot saves so the save ledger stays clean).
@@ -431,6 +446,10 @@ class StatsCollector {
     int shotDistLong200_260 = 0, shotDistVeryLong260 = 0;
     double shotDistTotal = 0;
     int goalDistClose = 0, goalDistMedium = 0, goalDistLong = 0;
+    // Penalty-area POLYGON census (the radial bands above straddle the box edge).
+    // Real football: ~68% of shots and ~85% of goals come from inside the area.
+    int shotsInBox = 0, goalsInBox = 0;
+    int shotBand[5] = {0, 0, 0, 0, 0}, goalBand[5] = {0, 0, 0, 0, 0};
     int dribbleClose = 0, dribbleMedium = 0, dribbleFast = 0;
     int dribble20mShots = 0, dribble20mGoals = 0;
     int knockAheads = 0, knockAheadRecovered = 0, knockAheadRetained = 0;

@@ -40,6 +40,11 @@ void StatsCollector::recordGoal(Team team, GoalSource source, double distance, d
     case GoalSource::KnockAhead: knockAheadGoals++; break;
     default: untrackedGoals++; break; // None / unmapped
     }
+    // distance == 0 means "not from a tracked shot" (deflection, direct cross,
+    // loose ball) — those have no shot origin, so they belong in no band. The
+    // banded goals therefore sum to LESS than total goals, by design: the bands
+    // are a conversion denominator/numerator pair with recordShotDistance.
+    if (distance > 1.0) goalBand[distanceBandIndex(distance)]++;
     if (distance < 100)
         goalDistClose++;
     else if (distance < 200)
@@ -203,12 +208,12 @@ std::string StatsCollector::summaryJSON() const {
     j["unknownLooseGoals"] = unknownLooseGoals;
 
     j["shotsByDistance"] = {
-        {"close", shotDistClose}, {"medium", shotDistMedium}, {"long", shotDistLong}, {"long200_260", shotDistLong200_260}, {"veryLong260", shotDistVeryLong260}, {"average", totalShots > 0 ? std::round(shotDistTotal / totalShots * 10) / 10 : 0}, {"questionable", questionableShots}};
+        {"close", shotDistClose}, {"medium", shotDistMedium}, {"long", shotDistLong}, {"long200_260", shotDistLong200_260}, {"veryLong260", shotDistVeryLong260}, {"inBox", shotsInBox}, {"u6m", shotBand[0]}, {"u11m", shotBand[1]}, {"u16m", shotBand[2]}, {"u25m", shotBand[3]}, {"o25m", shotBand[4]}, {"average", totalShots > 0 ? std::round(shotDistTotal / totalShots * 10) / 10 : 0}, {"questionable", questionableShots}};
     j["shotsByRole"] = {
         {"GK", shotsGK}, {"CB", shotsCB}, {"FB", shotsFB}, {"CM", shotsCM}, {"WM", shotsWM}, {"CF", shotsCF}, {"unknown", shotsUnknownRole}};
     j["controlledTouchesByRole"] = {
         {"GK", touchesGK}, {"CB", touchesCB}, {"FB", touchesFB}, {"CM", touchesCM}, {"WM", touchesWM}, {"CF", touchesCF}, {"unknown", touchesUnknownRole}};
-    j["goalsByDistance"] = {{"close", goalDistClose}, {"medium", goalDistMedium}, {"long", goalDistLong}};
+    j["goalsByDistance"] = {{"close", goalDistClose}, {"medium", goalDistMedium}, {"long", goalDistLong}, {"inBox", goalsInBox}, {"u6m", goalBand[0]}, {"u11m", goalBand[1]}, {"u16m", goalBand[2]}, {"u25m", goalBand[3]}, {"o25m", goalBand[4]}};
     j["goalsByRole"] = {
         {"GK", goalsGK}, {"CB", goalsCB}, {"FB", goalsFB}, {"CM", goalsCM}, {"WM", goalsWM}, {"CF", goalsCF}, {"unknown", goalsUnknownRole}};
 

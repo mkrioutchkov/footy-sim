@@ -424,6 +424,17 @@ inline constexpr double SHOT_ERROR_LANE_CROSS   = 52.0;
 inline constexpr double SHOT_ERROR_LANE_NORMAL  = 58.0;
 inline constexpr double SHOT_ERROR_PRESSURE_CROSS = 38.0;
 inline constexpr double SHOT_ERROR_CLOSE_PRESSURE_CROSS = 30.0;
+// Round-31: the crowd terms above (pressure + close-pressure + lane blockers)
+// used to sum LINEARLY and without a ceiling. SHOT_ERROR_CROWD_SAT is the
+// asymptote of their saturating sum — one defender still costs nearly the raw
+// price, the fourth costs almost nothing extra. SHOT_ERROR_CAP_CLOSE/FAR bound
+// the TOTAL spread by range (ramped over 60→220px): the accuracy floor that
+// keeps a six-yard chance in traffic finishable. FAR is deliberately loose
+// enough to be inert on genuine long shots — this is a box fix, not a
+// long-range buff.
+inline constexpr double SHOT_ERROR_CROWD_SAT   = 85.0;
+inline constexpr double SHOT_ERROR_CAP_CLOSE   = 62.0;
+inline constexpr double SHOT_ERROR_CAP_FAR     = 270.0;
 
 // ── Perception ──
 inline constexpr double PERCEPTION_CONE_NEAR    = PI / 3.0;
