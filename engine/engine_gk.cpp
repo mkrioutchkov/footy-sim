@@ -350,7 +350,20 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         // (watched replay 0:50: winger bearing down from a wide angle, keeper
         // planted at goal centre 65px off the shot line; only a near-central
         // finish saved him).
-        bool ownTeamHasBall = carrier && carrier->team == gk.team;
+        // Round-34: a ball IN FLIGHT has controllerId < 0, so `carrier` is null
+        // for the whole duration of every pass and this test collapsed — dropping
+        // the keeper 96 -> 68px and back again while his own side knocked it
+        // about 70m away (seed 407: 207 such dips for Buffon, 191 for Neuer, ~5.9
+        // per live minute, against a genuine population an order of magnitude
+        // rarer). A ball his own team has struck AT a team-mate is still his
+        // team's ball. Deliberately NOT extended to receiver-less loose balls:
+        // that is a different third of the dips, it is where round-28's
+        // knock-ahead cadence lives, and dropping to 68px on a genuinely free
+        // ball is correct.
+        const Player* intendedRx = playerById(state.ball.intendedReceiverId);
+        bool ownTeamHasBall = carrier ? carrier->team == gk.team
+                                      : (intendedRx && intendedRx->team == gk.team
+                                         && state.ball.lastTouchTeam == gk.team);
         // Sweep high when play is in the far half — standing 2m off the line
         // 80m from the ball reads as a statue, and the space behind the
         // (retreating) defense is the keeper's to cover.
@@ -389,7 +402,15 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
 
     double dx = gk.targetX - gk.x, dy = gk.targetY - gk.y, d = std::hypot(dx, dy);
     double gkStep = 0.0;
-    if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; gkStep = step; }
+    // Round-34: the approach had no deceleration — he left at full positional
+    // pace and stopped dead on arrival, which is why his own histogram has no
+    // walk in it at all (seed 407: 45.3% of frames at exactly 0.00 m/s, 54.1%
+    // at 2-4 m/s, and literally nothing in between). Add a critically-damped
+    // term so he eases over the last ~2m. NO dead-band: a dead-band on this
+    // shared step would leave up to 2m of standing error on the shot line.
+    // d*3.0 only binds inside ~8.5px, so it cannot eat the C5(2) urgency ramp
+    // above (keyed on gtd > 30px).
+    if (d > 1) { double step = std::min({moveSpeed * secs, d * 3.0 * secs, d}); gk.x += dx / d * step; gk.y += dy / d * step; gkStep = step; }
     // Round-34 census: the keeper's pace profile. The watch complaint is "he is
     // never still and never walks" — this is the histogram that decides it.
     // Bands in m/s (10px = 1m): exactly 0 | (0,1) | [1,2) | [2,4) | >=4.
