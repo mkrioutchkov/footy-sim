@@ -24,6 +24,29 @@ inline constexpr double BALL_R    = 4.5;
 inline constexpr double SPEED_RUN     = 52.0;
 inline constexpr double SPEED_SPRINT  = 68.0;
 inline constexpr double MAX_PLAYER_SPEED = 50.0;
+// ── Approach-damping ceilings (agent_movement.cpp) ────────────────────────────
+// The commanded speed is baseSpeed * df, where df is the distance term: it damps
+// the last stride into a target and OVERRUNS when the target is far. Round-34
+// found the two ceilings were never compared: committed pursuit was pinned at
+// df = 1.0 while an off-ball mover with a target > 180px away got 1.5, so
+// SPEED_SPRINT * 1.0 = 68 lost to SPEED_RUN * 1.5 = 78 — committing to a chase
+// made you 13% SLOWER than a team-mate ambling toward a far spot. Name both
+// ceilings and assert the gear ordering at compile time so it cannot silently
+// invert again when either constant is retuned.
+// The pursuit ceiling is 1.25, not the off-ball 1.5, and the number is measured
+// rather than assumed. Handing pursuit the full 1.5 overrun DOES fix the
+// ordering (sprint-gear commanded p95 49.8 -> 69.3 px/s, 24 seeds x 90 min) but
+// it puts 8.74% of open-play frames above 5.5 m/s against a real 4-6%, with the
+// >7 m/s band up 0.13 -> 1.43%: that is not a sprint, that is a rocket. At 1.25
+// the band lands at 6.4% with the >7 m/s tail FLAT (0.13 -> 0.16%), i.e. the
+// growth is entirely players sprinting rather than flying. The floor cannot go
+// much lower: at 1.15 the two gears tie and the per-seed ordering invariant is
+// violated on 7 of 8 seeds.
+inline constexpr double MOVE_DF_MAX_OFFBALL = 1.5;
+inline constexpr double MOVE_DF_MAX_PURSUIT = 1.25;
+static_assert(SPEED_SPRINT * MOVE_DF_MAX_PURSUIT >= SPEED_RUN * MOVE_DF_MAX_OFFBALL,
+              "gear inversion: a committed pursuer must never command less pace "
+              "than an off-ball mover running to a distant target");
 // Round-34: ceiling on the post-goal walk-in step (engine.cpp updateKickoffPhase).
 // The lerp-to-arrive opens at distance/hold, so the far dot glided at 49 km/h for
 // nearly the whole hold. SPEED_RUN is the engine's own run gear and sits strictly

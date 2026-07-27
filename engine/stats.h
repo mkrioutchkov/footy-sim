@@ -425,6 +425,14 @@ class StatsCollector {
         long passReleases = 0, passReleasesNearPress = 0;
         long passIntercepts = 0, passInterceptsNearPress = 0;
 
+        // (4b) Round-34 commit 5: the COMMANDED speed of each movement gear, so
+        //      the gear ordering is a measured fact and not an assumption. The
+        //      gear inversion (committed pursuit pinned at df = 1.0 while an
+        //      off-ball run earned df = 1.5) was invisible for exactly as long
+        //      as nobody histogrammed this. Gears: 0 fast-dribble, 1 observing
+        //      cruise, 2 run, 3 sprint. 2px/s buckets; [63] = >=126px/s.
+        long gearHist[4][64] = {};
+
         // (5) loose-ball episodes and the dead-and-uncontrolled share
         long openTicks = 0, looseTicks = 0, looseDeadTicks = 0;
         long looseEpisodes = 0, looseEpisodesOver1s = 0, looseEpisodesOver1500ms = 0;

@@ -317,6 +317,8 @@ std::string StatsCollector::summaryJSON() const {
             {"htArms", c.htWalkArms},
             {"htAvgStartDistPx", c.htWalkArms > 0 ? std::round(c.htWalkStartDistSum / c.htWalkArms * 10) / 10 : 0.0},
             {"htMaxStartDistPx", std::round(c.htWalkStartDistMax * 10) / 10}};
+        cj["gears"] = nlohmann::json::array();
+        for (int g = 0; g < 4; g++) cj["gears"].push_back(arr(c.gearHist[g], 64));
         cj["passProximity"] = {
             {"releases", c.passReleases}, {"releasesNearPress70", c.passReleasesNearPress},
             {"intercepts", c.passIntercepts}, {"interceptsNearPress70", c.passInterceptsNearPress}};

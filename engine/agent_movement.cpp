@@ -358,9 +358,12 @@ void PlayerAI::applyMovement(double sdt) {
     }
     bool committedTackleSprint = committedTackle
         && (engine.state.clockMs - shepherdSprintSinceMs <= 2000.0);
-    double baseSpeed = (activeKnockAheadRunner || p.dribbleType == 3)
+    bool fastDribbleGear = (activeKnockAheadRunner || p.dribbleType == 3);
+    bool sprintGear = lastActionType == ActionType::Chase || committedPress
+                   || committedTackleSprint || defendSprint || pursuingLooseBall || boxBurst;
+    double baseSpeed = fastDribbleGear
         ? DRIBBLE_FAST_SPEED
-        : (lastActionType == ActionType::Chase || committedPress || committedTackleSprint || defendSprint || pursuingLooseBall || boxBurst ? SPEED_SPRINT : SPEED_RUN);
+        : (sprintGear ? SPEED_SPRINT : SPEED_RUN);
 
     // Shielding: slow down when near opponents with ball
     bool isController = (engine.state.ball.controllerId == p.id);
@@ -368,7 +371,22 @@ void PlayerAI::applyMovement(double sdt) {
         baseSpeed *= 0.80; // 20% slower when shielding
     }
 
-    double df = (committedChase || committedPress || committedTackle || defendSprint || pursuingLooseBall || boxBurst) ? 1.0 : std::min(d / 120.0, 1.5);
+    // Round-34 COMMIT 5 (gear inversion). This line used to read `? 1.0 :` for
+    // every committed-pursuit branch, so a chaser's distance term was PINNED at
+    // 1.0 while a non-pursuing mover with a target >180px away got 1.5 — and
+    // SPEED_SPRINT * 1.0 (68) is less than SPEED_RUN * 1.5 (78). Committing to
+    // the chase made you slower than a team-mate strolling to a far spot, which
+    // is why closing bursts never closed. Pursuit now takes the SAME distance
+    // term with a floor at 1.0: it is never damped below full pace on the
+    // approach (the whole point of the old constant), but it earns the same
+    // overrun when the ball or the man is genuinely far away. See the
+    // static_assert in constants.h — the ordering is now a compile-time
+    // invariant, not an emergent coincidence.
+    bool pursuitGear = committedChase || committedPress || committedTackle
+                    || defendSprint || pursuingLooseBall || boxBurst;
+    double df = pursuitGear
+        ? std::max(1.0, std::min(d / 120.0, MOVE_DF_MAX_PURSUIT))
+        : std::min(d / 120.0, MOVE_DF_MAX_OFFBALL);
     // A contain point riding a DRIFTING carrier is a pursuit, not an arrival:
     // the d/120 damping collapsed closure to ~0 at 24px short of the point
     // (2:21 Iniesta pinned 4.5-5.5m off Bale for 4.7s at walk pace while the
@@ -406,6 +424,13 @@ void PlayerAI::applyMovement(double sdt) {
         p.vx *= 0.55;
         p.vy *= 0.55;
         ms = std::min(ms, std::hypot(p.vx, p.vy) + 4.0);
+    }
+    // Round-34 census (pure counter, serialised only under FOOTY_CENSUS=1): the
+    // final commanded speed, bucketed by gear. Nothing below reads it.
+    {
+        int gear = fastDribbleGear ? 0 : (sprintGear ? 3 : (cruiseMul < 1.0 ? 1 : 2));
+        int b = (int) (ms / 2.0);
+        engine.stats.census.gearHist[gear][b < 0 ? 0 : (b > 63 ? 63 : b)]++;
     }
 
     // ── Momentum v3 (tombstone lifted, round 13) ── v1/v2 taxed EVERYONE with
