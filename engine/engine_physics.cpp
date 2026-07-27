@@ -1402,13 +1402,42 @@ void GameEngine::updateControlledBall(double sec) {
         // amplitude. Knock floors VISIBLE (7px open, 5px pressed) and scales to
         // ~17px at sprint. NO friction decay between touches (round-11 reception-
         // teleport class + the arena ball-at-rest deadlock).
+        // Round-34 (OWNER COMPLAINT 1, "the ball shifts a lot rapidly in front of
+        // the player in possession"). The stride and the knock used to be floored
+        // INDEPENDENTLY — stride halved under pressure while peak kept its own
+        // floor — so peak/stride emerged at a median 0.87 with 12% at or above
+        // 1.0, i.e. the ball had to travel BACKWARDS through the carrier's own
+        // advance to make the geometry work. Derive the stride FROM the peak
+        // instead, so the ratio is an invariant of the model rather than a
+        // by-product of two floors: peak/stride > 1 becomes arithmetically
+        // impossible at any speed. Close control now means smaller touches AND a
+        // shorter stride, which is what the round-28 tombstone above intended.
+        // Open-play peak still reaches 17px at sprint, so the tackle leash
+        // (TACKLE_RANGE and the ballShownDot bonuses in agent_defend.cpp) sees the
+        // same maximum ball exposure it does today.
         bool tight = nearestOppDist < 40.0;
-        double stride = std::max(6.0, speed * 0.55);
-        if (tight) stride *= 0.5;
+        double peak = clamp(speed * 0.24, 5.0, 17.0);
+        if (tight) peak *= 0.6;
+        double stride = std::max(peak / 0.40, 6.0);
         bool touched = carryTouchTravel >= stride;
         if (touched) carryTouchTravel = 0.0;   // the next touch
-        double peak = clamp(speed * 0.24, tight ? 5.0 : 7.0, 17.0);
-        knockExtra = peak * (1.0 - carryTouchTravel / std::max(stride, 1.0));
+        // The plan's part (B) — reshaping the knock into a rise-then-decay
+        // profile over u — is DELIBERATELY NOT TAKEN. It was built, measured and
+        // rejected: it re-opened the arena ball-at-rest deadlock this block's own
+        // comment warns about. 4 loose-ball stalls across 33 arena matches at
+        // N=3/5/7 against 0 for the parent, and in 11v11 simulation_freeze rose
+        // 0.21 -> 0.75 per match at 24 paired seeds x 90 min (t=2.41). Ending
+        // every stride at zero extension removes the pace the reset used to give
+        // a ball that comes loose mid-carry, so it dies where it is knocked and
+        // nobody commits to it — which is exactly what round-34 commit 6 (the
+        // loose-ball rest-point solve) exists to fix. Part (A) above carries the
+        // owner-visible win on its own: measured on the same trace it beats the
+        // reshaped version on radial offset step (p90 3.20 vs 3.29px) and on
+        // median world-advance ratio (0.91 vs 2.10, against a physical ideal of
+        // 1.0), because the reshaped profile spent most of the stride in its
+        // rise. Revisit part (B) after commit 6, not before.
+        double u = carryTouchTravel / std::max(stride, 1.0);
+        knockExtra = peak * (1.0 - u);
         // Round-34 census: touch cadence + how much of the carry is spent pressed.
         stats.census.carryMs += sec * 1000.0;
         if (tight) stats.census.carryTightMs += sec * 1000.0;
