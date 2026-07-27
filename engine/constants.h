@@ -24,6 +24,20 @@ inline constexpr double BALL_R    = 4.5;
 inline constexpr double SPEED_RUN     = 52.0;
 inline constexpr double SPEED_SPRINT  = 68.0;
 inline constexpr double MAX_PLAYER_SPEED = 50.0;
+// Round-34: ceiling on the post-goal walk-in step (engine.cpp updateKickoffPhase).
+// The lerp-to-arrive opens at distance/hold, so the far dot glided at 49 km/h for
+// nearly the whole hold. SPEED_RUN is the engine's own run gear and sits strictly
+// below the 5.5 m/s line the restart-phase speed census is judged on.
+inline constexpr double KICKOFF_WALK_SPEED = SPEED_RUN;
+// Post-goal hold. Widened 9s -> 17s alongside the cap above: the measured 99th
+// percentile distance-to-spot is 750px and the observed max 881px, so a capped
+// walk needs >= 17s to still arrive at KICKOFF_WALK_SPEED and leave the terminal
+// snap a no-op (that snap was an 80px teleport before the walk-in was
+// introduced). 52 x 17 = 884px of reach; anything beyond it is handled by the
+// per-dot pace floor in GameEngine::kickoff, so arrival is guaranteed either way.
+// Precedent: round-23 grew the arena hold 3s -> 6s for exactly this reason when
+// the walk was added. Arena keeps its ARENA_RESTART_SCALE.
+inline constexpr double POST_GOAL_HOLD_MS = 17000.0;
 // Momentum v3 (agent_movement.cpp): off-ball, non-pursuit movers accelerate
 // under this cap instead of teleport-steering; reversals plant-and-brake at
 // the multiple below before relaunching. Pursuit states are exempt (the

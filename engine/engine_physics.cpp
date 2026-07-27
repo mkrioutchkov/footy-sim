@@ -292,8 +292,12 @@ bool GameEngine::checkGoal() {
         // arena scoring rates costs a real slice of a 10-minute match. Put it on
         // the same ARENA_RESTART_SCALE the free kick / corner / throw budgets
         // already use. 11v11 keeps its 9s exactly.
+        // Round-34: 9s -> POST_GOAL_HOLD_MS (16s). The walk-in is now capped at a
+        // run (KICKOFF_WALK_SPEED), and 9s x that cap only reaches 468px against a
+        // measured p99 distance-to-spot of 750px — every dot beyond it would have
+        // re-created the terminal teleport the walk-in exists to remove.
         kickoff(scoringTeam == Team::Home ? Team::Away : Team::Home,
-                9000.0 * (arenaMode ? ARENA_RESTART_SCALE : 1.0), /*walkIn=*/true);
+                POST_GOAL_HOLD_MS * (arenaMode ? ARENA_RESTART_SCALE : 1.0), /*walkIn=*/true);
     };
     if (b.x + BALL_R < HOME_GOAL_X) {
         finishGoal(Team::Away, HOME_GOAL_X);

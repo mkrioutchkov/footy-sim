@@ -202,6 +202,7 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
         for (auto& p : state.players) {
             if (p.sentOff) continue;
             double wd = dist(p.x, p.y, kickoffWalkTargetX[p.id], kickoffWalkTargetY[p.id]);
+            kickoffWalkPace[p.id] = std::max(KICKOFF_WALK_SPEED, wd / std::max(holdMs / 1000.0, 1e-6));
             stats.census.walkArms++;
             stats.census.walkStartDistSum += wd;
             if (wd > stats.census.walkStartDistMax) stats.census.walkStartDistMax = wd;
@@ -2009,9 +2010,24 @@ void GameEngine::updateKickoffPhase(double sdt) {
             if (p.sentOff) continue;
             double dx = kickoffWalkTargetX[p.id] - p.x, dy = kickoffWalkTargetY[p.id] - p.y;
             double stepX = dx * frac, stepY = dy * frac;
+            // Round-34: the lerp's opening pace is distance/hold, so a dot 80m
+            // from his spot LAUNCHED at 8.3 m/s and, with the sway on top,
+            // peaked at 13.75 m/s — 49 km/h, half again the human world record,
+            // held for essentially the whole hold. 22 dots gliding across the
+            // pitch after every goal. Cap the step at a run so the restart is
+            // paced like football; the hold was widened to 16s at the call site
+            // (engine_physics.cpp) so the 99th-percentile distance still arrives
+            // and the terminal snap below stays a no-op.
+            double sl = std::hypot(stepX, stepY);
+            double cap = kickoffWalkPace[p.id] * sec;
+            if (sl > cap) { stepX *= cap / sl; stepY *= cap / sl; }
             // Micro idle: a tiny deterministic sway (no rng) so a dot that has
-            // reached its spot breathes rather than freezing dead.
-            double idle = std::sin((state.clockMs + p.id * 211.0) * 0.005) * 0.6 * sec * 60.0;
+            // reached its spot breathes rather than freezing dead. Round-34: it
+            // is applied to ARRIVED dots only. On a moving dot it was never a
+            // breath — it added a standing 3.6 m/s of lateral jitter to the walk
+            // and ate into the cap above for no visible gain.
+            double idle = std::hypot(dx, dy) <= 2.0
+                ? std::sin((state.clockMs + p.id * 211.0) * 0.005) * 0.6 * sec * 60.0 : 0.0;
             p.x += stepX;
             p.y += stepY + idle;
             p.vx = stepX / std::max(sec, 1e-6);

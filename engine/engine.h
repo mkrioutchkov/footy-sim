@@ -125,6 +125,13 @@ public:
     bool kickoffWalkActive = false;
     int kickoffWalkScorerId = -1;
     double kickoffWalkPresentMs = 0.0;
+    // Round-34: per-dot ceiling on the post-goal walk-in step, captured when the
+    // walk is armed. The lerp-to-arrive is CONSTANT pace d0/hold, so a flat cap
+    // would leave any dot beyond cap*hold permanently short and re-create the
+    // terminal teleport. max(KICKOFF_WALK_SPEED, d0/hold) caps the 99.5% that can
+    // walk it and lets the rare outlier move at exactly the pace that still
+    // arrives — bounded, and never the old 49 km/h.
+    std::array<double, 22> kickoffWalkPace = {};
     std::array<double, 22> kickoffWalkTargetX = {};
     std::array<double, 22> kickoffWalkTargetY = {};
     // Round-30: half time is an INTERVAL. The same walk machinery, re-aimed at
