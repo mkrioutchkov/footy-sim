@@ -1229,6 +1229,20 @@ void GameEngine::collectBall(Player& c) {
     // link for this slot (a dribble/recovery is not an assisted goal).
     if (c.id >= 0 && c.id < 22 && receiverShieldTargetId != c.id) lastReceiveFrom[c.id] = -1;
     stats.recordControlledTouch(c.role);
+    // Round-34 census (owner complaint 4, "unnatural collect radius" at 2:03 —
+    // never measured by any lens). How far was the ball from the man at the
+    // instant control was granted, and was he the intended receiver, who alone
+    // gets INTENDED_COLLECT_DIST (26px = 2.6m) against everyone else's
+    // COLLECT_DIST (8px)? Counter only — no gate reads it.
+    {
+        double gd = dist(c.x, c.y, b.x, b.y);
+        stats.census.grants++;
+        stats.census.grantDistSum += gd;
+        if (gd > stats.census.grantDistMax) stats.census.grantDistMax = gd;
+        int gb = (int) (gd / 4.0);
+        stats.census.grantHist[gb < 0 ? 0 : (gb > 9 ? 9 : gb)]++;
+        if (intended) { stats.census.grantsIntended++; stats.census.grantIntendedDistSum += gd; }
+    }
     lastCollectionTeam = c.team;
     lastSameTeamCollectionMs = state.clockMs;
     // A keeper gathering a live ball holds it before distributing — without
@@ -1387,9 +1401,14 @@ void GameEngine::updateControlledBall(double sec) {
         bool tight = nearestOppDist < 40.0;
         double stride = std::max(6.0, speed * 0.55);
         if (tight) stride *= 0.5;
-        if (carryTouchTravel >= stride) carryTouchTravel = 0.0;   // the next touch
+        bool touched = carryTouchTravel >= stride;
+        if (touched) carryTouchTravel = 0.0;   // the next touch
         double peak = clamp(speed * 0.24, tight ? 5.0 : 7.0, 17.0);
         knockExtra = peak * (1.0 - carryTouchTravel / std::max(stride, 1.0));
+        // Round-34 census: touch cadence + how much of the carry is spent pressed.
+        stats.census.carryMs += sec * 1000.0;
+        if (tight) stats.census.carryTightMs += sec * 1000.0;
+        if (touched) { stats.census.carryTouches++; if (tight) stats.census.carryTouchesTight++; }
     }
     // Round-28 C3: during the post-duel gather window tuck the ball to the foot
     // (no knock-ahead) so the winner's separation converges to ~CONTROL_DIST
@@ -1453,6 +1472,10 @@ void GameEngine::updateControlledBall(double sec) {
             state.ball.y += my / md * maxStep;
         }
     } else {
+        // Round-34 census (owner complaint 4, un-measured half): a controlled ball
+        // more than 60px from its target offset is written OUTRIGHT here — a snap,
+        // not a step. Count them so the next round can confirm or close it.
+        if (firstTimedCallThisTick && md >= 60.0) stats.census.glueSnaps++;
         state.ball.x = tx;
         state.ball.y = ty;
     }
@@ -1473,6 +1496,36 @@ void GameEngine::updateControlledBall(double sec) {
         double stepSpd = dist(state.ball.x, state.ball.y, prevBx, prevBy) / sec;
         if (stepSpd > std::hypot(c->vx, c->vy) + 320.0)
             stats.recordQualityFlag(QualityFlag::CarriedBallOverspeed);
+        // Round-34 census — THE carried-ball detector CarriedBallOverspeed cannot
+        // be. That tripwire fires at carrierSpeed+320 while maxStep above clamps
+        // every converging tick to carrierSpeed+220, so it is blind by
+        // construction to the touch-cadence class (seed 407 reports
+        // carried_ball_overspeed = 0 while the ball is pinned in world space
+        // between touches and then delivers the whole knock in one frame).
+        // Measure the honest thing instead: how far the BALL advanced in world
+        // space this tick against how far its CARRIER advanced. 1.0 is a ball
+        // travelling with the man; <0.35 is frozen; <0 is a ball going backwards.
+        if (c->role != Role::GK && !gatheringWin) {
+            double carrierAdv = std::hypot(c->vx, c->vy) * sec;
+            double bsx = state.ball.x - prevBx, bsy = state.ball.y - prevBy;
+            double ballAdv = std::hypot(bsx, bsy);
+            {
+                int ob = (int) ballAdv;
+                stats.census.carryOffsetHist[ob < 0 ? 0 : (ob > 31 ? 31 : ob)]++;
+            }
+            if (carrierAdv > 15.0 * sec) {
+                double ratio = ballAdv / carrierAdv;
+                stats.census.carryTicks++;
+                if (nearestOppDist < 40.0) stats.census.carryTight++;
+                if (ratio < 0.25 || ratio > 2.5) stats.census.carryAnom++;
+                if (ratio < 0.35) stats.census.carryFrozen++;
+                if (ratio >= 0.35 && ratio <= 2.3) stats.census.carryBand35_230++;
+                if (ratio >= 0.50 && ratio <= 1.8) stats.census.carryBand50_180++;
+                if (bsx * c->vx + bsy * c->vy < 0.0) stats.census.carryBackward++;
+                int rb = (int) (ratio * 10.0);
+                stats.census.carryRatioHist[rb < 0 ? 0 : (rb > 31 ? 31 : rb)]++;
+            }
+        }
     }
     // Controlled-ball body-block (seed 437 0:53: Ronaldinho spun the ball
     // "right in front of 8 then behind him into 11" — through 2.7px of pid21's

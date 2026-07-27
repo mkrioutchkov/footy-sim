@@ -1,5 +1,6 @@
 #include "stats.h"
 #include "nlohmann/json.hpp"
+#include <cstdlib>
 
 namespace {
 void countRole(Role role, int& gk, int& cb, int& fb, int& cm, int& wm, int& cf) {
@@ -265,6 +266,69 @@ std::string StatsCollector::summaryJSON() const {
 
     j["events"] = nlohmann::json::array();
     j["possessionPct"] = std::round(posPct * 10) / 10;
+
+    // Round-34 census. Serialised ONLY under FOOTY_CENSUS=1 so the default
+    // summary — and therefore tools/golden/fingerprint.sha256 — is byte-identical
+    // with the probe compiled in. Read once (static), no per-call getenv cost.
+    static const bool censusOn = [] {
+        const char* e = std::getenv("FOOTY_CENSUS");
+        return e && (e[0] == '1' || e[0] == 't' || e[0] == 'y');
+    }();
+    if (censusOn) {
+        const Census& c = census;
+        auto arr = [](const long* v, int n) {
+            nlohmann::json a = nlohmann::json::array();
+            for (int i = 0; i < n; i++) a.push_back(v[i]);
+            return a;
+        };
+        nlohmann::json cj;
+        cj["carry"] = {
+            {"ticks", c.carryTicks}, {"anomaly", c.carryAnom}, {"frozen", c.carryFrozen},
+            {"backward", c.carryBackward}, {"band35_230", c.carryBand35_230},
+            {"band50_180", c.carryBand50_180}, {"tightTicks", c.carryTight},
+            {"ratioHist", arr(c.carryRatioHist, 32)}, {"offsetHist", arr(c.carryOffsetHist, 32)},
+            {"touches", c.carryTouches}, {"touchesTight", c.carryTouchesTight},
+            {"ms", std::round(c.carryMs)}, {"tightMs", std::round(c.carryTightMs)}};
+        cj["collect"] = {
+            {"grants", c.grants}, {"grantsIntended", c.grantsIntended},
+            {"avgDistPx", c.grants > 0 ? std::round(c.grantDistSum / c.grants * 100) / 100 : 0.0},
+            {"avgIntendedDistPx", c.grantsIntended > 0 ? std::round(c.grantIntendedDistSum / c.grantsIntended * 100) / 100 : 0.0},
+            {"maxDistPx", std::round(c.grantDistMax * 100) / 100},
+            {"distHist", arr(c.grantHist, 10)}, {"glueSnaps60", c.glueSnaps}};
+        cj["gk"] = nlohmann::json::array();
+        for (int k = 0; k < 2; k++) {
+            double mins = c.gkMs[k] / 60000.0;
+            cj["gk"].push_back({{"bands", arr(c.gkBand[k], 5)},
+                                {"pathMPerMin", mins > 0 ? std::round(c.gkPathPx[k] / 10.0 / mins * 10) / 10 : 0.0},
+                                {"ticks", (long) std::llround(c.gkMs[k] / 16.6666666667)},
+                                {"depth96", c.gkDepth96[k]}, {"depthFar", c.gkDepthFar[k]},
+                                {"dip96to68", c.gkDip96to68[k]},
+                                {"liveMin", std::round(mins * 100) / 100}});
+        }
+        cj["speedBands"] = {{"open", arr(c.openBand, 6)}, {"reset", arr(c.resetBand, 6)}};
+        cj["restartWalk"] = {
+            {"arms", c.walkArms}, {"snaps", c.walkSnaps},
+            {"avgStartDistPx", c.walkArms > 0 ? std::round(c.walkStartDistSum / c.walkArms * 10) / 10 : 0.0},
+            {"maxStartDistPx", std::round(c.walkStartDistMax * 10) / 10},
+            {"avgSnapDistPx", c.walkSnaps > 0 ? std::round(c.walkSnapDistSum / c.walkSnaps * 100) / 100 : 0.0},
+            {"maxSnapDistPx", std::round(c.walkSnapDistMax * 100) / 100},
+            {"snapsOver8", c.walkSnapOver8}, {"snapsOver20", c.walkSnapOver20}, {"snapsOver80", c.walkSnapOver80},
+            {"startDistHist50", arr(c.walkStartHist, 20)},
+            {"htArms", c.htWalkArms},
+            {"htAvgStartDistPx", c.htWalkArms > 0 ? std::round(c.htWalkStartDistSum / c.htWalkArms * 10) / 10 : 0.0},
+            {"htMaxStartDistPx", std::round(c.htWalkStartDistMax * 10) / 10}};
+        cj["passProximity"] = {
+            {"releases", c.passReleases}, {"releasesNearPress70", c.passReleasesNearPress},
+            {"intercepts", c.passIntercepts}, {"interceptsNearPress70", c.passInterceptsNearPress}};
+        cj["loose"] = {
+            {"openTicks", c.openTicks}, {"looseTicks", c.looseTicks}, {"deadUncontrolledTicks", c.looseDeadTicks},
+            {"episodes", c.looseEpisodes}, {"episodesOver1s", c.looseEpisodesOver1s},
+            {"episodesOver1500ms", c.looseEpisodesOver1500ms},
+            {"totalSec", std::round(c.looseMsTotal / 1000.0 * 10) / 10},
+            {"maxSec", std::round(c.looseMsMax / 1000.0 * 100) / 100},
+            {"msHist250", arr(c.looseMsHist, 24)}};
+        j["census"] = cj;
+    }
 
     return j.dump();
 }

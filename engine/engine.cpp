@@ -195,6 +195,19 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
             p.vx = p.vy = 0;
         }
         kickoffWalkActive = true;
+        // Round-34 census: how far does the furthest dot have to travel to its
+        // spot inside the hold? Round-34 commit 3 caps the walk-in to a jog, and
+        // its stated mitigation is to size that cap so the 99th percentile still
+        // arrives before the terminal snap. This is that measurement.
+        for (auto& p : state.players) {
+            if (p.sentOff) continue;
+            double wd = dist(p.x, p.y, kickoffWalkTargetX[p.id], kickoffWalkTargetY[p.id]);
+            stats.census.walkArms++;
+            stats.census.walkStartDistSum += wd;
+            if (wd > stats.census.walkStartDistMax) stats.census.walkStartDistMax = wd;
+            int wb = (int) (wd / 50.0);
+            stats.census.walkStartHist[wb < 0 ? 0 : (wb > 19 ? 19 : wb)]++;
+        }
         kickoffWalkScorerId = lastGoal.toucherId;
         kickoffWalkPresentMs = std::min(3000.0, holdMs * 0.5);   // scorer wheels away for the first ~3s
     }
@@ -429,9 +442,15 @@ void GameEngine::fixedUpdateTick(double sdt) {
     // OffBallOverspeed tripwire (owner: "moves stupidly fast for a split
     // second... biggest issue — also make it a quality flag"): any outfield
     // player whose ACTUAL displacement this tick exceeds every designed
-    // motion (sprint ~90, lunge-dash peak ~104) is a teleport-grade blip,
-    // whatever system caused it. Suppressed across restarts/kickoffs/halves
-    // (legit repositioning) — those invalidate the previous-position snapshot.
+    // motion (SPEED_SPRINT 68px/s, lunge-dash peak ~104) is a teleport-grade
+    // blip, whatever system caused it. Suppressed across restarts/kickoffs/
+    // halves (legit repositioning) — those invalidate the previous-position
+    // snapshot.
+    // Round-34: this comment used to claim "sprint ~90" px/s. The true command
+    // ceiling is SPEED_SPRINT = 68 (constants.h), so the 250px/s tripwire below
+    // sits ~3.7x above anything the engine can produce, not the ~2.8x the stale
+    // figure implied. The number is left alone — it is a teleport tripwire, not
+    // a speed gate — but the census below now measures the real distribution.
     {
         bool measurable = !setPiece.armed && !phase.kickoffPhase && phase.halfTimePause <= 0
             && sdt > 1e-3;
@@ -461,6 +480,55 @@ void GameEngine::fixedUpdateTick(double sdt) {
         }
         for (auto& p : state.players) { qfPrevX[p.id] = p.x; qfPrevY[p.id] = p.y; }
         qfPrevValid = measurable;
+    }
+    // ── Round-34 census: phase-filtered outfield speed bands, and the loose-ball
+    // episode ledger. Both are pure counters (see stats.h Census). The phase
+    // filter matters: the post-goal walk-in alone moves the squad-wide >5.5 m/s
+    // share from 2.46% to 3.02% and the 7-9 m/s band from 0.06% to 0.27%, so any
+    // speed evidence gathered without it is measuring the restart, not the match.
+    {
+        // Category at SNAPSHOT time governs the movement the dispatch below is
+        // about to perform, so a sample is only taken when two consecutive ticks
+        // agree. Every restart teleport (kickoff staging, the half-time stage,
+        // the terminal walk-in snap) straddles a category change and is dropped.
+        int cat = setPiece.armed ? 1 : (phase.kickoffPhase ? 2 : (phase.halfTimePause > 0 ? 3 : 0));
+        if (sdt > 1e-3 && censusPrevCat == cat && (cat == 0 || cat == 2)) {
+            long* band = cat == 0 ? stats.census.openBand : stats.census.resetBand;
+            for (auto& p : state.players) {
+                if (p.sentOff || p.role == Role::GK) continue;
+                double mps = dist(p.x, p.y, censusPrevX[p.id], censusPrevY[p.id]) / (sdt / 1000.0) / 10.0;
+                int b = mps < 0.3 ? 0 : (mps < 2.0 ? 1 : (mps < 4.0 ? 2 : (mps < 5.5 ? 3 : (mps < 7.0 ? 4 : 5))));
+                band[b]++;
+            }
+        }
+        for (auto& p : state.players) { censusPrevX[p.id] = p.x; censusPrevY[p.id] = p.y; }
+        censusPrevCat = cat;
+
+        // Loose-ball episodes: an episode runs from the tick control is lost to
+        // the tick it is regained. Restarts close the open episode without
+        // booking it (a dead ball on the spot is not a loose ball).
+        bool controlled = state.ball.controllerId >= 0;
+        if (cat == 0) {
+            stats.census.openTicks++;
+            if (!controlled) {
+                stats.census.looseTicks++;
+                if (std::hypot(state.ball.vx, state.ball.vy) < 5.0 && state.ball.z < 1.0)
+                    stats.census.looseDeadTicks++;
+                if (censusLooseStartMs < 0.0) censusLooseStartMs = state.clockMs;
+            } else if (censusLooseStartMs >= 0.0) {
+                double ms = state.clockMs - censusLooseStartMs;
+                censusLooseStartMs = -1.0;
+                stats.census.looseEpisodes++;
+                stats.census.looseMsTotal += ms;
+                if (ms > stats.census.looseMsMax) stats.census.looseMsMax = ms;
+                if (ms > 1000.0) stats.census.looseEpisodesOver1s++;
+                if (ms > 1500.0) stats.census.looseEpisodesOver1500ms++;
+                int lb = (int) (ms / 250.0);
+                stats.census.looseMsHist[lb < 0 ? 0 : (lb > 23 ? 23 : lb)]++;
+            }
+        } else {
+            censusLooseStartMs = -1.0;
+        }
     }
     // Played-advantage recall: the ref waved a foul on. If, within ~4s, the fouled
     // side LOSES the ball to an outfield opponent (a clean turnover — not a keeper
@@ -557,6 +625,16 @@ void GameEngine::fixedUpdateTick(double sdt) {
                     }
                     kickoffWalkActive = false;
                     halfTimeWalkActive = true;
+                    // Round-34 census: the interval walk runs the same lerp over a
+                    // 5s hold. Measured only — commit 3 is scoped to the post-goal
+                    // walk-in, and this number says how much is left behind.
+                    for (auto& p : state.players) {
+                        if (p.sentOff) continue;
+                        double wd = dist(p.x, p.y, kickoffWalkTargetX[p.id], kickoffWalkTargetY[p.id]);
+                        stats.census.htWalkArms++;
+                        stats.census.htWalkStartDistSum += wd;
+                        if (wd > stats.census.htWalkStartDistMax) stats.census.htWalkStartDistMax = wd;
+                    }
                 }
             } else {
                 // Round-27 COMMIT 10: full_time marker for the viewer (the viewer
@@ -1955,6 +2033,16 @@ void GameEngine::updateKickoffPhase(double sdt) {
         if (kickoffWalkActive) {
             for (auto& p : state.players) {
                 if (p.sentOff) continue;
+                // Round-34 census: residual at the terminal snap. The lerp-to-arrive
+                // was introduced to remove an 80px teleport here; any jog cap put on
+                // it has to keep this at ~0 or the teleport comes back.
+                double sd = dist(p.x, p.y, kickoffWalkTargetX[p.id], kickoffWalkTargetY[p.id]);
+                stats.census.walkSnaps++;
+                stats.census.walkSnapDistSum += sd;
+                if (sd > stats.census.walkSnapDistMax) stats.census.walkSnapDistMax = sd;
+                if (sd > 8.0) stats.census.walkSnapOver8++;
+                if (sd > 20.0) stats.census.walkSnapOver20++;
+                if (sd > 80.0) stats.census.walkSnapOver80++;
                 p.x = kickoffWalkTargetX[p.id];
                 p.y = kickoffWalkTargetY[p.id];
                 p.vx = p.vy = 0;

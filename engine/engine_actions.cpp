@@ -74,6 +74,21 @@ void GameEngine::beginTrackedPass(Player& from, Player& to, bool isCross, bool i
     pendingPass.isLofted = !isCross && dist(from.x, from.y, to.x, to.y) >= AERIAL_LONG_BALL_DIST
                            && state.ball.vz > 40.0;
     pendingPass.isClear = isClear;   // Round-26: keep Clear releases out of the pass-completion ledger
+    // Round-34 census (owner complaint 2, the 0:59 ball): was there already an
+    // opponent within 70px (7m) of the PASSER when he let it go? Tagged onto the
+    // pass so the interception site below can report the share. Counter only.
+    {
+        double np = 1e9;
+        for (auto& o : state.players) {
+            if (o.team == from.team || o.role == Role::GK || o.sentOff) continue;
+            np = std::min(np, dist(o.x, o.y, from.x, from.y));
+        }
+        pendingPass.nearPress70 = np < 70.0;
+        if (!isClear) {
+            stats.census.passReleases++;
+            if (pendingPass.nearPress70) stats.census.passReleasesNearPress++;
+        }
+    }
     // Snapshot EVERY attacking teammate's offside status now (the law judges position when the ball is played).
     pendingPass.offsideAtPass = {};
     for (auto& tm : state.players) {
@@ -183,6 +198,8 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
         if (receiver.team != pendingPass.team) {
             stats.recordHeaderClearance();
             stats.recordPassIntercepted(); // the cross was cut out — close the pass ledger
+            stats.census.passIntercepts++;
+            if (pendingPass.nearPress70) stats.census.passInterceptsNearPress++;
             // Direction is pressure-driven (watched replay seed 133 0:28: an
             // UNPRESSURED CB glanced a routine cross behind for a corner —
             // "just heading forward would be more realistic ... or a header
@@ -383,6 +400,12 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             stats.recordPassWrongTeammate();
     } else {
         if (!pendingPass.isClear) stats.recordPassIntercepted();   // Round-26: a cut Clear is a clearance that didn't retain, not a failed pass
+        // Round-34 census: the 41% statistic — how many cut balls were cut by a
+        // man who was already within 7m of the passer at release.
+        if (!pendingPass.isClear) {
+            stats.census.passIntercepts++;
+            if (pendingPass.nearPress70) stats.census.passInterceptsNearPress++;
+        }
         if (receiver.id >= 0 && receiver.id < 22) lastTurnoverWinMs[receiver.id] = state.clockMs;
         if (pendingPass.suicideRisk && state.clockMs - pendingPass.releaseMs < 800.0)
             stats.recordQualityFlag(QualityFlag::SuicidePass);

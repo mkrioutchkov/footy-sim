@@ -335,6 +335,13 @@ public:
     std::array<double, 22> qfPrevX = {};
     std::array<double, 22> qfPrevY = {};
     bool qfPrevValid = false;
+    // Round-34 census state (stats.h Census). Measurement only — nothing in the
+    // simulation reads these, they draw no rng and gate no branch.
+    std::array<double, 22> censusPrevX = {};
+    std::array<double, 22> censusPrevY = {};
+    int censusPrevCat = -1;
+    double censusLooseStartMs = -1.0;
+    std::array<bool, 2> censusGkLastDepth96 = {};
     // Law 13-17 double-touch: the restart taker (FK/corner/throw/goal kick/
     // penalty/kickoff) may not touch again until another player has. Enforced
     // by prevention (the engine's referee idiom): set at release, cleared on
@@ -546,6 +553,11 @@ public:
         // Armed at release; the flag fires only if the ball is actually cut
         // within 800ms (spec confirmed on the Chiellini->Van Dijk turnover).
         bool suicideRisk = false;
+        // Round-34 census: an opponent was within 70px (7m) of the PASSER at
+        // release. The owner-visible statistic behind the 0:59 ball is what
+        // share of interceptions are made by a man who was already standing
+        // next to the passer. Set in beginTrackedPass, read only by the census.
+        bool nearPress70 = false;
         double releaseMs = 0.0;
         // Round-23 gifted_pass (the "retard pass" outcome flag): geometry judged at
         // the moment the ball is played. passerSpaceAtRelease = nearest-opponent

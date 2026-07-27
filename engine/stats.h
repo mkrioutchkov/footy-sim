@@ -361,6 +361,78 @@ class StatsCollector {
         awayScore = away;
     }
 
+    // ── Round-34 census (opt-in: FOOTY_CENSUS=1) ──────────────────────────────
+    // Three round-34 verifiers independently found that the engine has NO
+    // detector for the defects this round fixes: the carried-ball touch cadence
+    // (CarriedBallOverspeed at engine_physics.cpp fires at carrierSpeed+320 while
+    // the glue cap clamps every converging tick to carrierSpeed+220, so it is
+    // structurally blind to the class), the keeper's pace profile, the restart
+    // walk-in, the passer-proximity interception and the loose-ball episode.
+    //
+    // These are PURE counters. They are accumulated unconditionally — no branch
+    // in the simulation reads them, none draws rng, none early-returns, none
+    // reorders a player loop — but they are only SERIALISED when FOOTY_CENSUS is
+    // set. summaryJSON() is therefore byte-identical with the probe compiled in,
+    // which is what keeps tools/golden/fingerprint.sha256 valid.
+    struct Census {
+        // (1) carried-ball world advance vs the carrier's own advance, on ticks
+        //     where the carrier is genuinely moving (>15px/s). ratio<0.35 is the
+        //     "frozen" ball the owner watched; the anomaly flag (<0.25 or >2.5)
+        //     is round-34 commit 4's guard.
+        long carryTicks = 0, carryAnom = 0, carryFrozen = 0, carryBackward = 0;
+        long carryBand35_230 = 0, carryBand50_180 = 0, carryTight = 0;
+        long carryRatioHist[32] = {};    // 0.1-wide buckets; [31] = >=3.0
+        long carryOffsetHist[32] = {};   // 1px-wide buckets of the ball's per-tick
+                                         // world step; [31] = >=31px
+        long carryTouches = 0, carryTouchesTight = 0;   // stride resets (cadence)
+        double carryTightMs = 0.0, carryMs = 0.0;
+        // Owner complaint 4 (2:03 "unnatural collect radius") — never measured
+        // before. Distance from the collector to the ball at the instant control
+        // is granted, split by whether he was the intended receiver (who gets
+        // INTENDED_COLLECT_DIST 26px against everyone else's COLLECT_DIST 8px),
+        // plus the count of >=60px outright offset writes (the glue's snap
+        // branch, engine_physics.cpp).
+        long grants = 0, grantsIntended = 0;
+        double grantDistSum = 0.0, grantDistMax = 0.0;
+        double grantIntendedDistSum = 0.0;
+        long grantHist[10] = {};         // 4px buckets; [9] = >=36px
+        long glueSnaps = 0;
+
+        // (2) goalkeeper pace, per keeper (0 = home, 1 = away)
+        long gkBand[2][5] = {};          // 0 | (0,1) | [1,2) | [2,4) | >=4 m/s
+        double gkPathPx[2] = {}, gkMs[2] = {};
+        long gkDepth96[2] = {}, gkDepthFar[2] = {};
+        long gkDip96to68[2] = {};        // spurious "own pass in flight" collapses
+
+        // (3) phase-filtered outfield speed bands. Without the phase filter the
+        //     post-goal walk-in alone moves the squad >5.5m/s share 2.46 -> 3.02%.
+        long openBand[6] = {};           // <0.3 | 0.3-2 | 2-4 | 4-5.5 | 5.5-7 | >7 m/s
+        long resetBand[6] = {};          // same bands, inside the restart hold
+
+        // restart walk-in geometry (round-34 commit 3's stated mitigation:
+        // size the jog cap so the 99th percentile still arrives before the snap)
+        long walkArms = 0, walkSnaps = 0, walkSnapOver8 = 0, walkSnapOver20 = 0, walkSnapOver80 = 0;
+        double walkStartDistSum = 0.0, walkStartDistMax = 0.0;
+        double walkSnapDistSum = 0.0, walkSnapDistMax = 0.0;
+        long walkStartHist[20] = {};     // 50px buckets; [19] = >=950px
+        // the half-time interval runs the SAME lerp over a 5s hold, so its pace
+        // ceiling is worse still. Measured here, not changed this round.
+        long htWalkArms = 0;
+        double htWalkStartDistSum = 0.0, htWalkStartDistMax = 0.0;
+
+        // (4) pass releases made with an opponent within 70px (7m) of the passer,
+        //     and how many of those were the ones cut out.
+        long passReleases = 0, passReleasesNearPress = 0;
+        long passIntercepts = 0, passInterceptsNearPress = 0;
+
+        // (5) loose-ball episodes and the dead-and-uncontrolled share
+        long openTicks = 0, looseTicks = 0, looseDeadTicks = 0;
+        long looseEpisodes = 0, looseEpisodesOver1s = 0, looseEpisodesOver1500ms = 0;
+        double looseMsTotal = 0.0, looseMsMax = 0.0;
+        long looseMsHist[24] = {};       // 250ms buckets; [23] = >=5.75s
+    };
+    Census census;
+
     // ── Summary JSON output (benchmark-compatible) ──
     std::string summaryJSON() const;
 

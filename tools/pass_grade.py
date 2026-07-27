@@ -87,8 +87,16 @@ def analyze(path, floor):
         i = bisect.bisect_left(times, ev.clock_ms)
         if i >= len(frames):
             continue
-        # release frame: passer position + intended receiver from just-after frame
-        rel = frames[min(i + 1, len(frames) - 1)]
+        # Grade at the RELEASE frame. This used to read frames[i + 1], one tick
+        # AFTER the ball was struck — long enough for every defender's velocity
+        # to carry his reaction to a pass the grader is pretending has not been
+        # played yet. Since pComplete's blocker term scales the effective perp
+        # by `closing`, that look-ahead credits defenders with closing they only
+        # began because the ball was already gone, and it inflated the headline
+        # from 68 to 99 sub-0.20 passes per 90. frames[i] is the end-of-tick
+        # snapshot of the release tick itself: the ball already carries
+        # intendedReceiverId, and nobody has reacted to it yet.
+        rel = frames[i]
         recv_id = rel.ball.intended_receiver_id
         if recv_id is None or recv_id < 0:
             continue

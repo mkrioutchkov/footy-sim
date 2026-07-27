@@ -358,6 +358,19 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         double depth = ballFar ? (ownTeamHasBall ? 96.0 : 68.0) : (ownTeamHasBall ? 48.0 : 24.0);
         gk.targetX = gk.homeX + fd * depth;
         gk.targetY = ballFar ? lerp(gk.homeY, state.ball.y, 0.10) : gk.homeY;
+        // Round-34 census: the far-half depth step function. `carrier` is null
+        // for the whole duration of a ball IN FLIGHT, so an own-team pass 70m
+        // away collapses ownTeamHasBall and drops him 96 -> 68px and back. Count
+        // the dwell and the down-transitions per keeper. Counter only.
+        {
+            int k = gk.team == Team::Home ? 0 : 1;
+            if (ballFar) {
+                stats.census.gkDepthFar[k]++;
+                if (ownTeamHasBall) stats.census.gkDepth96[k]++;
+                else if (censusGkLastDepth96[k]) stats.census.gkDip96to68[k]++;
+            }
+            censusGkLastDepth96[k] = ballFar && ownTeamHasBall;
+        }
     }
 
     double moveSpeed = attrFactor(gk.attrs.speed) * MAX_PLAYER_SPEED * 0.86;
@@ -375,7 +388,19 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
     if (rushing || backpassToMe) moveSpeed += agentFor(gk)->rushOutSpeed();
 
     double dx = gk.targetX - gk.x, dy = gk.targetY - gk.y, d = std::hypot(dx, dy);
-    if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; }
+    double gkStep = 0.0;
+    if (d > 1) { double step = std::min(moveSpeed * secs, d); gk.x += dx / d * step; gk.y += dy / d * step; gkStep = step; }
+    // Round-34 census: the keeper's pace profile. The watch complaint is "he is
+    // never still and never walks" — this is the histogram that decides it.
+    // Bands in m/s (10px = 1m): exactly 0 | (0,1) | [1,2) | [2,4) | >=4.
+    if (secs > 1e-6) {
+        int k = gk.team == Team::Home ? 0 : 1;
+        double mps = gkStep / secs / 10.0;
+        int band = mps <= 0.0 ? 0 : (mps < 1.0 ? 1 : (mps < 2.0 ? 2 : (mps < 4.0 ? 3 : 4)));
+        stats.census.gkBand[k][band]++;
+        stats.census.gkPathPx[k] += gkStep;
+        stats.census.gkMs[k] += secs * 1000.0;
+    }
     gk.x = clamp(gk.x, std::min(goalX + fd * 6.0, goalX + fd * 175.0), std::max(goalX + fd * 6.0, goalX + fd * 175.0));
     gk.y = clamp(gk.y, 5.0, PITCH_H - 5.0);
 
