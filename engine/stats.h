@@ -433,6 +433,15 @@ class StatsCollector {
         //      cruise, 2 run, 3 sprint. 2px/s buckets; [63] = >=126px/s.
         long gearHist[4][64] = {};
 
+        // (4c) Round-34 commit 6: the grounded intercept solve. gaArms counts
+        //      distinct pursuits it redirects; looseChaser* is the pile-on guard
+        //      — the mean number of committed chasers while the ball is loose
+        //      must NOT rise (the converger-cap tombstone, agent_defend.cpp
+        //      :552-580, measured that loosening who may contest a free ball is
+        //      worse at every arena size).
+        long gaTicks = 0, gaArms = 0;
+        long looseChaserSum = 0, looseChaserTicks = 0, looseChaserMax = 0;
+
         // (5) loose-ball episodes and the dead-and-uncontrolled share
         long openTicks = 0, looseTicks = 0, looseDeadTicks = 0;
         long looseEpisodes = 0, looseEpisodesOver1s = 0, looseEpisodesOver1500ms = 0;

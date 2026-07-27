@@ -322,6 +322,12 @@ std::string StatsCollector::summaryJSON() const {
         cj["passProximity"] = {
             {"releases", c.passReleases}, {"releasesNearPress70", c.passReleasesNearPress},
             {"intercepts", c.passIntercepts}, {"interceptsNearPress70", c.passInterceptsNearPress}};
+        cj["anticipate"] = {
+            {"ticks", c.gaTicks}, {"arms", c.gaArms},
+            {"looseChaserMean", c.looseChaserTicks > 0
+                ? std::round((double) c.looseChaserSum / c.looseChaserTicks * 1000) / 1000 : 0.0},
+            {"looseChaserMax", c.looseChaserMax},
+            {"looseChaserTicks", c.looseChaserTicks}};
         cj["loose"] = {
             {"openTicks", c.openTicks}, {"looseTicks", c.looseTicks}, {"deadUncontrolledTicks", c.looseDeadTicks},
             {"episodes", c.looseEpisodes}, {"episodesOver1s", c.looseEpisodesOver1s},

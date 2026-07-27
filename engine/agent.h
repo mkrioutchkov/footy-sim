@@ -205,6 +205,7 @@ private:
     int    shepherdCarrierId = -1;
     double shepherdHoldUntilMs = -1e9;
     double shepherdSprintSinceMs = -1e9;   // episode sprint-cap anchor (agent_movement)
+    double gaLastFireMs = -1e9;            // grounded-anticipate census latch (agent_defend)
     int    skillMoveCooldown = 0;
     // Round-21 (arena 1v1): take-on state. A carrier being escorted by a single
     // jockeying defender (close, goal-side, small relative velocity) accrues

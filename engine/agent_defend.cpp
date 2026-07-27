@@ -374,31 +374,50 @@ Action PlayerAI::scoreChase(const Perception& per) {
         && !teammatePassInFlight && b.z <= AERIAL_HEIGHT && ballSpeed > 60.0) {
         double restX, restY;
         engine.predictBallPos(3.0, restX, restY);   // drag-decayed roll rest/slow point
-        double fpRest = pitch::forwardProgress(restX, player.team);
         bool rollingIntoOwnThird = pitch::forwardGain(b.x, restX, player.team) < -30.0
             && pitch::inOwnDefensiveThird(restX, player.team);
         if (rollingIntoOwnThird) {
             double myDistToRest = dist(player.x, player.y, restX, restY);
-            // Am I the nearest goal-side (own team, ~behind the rest point) man?
-            bool nearestGoalSide = pitch::forwardProgress(player) <= fpRest + 20.0;
-            if (nearestGoalSide) {
-                for (auto& q : engine.state.players) {
-                    if (q.team != player.team || q.id == player.id || q.role == Role::GK) continue;
-                    if (!engine.canContestBall(q)) continue;
-                    if (pitch::forwardProgress(q) <= fpRest + 20.0
-                        && dist(q.x, q.y, restX, restY) + 20.0 < myDistToRest) {
-                        nearestGoalSide = false;
-                        break;
-                    }
+            // Round-34 COMMIT 6 (OWNER COMPLAINT 3, the loose ball nobody chased).
+            // The solve below — walk predictBallPos forward and run to the first
+            // point you can reach in time — already shipped and simply never fired:
+            // this test used to be `nearestGoalSide`, forwardProgress(player) <=
+            // fpRest + 20, which offers the solve ONLY to a man ALREADY goal-side of
+            // where the ball will stop. That structurally excludes the one player
+            // the moment is about, the defender who has to turn and chase back
+            // (traced: Chiellini at x=593 carries forwardProgress 457 against the
+            // rest point's 260.5 and misses the gate by 176px, so he chased the
+            // ball's CURRENT position all the way). Ask the right question instead:
+            // am I the nearest contest-eligible man to the point the ball is going?
+            // The nearest-of test and its +20px hysteresis are kept verbatim, so at
+            // most one man per team still qualifies — this REDIRECTS the chaser who
+            // is already coming rather than adding a second body, which is what the
+            // converger-cap tombstone at :552-580 (loosening who may contest a free
+            // ball measured worse at every arena size) requires.
+            bool nearestToRest = true;
+            for (auto& q : engine.state.players) {
+                if (q.team != player.team || q.id == player.id || q.role == Role::GK) continue;
+                if (!engine.canContestBall(q)) continue;
+                if (dist(q.x, q.y, restX, restY) + 20.0 < myDistToRest) {
+                    nearestToRest = false;
+                    break;
                 }
             }
-            if (nearestGoalSide) {
+            if (nearestToRest) {
                 double mySprint = std::max(45.0, attrFactor(player.attrs.speed) * SPEED_SPRINT);
                 for (double t = 0.15; t <= 3.0; t += 0.15) {
                     double bx2, by2;
                     engine.predictBallPos(t, bx2, by2);
                     if (dist(player.x, player.y, bx2, by2) / mySprint <= t + 0.15) {
                         gaX = bx2; gaY = by2; groundedAnticipate = true;
+                        // Round-34 census (pure counters): how often the solve fires
+                        // at all, and how many distinct pursuits it arms. Without
+                        // these the gate above was un-falsifiable — FOOTY_PASSDEBUG
+                        // showed zero GROUNDANT hits in 74-83s of play and nobody
+                        // could tell whether the concept was missing or just shut.
+                        engine.stats.census.gaTicks++;
+                        if (engine.state.clockMs - gaLastFireMs > 200.0) engine.stats.census.gaArms++;
+                        gaLastFireMs = engine.state.clockMs;
                         if (engine.passDebug) fprintf(stderr, "GROUNDANT id=%d t=%d d=%d\n", player.id, (int)(engine.state.clockMs/1000), (int)dist(player.x,player.y,bx2,by2));
                         break;
                     }

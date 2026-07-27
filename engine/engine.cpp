@@ -516,6 +516,19 @@ void GameEngine::fixedUpdateTick(double sdt) {
                 if (std::hypot(state.ball.vx, state.ball.vy) < 5.0 && state.ball.z < 1.0)
                     stats.census.looseDeadTicks++;
                 if (censusLooseStartMs < 0.0) censusLooseStartMs = state.clockMs;
+                // Round-34 commit 6 guard (pure counter): how many outfielders are
+                // committed to a Chase while the ball is free. Redirecting the
+                // anticipating chaser must not turn into a pile-on.
+                int chasers = 0;
+                for (auto& a : agents) {
+                    if (!a) continue;
+                    const Player& q = a->player;
+                    if (q.sentOff || q.role == Role::GK) continue;
+                    if (a->lastAction() == ActionType::Chase) chasers++;
+                }
+                stats.census.looseChaserSum += chasers;
+                stats.census.looseChaserTicks++;
+                if (chasers > stats.census.looseChaserMax) stats.census.looseChaserMax = chasers;
             } else if (censusLooseStartMs >= 0.0) {
                 double ms = state.clockMs - censusLooseStartMs;
                 censusLooseStartMs = -1.0;
