@@ -266,6 +266,15 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
         return false;
     };
 
+    // Round-36 — the escape-lane block has two latent bugs, both fixed BELOW but
+    // gated to the post-regain securing window. Ungated they blow the marathon-carry
+    // tombstone: marathon carries 28.9 -> 37.5/90, take-ons out of band at 10.6,
+    // carry turns >30deg 15 -> 25. Gated, they are byte-identical to the
+    // settle-only build in 11v11 — they exist so a man who has just won the ball
+    // is never steered back into the traffic he won it out of, and nothing else.
+    // If you widen this gate, re-measure those three numbers first.
+    const bool securing = engine.securing(p.id);
+
     // Evade nearest opponent if close
     if (per.nearestOpponentDist < DRIBBLE_EVADE_DIST && !per.nearbyOpponents.empty()) {
         Player* n = nullptr;
@@ -300,11 +309,19 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                     double side = latchLive ? evadeSide : (ey >= 0.0 ? 1.0 : -1.0);
                     tx = p.x + fd * 24.0;
                     bool shut = escapeLaneBlocked(tx, p.y + side * 72.0, n);
-                    if (shut && !latchLive && !escapeLaneBlocked(tx, p.y - side * 72.0, n)) {
+                    // Round-36 (securing only): a LIVE latch used to veto the flip
+                    // even when the other side was measurably open. Re-latch on the
+                    // flip so the round-30 anti-crab-walk property survives — the
+                    // sign still cannot invert at 60Hz, it just gets one chance to
+                    // pick the proven-open side.
+                    bool flipped = false;
+                    if (shut && (!latchLive || securing)
+                        && !escapeLaneBlocked(tx, p.y - side * 72.0, n)) {
                         side = -side;
                         shut = false;
+                        flipped = true;
                     }
-                    if (!latchLive) {
+                    if (!latchLive || flipped) {
                         evadeSide = side;
                         evadeSideUntilMs = engine.state.clockMs + 750.0;
                     }
@@ -312,7 +329,20 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                     // Latched side shut (or both shut on a fresh pick): shield it —
                     // a straight drop-back beat, not a rotation through anyone's
                     // tackle zone.
-                    if (shut) { tx = p.x - fd * 28.0; ty = p.y; }
+                    if (shut) {
+                        double sx2 = p.x - fd * 28.0, sy2 = p.y;
+                        // Round-36 (securing only): this fallback was never checked
+                        // by escapeLaneBlocked — the very guard whose failure fires
+                        // it. For a man who just won a tackle the beaten opponent is
+                        // BY CONSTRUCTION behind him on this axis, so the drop-back
+                        // hands it straight back. Fall back to the cached secure
+                        // direction when the drop-back is itself into someone.
+                        if (securing && escapeLaneBlocked(sx2, sy2, n)) {
+                            sx2 = p.x + engine.secureDirX[p.id] * 28.0;
+                            sy2 = p.y + engine.secureDirY[p.id] * 28.0;
+                        }
+                        tx = sx2; ty = sy2;
+                    }
                 } else {
                     tx = p.x + ex * 70.0;
                     ty = p.y + ey * 70.0;
@@ -627,16 +657,37 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
             // and if the side we are committed to is shut, shield with a straight
             // drop-back beat.
             bool shut = escapeLaneBlocked(tx, p.y + side * lat, cp.nearestPlayer);
-            if (shut && !latchLive && !escapeLaneBlocked(tx, p.y - side * lat, cp.nearestPlayer)) {
+            // Round-36 (securing only) — THIS is the seed-407 0:26 site. Instrumented
+            // at the failing tick: shut=1, otherShut=0, latch=1 — the opposite side
+            // was measurably OPEN and the live latch vetoed the flip, so the
+            // unvalidated drop-back below fired and walked a man who had just won a
+            // tackle straight back into the opponent he beat. Census on seed 407:
+            // latchLive is true on 99% of the 6063 carrier ticks that reach here, and
+            // on 25% of those the opposite side was open. Re-latch on the flip so the
+            // round-30 anti-crab-walk property is preserved.
+            bool flipped = false;
+            if (shut && (!latchLive || securing)
+                && !escapeLaneBlocked(tx, p.y - side * lat, cp.nearestPlayer)) {
                 side = -side;
                 shut = false;
+                flipped = true;
             }
-            if (!latchLive) {
+            if (!latchLive || flipped) {
                 evadeSide = side;
                 evadeSideUntilMs = engine.state.clockMs + 750.0;
             }
             ty = p.y + side * lat;
-            if (shut) { tx = p.x - fd * 28.0; ty = p.y; }
+            if (shut) {
+                // ...and the shield fallback was never validated by escapeLaneBlocked,
+                // the very guard whose failure triggers it. Validate it while securing
+                // and fall back to the cached secure direction if it is also shut.
+                double sx2 = p.x - fd * 28.0, sy2 = p.y;
+                if (securing && escapeLaneBlocked(sx2, sy2, cp.nearestPlayer)) {
+                    sx2 = p.x + engine.secureDirX[p.id] * 28.0;
+                    sy2 = p.y + engine.secureDirY[p.id] * 28.0;
+                }
+                tx = sx2; ty = sy2;
+            }
             // Re-apply the edge guard — this block runs after it, so the evade
             // could walk the carry into the touchline pocket the guard exists
             // to prevent.
