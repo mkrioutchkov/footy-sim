@@ -1330,6 +1330,50 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
         }
 }
 
+// Round-36 — POST-REGAIN SECURING (owner, seed 407 0:26: "7B makes good tackle,
+// why turn into traffic?"). Cache ONE fixed direction for the winner's gather:
+// away from the man he beat, blended with away from the local opponent knot (the
+// beaten man is rarely alone — in the watched moment it was the SECOND opponent
+// who took it straight back). Cached, not re-derived per tick: a rotating settle
+// target makes the carrier orbit it and pirouette at the turn cap.
+void GameEngine::noteRegain(const Player& w, int beatenId, double windowMs) {
+    // Arena is a duel/tuning harness with its own frozen invariants — the
+    // securing settle is deliberately inert there (asserted byte-identical at
+    // N=1,3,5,7,9).
+    if (arenaMode) return;
+    if (w.id < 0 || w.id >= 22 || w.role == Role::GK) return;
+    double dx = 0.0, dy = 0.0;
+    const Player* beaten = beatenId >= 0 ? playerById(beatenId) : nullptr;
+    if (beaten && beaten->team != w.team) {
+        double ax = w.x - beaten->x, ay = w.y - beaten->y, ad = std::hypot(ax, ay);
+        if (ad > 1.0) { dx = ax / ad; dy = ay / ad; }
+    }
+    double cx = 0.0, cy = 0.0;
+    int n = 0;
+    for (const auto& o : state.players) {
+        if (!isActiveOpponent(o, w.team)) continue;
+        if (dist(w.x, w.y, o.x, o.y) > 90.0) continue;
+        cx += o.x; cy += o.y; n++;
+    }
+    if (n > 0) {
+        double ox = w.x - cx / n, oy = w.y - cy / n, od = std::hypot(ox, oy);
+        if (od > 1.0) { dx += 0.6 * ox / od; dy += 0.6 * oy / od; }
+    }
+    double d = std::hypot(dx, dy);
+    if (d < 1e-6) { dx = fdFor(w.team); dy = 0.0; d = 1.0; }   // nobody to turn from: face the way you attack
+    dx /= d; dy /= d;
+    // Touchline/byline guard — securing INTO the paint is not securing.
+    if      (w.y < DRIBBLE_EDGE_MARGIN          && dy < 0.0) dy = -dy;
+    else if (w.y > PITCH_H - DRIBBLE_EDGE_MARGIN && dy > 0.0) dy = -dy;
+    if      (w.x < DRIBBLE_EDGE_MARGIN          && dx < 0.0) dx = -dx;
+    else if (w.x > PITCH_W - DRIBBLE_EDGE_MARGIN && dx > 0.0) dx = -dx;
+    d = std::hypot(dx, dy);
+    if (d < 1e-6) return;
+    secureDirX[w.id]    = dx / d;
+    secureDirY[w.id]    = dy / d;
+    secureUntilMs[w.id] = state.clockMs + windowMs;
+}
+
 bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraReach) {
     double contactDist = dist(tackler.x, tackler.y, carrier.x, carrier.y);
     auto& b = state.ball;
@@ -1562,6 +1606,11 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         // winner's foot over 2-3 ticks (no knock-ahead, faster pull) instead of
         // letting it settle at the carry offset far from him.
         if (tackler.id >= 0 && tackler.id < 22 && !arenaMode) carrierGatherUntilMs[tackler.id] = state.clockMs + 100.0;
+        // Round-36: a won duel is a REGAIN — cache which way to secure it. The
+        // lunge above just set tackler.facing AT the carrier, and the gather lock
+        // settles along a fixed direction; without this it settles into the man
+        // just beaten (owner, seed 407 0:26).
+        noteRegain(tackler, carrier.id, 700.0);
         lastLooseOrigin = LooseOrigin::None;
         blockReboundFor(carrier.id, 450);
         // Round-27 COMMIT 2 (eased stop): don't hard-zero the victim's momentum —

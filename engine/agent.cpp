@@ -123,10 +123,20 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
     SmallVector<Action, 24> a;
     if (ic) {
         if (stunLockTicks > 0) {
-            // Settle along the current facing — a time-rotating target made the
+            // Settle along a FIXED direction — a time-rotating target made the
             // carrier orbit it and pirouette at the turn cap after every collection.
-            double tx = player.x + std::cos(player.facing) * 3.0;
-            double ty = player.y + std::sin(player.facing) * 3.0;
+            // Round-36: on a fresh REGAIN that direction is the cached secure
+            // vector (away from the man just beaten and out of the local knot),
+            // NOT `facing`. The tackle lunge sets facing at the man being tackled,
+            // so the plain-facing settle walked every tackle winner 18-21px back
+            // into the opponent he had just beaten (owner, seed 407 0:26).
+            double sx = std::cos(player.facing), sy = std::sin(player.facing);
+            if (engine.securing(player.id)) {
+                sx = engine.secureDirX[player.id];
+                sy = engine.secureDirY[player.id];
+            }
+            double tx = player.x + sx * 3.0;
+            double ty = player.y + sy * 3.0;
             return { Action{ActionType::Dribble, 1.0, nullptr, tx, ty, ActionPurpose::Keep} };
         }
         if (shotCooldown > 0) {

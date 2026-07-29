@@ -257,6 +257,25 @@ public:
     // shot / hard forward drive (owner, seed 111 1:13: Messi intercepted 31m
     // out, feinted backward, was dispossessed 2.3s later).
     std::array<double, 22> lastTurnoverWinMs = {};
+    // Round-36 POST-REGAIN SECURING (owner, seed 407 0:26: "7B makes good tackle,
+    // why turn into traffic?"). Securing the ball after winning it was a MISSING
+    // concept. The 400ms gather lock (stunLockTicks=24) settled the winner along
+    // `facing`, and the tackle lunge sets facing AT the man being tackled — census:
+    // 344/344 tackle wins (100%) begin with the winner facing within 60 deg of the
+    // man he just beat (mean cos +0.862), and the gather then walked him 18-21px
+    // along that vector, i.e. straight back into the beaten man and whoever backs
+    // him up. A regain now caches ONE fixed direction (noteRegain) and the gather
+    // settles along that. Cached rather than recomputed per tick because a
+    // time-rotating settle target makes the carrier orbit it and pirouette at the
+    // turn cap (the reason the settle read `facing` in the first place).
+    std::array<double, 22> secureDirX    = {};
+    std::array<double, 22> secureDirY    = {};
+    std::array<double, 22> secureUntilMs = {};
+    // Is this man inside his securing window right now? (Strict `<` so the zero
+    // initialiser can never read as "securing" on the kickoff tick.)
+    [[nodiscard]] bool securing(int id) const {
+        return id >= 0 && id < 22 && state.clockMs < secureUntilMs[id];
+    }
     // Tackle lunge dash (seed 305 0:09/0:42: the round-11 commit-the-body snap
     // moved the tackler 60% of the gap in ONE tick ≈ 900px/s — read as a
     // teleport). Same commitment, now played out over the next few ticks at a
@@ -820,6 +839,19 @@ public:
     void shootBall(Player& s, const ShotSelectionAudit* selectionAudit,
                    bool headerFinish = false, bool firstTimeFinish = false);
     bool collectBall(Player& c, const std::string&, double allowedDist);
+    // Round-36: cache the direction a fresh possession-winner should settle into
+    // for `windowMs` (see secureDirX/Y above). `beatenId` is the man he took it
+    // off — the tackled carrier, or the last opposing toucher on an interception
+    // / loose-ball recovery. Inert in arenaMode by design.
+    //
+    // TOMBSTONE — do NOT re-tread the density-GRADIENT variant. It was built and
+    // falsified: aiming the secure direction down the local density gradient hit
+    // its own target exactly (grad-alignment 54.6% -> 85.1%) and still moved
+    // nothing that matters — density around the ball at +700ms unchanged (1.44),
+    // re-loss within 2s on tackle wins got WORSE (22.3% -> 25.8%), and tackle
+    // attempts breached the 640/90 ceiling at 647.6/90. Away-from-beaten (below)
+    // is the form that survived every constraint.
+    void noteRegain(const Player& winner, int beatenId, double windowMs);
 
     // ── Quality flag logging ──
     template<typename...A> void logQualityFlag(QualityFlag flag, A&&...) { stats.recordQualityFlag(flag); }

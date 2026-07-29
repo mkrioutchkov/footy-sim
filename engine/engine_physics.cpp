@@ -1198,6 +1198,10 @@ void GameEngine::checkBallPlayerCollision(double sec) {
 void GameEngine::collectBall(Player& c) {
     auto& b = state.ball;
     if (!canContestBall(c)) return;
+    // Round-36: who had it last, captured BEFORE this collection overwrites it —
+    // an opposing last-toucher makes this grant a regain (see noteRegain at the
+    // bottom of this function).
+    const int prevToucherId = b.lastToucherId;
     // Same-team snatch guard (2026-07-02 audit, the "fake pass then teleported
     // back" moment): a teammate could take over a just-touched ball within one
     // visual frame — control flapped #18→#15→#18 across consecutive ticks,
@@ -1319,6 +1323,14 @@ void GameEngine::collectBall(Player& c) {
         receiverShieldUntil = state.clockMs + 220;
         receiverShieldedPlayerId = c.id;
         receiverShieldTargetId = -1;
+    }
+    // Round-36: an interception or a loose ball recovered off the OPPOSITION is a
+    // regain just like a won tackle — cache the securing direction for the gather
+    // lock that follows (stunLockTicks is set by the chase/reception path).
+    // A teammate's ball is not a regain and is left alone.
+    {
+        const Player* prev = prevToucherId >= 0 ? playerById(prevToucherId) : nullptr;
+        if (prev && prev->team != c.team) noteRegain(c, prevToucherId, 700.0);
     }
 }
 
