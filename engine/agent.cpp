@@ -132,8 +132,8 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             // into the opponent he had just beaten (owner, seed 407 0:26).
             double sx = std::cos(player.facing), sy = std::sin(player.facing);
             if (engine.securing(player.id)) {
-                sx = engine.secureDirX[player.id];
-                sy = engine.secureDirY[player.id];
+                sx = engine.duel[player.id].secureDirX;
+                sy = engine.duel[player.id].secureDirY;
             }
             double tx = player.x + sx * 3.0;
             double ty = player.y + sy * 3.0;
@@ -818,7 +818,7 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& act
                     // swing AND the "then contains" phase after he re-establishes
                     // goal-side (~900ms), so the recovery sprint doesn't nick-lunge
                     // every tick it grazes tackle range (steals off the shield bubble).
-                    engine.containUntilMs[p.id] = engine.state.clockMs + 1100.0;
+                    engine.duel[p.id].containUntilMs = engine.state.clockMs + 1100.0;
                 }
                 double aroundX = 0.0, aroundY = 0.0;
                 if (shepherdEngaged && shepherdCarrierId == a.target->id && cs > 6.0) {
@@ -1193,12 +1193,12 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
         if (locked && def && takeOnCooldown == 0 && isolated && placementOk) {
             int probeLen = 24 + ((p.id * 7 + def->id * 13) % 31);   // 24-54 ticks = 0.4-0.9s
             if (jockeyLockTicks >= 30 && jockeyLockTicks < 30 + probeLen)
-                engine.probeSlowUntilMs[p.id] = engine.state.clockMs + 40.0;   // ~2 ticks — dies unless renewed
+                engine.duel[p.id].probeSlowUntilMs = engine.state.clockMs + 40.0;   // ~2 ticks — dies unless renewed
         }
         bool defenderCommitted = def && def->role != Role::GK && def->id >= 0 && def->id < 22
-            && engine.committedTackleVsCarrierMs[p.id] > 0.0
-            && engine.committedTackleVsCarrierMs[p.id] > engine.state.clockMs - 250.0
-            && engine.committedTackleVsCarrierBy[p.id] == def->id;
+            && engine.duel[p.id].committedTackleVsCarrierMs > 0.0
+            && engine.duel[p.id].committedTackleVsCarrierMs > engine.state.clockMs - 250.0
+            && engine.duel[p.id].committedTackleVsCarrierBy == def->id;
         int stallThreshold = 90 + ((p.id * 13 + (def ? def->id : 0) * 7) % 61);   // 90-150 ticks = 1.5-2.5s
         bool viaCommit = defenderCommitted;
         bool stallTimeout = jockeyLockTicks >= stallThreshold;
@@ -1301,15 +1301,15 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 // Explosive cut past him: a carrier-side lunge-dash (fixedUpdate
                 // plays it out at LUNGE_DASH_SPEED with the ball glued), plus the
                 // beaten-defender contest lockout so he can't insta-recover.
-                engine.lungeDashDirX[p.id] = bx;
-                engine.lungeDashDirY[p.id] = by;
-                engine.lungeDashRemainPx[p.id] = dashLen;
+                engine.lungeDash[p.id].dirX = bx;
+                engine.lungeDash[p.id].dirY = by;
+                engine.lungeDash[p.id].remainPx = dashLen;
                 // Round-23 (carrier burst realism): seed the ramp from the
                 // carrier's CURRENT pace up to a speed-scaled peak (~80-104px/s),
                 // so a won take-on accelerates into the burst and settles out of
                 // it instead of snapping flat to 120 for the whole 45-75px.
-                engine.lungeDashSpd[p.id]  = std::hypot(p.vx, p.vy);
-                engine.lungeDashPeak[p.id] = clamp(72.0 + 32.0 * attrFactor(p.attrs.speed), 80.0, 104.0);
+                engine.lungeDash[p.id].spd  = std::hypot(p.vx, p.vy);
+                engine.lungeDash[p.id].peak = clamp(72.0 + 32.0 * attrFactor(p.attrs.speed), 80.0, 104.0);
                 // R28 C8: stage 2 — re-aim goal-ward at ~60% remaining (the chop).
                 // Clamped away from the touchlines, and away from an OCCUPIED cover
                 // lane: markActiveShield/blockRebound only lock the BEATEN man, so a
@@ -1330,9 +1330,9 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                     }
                 }
                 double g2l = std::hypot(g2x, g2y);
-                engine.lungeDashDir2X[p.id] = g2x / g2l;
-                engine.lungeDashDir2Y[p.id] = g2y / g2l;
-                engine.lungeDashSwitchPx[p.id] = dashLen - stage1;
+                engine.lungeDash[p.id].dir2X = g2x / g2l;
+                engine.lungeDash[p.id].dir2Y = g2y / g2l;
+                engine.lungeDash[p.id].switchPx = dashLen - stage1;
                 p.facing = std::atan2(by, bx);
                 p.dribbleType = 3;   // drive on after the burst
                 // Once the body is past him, STRAIGHTEN onto goal — the beat is a
@@ -1345,17 +1345,17 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 p.targetX = clamp(p.x + fdc * 130.0, 30.0, PITCH_W - 30.0);
                 // C8: the post-burst drive aligns with the stage-2 exit lane, not
                 // the stage-1 shoulder sell (which now points up to 90° sideways).
-                p.targetY = clamp(p.y + engine.lungeDashDir2Y[p.id] * 34.0 + (gy - p.y) * 0.25, 30.0, PITCH_H - 30.0);
+                p.targetY = clamp(p.y + engine.lungeDash[p.id].dir2Y * 34.0 + (gy - p.y) * 0.25, 30.0, PITCH_H - 30.0);
                 (void)gx;
                 // COMMIT 4a: hold DRIBBLE_FAST for ~1.5s so the next tick can't
                 // re-classify the carry down to DRIBBLE_MEDIUM while the beaten
                 // man recovers at sprint pace — the beat must buy a running start.
-                engine.beatWindowUntilMs[p.id] = engine.state.clockMs + 1500.0;
+                engine.duel[p.id].beatWindowUntilMs = engine.state.clockMs + 1500.0;
                 engine.blockReboundFor(def->id, 850);
                 // COMMIT 4b: a REAL two-stage off-balance (agent_movement honours
                 // beatenSlowUntilMs) — replaces the dead stunLock(24), which was
                 // only ever read on a controller. Extended 550 -> ~1100ms total.
-                engine.beatenSlowUntilMs[def->id] = engine.state.clockMs + BEATEN_SLOW_TOTAL_MS;
+                engine.duel[def->id].beatenSlowUntilMs = engine.state.clockMs + BEATEN_SLOW_TOTAL_MS;
                 engine.markActiveShield(p.id);   // body past him first — no free nick
                 return;
             } else {
@@ -1394,7 +1394,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 if (!engine.arenaMode) {
                     engine.agentFor(*def)->stunLock(24);
                     if (def->id >= 0 && def->id < 22)
-                        engine.carrierGatherUntilMs[def->id] = engine.state.clockMs + 100.0;
+                        engine.duel[def->id].carrierGatherUntilMs = engine.state.clockMs + 100.0;
                 }
                 engine.emitEvent("takeon_lost", def->x, def->y, def->id, p.id);
                 p.dribbleType = 0;
@@ -1504,7 +1504,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
     // COMMIT 4a: inside the post-beat exploit window, force DRIBBLE_FAST and keep
     // driving at goal — don't let the beaten man (now nearest, killing the burst
     // gates) collapse the carry to DRIBBLE_MEDIUM while he recovers at sprint pace.
-    if (engine.beatWindowUntilMs[p.id] > engine.state.clockMs) {
+    if (engine.duel[p.id].beatWindowUntilMs > engine.state.clockMs) {
         dribbleType = 3;
         p.targetX = clamp(p.x + fd * 130.0, 30.0, PITCH_W - 30.0);
         p.targetY = clamp(p.y + (PITCH_H / 2.0 - p.y) * 0.25, 30.0, PITCH_H - 30.0);

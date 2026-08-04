@@ -216,7 +216,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     // [0,1] clamp; the paired LCD carry-in cap (agent_resolve) does the rest.
     // Arena-only: 11v11 long-shot selection is left to the existing model.
     if (engine.arenaMode) {
-        bool beatWindow = engine.beatWindowUntilMs[p.id] > engine.state.clockMs;
+        bool beatWindow = engine.duel[p.id].beatWindowUntilMs > engine.state.clockMs;
         bool clearPathDrive = false;
         double lx = gx - p.x, ly = PITCH_H / 2.0 - p.y, ll = std::hypot(lx, ly);
         if (ll > 1.0) {
@@ -338,8 +338,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                         // hands it straight back. Fall back to the cached secure
                         // direction when the drop-back is itself into someone.
                         if (securing && escapeLaneBlocked(sx2, sy2, n)) {
-                            sx2 = p.x + engine.secureDirX[p.id] * 28.0;
-                            sy2 = p.y + engine.secureDirY[p.id] * 28.0;
+                            sx2 = p.x + engine.duel[p.id].secureDirX * 28.0;
+                            sy2 = p.y + engine.duel[p.id].secureDirY * 28.0;
                         }
                         tx = sx2; ty = sy2;
                     }
@@ -683,8 +683,8 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
                 // and fall back to the cached secure direction if it is also shut.
                 double sx2 = p.x - fd * 28.0, sy2 = p.y;
                 if (securing && escapeLaneBlocked(sx2, sy2, cp.nearestPlayer)) {
-                    sx2 = p.x + engine.secureDirX[p.id] * 28.0;
-                    sy2 = p.y + engine.secureDirY[p.id] * 28.0;
+                    sx2 = p.x + engine.duel[p.id].secureDirX * 28.0;
+                    sy2 = p.y + engine.duel[p.id].secureDirY * 28.0;
                 }
                 tx = sx2; ty = sy2;
             }

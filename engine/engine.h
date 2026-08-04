@@ -122,22 +122,28 @@ public:
     // celebrate. Targets are the EXACT formation spots and the hold snaps to them
     // at the end, so the kickoff (and everything after) stays byte-identical —
     // only the dead-ball visual changes. Deterministic drift only, no rng.
-    bool kickoffWalkActive = false;
-    int kickoffWalkScorerId = -1;
-    double kickoffWalkPresentMs = 0.0;
-    // Round-34: per-dot ceiling on the post-goal walk-in step, captured when the
-    // walk is armed. The lerp-to-arrive is CONSTANT pace d0/hold, so a flat cap
-    // would leave any dot beyond cap*hold permanently short and re-create the
-    // terminal teleport. max(KICKOFF_WALK_SPEED, d0/hold) caps the 99.5% that can
-    // walk it and lets the rare outlier move at exactly the pace that still
-    // arrives — bounded, and never the old 49 km/h.
-    std::array<double, 22> kickoffWalkPace = {};
-    std::array<double, 22> kickoffWalkTargetX = {};
-    std::array<double, 22> kickoffWalkTargetY = {};
-    // Round-30: half time is an INTERVAL. The same walk machinery, re-aimed at
-    // the H2 formation spots that kickoff() will snap to when the break ends —
-    // set when halfTimePause is armed, cleared when the restart fires.
-    bool halfTimeWalkActive = false;
+    //
+    // Dead-ball choreography is one feature and one lifetime (armed at the goal /
+    // half-time pause, cleared by the restart), so its seven fields sit together
+    // rather than loose among the match-state members.
+    struct RestartWalk {
+        bool active = false;
+        int scorerId = -1;                  // wheels away to celebrate; -1 at half time
+        double presentMs = 0.0;
+        // Round-34: per-dot ceiling on the walk-in step, captured when the walk is
+        // armed. The lerp-to-arrive is CONSTANT pace d0/hold, so a flat cap would
+        // leave any dot beyond cap*hold permanently short and re-create the
+        // terminal teleport. max(KICKOFF_WALK_SPEED, d0/hold) caps the 99.5% that
+        // can walk it and lets the rare outlier move at exactly the pace that
+        // still arrives — bounded, and never the old 49 km/h.
+        std::array<double, 22> pace = {};
+        std::array<double, 22> targetX = {};
+        std::array<double, 22> targetY = {};
+        // Round-30: half time is an INTERVAL. The same walk machinery, re-aimed at
+        // the H2 formation spots that kickoff() will snap to when the break ends —
+        // set when halfTimePause is armed, cleared when the restart fires.
+        bool halfTime = false;
+    } restartWalk;
     std::array<int, 22> yellowCards = {};
     // Round-30: per-team clock at which the next tired-legs change may be
     // considered (the manager window). Injuries bypass it.
@@ -268,106 +274,131 @@ public:
     // settles along that. Cached rather than recomputed per tick because a
     // time-rotating settle target makes the carrier orbit it and pirouette at the
     // turn cap (the reason the settle read `facing` in the first place).
-    std::array<double, 22> secureDirX    = {};
-    std::array<double, 22> secureDirY    = {};
-    std::array<double, 22> secureUntilMs = {};
+    // Every clock below is a per-player DUEL timer: armed by a challenge or a
+    // regain, read for a bounded window, then irrelevant. They were fourteen
+    // parallel std::array<...,22> members scattered down the class; one record
+    // per player keeps a mechanic's fields adjacent and makes it obvious that
+    // nothing else in the engine owns duel phase.
+    //
+    // All are match-clock ms and default to 0 (never armed). Reads use strict
+    // `<` / `> 0` so the zero epoch can never read as live on the kickoff tick.
+    struct DuelTimers {
+        double secureDirX = 0.0, secureDirY = 0.0;   // cached regain settle direction
+        double secureUntilMs = 0.0;
+        // Round-21 (take-on): a defender just beaten by a take-on is off-balance and
+        // wrong-footed — his pursuit pace is cut until this clock, so the carrier's
+        // beat burst opens a REAL gap instead of the beaten man re-gluing at 22px.
+        // (Benefits 11v11 too: beating your man should buy a yard.)
+        double beatenSlowUntilMs = 0.0;
+        // Round-27 COMMIT 2 (tackle jitter): stabilize the committed/contain decision
+        // in attemptTackle. When chance hovers at the (decayed) commitBar the raw
+        // decision flip-flops every tick — fire-retract-fire target thrash. Latch the
+        // mode and hold it >=150ms unless the carrier situation changes sharply.
+        double tackleModeUntilMs = 0.0;   // dwell window end
+        int    tackleModeLatch   = 0;     // 0 unset, +1 committed, -1 contain
+        // Round-27 COMMIT 2 (eased stop): a tackle victim's velocity was hard-zeroed
+        // on the win (~8% of tackles show the abrupt halt). Instead bleed his momentum
+        // over ~3 ticks while this clock is live (applyMovement reads it).
+        double tackleStopEaseUntilMs = 0.0;
+        // Round-21 (take-on audit) COMMIT 4a: the exploit window after a WON take-on.
+        // While this clock is live the carry-speed classifier is forced to
+        // DRIBBLE_FAST — otherwise the next decision tick re-classified (the beaten
+        // man is now the nearest opp, killing the burst gates) and the carry collapsed
+        // to DRIBBLE_MEDIUM (52) while the recovering defender sprinted (68) and
+        // reeled him straight back in. The beat has to buy a real running start.
+        double beatWindowUntilMs = 0.0;
+        // Round-28 C3 (duel legibility): the gather window after a duel WIN (clean
+        // tackle or read-the-feint take-on). While this clock is live the carried
+        // ball tucks straight to the foot (no knock-ahead) and pulls in faster (still
+        // under the CarriedBallOverspeed tripwire), so a won ball reads as gathered
+        // within 2-3 ticks instead of floating 17-25px away across the duel gap.
+        double carrierGatherUntilMs = 0.0;
+        // Round-28 C4: a shepherd-engaged trailing defender is CONTAINING (get
+        // goal-side, force the turn) — not nicking. While this clock is live his
+        // tackle commit bar is raised so the recovery sprint into the shield bubble
+        // doesn't inflate incidental steals; he only commits to a clear chance.
+        double containUntilMs = 0.0;
+        // Round-28 C7 (Messi beat trigger): the tick a defender COMMITTED a challenge
+        // against this carrier (indexed by CARRIER id), and WHO committed it. The
+        // carrier's take-on reads the pair as the primary "beat the committed man"
+        // trigger — he dropped his shoulder, the defender bit, now go past — instead
+        // of a jockey timer + rng.
+        double committedTackleVsCarrierMs = 0.0;
+        int    committedTackleVsCarrierBy = 0;
+        // Round-28 C8 probe: while this clock is live the carrier's dribble step is
+        // slowed to ~0.7x (moveBallCarrier) — the slow, ball-showing probe touch that
+        // INVITES the jockey's commit (which C7's commit-read then punishes). Renewed
+        // tick-by-tick by the agent, and ONLY inside a hard-capped 0.4-0.9s window of
+        // the jockey lock: the cap is structural — an uncapped probe against the
+        // round-27 contain deadband+dwell re-creates the static face-off / marathon /
+        // arena-freeze tombstones.
+        double probeSlowUntilMs = 0.0;
+        // Post-rebound contest block: neither duelist may re-collect (or be
+        // re-tackled) until this clock. See blockReboundFor / canContestBall.
+        double contestBlockedUntil = 0.0;
+    };
+    std::array<DuelTimers, 22> duel = {};
     // Is this man inside his securing window right now? (Strict `<` so the zero
     // initialiser can never read as "securing" on the kickoff tick.)
     [[nodiscard]] bool securing(int id) const {
-        return id >= 0 && id < 22 && state.clockMs < secureUntilMs[id];
+        return id >= 0 && id < 22 && state.clockMs < duel[id].secureUntilMs;
     }
     // Tackle lunge dash (seed 305 0:09/0:42: the round-11 commit-the-body snap
     // moved the tackler 60% of the gap in ONE tick ≈ 900px/s — read as a
     // teleport). Same commitment, now played out over the next few ticks at a
     // bounded burst pace in fixedUpdate (runs for controller and off-ball alike).
-    std::array<double, 22> lungeDashDirX = {};
-    std::array<double, 22> lungeDashDirY = {};
-    std::array<double, 22> lungeDashRemainPx = {};
-    // Round-23 (carrier burst realism, arena 0:05 "sudden bursts of pace with
-    // the ball... unrealistic"): the dash now RAMPS toward a per-player peak and
-    // decays back to dribble pace as it lands, instead of snapping to a flat
-    // 120px/s for its whole length. lungeDashSpd is the live pace, lungeDashPeak
-    // the ceiling; lungeDashDoneMs stamps the tick a dash finishes so the carry
-    // step isn't stacked on top of the last dash step (a one-tick handoff spike).
-    std::array<double, 22> lungeDashSpd    = {};
-    std::array<double, 22> lungeDashPeak   = {};
-    std::array<double, 22> lungeDashDoneMs = {};
-    // Round-21 (take-on): a defender just beaten by a take-on is off-balance and
-    // wrong-footed — his pursuit pace is cut until this clock, so the carrier's
-    // beat burst opens a REAL gap instead of the beaten man re-gluing at 22px.
-    // (Benefits 11v11 too: beating your man should buy a yard.)
-    std::array<double, 22> beatenSlowUntilMs = {};
-    // Round-27 COMMIT 2 (tackle jitter): stabilize the committed/contain decision
-    // in attemptTackle. When chance hovers at the (decayed) commitBar the raw
-    // decision flip-flops every tick — fire-retract-fire target thrash. Latch the
-    // mode and hold it >=150ms unless the carrier situation changes sharply.
-    std::array<double, 22> tackleModeUntilMs = {};   // dwell window end
-    std::array<int, 22>    tackleModeLatch   = {};   // 0 unset, +1 committed, -1 contain
-    // Round-27 COMMIT 2 (eased stop): a tackle victim's velocity was hard-zeroed
-    // on the win (~8% of tackles show the abrupt halt). Instead bleed his momentum
-    // over ~3 ticks while this clock is live (applyMovement reads it).
-    std::array<double, 22> tackleStopEaseUntilMs = {};
-    // Round-21 (take-on audit) COMMIT 4a: the exploit window after a WON take-on.
-    // While this clock is live the carry-speed classifier is forced to
-    // DRIBBLE_FAST — otherwise the next decision tick re-classified (the beaten
-    // man is now the nearest opp, killing the burst gates) and the carry collapsed
-    // to DRIBBLE_MEDIUM (52) while the recovering defender sprinted (68) and
-    // reeled him straight back in. The beat has to buy a real running start.
-    std::array<double, 22> beatWindowUntilMs = {};
-    // Round-28 C3 (duel legibility): the gather window after a duel WIN (clean
-    // tackle or read-the-feint take-on). While this clock is live the carried
-    // ball tucks straight to the foot (no knock-ahead) and pulls in faster (still
-    // under the CarriedBallOverspeed tripwire), so a won ball reads as gathered
-    // within 2-3 ticks instead of floating 17-25px away across the duel gap.
-    std::array<double, 22> carrierGatherUntilMs = {};
-    // Round-28 C4: a shepherd-engaged trailing defender is CONTAINING (get
-    // goal-side, force the turn) — not nicking. While this clock is live his
-    // tackle commit bar is raised so the recovery sprint into the shield bubble
-    // doesn't inflate incidental steals; he only commits to a clear chance.
-    std::array<double, 22> containUntilMs = {};
-    // Round-28 C7 (Messi beat trigger): the tick a defender COMMITTED a challenge
-    // against this carrier (indexed by carrier id), and WHO committed it. The
-    // carrier's take-on reads the pair as the primary "beat the committed man"
-    // trigger — he dropped his shoulder, the defender bit, now go past — instead
-    // of a jockey timer + rng. Ms defaults to 0 and every read requires > 0, so
-    // the zero-epoch never arms the trigger at kickoff.
-    std::array<double, 22> committedTackleVsCarrierMs = {};
-    std::array<int, 22> committedTackleVsCarrierBy = {};
-    // Round-28 C8 (Messi beat execution): two-stage chop for a WON take-on. The
-    // dash plays stage 1 (lungeDashDirX/Y — hard toward the chosen shoulder,
-    // 45-90° off the goal axis), then cuts onto lungeDashDir2X/Y once remaining
-    // <= lungeDashSwitchPx (~60% left), emitting a 'chop' trace event at the cut.
-    // switchPx==0 (the default, and every non-take-on seed) means single-stage —
-    // the tackler's short committed step is untouched.
-    std::array<double, 22> lungeDashDir2X = {};
-    std::array<double, 22> lungeDashDir2Y = {};
-    std::array<double, 22> lungeDashSwitchPx = {};
-    // Round-28 C8 probe: while this clock is live the carrier's dribble step is
-    // slowed to ~0.7x (moveBallCarrier) — the slow, ball-showing probe touch that
-    // INVITES the jockey's commit (which C7's commit-read then punishes). Renewed
-    // tick-by-tick by the agent, and ONLY inside a hard-capped 0.4-0.9s window of
-    // the jockey lock: the cap is structural — an uncapped probe against the
-    // round-27 contain deadband+dwell re-creates the static face-off / marathon /
-    // arena-freeze tombstones.
-    std::array<double, 22> probeSlowUntilMs = {};
+    //
+    // One dash is ONE mechanic: these nine fields were nine parallel
+    // std::array<...,22> members and are always armed, stepped and cleared
+    // together, so they live in one per-player record. Stage 2 (the round-28 C8
+    // chop) is documented on dir2X/dir2Y/switchPx below.
+    struct LungeDash {
+        double dirX = 0.0, dirY = 0.0;      // live heading (stage 2 overwrites it at the cut)
+        double remainPx = 0.0;              // distance left to play out; 0 = no dash
+        // Round-23 (carrier burst realism, arena 0:05 "sudden bursts of pace with
+        // the ball... unrealistic"): the dash RAMPS toward a per-player peak and
+        // decays back to dribble pace as it lands, instead of snapping to a flat
+        // 120px/s for its whole length. `spd` is the live pace, `peak` the ceiling;
+        // `doneMs` stamps the tick a dash finishes so the carry step isn't stacked
+        // on top of the last dash step (a one-tick handoff spike).
+        double spd = 0.0, peak = 0.0;
+        double doneMs = 0.0;
+        // Round-28 C8 (Messi beat execution): two-stage chop for a WON take-on. The
+        // dash plays stage 1 (dirX/dirY — hard toward the chosen shoulder, 45-90°
+        // off the goal axis), then cuts onto dir2X/dir2Y once remainPx <= switchPx
+        // (~60% left), emitting a 'chop' trace event at the cut. switchPx == 0 (the
+        // default, and every non-take-on seed) means single-stage — the tackler's
+        // short committed step is untouched.
+        double dir2X = 0.0, dir2Y = 0.0;
+        double switchPx = 0.0;
+    };
+    std::array<LungeDash, 22> lungeDash = {};
     // Carried-ball control-offset direction memory (seed 437 0:59: the offset
     // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
     // the full converge cap — a 337px/s phantom that rendered as a teleport
     // around an opponent's body). The offset now rotates at a bounded rate.
     double carryOffDx = 1.0, carryOffDy = 0.0;
-    // OffBallOverspeed tripwire: last-tick positions for the displacement
-    // check in fixedUpdate. Invalidated on restarts/kickoffs/halves/subs so
-    // legitimate repositioning teleports don't count.
-    std::array<double, 22> qfPrevX = {};
-    std::array<double, 22> qfPrevY = {};
-    bool qfPrevValid = false;
-    // Round-34 census state (stats.h Census). Measurement only — nothing in the
-    // simulation reads these, they draw no rng and gate no branch.
-    std::array<double, 22> censusPrevX = {};
-    std::array<double, 22> censusPrevY = {};
-    int censusPrevCat = -1;
-    double censusLooseStartMs = -1.0;
-    std::array<bool, 2> censusGkLastDepth96 = {};
+    // MEASUREMENT-ONLY scratch — the tripwire and census carry-over state.
+    // Grouped so it is obvious at a glance that nothing here feeds the sim:
+    // these fields draw no rng and gate no simulation branch, so a change in
+    // this struct can never move the golden fingerprint.
+    struct Telemetry {
+        // OffBallOverspeed tripwire: last-tick positions for the displacement
+        // check in fixedUpdate. Invalidated on restarts/kickoffs/halves/subs so
+        // legitimate repositioning teleports don't count.
+        std::array<double, 22> prevX = {};
+        std::array<double, 22> prevY = {};
+        bool prevValid = false;
+        // Round-34 census state (stats.h Census).
+        std::array<double, 22> censusPrevX = {};
+        std::array<double, 22> censusPrevY = {};
+        int censusPrevCat = -1;
+        double censusLooseStartMs = -1.0;
+        std::array<bool, 2> censusGkLastDepth96 = {};
+        // Throttles for the periodic diagnostic dumps.
+        double blobLogNextMs = 0.0;
+        double lineDepthNextMs = 0.0;
+    } telemetry;
     // Law 13-17 double-touch: the restart taker (FK/corner/throw/goal kick/
     // penalty/kickoff) may not touch again until another player has. Enforced
     // by prevention (the engine's referee idiom): set at release, cleared on
@@ -510,7 +541,6 @@ public:
         double holdSinceMs = -1;   // clock when the keeper began HOLDING for a lane (-1 = not holding)
     } goalKickMonitor;
 
-    std::array<double, 22> contestBlockedUntil = {};
     // Render-only facing: a display copy of each player's facing that damps rapid
     // direction reversals, so a jockeying defender doesn't shimmer ~30deg
     // left-right in the watch view. NEVER read by logic (tackle geometry/dribble
@@ -543,7 +573,7 @@ public:
             // dash displacement is invisible here and would finalize to 0 (the
             // "velocity reads 0 all burst" bug). The dash loop already wrote his
             // truthful per-tick velocity — keep it.
-            if (lungeDashRemainPx[p.id] > 0.0 || lungeDashDoneMs[p.id] == state.clockMs) continue;
+            if (lungeDash[p.id].remainPx > 0.0 || lungeDash[p.id].doneMs == state.clockMs) continue;
             p.vx = (p.x - velSampleX[p.id]) / secs; p.vy = (p.y - velSampleY[p.id]) / secs;
         }
     }
@@ -766,12 +796,10 @@ public:
     // needs (blob probe showed balanced 3v3 knots; WHY each man is there is
     // invisible in traces). Env-gated; default off = byte-identical.
     void auditBlobPurposes();
-    double blobLogNextMs = 0;
     // Carry-glue convergence bookkeeping: updateControlledBall runs 2-3x per
     // tick (phase glue + intra-move re-anchors) — the capped step toward the
     // control offset must apply ONCE per tick or receptions double-step.
     double glueStepDoneMs = -1;
-    double lineDepthNextMs = 0;   // 1s sampler for the line-too-deep quality flag
     void updateTeamAssignments();
     void assignDefensiveRoles(Team team, Player& carrier);
     // Wake the in-possession team's off-ball runners: designate up to 3 attacking

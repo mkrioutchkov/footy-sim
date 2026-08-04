@@ -380,9 +380,9 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
             if (ballFar) {
                 stats.census.gkDepthFar[k]++;
                 if (ownTeamHasBall) stats.census.gkDepth96[k]++;
-                else if (censusGkLastDepth96[k]) stats.census.gkDip96to68[k]++;
+                else if (telemetry.censusGkLastDepth96[k]) stats.census.gkDip96to68[k]++;
             }
-            censusGkLastDepth96[k] = ballFar && ownTeamHasBall;
+            telemetry.censusGkLastDepth96[k] = ballFar && ownTeamHasBall;
         }
     }
 

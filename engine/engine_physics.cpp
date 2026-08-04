@@ -22,7 +22,7 @@ void GameEngine::separateTeammates(double sdt) {
         if (lb.controllerId < 0 && lb.z < 6.0 && std::hypot(lb.vx, lb.vy) < 40.0) {
             double best = 30.0;
             for (auto& p : state.players) {
-                if (p.role == Role::GK || p.sentOff || contestBlockedUntil[p.id] > state.clockMs) continue;
+                if (p.role == Role::GK || p.sentOff || duel[p.id].contestBlockedUntil > state.clockMs) continue;
                 double dd = dist(p.x, p.y, lb.x, lb.y);
                 if (dd < best) {
                     best = dd;
@@ -1213,7 +1213,7 @@ void GameEngine::collectBall(Player& c) {
         if (prevT && prevT->team == c.team && dist(prevT->x, prevT->y, b.x, b.y) < 45.0)
             return;
     }
-    contestBlockedUntil[c.id] = 0;
+    duel[c.id].contestBlockedUntil = 0;
     bool intended = receiverShieldTargetId == c.id;
     bool teammateTarget = receiverShieldTargetId >= 0 && b.lastTouchTeam == c.team;
     resolveKnockAhead(&c);
@@ -1458,7 +1458,7 @@ void GameEngine::updateControlledBall(double sec) {
     // Round-28 C3: during the post-duel gather window tuck the ball to the foot
     // (no knock-ahead) so the winner's separation converges to ~CONTROL_DIST
     // (12px) rather than settling at the carry offset — the "he's got it" read.
-    bool gatheringWin = c->id >= 0 && c->id < 22 && carrierGatherUntilMs[c->id] > state.clockMs;
+    bool gatheringWin = c->id >= 0 && c->id < 22 && duel[c->id].carrierGatherUntilMs > state.clockMs;
     if (gatheringWin) knockExtra = 0.0;
     // Offset swing-rate limit (seed 437 0:59, watched at 0.25x: "ball seems to
     // teleport a small distance around the body"): the facing/movement blend
@@ -1594,7 +1594,7 @@ void GameEngine::updateControlledBall(double sec) {
             // is off-balance and trailing — don't let this body-block sweep knock
             // the ball loose off him ~100ms after the win (stats say win, pitch
             // showed a turnover). He can't cancel the beat he just lost.
-            if (beatenSlowUntilMs[o.id] > state.clockMs) continue;
+            if (duel[o.id].beatenSlowUntilMs > state.clockMs) continue;
             double t = seg2 > 1e-6 ? clamp(((o.x - prevBx) * sx + (o.y - prevBy) * sy) / seg2, 0.0, 1.0) : 0.0;
             double dg = dist(o.x, o.y, prevBx + sx * t, prevBy + sy * t);
             if (dg < 8.0) {
@@ -1632,8 +1632,8 @@ void GameEngine::updateControlledBall(double sec) {
 void GameEngine::moveBallCarrier(double sdt) {
     Player* c = playerById(state.ball.controllerId);
     if (!c) return;
-    if (c->id >= 0 && c->id < 22 && (lungeDashRemainPx[c->id] > 0.0
-                                     || lungeDashDoneMs[c->id] == state.clockMs)) {
+    if (c->id >= 0 && c->id < 22 && (lungeDash[c->id].remainPx > 0.0
+                                     || lungeDash[c->id].doneMs == state.clockMs)) {
         // A tackle/take-on winner still finishing his committed dash, OR the
         // exact tick it just ended (Round-23): fixedUpdate already moved him this
         // tick, so stacking a full carry step on top spikes him to ~17 m/s for
@@ -1664,7 +1664,7 @@ void GameEngine::moveBallCarrier(double sdt) {
     // (~0.7x) that INVITES the defender's commit — which the C7 commit-read then
     // punishes. The agent renews this only inside a hard-capped 0.4-0.9s window
     // of the lock (engine.h), so the dip can never latch into a static face-off.
-    if (c->id >= 0 && c->id < 22 && probeSlowUntilMs[c->id] > state.clockMs) speed *= 0.7;
+    if (c->id >= 0 && c->id < 22 && duel[c->id].probeSlowUntilMs > state.clockMs) speed *= 0.7;
     double dx = c->targetX - c->x, dy = c->targetY - c->y, d = std::hypot(dx, dy);
     double secs = sdt / 1000.0, px = c->x, py = c->y;
     double previousSpeed = std::hypot(c->vx, c->vy);

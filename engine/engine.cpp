@@ -109,7 +109,7 @@ bool GameEngine::canContestBall(Player& player) {
     if (setPiece.armed && state.ball.controllerId < 0) return false;
     if (activeKnockAhead.active && activeKnockAhead.playerId == player.id) return true;
     if (state.ball.controllerId < 0 && state.ball.intendedReceiverId == player.id && state.ball.lastTouchTeam == player.team && state.ball.lastToucherId != player.id) return true;
-    if (contestBlockedUntil[player.id] > state.clockMs) {
+    if (duel[player.id].contestBlockedUntil > state.clockMs) {
         // A lockout marks a moment that beat him (whiffed duel, beaten dribble,
         // lost tackle) — but a loose ball at REST is a NEW moment anyone can
         // play. Watched replay seed 133 4:02: a pass ricocheted off a
@@ -130,7 +130,7 @@ bool GameEngine::canContestBall(Player& player) {
         if (!(state.ball.controllerId < 0 && looseRest < LOOSE_BALL_STALL_SPEED
               && !selfRegrabOfOwnPass)) return false;
     }
-    contestBlockedUntil[player.id] = 0;
+    duel[player.id].contestBlockedUntil = 0;
     return true;
 }
 
@@ -153,7 +153,7 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
     if (walkIn)
         for (auto& p : state.players) { walkFromX[p.id] = p.x; walkFromY[p.id] = p.y; }
     phase.nextKickoffTeam = (t == Team::Home) ? Team::Away : Team::Home;
-    contestBlockedUntil.fill(0);
+    for (auto& d : duel) d.contestBlockedUntil = 0;
     receiverShieldUntil = 0;
     receiverShieldedPlayerId = -1;
     receiverShieldTargetId = -1;
@@ -184,33 +184,33 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
     // back to where it stood at the goal and let updateKickoffPhase stroll it to
     // the spot over the hold (snapping exactly at the end). The ball stays dead on
     // the centre spot; the taker walks up to it. Byte-identical at the tap.
-    kickoffWalkActive = false;
+    restartWalk.active = false;
     if (walkIn) {
         for (auto& p : state.players) {
             if (p.sentOff) continue;
-            kickoffWalkTargetX[p.id] = p.targetX;
-            kickoffWalkTargetY[p.id] = p.targetY;
+            restartWalk.targetX[p.id] = p.targetX;
+            restartWalk.targetY[p.id] = p.targetY;
             p.x = walkFromX[p.id];
             p.y = walkFromY[p.id];
             p.vx = p.vy = 0;
         }
-        kickoffWalkActive = true;
+        restartWalk.active = true;
         // Round-34 census: how far does the furthest dot have to travel to its
         // spot inside the hold? Round-34 commit 3 caps the walk-in to a jog, and
         // its stated mitigation is to size that cap so the 99th percentile still
         // arrives before the terminal snap. This is that measurement.
         for (auto& p : state.players) {
             if (p.sentOff) continue;
-            double wd = dist(p.x, p.y, kickoffWalkTargetX[p.id], kickoffWalkTargetY[p.id]);
-            kickoffWalkPace[p.id] = std::max(KICKOFF_WALK_SPEED, wd / std::max(holdMs / 1000.0, 1e-6));
+            double wd = dist(p.x, p.y, restartWalk.targetX[p.id], restartWalk.targetY[p.id]);
+            restartWalk.pace[p.id] = std::max(KICKOFF_WALK_SPEED, wd / std::max(holdMs / 1000.0, 1e-6));
             stats.census.walkArms++;
             stats.census.walkStartDistSum += wd;
             if (wd > stats.census.walkStartDistMax) stats.census.walkStartDistMax = wd;
             int wb = (int) (wd / 50.0);
             stats.census.walkStartHist[wb < 0 ? 0 : (wb > 19 ? 19 : wb)]++;
         }
-        kickoffWalkScorerId = lastGoal.toucherId;
-        kickoffWalkPresentMs = std::min(3000.0, holdMs * 0.5);   // scorer wheels away for the first ~3s
+        restartWalk.scorerId = lastGoal.toucherId;
+        restartWalk.presentMs = std::min(3000.0, holdMs * 0.5);   // scorer wheels away for the first ~3s
     }
     phase.kickoffPhase = true;
     phase.actionTimer = holdMs;
@@ -394,24 +394,24 @@ void GameEngine::fixedUpdateTick(double sdt) {
     // burst pace (see attemptTackle). Runs for controller and off-ball alike,
     // which the agent movement path cannot (it skips controllers).
     for (auto& p : state.players) {
-        double& rem = lungeDashRemainPx[p.id];
+        double& rem = lungeDash[p.id].remainPx;
         if (rem <= 0.0) continue;
-        if (p.sentOff) { rem = 0.0; lungeDashSwitchPx[p.id] = 0.0; lungeDashDir2X[p.id] = lungeDashDir2Y[p.id] = 0.0; continue; }
+        if (p.sentOff) { rem = 0.0; lungeDash[p.id].switchPx = 0.0; lungeDash[p.id].dir2X = lungeDash[p.id].dir2Y = 0.0; continue; }
         // R28 C8: two-stage chop — at the switch point of a won take-on's dash,
         // cut off the shoulder-sell direction onto the goal-ward second stage
         // (agent.cpp seeds both). Single 'chop' event marks the cut for the
         // trace/viewer; speed model untouched (same ramp, same peak), so the
         // per-tick displacement stays under the carrier tripwire.
-        if (lungeDashSwitchPx[p.id] > 0.0 && rem <= lungeDashSwitchPx[p.id]) {
-            double n2x = lungeDashDir2X[p.id], n2y = lungeDashDir2Y[p.id];
+        if (lungeDash[p.id].switchPx > 0.0 && rem <= lungeDash[p.id].switchPx) {
+            double n2x = lungeDash[p.id].dir2X, n2y = lungeDash[p.id].dir2Y;
             if (std::hypot(n2x, n2y) > 0.1) {
-                lungeDashDirX[p.id] = n2x;
-                lungeDashDirY[p.id] = n2y;
+                lungeDash[p.id].dirX = n2x;
+                lungeDash[p.id].dirY = n2y;
                 p.facing = std::atan2(n2y, n2x);
                 emitEvent("chop", p.x, p.y, p.id);
             }
-            lungeDashSwitchPx[p.id] = 0.0;
-            lungeDashDir2X[p.id] = lungeDashDir2Y[p.id] = 0.0;
+            lungeDash[p.id].switchPx = 0.0;
+            lungeDash[p.id].dir2X = lungeDash[p.id].dir2Y = 0.0;
         }
         // Round-23 (carrier burst realism): RAMP the pace up toward the seeded
         // peak (agent.cpp / engine_actions.cpp) at ~150px/s^2 instead of the old
@@ -419,26 +419,26 @@ void GameEngine::fixedUpdateTick(double sdt) {
         // dribble pace over the last stretch — a burst that accelerates and
         // settles, not an on/off block. The tackler path seeds spd=peak=
         // LUNGE_DASH_SPEED so its short committed contact step stays ~flat.
-        double& spd = lungeDashSpd[p.id];
+        double& spd = lungeDash[p.id].spd;
         double rampRate = 150.0 * sdt / 1000.0;
-        spd = std::min(lungeDashPeak[p.id], spd + rampRate);
+        spd = std::min(lungeDash[p.id].peak, spd + rampRate);
         if (rem < 14.0) {
             double settle = attrFactor(p.attrs.speed) * DRIBBLE_FAST_SPEED;
             spd = std::max(settle, spd - rampRate);
         }
         double step = std::min(rem, spd * sdt / 1000.0);
-        p.x = clamp(p.x + lungeDashDirX[p.id] * step, 5.0, PITCH_W - 5.0);
-        p.y = clamp(p.y + lungeDashDirY[p.id] * step, 5.0, PITCH_H - 5.0);
+        p.x = clamp(p.x + lungeDash[p.id].dirX * step, 5.0, PITCH_W - 5.0);
+        p.y = clamp(p.y + lungeDash[p.id].dirY * step, 5.0, PITCH_H - 5.0);
         // Truthful velocity (Round-23): the dash wrote position but never vx/vy,
         // so every velocity reader saw 0 for the whole burst. Derive the real
         // per-tick velocity from the step actually taken (mirrors the FK run-up).
         double stepSpd = step / (sdt / 1000.0);
-        p.vx = lungeDashDirX[p.id] * stepSpd;
-        p.vy = lungeDashDirY[p.id] * stepSpd;
+        p.vx = lungeDash[p.id].dirX * stepSpd;
+        p.vy = lungeDash[p.id].dirY * stepSpd;
         rem -= step;
         // Handoff-spike guard (Round-23): stamp the tick the dash ends so
         // moveBallCarrier doesn't add a full carry step on top of this one.
-        if (rem <= 0.0) { rem = 0.0; lungeDashDoneMs[p.id] = state.clockMs; }
+        if (rem <= 0.0) { rem = 0.0; lungeDash[p.id].doneMs = state.clockMs; }
     }
     // OffBallOverspeed tripwire (owner: "moves stupidly fast for a split
     // second... biggest issue — also make it a quality flag"): any outfield
@@ -455,7 +455,7 @@ void GameEngine::fixedUpdateTick(double sdt) {
     {
         bool measurable = !setPiece.armed && !phase.kickoffPhase && phase.halfTimePause <= 0
             && sdt > 1e-3;
-        if (measurable && qfPrevValid) {
+        if (measurable && telemetry.prevValid) {
             double maxStep = 250.0 * sdt / 1000.0;
             // Round-23 (carrier burst): a CARRIER body stepping faster than the
             // ramped dash peak (~104px/s) is the flat-120 burst artifact the
@@ -464,7 +464,7 @@ void GameEngine::fixedUpdateTick(double sdt) {
             double carrierMaxStep = 112.0 * sdt / 1000.0;
             for (auto& p : state.players) {
                 if (p.sentOff || p.role == Role::GK) continue;
-                double dispStep = dist(p.x, p.y, qfPrevX[p.id], qfPrevY[p.id]);
+                double dispStep = dist(p.x, p.y, telemetry.prevX[p.id], telemetry.prevY[p.id]);
                 if (dispStep > maxStep)
                     stats.recordQualityFlag(QualityFlag::OffBallOverspeed);
                 // Exempt the sanctioned DEFENDER-contact dash (engine_actions:
@@ -472,15 +472,15 @@ void GameEngine::fixedUpdateTick(double sdt) {
                 // round-14 tuned it and the spec keeps it. The take-on carry
                 // ramps to peak <=104, so it stays measured (a regression to
                 // flat-120 would still trip this line).
-                bool contactDash = (lungeDashRemainPx[p.id] > 0.0
-                                    || lungeDashDoneMs[p.id] == state.clockMs)
-                                   && lungeDashPeak[p.id] > 112.0;
+                bool contactDash = (lungeDash[p.id].remainPx > 0.0
+                                    || lungeDash[p.id].doneMs == state.clockMs)
+                                   && lungeDash[p.id].peak > 112.0;
                 if (state.ball.controllerId == p.id && dispStep > carrierMaxStep && !contactDash)
                     stats.recordQualityFlag(QualityFlag::CarrierOverspeed);
             }
         }
-        for (auto& p : state.players) { qfPrevX[p.id] = p.x; qfPrevY[p.id] = p.y; }
-        qfPrevValid = measurable;
+        for (auto& p : state.players) { telemetry.prevX[p.id] = p.x; telemetry.prevY[p.id] = p.y; }
+        telemetry.prevValid = measurable;
     }
     // ── Round-34 census: phase-filtered outfield speed bands, and the loose-ball
     // episode ledger. Both are pure counters (see stats.h Census). The phase
@@ -493,17 +493,17 @@ void GameEngine::fixedUpdateTick(double sdt) {
         // agree. Every restart teleport (kickoff staging, the half-time stage,
         // the terminal walk-in snap) straddles a category change and is dropped.
         int cat = setPiece.armed ? 1 : (phase.kickoffPhase ? 2 : (phase.halfTimePause > 0 ? 3 : 0));
-        if (sdt > 1e-3 && censusPrevCat == cat && (cat == 0 || cat == 2)) {
+        if (sdt > 1e-3 && telemetry.censusPrevCat == cat && (cat == 0 || cat == 2)) {
             long* band = cat == 0 ? stats.census.openBand : stats.census.resetBand;
             for (auto& p : state.players) {
                 if (p.sentOff || p.role == Role::GK) continue;
-                double mps = dist(p.x, p.y, censusPrevX[p.id], censusPrevY[p.id]) / (sdt / 1000.0) / 10.0;
+                double mps = dist(p.x, p.y, telemetry.censusPrevX[p.id], telemetry.censusPrevY[p.id]) / (sdt / 1000.0) / 10.0;
                 int b = mps < 0.3 ? 0 : (mps < 2.0 ? 1 : (mps < 4.0 ? 2 : (mps < 5.5 ? 3 : (mps < 7.0 ? 4 : 5))));
                 band[b]++;
             }
         }
-        for (auto& p : state.players) { censusPrevX[p.id] = p.x; censusPrevY[p.id] = p.y; }
-        censusPrevCat = cat;
+        for (auto& p : state.players) { telemetry.censusPrevX[p.id] = p.x; telemetry.censusPrevY[p.id] = p.y; }
+        telemetry.censusPrevCat = cat;
 
         // Loose-ball episodes: an episode runs from the tick control is lost to
         // the tick it is regained. Restarts close the open episode without
@@ -515,7 +515,7 @@ void GameEngine::fixedUpdateTick(double sdt) {
                 stats.census.looseTicks++;
                 if (std::hypot(state.ball.vx, state.ball.vy) < 5.0 && state.ball.z < 1.0)
                     stats.census.looseDeadTicks++;
-                if (censusLooseStartMs < 0.0) censusLooseStartMs = state.clockMs;
+                if (telemetry.censusLooseStartMs < 0.0) telemetry.censusLooseStartMs = state.clockMs;
                 // Round-34 commit 6 guard (pure counter): how many outfielders are
                 // committed to a Chase while the ball is free. Redirecting the
                 // anticipating chaser must not turn into a pile-on.
@@ -529,9 +529,9 @@ void GameEngine::fixedUpdateTick(double sdt) {
                 stats.census.looseChaserSum += chasers;
                 stats.census.looseChaserTicks++;
                 if (chasers > stats.census.looseChaserMax) stats.census.looseChaserMax = chasers;
-            } else if (censusLooseStartMs >= 0.0) {
-                double ms = state.clockMs - censusLooseStartMs;
-                censusLooseStartMs = -1.0;
+            } else if (telemetry.censusLooseStartMs >= 0.0) {
+                double ms = state.clockMs - telemetry.censusLooseStartMs;
+                telemetry.censusLooseStartMs = -1.0;
                 stats.census.looseEpisodes++;
                 stats.census.looseMsTotal += ms;
                 if (ms > stats.census.looseMsMax) stats.census.looseMsMax = ms;
@@ -541,7 +541,7 @@ void GameEngine::fixedUpdateTick(double sdt) {
                 stats.census.looseMsHist[lb < 0 ? 0 : (lb > 23 ? 23 : lb)]++;
             }
         } else {
-            censusLooseStartMs = -1.0;
+            telemetry.censusLooseStartMs = -1.0;
         }
     }
     // Played-advantage recall: the ref waved a foul on. If, within ~4s, the fouled
@@ -631,20 +631,20 @@ void GameEngine::fixedUpdateTick(double sdt) {
                     for (auto& p : state.players) { fromX[p.id] = p.x; fromY[p.id] = p.y; }
                     stageKickoffFormation(phase.nextKickoffTeam);
                     for (auto& p : state.players) {
-                        kickoffWalkTargetX[p.id] = p.targetX;
-                        kickoffWalkTargetY[p.id] = p.targetY;
+                        restartWalk.targetX[p.id] = p.targetX;
+                        restartWalk.targetY[p.id] = p.targetY;
                         p.x = fromX[p.id];
                         p.y = fromY[p.id];
                         p.vx = p.vy = 0;
                     }
-                    kickoffWalkActive = false;
-                    halfTimeWalkActive = true;
+                    restartWalk.active = false;
+                    restartWalk.halfTime = true;
                     // Round-34 census: the interval walk runs the same lerp over a
                     // 5s hold. Measured only — commit 3 is scoped to the post-goal
                     // walk-in, and this number says how much is left behind.
                     for (auto& p : state.players) {
                         if (p.sentOff) continue;
-                        double wd = dist(p.x, p.y, kickoffWalkTargetX[p.id], kickoffWalkTargetY[p.id]);
+                        double wd = dist(p.x, p.y, restartWalk.targetX[p.id], restartWalk.targetY[p.id]);
                         stats.census.htWalkArms++;
                         stats.census.htWalkStartDistSum += wd;
                         if (wd > stats.census.htWalkStartDistMax) stats.census.htWalkStartDistMax = wd;
@@ -675,7 +675,7 @@ void GameEngine::fixedUpdateTick(double sdt) {
         b.controllerId = -1;
         b.intendedReceiverId = -1;
         if (phase.halfTimePause <= 0) {
-            halfTimeWalkActive = false;
+            restartWalk.halfTime = false;
             kickoff(phase.nextKickoffTeam);
         } else {
             halfTimeWalk(sdt);
@@ -1052,8 +1052,8 @@ void GameEngine::updatePossessionTracking(double sdt) {
     // sometimes when they shouldn't"): once a second per team — flag when the
     // back line sits inside 110px of its own goal while the ball is far away
     // (>450px from that goal) and no attacker is even near the line depth.
-    if (state.clockMs >= lineDepthNextMs && !setPiece.armed && !phase.kickoffPhase) {
-        lineDepthNextMs = state.clockMs + 1000.0;
+    if (state.clockMs >= telemetry.lineDepthNextMs && !setPiece.armed && !phase.kickoffPhase) {
+        telemetry.lineDepthNextMs = state.clockMs + 1000.0;
         for (int t = 0; t < 2; t++) {
             Team team = t == 0 ? Team::Home : Team::Away;
             double line = 1e9;
@@ -1083,14 +1083,14 @@ void GameEngine::updatePossessionTracking(double sdt) {
 void GameEngine::auditBlobPurposes() {
     static const bool on = [] { const char* e = std::getenv("FOOTY_BLOBDEBUG"); return e && e[0] == '1'; }();
     if (setPiece.armed || phase.kickoffPhase) return;
-    if (state.clockMs < blobLogNextMs) return;
+    if (state.clockMs < telemetry.blobLogNextMs) return;
     for (auto& seed : state.players) {
         if (seed.sentOff) continue;
         int n = 0;
         for (auto& q : state.players)
             if (!q.sentOff && dist(q.x, q.y, seed.x, seed.y) < 50.0) n++;
         if (n < 6) continue;
-        blobLogNextMs = state.clockMs + 1500.0;
+        telemetry.blobLogNextMs = state.clockMs + 1500.0;
         stats.recordBlobMoment();
         if (!on) return;
         std::fprintf(stderr, "BLOB %.0fms @(%.0f,%.0f) ball=(%.0f,%.0f,ctrl=%d):",
@@ -1989,13 +1989,13 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
 // their restart positions and stand there. kickoff() snaps them onto the exact
 // spots when the break ends, so the H2 tap is the same staging as any other.
 void GameEngine::halfTimeWalk(double sdt) {
-    if (!halfTimeWalkActive) return;
+    if (!restartWalk.halfTime) return;
     double sec = sdt / 1000.0;
     double remainMs = std::max(sdt, phase.halfTimePause);
     double frac = clamp(sdt / remainMs, 0.0, 1.0);
     for (auto& p : state.players) {
         if (p.sentOff) continue;
-        double dx = kickoffWalkTargetX[p.id] - p.x, dy = kickoffWalkTargetY[p.id] - p.y;
+        double dx = restartWalk.targetX[p.id] - p.x, dy = restartWalk.targetY[p.id] - p.y;
         double stepX = dx * frac, stepY = dy * frac;
         double idle = std::sin((state.clockMs + p.id * 211.0) * 0.005) * 0.6 * sec * 60.0;
         p.x += stepX;
@@ -2011,7 +2011,7 @@ void GameEngine::updateKickoffPhase(double sdt) {
     // Post-goal walk-in: stroll each dot toward its formation spot over the
     // remaining hold (lerp-to-arrive, so the per-tick step is small and eases to
     // zero — never the 80px teleport of the old snap). Deterministic drift only.
-    if (kickoffWalkActive && phase.actionTimer > 0.0) {
+    if (restartWalk.active && phase.actionTimer > 0.0) {
         double sec = sdt / 1000.0;
         double remainMs = std::max(sdt, phase.actionTimer);
         // lerp-to-arrive: close this fraction of the REMAINING distance each tick.
@@ -2021,7 +2021,7 @@ void GameEngine::updateKickoffPhase(double sdt) {
         double elapsed = state.clockMs - phase.lastKickoffMs;
         for (auto& p : state.players) {
             if (p.sentOff) continue;
-            double dx = kickoffWalkTargetX[p.id] - p.x, dy = kickoffWalkTargetY[p.id] - p.y;
+            double dx = restartWalk.targetX[p.id] - p.x, dy = restartWalk.targetY[p.id] - p.y;
             double stepX = dx * frac, stepY = dy * frac;
             // Round-34: the lerp's opening pace is distance/hold, so a dot 80m
             // from his spot LAUNCHED at 8.3 m/s and, with the sway on top,
@@ -2032,7 +2032,7 @@ void GameEngine::updateKickoffPhase(double sdt) {
             // (engine_physics.cpp) so the 99th-percentile distance still arrives
             // and the terminal snap below stays a no-op.
             double sl = std::hypot(stepX, stepY);
-            double cap = kickoffWalkPace[p.id] * sec;
+            double cap = restartWalk.pace[p.id] * sec;
             if (sl > cap) { stepX *= cap / sl; stepY *= cap / sl; }
             // Micro idle: a tiny deterministic sway (no rng) so a dot that has
             // reached its spot breathes rather than freezing dead. Round-34: it
@@ -2047,7 +2047,7 @@ void GameEngine::updateKickoffPhase(double sdt) {
             p.vy = stepY / std::max(sec, 1e-6);
             // The scorer WHEELS AWAY to celebrate — face the nearest corner for the
             // presentation window; everyone else faces their walk direction.
-            if (p.id == kickoffWalkScorerId && elapsed < kickoffWalkPresentMs) {
+            if (p.id == restartWalk.scorerId && elapsed < restartWalk.presentMs) {
                 double cx = (p.x < HALF_X) ? 0.0 : PITCH_W;
                 double cy = (p.y < PITCH_H / 2.0) ? 0.0 : PITCH_H;
                 p.facing = std::atan2(cy - p.y, cx - p.x);
@@ -2059,24 +2059,24 @@ void GameEngine::updateKickoffPhase(double sdt) {
     if (phase.actionTimer <= 0) {
         // Snap to the EXACT formation so the tap (and everything after) is
         // byte-identical to a straight-to-staging kickoff.
-        if (kickoffWalkActive) {
+        if (restartWalk.active) {
             for (auto& p : state.players) {
                 if (p.sentOff) continue;
                 // Round-34 census: residual at the terminal snap. The lerp-to-arrive
                 // was introduced to remove an 80px teleport here; any jog cap put on
                 // it has to keep this at ~0 or the teleport comes back.
-                double sd = dist(p.x, p.y, kickoffWalkTargetX[p.id], kickoffWalkTargetY[p.id]);
+                double sd = dist(p.x, p.y, restartWalk.targetX[p.id], restartWalk.targetY[p.id]);
                 stats.census.walkSnaps++;
                 stats.census.walkSnapDistSum += sd;
                 if (sd > stats.census.walkSnapDistMax) stats.census.walkSnapDistMax = sd;
                 if (sd > 8.0) stats.census.walkSnapOver8++;
                 if (sd > 20.0) stats.census.walkSnapOver20++;
                 if (sd > 80.0) stats.census.walkSnapOver80++;
-                p.x = kickoffWalkTargetX[p.id];
-                p.y = kickoffWalkTargetY[p.id];
+                p.x = restartWalk.targetX[p.id];
+                p.y = restartWalk.targetY[p.id];
                 p.vx = p.vy = 0;
             }
-            kickoffWalkActive = false;
+            restartWalk.active = false;
         }
         phase.kickoffPhase = false;
         kickoffTap();
@@ -2087,7 +2087,7 @@ void GameEngine::updateKickoffPhase(double sdt) {
 void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     sampleVelocityOrigins();
     auto& b = state.ball;
-    if (b.controllerId >= 0) contestBlockedUntil[b.controllerId] = 0;
+    if (b.controllerId >= 0) duel[b.controllerId].contestBlockedUntil = 0;
     if (b.controllerId < 0) {
         applyBallPhysics(sec);
         clampBallPosition();

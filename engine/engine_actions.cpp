@@ -11,7 +11,7 @@
 
 void GameEngine::blockReboundFor(int playerId, double ms) {
     if (playerId < 0) return;
-    contestBlockedUntil[playerId] = std::max(contestBlockedUntil[playerId], state.clockMs + ms);
+    duel[playerId].contestBlockedUntil = std::max(duel[playerId].contestBlockedUntil, state.clockMs + ms);
 }
 
 void GameEngine::recordBallImpulse() {
@@ -1369,9 +1369,9 @@ void GameEngine::noteRegain(const Player& w, int beatenId, double windowMs) {
     else if (w.x > PITCH_W - DRIBBLE_EDGE_MARGIN && dx > 0.0) dx = -dx;
     d = std::hypot(dx, dy);
     if (d < 1e-6) return;
-    secureDirX[w.id]    = dx / d;
-    secureDirY[w.id]    = dy / d;
-    secureUntilMs[w.id] = state.clockMs + windowMs;
+    duel[w.id].secureDirX    = dx / d;
+    duel[w.id].secureDirY    = dy / d;
+    duel[w.id].secureUntilMs = state.clockMs + windowMs;
 }
 
 bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraReach) {
@@ -1474,7 +1474,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // so the recovery sprint into the shield bubble doesn't inflate incidental
     // steals). The round-25 long-carry commitBar decay below still overrides it, so
     // a genuinely stuck escort still resolves.
-    if (tackler.id >= 0 && tackler.id < 22 && containUntilMs[tackler.id] > state.clockMs)
+    if (tackler.id >= 0 && tackler.id < 22 && duel[tackler.id].containUntilMs > state.clockMs)
         commitBar = std::max(commitBar, 0.62);
     // Round-25 (2v2 audit top defect): with a LONE container, contain-first never
     // resolves — carriers ride one jockey 15-24s (marathonCarries 14-17/10min; a
@@ -1530,12 +1530,12 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         bool hardCommit = boxEmergency || cynical || ballExposureDot > 0.55;   // situation-sharp: never hold contain over these
         bool sharpChange = state.ball.controllerId != carrier.id;             // carrier released the ball -> re-evaluate now
         int desired = committed ? 1 : -1;
-        if (!hardCommit && !sharpChange && tackleModeLatch[tackler.id] != 0
-            && state.clockMs < tackleModeUntilMs[tackler.id]) {
-            committed = (tackleModeLatch[tackler.id] == 1);   // still inside the dwell: hold the latched mode
-        } else if (desired != tackleModeLatch[tackler.id]) {
-            tackleModeLatch[tackler.id] = desired;            // a genuine switch starts a fresh 150ms hold
-            tackleModeUntilMs[tackler.id] = state.clockMs + 150.0;
+        if (!hardCommit && !sharpChange && duel[tackler.id].tackleModeLatch != 0
+            && state.clockMs < duel[tackler.id].tackleModeUntilMs) {
+            committed = (duel[tackler.id].tackleModeLatch == 1);   // still inside the dwell: hold the latched mode
+        } else if (desired != duel[tackler.id].tackleModeLatch) {
+            duel[tackler.id].tackleModeLatch = desired;            // a genuine switch starts a fresh 150ms hold
+            duel[tackler.id].tackleModeUntilMs = state.clockMs + 150.0;
         }
     }
     if (!committed) return false;
@@ -1543,8 +1543,8 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // live commit/lunge hook the take-on reads). Set for every committed attempt,
     // win or miss — a carrier who rides it then bursts past the committed man.
     if (carrier.id >= 0 && carrier.id < 22) {
-        committedTackleVsCarrierMs[carrier.id] = state.clockMs;
-        committedTackleVsCarrierBy[carrier.id] = tackler.id;
+        duel[carrier.id].committedTackleVsCarrierMs = state.clockMs;
+        duel[carrier.id].committedTackleVsCarrierBy = tackler.id;
     }
     // Even a committed challenge inside the box is careful — half the foul risk
     // of an open-field lunge (a clumsy one is still a penalty, just far rarer).
@@ -1559,15 +1559,15 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     {
         double lx = b.x - tackler.x, ly = b.y - tackler.y, ld = std::hypot(lx, ly);
         if (ld > 4.0 && tackler.id >= 0 && tackler.id < 22) {
-            lungeDashDirX[tackler.id] = lx / ld;
-            lungeDashDirY[tackler.id] = ly / ld;
-            lungeDashRemainPx[tackler.id] = std::min(ld * 0.55, 11.0);   // 16 -> 11px: shorter committed step, same contact read (seed 111 burst complaint)
-            lungeDashSwitchPx[tackler.id] = 0.0;   // R28 C8: a tackle step is always single-stage — never inherit a stale chop
-            lungeDashDir2X[tackler.id] = lungeDashDir2Y[tackler.id] = 0.0;
+            lungeDash[tackler.id].dirX = lx / ld;
+            lungeDash[tackler.id].dirY = ly / ld;
+            lungeDash[tackler.id].remainPx = std::min(ld * 0.55, 11.0);   // 16 -> 11px: shorter committed step, same contact read (seed 111 burst complaint)
+            lungeDash[tackler.id].switchPx = 0.0;   // R28 C8: a tackle step is always single-stage — never inherit a stale chop
+            lungeDash[tackler.id].dir2X = lungeDash[tackler.id].dir2Y = 0.0;
             // Round-23: seed spd=peak=LUNGE_DASH_SPEED so this short defender
             // contact step stays the flat 11px/90ms hard step round-14 tuned.
-            lungeDashSpd[tackler.id]  = LUNGE_DASH_SPEED;
-            lungeDashPeak[tackler.id] = LUNGE_DASH_SPEED;
+            lungeDash[tackler.id].spd  = LUNGE_DASH_SPEED;
+            lungeDash[tackler.id].peak = LUNGE_DASH_SPEED;
             tackler.facing = std::atan2(ly, lx);
         }
     }
@@ -1605,7 +1605,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         // Round-28 C3(b): amortize the ball across the 17-25px duel gap to the
         // winner's foot over 2-3 ticks (no knock-ahead, faster pull) instead of
         // letting it settle at the carry offset far from him.
-        if (tackler.id >= 0 && tackler.id < 22 && !arenaMode) carrierGatherUntilMs[tackler.id] = state.clockMs + 100.0;
+        if (tackler.id >= 0 && tackler.id < 22 && !arenaMode) duel[tackler.id].carrierGatherUntilMs = state.clockMs + 100.0;
         // Round-36: a won duel is a REGAIN — cache which way to secure it. The
         // lunge above just set tackler.facing AT the carrier, and the gather lock
         // settles along a fixed direction; without this it settles into the man
@@ -1616,7 +1616,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         // Round-27 COMMIT 2 (eased stop): don't hard-zero the victim's momentum —
         // that abrupt one-tick halt was ~8% of the tackle-jitter screengrabs.
         // Keep his velocity and let applyMovement bleed it over the next ~3 ticks.
-        if (carrier.id >= 0 && carrier.id < 22 && !arenaMode) tackleStopEaseUntilMs[carrier.id] = state.clockMs + 50.0;
+        if (carrier.id >= 0 && carrier.id < 22 && !arenaMode) duel[carrier.id].tackleStopEaseUntilMs = state.clockMs + 50.0;
         return true;
     }
     // Carry security — the carrier BEATS the man and keeps it. This outcome was
@@ -2158,7 +2158,7 @@ bool GameEngine::knockBallAhead(Player& carrier, double targetX, double targetY)
     recordBallImpulse();
     stats.recordKnockAhead(launchSpeed);
     if (risky) { stats.recordRiskyKnockAhead(); }
-    contestBlockedUntil[carrier.id] = 0;
+    duel[carrier.id].contestBlockedUntil = 0;
     activeKnockAhead = {true, carrier.id, carrier.team, state.clockMs, nearestId, nearestDist, risky};
     return true;
 }
