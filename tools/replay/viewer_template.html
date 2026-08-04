@@ -444,8 +444,26 @@ const DATA = __DATA__;
     // next keyframe, then cuts. Exactly one rule: a SECOND rule layered after
     // this would silently take the halftime pair back off r27's cut path.
     const cut = l1 > 60;
+    // Round-35 carried-ball magnetization: the engine's carry glue closes each
+    // knock at a rate cap in 2-4 ticks (~65ms), so a whole 0.25-0.5m dart lands
+    // INSIDE one keyframe pair — world-lerping the ball next to the cubic-splined
+    // carrier rendered it as a pop at every touch (owner: "ball seems to teleport
+    // a tiny amount while at feet"). When BOTH keyframes agree on the controller,
+    // draw the ball relative to the CARRIER's splined body and lerp the foot
+    // OFFSET instead: the dart spreads across the pair and the ball stays glued
+    // to the moving man. Flight balls, control changes and restart cuts keep the
+    // existing paths (the kink hold-then-pop must never fire on a carried ball —
+    // that pop WAS the worst of the jag).
+    const ctrlA=a.b[3];
+    const carried = ctrlA>=0 && b.b[3]===ctrlA && a.p[ctrlA*3+1]>=-20 && !cut;
     let bx,by,bz;
-    if(kink){ const src=f<0.5?a:b; bx=src.b[0]; by=src.b[1]; bz=src.b[2]; }
+    if(carried){
+      const cx=sm(ctrlA*3), cy=sm(ctrlA*3+1);
+      bx=cx+lerp(a.b[0]-a.p[ctrlA*3], b.b[0]-b.p[ctrlA*3], f);
+      by=cy+lerp(a.b[1]-a.p[ctrlA*3+1], b.b[1]-b.p[ctrlA*3+1], f);
+      bz=lerp(a.b[2],b.b[2],f);
+    }
+    else if(kink){ const src=f<0.5?a:b; bx=src.b[0]; by=src.b[1]; bz=src.b[2]; }
     else { bx=lerp(a.b[0],b.b[0],f); by=lerp(a.b[1],b.b[1],f); bz=lerp(a.b[2],b.b[2],f); }
     // COMMIT 10b: during the halftime pause the whistle can abandon the ball
     // mid-flight (stale z) — park it on the deck so it reads as a dead ball.

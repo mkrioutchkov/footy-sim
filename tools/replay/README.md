@@ -98,6 +98,25 @@ Its non-obvious behaviour, all of it earned against a specific observed bug:
 - **450 ms tackle-animation latch.** `tackleAnim` drops before the pose should,
   so the slide/poke pose is latched from onset.
 - **Duel event cues** for `takeon_lost` and `chop`.
+- **Time-aware names via the sub log** (Round-35). The exported roster is the
+  END-of-match squad, so every event on a substituted slot named the wrong man —
+  three of seven seed-151 goal cards were mislabeled (50' "Cannavaro" for
+  Ronaldo's goal). `name(pid, ms)` walks the slot's substitution log: before a
+  sub's instant the man on the pitch is that sub's `out`. All toast, ticker,
+  flash-card and scrubber-mark sites pass their event time; the lineup panel
+  intentionally keeps the end-of-match XI.
+- **Carried-ball magnetization** (Round-35, owner: "ball seems to teleport a
+  tiny amount while at feet"). The engine's carry glue closes each knock at a
+  rate cap in 2–4 ticks (~65 ms), so a 0.25–0.5 m dart lands INSIDE one keyframe
+  pair; world-lerping that next to the cubic-splined carrier rendered a pop at
+  every touch — and the kink hold-then-pop rule (which has no controlled-ball
+  exemption) made the worst of them a genuine one-frame teleport. When both
+  keyframes agree on the controller, the ball is drawn relative to the CARRIER's
+  splined body with the foot offset lerped. Measured on seed 151 (first half,
+  60 fps display sampling): worst single-frame ball-vs-carrier step 2.01 m →
+  0.42 m, mean carry motion unchanged (0.59 → 0.57 dm), 2 474 kink-pop frames
+  during carries eliminated. The remaining engine-side truth (the knock IS a
+  rate-capped dart — engine_physics.cpp:1509) is an engine tuning item.
 
 ## Relationship to `web/frontend/renderer.ts`
 
