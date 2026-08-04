@@ -532,6 +532,73 @@ void PlayerAI::applyMovement(double sdt) {
         ballMemoryAge++;
     }
 
+    updateFacing(bd, bdx, bdy);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// tryCollectAfterChase()
+// ══════════════════════════════════════════════════════════════════════════════
+void PlayerAI::tryCollectAfterChase() {
+    auto& p = player;
+    auto& b = engine.state.ball;
+
+    if (b.controllerId >= 0) return;
+
+    double distance = dist(p.x, p.y, b.x, b.y);
+    bool intended = (p.id == b.intendedReceiverId);
+    double reach = intended ? INTENDED_COLLECT_DIST : COLLECT_DIST;
+
+    if (b.z >= 20.0 || distance > reach) return;
+
+    double speed = std::hypot(b.vx, b.vy);
+    double speedLimit = intended ? COLLECT_SPEED_MAX * INTENDED_COLLECT_BONUS : COLLECT_SPEED_MAX;
+
+    if (speed >= speedLimit) return;
+
+    if (!engine.collectBall(p, intended ? "intended_chase_reception" : "chase_collection", reach)) return;
+
+    // Position-based stun lock: short in opponent's final third, long elsewhere
+    bool inFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
+    if (inFinalThird) {
+        stunLockTicks = 12;  // ~200ms — react quickly near goal
+        shotCooldown = 0;    // can shoot immediately in the box
+    } else {
+        // Threat-scaled settle: a presser arriving within ~0.8s means the first
+        // decision comes NOW, not after a 750ms rest — the calm settle froze a
+        // deep receiver's whole menu while the press arrived with the ball
+        // (watched replay seed 129 0:38.6-0:39.4: the FB's only action for 45
+        // ticks was the settle-dribble as the tackler closed 89→60px; tackled
+        // at 0:40.2). Calm receptions keep the full composure beat.
+        // Standing markers don't hurry the touch — a sprinting-in tackler does.
+        // (A static near-marker test here hurried nearly every midfield
+        // reception — the press retargets to the receive point on every pass —
+        // and inflated match pass volume.)
+        bool pressArriving = tackleArriving(engine.state.players, p.x, p.y, p.team);
+        stunLockTicks = pressArriving ? 16 : 45;  // ~270ms hurried / ~750ms calm
+        shotCooldown = 15;   // ~250ms — brief cooldown after collect
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// passSelectionAudit()
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════════
+// updateFacing() — where the player LOOKS, given where he now stands
+// ══════════════════════════════════════════════════════════════════════════════
+// Split out of applyMovement, which had grown to 683 lines. Facing is a
+// self-contained decision that runs after the position/velocity integration and
+// reads only three things from it — the ball's distance and offset — plus the
+// speed it recomputes here. Everything it writes (facing, the moonwalk and
+// turn-rate limiters, the dizzy-spin accumulator) is agent state, so the
+// interface is genuinely these three doubles.
+//
+// The F1-F4 notes below are the facing audit's findings, kept with the branch
+// each one fixed.
+void PlayerAI::updateFacing(double bd, double bdx, double bdy)
+{
+    auto& p = player;
+
     double spdAfter = std::sqrt(p.vx * p.vx + p.vy * p.vy);
     bool ic = (engine.state.ball.controllerId == p.id);
     if (ic) {
@@ -685,51 +752,3 @@ void PlayerAI::applyMovement(double sdt) {
     facing = std::atan2(std::sin(facing), std::cos(facing));
     p.facing = facing;
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// tryCollectAfterChase()
-// ══════════════════════════════════════════════════════════════════════════════
-void PlayerAI::tryCollectAfterChase() {
-    auto& p = player;
-    auto& b = engine.state.ball;
-
-    if (b.controllerId >= 0) return;
-
-    double distance = dist(p.x, p.y, b.x, b.y);
-    bool intended = (p.id == b.intendedReceiverId);
-    double reach = intended ? INTENDED_COLLECT_DIST : COLLECT_DIST;
-
-    if (b.z >= 20.0 || distance > reach) return;
-
-    double speed = std::hypot(b.vx, b.vy);
-    double speedLimit = intended ? COLLECT_SPEED_MAX * INTENDED_COLLECT_BONUS : COLLECT_SPEED_MAX;
-
-    if (speed >= speedLimit) return;
-
-    if (!engine.collectBall(p, intended ? "intended_chase_reception" : "chase_collection", reach)) return;
-
-    // Position-based stun lock: short in opponent's final third, long elsewhere
-    bool inFinalThird = (p.team == Team::Home) ? p.x > PITCH_W * 2.0 / 3.0 : p.x < PITCH_W / 3.0;
-    if (inFinalThird) {
-        stunLockTicks = 12;  // ~200ms — react quickly near goal
-        shotCooldown = 0;    // can shoot immediately in the box
-    } else {
-        // Threat-scaled settle: a presser arriving within ~0.8s means the first
-        // decision comes NOW, not after a 750ms rest — the calm settle froze a
-        // deep receiver's whole menu while the press arrived with the ball
-        // (watched replay seed 129 0:38.6-0:39.4: the FB's only action for 45
-        // ticks was the settle-dribble as the tackler closed 89→60px; tackled
-        // at 0:40.2). Calm receptions keep the full composure beat.
-        // Standing markers don't hurry the touch — a sprinting-in tackler does.
-        // (A static near-marker test here hurried nearly every midfield
-        // reception — the press retargets to the receive point on every pass —
-        // and inflated match pass volume.)
-        bool pressArriving = tackleArriving(engine.state.players, p.x, p.y, p.team);
-        stunLockTicks = pressArriving ? 16 : 45;  // ~270ms hurried / ~750ms calm
-        shotCooldown = 15;   // ~250ms — brief cooldown after collect
-    }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// passSelectionAudit()
-// ══════════════════════════════════════════════════════════════════════════════

@@ -1029,6 +1029,9 @@ private:
     void trackCarrierPossession(Player* c, double sdt);
     void detectSimulationFreeze(double sdt);
     void updateSetPiecePhase(double sdt, double sec);
+    // The restart-choreography half of updateSetPiecePhase: walk the taker in,
+    // arrange wall and support, fire the release.
+    void runSetPieceChoreography(Team spTeam, double sdt, double sec);
     void populateThrowInSupport(Team spTeam);
     void updateKickoffPhase(double sdt);
     int  stageKickoffFormation(Team t);   // position-only staging; returns the taker's id

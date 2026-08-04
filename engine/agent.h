@@ -315,6 +315,9 @@ private:
     Perception            getCachedPerception();
     Perception            perceive();
     void                  applyMovement(double sdt);
+    // The facing half of applyMovement: where the player LOOKS once his position
+    // and velocity for the tick are settled. Takes the ball's distance and offset.
+    void                  updateFacing(double ballDist, double ballDx, double ballDy);
     void                  tryCollectAfterChase();
     void                  auditDefensiveMovement(const Action& choice);
     PassSelectionAudit    passSelectionAudit(const Action& choice, const SmallVector<Action, 24>& actions);

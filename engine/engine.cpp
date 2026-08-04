@@ -1479,507 +1479,7 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     // Populate throw-in support targets once per set piece.
     populateThrowInSupport(spTeam);
 
-    auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
-        double fd = fdFor(taker.team);
-        double standBack = standBackFor(setPiece.type);
-        double px = clamp(releaseSpot ? setPiece.spotX : setPiece.spotX - fd * standBack, 5.0, PITCH_W - 5.0);
-        double py = clamp(setPiece.spotY, 5.0, PITCH_H - 5.0);
-        if (releaseSpot) {
-            // Step in briskly, don't snap: the one-tick hop from the stand-back
-            // offset onto the spot was the audit's "carrier teleport" (~14px in
-            // 17ms, 2-5×/15min, scan_anomalies PLAYER_TELEPORT). The kick still
-            // launches from the spot this tick — the taker just strides the last
-            // step like a human instead of blinking; kicking from a stride back
-            // is exactly how every open-play kick already looks (CONTROL_DIST).
-            double dx = px - taker.x, dy = py - taker.y;
-            double d = std::hypot(dx, dy);
-            double step = std::min(SPEED_SPRINT * 2.0 * (sdt / 1000.0), d);
-            if (d > 0.5) {
-                taker.x += dx / d * step;
-                taker.y += dy / d * step;
-            }
-        } else {
-            // Steer to the stand-back point; snapping every tick made the taker
-            // vibrate against moveBallCarrier walking him toward the spot.
-            double dx = px - taker.x, dy = py - taker.y;
-            double d = std::hypot(dx, dy);
-            double step = std::min(SPEED_SPRINT * (sdt / 1000.0), d);
-            if (d > 0.5) {
-                taker.x += dx / d * step;
-                taker.y += dy / d * step;
-            }
-        }
-        taker.targetX = px;
-        taker.targetY = py;
-        taker.vx = taker.vy = 0;
-        if (dist(taker.x, taker.y, setPiece.spotX, setPiece.spotY) > 0.5) {
-            taker.facing = std::atan2(setPiece.spotY - taker.y, setPiece.spotX - taker.x);
-        }
-    };
-    auto enforceRestartDistance = [&]() {
-        double minDist = minDistFor(setPiece.type);
-        Team restartTeam = setPiece.team;
-        double maxStep = SPEED_SPRINT * (sdt / 1000.0);
-        bool pen = setPiece.type == SetPiece::Penalty;
-        double fdAtt = fdFor(restartTeam);
-        if (pen) {
-            // The defending keeper belongs ON his line for a penalty — the
-            // agent's GK early-return left him 6m off it.
-            Team defTeam = restartTeam == Team::Home ? Team::Away : Team::Home;
-            if (Player* dgk = findGK(defTeam)) {
-                double gx = ownGoalXFor(defTeam);
-                double lineX = gx + fdFor(defTeam) * 5.0;
-                double mx = lineX - dgk->x, my = PITCH_H / 2.0 - dgk->y;
-                double md = std::hypot(mx, my);
-                double step = std::min(SPEED_SPRINT * 1.5 * (sdt / 1000.0), md);
-                if (md > 0.5) {
-                    dgk->x += mx / md * step;
-                    dgk->y += my / md * step;
-                }
-            }
-        }
-        for (auto& p : state.players) {
-            // For penalties EVERY outfielder obeys the law — attackers too.
-            bool isTaker = p.id == setPiece.takerId;
-            if (p.role == Role::GK || isTaker) continue;
-            if (!pen && p.team == restartTeam) continue;
-            // Wall members stand at a LEGAL spot (91px down the line, slant
-            // ~93px) — the radial re-target here fired on them mid-WALK every
-            // time their path dipped inside the radius, so the wall never
-            // finished forming (seed 107 5:51: one-man wall).
-            if (!pen && p.wall) continue;
-            double dx = p.x - setPiece.spotX;
-            double dy = p.y - setPiece.spotY;
-            double d = std::hypot(dx, dy);
-            // Penalty law: everyone but taker and keeper must be BEHIND the
-            // spot, not just 96px away — radial spacing let defenders stand
-            // on the goal line and wall up the shot.
-            bool goalSide = pen && (p.x - setPiece.spotX) * fdAtt > -12.0;
-            // Law 14 backstop: OUTSIDE the area too — the radial test alone let
-            // the crowd camp in the 55px strip between the box edge and the
-            // mark (watched replay: ten players inside the area at the kick).
-            double boxEdgeBack = PENALTY_AREA_W - PENALTY_SPOT_FROM_GOAL; // 55
-            bool penBoxIntruder = pen && !goalSide
-                && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 8.0
-                && (p.x - (setPiece.spotX - fdAtt * boxEdgeBack)) * fdAtt > -6.0;
-            // Law 16 (2019): opponents stay OUT of the area until a goal kick
-            // is played — they pressed from inside the box before the kick.
-            bool gkBoxIntruder = false;
-            if (setPiece.type == SetPiece::GoalKick && p.team != restartTeam) {
-                double og = ownGoalXFor(restartTeam);
-                gkBoxIntruder = (p.x - og) * fdAtt < PENALTY_AREA_W + 6.0
-                             && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 10.0;
-            }
-            if (d >= minDist && !goalSide && !penBoxIntruder && !gkBoxIntruder) continue;
-            if (d < 1.0) {
-                double fd = fdFor(p.team);
-                dx = -fd;
-                dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
-                d = std::hypot(dx, dy);
-            }
-            // FK defenders clear the ring toward their OWN GOAL, not to the
-            // radial-nearest (often ball-side) arc point — a forward caught
-            // inside otherwise gets parked LEVEL with the ball, velocity
-            // zeroed, target == own position, and stands there for the whole
-            // hold (seed 305 17:31: Bale, statue on the ball-side arc for 5.6s
-            // while a shooting FK was lined up; owner: "should be running back").
-            if (!pen && setPiece.type == SetPiece::FreeKick && p.team != restartTeam) {
-                double gs = ownGoalXFor(p.team) - setPiece.spotX;   // spot -> own goal
-                if (std::abs(gs) > 1.0) {
-                    dx = (gs > 0 ? 1.0 : -1.0) * std::max(std::abs(dx), 20.0);
-                    d = std::hypot(dx, dy);
-                }
-            }
-            double tx = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
-            double ty = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
-            if (goalSide) {
-                // Behind the box EDGE in one move, not just behind the mark —
-                // re-resolving a goal-side player to 40px back still left him
-                // standing inside the area.
-                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
-                double sideOff = p.y >= setPiece.spotY ? 1.0 : -1.0;
-                ty = clamp(setPiece.spotY + sideOff * std::max(std::abs(p.y - setPiece.spotY), 90.0), 5.0, PITCH_H - 5.0);
-            } else if (penBoxIntruder) {
-                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
-                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
-            } else if (gkBoxIntruder) {
-                double og = ownGoalXFor(restartTeam);
-                tx = clamp(og + fdAtt * (PENALTY_AREA_W + 16.0), 5.0, PITCH_W - 5.0);
-                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
-            }
-            // Jog out of the restart radius rather than teleporting there.
-            // Urgent pace: at walking speed the agents' own pull toward the
-            // ball won the tug-of-war and FKs released with opponents at 5m.
-            double mx = tx - p.x, my = ty - p.y;
-            double md = std::hypot(mx, my);
-            if (md > 0.1) {
-                double step = std::min(maxStep * 1.9, md);
-                p.x += mx / md * step;
-                p.y += my / md * step;
-                p.vx = mx / md * SPEED_SPRINT;
-                p.vy = my / md * SPEED_SPRINT;
-            } else {
-                p.vx = p.vy = 0;
-            }
-            p.targetX = tx;
-            p.targetY = ty;
-        }
-    };
-
-    if (setPiece.takerId >= 0) {
-        for (auto& a : agents) {
-            if (a->player.id == setPiece.takerId) {
-                a->setPieceHold = true;
-                break;
-            }
-        }
-    }
-
-    tickAgents(sdt, false);
-    // Restart choreography is AUTHORITATIVE: run it after tickAgents so the
-    // corner/FK/throw shape targets stand. It used to run before — each
-    // player's own shape decision then overwrote his set-piece target on
-    // every decision tick, a tug-of-war that left the box crowd walking in
-    // circles and never arriving (watched replay 0:27: ONE attacker in the
-    // box after nine seconds of an armed corner, everyone else stuck 150px
-    // short with the right targets).
-    for (auto& a : agents) {
-        a->setPiecePositioning(setPiece.type, spTeam);
-    }
-    moveBallCarrier(sdt);
-    separateTeammates(sdt);
-    enforceRestartDistance();
-
-    // ── Defensive wall / block, that actually FORMS, with hurry ──
-    // setPiecePositioning writes the wall + block-shape targets (agent_
-    // setpiece.cpp, FreeKick defending branch) AFTER tickAgents' movement
-    // integrator has already run for the tick, and nothing downstream walks a
-    // defender to that target — so the wall rendered (p.wall=1) but no bodies
-    // were ever there (watched replay 0:53: a 21m central FK with no wall, the
-    // defenders strolling their open-play shape). Walk every defending
-    // outfielder to his set-piece target at urgent pace — same proven mover as
-    // the intruder push above — so the block sets in ~2s of the hold. Only for
-    // a dangerous FreeKick (near the defending goal); elsewhere no wall forms
-    // and this is a no-op.
-    if (setPiece.type == SetPiece::FreeKick && !setPiece.fast) {
-        Team defTeam = setPiece.team == Team::Home ? Team::Away : Team::Home;
-        double defGoalX = ownGoalXFor(defTeam);
-        bool dangerFK = std::abs(setPiece.spotX - defGoalX) < 300.0;
-        if (dangerFK) {
-            double step = SPEED_SPRINT * 1.5 * (sdt / 1000.0);
-            for (auto& p : state.players) {
-                if (p.team != defTeam || p.role == Role::GK || p.sentOff) continue;
-                double mx = p.targetX - p.x, my = p.targetY - p.y, md = std::hypot(mx, my);
-                if (md > 2.0) {
-                    double st = std::min(step, md);
-                    p.x += mx / md * st;
-                    p.y += my / md * st;
-                    p.vx = mx / md * SPEED_SPRINT;
-                    p.vy = my / md * SPEED_SPRINT;
-                    p.facing = std::atan2(state.ball.y - p.y, state.ball.x - p.x); // watch the ball
-                }
-            }
-        }
-    }
-
-    // Keepers are NOT statues during restarts: fixedUpdate's armed
-    // early-return skips updateGK entirely, so a keeper stood wherever the
-    // previous phase left him through every corner/FK hold (watched replay
-    // 0:34-0:36: 80px off his line, below the post, for six seconds — the
-    // agent's setPiecePositioning early-returns for GKs too). Position each
-    // keeper normally, except the taker (the restart walk owns him) and the
-    // defending keeper at a penalty (the Law 14 walk owns him).
-    for (Team tm : {Team::Home, Team::Away}) {
-        Player* k = findGK(tm);
-        if (!k || k->sentOff || k->id == setPiece.takerId) continue;
-        if (setPiece.type == SetPiece::Penalty && tm != setPiece.team) continue;
-        updateOneGK(*k, sec);
-    }
-
-    // Watchdog: a malformed arm (no taker, no controller) must never freeze
-    // the match — disarm and let open play resume.
-    if (setPiece.armed && setPiece.takerId < 0 && state.ball.controllerId < 0 && setPiece.type != SetPiece::GoalKick && phase.actionTimer <= 0) {
-        setPiece.armed = false;
-        setPiece.type = SetPiece::None;
-        setPiece.reason.clear();
-        setPiece.placeBallAtMs = 0.0;
-        return;
-    }
-    if (setPiece.type == SetPiece::GoalKick && phase.actionTimer <= 0 && state.ball.controllerId >= 0) {
-        setPiece.armed = false;
-        setPiece.reason.clear();
-        releaseSetPiece();
-        cacheBallState();
-        return;
-    }
-
-    // Gaylord seam: a designated taker (fk/corner/pen/long_throw_taker directive) takes the
-    // restart instead of the default position-based pick. No designation => -1 => no override
-    // => golden byte-identical. Switch before the taker has arrived; restart his walk.
-    if (setPiece.armed && !setPiece.takerArrived) {
-        int designated = designatedTakerFor(setPiece.type, setPiece.team);
-        if (designated >= 0 && setPiece.takerId != designated) {
-            setPiece.takerId = designated;
-            setPiece.walkMs = 0;
-        }
-    }
-
-    // While the out-ball is still gliding, the taker walks to the SPOT (not
-    // the rolling ball — chasing it would drag him off the pitch).
-    double takerTX = setPiece.placeBallAtMs > 0.0 ? setPiece.spotX : state.ball.x;
-    double takerTY = setPiece.placeBallAtMs > 0.0 ? setPiece.spotY : state.ball.y;
-    if (setPiece.takerId >= 0 && !setPiece.takerArrived) {
-        setPiece.walkMs += sdt;
-        Player* taker = playerById(setPiece.takerId);
-        if (taker) {
-            double dx = takerTX - taker->x;
-            double dy = takerTY - taker->y;
-            double d = std::hypot(dx, dy);
-            if (d > 1.0) {
-                double speed = attrFactor(taker->attrs.speed) * SPEED_SPRINT;
-                double step = std::min(speed * (sdt / 1000.0), d);
-                taker->x += (dx / d) * step;
-                taker->y += (dy / d) * step;
-                taker->facing = std::atan2(dy, dx);
-            }
-            taker->targetX = takerTX;
-            taker->targetY = takerTY;
-        }
-    }
-
-    if (setPiece.takerId >= 0 && !setPiece.takerArrived) {
-        Player* taker = playerById(setPiece.takerId);
-        if (taker) {
-            double d = dist(taker->x, taker->y, takerTX, takerTY);
-            // If the taker is ALREADY at the spot (e.g. he just took a corner from
-            // this exact flag) but the awarded ball is still far away mid-glide,
-            // do NOT complete the placement — that snapped a ball from the middle
-            // of the box to the flag in one tick (watched replay seed 103 0:30).
-            // He waits for the glide; placement completes when the ball is near.
-            bool ballNearSpot = setPiece.placeBallAtMs <= 0.0
-                             || dist(state.ball.x, state.ball.y, setPiece.spotX, setPiece.spotY) < 30.0;
-            if (d < 15.0 && ballNearSpot) {
-                // Taker reached the spot while the ball is still gliding —
-                // finish the placement now so he takes control of a real ball.
-                if (setPiece.placeBallAtMs > 0.0) {
-                    state.ball.x = setPiece.spotX;
-                    state.ball.y = setPiece.spotY;
-                    state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
-                    setPiece.placeBallAtMs = 0.0;
-                }
-                setPiece.takerArrived = true;
-                setPiece.walkMs = 0;
-                state.ball.controllerId = taker->id;
-                state.ball.lastTouchTeam = taker->team;
-                state.ball.lastToucherId = taker->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
-                // Goal kick: the 6s award budget (awardSetPiece: "6s total") keeps
-                // counting through the keeper's walk — re-arming on arrival stacked
-                // another full hold on top (observed 10-13s frozen restarts).
-                // Fast free kick: barely any hold — play it before the wall sets.
-                if (setPiece.type != SetPiece::GoalKick) {
-                    double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
-                    phase.actionTimer = setPiece.fast ? 300.0
-                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX))
-                              * (arenaMode ? ARENA_RESTART_SCALE : 1.0);   // Round-21 (arena audit): tighter restart pacing in the duel
-                }
-                // ── Plan the FREE-KICK RUN-UP (owner: "free kicks especially shot
-                // ones should have run ups") now that the taker is on the ball. A
-                // fast FK skips it (the whole point of a fast FK is no theatre).
-                // Deterministic: goal/spot geometry + the taker id, never rng.
-                setPiece.runUpActive = false;
-                if (setPiece.type == SetPiece::FreeKick && !setPiece.fast) {
-                    double gx = goalXFor(taker->team);          // opponent goal-mouth centre
-                    double gy = PITCH_H / 2.0;
-                    double shotDist = std::hypot(gx - setPiece.spotX, gy - setPiece.spotY);
-                    bool central = std::abs(setPiece.spotY - gy) < 170.0;
-                    // Direct-shot range ⇒ aim the run-up at goal; otherwise up-pitch
-                    // toward the opponent goal (the pass target isn't chosen until
-                    // releaseSetPiece — owner's "else toward the opponent goal").
-                    bool shotRange = shotDist < 330.0 && central;
-                    double sdx, sdy;
-                    if (shotRange) { sdx = gx - setPiece.spotX; sdy = gy - setPiece.spotY; }
-                    else           { sdx = fdFor(taker->team);  sdy = 0.0; }
-                    double sl = std::hypot(sdx, sdy);
-                    if (sl < 1e-6) { sdx = fdFor(taker->team); sdy = 0.0; sl = 1.0; }
-                    sdx /= sl; sdy /= sl;
-                    double runDist = shotRange ? RUNUP_DIST_SHOT : RUNUP_DIST_PASS;
-                    // A SHOOTING run-up comes in from an angle (the curler's stutter
-                    // steps around the wall); a short pass is a straight compact
-                    // approach. Side keyed off the taker id — deterministic variety,
-                    // no rng draw. perp = (-dir.y, dir.x).
-                    double perpX = -sdy, perpY = sdx;
-                    double side = (setPiece.takerId % 2 == 0) ? 1.0 : -1.0;
-                    double lat = shotRange ? RUNUP_SIDE_OFFSET * side : 0.0;
-                    setPiece.runUpDirX = sdx;
-                    setPiece.runUpDirY = sdy;
-                    setPiece.runUpStartX = clamp(setPiece.spotX - sdx * runDist + perpX * lat, 6.0, PITCH_W - 6.0);
-                    setPiece.runUpStartY = clamp(setPiece.spotY - sdy * runDist + perpY * lat, 6.0, PITCH_H - 6.0);
-                    setPiece.runUpActive = true;
-                }
-            }
-        }
-    }
-
-    // ══ Free-kick RUN-UP drive ══ (owner: "free kicks especially shot ones should
-    // have run ups"). For the bulk of the hold the taker "sets" at his run-up start
-    // a few steps BEHIND the ball; in the final RUNUP_LEAD_MS he accelerates THROUGH
-    // it and the kick fires the moment he arrives. The generic hold-position at the
-    // foot of this function is suppressed for a run-up FK (this block owns the taker
-    // instead); the ball stays pinned to the spot there until the strike.
-    if (setPiece.takerArrived && setPiece.type == SetPiece::FreeKick && setPiece.runUpActive) {
-        Player* taker = playerById(setPiece.takerId);
-        if (taker) {
-            if (phase.actionTimer > RUNUP_LEAD_MS) {
-                // Set over the ball: steer back to the run-up start (never snap — a
-                // one-tick hop is exactly the teleport the anomaly audit flags),
-                // facing the ball like a taker measuring his steps.
-                double dx = setPiece.runUpStartX - taker->x;
-                double dy = setPiece.runUpStartY - taker->y;
-                double d = std::hypot(dx, dy);
-                double step = std::min(SPEED_SPRINT * (sdt / 1000.0), d);
-                if (d > 0.5) { taker->x += dx / d * step; taker->y += dy / d * step; }
-                taker->targetX = setPiece.runUpStartX;
-                taker->targetY = setPiece.runUpStartY;
-                taker->vx = taker->vy = 0;
-                if (dist(taker->x, taker->y, setPiece.spotX, setPiece.spotY) > 0.5)
-                    taker->facing = std::atan2(setPiece.spotY - taker->y, setPiece.spotX - taker->x);
-            } else {
-                // The approach: dash from the start THROUGH the ball to a point just
-                // beyond it, at an explosive-but-human pace. RUNUP_DASH_SPEED (132)
-                // sits above the LUNGE_DASH_SPEED (120) tackle-dash but is held under
-                // the RUNUP_STRIKE_MAX (180) strike ceiling — so the strike tick is a
-                // stride into the ball, not a sprint-teleport onto it.
-                double dashSpeed = std::min(RUNUP_DASH_SPEED, RUNUP_STRIKE_MAX);
-                double tx = setPiece.spotX + setPiece.runUpDirX * RUNUP_OVERRUN;
-                double ty = setPiece.spotY + setPiece.runUpDirY * RUNUP_OVERRUN;
-                double dx = tx - taker->x, dy = ty - taker->y, d = std::hypot(dx, dy);
-                double step = std::min(dashSpeed * (sdt / 1000.0), d);
-                if (d > 0.1) { taker->x += dx / d * step; taker->y += dy / d * step; }
-                taker->vx = setPiece.runUpDirX * dashSpeed;
-                taker->vy = setPiece.runUpDirY * dashSpeed;
-                taker->targetX = tx;
-                taker->targetY = ty;
-                taker->facing = std::atan2(setPiece.runUpDirY, setPiece.runUpDirX);
-                // Strike-on-arrival: he's reached the ball — bring the scheduled
-                // release forward to THIS tick (the compliance/release gates below
-                // run after this and fire immediately). The kick therefore NEVER
-                // launches with the taker still short of the ball; the countdown
-                // timer survives only as the deadlock backstop.
-                if (dist(taker->x, taker->y, setPiece.spotX, setPiece.spotY) <= RUNUP_STRIKE_DIST
-                    && phase.actionTimer > 0.0)
-                    phase.actionTimer = 0.0;
-            }
-        }
-    }
-
-    // Gate release on rough compliance: extend in 250ms steps (max ~1.2s;
-    // penalties get longer — Law 14 is scenario-guarded to zero violations)
-    // while players are still inside the restraint zone. For most restarts
-    // that means OPPONENTS inside the radius; for a PENALTY the law binds
-    // BOTH teams — anyone but the taker and the keepers must be out of the
-    // box and the arc, so a lingering TEAMMATE must also hold the kick.
-    double complianceCap = setPiece.type == SetPiece::Penalty ? -3000.0 : -1200.0;
-    if (setPiece.takerArrived && phase.actionTimer <= 0 && phase.actionTimer > complianceCap && setPiece.type != SetPiece::ThrowIn) {
-        if (setPiece.type == SetPiece::Penalty) {
-            for (auto& p : state.players) {
-                if (p.id == setPiece.takerId || p.role == Role::GK || p.sentOff) continue;
-                bool inBox = std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0
-                          && std::abs(p.x - goalXFor(setPiece.team)) < PENALTY_AREA_W;
-                bool inArc = dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < 92.0;
-                if (inBox || inArc) {
-                    phase.actionTimer -= sdt;
-                    cacheBallState();
-                    return;
-                }
-            }
-        } else {
-            double minDist = minDistFor(setPiece.type);
-            for (auto& p : state.players) {
-                if (p.team == setPiece.team || p.role == Role::GK) continue;
-                if (dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < minDist * 0.72) {
-                    phase.actionTimer -= sdt; // keep counting the cap down
-                    cacheBallState();
-                    return;
-                }
-            }
-        }
-    }
-    if (setPiece.takerArrived && phase.actionTimer <= 0) {
-        for (auto& a : agents) {
-            if (a->player.id == setPiece.takerId) {
-                a->setPieceHold = false;
-                break;
-            }
-        }
-        Player* taker = playerById(setPiece.takerId);
-        if (taker) placeTakerForRestart(*taker, true);
-        enforceRestartDistance();
-        state.ball.x = setPiece.spotX;
-        state.ball.y = setPiece.spotY;
-        state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
-        setPiece.armed = false;
-        setPiece.reason.clear();
-        setPiece.takerId = -1;
-        setPiece.takerArrived = false;
-        setPiece.runUpActive = false;
-        releaseSetPiece();
-    } else if (!setPiece.takerArrived && phase.actionTimer <= 0) {
-        if (setPiece.takerId >= 0) {
-            Player* taker = playerById(setPiece.takerId);
-            // Still honestly walking and nearly there? Give him another stride
-            // instead of teleporting (the 1550ms goal-kick budget was short).
-            // BUT cap the total wait: resetting actionTimer here used to defeat
-            // its own -2500 gate forever, so a taker shoved out of the 15px
-            // arrival radius by crowding teammates froze the match. The walkMs
-            // backstop force-teleports after 3.5s no matter what.
-            if (taker && dist(taker->x, taker->y, state.ball.x, state.ball.y) < 90.0 && setPiece.walkMs < 3500.0) {
-                phase.actionTimer = 200.0;
-                cacheBallState();
-                return;
-            }
-            if (taker) {
-                // Backstop force-control: make sure a still-gliding ball is
-                // placed first — he must not "control" a ball rolling off-pitch.
-                if (setPiece.placeBallAtMs > 0.0) {
-                    state.ball.x = setPiece.spotX;
-                    state.ball.y = setPiece.spotY;
-                    state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
-                    setPiece.placeBallAtMs = 0.0;
-                }
-                state.ball.controllerId = taker->id;
-                state.ball.lastTouchTeam = taker->team;
-                state.ball.lastToucherId = taker->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
-                taker->x = state.ball.x;
-                taker->y = state.ball.y;
-                taker->targetX = state.ball.x;
-                taker->targetY = state.ball.y;
-                setPiece.takerArrived = true;
-                setPiece.walkMs = 0;
-                // Same GoalKick exclusion as the honest-arrival path: the budget
-                // already ran out (plus the 3.5s walk backstop) — kick it now.
-                if (setPiece.type != SetPiece::GoalKick) {
-                    double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
-                    phase.actionTimer = setPiece.fast ? 300.0
-                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX))
-                              * (arenaMode ? ARENA_RESTART_SCALE : 1.0);   // Round-21 (arena audit): tighter restart pacing in the duel
-                }
-            }
-        }
-    }
-    updateControlledBall(sec);
-    if (setPiece.takerArrived) {
-        Player* taker = playerById(setPiece.takerId);
-        // A run-up FK is owned by the RUN-UP drive block above (hold-at-start,
-        // then the dash) — don't yank the taker back to the generic stand-back
-        // here, which would fight his approach. The ball still pins to the spot
-        // until the strike, exactly as for every other held restart.
-        bool fkRunUp = setPiece.type == SetPiece::FreeKick && setPiece.runUpActive;
-        if (taker && !fkRunUp) placeTakerForRestart(*taker, false);
-        state.ball.x = setPiece.spotX;
-        state.ball.y = setPiece.spotY;
-        state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
-    }
-    cacheBallState();
+    runSetPieceChoreography(spTeam, sdt, sec);
 }
 
 // Round-30: the half-time interval. Exactly the post-goal walk-in motion model
@@ -2923,4 +2423,517 @@ void GameEngine::reassignAgent(Player& p, Role r) {
     if (p.id < 0 || p.id >= (int) agents.size()) return;
     p.role = r;
     agents[p.id] = makeAgentFor(p, *this);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// runSetPieceChoreography() — everything that happens WHILE a restart is set up
+// ══════════════════════════════════════════════════════════════════════════════
+// updateSetPiecePhase was 563 lines doing two separable jobs: advancing the
+// dead-ball clock and the out-ball glide (which it still does), then the whole
+// choreography of walking the taker in, arranging the wall and support, and
+// firing the release. That second job reads only which team has the ball, so it
+// splits off cleanly behind a one-argument interface.
+void GameEngine::runSetPieceChoreography(Team spTeam, double sdt, double sec)
+{
+    auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
+        double fd = fdFor(taker.team);
+        double standBack = standBackFor(setPiece.type);
+        double px = clamp(releaseSpot ? setPiece.spotX : setPiece.spotX - fd * standBack, 5.0, PITCH_W - 5.0);
+        double py = clamp(setPiece.spotY, 5.0, PITCH_H - 5.0);
+        if (releaseSpot) {
+            // Step in briskly, don't snap: the one-tick hop from the stand-back
+            // offset onto the spot was the audit's "carrier teleport" (~14px in
+            // 17ms, 2-5×/15min, scan_anomalies PLAYER_TELEPORT). The kick still
+            // launches from the spot this tick — the taker just strides the last
+            // step like a human instead of blinking; kicking from a stride back
+            // is exactly how every open-play kick already looks (CONTROL_DIST).
+            double dx = px - taker.x, dy = py - taker.y;
+            double d = std::hypot(dx, dy);
+            double step = std::min(SPEED_SPRINT * 2.0 * (sdt / 1000.0), d);
+            if (d > 0.5) {
+                taker.x += dx / d * step;
+                taker.y += dy / d * step;
+            }
+        } else {
+            // Steer to the stand-back point; snapping every tick made the taker
+            // vibrate against moveBallCarrier walking him toward the spot.
+            double dx = px - taker.x, dy = py - taker.y;
+            double d = std::hypot(dx, dy);
+            double step = std::min(SPEED_SPRINT * (sdt / 1000.0), d);
+            if (d > 0.5) {
+                taker.x += dx / d * step;
+                taker.y += dy / d * step;
+            }
+        }
+        taker.targetX = px;
+        taker.targetY = py;
+        taker.vx = taker.vy = 0;
+        if (dist(taker.x, taker.y, setPiece.spotX, setPiece.spotY) > 0.5) {
+            taker.facing = std::atan2(setPiece.spotY - taker.y, setPiece.spotX - taker.x);
+        }
+    };
+    auto enforceRestartDistance = [&]() {
+        double minDist = minDistFor(setPiece.type);
+        Team restartTeam = setPiece.team;
+        double maxStep = SPEED_SPRINT * (sdt / 1000.0);
+        bool pen = setPiece.type == SetPiece::Penalty;
+        double fdAtt = fdFor(restartTeam);
+        if (pen) {
+            // The defending keeper belongs ON his line for a penalty — the
+            // agent's GK early-return left him 6m off it.
+            Team defTeam = restartTeam == Team::Home ? Team::Away : Team::Home;
+            if (Player* dgk = findGK(defTeam)) {
+                double gx = ownGoalXFor(defTeam);
+                double lineX = gx + fdFor(defTeam) * 5.0;
+                double mx = lineX - dgk->x, my = PITCH_H / 2.0 - dgk->y;
+                double md = std::hypot(mx, my);
+                double step = std::min(SPEED_SPRINT * 1.5 * (sdt / 1000.0), md);
+                if (md > 0.5) {
+                    dgk->x += mx / md * step;
+                    dgk->y += my / md * step;
+                }
+            }
+        }
+        for (auto& p : state.players) {
+            // For penalties EVERY outfielder obeys the law — attackers too.
+            bool isTaker = p.id == setPiece.takerId;
+            if (p.role == Role::GK || isTaker) continue;
+            if (!pen && p.team == restartTeam) continue;
+            // Wall members stand at a LEGAL spot (91px down the line, slant
+            // ~93px) — the radial re-target here fired on them mid-WALK every
+            // time their path dipped inside the radius, so the wall never
+            // finished forming (seed 107 5:51: one-man wall).
+            if (!pen && p.wall) continue;
+            double dx = p.x - setPiece.spotX;
+            double dy = p.y - setPiece.spotY;
+            double d = std::hypot(dx, dy);
+            // Penalty law: everyone but taker and keeper must be BEHIND the
+            // spot, not just 96px away — radial spacing let defenders stand
+            // on the goal line and wall up the shot.
+            bool goalSide = pen && (p.x - setPiece.spotX) * fdAtt > -12.0;
+            // Law 14 backstop: OUTSIDE the area too — the radial test alone let
+            // the crowd camp in the 55px strip between the box edge and the
+            // mark (watched replay: ten players inside the area at the kick).
+            double boxEdgeBack = PENALTY_AREA_W - PENALTY_SPOT_FROM_GOAL; // 55
+            bool penBoxIntruder = pen && !goalSide
+                && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 8.0
+                && (p.x - (setPiece.spotX - fdAtt * boxEdgeBack)) * fdAtt > -6.0;
+            // Law 16 (2019): opponents stay OUT of the area until a goal kick
+            // is played — they pressed from inside the box before the kick.
+            bool gkBoxIntruder = false;
+            if (setPiece.type == SetPiece::GoalKick && p.team != restartTeam) {
+                double og = ownGoalXFor(restartTeam);
+                gkBoxIntruder = (p.x - og) * fdAtt < PENALTY_AREA_W + 6.0
+                             && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 10.0;
+            }
+            if (d >= minDist && !goalSide && !penBoxIntruder && !gkBoxIntruder) continue;
+            if (d < 1.0) {
+                double fd = fdFor(p.team);
+                dx = -fd;
+                dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
+                d = std::hypot(dx, dy);
+            }
+            // FK defenders clear the ring toward their OWN GOAL, not to the
+            // radial-nearest (often ball-side) arc point — a forward caught
+            // inside otherwise gets parked LEVEL with the ball, velocity
+            // zeroed, target == own position, and stands there for the whole
+            // hold (seed 305 17:31: Bale, statue on the ball-side arc for 5.6s
+            // while a shooting FK was lined up; owner: "should be running back").
+            if (!pen && setPiece.type == SetPiece::FreeKick && p.team != restartTeam) {
+                double gs = ownGoalXFor(p.team) - setPiece.spotX;   // spot -> own goal
+                if (std::abs(gs) > 1.0) {
+                    dx = (gs > 0 ? 1.0 : -1.0) * std::max(std::abs(dx), 20.0);
+                    d = std::hypot(dx, dy);
+                }
+            }
+            double tx = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
+            double ty = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
+            if (goalSide) {
+                // Behind the box EDGE in one move, not just behind the mark —
+                // re-resolving a goal-side player to 40px back still left him
+                // standing inside the area.
+                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
+                double sideOff = p.y >= setPiece.spotY ? 1.0 : -1.0;
+                ty = clamp(setPiece.spotY + sideOff * std::max(std::abs(p.y - setPiece.spotY), 90.0), 5.0, PITCH_H - 5.0);
+            } else if (penBoxIntruder) {
+                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
+                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
+            } else if (gkBoxIntruder) {
+                double og = ownGoalXFor(restartTeam);
+                tx = clamp(og + fdAtt * (PENALTY_AREA_W + 16.0), 5.0, PITCH_W - 5.0);
+                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
+            }
+            // Jog out of the restart radius rather than teleporting there.
+            // Urgent pace: at walking speed the agents' own pull toward the
+            // ball won the tug-of-war and FKs released with opponents at 5m.
+            double mx = tx - p.x, my = ty - p.y;
+            double md = std::hypot(mx, my);
+            if (md > 0.1) {
+                double step = std::min(maxStep * 1.9, md);
+                p.x += mx / md * step;
+                p.y += my / md * step;
+                p.vx = mx / md * SPEED_SPRINT;
+                p.vy = my / md * SPEED_SPRINT;
+            } else {
+                p.vx = p.vy = 0;
+            }
+            p.targetX = tx;
+            p.targetY = ty;
+        }
+    };
+
+    if (setPiece.takerId >= 0) {
+        for (auto& a : agents) {
+            if (a->player.id == setPiece.takerId) {
+                a->setPieceHold = true;
+                break;
+            }
+        }
+    }
+
+    tickAgents(sdt, false);
+    // Restart choreography is AUTHORITATIVE: run it after tickAgents so the
+    // corner/FK/throw shape targets stand. It used to run before — each
+    // player's own shape decision then overwrote his set-piece target on
+    // every decision tick, a tug-of-war that left the box crowd walking in
+    // circles and never arriving (watched replay 0:27: ONE attacker in the
+    // box after nine seconds of an armed corner, everyone else stuck 150px
+    // short with the right targets).
+    for (auto& a : agents) {
+        a->setPiecePositioning(setPiece.type, spTeam);
+    }
+    moveBallCarrier(sdt);
+    separateTeammates(sdt);
+    enforceRestartDistance();
+
+    // ── Defensive wall / block, that actually FORMS, with hurry ──
+    // setPiecePositioning writes the wall + block-shape targets (agent_
+    // setpiece.cpp, FreeKick defending branch) AFTER tickAgents' movement
+    // integrator has already run for the tick, and nothing downstream walks a
+    // defender to that target — so the wall rendered (p.wall=1) but no bodies
+    // were ever there (watched replay 0:53: a 21m central FK with no wall, the
+    // defenders strolling their open-play shape). Walk every defending
+    // outfielder to his set-piece target at urgent pace — same proven mover as
+    // the intruder push above — so the block sets in ~2s of the hold. Only for
+    // a dangerous FreeKick (near the defending goal); elsewhere no wall forms
+    // and this is a no-op.
+    if (setPiece.type == SetPiece::FreeKick && !setPiece.fast) {
+        Team defTeam = setPiece.team == Team::Home ? Team::Away : Team::Home;
+        double defGoalX = ownGoalXFor(defTeam);
+        bool dangerFK = std::abs(setPiece.spotX - defGoalX) < 300.0;
+        if (dangerFK) {
+            double step = SPEED_SPRINT * 1.5 * (sdt / 1000.0);
+            for (auto& p : state.players) {
+                if (p.team != defTeam || p.role == Role::GK || p.sentOff) continue;
+                double mx = p.targetX - p.x, my = p.targetY - p.y, md = std::hypot(mx, my);
+                if (md > 2.0) {
+                    double st = std::min(step, md);
+                    p.x += mx / md * st;
+                    p.y += my / md * st;
+                    p.vx = mx / md * SPEED_SPRINT;
+                    p.vy = my / md * SPEED_SPRINT;
+                    p.facing = std::atan2(state.ball.y - p.y, state.ball.x - p.x); // watch the ball
+                }
+            }
+        }
+    }
+
+    // Keepers are NOT statues during restarts: fixedUpdate's armed
+    // early-return skips updateGK entirely, so a keeper stood wherever the
+    // previous phase left him through every corner/FK hold (watched replay
+    // 0:34-0:36: 80px off his line, below the post, for six seconds — the
+    // agent's setPiecePositioning early-returns for GKs too). Position each
+    // keeper normally, except the taker (the restart walk owns him) and the
+    // defending keeper at a penalty (the Law 14 walk owns him).
+    for (Team tm : {Team::Home, Team::Away}) {
+        Player* k = findGK(tm);
+        if (!k || k->sentOff || k->id == setPiece.takerId) continue;
+        if (setPiece.type == SetPiece::Penalty && tm != setPiece.team) continue;
+        updateOneGK(*k, sec);
+    }
+
+    // Watchdog: a malformed arm (no taker, no controller) must never freeze
+    // the match — disarm and let open play resume.
+    if (setPiece.armed && setPiece.takerId < 0 && state.ball.controllerId < 0 && setPiece.type != SetPiece::GoalKick && phase.actionTimer <= 0) {
+        setPiece.armed = false;
+        setPiece.type = SetPiece::None;
+        setPiece.reason.clear();
+        setPiece.placeBallAtMs = 0.0;
+        return;
+    }
+    if (setPiece.type == SetPiece::GoalKick && phase.actionTimer <= 0 && state.ball.controllerId >= 0) {
+        setPiece.armed = false;
+        setPiece.reason.clear();
+        releaseSetPiece();
+        cacheBallState();
+        return;
+    }
+
+    // Gaylord seam: a designated taker (fk/corner/pen/long_throw_taker directive) takes the
+    // restart instead of the default position-based pick. No designation => -1 => no override
+    // => golden byte-identical. Switch before the taker has arrived; restart his walk.
+    if (setPiece.armed && !setPiece.takerArrived) {
+        int designated = designatedTakerFor(setPiece.type, setPiece.team);
+        if (designated >= 0 && setPiece.takerId != designated) {
+            setPiece.takerId = designated;
+            setPiece.walkMs = 0;
+        }
+    }
+
+    // While the out-ball is still gliding, the taker walks to the SPOT (not
+    // the rolling ball — chasing it would drag him off the pitch).
+    double takerTX = setPiece.placeBallAtMs > 0.0 ? setPiece.spotX : state.ball.x;
+    double takerTY = setPiece.placeBallAtMs > 0.0 ? setPiece.spotY : state.ball.y;
+    if (setPiece.takerId >= 0 && !setPiece.takerArrived) {
+        setPiece.walkMs += sdt;
+        Player* taker = playerById(setPiece.takerId);
+        if (taker) {
+            double dx = takerTX - taker->x;
+            double dy = takerTY - taker->y;
+            double d = std::hypot(dx, dy);
+            if (d > 1.0) {
+                double speed = attrFactor(taker->attrs.speed) * SPEED_SPRINT;
+                double step = std::min(speed * (sdt / 1000.0), d);
+                taker->x += (dx / d) * step;
+                taker->y += (dy / d) * step;
+                taker->facing = std::atan2(dy, dx);
+            }
+            taker->targetX = takerTX;
+            taker->targetY = takerTY;
+        }
+    }
+
+    if (setPiece.takerId >= 0 && !setPiece.takerArrived) {
+        Player* taker = playerById(setPiece.takerId);
+        if (taker) {
+            double d = dist(taker->x, taker->y, takerTX, takerTY);
+            // If the taker is ALREADY at the spot (e.g. he just took a corner from
+            // this exact flag) but the awarded ball is still far away mid-glide,
+            // do NOT complete the placement — that snapped a ball from the middle
+            // of the box to the flag in one tick (watched replay seed 103 0:30).
+            // He waits for the glide; placement completes when the ball is near.
+            bool ballNearSpot = setPiece.placeBallAtMs <= 0.0
+                             || dist(state.ball.x, state.ball.y, setPiece.spotX, setPiece.spotY) < 30.0;
+            if (d < 15.0 && ballNearSpot) {
+                // Taker reached the spot while the ball is still gliding —
+                // finish the placement now so he takes control of a real ball.
+                if (setPiece.placeBallAtMs > 0.0) {
+                    state.ball.x = setPiece.spotX;
+                    state.ball.y = setPiece.spotY;
+                    state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
+                    setPiece.placeBallAtMs = 0.0;
+                }
+                setPiece.takerArrived = true;
+                setPiece.walkMs = 0;
+                state.ball.controllerId = taker->id;
+                state.ball.lastTouchTeam = taker->team;
+                state.ball.lastToucherId = taker->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+                // Goal kick: the 6s award budget (awardSetPiece: "6s total") keeps
+                // counting through the keeper's walk — re-arming on arrival stacked
+                // another full hold on top (observed 10-13s frozen restarts).
+                // Fast free kick: barely any hold — play it before the wall sets.
+                if (setPiece.type != SetPiece::GoalKick) {
+                    double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
+                    phase.actionTimer = setPiece.fast ? 300.0
+                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX))
+                              * (arenaMode ? ARENA_RESTART_SCALE : 1.0);   // Round-21 (arena audit): tighter restart pacing in the duel
+                }
+                // ── Plan the FREE-KICK RUN-UP (owner: "free kicks especially shot
+                // ones should have run ups") now that the taker is on the ball. A
+                // fast FK skips it (the whole point of a fast FK is no theatre).
+                // Deterministic: goal/spot geometry + the taker id, never rng.
+                setPiece.runUpActive = false;
+                if (setPiece.type == SetPiece::FreeKick && !setPiece.fast) {
+                    double gx = goalXFor(taker->team);          // opponent goal-mouth centre
+                    double gy = PITCH_H / 2.0;
+                    double shotDist = std::hypot(gx - setPiece.spotX, gy - setPiece.spotY);
+                    bool central = std::abs(setPiece.spotY - gy) < 170.0;
+                    // Direct-shot range ⇒ aim the run-up at goal; otherwise up-pitch
+                    // toward the opponent goal (the pass target isn't chosen until
+                    // releaseSetPiece — owner's "else toward the opponent goal").
+                    bool shotRange = shotDist < 330.0 && central;
+                    double sdx, sdy;
+                    if (shotRange) { sdx = gx - setPiece.spotX; sdy = gy - setPiece.spotY; }
+                    else           { sdx = fdFor(taker->team);  sdy = 0.0; }
+                    double sl = std::hypot(sdx, sdy);
+                    if (sl < 1e-6) { sdx = fdFor(taker->team); sdy = 0.0; sl = 1.0; }
+                    sdx /= sl; sdy /= sl;
+                    double runDist = shotRange ? RUNUP_DIST_SHOT : RUNUP_DIST_PASS;
+                    // A SHOOTING run-up comes in from an angle (the curler's stutter
+                    // steps around the wall); a short pass is a straight compact
+                    // approach. Side keyed off the taker id — deterministic variety,
+                    // no rng draw. perp = (-dir.y, dir.x).
+                    double perpX = -sdy, perpY = sdx;
+                    double side = (setPiece.takerId % 2 == 0) ? 1.0 : -1.0;
+                    double lat = shotRange ? RUNUP_SIDE_OFFSET * side : 0.0;
+                    setPiece.runUpDirX = sdx;
+                    setPiece.runUpDirY = sdy;
+                    setPiece.runUpStartX = clamp(setPiece.spotX - sdx * runDist + perpX * lat, 6.0, PITCH_W - 6.0);
+                    setPiece.runUpStartY = clamp(setPiece.spotY - sdy * runDist + perpY * lat, 6.0, PITCH_H - 6.0);
+                    setPiece.runUpActive = true;
+                }
+            }
+        }
+    }
+
+    // ══ Free-kick RUN-UP drive ══ (owner: "free kicks especially shot ones should
+    // have run ups"). For the bulk of the hold the taker "sets" at his run-up start
+    // a few steps BEHIND the ball; in the final RUNUP_LEAD_MS he accelerates THROUGH
+    // it and the kick fires the moment he arrives. The generic hold-position at the
+    // foot of this function is suppressed for a run-up FK (this block owns the taker
+    // instead); the ball stays pinned to the spot there until the strike.
+    if (setPiece.takerArrived && setPiece.type == SetPiece::FreeKick && setPiece.runUpActive) {
+        Player* taker = playerById(setPiece.takerId);
+        if (taker) {
+            if (phase.actionTimer > RUNUP_LEAD_MS) {
+                // Set over the ball: steer back to the run-up start (never snap — a
+                // one-tick hop is exactly the teleport the anomaly audit flags),
+                // facing the ball like a taker measuring his steps.
+                double dx = setPiece.runUpStartX - taker->x;
+                double dy = setPiece.runUpStartY - taker->y;
+                double d = std::hypot(dx, dy);
+                double step = std::min(SPEED_SPRINT * (sdt / 1000.0), d);
+                if (d > 0.5) { taker->x += dx / d * step; taker->y += dy / d * step; }
+                taker->targetX = setPiece.runUpStartX;
+                taker->targetY = setPiece.runUpStartY;
+                taker->vx = taker->vy = 0;
+                if (dist(taker->x, taker->y, setPiece.spotX, setPiece.spotY) > 0.5)
+                    taker->facing = std::atan2(setPiece.spotY - taker->y, setPiece.spotX - taker->x);
+            } else {
+                // The approach: dash from the start THROUGH the ball to a point just
+                // beyond it, at an explosive-but-human pace. RUNUP_DASH_SPEED (132)
+                // sits above the LUNGE_DASH_SPEED (120) tackle-dash but is held under
+                // the RUNUP_STRIKE_MAX (180) strike ceiling — so the strike tick is a
+                // stride into the ball, not a sprint-teleport onto it.
+                double dashSpeed = std::min(RUNUP_DASH_SPEED, RUNUP_STRIKE_MAX);
+                double tx = setPiece.spotX + setPiece.runUpDirX * RUNUP_OVERRUN;
+                double ty = setPiece.spotY + setPiece.runUpDirY * RUNUP_OVERRUN;
+                double dx = tx - taker->x, dy = ty - taker->y, d = std::hypot(dx, dy);
+                double step = std::min(dashSpeed * (sdt / 1000.0), d);
+                if (d > 0.1) { taker->x += dx / d * step; taker->y += dy / d * step; }
+                taker->vx = setPiece.runUpDirX * dashSpeed;
+                taker->vy = setPiece.runUpDirY * dashSpeed;
+                taker->targetX = tx;
+                taker->targetY = ty;
+                taker->facing = std::atan2(setPiece.runUpDirY, setPiece.runUpDirX);
+                // Strike-on-arrival: he's reached the ball — bring the scheduled
+                // release forward to THIS tick (the compliance/release gates below
+                // run after this and fire immediately). The kick therefore NEVER
+                // launches with the taker still short of the ball; the countdown
+                // timer survives only as the deadlock backstop.
+                if (dist(taker->x, taker->y, setPiece.spotX, setPiece.spotY) <= RUNUP_STRIKE_DIST
+                    && phase.actionTimer > 0.0)
+                    phase.actionTimer = 0.0;
+            }
+        }
+    }
+
+    // Gate release on rough compliance: extend in 250ms steps (max ~1.2s;
+    // penalties get longer — Law 14 is scenario-guarded to zero violations)
+    // while players are still inside the restraint zone. For most restarts
+    // that means OPPONENTS inside the radius; for a PENALTY the law binds
+    // BOTH teams — anyone but the taker and the keepers must be out of the
+    // box and the arc, so a lingering TEAMMATE must also hold the kick.
+    double complianceCap = setPiece.type == SetPiece::Penalty ? -3000.0 : -1200.0;
+    if (setPiece.takerArrived && phase.actionTimer <= 0 && phase.actionTimer > complianceCap && setPiece.type != SetPiece::ThrowIn) {
+        if (setPiece.type == SetPiece::Penalty) {
+            for (auto& p : state.players) {
+                if (p.id == setPiece.takerId || p.role == Role::GK || p.sentOff) continue;
+                bool inBox = std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0
+                          && std::abs(p.x - goalXFor(setPiece.team)) < PENALTY_AREA_W;
+                bool inArc = dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < 92.0;
+                if (inBox || inArc) {
+                    phase.actionTimer -= sdt;
+                    cacheBallState();
+                    return;
+                }
+            }
+        } else {
+            double minDist = minDistFor(setPiece.type);
+            for (auto& p : state.players) {
+                if (p.team == setPiece.team || p.role == Role::GK) continue;
+                if (dist(p.x, p.y, setPiece.spotX, setPiece.spotY) < minDist * 0.72) {
+                    phase.actionTimer -= sdt; // keep counting the cap down
+                    cacheBallState();
+                    return;
+                }
+            }
+        }
+    }
+    if (setPiece.takerArrived && phase.actionTimer <= 0) {
+        for (auto& a : agents) {
+            if (a->player.id == setPiece.takerId) {
+                a->setPieceHold = false;
+                break;
+            }
+        }
+        Player* taker = playerById(setPiece.takerId);
+        if (taker) placeTakerForRestart(*taker, true);
+        enforceRestartDistance();
+        state.ball.x = setPiece.spotX;
+        state.ball.y = setPiece.spotY;
+        state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
+        setPiece.armed = false;
+        setPiece.reason.clear();
+        setPiece.takerId = -1;
+        setPiece.takerArrived = false;
+        setPiece.runUpActive = false;
+        releaseSetPiece();
+    } else if (!setPiece.takerArrived && phase.actionTimer <= 0) {
+        if (setPiece.takerId >= 0) {
+            Player* taker = playerById(setPiece.takerId);
+            // Still honestly walking and nearly there? Give him another stride
+            // instead of teleporting (the 1550ms goal-kick budget was short).
+            // BUT cap the total wait: resetting actionTimer here used to defeat
+            // its own -2500 gate forever, so a taker shoved out of the 15px
+            // arrival radius by crowding teammates froze the match. The walkMs
+            // backstop force-teleports after 3.5s no matter what.
+            if (taker && dist(taker->x, taker->y, state.ball.x, state.ball.y) < 90.0 && setPiece.walkMs < 3500.0) {
+                phase.actionTimer = 200.0;
+                cacheBallState();
+                return;
+            }
+            if (taker) {
+                // Backstop force-control: make sure a still-gliding ball is
+                // placed first — he must not "control" a ball rolling off-pitch.
+                if (setPiece.placeBallAtMs > 0.0) {
+                    state.ball.x = setPiece.spotX;
+                    state.ball.y = setPiece.spotY;
+                    state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
+                    setPiece.placeBallAtMs = 0.0;
+                }
+                state.ball.controllerId = taker->id;
+                state.ball.lastTouchTeam = taker->team;
+                state.ball.lastToucherId = taker->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+                taker->x = state.ball.x;
+                taker->y = state.ball.y;
+                taker->targetX = state.ball.x;
+                taker->targetY = state.ball.y;
+                setPiece.takerArrived = true;
+                setPiece.walkMs = 0;
+                // Same GoalKick exclusion as the honest-arrival path: the budget
+                // already ran out (plus the 3.5s walk backstop) — kick it now.
+                if (setPiece.type != SetPiece::GoalKick) {
+                    double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
+                    phase.actionTimer = setPiece.fast ? 300.0
+                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX))
+                              * (arenaMode ? ARENA_RESTART_SCALE : 1.0);   // Round-21 (arena audit): tighter restart pacing in the duel
+                }
+            }
+        }
+    }
+    updateControlledBall(sec);
+    if (setPiece.takerArrived) {
+        Player* taker = playerById(setPiece.takerId);
+        // A run-up FK is owned by the RUN-UP drive block above (hold-at-start,
+        // then the dash) — don't yank the taker back to the generic stand-back
+        // here, which would fight his approach. The ball still pins to the spot
+        // until the strike, exactly as for every other held restart.
+        bool fkRunUp = setPiece.type == SetPiece::FreeKick && setPiece.runUpActive;
+        if (taker && !fkRunUp) placeTakerForRestart(*taker, false);
+        state.ball.x = setPiece.spotX;
+        state.ball.y = setPiece.spotY;
+        state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
+    }
+    cacheBallState();
 }
