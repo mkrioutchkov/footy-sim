@@ -9,14 +9,44 @@
 // scorePassToTarget() — scores a single teammate as a pass target
 // Returns nullopt if the target should be filtered out.
 // ══════════════════════════════════════════════════════════════════════════════
-std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& per,
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PassLook — what the gate pass establishes about one candidate pass
+// ══════════════════════════════════════════════════════════════════════════════
+// scorePassToTarget used to be a single 1148-line function: ~180 lines of
+// filtering, then ~950 lines of scoring that silently depended on a dozen values
+// the filter had computed along the way. Splitting the filter out needs that
+// dependency written down, which is this struct — the complete set of facts the
+// gates hand downstream. Nothing below recomputes them.
+struct PassLook {
+    double d = 0.0;               // passer -> target distance
+    double dx = 0.0, dy = 0.0;    // and its components
+    double ls = 0.0;              // squared lane length (dx*dx + dy*dy)
+    double fp = 0.0;              // forward gain toward the opposing goal
+    double rs = 0.0;              // passer's passing attribute factor
+    double rr = 0.0;              // receiver's positioning attribute factor
+    int bl = 0;                   // bodies on the lane
+    int blClosing = 0;            // ...of which are converging INTO it (round-24 pricing)
+    double blDepthSum = 0.0;      // dead-centre depth sum, for the unpressed surcharge
+    double laneRisk = 0.0;
+    double nearestOppRecv = 1e9;  // nearest opponent to the RECEIVE point
+    int receiverPressure = 0;
+    bool keeperOutlet = false;    // target is our GK, as urgent need or deliberate recycle
+};
+
+// Filters a candidate pass target and, when it survives, records the geometry and
+// traffic facts the scoring phases read. Returns false to drop the target — the
+// early-outs here are the "never even consider this ball" rules, kept apart from
+// the "how good is this ball" arithmetic that follows.
+bool PlayerAI::passTargetGates(Player& t, const Perception& per,
     double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
-    bool urgentKeeperNeed, bool movingTowardOwnGoal, bool corneredEscape, bool oppClosingSoon)
+    bool urgentKeeperNeed, bool movingTowardOwnGoal, bool corneredEscape, bool oppClosingSoon,
+    PassLook& look)
 {
     const auto& p = player;
 
     // ── Gate checks ──
-    if (t.sentOff) return std::nullopt;   // never pass to an ejected team-mate (parked off-pitch)
+    if (t.sentOff) return false;   // never pass to an ejected team-mate (parked off-pitch)
     // The keeper is a valid pass target when urgently needed, OR as a deliberate
     // SAFE recycle for a pressed defender / deep midfielder in his own third — he
     // then distributes safely (play out from the back). The score below keeps it
@@ -48,15 +78,15 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // blew to 112 then 96 backpasses/90 (real ~30-40). The safe-angle support
     // drop + oppClosingSoon term cover that moment without the flood.
     bool keeperOutlet = t.role == Role::GK && ((urgentKeeperNeed && !hasClearOutfieldOutlet) || keeperRecycle);
-    if (t.role == Role::GK && !keeperOutlet) return std::nullopt;
+    if (t.role == Role::GK && !keeperOutlet) return false;
     double d = dist(p.x, p.y, t.x, t.y);
     // Round-29 (owner 0:18): the anti-ping-pong minimum (58px) barred the natural
     // 5m escape ball for a SWARMED carrier — real players play the short give
     // under a 2-man press constantly. Waive it down to 30px at pressureCount>=2;
     // calm play keeps the full minimum so sub-6m ping-pong stays dead.
     double minPassD = per.pressureCount >= 2 ? 30.0 : PASS_MIN_DISTANCE;
-    if (d < minPassD || d > (keeperOutlet ? PASS_MAX_DISTANCE_KEEPER : PASS_MAX_DISTANCE)) return std::nullopt;
-    if (!keeperOutlet && engine.isOffsideTargetPerceived(p, t)) return std::nullopt;
+    if (d < minPassD || d > (keeperOutlet ? PASS_MAX_DISTANCE_KEEPER : PASS_MAX_DISTANCE)) return false;
+    if (!keeperOutlet && engine.isOffsideTargetPerceived(p, t)) return false;
 
     int bl = 0;
     int onBootBl = 0;
@@ -70,7 +100,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // doubled marathon carries).
     double blDepthSum = 0.0;
     double dx = t.x - p.x, dy = t.y - p.y, ls = dx * dx + dy * dy;
-    if (ls < 1.0) return std::nullopt;
+    if (ls < 1.0) return false;
 
     int pointBlank = 0;
     // A ball struck before it's settled cannot be THREADED past a close man
@@ -175,7 +205,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // swarmed you are (watched replay 0:38: a pressed Messi fired a hard
     // backpass straight into Busquets 7px off the lane because the veto was
     // disabled at pressureCount>=2; he should shield/spin instead).
-    if (bl >= 3 || pointBlank > 0) return std::nullopt;
+    if (bl >= 3 || pointBlank > 0) return false;
     double rs = attrFactor(p.attrs.passing);
     double rr = attrFactor(t.attrs.positioning);
 
@@ -194,7 +224,32 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (pitch::distToOwnGoal(t.x, o.team) < PITCH_W * 0.25
             && dist(o.x, o.y, t.x, t.y) < PASS_RECEIVER_PRESS_MAX * 1.4) receiverPressure++;
     }
-    if (receiverPressure >= 3) return std::nullopt;
+    if (receiverPressure >= 3) return false;
+
+    look = PassLook{d, dx, dy, ls, fp, rs, rr, bl, blClosing, blDepthSum,
+                    laneRisk, nearestOppRecv, receiverPressure, keeperOutlet};
+    return true;
+}
+
+std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& per,
+    double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
+    bool urgentKeeperNeed, bool movingTowardOwnGoal, bool corneredEscape, bool oppClosingSoon)
+{
+    const auto& p = player;
+
+    PassLook look;
+    if (!passTargetGates(t, per, fd, ownGoalX, ownProgress, hasClearOutfieldOutlet,
+                         urgentKeeperNeed, movingTowardOwnGoal, corneredEscape,
+                         oppClosingSoon, look)) return std::nullopt;
+    // Unpacked into locals so the scoring below reads as formulas rather than
+    // field accesses. blClosing is the one value the pricing still adjusts.
+    const double d = look.d, dx = look.dx, dy = look.dy, ls = look.ls;
+    const double fp = look.fp, rs = look.rs, rr = look.rr;
+    const double blDepthSum = look.blDepthSum, laneRisk = look.laneRisk;
+    const double nearestOppRecv = look.nearestOppRecv;
+    const int bl = look.bl, receiverPressure = look.receiverPressure;
+    const bool keeperOutlet = look.keeperOutlet;
+    int blClosing = look.blClosing;
 
     // ── Base scoring ──
     // Chip-aware blocker pricing: passBallTo already LOFTS a blocked lane at
@@ -831,6 +886,69 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
         if (assignment->role == DefensiveTask::HoldWidth && std::abs(t.y - p.y) > 120.0) sc += 0.08;
     }
 
+    scoreThroughBallFamily(t, per, fd, look, completion, isWideDelivery, targetWide,
+                           targetGoalDist, sc, pur);
+
+    // ── Final adjustments ──
+    sc += std::min(holdTicks / 260.0, 0.20);
+
+    if (receiverPressure >= 2) sc -= 0.25;
+    if (per.pressureCount >= 2 && bl == 0) sc += 0.10;
+    if (per.pressureCount >= 2 && bl >= 2) sc -= 0.15;
+
+    if (isCentralMidfielder() && t.role == Role::CF && receiverPressure >= 1 && bl <= 1)
+        sc += attrFactor(p.attrs.creativity) * 0.10;
+
+    auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
+    if (bb.oneTwo.has_value()
+        && bb.oneTwo->from == t.id
+        && bb.oneTwo->to == p.id
+        && engine.state.clockMs < bb.oneTwo->expires) {
+        sc += 0.30;
+        // The wall pass: reward returning it into the original passer's run.
+        bool runnerInStride = t.vx * fdFor(p.team) > 12.0;
+        if (runnerInStride && fp > 10.0) sc += 0.14;
+    }
+
+    // target_player directive: steer this passer's distribution toward a man.
+    if (engine.directiveBias[p.id].passTargetId == t.id)
+        sc += engine.directiveBias[p.id].passTargetBias;
+
+    if (sc <= 0.0) return std::nullopt;
+
+    return Action{
+        ActionType::Pass,
+        clamp(sc, 0.0, 1.0),
+        &t,
+        0, 0,
+        pur,
+        ActionAudit{ d, fp, completion, bl, receiverPressure, 0, 0 }
+    };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// The through-ball family — every class of ball played INTO space ahead of the
+// receiver rather than to his feet: the plain through ball / wide outlet, the
+// killer-ball projection that leads a runner, the genuinely-open advanced man,
+// and the led-runner loft. Split out of scorePassToTarget because it is 290
+// lines that only ever adjust `sc`, and reads (never writes) everything else —
+// so it can be understood, and re-tuned, without holding the rest in your head.
+//
+// `look` carries the gate pass's facts; the remaining parameters are values the
+// scoring phases above computed. Nothing declared here outlives the call.
+// ══════════════════════════════════════════════════════════════════════════════
+void PlayerAI::scoreThroughBallFamily(Player& t, const Perception& per, double fd,
+    const PassLook& look, double completion, bool isWideDelivery, bool targetWide,
+    double targetGoalDist, double& sc, ActionPurpose& pur)
+{
+    const auto& p = player;
+    // Pure getter (engine.h:755) — re-looked-up here rather than threaded through
+    // the signature, which would need GameEngine's nested type in agent.h.
+    const auto* assignment = engine.assignmentFor(t.id);
+    const double d = look.d, fp = look.fp, nearestOppRecv = look.nearestOppRecv;
+    const double laneRisk = look.laneRisk;
+    const int bl = look.bl, receiverPressure = look.receiverPressure;
+
     // ── Through ball / wide outlet ──
     double offsideLine = engine.offsideLineFor(p.team);
     double onsideGap = std::isnan(offsideLine) ? 1e9 : (offsideLine - t.x) * fd;
@@ -1123,40 +1241,4 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
                                  BLOCKER_PERP_FREEKICK * 0.75, 0.05, 0.94) == 0)
             sc += 0.20;
     }
-
-    // ── Final adjustments ──
-    sc += std::min(holdTicks / 260.0, 0.20);
-
-    if (receiverPressure >= 2) sc -= 0.25;
-    if (per.pressureCount >= 2 && bl == 0) sc += 0.10;
-    if (per.pressureCount >= 2 && bl >= 2) sc -= 0.15;
-
-    if (isCentralMidfielder() && t.role == Role::CF && receiverPressure >= 1 && bl <= 1)
-        sc += attrFactor(p.attrs.creativity) * 0.10;
-
-    auto& bb = engine.blackboards[GameEngine::teamIndex(p.team)];
-    if (bb.oneTwo.has_value()
-        && bb.oneTwo->from == t.id
-        && bb.oneTwo->to == p.id
-        && engine.state.clockMs < bb.oneTwo->expires) {
-        sc += 0.30;
-        // The wall pass: reward returning it into the original passer's run.
-        bool runnerInStride = t.vx * fdFor(p.team) > 12.0;
-        if (runnerInStride && fp > 10.0) sc += 0.14;
-    }
-
-    // target_player directive: steer this passer's distribution toward a man.
-    if (engine.directiveBias[p.id].passTargetId == t.id)
-        sc += engine.directiveBias[p.id].passTargetBias;
-
-    if (sc <= 0.0) return std::nullopt;
-
-    return Action{
-        ActionType::Pass,
-        clamp(sc, 0.0, 1.0),
-        &t,
-        0, 0,
-        pur,
-        ActionAudit{ d, fp, completion, bl, receiverPressure, 0, 0 }
-    };
 }

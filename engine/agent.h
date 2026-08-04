@@ -300,6 +300,18 @@ private:
     std::optional<Action> scorePassToTarget(Player& target, const Perception& per,
         double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
         bool urgentKeeperNeed, bool movingTowardOwnGoal, bool corneredEscape, bool oppClosingSoon);
+    // The filter half of scorePassToTarget, and the facts it hands the scoring
+    // half. Defined in agent_pass_helpers.cpp; see PassLook there.
+    bool                  passTargetGates(Player& target, const Perception& per,
+        double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
+        bool urgentKeeperNeed, bool movingTowardOwnGoal, bool corneredEscape, bool oppClosingSoon,
+        struct PassLook& look);
+    // Balls played INTO space ahead of the receiver (through ball / wide outlet,
+    // killer-ball projection, open advanced man, led-runner loft). Adjusts `sc`
+    // only — it reads everything else.
+    void                  scoreThroughBallFamily(Player& target, const Perception& per, double fd,
+        const struct PassLook& look, double completion, bool isWideDelivery, bool targetWide,
+        double targetGoalDist, double& sc, ActionPurpose& pur);
     Perception            getCachedPerception();
     Perception            perceive();
     void                  applyMovement(double sdt);
