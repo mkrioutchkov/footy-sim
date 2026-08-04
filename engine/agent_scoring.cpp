@@ -32,3 +32,17 @@ CarrierPressure assessCarrierPressure(GameEngine& engine, const Player& p) {
 
 // cp() — can-pass
 // ══════════════════════════════════════════════════════════════════════════════
+
+// ── Narrow views onto engine internals (see agent.h) ──
+// PlayerAI is the ONLY friend of GameEngine among the agent classes; these three
+// accessors are how the role subclasses reach the internals they need, so the
+// engine's friend list does not have to name all six of them.
+bool PlayerAI::directiveBallPlaying() const {
+    return engine.directiveBias[player.id].ballPlaying;
+}
+double PlayerAI::gkDistributeTimer() const {
+    return engine.goalKickMonitor.distributeTimer;
+}
+void PlayerAI::releaseGkDistribution() {
+    engine.releaseGoalkeeperDistribution(player);
+}

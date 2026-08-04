@@ -422,3 +422,28 @@ void GameEngine::creditGoal(int scorerId) {
         }
     }
 }
+
+// Make the engine consistent with a world that was overwritten from outside
+// (main.cpp's --snapshot-in path: positions, velocities, ball, clock and score
+// are assigned straight onto `state`, then this runs).
+//
+// This used to live in main.cpp, which meant the CLI was hand-maintaining engine
+// invariants across a restart boundary — every new piece of restart state was a
+// silent staleness bug waiting in the snapshot path. The engine owns them now.
+//
+// Live-ball housekeeping: no kickoff staging, no armed restart; the carry tracker
+// starts on the snapshot's controller so dwell/marathon logic measures from the
+// resume rather than from a phantom past.
+void GameEngine::resumeFromSnapshot() {
+    phase.kickoffPhase = false;
+    phase.actionTimer = 0;
+    setPiece.armed = false;
+    setPiece.type = SetPiece::None;
+    setPiece.placeBallAtMs = 0.0;
+    carrierTracker.carryTrackerId = state.ball.controllerId;
+    carrierTracker.carryStartMs = state.clockMs;
+    carrierTracker.carryStartX = state.ball.x;
+    if (Player* rc = playerById(state.ball.controllerId))
+        carrierTracker.carryStartFacing = rc->facing;
+    carrierTracker.marathonReleased = false;
+}

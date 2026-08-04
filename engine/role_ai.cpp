@@ -99,7 +99,7 @@ void CBPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isCon
     // less so. Unflagged CBs keep the full -0.22 valve (byte-identical default).
     if (isController && pitch::inOwnHalf(player.x, player.team)) {
         if (pressedTightOrClosing()) {
-            double dribblePenalty = engine.directiveBias[player.id].ballPlaying ? -0.08 : -0.22;
+            double dribblePenalty = directiveBallPlaying() ? -0.08 : -0.22;
             for (auto& a : actions) {
                 if (a.type == ActionType::Dribble) a.score += dribblePenalty;
                 if (a.type == ActionType::Pass)    a.score += 0.05;

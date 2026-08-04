@@ -346,20 +346,9 @@ int main(int argc, char* argv[]) {
                 p.facing = jp.value("facing", p.facing);
                 p.stamina = jp.value("stamina", p.stamina);
             }
-        // Live-ball housekeeping: no kickoff staging, no armed restart; the
-        // carry tracker starts on the snapshot's controller so dwell/marathon
-        // logic measures from the resume, not from a phantom past.
-        engine.phase.kickoffPhase = false;
-        engine.phase.actionTimer = 0;
-        engine.setPiece.armed = false;
-        engine.setPiece.type = SetPiece::None;
-        engine.setPiece.placeBallAtMs = 0.0;
-        engine.carrierTracker.carryTrackerId = st.ball.controllerId;
-        engine.carrierTracker.carryStartMs = st.clockMs;
-        engine.carrierTracker.carryStartX = st.ball.x;
-        if (Player* rc = engine.playerById(st.ball.controllerId))
-            engine.carrierTracker.carryStartFacing = rc->facing;
-        engine.carrierTracker.marathonReleased = false;
+        // The CLI has written the world (positions, ball, clock, score); the
+        // ENGINE owns making itself consistent with it.
+        engine.resumeFromSnapshot();
         // RNG stream restore (owner: "can't the RNG stream be snapshotted too?").
         // Only --snapshot-out snapshots carry it (traces don't record RNG state);
         // same-version resumes then replay the exact draw sequence from the

@@ -3,8 +3,8 @@
 
 void GKPlayerAI::tick(double sdt) {
     auto& b = engine.state.ball;
-    if (b.controllerId == player.id && engine.goalKickMonitor.distributeTimer <= 0) {
-        engine.releaseGoalkeeperDistribution(player);
+    if (b.controllerId == player.id && gkDistributeTimer() <= 0) {
+        releaseGkDistribution();
     }
 }
 

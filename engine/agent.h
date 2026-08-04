@@ -275,6 +275,17 @@ private:
     [[nodiscard]] double clampToLegalX(double x, double fd) const;
 
 protected:
+    // ── Narrow views onto engine internals, for the role subclasses ──
+    // GameEngine grants friendship to PlayerAI alone. The role subclasses do not
+    // inherit that (friendship never is), and rather than name all six in the
+    // engine's friend list, the three internals they actually need are exposed
+    // here. Anything else they want should be added here too, deliberately —
+    // that keeps the engine's friend list at one entry and makes the agents'
+    // dependency on engine internals an explicit, greppable list.
+    [[nodiscard]] bool    directiveBallPlaying() const;   // this player's ball-playing directive bias
+    [[nodiscard]] double  gkDistributeTimer() const;      // goal-kick monitor countdown
+    void                  releaseGkDistribution();        // keeper plays it away
+
     virtual void          adjustActionScores(SmallVector<Action, 24>& actions, bool isController);
     // Tight press now, or arriving within ~0.6s — the defender quick-release trigger.
     bool                  pressedTightOrClosing() const;

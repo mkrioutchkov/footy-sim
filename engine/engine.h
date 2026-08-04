@@ -10,23 +10,27 @@
 #include <algorithm>
 #include <memory>
 
-// Forward declarations — full includes only in .cpp files that need them
+// Forward declarations — full includes only in .cpp files that need them.
+// PlayerAI is named here so the engine can grant it friendship (see the internals
+// section of GameEngine): the agents are part of the engine unit, not consumers
+// of it. The six role subclasses deliberately are NOT friends — they reach engine
+// internals through protected accessors on PlayerAI (agent.h), which keeps this
+// list at one entry.
 class PlayerAI;
+struct CarrierPressure;
 struct PassSelectionAudit;
 struct ShotSelectionAudit;
 
 class GameEngine {
 public:
-    mutable SeededRNG rng;
-    EngineState state;
-    TeamBlackboard blackboards[2]; // [0]=home, [1]=away
-    static int teamIndex(Team team) { return static_cast<int>(team); }
-    StatsCollector stats;
-    std::vector<std::unique_ptr<PlayerAI>> agents;
+    // ══════════════════════════════════════════════════════════════════════════
+    // Nested types
+    // ══════════════════════════════════════════════════════════════════════════
+    // Public because several appear in the driver API below (RosterOverride and
+    // Config are how a --match spec is loaded; Directive/TimelineEntry are how
+    // tactics arrive; VisualEvent is how trace events leave). Declaration order
+    // is unchanged — they depend on each other.
 
-    ~GameEngine();
-    std::array<Player*, 22> playerLookup = {};
-    double accumulator = 0.0;
 
     // ── Match Metrics & Tracking ──
     struct Metrics {
@@ -34,7 +38,7 @@ public:
         double peakBallSpeed = 0, looseBallSpeedTotal = 0;
         double passLaunchSpeedTotal = 0, shotLaunchSpeedTotal = 0;
         int looseBallSpeedSamples = 0, passLaunchCount = 0, shotLaunchCount = 0;
-    } metrics;
+    };
 
     // Ball-carrier diagnostics: stuck detection, backward-carry, carry distance,
     // stationary-hold — feeds quality-flag stats, does not steer play.
@@ -71,7 +75,7 @@ public:
         int stationaryHoldCarrierId = -1;
         double stationaryHoldMs = 0;
         bool stationaryHoldRecorded = false;
-    } carrierTracker;
+    };
 
     // Anti-stall watchdog: if a controlled ball sits still too long, nudge it.
     struct FreezeDetector {
@@ -81,7 +85,7 @@ public:
         int freezeLastController = -1;
         double lastFreezeAlertMs = -1e9;
         double looseNearestD = 1e9;   // closest player to a stalled loose ball while it is watched
-    } freezeDetector;
+    };
 
     struct GoalInfo {
         GoalSource source = GoalSource::None;
@@ -89,19 +93,7 @@ public:
         Team touchTeam = Team::Home;
         int toucherId = -1;
         double ballSpeed = 0;
-    } lastGoal;
-
-    // ── Game Logic State ──
-    int teammatePingPongs = 0;
-    double lastSameTeamCollectionMs = 0;
-    std::optional<Team> lastCollectionTeam;
-    // Last deliberate-risk launch (through/cross) — sticky past pendingPass
-    // resolution so the senseless-out-of-play census can exclude an overhit
-    // killer ball that runs dead AFTER the pass tracker already failed it.
-    double lastRiskyBallMs = -1e9;
-    int lastRiskyBallToucher = -1;
-    int dizzySpins = 0;
-    double nextTacticalAuditMs = 0;
+    };
 
     struct MatchPhase {
         int half = 1;
@@ -115,7 +107,7 @@ public:
         double stoppageMs = 0;            // accumulated dead time this half
         double announcedAddedMs = 0;      // the whistle threshold (scaled to the real half length)
         int announcedAddedMin = 0;        // the board: +N whole minutes, pre-scale
-    } phase;
+    };
     // Round-23 (arena reaudit): post-goal WALK-IN. Instead of teleporting all 22
     // dots to their kickoff spots in one 80ms tick (then a statue hold), players
     // stroll to the formation over the hold and the scorer wheels away to
@@ -143,85 +135,13 @@ public:
         // the H2 formation spots that kickoff() will snap to when the break ends —
         // set when halfTimePause is armed, cleared when the restart fires.
         bool halfTime = false;
-    } restartWalk;
-    std::array<int, 22> yellowCards = {};
-    // Round-30: per-team clock at which the next tired-legs change may be
-    // considered (the manager window). Injuries bypass it.
-    std::array<double, 2> nextSubWindowMs = {0.0, 0.0};
-    // Round-30 (arena audit D5): fouls conceded per player, used ONLY by the
-    // arena repeat-offender damping in resolveTackleFoul (11v11 never reads it).
-    std::array<int, 22> arenaFoulCount = {};
-
-    // Match length is a RUNTIME parameter (default 90'), not the compile-time
-    // constant it used to be — the product needs 20/40/90-minute variants and
-    // each wants its own clock. Set before startMatch; half is always half.
-    double matchDurationMs = MATCH_DURATION;
-    double halfDurationMs   = HALF_DURATION;
-    void setMatchLengthMinutes(double minutes) {
-        matchDurationMs = minutes * 60000.0;
-        halfDurationMs  = matchDurationMs / 2.0;
-    }
-
-    // §weather feature-depth: match-level pitch condition affecting BALL physics. 0=clear (DEFAULT
-    // -> zero effect, byte-identical default game), 1=rain/wet (the pitch greases the ball: it skids
-    // further, shedding less rolling friction). Set from FOOTY_WEATHER env (or spec) before startMatch.
-    // Kept ball-only + small on purpose. 2=wind (§v2): a seed-derived per-match wind vector drifts
-    // AIRBORNE balls laterally (height-gated, so ground passes are immune -> passPct protected).
-    int weather = 0;
-    double windX = 0.0, windY = 0.0;   // §weather v2: per-match wind accel vector (units/s^2), seed-derived when weather==2
-
-    // §arena: 1v1 exhibition mode (GK + one outfielder a side on the full
-    // pitch). Set from --arena before initWithSeed. The spare outfielders are
-    // parked off-pitch exactly like sent-off players — the fixed-22 array and
-    // every lookup stay valid — but no red cards are recorded (it's a mode,
-    // not a match event) and subs are disabled (nobody to legally replace).
-    bool arenaMode = false;
-    // Outfielders per side in arena mode: 1 (1v1, default) up to
-    // ARENA_MAX_OUTFIELDERS. Kept slots are chosen in initWithSeed; GKs always play.
-    int arenaOutfielders = 1;
-
-    // ── The press-slot cap is a SHARE of the side (round-30, arena generality) ──
-    // The cap was a FIXED 2 pressers, written against an 11-a-side shape where
-    // that is 20% of the outfielders. Below 11-a-side the same absolute 2 is a
-    // far bigger share, and the pitch does not shrink with the squad: measured
-    // on traces, a 5v5 committed 31% of its outfielders to pressing the carrier
-    // where an 11v11 commits 16%, so a small-sided team swarmed the ball and
-    // left proportionally twice as much ground open. Scaling it lands 5v5/7v7
-    // discipline right on the 11v11 band (fouls 43/90 -> 22-25/90 against
-    // 11v11's 18; tackles 641-683/90 -> 243-327/90).
-    //
-    // The OTHER density cap — agent_defend's "nearest 3 converge on a loose
-    // ball" — was measured the same way and deliberately LEFT ALONE: scaling it
-    // to 30% of the side made 2v2/3v3 measurably worse (fouls 32.6 -> 47.2/90 at
-    // 3v3) because a 2-3 man side that lets only its single nearest man converge
-    // leaves loose balls uncontested. See the note at that site.
-    int sideOutfielders() const {
-        return arenaMode ? (arenaOutfielders < 1 ? 1
-                            : arenaOutfielders > ARENA_MAX_OUTFIELDERS ? ARENA_MAX_OUTFIELDERS
-                            : arenaOutfielders)
-                         : 10;
-    }
-    // Pressers allowed on the carrier at once: 20% of the side, at least 1.
-    // 10 outfielders -> 2, the historic constant, so 11v11 is byte-identical BY
-    // CONSTRUCTION rather than by luck.
-    int pressSlotCap() const {
-        int n = (sideOutfielders() + 2) / 5;      // round(n/5) for n in [1,10]
-        return n < 1 ? 1 : n > 2 ? 2 : n;
-    }
-
-    // Round-21 (arena audit): set true when equalizeAttributes() ran (the bare-CLI
-    // debug default flattens every attribute to 65). Surfaced in getJSON so tuning
-    // scripts can't silently mix an equalized regime with a real-attribute one.
-    bool attrsEqualized = false;
+    };
 
     // Substitutions: an in-place identity swap (the on-pitch slot keeps its
     // id/role/position; only name+attrs+freshness change), so the 22-slot
     // player array and every pointer into it stay valid — no bench array to
     // dangle. Each team has a reserve pool and a 5-sub allowance.
     struct BenchPlayer { std::string name; PlayerAttributes attrs; bool used = false; };
-    std::array<std::vector<BenchPlayer>, 2> bench;
-    std::array<int, 2> subsRemaining = {5, 5};
-    double nextSubCheckMs = 0;
     // Round-31 summary-side sub log. The binary trace's event record is fixed-width
     // with no room for a name, so a .bin replay cannot recover who went off from the
     // event alone. The exporter joins this log to the trace's "sub" events on
@@ -232,17 +152,6 @@ public:
         Team team = Team::Home;
         std::string outName, inName;
     };
-    std::vector<SubstitutionRecord> substitutionLog;
-    void initBench();
-    void updateSubstitutions();
-    // A slot's runtime describes the man standing in it — a new man starts clean.
-    void resetSlotRuntime(int slotId);
-    void substituteSlot(Player& slot, BenchPlayer& in);
-    void sendOff(Player& p);
-    // Stand an out-of-play (sent-off / arena-parked) man off the field. Single
-    // source of truth for WHERE — three sites re-park him (init, kickoff, and
-    // the per-tick sweep) and they must agree.
-    void parkOffPitch(Player& p) const;
 
     // Per-player match tallies for the report (scorers, assists). Indexed by
     // slot id; a substitution inherits the slot's running tally, which is fine
@@ -256,15 +165,6 @@ public:
         int passes = 0;           // pass attempts (match-rating input via --summary)
         int passesCompleted = 0;  // ...and completions (credited to pendingPass.fromId)
     };
-    std::array<PlayerTally, 22> pStats = {};
-    // Assist chain: who last fed this slot a completed pass, and when.
-    std::array<int, 22> lastReceiveFrom = {};
-    std::array<double, 22> lastReceiveMs = {};
-    // When this player last WON possession off the opponent (intercept/clean
-    // tackle). A fresh windfall high up opens the aggressive menu — long pot
-    // shot / hard forward drive (owner, seed 111 1:13: Messi intercepted 31m
-    // out, feinted backward, was dispossessed 2.3s later).
-    std::array<double, 22> lastTurnoverWinMs = {};
     // Round-36 POST-REGAIN SECURING (owner, seed 407 0:26: "7B makes good tackle,
     // why turn into traffic?"). Securing the ball after winning it was a MISSING
     // concept. The 400ms gather lock (stunLockTicks=24) settled the winner along
@@ -339,12 +239,6 @@ public:
         // re-tackled) until this clock. See blockReboundFor / canContestBall.
         double contestBlockedUntil = 0.0;
     };
-    std::array<DuelTimers, 22> duel = {};
-    // Is this man inside his securing window right now? (Strict `<` so the zero
-    // initialiser can never read as "securing" on the kickoff tick.)
-    [[nodiscard]] bool securing(int id) const {
-        return id >= 0 && id < 22 && state.clockMs < duel[id].secureUntilMs;
-    }
     // Tackle lunge dash (seed 305 0:09/0:42: the round-11 commit-the-body snap
     // moved the tackler 60% of the gap in ONE tick ≈ 900px/s — read as a
     // teleport). Same commitment, now played out over the next few ticks at a
@@ -374,12 +268,6 @@ public:
         double dir2X = 0.0, dir2Y = 0.0;
         double switchPx = 0.0;
     };
-    std::array<LungeDash, 22> lungeDash = {};
-    // Carried-ball control-offset direction memory (seed 437 0:59: the offset
-    // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
-    // the full converge cap — a 337px/s phantom that rendered as a teleport
-    // around an opponent's body). The offset now rotates at a bounded rate.
-    double carryOffDx = 1.0, carryOffDy = 0.0;
     // MEASUREMENT-ONLY scratch — the tripwire and census carry-over state.
     // Grouped so it is obvious at a glance that nothing here feeds the sim:
     // these fields draw no rng and gate no simulation branch, so a change in
@@ -400,46 +288,7 @@ public:
         // Throttles for the periodic diagnostic dumps.
         double blobLogNextMs = 0.0;
         double lineDepthNextMs = 0.0;
-    } telemetry;
-    // Law 13-17 double-touch: the restart taker (FK/corner/throw/goal kick/
-    // penalty/kickoff) may not touch again until another player has. Enforced
-    // by prevention (the engine's referee idiom): set at release, cleared on
-    // any other player's touch. -1 = nobody restricted.
-    int restartRetouchBlockedId = -1;
-    // Law 11 'gaining an advantage': offside snapshot at the SHOT — a teammate
-    // in an offside position when the shot was struck may not play the rebound
-    // (post/bar/keeper). Mirror of pendingPass.offsideAtPass for shots.
-    std::array<bool, 22> offsideAtShot{};
-    Team shotTeam = Team::Home;
-    bool shotSnapshotLive = false;
-    // Locked-body ricochet memory, RESTART ATTRIBUTION ONLY (Law 17 audit: a
-    // real ricochet off a contest-locked defender's legs that ran behind his
-    // own line restarted as a goal kick because lastToucher deliberately isn't
-    // updated there). Never consulted for possession or offside.
-    Team lastRicochetTeam = Team::Home;
-    double lastRicochetMs = -1e9;
-    // Law 12 back-pass: the keeper holding a ball deliberately KICKED to him
-    // by a teammate is feet-only — no protected hold, no hold choreography,
-    // no from-hands punt. Set at collect, cleared at release/next collect.
-    bool gkHoldFeetOnly = false;
-    // Carry touch texture (micro audit #1: the dribbled ball sat at a
-    // mathematically constant offset — welded to the foot, zero touches).
-    // Tracks distance traveled since the last knock so the control offset
-    // breathes: push ahead at each stride-touch, close up in between.
-    int    carryTouchCarrier = -1;
-    double carryTouchTravel = 0.0, carryLastPx = 0.0, carryLastPy = 0.0;
-    // Keeper-distribution choreography latch (set per tick in fixedUpdate):
-    // while a GK holds the ball in his box, goal-kick shapes own everyone's
-    // targets and executeAction defers (see the anti-swarm tombstone).
-    bool keeperHoldChoreo = false;
-    // Own-corner-concession census: last DELIBERATE outfield kick (pass/clear),
-    // so awardCorner can flag a corner gifted by the conceder's own boot.
-    double lastDeliberateKickMs = -1e9;
-    int lastDeliberateKickToucher = -1;
-    // Goal-source tagging: the most recent restart RELEASE (kick actually taken).
-    double lastRestartReleaseMs = -1e9;
-    SetPiece lastRestartReleaseType = SetPiece::None;
-    void creditGoal(int scorerId);
+    };
 
     struct SetPieceState {
         bool armed = false;
@@ -465,7 +314,7 @@ public:
         double runUpStartX = 0, runUpStartY = 0;
         double runUpDirX = 0, runUpDirY = 0;
         std::string reason;
-    } setPiece;
+    };
 
     // A played advantage: the ref waved a foul on because the fouled side kept the
     // ball. If they LOSE it to the offending team within the window, the ref brings
@@ -475,19 +324,7 @@ public:
         bool active = false;
         Team team = Team::Home;        // the FOULED side — gets the FK if recalled
         double foulX = 0, foulY = 0, grantMs = 0;
-    } advantage;
-
-    double prevBallX = 525, prevBallY = 340;
-    double prevBallVx = 0, prevBallVy = 0;
-    int prevControllerId = -1;
-    int ballImpulseGraceTicks = 0;
-    // Quick-transition window: for ~400ms after a LIVE turnover the defence is
-    // unset, so reward fast vertical passes + forward runs to manufacture
-    // counters and 1v1s (end-to-end excitement; breakaway finishes also feed the
-    // first-touch keeper wrong-foot). Pure clock+controller function — no rng.
-    double transitionUntilMs = 0.0;
-    Team transitionLastCtrlTeam = Team::Home;
-    bool transitionHadCtrl = false;
+    };
 
     struct ShotTracking {
         bool active = false;
@@ -508,7 +345,7 @@ public:
         bool scoopAllowed = true;
         void clearFlags() { tracked = false; preventable = false; header = false; penalty = false; dribble20m = false; }
         double originX = 0, originY = 0;
-    } shot;
+    };
 
     // A save rolled at the assessment gate but resolved only when the ball
     // PHYSICALLY reaches the keeper — the roll used to teleport the ball
@@ -520,19 +357,7 @@ public:
         double crossY = 0;     // predicted intercept y at roll time (dive target)
         double reach = 0;      // rolled reach, reused for the handling decision
         bool willSave = true;  // false = a beaten dive: he commits but won't save
-    } pendingSave;
-    void resolvePendingSave();
-    void applySaveOutcome(Player& gk, int shooterId, double reach);
-    // Keeper claims an aerial cross in his box: catch / punch / tip-for-corner,
-    // keyed on handling. claimD is the slant distance (incl. z) at commit.
-    void resolveCrossClaim(Player& gk, double claimD);
-    // USERWATCH B: situational keeper distribution tempo — the hold time before the keeper
-    // releases, keyed on score + clock + pressure (rush chasing/late, hold leading/seeing-out/
-    // unpressured) instead of the old uniform GK_DISTRIBUTE_MS.
-    double gkDistributeMs(const Player& gk) const;
-    // Gaylord seam (16:48): engine id of the designated taker for this set-piece type on this
-    // team (fk/corner/pen/long_throw_taker directive), or -1 => default position-based pick.
-    int designatedTakerFor(SetPiece type, Team team);
+    };
 
     // Goal-kick distribution window: the active goal-kick + a release/timeout timer.
     struct GKMonitor {
@@ -541,47 +366,7 @@ public:
         Team team = Team::Home;
         double startedMs = 0;
         double holdSinceMs = -1;   // clock when the keeper began HOLDING for a lane (-1 = not holding)
-    } goalKickMonitor;
-
-    // Render-only facing: a display copy of each player's facing that damps rapid
-    // direction reversals, so a jockeying defender doesn't shimmer ~30deg
-    // left-right in the watch view. NEVER read by logic (tackle geometry/dribble
-    // use the raw Player::facing) — purely the getJSON output plus the trace's v3
-    // render-hint slot, so gameplay is byte-identical. Advanced by
-    // updateRenderFacing() at the END of every fixedUpdate, in every phase.
-    std::array<double, 22> renderFacing = {};
-    bool renderFacingInit = false;
-    // First touch: after gaining a moving ball an outfielder must settle it
-    // before he can play a deliberate pass — without this, ~1/3 of passes
-    // were instant one-touch redirects of near-shot-speed balls into measured
-    // passes, which reads as physically impossible. Scales with incoming pace.
-    std::array<double, 22> firstTouchUntilMs = {};
-    [[nodiscard]] bool inFirstTouch(int id) const {
-        return id >= 0 && id < 22 && firstTouchUntilMs[id] > state.clockMs;
-    }
-    // Authoritative per-tick velocity: positions are sampled before any
-    // movement, and every player's vx/vy is recomputed from true displacement
-    // AFTER all movement phases (separation, carrier, GK). Mid-tick writers
-    // left stationary/separated players reporting full-sprint velocity, which
-    // drove on-screen moonwalk and 180-degree facing snaps.
-    std::array<double, 22> velSampleX = {};
-    std::array<double, 22> velSampleY = {};
-    void sampleVelocityOrigins() { for (auto& p : state.players) { velSampleX[p.id] = p.x; velSampleY[p.id] = p.y; } }
-    void finalizeVelocities(double secs) {
-        if (secs < 1e-4) return;
-        for (auto& p : state.players) {
-            // Round-23 (carrier burst): a lunge-dash player is moved by the
-            // fixedUpdate dash loop BEFORE velocity origins are sampled, so his
-            // dash displacement is invisible here and would finalize to 0 (the
-            // "velocity reads 0 all burst" bug). The dash loop already wrote his
-            // truthful per-tick velocity — keep it.
-            if (lungeDash[p.id].remainPx > 0.0 || lungeDash[p.id].doneMs == state.clockMs) continue;
-            p.vx = (p.x - velSampleX[p.id]) / secs; p.vy = (p.y - velSampleY[p.id]) / secs;
-        }
-    }
-    int receiverShieldTargetId = -1, receiverShieldedPlayerId = -1;
-    double receiverShieldUntil = 0;
-    double activeShieldUntil[22] = {0};   // carrier actively shielding + working a pass angle: tackle RESISTANCE (not the receive-grace immunity)
+    };
     struct PendingPass {
         bool active = false;
         int fromId = -1, toId = -1;
@@ -633,8 +418,7 @@ public:
         // pass. All other resolvePendingPass bookkeeping (quality-flag census,
         // assist chain, keeper-backpass, events) still runs.
         bool isClear = false;
-    } pendingPass;
-    bool passDebug = false;   // FOOTY_PASSDEBUG: dump each intercepted pass's decision context to stderr
+    };
     struct ActiveKnockAhead {
         bool active = false;
         int playerId = -1;
@@ -643,10 +427,7 @@ public:
         int nearestOpponentId = -1;
         double nearestOpponentDistance = 0;
         bool risky = false;
-    } activeKnockAhead;
-    std::array<double, 22> knockAheadCooldownUntil = {};
-    LooseOrigin lastLooseOrigin = LooseOrigin::None;
-    int woodworkCooldown = 0;   // W1: ticks to skip the woodwork check after a hit so the rebound clears the band (no re-collision / stick)
+    };
     struct VisualEvent {
         std::string type;
         double x = 0, y = 0, clockMs = 0;
@@ -663,30 +444,20 @@ public:
         // named from engine state at all. Carry both names on the event.
         std::string outName, inName;
     };
-    std::vector<VisualEvent> visualEvents;
-    // Full event log for the trace file — the host drains this every tick
-    // (visualEvents is renderer-facing and capped, so it drops history).
-    std::vector<VisualEvent> traceEventQueue;
 
     // ── Agent-accessible state ──
     struct RecentPass { double bx=525,by=340,vx=0,vy=0; Team team=Team::Home; double clockMs=0; };
-    RecentPass qRecentPassVal;
-    RecentPass* qRecentPass() { return &qRecentPassVal; }
-    [[nodiscard]] int clockMs() const { return static_cast<int>(state.clockMs); }
-    [[nodiscard]] Team teamInPossession() const { return state.ball.lastTouchTeam; }
 
     // ── Tactical callbacks ──
     struct Config {
         double aggression=50, passingDirectness=50, overlapFrequency=50;
         double midfieldFreedom=50, defensiveLineHeight=50;
     };
-    std::array<Config, 2> baseConfig;   // [0]=home, [1]=away base tactic dials (from the roster/manager)
     // Runtime dial deltas set by team-wide directives ("park the bus", "all out
     // attack", "high press" ...). [0]=home, [1]=away. Rebuilt every tick by
     // applyDirectives (pure clock+score function, no rng), added on top of the
     // base config in configFor and clamped. All-zero = no override.
     struct ConfigDelta { double aggression=0, passingDirectness=0, overlapFrequency=0, midfieldFreedom=0, defensiveLineHeight=0; };
-    std::array<ConfigDelta, 2> dialOverride{};
     // Per-team directive hooks — extra tactical state set each tick by
     // applyDirectives, layered on top of the 5 base dials in Config. [0]=home,
     // [1]=away. All-zero = no directive, so the no-directive match is byte-
@@ -701,6 +472,463 @@ public:
         bool   allOutActive = false;        // all_out_attack: commit the overlap FB + a CM forward
         bool   defenseHoldingShape = false; // mid-block this tick — drop this team's forwards out of the build-up zone
     };
+    // Per-player defensive marching order, rebuilt each tick by updateTeamAssignments
+    // / assignDefensiveRoles and consumed by the agents: which task (press, mark,
+    // lane-block, box-guard…), which opponent to mark, and where to stand.
+    struct AgentTeamAssignment { DefensiveTask role = DefensiveTask::None; int opponentId=-1; double targetX=0, targetY=0; };
+    // Marking hysteresis (seed 133 10:39 goal: one CB's assignment flip-flopped
+    // SEVEN times in 8s between a corner decoy and the central cover zone —
+    // per-tick wipe-and-rebuild lets near-equal candidates thrash, so he
+    // covered neither and the scorer's zone sat empty). A held MAN-mark now
+    // persists >=900ms; while held, the target is re-derived from the marked
+    // opponent's CURRENT position (mark maintenance), so it never goes stale.
+    struct AssignLock { DefensiveTask role = DefensiveTask::None; int oppId = -1; double changedMs = -1e9; };
+    // Nearest opposing outfielder to a player (GK carriers report "nobody near").
+    struct NearestOpp { double dist = 1e9; double x = 0.0; double y = 0.0; };
+    // Defense pipeline helpers
+    struct DefenseContext {
+        struct Rated { Player* player; double distance; double eta; double score; };
+        struct Threat { Player* player; double depth; };
+        Team team;
+        double fd;
+        double ownGoalX;
+        bool danger;
+        Config tactics;
+        double lineProgress = 0;
+        bool shootingRange = false;
+        bool wideDanger = false;
+        double carrierGoalDist = 0;
+        // Round-29: max progress the line may hold (the deepest-runner/offside
+        // cap) — the cohesion floor in assignDefensiveLine must never push a
+        // member past it (that would play the runner onside behind the line).
+        double lineCohesionCap = 360.0;
+        std::array<bool, 22> assigned = {};
+        SmallVector<Rated, 12> ranked;
+        SmallVector<Threat, 12> threats;
+        bool used(const Player* p) const { return assigned[p->id]; }
+    };
+
+    // ── Data-driven rosters (FM-style game). When a roster is active, the 11
+    // players in that team's fixed formation slots (0..10) take their name +
+    // attributes from the override instead of the hardcoded legends, and the
+    // Config dials are taken as-is (configOverride) rather than randomized.
+    // This is how a user-created team plays. Set before initWithSeed(). ──
+    struct RosterOverride {
+        bool active = false;
+        std::array<PlayerAttributes, 11> attrs{};
+        std::array<std::string, 11> names{};
+        std::array<int, 11> feet{ 1,1,1,1,1,1,1,1,1,1,1 };   // +1 R / -1 L / 0 both ("foot" spec key)
+        // Formation/lineup: per-slot role + home anchor (engine frame, absolute —
+        // the backend mirrors for away). Default = the current 4-3-3 roles; anchors
+        // <=0 mean "use the hardcoded default for this slot". hasLayout=false =>
+        // the whole hardcoded literal layout (back-compat; no-directive match
+        // stays byte-identical).
+        std::array<Role, 11> roles{ Role::GK, Role::FB, Role::CB, Role::CB, Role::FB,
+                                    Role::CM, Role::CM, Role::CM, Role::WM, Role::CF, Role::WM };
+        std::array<double, 11> homeX{};
+        std::array<double, 11> homeY{};
+        bool hasLayout = false;
+        // Optional per-slot pre-match morale shading in [-1,1] (default 0 = neutral).
+        std::array<double, 11> moraleBoost{};
+    };
+
+    // ── Plain-English tactics (P1): compiled directives the engine executes
+    // each tick. Player ids are resolved (0..21) by the caller. Conditions are a
+    // PURE function of clock + score (no rng — must not perturb the stream).
+    // See docs/TACTICS.md. ──
+    enum class DirectiveKind : uint8_t {
+        // ── per-player (playerId 0..21) ──
+        ManMark, ShootOnSight, GetForward, SitDeep, TargetPlayer,
+        StayWide, ComeInside, CutInside, OverlapRun, StayCentral,
+        CrossEarly, SwitchPlay, PlaySimple, Cutback,
+        RunInBehind, MakeRuns, ComeShort, DriftIntoPocket, DribbleMore, StayBack,
+        TargetManHoldup, BallPlaying,
+        PressHard, TackleHard, StayOnFeet, Contain,
+        // ── set-piece taker designations (per-player; playerId = the designated taker) ──
+        FkTaker, CornerTaker, PenTaker, LongThrowTaker,
+        // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
+        AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
+        KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
+        CounterAttack, OffsideTrap, ShootFromDistance, WorkItIntoBox,
+        // ── tactical-depth continuous dials (team-wide; intensity is the slider 0-1, 0.5=neutral) ──
+        PressIntensity, Mentality, LineHeight,
+    };
+    enum class CondScore : uint8_t { Any, Winning, Drawing, Losing };
+    enum class CondPhase : uint8_t { Any, InPossession, OutOfPossession, Transition };
+    struct Directive {
+        int playerId = -1;                          // who it applies to (engine id 0..21)
+        int teamScope = -1;                         // -1 = player-scoped; 0 = home team, 1 = away team (dial commands)
+        DirectiveKind kind = DirectiveKind::ManMark;
+        int targetId = -1;                          // man_mark / target_player target
+        double intensity = 1.0;
+        int fromMin = 0;                            // active from this match minute...
+        int toMin = 1000;                           // ...to this one, inclusive (default = whole match)
+        CondScore scoreState = CondScore::Any;      // active only in this score state
+        int scoreBy = 0;                            // ...by at least N goals (0 => any margin)
+        CondPhase phase = CondPhase::Any;           // active only in this possession phase (in/out/transition)
+    };
+    // Per-player score nudges the scorers read THIS tick; rebuilt every tick by
+    // applyDirectives() (stateless, so deterministic).
+    struct DirectiveBias { double shootOnSight=0.0; int passTargetId=-1; double passTargetBias=0.0; double overlapBias=0.0;
+        bool crossEarly=false; double switchBias=0.0; double simplifyBias=0.0; double cutbackBias=0.0;
+        double runAheadBias=0.0; double comeShortBias=0.0; double pocketBias=0.0; double cutInsideBias=0.0; double dribbleBonus=0.0; double stayBackBias=0.0;
+        double holdUpBias=0.0;
+        bool   ballPlaying=false;   // "ball-playing CB": step out + carry/progress the ball from the back
+        // gk_up_for_corners: 1.0 = keeper joins every late attacking corner;
+        // 0.5 = only late AND behind. 0 = never (default).
+        double gkUpForCorners = 0.0;
+        double pressTightness=0.0; double tackleAggression=0.0; double stayOnFeet=0.0; double containBias=0.0; };
+    // Timed plan changes (P2): each entry REPLACES the active directive set once
+    // the clock reaches atMs. The match is then a pure function of seed + this
+    // timeline, so it replays identically. Applied at the top of applyDirectives.
+    // moraleDelta[id] is added to that player's moraleBoost when the entry fires (a
+    // motivational shout's effect); 0 for everyone by default. A mid-match FORMATION
+    // change also carries a per-player layout: where layoutHX[id] > 0, that player
+    // re-anchors (base + current) + re-roles + gets a fresh role-AI on fire.
+    struct TimelineEntry {
+        double atMs = 0.0;
+        int team = -1;   // §1.3/§4: which side this entry replaces (0=home, 1=away); -1 = both (back-compat)
+        std::vector<Directive> directives;
+        std::array<double, 22> moraleDelta{};
+        std::array<double, 22> layoutHX{};
+        std::array<double, 22> layoutHY{};
+        std::array<Role, 22>   layoutRole{};
+        // A layout slot is APPLIED only when role+homeX+homeY were ALL present in
+        // the spec — guards against a partial row defaulting role to GK / homeY to 0,
+        // and lets a legit homeX==0 (left touchline) anchor through.
+        std::array<bool, 22>   layoutSet{};
+    };
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // THE DRIVER API — everything outside the engine unit may touch
+    // ══════════════════════════════════════════════════════════════════════════
+    // This is the whole public surface, and it is deliberately small. main.cpp is
+    // the ONLY translation unit that links against GameEngine; the web backend and
+    // the python probes drive the built binary over the CLI/JSON seam documented in
+    // docs/CONTRACT.md. So this section IS that contract, expressed in the type
+    // system: configure, run, observe.
+    //
+    // Before this split the class was 1007 lines of `public:` — 235 names, of which
+    // main.cpp used 27. Adding to this section is now a deliberate act. If you find
+    // yourself widening it to reach engine internals from a new consumer, that is
+    // the signal to add a method here instead of exposing a field.
+
+    // ── Lifecycle ── one match per instance. initWithSeed self-guards a re-init:
+    // a second call would reallocate state.players and dangle every Player& the
+    // agents hold.
+    GameEngine();
+    ~GameEngine();
+    void initWithSeed(int seed);
+    void startMatch();
+    // holdMs: how long the teams stand in formation before the tap. Opening /
+    // second-half kickoffs use the short default; a post-goal kickoff passes a
+    // longer hold (the celebration-and-reset breather).
+    void kickoff(Team t, double holdMs = 1500.0, bool walkIn = false);
+    void setMatchLengthMinutes(double minutes) {
+        matchDurationMs = minutes * 60000.0;
+        halfDurationMs  = matchDurationMs / 2.0;
+    }
+    void equalizeAttributes(int val);
+
+    // ── Configure (before startMatch) ── how a --match spec, the env and the
+    // CLI flags reach the simulation.
+    // The two rosters and their base tactic dials, filled from a --match spec
+    // (loadTeam in main.cpp); configOverride says a spec supplied them, so
+    // initWithSeed must not roll random "manager" personalities instead.
+    RosterOverride homeRoster, awayRoster;
+    std::array<Config, 2> baseConfig;   // [0]=home, [1]=away base tactic dials (from the roster/manager)
+    bool configOverride = false;
+    // §weather feature-depth: match-level pitch condition affecting BALL physics. 0=clear (DEFAULT
+    // -> zero effect, byte-identical default game), 1=rain/wet (the pitch greases the ball: it skids
+    // further, shedding less rolling friction). Set from FOOTY_WEATHER env (or spec) before startMatch.
+    // Kept ball-only + small on purpose. 2=wind (§v2): a seed-derived per-match wind vector drifts
+    // AIRBORNE balls laterally (height-gated, so ground passes are immune -> passPct protected).
+    int weather = 0;
+    // §arena: 1v1 exhibition mode (GK + one outfielder a side on the full
+    // pitch). Set from --arena before initWithSeed. The spare outfielders are
+    // parked off-pitch exactly like sent-off players — the fixed-22 array and
+    // every lookup stay valid — but no red cards are recorded (it's a mode,
+    // not a match event) and subs are disabled (nobody to legally replace).
+    bool arenaMode = false;
+    // Outfielders per side in arena mode: 1 (1v1, default) up to
+    // ARENA_MAX_OUTFIELDERS. Kept slots are chosen in initWithSeed; GKs always play.
+    int arenaOutfielders = 1;
+    bool passDebug = false;   // FOOTY_PASSDEBUG: dump each intercepted pass's decision context to stderr
+
+    // ── Tactics in ── plain directives, a pre-planned timeline, and the live
+    // inject queue the watch flow pushes mid-match.
+    std::vector<Directive> directives;
+    std::vector<TimelineEntry> directiveTimeline;
+    std::vector<TimelineEntry> liveCommandQueue;   // §1.3b: live inject overlay (stdin/scheduler), drained by applyLiveCommands at atMs<=clock
+    void applyDirectiveEntry(const TimelineEntry& e);   // §1.3: shared timeline+live-inject entry apply (team-scoped)
+    void applyLiveCommands();   // §1.3b: drain liveCommandQueue (atMs<=clock) via applyDirectiveEntry (per-team)
+
+    // ── Run ──
+    bool step();   // §1.4 LIVE: one fixed tick, returns false at full-time (while(step()) loop + runner-ready)
+    [[nodiscard]] int clockMs() const { return static_cast<int>(state.clockMs); }
+    // Make the engine consistent with a world overwritten from outside (the
+    // --snapshot-in resume). The caller assigns positions/ball/clock/score onto
+    // `state`; this restores the engine-side invariants that go with them.
+    void resumeFromSnapshot();
+
+    // ── Observe ── the world, the summary, and the per-tick trace feed.
+    EngineState state;
+    mutable SeededRNG rng;
+    [[nodiscard]] Player* playerById(int id);
+    [[nodiscard]] const Player* playerById(int id) const;
+    std::string getJSON() const;
+    // Full event log for the trace file — the host drains this every tick
+    // (visualEvents is renderer-facing and capped, so it drops history).
+    std::vector<VisualEvent> traceEventQueue;
+    // Render-only facing: a display copy of each player's facing that damps rapid
+    // direction reversals, so a jockeying defender doesn't shimmer ~30deg
+    // left-right in the watch view. NEVER read by logic (tackle geometry/dribble
+    // use the raw Player::facing) — purely the getJSON output plus the trace's v3
+    // render-hint slot, so gameplay is byte-identical. Advanced by
+    // updateRenderFacing() at the END of every fixedUpdate, in every phase.
+    std::array<double, 22> renderFacing = {};
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Engine internals — the simulation itself
+    // ══════════════════════════════════════════════════════════════════════════
+    // The agents are NOT external consumers: PlayerAI is co-designed with the
+    // engine, lives in this directory, is owned by it (`agents`) and constructed
+    // by it, and reaches into it directly ~900 times. Friendship states that
+    // relationship exactly, rather than pretending 200 internal fields are an API.
+    //
+    // The six role subclasses are deliberately absent. Friendship is not
+    // inherited, and naming all six here would make the engine's private section
+    // a fiction; instead the three internals they need are protected accessors on
+    // PlayerAI (agent.h), so their dependency on engine internals is one explicit,
+    // greppable list rather than blanket access.
+    //
+    // This list should not grow. A new class needing this much access is either an
+    // agent — in which case route it through PlayerAI — or a sign that the thing
+    // it wants belongs in the driver API above.
+private:
+    friend class PlayerAI;
+    // The one free function in the agent unit (agent_scoring.cpp); it reads the
+    // carrier's surroundings and belongs to the same layer as the agents.
+    friend CarrierPressure assessCarrierPressure(GameEngine&, const Player&);
+
+    TeamBlackboard blackboards[2]; // [0]=home, [1]=away
+    static int teamIndex(Team team) { return static_cast<int>(team); }
+    StatsCollector stats;
+    std::vector<std::unique_ptr<PlayerAI>> agents;
+    std::array<Player*, 22> playerLookup = {};
+    double accumulator = 0.0;
+    Metrics metrics;
+    CarrierTracker carrierTracker;
+    FreezeDetector freezeDetector;
+    GoalInfo lastGoal;
+
+    // ── Game Logic State ──
+    int teammatePingPongs = 0;
+    double lastSameTeamCollectionMs = 0;
+    std::optional<Team> lastCollectionTeam;
+    // Last deliberate-risk launch (through/cross) — sticky past pendingPass
+    // resolution so the senseless-out-of-play census can exclude an overhit
+    // killer ball that runs dead AFTER the pass tracker already failed it.
+    double lastRiskyBallMs = -1e9;
+    int lastRiskyBallToucher = -1;
+    int dizzySpins = 0;
+    double nextTacticalAuditMs = 0;
+    MatchPhase phase;
+    RestartWalk restartWalk;
+    std::array<int, 22> yellowCards = {};
+    // Round-30: per-team clock at which the next tired-legs change may be
+    // considered (the manager window). Injuries bypass it.
+    std::array<double, 2> nextSubWindowMs = {0.0, 0.0};
+    // Round-30 (arena audit D5): fouls conceded per player, used ONLY by the
+    // arena repeat-offender damping in resolveTackleFoul (11v11 never reads it).
+    std::array<int, 22> arenaFoulCount = {};
+
+    // Match length is a RUNTIME parameter (default 90'), not the compile-time
+    // constant it used to be — the product needs 20/40/90-minute variants and
+    // each wants its own clock. Set before startMatch; half is always half.
+    double matchDurationMs = MATCH_DURATION;
+    double halfDurationMs   = HALF_DURATION;
+    double windX = 0.0, windY = 0.0;   // §weather v2: per-match wind accel vector (units/s^2), seed-derived when weather==2
+
+    // ── The press-slot cap is a SHARE of the side (round-30, arena generality) ──
+    // The cap was a FIXED 2 pressers, written against an 11-a-side shape where
+    // that is 20% of the outfielders. Below 11-a-side the same absolute 2 is a
+    // far bigger share, and the pitch does not shrink with the squad: measured
+    // on traces, a 5v5 committed 31% of its outfielders to pressing the carrier
+    // where an 11v11 commits 16%, so a small-sided team swarmed the ball and
+    // left proportionally twice as much ground open. Scaling it lands 5v5/7v7
+    // discipline right on the 11v11 band (fouls 43/90 -> 22-25/90 against
+    // 11v11's 18; tackles 641-683/90 -> 243-327/90).
+    //
+    // The OTHER density cap — agent_defend's "nearest 3 converge on a loose
+    // ball" — was measured the same way and deliberately LEFT ALONE: scaling it
+    // to 30% of the side made 2v2/3v3 measurably worse (fouls 32.6 -> 47.2/90 at
+    // 3v3) because a 2-3 man side that lets only its single nearest man converge
+    // leaves loose balls uncontested. See the note at that site.
+    int sideOutfielders() const {
+        return arenaMode ? (arenaOutfielders < 1 ? 1
+                            : arenaOutfielders > ARENA_MAX_OUTFIELDERS ? ARENA_MAX_OUTFIELDERS
+                            : arenaOutfielders)
+                         : 10;
+    }
+    // Pressers allowed on the carrier at once: 20% of the side, at least 1.
+    // 10 outfielders -> 2, the historic constant, so 11v11 is byte-identical BY
+    // CONSTRUCTION rather than by luck.
+    int pressSlotCap() const {
+        int n = (sideOutfielders() + 2) / 5;      // round(n/5) for n in [1,10]
+        return n < 1 ? 1 : n > 2 ? 2 : n;
+    }
+
+    // Round-21 (arena audit): set true when equalizeAttributes() ran (the bare-CLI
+    // debug default flattens every attribute to 65). Surfaced in getJSON so tuning
+    // scripts can't silently mix an equalized regime with a real-attribute one.
+    bool attrsEqualized = false;
+    std::array<std::vector<BenchPlayer>, 2> bench;
+    std::array<int, 2> subsRemaining = {5, 5};
+    double nextSubCheckMs = 0;
+    std::vector<SubstitutionRecord> substitutionLog;
+    void initBench();
+    void updateSubstitutions();
+    // A slot's runtime describes the man standing in it — a new man starts clean.
+    void resetSlotRuntime(int slotId);
+    void substituteSlot(Player& slot, BenchPlayer& in);
+    void sendOff(Player& p);
+    // Stand an out-of-play (sent-off / arena-parked) man off the field. Single
+    // source of truth for WHERE — three sites re-park him (init, kickoff, and
+    // the per-tick sweep) and they must agree.
+    void parkOffPitch(Player& p) const;
+    std::array<PlayerTally, 22> pStats = {};
+    // Assist chain: who last fed this slot a completed pass, and when.
+    std::array<int, 22> lastReceiveFrom = {};
+    std::array<double, 22> lastReceiveMs = {};
+    // When this player last WON possession off the opponent (intercept/clean
+    // tackle). A fresh windfall high up opens the aggressive menu — long pot
+    // shot / hard forward drive (owner, seed 111 1:13: Messi intercepted 31m
+    // out, feinted backward, was dispossessed 2.3s later).
+    std::array<double, 22> lastTurnoverWinMs = {};
+    std::array<DuelTimers, 22> duel = {};
+    // Is this man inside his securing window right now? (Strict `<` so the zero
+    // initialiser can never read as "securing" on the kickoff tick.)
+    [[nodiscard]] bool securing(int id) const {
+        return id >= 0 && id < 22 && state.clockMs < duel[id].secureUntilMs;
+    }
+    std::array<LungeDash, 22> lungeDash = {};
+    // Carried-ball control-offset direction memory (seed 437 0:59: the offset
+    // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
+    // the full converge cap — a 337px/s phantom that rendered as a teleport
+    // around an opponent's body). The offset now rotates at a bounded rate.
+    double carryOffDx = 1.0, carryOffDy = 0.0;
+    Telemetry telemetry;
+    // Law 13-17 double-touch: the restart taker (FK/corner/throw/goal kick/
+    // penalty/kickoff) may not touch again until another player has. Enforced
+    // by prevention (the engine's referee idiom): set at release, cleared on
+    // any other player's touch. -1 = nobody restricted.
+    int restartRetouchBlockedId = -1;
+    // Law 11 'gaining an advantage': offside snapshot at the SHOT — a teammate
+    // in an offside position when the shot was struck may not play the rebound
+    // (post/bar/keeper). Mirror of pendingPass.offsideAtPass for shots.
+    std::array<bool, 22> offsideAtShot{};
+    Team shotTeam = Team::Home;
+    bool shotSnapshotLive = false;
+    // Locked-body ricochet memory, RESTART ATTRIBUTION ONLY (Law 17 audit: a
+    // real ricochet off a contest-locked defender's legs that ran behind his
+    // own line restarted as a goal kick because lastToucher deliberately isn't
+    // updated there). Never consulted for possession or offside.
+    Team lastRicochetTeam = Team::Home;
+    double lastRicochetMs = -1e9;
+    // Law 12 back-pass: the keeper holding a ball deliberately KICKED to him
+    // by a teammate is feet-only — no protected hold, no hold choreography,
+    // no from-hands punt. Set at collect, cleared at release/next collect.
+    bool gkHoldFeetOnly = false;
+    // Carry touch texture (micro audit #1: the dribbled ball sat at a
+    // mathematically constant offset — welded to the foot, zero touches).
+    // Tracks distance traveled since the last knock so the control offset
+    // breathes: push ahead at each stride-touch, close up in between.
+    int    carryTouchCarrier = -1;
+    double carryTouchTravel = 0.0, carryLastPx = 0.0, carryLastPy = 0.0;
+    // Keeper-distribution choreography latch (set per tick in fixedUpdate):
+    // while a GK holds the ball in his box, goal-kick shapes own everyone's
+    // targets and executeAction defers (see the anti-swarm tombstone).
+    bool keeperHoldChoreo = false;
+    // Own-corner-concession census: last DELIBERATE outfield kick (pass/clear),
+    // so awardCorner can flag a corner gifted by the conceder's own boot.
+    double lastDeliberateKickMs = -1e9;
+    int lastDeliberateKickToucher = -1;
+    // Goal-source tagging: the most recent restart RELEASE (kick actually taken).
+    double lastRestartReleaseMs = -1e9;
+    SetPiece lastRestartReleaseType = SetPiece::None;
+    void creditGoal(int scorerId);
+    SetPieceState setPiece;
+    AdvantageState advantage;
+
+    double prevBallX = 525, prevBallY = 340;
+    double prevBallVx = 0, prevBallVy = 0;
+    int prevControllerId = -1;
+    int ballImpulseGraceTicks = 0;
+    // Quick-transition window: for ~400ms after a LIVE turnover the defence is
+    // unset, so reward fast vertical passes + forward runs to manufacture
+    // counters and 1v1s (end-to-end excitement; breakaway finishes also feed the
+    // first-touch keeper wrong-foot). Pure clock+controller function — no rng.
+    double transitionUntilMs = 0.0;
+    Team transitionLastCtrlTeam = Team::Home;
+    bool transitionHadCtrl = false;
+    ShotTracking shot;
+    PendingSave pendingSave;
+    void resolvePendingSave();
+    void applySaveOutcome(Player& gk, int shooterId, double reach);
+    // Keeper claims an aerial cross in his box: catch / punch / tip-for-corner,
+    // keyed on handling. claimD is the slant distance (incl. z) at commit.
+    void resolveCrossClaim(Player& gk, double claimD);
+    // USERWATCH B: situational keeper distribution tempo — the hold time before the keeper
+    // releases, keyed on score + clock + pressure (rush chasing/late, hold leading/seeing-out/
+    // unpressured) instead of the old uniform GK_DISTRIBUTE_MS.
+    double gkDistributeMs(const Player& gk) const;
+    // Gaylord seam (16:48): engine id of the designated taker for this set-piece type on this
+    // team (fk/corner/pen/long_throw_taker directive), or -1 => default position-based pick.
+    int designatedTakerFor(SetPiece type, Team team);
+    GKMonitor goalKickMonitor;
+    bool renderFacingInit = false;
+    // First touch: after gaining a moving ball an outfielder must settle it
+    // before he can play a deliberate pass — without this, ~1/3 of passes
+    // were instant one-touch redirects of near-shot-speed balls into measured
+    // passes, which reads as physically impossible. Scales with incoming pace.
+    std::array<double, 22> firstTouchUntilMs = {};
+    [[nodiscard]] bool inFirstTouch(int id) const {
+        return id >= 0 && id < 22 && firstTouchUntilMs[id] > state.clockMs;
+    }
+    // Authoritative per-tick velocity: positions are sampled before any
+    // movement, and every player's vx/vy is recomputed from true displacement
+    // AFTER all movement phases (separation, carrier, GK). Mid-tick writers
+    // left stationary/separated players reporting full-sprint velocity, which
+    // drove on-screen moonwalk and 180-degree facing snaps.
+    std::array<double, 22> velSampleX = {};
+    std::array<double, 22> velSampleY = {};
+    void sampleVelocityOrigins() { for (auto& p : state.players) { velSampleX[p.id] = p.x; velSampleY[p.id] = p.y; } }
+    void finalizeVelocities(double secs) {
+        if (secs < 1e-4) return;
+        for (auto& p : state.players) {
+            // Round-23 (carrier burst): a lunge-dash player is moved by the
+            // fixedUpdate dash loop BEFORE velocity origins are sampled, so his
+            // dash displacement is invisible here and would finalize to 0 (the
+            // "velocity reads 0 all burst" bug). The dash loop already wrote his
+            // truthful per-tick velocity — keep it.
+            if (lungeDash[p.id].remainPx > 0.0 || lungeDash[p.id].doneMs == state.clockMs) continue;
+            p.vx = (p.x - velSampleX[p.id]) / secs; p.vy = (p.y - velSampleY[p.id]) / secs;
+        }
+    }
+    int receiverShieldTargetId = -1, receiverShieldedPlayerId = -1;
+    double receiverShieldUntil = 0;
+    double activeShieldUntil[22] = {0};   // carrier actively shielding + working a pass angle: tackle RESISTANCE (not the receive-grace immunity)
+    PendingPass pendingPass;
+    ActiveKnockAhead activeKnockAhead;
+    std::array<double, 22> knockAheadCooldownUntil = {};
+    LooseOrigin lastLooseOrigin = LooseOrigin::None;
+    int woodworkCooldown = 0;   // W1: ticks to skip the woodwork check after a hit so the rebound clears the band (no re-collision / stick)
+    std::vector<VisualEvent> visualEvents;
+    RecentPass qRecentPassVal;
+    RecentPass* qRecentPass() { return &qRecentPassVal; }
+    [[nodiscard]] Team teamInPossession() const { return state.ball.lastTouchTeam; }
+    std::array<ConfigDelta, 2> dialOverride{};
     std::array<TeamTactics, 2> teamTactics{};
     [[nodiscard]] Config configFor(Team team) const {
         Config c = baseConfig[teamIndex(team)];
@@ -741,18 +969,7 @@ public:
     void awardOffsideFreeKick(Team defTeam, const Player& offsidePlayer);
     [[nodiscard]] bool isOffsideTarget(const Player& passer, const Player& receiver) const;
     [[nodiscard]] bool isOffsideTargetPerceived(const Player& passer, const Player& receiver) const;
-    // Per-player defensive marching order, rebuilt each tick by updateTeamAssignments
-    // / assignDefensiveRoles and consumed by the agents: which task (press, mark,
-    // lane-block, box-guard…), which opponent to mark, and where to stand.
-    struct AgentTeamAssignment { DefensiveTask role = DefensiveTask::None; int opponentId=-1; double targetX=0, targetY=0; };
     std::array<AgentTeamAssignment, 22> assignmentByPlayer = {};
-    // Marking hysteresis (seed 133 10:39 goal: one CB's assignment flip-flopped
-    // SEVEN times in 8s between a corner decoy and the central cover zone —
-    // per-tick wipe-and-rebuild lets near-equal candidates thrash, so he
-    // covered neither and the scorer's zone sat empty). A held MAN-mark now
-    // persists >=900ms; while held, the target is re-derived from the marked
-    // opponent's CURRENT position (mark maintenance), so it never goes stale.
-    struct AssignLock { DefensiveTask role = DefensiveTask::None; int oppId = -1; double changedMs = -1e9; };
     std::array<AssignLock, 22> assignLock = {};
     [[nodiscard]] AgentTeamAssignment* assignmentFor(int playerId) {
         if (playerId < 0 || playerId >= 22 || assignmentByPlayer[playerId].role == DefensiveTask::None) return nullptr;
@@ -762,8 +979,6 @@ public:
         if (playerId < 0 || playerId >= 22 || assignmentByPlayer[playerId].role == DefensiveTask::None) return nullptr;
         return &assignmentByPlayer[playerId];
     }
-    [[nodiscard]] Player* playerById(int id);
-    [[nodiscard]] const Player* playerById(int id) const;
     [[nodiscard]] PlayerAI* agentFor(const Player& p);
     [[nodiscard]] const PlayerAI* agentFor(const Player& p) const;
     [[nodiscard]] Player* findGK(Team team);
@@ -788,8 +1003,6 @@ public:
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
     void emitEvent(const std::string&, double, double, int=-1, int=-1, bool traceOnly=false, bool ownGoal=false,
                    const std::string& outName={}, const std::string& inName={});
-    // Nearest opposing outfielder to a player (GK carriers report "nobody near").
-    struct NearestOpp { double dist = 1e9; double x = 0.0; double y = 0.0; };
     [[nodiscard]] NearestOpp nearestOpponentTo(const Player& c) const;
     // The one way a dead ball leaves the taker's foot — see engine_setpiece.cpp.
     void releaseRestartBall(Player& holder, double dx, double dy, double d,
@@ -815,28 +1028,6 @@ public:
     // gated pass bonuses + run-target overrides fire. Pure geometry, no rng.
     void assignAttackingRoles(Team team, Player& carrier);
     void setAssignment(Player& player, DefensiveTask role, double x, double y, int opponentId=-1);
-    // Defense pipeline helpers
-    struct DefenseContext {
-        struct Rated { Player* player; double distance; double eta; double score; };
-        struct Threat { Player* player; double depth; };
-        Team team;
-        double fd;
-        double ownGoalX;
-        bool danger;
-        Config tactics;
-        double lineProgress = 0;
-        bool shootingRange = false;
-        bool wideDanger = false;
-        double carrierGoalDist = 0;
-        // Round-29: max progress the line may hold (the deepest-runner/offside
-        // cap) — the cohesion floor in assignDefensiveLine must never push a
-        // member past it (that would play the runner onside behind the line).
-        double lineCohesionCap = 360.0;
-        std::array<bool, 22> assigned = {};
-        SmallVector<Rated, 12> ranked;
-        SmallVector<Threat, 12> threats;
-        bool used(const Player* p) const { return assigned[p->id]; }
-    };
     SmallVector<DefenseContext::Rated, 12> rankDefenders(Team team, Player& carrier);
     void assignPrimaryPress(DefenseContext& ctx, Player& carrier);
     void assignSecondaryPress(DefenseContext& ctx, Player& carrier);
@@ -896,104 +1087,8 @@ public:
     template<typename...A> void logPlayerDecision(A&&...) { stats.recordPlayerDecision(); }
     void notePreventedStaleGrab(Player&) { stats.recordStaleGrabPrevented(); }
     void noteTaskSelection(Player&, DefensiveTask role) { stats.recordTaskSelection(role); }
-
-    // ── Data-driven rosters (FM-style game). When a roster is active, the 11
-    // players in that team's fixed formation slots (0..10) take their name +
-    // attributes from the override instead of the hardcoded legends, and the
-    // Config dials are taken as-is (configOverride) rather than randomized.
-    // This is how a user-created team plays. Set before initWithSeed(). ──
-    struct RosterOverride {
-        bool active = false;
-        std::array<PlayerAttributes, 11> attrs{};
-        std::array<std::string, 11> names{};
-        std::array<int, 11> feet{ 1,1,1,1,1,1,1,1,1,1,1 };   // +1 R / -1 L / 0 both ("foot" spec key)
-        // Formation/lineup: per-slot role + home anchor (engine frame, absolute —
-        // the backend mirrors for away). Default = the current 4-3-3 roles; anchors
-        // <=0 mean "use the hardcoded default for this slot". hasLayout=false =>
-        // the whole hardcoded literal layout (back-compat; no-directive match
-        // stays byte-identical).
-        std::array<Role, 11> roles{ Role::GK, Role::FB, Role::CB, Role::CB, Role::FB,
-                                    Role::CM, Role::CM, Role::CM, Role::WM, Role::CF, Role::WM };
-        std::array<double, 11> homeX{};
-        std::array<double, 11> homeY{};
-        bool hasLayout = false;
-        // Optional per-slot pre-match morale shading in [-1,1] (default 0 = neutral).
-        std::array<double, 11> moraleBoost{};
-    };
-    RosterOverride homeRoster, awayRoster;
-    bool configOverride = false;
-
-    // ── Plain-English tactics (P1): compiled directives the engine executes
-    // each tick. Player ids are resolved (0..21) by the caller. Conditions are a
-    // PURE function of clock + score (no rng — must not perturb the stream).
-    // See docs/TACTICS.md. ──
-    enum class DirectiveKind : uint8_t {
-        // ── per-player (playerId 0..21) ──
-        ManMark, ShootOnSight, GetForward, SitDeep, TargetPlayer,
-        StayWide, ComeInside, CutInside, OverlapRun, StayCentral,
-        CrossEarly, SwitchPlay, PlaySimple, Cutback,
-        RunInBehind, MakeRuns, ComeShort, DriftIntoPocket, DribbleMore, StayBack,
-        TargetManHoldup, BallPlaying,
-        PressHard, TackleHard, StayOnFeet, Contain,
-        // ── set-piece taker designations (per-player; playerId = the designated taker) ──
-        FkTaker, CornerTaker, PenTaker, LongThrowTaker,
-        // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
-        AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
-        KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
-        CounterAttack, OffsideTrap, ShootFromDistance, WorkItIntoBox,
-        // ── tactical-depth continuous dials (team-wide; intensity is the slider 0-1, 0.5=neutral) ──
-        PressIntensity, Mentality, LineHeight,
-    };
-    enum class CondScore : uint8_t { Any, Winning, Drawing, Losing };
-    enum class CondPhase : uint8_t { Any, InPossession, OutOfPossession, Transition };
-    struct Directive {
-        int playerId = -1;                          // who it applies to (engine id 0..21)
-        int teamScope = -1;                         // -1 = player-scoped; 0 = home team, 1 = away team (dial commands)
-        DirectiveKind kind = DirectiveKind::ManMark;
-        int targetId = -1;                          // man_mark / target_player target
-        double intensity = 1.0;
-        int fromMin = 0;                            // active from this match minute...
-        int toMin = 1000;                           // ...to this one, inclusive (default = whole match)
-        CondScore scoreState = CondScore::Any;      // active only in this score state
-        int scoreBy = 0;                            // ...by at least N goals (0 => any margin)
-        CondPhase phase = CondPhase::Any;           // active only in this possession phase (in/out/transition)
-    };
-    std::vector<Directive> directives;
-    // Per-player score nudges the scorers read THIS tick; rebuilt every tick by
-    // applyDirectives() (stateless, so deterministic).
-    struct DirectiveBias { double shootOnSight=0.0; int passTargetId=-1; double passTargetBias=0.0; double overlapBias=0.0;
-        bool crossEarly=false; double switchBias=0.0; double simplifyBias=0.0; double cutbackBias=0.0;
-        double runAheadBias=0.0; double comeShortBias=0.0; double pocketBias=0.0; double cutInsideBias=0.0; double dribbleBonus=0.0; double stayBackBias=0.0;
-        double holdUpBias=0.0;
-        bool   ballPlaying=false;   // "ball-playing CB": step out + carry/progress the ball from the back
-        // gk_up_for_corners: 1.0 = keeper joins every late attacking corner;
-        // 0.5 = only late AND behind. 0 = never (default).
-        double gkUpForCorners = 0.0;
-        double pressTightness=0.0; double tackleAggression=0.0; double stayOnFeet=0.0; double containBias=0.0; };
     std::array<DirectiveBias, 22> directiveBias = {};
-    // Timed plan changes (P2): each entry REPLACES the active directive set once
-    // the clock reaches atMs. The match is then a pure function of seed + this
-    // timeline, so it replays identically. Applied at the top of applyDirectives.
-    // moraleDelta[id] is added to that player's moraleBoost when the entry fires (a
-    // motivational shout's effect); 0 for everyone by default. A mid-match FORMATION
-    // change also carries a per-player layout: where layoutHX[id] > 0, that player
-    // re-anchors (base + current) + re-roles + gets a fresh role-AI on fire.
-    struct TimelineEntry {
-        double atMs = 0.0;
-        int team = -1;   // §1.3/§4: which side this entry replaces (0=home, 1=away); -1 = both (back-compat)
-        std::vector<Directive> directives;
-        std::array<double, 22> moraleDelta{};
-        std::array<double, 22> layoutHX{};
-        std::array<double, 22> layoutHY{};
-        std::array<Role, 22>   layoutRole{};
-        // A layout slot is APPLIED only when role+homeX+homeY were ALL present in
-        // the spec — guards against a partial row defaulting role to GK / homeY to 0,
-        // and lets a legit homeX==0 (left touchline) anchor through.
-        std::array<bool, 22>   layoutSet{};
-    };
-    std::vector<TimelineEntry> directiveTimeline;
     size_t directiveTimelineIdx = 0;
-    std::vector<TimelineEntry> liveCommandQueue;   // §1.3b: live inject overlay (stdin/scheduler), drained by applyLiveCommands at atMs<=clock
     // get_forward/sit_deep relocate a player's formation ANCHOR (homeX) up or
     // down the pitch — every positioning candidate keys off homeX, so the whole
     // shape (attacking base AND defensive station) moves coherently. We snapshot
@@ -1006,30 +1101,17 @@ public:
     std::array<double, 22> baseHomeY = {};
     bool baseHomeXCaptured = false;
     void applyDirectives();
-    void applyDirectiveEntry(const TimelineEntry& e);   // §1.3: shared timeline+live-inject entry apply (team-scoped)
-    void applyLiveCommands();   // §1.3b: drain liveCommandQueue (atMs<=clock) via applyDirectiveEntry (per-team)
 
-    // ── Lifecycle ──
-    GameEngine();
-    void initWithSeed(int seed);
-    void equalizeAttributes(int val);
     void createHomeTeam();
     void createAwayTeam();
     void buildTeam(Team team, const RosterOverride& ro, const double* defHX);
     Player mkPlayer(int id, Team t, Role r, double hx, double hy);
     void reassignAgent(Player& p, Role r);   // mid-match role change: swap the player's role-AI
-    void startMatch();
-    // holdMs: how long the teams stand in formation before the tap. Opening /
-    // second-half kickoffs use the short default; a post-goal kickoff passes a
-    // longer hold (the celebration-and-reset breather).
-    void kickoff(Team t, double holdMs = 1500.0, bool walkIn = false);
     void update(double dM);
-    bool step();   // §1.4 LIVE: one fixed tick, returns false at full-time (while(step()) loop + runner-ready)
     void fixedUpdate(double sdt);
     void fixedUpdateTick(double sdt);   // the tick proper; fixedUpdate wraps it (see updateRenderFacing)
     void updateRenderFacing();          // render-only facing low-pass; every tick, every phase
     void tickAgents(double sdt, bool ic);
-private:
     bool initialized_ = false;   // one-shot guard: GameEngine is one-match-per-instance (initWithSeed)
     void cacheBallState();
     void updatePlayerAnimations(double sdt);
@@ -1045,7 +1127,6 @@ private:
     int  stageKickoffFormation(Team t);   // position-only staging; returns the taker's id
     void halfTimeWalk(double sdt);        // scripted, rng-free stroll to the H2 spots
     void updateOpenPlayPhase(double sdt, double sec);
-public:
     void kickoffTap();
     void releaseSetPiece();
     void releaseGoalKick(Player& holder);
@@ -1082,5 +1163,4 @@ public:
     void updateGoalKickMonitor();
 
     std::string getSummaryJSON() const;
-    std::string getJSON() const;
 };
