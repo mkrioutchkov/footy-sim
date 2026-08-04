@@ -1662,3 +1662,25 @@ void PlayerAI::auditDefensiveMovement(const Action& choice) {
                                  danger ? 1 : 0,
                                  8000.0, std::string("why_player_running_direction:") + std::string(to_string(player.team)));
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Narrow views onto engine internals, for the role subclasses
+// ══════════════════════════════════════════════════════════════════════════════
+// PlayerAI is GameEngine's only friend. Friendship is not inherited, so the six
+// role subclasses cannot reach engine internals themselves — these are the three
+// things they actually need, and keeping them here is what lets the engine's
+// friend list stay at one entry instead of naming all seven agent classes.
+//
+// Two carry GK vocabulary on a base class every role inherits, which is not
+// lovely; the alternative is friending GKPlayerAI on the engine, and one extra
+// method on PlayerAI is the cheaper of the two. Callers: directiveBallPlaying
+// from CBPlayerAI (role_ai.cpp), the other two from GKPlayerAI (gk_ai.cpp).
+bool PlayerAI::directiveBallPlaying() const {
+    return engine.directiveBias[player.id].ballPlaying;
+}
+double PlayerAI::gkDistributeTimer() const {
+    return engine.goalKickMonitor.distributeTimer;
+}
+void PlayerAI::releaseGkDistribution() {
+    engine.releaseGoalkeeperDistribution(player);
+}

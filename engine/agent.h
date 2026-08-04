@@ -282,6 +282,7 @@ protected:
     // here. Anything else they want should be added here too, deliberately —
     // that keeps the engine's friend list at one entry and makes the agents'
     // dependency on engine internals an explicit, greppable list.
+    // (Defined in agent.cpp, with the rest of the PlayerAI base implementation.)
     [[nodiscard]] bool    directiveBallPlaying() const;   // this player's ball-playing directive bias
     [[nodiscard]] double  gkDistributeTimer() const;      // goal-kick monitor countdown
     void                  releaseGkDistribution();        // keeper plays it away
