@@ -57,8 +57,9 @@ CB a progressive, line-breaking game. **No new Role needed** — one directive b
 `cutInsideBias`/`overlapBias` pattern.
 
 **Recipe (single directive kind + a bias flag):**
-1. `engine/engine.h` — add `BallPlaying` to `DirectiveKind` (~565) and a `bool ballPlaying` (or a scalar) to the
-   `DirectiveBias` struct (~599).
+1. `engine/engine.h` — add `BallPlaying` to the `DirectiveKind` enum and a `bool ballPlaying` (or a scalar) to the
+   `DirectiveBias` struct. (Symbol names, not line numbers — both moved when GameEngine's nested
+   types were grouped; grep for them.)
 2. `engine/main.cpp` — map the string `"ball_playing"` (aliases `"step_out"`, `"carry_out"`) → `DirectiveKind::BallPlaying`
    in `parseDirectives` (~66-144).
 3. `engine/engine_defense.cpp` — in the per-player `applyDirectives` switch (~246-319) set the bias when the kind
@@ -98,7 +99,7 @@ A/B (32+ seeds) and a re-benchmark against `docs/STATSBOMB_DATA.md` targets. Unt
 
 Today `inverted` = `come_inside` + `stay_back` = a lateral tuck, **not** an FB stepping up into the DM line in
 possession. Minimal faithful version, **no new Role** — build on the existing `directiveBias` + `CondPhase`
-machinery (`engine.h:583`): a dedicated `invert` bias that, **in possession** (`CondPhase::InPossession`), shifts
+machinery (`DirectiveBias` + `CondPhase` in `engine.h`): a dedicated `invert` bias that, **in possession** (`CondPhase::InPossession`), shifts
 the FB's anchor into the pivot (homeX up toward the DM line + homeY toward centre) and lets it act as a midfield
 outlet, reverting wide/deep out of possession. Wire it like §1 (kind + bias + phase-gated consumption in
 `agent_positioning.cpp`). **Risk:** moderate. Golden + A/B as above. Until then the board labels it "approx.".

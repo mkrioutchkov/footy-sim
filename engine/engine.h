@@ -25,15 +25,14 @@ struct ShotSelectionAudit;
 class GameEngine {
 public:
     // ══════════════════════════════════════════════════════════════════════════
-public:
-    // ══════════════════════════════════════════════════════════════════════════
     // Nested types that appear in the driver API
     // ══════════════════════════════════════════════════════════════════════════
-    // These eight are named by main.cpp: RosterOverride and Config are how a
-    // --match spec is loaded, DirectiveKind/CondScore/CondPhase/Directive/
-    // TimelineEntry are how tactics arrive, VisualEvent is how trace events
-    // leave. The other 26 nested types are internal and live below the private
-    // line with the members that use them.
+    // These eight are reachable from main.cpp: RosterOverride and Config are how
+    // a --match spec is loaded, DirectiveKind/CondScore/CondPhase/Directive/
+    // TimelineEntry are how tactics arrive, and VisualEvent is what the trace
+    // drain yields (main.cpp reaches it through `auto`, never by name, but it
+    // still has to be accessible). The remaining nested types are internal and
+    // live below the private line with the members that use them.
 
     struct VisualEvent {
         std::string type;
@@ -146,7 +145,8 @@ public:
     // system: configure, run, observe.
     //
     // Before this split the class was 1007 lines of `public:` — 235 declarations,
-    // every one reachable from anywhere. This section is 21. Adding to it is now a
+    // every one reachable from anywhere. This section is 21, which is what
+    // main.cpp actually reaches. Adding to it is now a
     // deliberate act: if you find yourself widening it to reach engine internals
     // from a new consumer, that is the signal to add a METHOD here rather than
     // expose a field — the difference between `traceEventQueue` (which left the
@@ -235,7 +235,8 @@ public:
     // ══════════════════════════════════════════════════════════════════════════
     // The agents are NOT external consumers: PlayerAI is co-designed with the
     // engine, lives in this directory, is owned by it (`agents`) and constructed
-    // by it, and reaches into it directly ~900 times. Friendship states that
+    // by it, and makes ~610 direct member accesses across the agent unit
+    // (grep -oE '\bengine\.[A-Za-z_]\w*' agent*.cpp role_ai.cpp gk_ai.cpp). Friendship states that
     // relationship exactly, rather than pretending 200 internal fields are an API.
     //
     // The six role subclasses are deliberately absent. Friendship is not
@@ -255,12 +256,7 @@ private:
     std::vector<VisualEvent> traceEventQueue;
 
     // ── Internal nested types ── named by nothing outside the engine unit.
-    // Nested types
-    // ══════════════════════════════════════════════════════════════════════════
-    // Public because several appear in the driver API below (RosterOverride and
-    // Config are how a --match spec is loaded; Directive/TimelineEntry are how
-    // tactics arrive; VisualEvent is how trace events leave). Declaration order
-    // is unchanged — they depend on each other.
+    // Declaration order is unchanged; they depend on each other.
 
 
     // ── Match Metrics & Tracking ──

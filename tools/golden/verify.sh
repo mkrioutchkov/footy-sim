@@ -4,7 +4,7 @@
 # Rebuilds the engine, reruns the frozen seed set, and checks the result against
 # the committed byte-identical fingerprint. A pure refactor MUST reproduce it
 # exactly (100%). Any per-seed drift is a behaviour change — investigate, don't
-# wave it through (see docs/ENGINE_AUDIT_2026-07.md "Golden rule").
+# wave it through (see CLAUDE.md, "Changing the engine").
 #
 # Usage:  bash tools/golden/verify.sh            # rebuild + verify
 #         bash tools/golden/verify.sh --no-build # verify current build/live.exe

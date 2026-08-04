@@ -15,7 +15,7 @@
 Frozen reference for verifying that an engine refactor is **behaviour-preserving**.
 The engine is deterministic (same seed + spec + binary ⇒ byte-identical output),
 so a *pure* refactor must reproduce this baseline **byte-for-byte**. See
-`docs/ENGINE_AUDIT_2026-07.md` "Golden rule": any real behavioural change
+CLAUDE.md "Changing the engine": any real behavioural change
 reshuffles the RNG stream and moves emergent stats, so byte-identity is the only
 proof a refactor changed nothing.
 
