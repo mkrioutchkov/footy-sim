@@ -877,15 +877,8 @@ void GameEngine::releaseThrowIn(Player& holder) {
         double targetY = PITCH_H / 2.0 + (holder.y < PITCH_H / 2.0 ? -55.0 : 55.0); // near post, throw side
         double dx = targetX - holder.x, dy = targetY - holder.y, d = std::max(1.0, std::hypot(dx, dy));
         auto& b = state.ball;
-        b.controllerId = -1;
-        placeBallForRelease(holder, dx, dy);
-        blockReboundFor(holder.id, 600);
-        b.lastTouchTeam = holder.team;
-        b.lastToucherId = holder.id;
         double speed = clamp(160.0 + d * 0.15, 160.0, 290.0); // a powerful long throw
-        driveBall(b, dx, dy, d, speed);
-        b.vz = speed * 0.9;
-        b.z = 0; // flat-fast aerial into the box
+        releaseRestartBall(holder, dx, dy, d, speed, speed * 0.9);   // flat-fast aerial into the box
         b.intendedReceiverId = -1;
         receiverShieldTargetId = -1;
         pendingPass.active = false;
@@ -914,14 +907,7 @@ void GameEngine::releaseThrowIn(Player& holder) {
         if (d < 30.0) continue;
         double speed = 120.0 + d * 0.15;
         auto& b = state.ball;
-        b.controllerId = -1;
-        placeBallForRelease(holder, dx, dy);
-        blockReboundFor(holder.id, 600);
-        b.lastTouchTeam = holder.team;
-        b.lastToucherId = holder.id;
-        driveBall(b, dx, dy, d, speed);
-        b.vz = speed * 1.4;
-        b.z = 0;
+        releaseRestartBall(holder, dx, dy, d, speed, speed * 1.4);
         b.intendedReceiverId = t.id;
         receiverShieldTargetId = t.id;
         beginTrackedPass(holder, t, false);
@@ -941,14 +927,7 @@ void GameEngine::releaseThrowIn(Player& holder) {
             if (d >= 30.0 && d <= 400.0) {
                 double speed = 120.0 + d * 0.15;
                 auto& b = state.ball;
-                b.controllerId = -1;
-                placeBallForRelease(holder, dx, dy);
-                blockReboundFor(holder.id, 600);
-                b.lastTouchTeam = holder.team;
-                b.lastToucherId = holder.id;
-                driveBall(b, dx, dy, d, speed);
-                b.vz = speed * 1.4;
-                b.z = 0;
+                releaseRestartBall(holder, dx, dy, d, speed, speed * 1.4);
                 b.intendedReceiverId = gk->id;
                 receiverShieldTargetId = gk->id;
                 beginTrackedPass(holder, *gk, false);
@@ -969,14 +948,7 @@ void GameEngine::releaseThrowIn(Player& holder) {
         if (bd < 1e8 && (onx - holder.x) * fd > 0.0) throwFd = -fd;
         double dx = throwFd * 80.0, dy = side * 130.0, d = std::hypot(dx, dy);
         double speed = 155.0;
-        b.controllerId = -1;
-        placeBallForRelease(holder, dx, dy);
-        blockReboundFor(holder.id, 600);
-        b.lastTouchTeam = holder.team;
-        b.lastToucherId = holder.id;
-        driveBall(b, dx, dy, d, speed);
-        b.vz = speed * 0.95;
-        b.z = 0;
+        releaseRestartBall(holder, dx, dy, d, speed, speed * 0.95);
         b.intendedReceiverId = -1;
         receiverShieldTargetId = -1;
         pendingPass.active = false;
@@ -986,14 +958,7 @@ void GameEngine::releaseThrowIn(Player& holder) {
     double side = holder.y < PITCH_H / 2.0 ? 1.0 : -1.0;
     double dx = fd * 80.0, dy = side * 130.0, d = std::hypot(dx, dy);
     double speed = 155.0;
-    b.controllerId = -1;
-    placeBallForRelease(holder, dx, dy);
-    blockReboundFor(holder.id, 600);
-    b.lastTouchTeam = holder.team;
-    b.lastToucherId = holder.id;
-    driveBall(b, dx, dy, d, speed);
-    b.vz = speed * 0.95;
-    b.z = 0;
+    releaseRestartBall(holder, dx, dy, d, speed, speed * 0.95);
     b.intendedReceiverId = -1;
     receiverShieldTargetId = -1;
     pendingPass.active = false;
@@ -1046,15 +1011,8 @@ void GameEngine::releaseCornerKick(Player& holder) {
         if (shortOpt && cornerRoll < SHORT_CORNER_PROB) {
             double dx = shortOpt->x - holder.x, dy = shortOpt->y - holder.y, d = std::max(1.0, std::hypot(dx, dy));
             auto& b = state.ball;
-            b.controllerId = -1;
-            placeBallForRelease(holder, dx, dy);
-            blockReboundFor(holder.id, 600);
-            b.lastTouchTeam = holder.team;
-            b.lastToucherId = holder.id;
             double speed = clamp(150.0 + d * 0.35, 150.0, 250.0);
-            driveBall(b, dx, dy, d, speed);
-            b.z = 0;
-            b.vz = 0;
+            releaseRestartBall(holder, dx, dy, d, speed, 0.0);   // rolled short, stays down
             b.intendedReceiverId = shortOpt->id;
             receiverShieldTargetId = shortOpt->id;
             emitEvent("corner_short", holder.x, holder.y, holder.id);
@@ -1395,4 +1353,26 @@ void GameEngine::updateGoalKickMonitor() {
     } else if (state.clockMs - goalKickMonitor.startedMs > 18000.0) {
         goalKickMonitor.active = false;
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// releaseRestartBall() — the one way a dead ball leaves the taker's foot
+// ══════════════════════════════════════════════════════════════════════════════
+// Six restart releases (long throw, throw-in to a target, the two throw fallbacks,
+// the goal-kick fallback, the short corner) each wrote this identical eight-line
+// sequence out longhand: drop control, step the ball to the release point, arm the
+// Law 13-17 double-touch block, stamp attribution, then drive it. Any restart that
+// forgot one line — the rebound block especially — would be a referee bug nobody
+// would spot by reading one site. One copy now.
+void GameEngine::releaseRestartBall(Player& holder, double dx, double dy, double d,
+                                    double speed, double lift, double reboundBlockMs) {
+    auto& b = state.ball;
+    b.controllerId = -1;
+    placeBallForRelease(holder, dx, dy);
+    blockReboundFor(holder.id, reboundBlockMs);
+    b.lastTouchTeam = holder.team;
+    b.lastToucherId = holder.id;
+    driveBall(b, dx, dy, d, speed);
+    b.vz = lift;
+    b.z = 0;
 }

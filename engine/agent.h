@@ -297,6 +297,11 @@ protected:
 private:
     void                  executeAction(Action& action, double sdt, SmallVector<Action, 24>& actions);
     void                  executeDribble(Action& a, double sdt);
+    // The one escape-lane solve, shared by both evade sites in scoreDribble.
+    // See agent_shoot_dribble.cpp — round-36's "two bugs" were one bug copied.
+    [[nodiscard]] bool    escapeLaneBlocked(double cx, double cy, const Player* evaded) const;
+    void                  solveEscapeLane(double& tx, double& ty, double sideSeedY, double lateral,
+        const Player* evaded, bool securing, double fd);
     std::optional<Action> scorePassToTarget(Player& target, const Perception& per,
         double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
         bool urgentKeeperNeed, bool movingTowardOwnGoal, bool corneredEscape, bool oppClosingSoon);

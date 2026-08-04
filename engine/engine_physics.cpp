@@ -1351,19 +1351,8 @@ void GameEngine::updateControlledBall(double sec) {
     if (!c || phase.kickoffPhase) return;
     double dx = std::cos(c->facing), dy = std::sin(c->facing);
     double speed = std::hypot(c->vx, c->vy);
-    double nearestOppDist = 1e9;
-    double nearestOppX = 0.0, nearestOppY = 0.0;
-    if (c->role != Role::GK) {
-        for (const auto& o : state.players) {
-            if (o.team == c->team || o.role == Role::GK) continue;
-            double od = dist(c->x, c->y, o.x, o.y);
-            if (od < nearestOppDist) {
-                nearestOppDist = od;
-                nearestOppX = o.x;
-                nearestOppY = o.y;
-            }
-        }
-    }
+    const NearestOpp no = nearestOpponentTo(*c);
+    double nearestOppDist = no.dist, nearestOppX = no.x, nearestOppY = no.y;
     if (c->role != Role::GK && speed > 18.0) {
         double mx = c->vx / speed, my = c->vy / speed;
         double facingMoveDot = dx * mx + dy * my;
@@ -1707,19 +1696,8 @@ void GameEngine::moveBallCarrier(double sdt) {
     }
     if (actualSpeed > 5) {
         double desiredFacing = std::atan2(c->vy, c->vx);
-        double nearestOppDist = 1e9;
-        double nearestOppX = 0.0, nearestOppY = 0.0;
-        if (c->role != Role::GK) {
-            for (const auto& o : state.players) {
-                if (o.team == c->team || o.role == Role::GK) continue;
-                double od = dist(c->x, c->y, o.x, o.y);
-                if (od < nearestOppDist) {
-                    nearestOppDist = od;
-                    nearestOppX = o.x;
-                    nearestOppY = o.y;
-                }
-            }
-        }
+        const NearestOpp no = nearestOpponentTo(*c);
+        double nearestOppDist = no.dist, nearestOppX = no.x, nearestOppY = no.y;
         if (nearestOppDist < 68.0) {
             double awayAngle = std::atan2(c->y - nearestOppY, c->x - nearestOppX);
             double pressure = clamp((68.0 - nearestOppDist) / 68.0, 0.0, 1.0);
@@ -1734,4 +1712,19 @@ void GameEngine::moveBallCarrier(double sdt) {
         c->facing += clamp(desiredStep, -maxFacingTurn, maxFacingTurn);
     }
     updateControlledBall(0);
+}
+
+// Nearest opposing OUTFIELDER to a player, with his position. Both carrier-facing
+// sites in this file scanned for it longhand with identical GK/own-team filters;
+// a keeper carrying the ball is deliberately reported as "nobody near" (dist 1e9)
+// because the callers only use this to decide how a CARRY should turn.
+GameEngine::NearestOpp GameEngine::nearestOpponentTo(const Player& c) const {
+    NearestOpp r;
+    if (c.role == Role::GK) return r;
+    for (const auto& o : state.players) {
+        if (o.team == c.team || o.role == Role::GK) continue;
+        double od = dist(c.x, c.y, o.x, o.y);
+        if (od < r.dist) { r.dist = od; r.x = o.x; r.y = o.y; }
+    }
+    return r;
 }

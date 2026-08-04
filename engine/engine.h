@@ -786,6 +786,12 @@ public:
     void resolveKnockAhead(Player* collector, const std::string& stopped = "");
     void emitEvent(const std::string&, double, double, int=-1, int=-1, bool traceOnly=false, bool ownGoal=false,
                    const std::string& outName={}, const std::string& inName={});
+    // Nearest opposing outfielder to a player (GK carriers report "nobody near").
+    struct NearestOpp { double dist = 1e9; double x = 0.0; double y = 0.0; };
+    [[nodiscard]] NearestOpp nearestOpponentTo(const Player& c) const;
+    // The one way a dead ball leaves the taker's foot — see engine_setpiece.cpp.
+    void releaseRestartBall(Player& holder, double dx, double dy, double d,
+                            double speed, double lift, double reboundBlockMs = 600.0);
     void blockReboundFor(int playerId, double ms);
     void recordBallImpulse();
     void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false, bool isCutback = false, bool isClear = false);
