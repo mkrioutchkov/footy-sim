@@ -435,6 +435,25 @@ void GameEngine::creditGoal(int scorerId) {
 // starts on the snapshot's controller so dwell/marathon logic measures from the
 // resume rather than from a phantom past.
 void GameEngine::resumeFromSnapshot() {
+    // WHICH HALF. phase.half is per-half state that a resume has to DERIVE from
+    // the restored clock — the snapshot format does not carry it (neither
+    // --snapshot-out nor tools/snapshot_from_trace.py records it), and it
+    // defaults to 1. Resuming a second-half moment therefore left the engine
+    // believing it was still in the first half, so the very next tick compared
+    // the restored clock against halfDurationMs, blew the half-time whistle and
+    // restarted from the centre spot — destroying the situation the snapshot
+    // existed to replay. (Reproduced on seed 101 @10min, snapshot at 400s: the
+    // resume reported half 2, clock 607795, matchState finished, having played
+    // the captured moment for zero seconds.)
+    //
+    // The added-time bookkeeping is per-half too and is stoppage accumulated by
+    // a half this run never played, so it resets with it.
+    phase.half = (state.clockMs >= halfDurationMs) ? 2 : 1;
+    phase.halfTimePause = 0.0;
+    phase.addedTimeActive = false;
+    phase.stoppageMs = 0.0;
+    phase.announcedAddedMs = 0.0;
+    phase.announcedAddedMin = 0;
     phase.kickoffPhase = false;
     phase.actionTimer = 0;
     setPiece.armed = false;
@@ -446,4 +465,14 @@ void GameEngine::resumeFromSnapshot() {
     if (Player* rc = playerById(state.ball.controllerId))
         carrierTracker.carryStartFacing = rc->facing;
     carrierTracker.marathonReleased = false;
+    // Re-mirror the ball. The OffBallOverspeed/BallTeleport tripwire measures
+    // each tick's ball delta against prevBall*, which startMatch/kickoff leave at
+    // the centre spot — so the snapshot's (entirely legitimate) ball placement
+    // was scored as a real teleport on the first tick and the resumed run
+    // permanently reported a false ball_jump. The three conditions that would
+    // otherwise suppress the detector — kickoffPhase, setPiece.armed and
+    // placeBallAtMs — are the ones this very method has just cleared, so the
+    // mirror has to be refreshed here. (Seed 101 @10min, loose-ball snapshot at
+    // 210s: ball_jump 1 before this line, 0 after; control run 0.)
+    cacheBallState();
 }
