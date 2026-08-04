@@ -1247,9 +1247,6 @@ void GameEngine::tickAgents(double sdt, bool ic) {
 // JSON serialization
 // ══════════════════════════════════════════════════════════════
 
-std::string GameEngine::getSummaryJSON() const {
-    return stats.summaryJSON();
-}
 
 std::string GameEngine::getJSON() const {
     auto& b = state.ball;

@@ -9,6 +9,7 @@
 #include "small_vector.h"
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 // Forward declarations — full includes only in .cpp files that need them.
 // PlayerAI is named here so the engine can grant it friendship (see the internals
@@ -24,6 +25,236 @@ struct ShotSelectionAudit;
 class GameEngine {
 public:
     // ══════════════════════════════════════════════════════════════════════════
+public:
+    // ══════════════════════════════════════════════════════════════════════════
+    // Nested types that appear in the driver API
+    // ══════════════════════════════════════════════════════════════════════════
+    // These eight are named by main.cpp: RosterOverride and Config are how a
+    // --match spec is loaded, DirectiveKind/CondScore/CondPhase/Directive/
+    // TimelineEntry are how tactics arrive, VisualEvent is how trace events
+    // leave. The other 26 nested types are internal and live below the private
+    // line with the members that use them.
+
+    struct VisualEvent {
+        std::string type;
+        double x = 0, y = 0, clockMs = 0;
+        int playerId = -1, targetId = -1;
+        // Round-30: "goal" only — the toucher is a defender who put it into his
+        // OWN net, so the event's player id belongs to the CONCEDING side. The
+        // trace writer synthesises team from the player id, so without this the
+        // goal lands on the wrong team and the replay scorebug reads the wrong
+        // scoreline for the rest of the match.
+        bool ownGoal = false;
+        // Round-31: "sub" only. A substitution has TWO identities but the pitch has
+        // ONE slot: substituteSlot renames the slot in the same tick, so the event's
+        // playerId always resolves to the man ARRIVING and the man leaving cannot be
+        // named from engine state at all. Carry both names on the event.
+        std::string outName, inName;
+    };
+
+    // ── Tactical callbacks ──
+    struct Config {
+        double aggression=50, passingDirectness=50, overlapFrequency=50;
+        double midfieldFreedom=50, defensiveLineHeight=50;
+    };
+
+    // ── Data-driven rosters (FM-style game). When a roster is active, the 11
+    // players in that team's fixed formation slots (0..10) take their name +
+    // attributes from the override instead of the hardcoded legends, and the
+    // Config dials are taken as-is (configOverride) rather than randomized.
+    // This is how a user-created team plays. Set before initWithSeed(). ──
+    struct RosterOverride {
+        bool active = false;
+        std::array<PlayerAttributes, 11> attrs{};
+        std::array<std::string, 11> names{};
+        std::array<int, 11> feet{ 1,1,1,1,1,1,1,1,1,1,1 };   // +1 R / -1 L / 0 both ("foot" spec key)
+        // Formation/lineup: per-slot role + home anchor (engine frame, absolute —
+        // the backend mirrors for away). Default = the current 4-3-3 roles; anchors
+        // <=0 mean "use the hardcoded default for this slot". hasLayout=false =>
+        // the whole hardcoded literal layout (back-compat; no-directive match
+        // stays byte-identical).
+        std::array<Role, 11> roles{ Role::GK, Role::FB, Role::CB, Role::CB, Role::FB,
+                                    Role::CM, Role::CM, Role::CM, Role::WM, Role::CF, Role::WM };
+        std::array<double, 11> homeX{};
+        std::array<double, 11> homeY{};
+        bool hasLayout = false;
+        // Optional per-slot pre-match morale shading in [-1,1] (default 0 = neutral).
+        std::array<double, 11> moraleBoost{};
+    };
+
+    // ── Plain-English tactics (P1): compiled directives the engine executes
+    // each tick. Player ids are resolved (0..21) by the caller. Conditions are a
+    // PURE function of clock + score (no rng — must not perturb the stream).
+    // See docs/TACTICS.md. ──
+    enum class DirectiveKind : uint8_t {
+        // ── per-player (playerId 0..21) ──
+        ManMark, ShootOnSight, GetForward, SitDeep, TargetPlayer,
+        StayWide, ComeInside, CutInside, OverlapRun, StayCentral,
+        CrossEarly, SwitchPlay, PlaySimple, Cutback,
+        RunInBehind, MakeRuns, ComeShort, DriftIntoPocket, DribbleMore, StayBack,
+        TargetManHoldup, BallPlaying,
+        PressHard, TackleHard, StayOnFeet, Contain,
+        // ── set-piece taker designations (per-player; playerId = the designated taker) ──
+        FkTaker, CornerTaker, PenTaker, LongThrowTaker,
+        // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
+        AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
+        KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
+        CounterAttack, OffsideTrap, ShootFromDistance, WorkItIntoBox,
+        // ── tactical-depth continuous dials (team-wide; intensity is the slider 0-1, 0.5=neutral) ──
+        PressIntensity, Mentality, LineHeight,
+    };
+    enum class CondScore : uint8_t { Any, Winning, Drawing, Losing };
+    enum class CondPhase : uint8_t { Any, InPossession, OutOfPossession, Transition };
+    struct Directive {
+        int playerId = -1;                          // who it applies to (engine id 0..21)
+        int teamScope = -1;                         // -1 = player-scoped; 0 = home team, 1 = away team (dial commands)
+        DirectiveKind kind = DirectiveKind::ManMark;
+        int targetId = -1;                          // man_mark / target_player target
+        double intensity = 1.0;
+        int fromMin = 0;                            // active from this match minute...
+        int toMin = 1000;                           // ...to this one, inclusive (default = whole match)
+        CondScore scoreState = CondScore::Any;      // active only in this score state
+        int scoreBy = 0;                            // ...by at least N goals (0 => any margin)
+        CondPhase phase = CondPhase::Any;           // active only in this possession phase (in/out/transition)
+    };
+    // Timed plan changes (P2): each entry REPLACES the active directive set once
+    // the clock reaches atMs. The match is then a pure function of seed + this
+    // timeline, so it replays identically. Applied at the top of applyDirectives.
+    // moraleDelta[id] is added to that player's moraleBoost when the entry fires (a
+    // motivational shout's effect); 0 for everyone by default. A mid-match FORMATION
+    // change also carries a per-player layout: where layoutHX[id] > 0, that player
+    // re-anchors (base + current) + re-roles + gets a fresh role-AI on fire.
+    struct TimelineEntry {
+        double atMs = 0.0;
+        int team = -1;   // §1.3/§4: which side this entry replaces (0=home, 1=away); -1 = both (back-compat)
+        std::vector<Directive> directives;
+        std::array<double, 22> moraleDelta{};
+        std::array<double, 22> layoutHX{};
+        std::array<double, 22> layoutHY{};
+        std::array<Role, 22>   layoutRole{};
+        // A layout slot is APPLIED only when role+homeX+homeY were ALL present in
+        // the spec — guards against a partial row defaulting role to GK / homeY to 0,
+        // and lets a legit homeX==0 (left touchline) anchor through.
+        std::array<bool, 22>   layoutSet{};
+    };
+    // THE DRIVER API — everything outside the engine unit may touch
+    // ══════════════════════════════════════════════════════════════════════════
+    // This is the whole public surface, and it is deliberately small. main.cpp is
+    // the ONLY translation unit that links against GameEngine; the web backend and
+    // the python probes drive the built binary over the CLI/JSON seam documented in
+    // docs/CONTRACT.md. So this section IS that contract, expressed in the type
+    // system: configure, run, observe.
+    //
+    // Before this split the class was 1007 lines of `public:` — 235 declarations,
+    // every one reachable from anywhere. This section is 21. Adding to it is now a
+    // deliberate act: if you find yourself widening it to reach engine internals
+    // from a new consumer, that is the signal to add a METHOD here rather than
+    // expose a field — the difference between `traceEventQueue` (which left the
+    // caller clearing engine state) and `drainTraceEvents()` (which does not).
+
+    // ── Lifecycle ── one match per instance. initWithSeed self-guards a re-init:
+    // a second call would reallocate state.players and dangle every Player& the
+    // agents hold.
+    GameEngine();
+    ~GameEngine();
+    void initWithSeed(int seed);
+    void startMatch();
+    void setMatchLengthMinutes(double minutes) {
+        matchDurationMs = minutes * 60000.0;
+        halfDurationMs  = matchDurationMs / 2.0;
+    }
+    void equalizeAttributes(int val);
+
+    // ── Configure (before startMatch) ── how a --match spec, the env and the
+    // CLI flags reach the simulation.
+    // The two rosters and their base tactic dials, filled from a --match spec
+    // (loadTeam in main.cpp); configOverride says a spec supplied them, so
+    // initWithSeed must not roll random "manager" personalities instead.
+    RosterOverride homeRoster, awayRoster;
+    std::array<Config, 2> baseConfig;   // [0]=home, [1]=away base tactic dials (from the roster/manager)
+    bool configOverride = false;
+    // §weather feature-depth: match-level pitch condition affecting BALL physics. 0=clear (DEFAULT
+    // -> zero effect, byte-identical default game), 1=rain/wet (the pitch greases the ball: it skids
+    // further, shedding less rolling friction). Set from FOOTY_WEATHER env (or spec) before startMatch.
+    // Kept ball-only + small on purpose. 2=wind (§v2): a seed-derived per-match wind vector drifts
+    // AIRBORNE balls laterally (height-gated, so ground passes are immune -> passPct protected).
+    int weather = 0;
+    // §arena: 1v1 exhibition mode (GK + one outfielder a side on the full
+    // pitch). Set from --arena before initWithSeed. The spare outfielders are
+    // parked off-pitch exactly like sent-off players — the fixed-22 array and
+    // every lookup stay valid — but no red cards are recorded (it's a mode,
+    // not a match event) and subs are disabled (nobody to legally replace).
+    bool arenaMode = false;
+    // Outfielders per side in arena mode: 1 (1v1, default) up to
+    // ARENA_MAX_OUTFIELDERS. Kept slots are chosen in initWithSeed; GKs always play.
+    int arenaOutfielders = 1;
+    bool passDebug = false;   // FOOTY_PASSDEBUG: dump each intercepted pass's decision context to stderr
+
+    // ── Tactics in ── plain directives, a pre-planned timeline, and the live
+    // inject queue the watch flow pushes mid-match.
+    std::vector<Directive> directives;
+    std::vector<TimelineEntry> directiveTimeline;
+    std::vector<TimelineEntry> liveCommandQueue;   // §1.3b: live inject overlay (stdin/scheduler), drained by applyLiveCommands at atMs<=clock
+
+    // ── Run ──
+    bool step();   // §1.4 LIVE: one fixed tick, returns false at full-time (while(step()) loop + runner-ready)
+    // Make the engine consistent with a world overwritten from outside (the
+    // --snapshot-in resume). The caller assigns positions/ball/clock/score onto
+    // `state`; this restores the engine-side invariants that go with them.
+    void resumeFromSnapshot();
+
+    // ── Observe ── the world, the summary, and the per-tick trace feed.
+    EngineState state;
+    // The PRNG is a single word, and the whole determinism guarantee hangs off
+    // it, so the object itself is private (it is `mutable`, so a public field
+    // would let even a const GameEngine& perturb the stream). These two are the
+    // only operations outside the engine needs: --snapshot-out records the state
+    // and a same-version --snapshot-in replays the exact draw sequence.
+    [[nodiscard]] uint32_t rngState() const { return rng.getState(); }
+    void setRngState(uint32_t v) { rng.setState(v); }
+    std::string getJSON() const;
+    // Full event log for the trace file — the host drains it every tick
+    // (visualEvents is renderer-facing and capped, so it drops history). Handed
+    // over as a drain rather than a bare vector: the caller used to read the
+    // queue and then clear() it, which is the engine's invariant being
+    // maintained from outside — the same shape as the snapshot bug fixed in
+    // 74b5c72. Taking the events transfers that responsibility back.
+    [[nodiscard]] std::vector<VisualEvent> drainTraceEvents() {
+        return std::exchange(traceEventQueue, {});
+    }
+    // Render-only facing: a display copy of each player's facing that damps rapid
+    // direction reversals, so a jockeying defender doesn't shimmer ~30deg
+    // left-right in the watch view. NEVER read by logic (tackle geometry/dribble
+    // use the raw Player::facing) — purely the getJSON output plus the trace's v3
+    // render-hint slot, so gameplay is byte-identical. Advanced by
+    // updateRenderFacing() at the END of every fixedUpdate, in every phase.
+    std::array<double, 22> renderFacing = {};
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Engine internals — the simulation itself
+    // ══════════════════════════════════════════════════════════════════════════
+    // The agents are NOT external consumers: PlayerAI is co-designed with the
+    // engine, lives in this directory, is owned by it (`agents`) and constructed
+    // by it, and reaches into it directly ~900 times. Friendship states that
+    // relationship exactly, rather than pretending 200 internal fields are an API.
+    //
+    // The six role subclasses are deliberately absent. Friendship is not
+    // inherited, and naming all six here would make the engine's private section
+    // a fiction; instead the three internals they need are protected accessors on
+    // PlayerAI (agent.h), so their dependency on engine internals is one explicit,
+    // greppable list rather than blanket access.
+    //
+    // This list should not grow. A new class needing this much access is either an
+    // agent — in which case route it through PlayerAI — or a sign that the thing
+    // it wants belongs in the driver API above.
+private:
+    friend class PlayerAI;
+
+    mutable SeededRNG rng;
+
+    std::vector<VisualEvent> traceEventQueue;
+
+    // ── Internal nested types ── named by nothing outside the engine unit.
     // Nested types
     // ══════════════════════════════════════════════════════════════════════════
     // Public because several appear in the driver API below (RosterOverride and
@@ -428,31 +659,9 @@ public:
         double nearestOpponentDistance = 0;
         bool risky = false;
     };
-    struct VisualEvent {
-        std::string type;
-        double x = 0, y = 0, clockMs = 0;
-        int playerId = -1, targetId = -1;
-        // Round-30: "goal" only — the toucher is a defender who put it into his
-        // OWN net, so the event's player id belongs to the CONCEDING side. The
-        // trace writer synthesises team from the player id, so without this the
-        // goal lands on the wrong team and the replay scorebug reads the wrong
-        // scoreline for the rest of the match.
-        bool ownGoal = false;
-        // Round-31: "sub" only. A substitution has TWO identities but the pitch has
-        // ONE slot: substituteSlot renames the slot in the same tick, so the event's
-        // playerId always resolves to the man ARRIVING and the man leaving cannot be
-        // named from engine state at all. Carry both names on the event.
-        std::string outName, inName;
-    };
 
     // ── Agent-accessible state ──
     struct RecentPass { double bx=525,by=340,vx=0,vy=0; Team team=Team::Home; double clockMs=0; };
-
-    // ── Tactical callbacks ──
-    struct Config {
-        double aggression=50, passingDirectness=50, overlapFrequency=50;
-        double midfieldFreedom=50, defensiveLineHeight=50;
-    };
     // Runtime dial deltas set by team-wide directives ("park the bus", "all out
     // attack", "high press" ...). [0]=home, [1]=away. Rebuilt every tick by
     // applyDirectives (pure clock+score function, no rng), added on top of the
@@ -507,66 +716,6 @@ public:
         SmallVector<Threat, 12> threats;
         bool used(const Player* p) const { return assigned[p->id]; }
     };
-
-    // ── Data-driven rosters (FM-style game). When a roster is active, the 11
-    // players in that team's fixed formation slots (0..10) take their name +
-    // attributes from the override instead of the hardcoded legends, and the
-    // Config dials are taken as-is (configOverride) rather than randomized.
-    // This is how a user-created team plays. Set before initWithSeed(). ──
-    struct RosterOverride {
-        bool active = false;
-        std::array<PlayerAttributes, 11> attrs{};
-        std::array<std::string, 11> names{};
-        std::array<int, 11> feet{ 1,1,1,1,1,1,1,1,1,1,1 };   // +1 R / -1 L / 0 both ("foot" spec key)
-        // Formation/lineup: per-slot role + home anchor (engine frame, absolute —
-        // the backend mirrors for away). Default = the current 4-3-3 roles; anchors
-        // <=0 mean "use the hardcoded default for this slot". hasLayout=false =>
-        // the whole hardcoded literal layout (back-compat; no-directive match
-        // stays byte-identical).
-        std::array<Role, 11> roles{ Role::GK, Role::FB, Role::CB, Role::CB, Role::FB,
-                                    Role::CM, Role::CM, Role::CM, Role::WM, Role::CF, Role::WM };
-        std::array<double, 11> homeX{};
-        std::array<double, 11> homeY{};
-        bool hasLayout = false;
-        // Optional per-slot pre-match morale shading in [-1,1] (default 0 = neutral).
-        std::array<double, 11> moraleBoost{};
-    };
-
-    // ── Plain-English tactics (P1): compiled directives the engine executes
-    // each tick. Player ids are resolved (0..21) by the caller. Conditions are a
-    // PURE function of clock + score (no rng — must not perturb the stream).
-    // See docs/TACTICS.md. ──
-    enum class DirectiveKind : uint8_t {
-        // ── per-player (playerId 0..21) ──
-        ManMark, ShootOnSight, GetForward, SitDeep, TargetPlayer,
-        StayWide, ComeInside, CutInside, OverlapRun, StayCentral,
-        CrossEarly, SwitchPlay, PlaySimple, Cutback,
-        RunInBehind, MakeRuns, ComeShort, DriftIntoPocket, DribbleMore, StayBack,
-        TargetManHoldup, BallPlaying,
-        PressHard, TackleHard, StayOnFeet, Contain,
-        // ── set-piece taker designations (per-player; playerId = the designated taker) ──
-        FkTaker, CornerTaker, PenTaker, LongThrowTaker,
-        // ── team-wide dial commands (teamScope >= 0, playerId unused) ──
-        AllOutAttack, ParkTheBus, HighPress, DropOff, PlayItLong,
-        KeepItOnGround, GetItWide, PlayNarrow, PushUp, SlowItDown,
-        CounterAttack, OffsideTrap, ShootFromDistance, WorkItIntoBox,
-        // ── tactical-depth continuous dials (team-wide; intensity is the slider 0-1, 0.5=neutral) ──
-        PressIntensity, Mentality, LineHeight,
-    };
-    enum class CondScore : uint8_t { Any, Winning, Drawing, Losing };
-    enum class CondPhase : uint8_t { Any, InPossession, OutOfPossession, Transition };
-    struct Directive {
-        int playerId = -1;                          // who it applies to (engine id 0..21)
-        int teamScope = -1;                         // -1 = player-scoped; 0 = home team, 1 = away team (dial commands)
-        DirectiveKind kind = DirectiveKind::ManMark;
-        int targetId = -1;                          // man_mark / target_player target
-        double intensity = 1.0;
-        int fromMin = 0;                            // active from this match minute...
-        int toMin = 1000;                           // ...to this one, inclusive (default = whole match)
-        CondScore scoreState = CondScore::Any;      // active only in this score state
-        int scoreBy = 0;                            // ...by at least N goals (0 => any margin)
-        CondPhase phase = CondPhase::Any;           // active only in this possession phase (in/out/transition)
-    };
     // Per-player score nudges the scorers read THIS tick; rebuilt every tick by
     // applyDirectives() (stateless, so deterministic).
     struct DirectiveBias { double shootOnSight=0.0; int passTargetId=-1; double passTargetBias=0.0; double overlapBias=0.0;
@@ -578,138 +727,18 @@ public:
         // 0.5 = only late AND behind. 0 = never (default).
         double gkUpForCorners = 0.0;
         double pressTightness=0.0; double tackleAggression=0.0; double stayOnFeet=0.0; double containBias=0.0; };
-    // Timed plan changes (P2): each entry REPLACES the active directive set once
-    // the clock reaches atMs. The match is then a pure function of seed + this
-    // timeline, so it replays identically. Applied at the top of applyDirectives.
-    // moraleDelta[id] is added to that player's moraleBoost when the entry fires (a
-    // motivational shout's effect); 0 for everyone by default. A mid-match FORMATION
-    // change also carries a per-player layout: where layoutHX[id] > 0, that player
-    // re-anchors (base + current) + re-roles + gets a fresh role-AI on fire.
-    struct TimelineEntry {
-        double atMs = 0.0;
-        int team = -1;   // §1.3/§4: which side this entry replaces (0=home, 1=away); -1 = both (back-compat)
-        std::vector<Directive> directives;
-        std::array<double, 22> moraleDelta{};
-        std::array<double, 22> layoutHX{};
-        std::array<double, 22> layoutHY{};
-        std::array<Role, 22>   layoutRole{};
-        // A layout slot is APPLIED only when role+homeX+homeY were ALL present in
-        // the spec — guards against a partial row defaulting role to GK / homeY to 0,
-        // and lets a legit homeX==0 (left touchline) anchor through.
-        std::array<bool, 22>   layoutSet{};
-    };
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // THE DRIVER API — everything outside the engine unit may touch
-    // ══════════════════════════════════════════════════════════════════════════
-    // This is the whole public surface, and it is deliberately small. main.cpp is
-    // the ONLY translation unit that links against GameEngine; the web backend and
-    // the python probes drive the built binary over the CLI/JSON seam documented in
-    // docs/CONTRACT.md. So this section IS that contract, expressed in the type
-    // system: configure, run, observe.
-    //
-    // Before this split the class was 1007 lines of `public:` — 235 names, of which
-    // main.cpp used 27. Adding to this section is now a deliberate act. If you find
-    // yourself widening it to reach engine internals from a new consumer, that is
-    // the signal to add a method here instead of exposing a field.
-
-    // ── Lifecycle ── one match per instance. initWithSeed self-guards a re-init:
-    // a second call would reallocate state.players and dangle every Player& the
-    // agents hold.
-    GameEngine();
-    ~GameEngine();
-    void initWithSeed(int seed);
-    void startMatch();
+    // Called only from inside the engine unit (and, for kickoff, from the agents).
+    // main.cpp names these in comments but never calls them.
     // holdMs: how long the teams stand in formation before the tap. Opening /
     // second-half kickoffs use the short default; a post-goal kickoff passes a
     // longer hold (the celebration-and-reset breather).
     void kickoff(Team t, double holdMs = 1500.0, bool walkIn = false);
-    void setMatchLengthMinutes(double minutes) {
-        matchDurationMs = minutes * 60000.0;
-        halfDurationMs  = matchDurationMs / 2.0;
-    }
-    void equalizeAttributes(int val);
-
-    // ── Configure (before startMatch) ── how a --match spec, the env and the
-    // CLI flags reach the simulation.
-    // The two rosters and their base tactic dials, filled from a --match spec
-    // (loadTeam in main.cpp); configOverride says a spec supplied them, so
-    // initWithSeed must not roll random "manager" personalities instead.
-    RosterOverride homeRoster, awayRoster;
-    std::array<Config, 2> baseConfig;   // [0]=home, [1]=away base tactic dials (from the roster/manager)
-    bool configOverride = false;
-    // §weather feature-depth: match-level pitch condition affecting BALL physics. 0=clear (DEFAULT
-    // -> zero effect, byte-identical default game), 1=rain/wet (the pitch greases the ball: it skids
-    // further, shedding less rolling friction). Set from FOOTY_WEATHER env (or spec) before startMatch.
-    // Kept ball-only + small on purpose. 2=wind (§v2): a seed-derived per-match wind vector drifts
-    // AIRBORNE balls laterally (height-gated, so ground passes are immune -> passPct protected).
-    int weather = 0;
-    // §arena: 1v1 exhibition mode (GK + one outfielder a side on the full
-    // pitch). Set from --arena before initWithSeed. The spare outfielders are
-    // parked off-pitch exactly like sent-off players — the fixed-22 array and
-    // every lookup stay valid — but no red cards are recorded (it's a mode,
-    // not a match event) and subs are disabled (nobody to legally replace).
-    bool arenaMode = false;
-    // Outfielders per side in arena mode: 1 (1v1, default) up to
-    // ARENA_MAX_OUTFIELDERS. Kept slots are chosen in initWithSeed; GKs always play.
-    int arenaOutfielders = 1;
-    bool passDebug = false;   // FOOTY_PASSDEBUG: dump each intercepted pass's decision context to stderr
-
-    // ── Tactics in ── plain directives, a pre-planned timeline, and the live
-    // inject queue the watch flow pushes mid-match.
-    std::vector<Directive> directives;
-    std::vector<TimelineEntry> directiveTimeline;
-    std::vector<TimelineEntry> liveCommandQueue;   // §1.3b: live inject overlay (stdin/scheduler), drained by applyLiveCommands at atMs<=clock
     void applyDirectiveEntry(const TimelineEntry& e);   // §1.3: shared timeline+live-inject entry apply (team-scoped)
     void applyLiveCommands();   // §1.3b: drain liveCommandQueue (atMs<=clock) via applyDirectiveEntry (per-team)
-
-    // ── Run ──
-    bool step();   // §1.4 LIVE: one fixed tick, returns false at full-time (while(step()) loop + runner-ready)
-    [[nodiscard]] int clockMs() const { return static_cast<int>(state.clockMs); }
-    // Make the engine consistent with a world overwritten from outside (the
-    // --snapshot-in resume). The caller assigns positions/ball/clock/score onto
-    // `state`; this restores the engine-side invariants that go with them.
-    void resumeFromSnapshot();
-
-    // ── Observe ── the world, the summary, and the per-tick trace feed.
-    EngineState state;
-    mutable SeededRNG rng;
     [[nodiscard]] Player* playerById(int id);
     [[nodiscard]] const Player* playerById(int id) const;
-    std::string getJSON() const;
-    // Full event log for the trace file — the host drains this every tick
-    // (visualEvents is renderer-facing and capped, so it drops history).
-    std::vector<VisualEvent> traceEventQueue;
-    // Render-only facing: a display copy of each player's facing that damps rapid
-    // direction reversals, so a jockeying defender doesn't shimmer ~30deg
-    // left-right in the watch view. NEVER read by logic (tackle geometry/dribble
-    // use the raw Player::facing) — purely the getJSON output plus the trace's v3
-    // render-hint slot, so gameplay is byte-identical. Advanced by
-    // updateRenderFacing() at the END of every fixedUpdate, in every phase.
-    std::array<double, 22> renderFacing = {};
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // Engine internals — the simulation itself
-    // ══════════════════════════════════════════════════════════════════════════
-    // The agents are NOT external consumers: PlayerAI is co-designed with the
-    // engine, lives in this directory, is owned by it (`agents`) and constructed
-    // by it, and reaches into it directly ~900 times. Friendship states that
-    // relationship exactly, rather than pretending 200 internal fields are an API.
-    //
-    // The six role subclasses are deliberately absent. Friendship is not
-    // inherited, and naming all six here would make the engine's private section
-    // a fiction; instead the three internals they need are protected accessors on
-    // PlayerAI (agent.h), so their dependency on engine internals is one explicit,
-    // greppable list rather than blanket access.
-    //
-    // This list should not grow. A new class needing this much access is either an
-    // agent — in which case route it through PlayerAI — or a sign that the thing
-    // it wants belongs in the driver API above.
-private:
-    friend class PlayerAI;
-    // The one free function in the agent unit (agent_scoring.cpp); it reads the
-    // carrier's surroundings and belongs to the same layer as the agents.
-    friend CarrierPressure assessCarrierPressure(GameEngine&, const Player&);
 
     TeamBlackboard blackboards[2]; // [0]=home, [1]=away
     static int teamIndex(Team team) { return static_cast<int>(team); }
@@ -1162,5 +1191,4 @@ private:
     void awardCorner(Team attackingTeam, bool atHomeEnd, double y);
     void updateGoalKickMonitor();
 
-    std::string getSummaryJSON() const;
 };

@@ -942,7 +942,7 @@ void PlayerAI::scoreThroughBallFamily(Player& t, const Perception& per, double f
     double targetGoalDist, double& sc, ActionPurpose& pur)
 {
     const auto& p = player;
-    // Pure getter (engine.h:755) — re-looked-up here rather than threaded through
+    // Pure getter (GameEngine::assignmentFor) — re-looked-up here rather than threaded through
     // the signature, which would need GameEngine's nested type in agent.h.
     const auto* assignment = engine.assignmentFor(t.id);
     const double d = look.d, fp = look.fp, nearestOppRecv = look.nearestOppRecv;

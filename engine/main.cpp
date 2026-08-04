@@ -355,7 +355,7 @@ int main(int argc, char* argv[]) {
         // moment. Cross-version it is deliberately ignored-if-absent: different
         // code consumes the stream differently anyway.
         if (snap.contains("rngState")) {
-            engine.rng.setState(snap["rngState"].get<uint32_t>());
+            engine.setRngState(snap["rngState"].get<uint32_t>());
             std::cerr << "Snapshot RNG state restored\n";
         }
         std::cerr << "Snapshot loaded: t=" << st.clockMs / 1000.0 << "s score "
@@ -378,11 +378,15 @@ int main(int argc, char* argv[]) {
     // The per-frame work (trace write + throttled JSON output), shared by both loops below.
     auto emit = [&]() {
         // Write trace frame every tick; drain the engine's event log with it
+        // The drain runs EVERY tick, traced or not: the queue is unbounded and the
+        // engine appends to it regardless, so skipping the drain when --trace is
+        // off would grow it for the whole match.
+        auto traceEvents = engine.drainTraceEvents();
         if (trace.isOpen()) {
             // v3: ship the smoothed display facing ALONGSIDE the raw angle, so a .bin
             // replay renders what the live web viewer renders instead of the shimmer.
             trace.writeFrame(engine.state, &engine.renderFacing);
-            for (const auto& e : engine.traceEventQueue) {
+            for (const auto& e : traceEvents) {
                 int teamId = e.playerId < 0 ? -1 : (e.playerId < 11 ? 0 : 1);
                 // Round-30: the id->team synthesis is right for every event type
                 // EXCEPT an own goal, where the toucher plays for the side that
@@ -394,7 +398,6 @@ int main(int argc, char* argv[]) {
                 trace.writeEvent(e.type, e.clockMs, e.x, e.y, e.playerId, teamId);
             }
         }
-        engine.traceEventQueue.clear();
         // Output JSON every ~33ms (30fps) for real-time display
         if (streamFrames && engine.state.clockMs >= streamFromMs && engine.state.clockMs - lastOutput >= 33.0) {
             lastOutput = engine.state.clockMs;
@@ -429,11 +432,11 @@ int main(int argc, char* argv[]) {
                 {"targetX", p.targetX}, {"targetY", p.targetY},
                 {"facing", p.facing}, {"stamina", p.stamina}});
         }
-        snap["rngState"] = engine.rng.getState();
+        snap["rngState"] = engine.rngState();
         std::ofstream out(snapshotOutPath);
         out << snap.dump(1);
         std::cerr << "Snapshot written: t=" << st.clockMs / 1000.0 << "s (rngState "
-                  << engine.rng.getState() << ") -> " << snapshotOutPath << "\n";
+                  << engine.rngState() << ") -> " << snapshotOutPath << "\n";
     };
     if (!isLiveMode) {
         // §1.4 flat-out: advance every tick as fast as possible (default — byte-identical to before).
