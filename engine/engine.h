@@ -235,6 +235,8 @@ public:
     std::vector<SubstitutionRecord> substitutionLog;
     void initBench();
     void updateSubstitutions();
+    // A slot's runtime describes the man standing in it — a new man starts clean.
+    void resetSlotRuntime(int slotId);
     void substituteSlot(Player& slot, BenchPlayer& in);
     void sendOff(Player& p);
     // Stand an out-of-play (sent-off / arena-parked) man off the field. Single
