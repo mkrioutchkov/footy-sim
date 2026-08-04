@@ -706,7 +706,7 @@ const DATA = __DATA__;
       const sb = e.type==='sub' ? subFor(e) : null;
       // A sub names two men (see subAt); the slot id alone would name only the arrival.
       const who = sb ? `${short(sb.out)} off, ${short(sb['in'])} on`
-                     : ((e.type!=='corner'&&e.type!=='throw_in'&&e.pid>=0&&byId[e.pid])?short(byId[e.pid].name):'');
+                     : ((e.type!=='corner'&&e.type!=='throw_in'&&e.pid>=0&&byId[e.pid])?name(e.pid,e.t):'');
       const tm = e.pid>=0&&byId[e.pid]?byId[e.pid].team:(e.team===0?'home':'away');
       const label = {goal:'Goal',shot:'Shot',save:'Save',penalty:'Penalty',foul:'Foul',offside:'Offside',corner:'Corner',goal_kick:'Goal kick',throw_in:'Throw-in',block:'Block',header:'Header',clearance:'Clearance',skill:'Skill move',kickoff:'Kick-off',sub:'Substitution'}[e.type]||e.type;
       const dot = who?`<span style="color:${tm==='home'?COL.home:COL.away}">●</span> `:'';
@@ -733,7 +733,19 @@ const DATA = __DATA__;
     if(inHalfBreak(ms)) return 'HALF TIME';
     return null;
   }
-  const name = pid => (pid>=0&&byId[pid])?short(byId[pid].name):'';
+  // Time-aware name: the roster is the END-of-match squad, so a slot that was
+  // substituted must resolve through the sub log — the 50' scorer in slot 20 is
+  // Ronaldo, not the Cannavaro who occupies the slot at full time. Before a sub's
+  // instant the man on the pitch is that sub's `out`; at/after it, the arrival.
+  const name = (pid, ms) => {
+    if(pid<0||!byId[pid]) return '';
+    let n = byId[pid].name;
+    if(ms!==undefined){
+      const future = SUBS.filter(s=>s.slot===pid && s.t>ms).sort((a,b)=>a.t-b.t);
+      if(future.length) n = future[0].out;
+    }
+    return short(n);
+  };
 
   // brief spatial description of where an event happened ("who, what, WHERE")
   function zone(x,y){
@@ -766,19 +778,19 @@ const DATA = __DATA__;
     if(e.type==='foul'){
       const adv=advAt[key], victim=nearestOpp(e.team,e.x,e.y,e.t);
       TOASTS.push({t:e.t,kind:'foul',icon:'⚑',title:adv?'Advantage':'Foul',
-        main: adv ? `Play on — foul by <b>${name(e.pid)}</b>`
-                  : `<b>${name(e.pid)}</b>${victim>=0?' on <b>'+name(victim)+'</b>':''}`,
+        main: adv ? `Play on — foul by <b>${name(e.pid,e.t)}</b>`
+                  : `<b>${name(e.pid,e.t)}</b>${victim>=0?' on <b>'+name(victim,e.t)+'</b>':''}`,
         where:zone(e.x,e.y), adv:!!adv});
     } else if(e.type==='advantage'){
       if(foulT.has(key)) continue;               // shown as part of the foul toast
       TOASTS.push({t:e.t,kind:'advantage',icon:'▶',title:'Advantage',
-        main:`<b>${name(e.pid)}</b> plays on`, where:zone(e.x,e.y), adv:true});
+        main:`<b>${name(e.pid,e.t)}</b> plays on`, where:zone(e.x,e.y), adv:true});
     } else if(e.type==='offside'){
       TOASTS.push({t:e.t,kind:'offside',icon:'🚩',title:'Offside',
-        main:`<b>${name(e.pid)}</b>`, where:zone(e.x,e.y)});
+        main:`<b>${name(e.pid,e.t)}</b>`, where:zone(e.x,e.y)});
     } else if(e.type==='injury'){
       TOASTS.push({t:e.t,kind:'injury',icon:'✚',title:'Injury',
-        main:`<b>${name(e.pid)}</b> down`, where:zone(e.x,e.y)});
+        main:`<b>${name(e.pid,e.t)}</b> down`, where:zone(e.x,e.y)});
     } else if(e.type==='sub'){
       // The sub event carries one id — the pitch SLOT — and the roster we export comes from the
       // END-of-match summary, so name(e.pid) is the man who came ON, never the one who went off.
@@ -787,10 +799,10 @@ const DATA = __DATA__;
       const sb=subFor(e);
       TOASTS.push({t:e.t,kind:'sub',icon:'⇄',title:'Substitution',
         main: sb ? `<b>${short(sb.out)}</b> off, <b>${short(sb['in'])}</b> on`
-                 : `<b>${name(e.pid)}</b> comes on`, where:''});
+                 : `<b>${name(e.pid,e.t)}</b> comes on`, where:''});
     } else if(e.type==='yellow'||e.type==='red'){       // defensive: not in this seed
       TOASTS.push({t:e.t,kind:e.type,icon:'▮',title:e.type==='yellow'?'Yellow card':'Red card',
-        main:`<b>${name(e.pid)}</b>`, where:zone(e.x,e.y)});
+        main:`<b>${name(e.pid,e.t)}</b>`, where:zone(e.x,e.y)});
     } else if(e.type==='penalty'){
       TOASTS.push({t:e.t,kind:'penalty',icon:'◉',title:'Penalty',
         main:`${abbr(e.team===0?'home':'away')} awarded`, where:zone(e.x,e.y)});
@@ -844,7 +856,7 @@ const DATA = __DATA__;
     // Round-30: side comes from the SCORE DELTA, never from the toucher's team —
     // an own goal counts for the other side and the card must say so (and the
     // star-burst on the scorer is suppressed; see the celebration draw block).
-    const sc=scoreAt(g.t), who=name(g.pid), side=scoringSide(g.t), og=isOwnGoal(g);
+    const sc=scoreAt(g.t), who=name(g.pid,g.t), side=scoringSide(g.t), og=isOwnGoal(g);
     const tm=(side<0?(g.team===0?0:1):side)===0?abbr('home'):abbr('away');
     elFlashScore.innerHTML=`${abbr('home')} ${sc.hs} <span class="dash">–</span> ${sc.as} ${abbr('away')}`;
     elFlashWho.textContent=`${og?'OWN GOAL · ':''}${who} · ${tm} · ${mmss(g.t)}`;
@@ -962,7 +974,7 @@ const DATA = __DATA__;
     `${DATA.final.shots} shots · ${Math.round(DATA.final.possHome)}% – ${100-Math.round(DATA.final.possHome)}% possession · ${mmss(DUR)}`;
   // goal marks on scrubber
   const elMarks=document.getElementById('marks');
-  elMarks.innerHTML=goals.map(g=>`<div class="mark" data-lbl="${short(byId[g.pid]?byId[g.pid].name:'')}" style="left:${(g.t/DUR*100).toFixed(2)}%"></div>`).join('');
+  elMarks.innerHTML=goals.map(g=>`<div class="mark" data-lbl="${name(g.pid,g.t)}" style="left:${(g.t/DUR*100).toFixed(2)}%"></div>`).join('');
   // lineups
   function sideHTML(side){
     const list = side==='home'?homeIds:awayIds;
