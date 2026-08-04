@@ -736,7 +736,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
         // launch snapshot so an offside pouncer on the dropped ball is flagged
         // (rides the shot-rebound judgment in collectBall).
         if (pendingPass.active && !pendingPass.offsideExempt) {
-            offsideAtShot = pendingPass.offsideAtPass;
+            for (int i = 0; i < 22; ++i) runtime[i].offsideAtShot = pendingPass.offsideAtPass[i];
             shotTeam = pendingPass.team;
             shotSnapshotLive = true;
         }
@@ -762,7 +762,8 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
     b.lastToucherId = gk.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     blockReboundFor(gk.id, 700);
     if (pendingPass.active && !pendingPass.offsideExempt) {
-        offsideAtShot = pendingPass.offsideAtPass;   // a tip is a save: offside memory survives
+        // a tip is a save: offside memory survives
+        for (int i = 0; i < 22; ++i) runtime[i].offsideAtShot = pendingPass.offsideAtPass[i];
         shotTeam = pendingPass.team;
         shotSnapshotLive = true;
     }

@@ -760,13 +760,9 @@ private:
     double nextTacticalAuditMs = 0;
     MatchPhase phase;
     RestartWalk restartWalk;
-    std::array<int, 22> yellowCards = {};
     // Round-30: per-team clock at which the next tired-legs change may be
     // considered (the manager window). Injuries bypass it.
     std::array<double, 2> nextSubWindowMs = {0.0, 0.0};
-    // Round-30 (arena audit D5): fouls conceded per player, used ONLY by the
-    // arena repeat-offender damping in resolveTackleFoul (11v11 never reads it).
-    std::array<int, 22> arenaFoulCount = {};
 
     // Match length is a RUNTIME parameter (default 90'), not the compile-time
     // constant it used to be — the product needs 20/40/90-minute variants and
@@ -822,22 +818,64 @@ private:
     // source of truth for WHERE — three sites re-park him (init, kickoff, and
     // the per-tick sweep) and they must agree.
     void parkOffPitch(Player& p) const;
+    // ══════════════════════════════════════════════════════════════════════════
+    // PlayerRuntime — what the engine tracks about whoever is standing in a SLOT
+    // ══════════════════════════════════════════════════════════════════════════
+    // Player is the person; this is the slot. Everything here was a separate
+    // std::array<...,22> until the fields were counted: ten of them, all with the
+    // same lifetime, all needing to be wiped together when a substitute takes the
+    // slot. Nothing said so, so substituteSlot cleared exactly one of the ten and
+    // a substitute inherited the other nine (measured: 35% of substitutions
+    // arrived carrying live state — see 304c68d).
+    //
+    // As one record, "this slot has a new man" is `runtime[id] = {}`: complete by
+    // construction, and it stays complete when the next field is added here. That
+    // is the whole reason for the struct — not tidiness.
+    struct PlayerRuntime {
+        DuelTimers duel;
+        LungeDash  lungeDash;
+        int    yellowCards = 0;
+        // Round-30 (arena audit D5): fouls conceded, used ONLY by the arena
+        // repeat-offender damping in resolveTackleFoul (11v11 never reads it).
+        int    arenaFouls = 0;
+        double firstTouchUntilMs = 0.0;
+        double knockAheadCooldownUntil = 0.0;
+        double lastTurnoverWinMs = 0.0;
+        int    lastReceiveFrom = -1;   // -1 = nobody; initWithSeed used to fill() this
+        double lastReceiveMs = 0.0;
+        // Law 11 'gaining an advantage': whether THIS SLOT was in an offside
+        // position when the current shot was struck. Armed as a whole-squad
+        // snapshot at each shot (engine_actions.cpp / engine_gk.cpp) but stored
+        // per slot, because a substitute must not inherit the flag.
+        bool   offsideAtShot = false;
+    };
+    std::array<PlayerRuntime, 22> runtime = {};
+    // NOT in the record, deliberately: pStats (below) is per-slot too, but it must
+    // NOT be wiped when a substitute arrives — that would erase the starter's
+    // contribution instead of attributing it. Fixing that needs the outgoing
+    // tally carried somewhere, not reset. See the note on pStats.
+
+
+    // KNOWN BUG (reported, not fixed here — it changes the summary schema): this
+    // is keyed by SLOT, and substituteSlot does not reset or carry it, so the
+    // summary credits the man on the pitch at full time with everything the slot
+    // did all match. Seed 151 @90min: three of seven goals are attributed to the
+    // wrong player — H8 Maldini (on at 62') is credited with Neymar's 57' goal,
+    // A19 Toure (on at 62') with Robben's 4' goal, A20 Cannavaro (on at 66') with
+    // Ronaldo's 50' goal. Same slot-vs-person root cause as the replay-viewer
+    // mislabelling fixed in c117b7a. The fix is to snapshot the outgoing tally
+    // into substitutionLog and reset the slot's, NOT simply to reset it.
     std::array<PlayerTally, 22> pStats = {};
     // Assist chain: who last fed this slot a completed pass, and when.
-    std::array<int, 22> lastReceiveFrom = {};
-    std::array<double, 22> lastReceiveMs = {};
     // When this player last WON possession off the opponent (intercept/clean
     // tackle). A fresh windfall high up opens the aggressive menu — long pot
     // shot / hard forward drive (owner, seed 111 1:13: Messi intercepted 31m
     // out, feinted backward, was dispossessed 2.3s later).
-    std::array<double, 22> lastTurnoverWinMs = {};
-    std::array<DuelTimers, 22> duel = {};
     // Is this man inside his securing window right now? (Strict `<` so the zero
     // initialiser can never read as "securing" on the kickoff tick.)
     [[nodiscard]] bool securing(int id) const {
-        return id >= 0 && id < 22 && state.clockMs < duel[id].secureUntilMs;
+        return id >= 0 && id < 22 && state.clockMs < runtime[id].duel.secureUntilMs;
     }
-    std::array<LungeDash, 22> lungeDash = {};
     // Carried-ball control-offset direction memory (seed 437 0:59: the offset
     // swung ~95deg in 3 ticks around the carrier, stepping the glued ball at
     // the full converge cap — a 337px/s phantom that rendered as a teleport
@@ -852,7 +890,6 @@ private:
     // Law 11 'gaining an advantage': offside snapshot at the SHOT — a teammate
     // in an offside position when the shot was struck may not play the rebound
     // (post/bar/keeper). Mirror of pendingPass.offsideAtPass for shots.
-    std::array<bool, 22> offsideAtShot{};
     Team shotTeam = Team::Home;
     bool shotSnapshotLive = false;
     // Locked-body ricochet memory, RESTART ATTRIBUTION ONLY (Law 17 audit: a
@@ -917,9 +954,8 @@ private:
     // before he can play a deliberate pass — without this, ~1/3 of passes
     // were instant one-touch redirects of near-shot-speed balls into measured
     // passes, which reads as physically impossible. Scales with incoming pace.
-    std::array<double, 22> firstTouchUntilMs = {};
     [[nodiscard]] bool inFirstTouch(int id) const {
-        return id >= 0 && id < 22 && firstTouchUntilMs[id] > state.clockMs;
+        return id >= 0 && id < 22 && runtime[id].firstTouchUntilMs > state.clockMs;
     }
     // Authoritative per-tick velocity: positions are sampled before any
     // movement, and every player's vx/vy is recomputed from true displacement
@@ -937,7 +973,7 @@ private:
             // dash displacement is invisible here and would finalize to 0 (the
             // "velocity reads 0 all burst" bug). The dash loop already wrote his
             // truthful per-tick velocity — keep it.
-            if (lungeDash[p.id].remainPx > 0.0 || lungeDash[p.id].doneMs == state.clockMs) continue;
+            if (runtime[p.id].lungeDash.remainPx > 0.0 || runtime[p.id].lungeDash.doneMs == state.clockMs) continue;
             p.vx = (p.x - velSampleX[p.id]) / secs; p.vy = (p.y - velSampleY[p.id]) / secs;
         }
     }
@@ -946,7 +982,6 @@ private:
     double activeShieldUntil[22] = {0};   // carrier actively shielding + working a pass angle: tackle RESISTANCE (not the receive-grace immunity)
     PendingPass pendingPass;
     ActiveKnockAhead activeKnockAhead;
-    std::array<double, 22> knockAheadCooldownUntil = {};
     LooseOrigin lastLooseOrigin = LooseOrigin::None;
     int woodworkCooldown = 0;   // W1: ticks to skip the woodwork check after a hit so the rebound clears the band (no re-collision / stick)
     std::vector<VisualEvent> visualEvents;
@@ -1018,7 +1053,7 @@ private:
     // a crowded keeper is likelier to punch/parry than gather cleanly.
     [[nodiscard]] bool gkUnderPressure(const Player& gk, double radius) const;
     [[nodiscard]] bool canKnockBallAhead(int playerId) const {
-        return !activeKnockAhead.active && knockAheadCooldownUntil[playerId] <= state.clockMs;
+        return !activeKnockAhead.active && runtime[playerId].knockAheadCooldownUntil <= state.clockMs;
     }
     [[nodiscard]] bool isActiveKnockAheadRunner(int playerId) const { return activeKnockAhead.active&&activeKnockAhead.playerId==playerId; }
 

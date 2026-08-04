@@ -289,7 +289,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
     // flag is coming (without this, honest rebound whistling hit 9.7/90 vs
     // real 3-6 because runners chased balls they could never legally play).
     if (engine.shotSnapshotLive && player.team == engine.shotTeam
-        && player.id >= 0 && player.id < 22 && engine.offsideAtShot[player.id])
+        && player.id >= 0 && player.id < 22 && engine.runtime[player.id].offsideAtShot)
         return Action{ActionType::Chase, 0.0};
     auto& b = engine.state.ball;
     bool isIntendedReceiver = (player.id == b.intendedReceiverId);

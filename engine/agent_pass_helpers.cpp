@@ -111,7 +111,7 @@ bool PlayerAI::passTargetGates(Player& t, const Perception& per,
     // for EVERYONE made pressed carriers hold, the uglier failure).
     double heldPb = engine.state.clockMs - engine.carrierTracker.carryStartMs;
     bool freshRelease = (engine.carrierTracker.carryTrackerId == p.id && heldPb < 500.0)
-        || (p.id >= 0 && p.id < 22 && engine.firstTouchUntilMs[p.id] > engine.state.clockMs);
+        || (p.id >= 0 && p.id < 22 && engine.runtime[p.id].firstTouchUntilMs > engine.state.clockMs);
     double pbRadius = freshRelease ? 70.0 : 42.0;
     for (auto& o : engine.state.players) {
         if (!isActiveOpponent(o, p.team)) continue;

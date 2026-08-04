@@ -32,8 +32,8 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     // ANYONE — the only thing feeding the >22.5m tail, and skill-blind. Scale it
     // to the shooter: a poor striker gets 245, a legend up to ~355.
     double windfallRange = 245.0 + attrFactor(p.attrs.shooting) * 110.0;
-    bool windfall = engine.state.clockMs - engine.lastTurnoverWinMs[p.id] < 2000.0
-        && engine.lastTurnoverWinMs[p.id] > 0.0 && shotDistance < windfallRange;
+    bool windfall = engine.state.clockMs - engine.runtime[p.id].lastTurnoverWinMs < 2000.0
+        && engine.runtime[p.id].lastTurnoverWinMs > 0.0 && shotDistance < windfallRange;
     bool outsideGoalLane = pitch::lateralFromCenter(p.y) > GOAL_W / 2.0 - BALL_R + 20.0;
     bool acuteGeometry = outsideGoalLane && angleDeg < SHOT_ANGLE_ACUTE_THRESH && shotDistance > 150.0;
 
@@ -216,7 +216,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
     // [0,1] clamp; the paired LCD carry-in cap (agent_resolve) does the rest.
     // Arena-only: 11v11 long-shot selection is left to the existing model.
     if (engine.arenaMode) {
-        bool beatWindow = engine.duel[p.id].beatWindowUntilMs > engine.state.clockMs;
+        bool beatWindow = engine.runtime[p.id].duel.beatWindowUntilMs > engine.state.clockMs;
         bool clearPathDrive = false;
         double lx = gx - p.x, ly = PITCH_H / 2.0 - p.y, ll = std::hypot(lx, ly);
         if (ll > 1.0) {
@@ -777,8 +777,8 @@ void PlayerAI::solveEscapeLane(double& tx, double& ty, double sideSeedY, double 
     if (shut) {
         double sx2 = p.x - fd * 28.0, sy2 = p.y;
         if (securing && escapeLaneBlocked(sx2, sy2, evaded)) {
-            sx2 = p.x + engine.duel[p.id].secureDirX * 28.0;
-            sy2 = p.y + engine.duel[p.id].secureDirY * 28.0;
+            sx2 = p.x + engine.runtime[p.id].duel.secureDirX * 28.0;
+            sy2 = p.y + engine.runtime[p.id].duel.secureDirY * 28.0;
         }
         tx = sx2; ty = sy2;
     }

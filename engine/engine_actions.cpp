@@ -11,7 +11,7 @@
 
 void GameEngine::blockReboundFor(int playerId, double ms) {
     if (playerId < 0) return;
-    duel[playerId].contestBlockedUntil = std::max(duel[playerId].contestBlockedUntil, state.clockMs + ms);
+    runtime[playerId].duel.contestBlockedUntil = std::max(runtime[playerId].duel.contestBlockedUntil, state.clockMs + ms);
 }
 
 void GameEngine::recordBallImpulse() {
@@ -330,8 +330,8 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
                     }
                 }
                 if (receiver.id >= 0 && receiver.id < 22 && pendingPass.fromId != receiver.id) {
-                    lastReceiveFrom[receiver.id] = pendingPass.fromId;
-                    lastReceiveMs[receiver.id] = state.clockMs;
+                    runtime[receiver.id].lastReceiveFrom = pendingPass.fromId;
+                    runtime[receiver.id].lastReceiveMs = state.clockMs;
                 }
                 pendingPass.active = false;
                 shootBall(receiver, nullptr, /*headerFinish=*/true);
@@ -388,8 +388,8 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
     }
     if (passOk) {
         if (receiver.id >= 0 && receiver.id < 22 && pendingPass.fromId != receiver.id) {
-            lastReceiveFrom[receiver.id] = pendingPass.fromId;
-            lastReceiveMs[receiver.id] = state.clockMs;
+            runtime[receiver.id].lastReceiveFrom = pendingPass.fromId;
+            runtime[receiver.id].lastReceiveMs = state.clockMs;
         }
         if (!pendingPass.isClear) stats.recordPassComplete();   // Round-26: a completed Clear is a clearance, not a pass
         if (pendingPass.fromId >= 0 && pendingPass.fromId < 22) pStats[pendingPass.fromId].passesCompleted++;
@@ -406,7 +406,7 @@ bool GameEngine::resolvePendingPass(Player& receiver) {
             stats.census.passIntercepts++;
             if (pendingPass.nearPress70) stats.census.passInterceptsNearPress++;
         }
-        if (receiver.id >= 0 && receiver.id < 22) lastTurnoverWinMs[receiver.id] = state.clockMs;
+        if (receiver.id >= 0 && receiver.id < 22) runtime[receiver.id].lastTurnoverWinMs = state.clockMs;
         if (pendingPass.suicideRisk && state.clockMs - pendingPass.releaseMs < 800.0)
             stats.recordQualityFlag(QualityFlag::SuicidePass);
         // Owner ask (seed 437 0:03, a giveaway straight off the kickoff with
@@ -666,7 +666,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     {
         double heldMs = state.clockMs - carrierTracker.carryStartMs;
         bool freshTouch = f.id >= 0 && f.id < 22
-            && ((firstTouchUntilMs[f.id] > state.clockMs)
+            && ((runtime[f.id].firstTouchUntilMs > state.clockMs)
                 || (carrierTracker.carryTrackerId == f.id && heldMs < 500.0));
         double wantAng = std::atan2(dy, dx);
         double offF = std::abs(std::atan2(std::sin(wantAng - f.facing), std::cos(wantAng - f.facing)));
@@ -1209,7 +1209,7 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
         // knows a second foul = off, so he's far more careful even when tempted to
         // cynically pull the man down. (SysArch 2026-06-30: reds measured ~0.60/match
         // ≈ 2.4× real ~0.25 — the booked-CYNICAL path was bypassing this damping.)
-        if (yellowCards[tackler.id] >= 1) foulChance *= 0.38; // booked → VERY careful (now incl. cynical: trims second-yellow reds)
+        if (runtime[tackler.id].yellowCards >= 1) foulChance *= 0.38; // booked → VERY careful (now incl. cynical: trims second-yellow reds)
         // Round-30 (arena audit D5): the booking above is the ONLY brake on a
         // repeat offender, and arenaMode disables both the send-off and the
         // second yellow. In a 1v1 both outfielders are booked within minutes,
@@ -1219,10 +1219,10 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
         // team, so instead the referee's patience visibly runs out: every FURTHER
         // foul by the same player makes his next challenge more cautious still.
         // Arena-gated, and it draws no rng, so 11v11 is untouched.
-        if (arenaMode && arenaFoulCount[tackler.id] > 0)
-            foulChance *= std::pow(0.70, std::min(arenaFoulCount[tackler.id], 5));
+        if (arenaMode && runtime[tackler.id].arenaFouls > 0)
+            foulChance *= std::pow(0.70, std::min(runtime[tackler.id].arenaFouls, 5));
         if (rng.random() < foulChance) {
-            if (tackler.id >= 0 && tackler.id < 22) arenaFoulCount[tackler.id]++;
+            if (tackler.id >= 0 && tackler.id < 22) runtime[tackler.id].arenaFouls++;
             stats.recordTackleFoul();
             if (cynical) stats.recordTacticalFoul();
             double foulX = carrier.x;
@@ -1240,7 +1240,7 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
             // measured ~0.62/match (≈2.5× real ~0.25), piled up in chippy high-yellow
             // games — trimming the average never tamed that tail; this does. (A cynical
             // second foul stays bookable — he meant it.)
-            if (yellowCards[tackler.id] >= 1 && !cynical) cardChance *= 0.45;
+            if (runtime[tackler.id].yellowCards >= 1 && !cynical) cardChance *= 0.45;
             // Law 12 DOGSO (audit HIGH): the cynical trigger IS textbook
             // denial-of-goal-scoring-opportunity outside the box (last man, no
             // cover, unwinnable challenge) — a straight red, not the 55% SPA
@@ -1263,13 +1263,13 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
                 // ONCE — suppress the second+ yellow record/emit. yellowCards>=1 is
                 // the threshold for both the foulChance and cardChance damping, so
                 // holding the count at 1 rather than incrementing changes no draw.
-                bool arenaAlreadyBooked = arenaMode && yellowCards[tackler.id] >= 1;
+                bool arenaAlreadyBooked = arenaMode && runtime[tackler.id].yellowCards >= 1;
                 if (!straightRed && !arenaAlreadyBooked) {
-                    yellowCards[tackler.id]++;
+                    runtime[tackler.id].yellowCards++;
                     stats.recordYellowCard();
                     emitEvent("yellow", foulX, foulY, tackler.id, carrier.id);
                 }
-                if ((straightRed || yellowCards[tackler.id] >= 2) && !arenaMode) {
+                if ((straightRed || runtime[tackler.id].yellowCards >= 2) && !arenaMode) {
                     sendOff(tackler);
                     emitEvent("red", foulX, foulY, tackler.id, carrier.id);
                 }
@@ -1369,9 +1369,9 @@ void GameEngine::noteRegain(const Player& w, int beatenId, double windowMs) {
     else if (w.x > PITCH_W - DRIBBLE_EDGE_MARGIN && dx > 0.0) dx = -dx;
     d = std::hypot(dx, dy);
     if (d < 1e-6) return;
-    duel[w.id].secureDirX    = dx / d;
-    duel[w.id].secureDirY    = dy / d;
-    duel[w.id].secureUntilMs = state.clockMs + windowMs;
+    runtime[w.id].duel.secureDirX    = dx / d;
+    runtime[w.id].duel.secureDirY    = dy / d;
+    runtime[w.id].duel.secureUntilMs = state.clockMs + windowMs;
 }
 
 bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraReach) {
@@ -1474,7 +1474,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // so the recovery sprint into the shield bubble doesn't inflate incidental
     // steals). The round-25 long-carry commitBar decay below still overrides it, so
     // a genuinely stuck escort still resolves.
-    if (tackler.id >= 0 && tackler.id < 22 && duel[tackler.id].containUntilMs > state.clockMs)
+    if (tackler.id >= 0 && tackler.id < 22 && runtime[tackler.id].duel.containUntilMs > state.clockMs)
         commitBar = std::max(commitBar, 0.62);
     // Round-25 (2v2 audit top defect): with a LONE container, contain-first never
     // resolves — carriers ride one jockey 15-24s (marathonCarries 14-17/10min; a
@@ -1530,12 +1530,12 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         bool hardCommit = boxEmergency || cynical || ballExposureDot > 0.55;   // situation-sharp: never hold contain over these
         bool sharpChange = state.ball.controllerId != carrier.id;             // carrier released the ball -> re-evaluate now
         int desired = committed ? 1 : -1;
-        if (!hardCommit && !sharpChange && duel[tackler.id].tackleModeLatch != 0
-            && state.clockMs < duel[tackler.id].tackleModeUntilMs) {
-            committed = (duel[tackler.id].tackleModeLatch == 1);   // still inside the dwell: hold the latched mode
-        } else if (desired != duel[tackler.id].tackleModeLatch) {
-            duel[tackler.id].tackleModeLatch = desired;            // a genuine switch starts a fresh 150ms hold
-            duel[tackler.id].tackleModeUntilMs = state.clockMs + 150.0;
+        if (!hardCommit && !sharpChange && runtime[tackler.id].duel.tackleModeLatch != 0
+            && state.clockMs < runtime[tackler.id].duel.tackleModeUntilMs) {
+            committed = (runtime[tackler.id].duel.tackleModeLatch == 1);   // still inside the dwell: hold the latched mode
+        } else if (desired != runtime[tackler.id].duel.tackleModeLatch) {
+            runtime[tackler.id].duel.tackleModeLatch = desired;            // a genuine switch starts a fresh 150ms hold
+            runtime[tackler.id].duel.tackleModeUntilMs = state.clockMs + 150.0;
         }
     }
     if (!committed) return false;
@@ -1543,8 +1543,8 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // live commit/lunge hook the take-on reads). Set for every committed attempt,
     // win or miss — a carrier who rides it then bursts past the committed man.
     if (carrier.id >= 0 && carrier.id < 22) {
-        duel[carrier.id].committedTackleVsCarrierMs = state.clockMs;
-        duel[carrier.id].committedTackleVsCarrierBy = tackler.id;
+        runtime[carrier.id].duel.committedTackleVsCarrierMs = state.clockMs;
+        runtime[carrier.id].duel.committedTackleVsCarrierBy = tackler.id;
     }
     // Even a committed challenge inside the box is careful — half the foul risk
     // of an open-field lunge (a clumsy one is still a penalty, just far rarer).
@@ -1559,15 +1559,15 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     {
         double lx = b.x - tackler.x, ly = b.y - tackler.y, ld = std::hypot(lx, ly);
         if (ld > 4.0 && tackler.id >= 0 && tackler.id < 22) {
-            lungeDash[tackler.id].dirX = lx / ld;
-            lungeDash[tackler.id].dirY = ly / ld;
-            lungeDash[tackler.id].remainPx = std::min(ld * 0.55, 11.0);   // 16 -> 11px: shorter committed step, same contact read (seed 111 burst complaint)
-            lungeDash[tackler.id].switchPx = 0.0;   // R28 C8: a tackle step is always single-stage — never inherit a stale chop
-            lungeDash[tackler.id].dir2X = lungeDash[tackler.id].dir2Y = 0.0;
+            runtime[tackler.id].lungeDash.dirX = lx / ld;
+            runtime[tackler.id].lungeDash.dirY = ly / ld;
+            runtime[tackler.id].lungeDash.remainPx = std::min(ld * 0.55, 11.0);   // 16 -> 11px: shorter committed step, same contact read (seed 111 burst complaint)
+            runtime[tackler.id].lungeDash.switchPx = 0.0;   // R28 C8: a tackle step is always single-stage — never inherit a stale chop
+            runtime[tackler.id].lungeDash.dir2X = runtime[tackler.id].lungeDash.dir2Y = 0.0;
             // Round-23: seed spd=peak=LUNGE_DASH_SPEED so this short defender
             // contact step stays the flat 11px/90ms hard step round-14 tuned.
-            lungeDash[tackler.id].spd  = LUNGE_DASH_SPEED;
-            lungeDash[tackler.id].peak = LUNGE_DASH_SPEED;
+            runtime[tackler.id].lungeDash.spd  = LUNGE_DASH_SPEED;
+            runtime[tackler.id].lungeDash.peak = LUNGE_DASH_SPEED;
             tackler.facing = std::atan2(ly, lx);
         }
     }
@@ -1605,7 +1605,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         // Round-28 C3(b): amortize the ball across the 17-25px duel gap to the
         // winner's foot over 2-3 ticks (no knock-ahead, faster pull) instead of
         // letting it settle at the carry offset far from him.
-        if (tackler.id >= 0 && tackler.id < 22 && !arenaMode) duel[tackler.id].carrierGatherUntilMs = state.clockMs + 100.0;
+        if (tackler.id >= 0 && tackler.id < 22 && !arenaMode) runtime[tackler.id].duel.carrierGatherUntilMs = state.clockMs + 100.0;
         // Round-36: a won duel is a REGAIN — cache which way to secure it. The
         // lunge above just set tackler.facing AT the carrier, and the gather lock
         // settles along a fixed direction; without this it settles into the man
@@ -1616,7 +1616,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         // Round-27 COMMIT 2 (eased stop): don't hard-zero the victim's momentum —
         // that abrupt one-tick halt was ~8% of the tackle-jitter screengrabs.
         // Keep his velocity and let applyMovement bleed it over the next ~3 ticks.
-        if (carrier.id >= 0 && carrier.id < 22 && !arenaMode) duel[carrier.id].tackleStopEaseUntilMs = state.clockMs + 50.0;
+        if (carrier.id >= 0 && carrier.id < 22 && !arenaMode) runtime[carrier.id].duel.tackleStopEaseUntilMs = state.clockMs + 50.0;
         return true;
     }
     // Carry security — the carrier BEATS the man and keeps it. This outcome was
@@ -1689,7 +1689,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit,
     {
         double fdS = fdFor(s.team);
         double lineS = offsideLineFor(s.team);
-        offsideAtShot = {};
+        for (auto& r : runtime) r.offsideAtShot = false;
         shotTeam = s.team;
         shotSnapshotLive = true;
         for (auto& tm : state.players) {
@@ -1697,7 +1697,7 @@ void GameEngine::shootBall(Player& s, const ShotSelectionAudit* selectionAudit,
             bool bh = fdS > 0.0 ? tm.x > HALF_X : tm.x < HALF_X;
             bool bp = fdS > 0.0 ? tm.x > s.x + OFFSIDE_TOLERANCE : tm.x < s.x - OFFSIDE_TOLERANCE;
             bool bl = fdS > 0.0 ? tm.x > lineS + OFFSIDE_TOLERANCE : tm.x < lineS - OFFSIDE_TOLERANCE;
-            offsideAtShot[tm.id] = bh && bp && bl;
+            runtime[tm.id].offsideAtShot = bh && bp && bl;
         }
     }
     emitEvent("shot", s.x, s.y, s.id);
@@ -2158,7 +2158,7 @@ bool GameEngine::knockBallAhead(Player& carrier, double targetX, double targetY)
     recordBallImpulse();
     stats.recordKnockAhead(launchSpeed);
     if (risky) { stats.recordRiskyKnockAhead(); }
-    duel[carrier.id].contestBlockedUntil = 0;
+    runtime[carrier.id].duel.contestBlockedUntil = 0;
     activeKnockAhead = {true, carrier.id, carrier.team, state.clockMs, nearestId, nearestDist, risky};
     return true;
 }
@@ -2170,7 +2170,7 @@ void GameEngine::resolveKnockAhead(Player* collector, const std::string& stopped
     } else if (stopped == "goal") {
     } else if (collector && collector->id == activeKnockAhead.playerId) {
         stats.recordKnockAheadRecovered();
-        knockAheadCooldownUntil[collector->id] = state.clockMs + 1400;
+        runtime[collector->id].knockAheadCooldownUntil = state.clockMs + 1400;
     } else if (collector && collector->team == activeKnockAhead.team) {
         stats.recordKnockAheadRetained();
     } else {

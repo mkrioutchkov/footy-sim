@@ -127,7 +127,6 @@ void GameEngine::initWithSeed(int seed) {
         }
         subsRemaining = {0, 0};
     }
-    lastReceiveFrom.fill(-1);
     for (auto& p : state.players) {
         agents.push_back(makeAgentFor(p, *this));
     }
@@ -311,16 +310,7 @@ void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
 // it, and a new man starts clean.
 void GameEngine::resetSlotRuntime(int slotId) {
     if (slotId < 0 || slotId >= 22) return;
-    duel[slotId] = DuelTimers{};
-    lungeDash[slotId] = LungeDash{};
-    yellowCards[slotId] = 0;
-    arenaFoulCount[slotId] = 0;
-    firstTouchUntilMs[slotId] = 0.0;
-    knockAheadCooldownUntil[slotId] = 0.0;
-    lastTurnoverWinMs[slotId] = 0.0;
-    lastReceiveFrom[slotId] = -1;
-    lastReceiveMs[slotId] = 0.0;
-    offsideAtShot[slotId] = false;
+    runtime[slotId] = PlayerRuntime{};
 }
 
 void GameEngine::updateSubstitutions() {
@@ -412,8 +402,8 @@ void GameEngine::creditGoal(int scorerId) {
     else
         stats.recordOpenPlayGoal();
     // Assist: the teammate who last fed the scorer, within ~12s of the goal.
-    int passer = lastReceiveFrom[scorerId];
-    if (passer >= 0 && passer < 22 && passer != scorerId && state.clockMs - lastReceiveMs[scorerId] < 12000.0) {
+    int passer = runtime[scorerId].lastReceiveFrom;
+    if (passer >= 0 && passer < 22 && passer != scorerId && state.clockMs - runtime[scorerId].lastReceiveMs < 12000.0) {
         Player* sc = playerById(scorerId);
         Player* as = playerById(passer);
         if (sc && as && sc->team == as->team) {

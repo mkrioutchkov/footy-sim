@@ -22,7 +22,7 @@ void GameEngine::separateTeammates(double sdt) {
         if (lb.controllerId < 0 && lb.z < 6.0 && std::hypot(lb.vx, lb.vy) < 40.0) {
             double best = 30.0;
             for (auto& p : state.players) {
-                if (p.role == Role::GK || p.sentOff || duel[p.id].contestBlockedUntil > state.clockMs) continue;
+                if (p.role == Role::GK || p.sentOff || runtime[p.id].duel.contestBlockedUntil > state.clockMs) continue;
                 double dd = dist(p.x, p.y, lb.x, lb.y);
                 if (dd < best) {
                     best = dd;
@@ -1213,7 +1213,7 @@ void GameEngine::collectBall(Player& c) {
         if (prevT && prevT->team == c.team && dist(prevT->x, prevT->y, b.x, b.y) < 45.0)
             return;
     }
-    duel[c.id].contestBlockedUntil = 0;
+    runtime[c.id].duel.contestBlockedUntil = 0;
     bool intended = receiverShieldTargetId == c.id;
     bool teammateTarget = receiverShieldTargetId >= 0 && b.lastTouchTeam == c.team;
     resolveKnockAhead(&c);
@@ -1235,7 +1235,7 @@ void GameEngine::collectBall(Player& c) {
     }
     // Assist bookkeeping: a fresh controlled touch ends any prior receive
     // link for this slot (a dribble/recovery is not an assisted goal).
-    if (c.id >= 0 && c.id < 22 && receiverShieldTargetId != c.id) lastReceiveFrom[c.id] = -1;
+    if (c.id >= 0 && c.id < 22 && receiverShieldTargetId != c.id) runtime[c.id].lastReceiveFrom = -1;
     stats.recordControlledTouch(c.role);
     // Round-34 census (owner complaint 4, "unnatural collect radius" at 2:03 —
     // never measured by any lens). How far was the ball from the man at the
@@ -1280,7 +1280,7 @@ void GameEngine::collectBall(Player& c) {
         // tank empties (up to +50%), so late-game balls take longer to compose.
         // No-op at full stamina (golden shifts only via natural in-match drain).
         settle *= 1.0 + (1.0 - staminaFrac(c.stamina)) * 0.5;
-        firstTouchUntilMs[c.id] = state.clockMs + settle;
+        runtime[c.id].firstTouchUntilMs = state.clockMs + settle;
     }
     // Law 11 rebound judgment: a shot-time-offside teammate collecting the
     // rebound off the frame or the keeper is offside (the poacher tap-in the
@@ -1288,7 +1288,7 @@ void GameEngine::collectBall(Player& c) {
     if (shotSnapshotLive
         && (lastLooseOrigin == LooseOrigin::Shot || lastLooseOrigin == LooseOrigin::Woodwork
             || lastLooseOrigin == LooseOrigin::GoalkeeperParry || lastLooseOrigin == LooseOrigin::GoalkeeperPunch)
-        && c.team == shotTeam && c.id >= 0 && c.id < 22 && offsideAtShot[c.id]) {
+        && c.team == shotTeam && c.id >= 0 && c.id < 22 && runtime[c.id].offsideAtShot) {
         shotSnapshotLive = false;
         stats.recordOffside();
         emitEvent("offside", c.x, c.y, c.id, -1);
@@ -1385,7 +1385,7 @@ void GameEngine::updateControlledBall(double sec) {
     // at every fresh collect/interception/tackle win) is bringing the ball
     // under control, not striding with it.
     bool freshControl = c->role != Role::GK && c->id >= 0 && c->id < 22
-        && firstTouchUntilMs[c->id] > state.clockMs;
+        && runtime[c->id].firstTouchUntilMs > state.clockMs;
     if (c->role != Role::GK && sec > 1e-6) {
         if (carryTouchCarrier != c->id) {
             carryTouchCarrier = c->id;
@@ -1447,7 +1447,7 @@ void GameEngine::updateControlledBall(double sec) {
     // Round-28 C3: during the post-duel gather window tuck the ball to the foot
     // (no knock-ahead) so the winner's separation converges to ~CONTROL_DIST
     // (12px) rather than settling at the carry offset — the "he's got it" read.
-    bool gatheringWin = c->id >= 0 && c->id < 22 && duel[c->id].carrierGatherUntilMs > state.clockMs;
+    bool gatheringWin = c->id >= 0 && c->id < 22 && runtime[c->id].duel.carrierGatherUntilMs > state.clockMs;
     if (gatheringWin) knockExtra = 0.0;
     // Offset swing-rate limit (seed 437 0:59, watched at 0.25x: "ball seems to
     // teleport a small distance around the body"): the facing/movement blend
@@ -1583,7 +1583,7 @@ void GameEngine::updateControlledBall(double sec) {
             // is off-balance and trailing — don't let this body-block sweep knock
             // the ball loose off him ~100ms after the win (stats say win, pitch
             // showed a turnover). He can't cancel the beat he just lost.
-            if (duel[o.id].beatenSlowUntilMs > state.clockMs) continue;
+            if (runtime[o.id].duel.beatenSlowUntilMs > state.clockMs) continue;
             double t = seg2 > 1e-6 ? clamp(((o.x - prevBx) * sx + (o.y - prevBy) * sy) / seg2, 0.0, 1.0) : 0.0;
             double dg = dist(o.x, o.y, prevBx + sx * t, prevBy + sy * t);
             if (dg < 8.0) {
@@ -1621,8 +1621,8 @@ void GameEngine::updateControlledBall(double sec) {
 void GameEngine::moveBallCarrier(double sdt) {
     Player* c = playerById(state.ball.controllerId);
     if (!c) return;
-    if (c->id >= 0 && c->id < 22 && (lungeDash[c->id].remainPx > 0.0
-                                     || lungeDash[c->id].doneMs == state.clockMs)) {
+    if (c->id >= 0 && c->id < 22 && (runtime[c->id].lungeDash.remainPx > 0.0
+                                     || runtime[c->id].lungeDash.doneMs == state.clockMs)) {
         // A tackle/take-on winner still finishing his committed dash, OR the
         // exact tick it just ended (Round-23): fixedUpdate already moved him this
         // tick, so stacking a full carry step on top spikes him to ~17 m/s for
@@ -1653,7 +1653,7 @@ void GameEngine::moveBallCarrier(double sdt) {
     // (~0.7x) that INVITES the defender's commit — which the C7 commit-read then
     // punishes. The agent renews this only inside a hard-capped 0.4-0.9s window
     // of the lock (engine.h), so the dip can never latch into a static face-off.
-    if (c->id >= 0 && c->id < 22 && duel[c->id].probeSlowUntilMs > state.clockMs) speed *= 0.7;
+    if (c->id >= 0 && c->id < 22 && runtime[c->id].duel.probeSlowUntilMs > state.clockMs) speed *= 0.7;
     double dx = c->targetX - c->x, dy = c->targetY - c->y, d = std::hypot(dx, dy);
     double secs = sdt / 1000.0, px = c->x, py = c->y;
     double previousSpeed = std::hypot(c->vx, c->vy);

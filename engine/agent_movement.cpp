@@ -8,7 +8,7 @@ void PlayerAI::applyMovement(double sdt) {
     if (setPieceHold) return;
     // A committed tackle dash owns the body until it lands (fixedUpdate moves
     // him): stacking normal movement on top pushed combined pace past 250px/s.
-    if (p.id >= 0 && p.id < 22 && engine.lungeDash[p.id].remainPx > 0.0) return;
+    if (p.id >= 0 && p.id < 22 && engine.runtime[p.id].lungeDash.remainPx > 0.0) return;
 
     double secs = sdt / 1000.0;
     double spd = std::sqrt(p.vx * p.vx + p.vy * p.vy);
@@ -135,7 +135,7 @@ void PlayerAI::applyMovement(double sdt) {
                        && dist(p.targetX, p.targetY, p.x, p.y) > 30.0;
     bool ownReboundBlockedLoose = p.id >= 0 && p.id < 22
         && !engine.arenaMode   // 11v11 only: in a 1v1 the jockey redirect recreates the round-25 freeze
-        && engine.duel[p.id].contestBlockedUntil > engine.state.clockMs
+        && engine.runtime[p.id].duel.contestBlockedUntil > engine.state.clockMs
         && engine.state.ball.controllerId < 0
         && engine.state.ball.intendedReceiverId != p.id
         && bd > 40.0 && bd < 150.0
@@ -412,15 +412,15 @@ void PlayerAI::applyMovement(double sdt) {
     // ~0.25x planted for the first ~250ms, then ~0.55x recovering out to ~1100ms,
     // so the carrier's beat burst opens a genuine gap instead of the man re-gluing
     // at 22px. Applies before the momentum block, so committed pursuit obeys it.
-    if (p.id >= 0 && p.id < 22 && engine.duel[p.id].beatenSlowUntilMs > engine.state.clockMs) {
-        double remain = engine.duel[p.id].beatenSlowUntilMs - engine.state.clockMs;
+    if (p.id >= 0 && p.id < 22 && engine.runtime[p.id].duel.beatenSlowUntilMs > engine.state.clockMs) {
+        double remain = engine.runtime[p.id].duel.beatenSlowUntilMs - engine.state.clockMs;
         ms *= (remain > BEATEN_SLOW_TOTAL_MS - BEATEN_SLOW_HARD_MS) ? 0.25 : 0.55;
     }
     // Round-27 COMMIT 2 (eased stop): a just-dispossessed victim keeps his
     // momentum (set at the tackle win) and bleeds it down over ~3 ticks rather
     // than snapping to a dead stop. Decay the carried velocity and cap the
     // command speed to it so he can't re-accelerate mid-glide.
-    if (p.id >= 0 && p.id < 22 && engine.duel[p.id].tackleStopEaseUntilMs > engine.state.clockMs) {
+    if (p.id >= 0 && p.id < 22 && engine.runtime[p.id].duel.tackleStopEaseUntilMs > engine.state.clockMs) {
         p.vx *= 0.55;
         p.vy *= 0.55;
         ms = std::min(ms, std::hypot(p.vx, p.vy) + 4.0);

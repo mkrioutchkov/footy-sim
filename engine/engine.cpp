@@ -94,7 +94,7 @@ bool GameEngine::canContestBall(Player& player) {
     if (setPiece.armed && state.ball.controllerId < 0) return false;
     if (activeKnockAhead.active && activeKnockAhead.playerId == player.id) return true;
     if (state.ball.controllerId < 0 && state.ball.intendedReceiverId == player.id && state.ball.lastTouchTeam == player.team && state.ball.lastToucherId != player.id) return true;
-    if (duel[player.id].contestBlockedUntil > state.clockMs) {
+    if (runtime[player.id].duel.contestBlockedUntil > state.clockMs) {
         // A lockout marks a moment that beat him (whiffed duel, beaten dribble,
         // lost tackle) — but a loose ball at REST is a NEW moment anyone can
         // play. Watched replay seed 133 4:02: a pass ricocheted off a
@@ -115,7 +115,7 @@ bool GameEngine::canContestBall(Player& player) {
         if (!(state.ball.controllerId < 0 && looseRest < LOOSE_BALL_STALL_SPEED
               && !selfRegrabOfOwnPass)) return false;
     }
-    duel[player.id].contestBlockedUntil = 0;
+    runtime[player.id].duel.contestBlockedUntil = 0;
     return true;
 }
 
@@ -138,13 +138,13 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
     if (walkIn)
         for (auto& p : state.players) { walkFromX[p.id] = p.x; walkFromY[p.id] = p.y; }
     phase.nextKickoffTeam = (t == Team::Home) ? Team::Away : Team::Home;
-    for (auto& d : duel) d.contestBlockedUntil = 0;
+    for (auto& r : runtime) r.duel.contestBlockedUntil = 0;
     receiverShieldUntil = 0;
     receiverShieldedPlayerId = -1;
     receiverShieldTargetId = -1;
     pendingPass.active = false;
     activeKnockAhead.active = false;
-    knockAheadCooldownUntil.fill(0);
+    for (auto& r : runtime) r.knockAheadCooldownUntil = 0;
     shot.tracked = false;
     shot.preventable = false;
     shot.header = false;
@@ -379,24 +379,24 @@ void GameEngine::fixedUpdateTick(double sdt) {
     // burst pace (see attemptTackle). Runs for controller and off-ball alike,
     // which the agent movement path cannot (it skips controllers).
     for (auto& p : state.players) {
-        double& rem = lungeDash[p.id].remainPx;
+        double& rem = runtime[p.id].lungeDash.remainPx;
         if (rem <= 0.0) continue;
-        if (p.sentOff) { rem = 0.0; lungeDash[p.id].switchPx = 0.0; lungeDash[p.id].dir2X = lungeDash[p.id].dir2Y = 0.0; continue; }
+        if (p.sentOff) { rem = 0.0; runtime[p.id].lungeDash.switchPx = 0.0; runtime[p.id].lungeDash.dir2X = runtime[p.id].lungeDash.dir2Y = 0.0; continue; }
         // R28 C8: two-stage chop — at the switch point of a won take-on's dash,
         // cut off the shoulder-sell direction onto the goal-ward second stage
         // (agent.cpp seeds both). Single 'chop' event marks the cut for the
         // trace/viewer; speed model untouched (same ramp, same peak), so the
         // per-tick displacement stays under the carrier tripwire.
-        if (lungeDash[p.id].switchPx > 0.0 && rem <= lungeDash[p.id].switchPx) {
-            double n2x = lungeDash[p.id].dir2X, n2y = lungeDash[p.id].dir2Y;
+        if (runtime[p.id].lungeDash.switchPx > 0.0 && rem <= runtime[p.id].lungeDash.switchPx) {
+            double n2x = runtime[p.id].lungeDash.dir2X, n2y = runtime[p.id].lungeDash.dir2Y;
             if (std::hypot(n2x, n2y) > 0.1) {
-                lungeDash[p.id].dirX = n2x;
-                lungeDash[p.id].dirY = n2y;
+                runtime[p.id].lungeDash.dirX = n2x;
+                runtime[p.id].lungeDash.dirY = n2y;
                 p.facing = std::atan2(n2y, n2x);
                 emitEvent("chop", p.x, p.y, p.id);
             }
-            lungeDash[p.id].switchPx = 0.0;
-            lungeDash[p.id].dir2X = lungeDash[p.id].dir2Y = 0.0;
+            runtime[p.id].lungeDash.switchPx = 0.0;
+            runtime[p.id].lungeDash.dir2X = runtime[p.id].lungeDash.dir2Y = 0.0;
         }
         // Round-23 (carrier burst realism): RAMP the pace up toward the seeded
         // peak (agent.cpp / engine_actions.cpp) at ~150px/s^2 instead of the old
@@ -404,26 +404,26 @@ void GameEngine::fixedUpdateTick(double sdt) {
         // dribble pace over the last stretch — a burst that accelerates and
         // settles, not an on/off block. The tackler path seeds spd=peak=
         // LUNGE_DASH_SPEED so its short committed contact step stays ~flat.
-        double& spd = lungeDash[p.id].spd;
+        double& spd = runtime[p.id].lungeDash.spd;
         double rampRate = 150.0 * sdt / 1000.0;
-        spd = std::min(lungeDash[p.id].peak, spd + rampRate);
+        spd = std::min(runtime[p.id].lungeDash.peak, spd + rampRate);
         if (rem < 14.0) {
             double settle = attrFactor(p.attrs.speed) * DRIBBLE_FAST_SPEED;
             spd = std::max(settle, spd - rampRate);
         }
         double step = std::min(rem, spd * sdt / 1000.0);
-        p.x = clamp(p.x + lungeDash[p.id].dirX * step, 5.0, PITCH_W - 5.0);
-        p.y = clamp(p.y + lungeDash[p.id].dirY * step, 5.0, PITCH_H - 5.0);
+        p.x = clamp(p.x + runtime[p.id].lungeDash.dirX * step, 5.0, PITCH_W - 5.0);
+        p.y = clamp(p.y + runtime[p.id].lungeDash.dirY * step, 5.0, PITCH_H - 5.0);
         // Truthful velocity (Round-23): the dash wrote position but never vx/vy,
         // so every velocity reader saw 0 for the whole burst. Derive the real
         // per-tick velocity from the step actually taken (mirrors the FK run-up).
         double stepSpd = step / (sdt / 1000.0);
-        p.vx = lungeDash[p.id].dirX * stepSpd;
-        p.vy = lungeDash[p.id].dirY * stepSpd;
+        p.vx = runtime[p.id].lungeDash.dirX * stepSpd;
+        p.vy = runtime[p.id].lungeDash.dirY * stepSpd;
         rem -= step;
         // Handoff-spike guard (Round-23): stamp the tick the dash ends so
         // moveBallCarrier doesn't add a full carry step on top of this one.
-        if (rem <= 0.0) { rem = 0.0; lungeDash[p.id].doneMs = state.clockMs; }
+        if (rem <= 0.0) { rem = 0.0; runtime[p.id].lungeDash.doneMs = state.clockMs; }
     }
     // OffBallOverspeed tripwire (owner: "moves stupidly fast for a split
     // second... biggest issue — also make it a quality flag"): any outfield
@@ -457,9 +457,9 @@ void GameEngine::fixedUpdateTick(double sdt) {
                 // round-14 tuned it and the spec keeps it. The take-on carry
                 // ramps to peak <=104, so it stays measured (a regression to
                 // flat-120 would still trip this line).
-                bool contactDash = (lungeDash[p.id].remainPx > 0.0
-                                    || lungeDash[p.id].doneMs == state.clockMs)
-                                   && lungeDash[p.id].peak > 112.0;
+                bool contactDash = (runtime[p.id].lungeDash.remainPx > 0.0
+                                    || runtime[p.id].lungeDash.doneMs == state.clockMs)
+                                   && runtime[p.id].lungeDash.peak > 112.0;
                 if (state.ball.controllerId == p.id && dispStep > carrierMaxStep && !contactDash)
                     stats.recordQualityFlag(QualityFlag::CarrierOverspeed);
             }
@@ -1076,7 +1076,7 @@ void GameEngine::updateKickoffPhase(double sdt) {
 void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
     sampleVelocityOrigins();
     auto& b = state.ball;
-    if (b.controllerId >= 0) duel[b.controllerId].contestBlockedUntil = 0;
+    if (b.controllerId >= 0) runtime[b.controllerId].duel.contestBlockedUntil = 0;
     if (b.controllerId < 0) {
         applyBallPhysics(sec);
         clampBallPosition();
@@ -1267,7 +1267,7 @@ std::string GameEngine::getJSON() const {
 
     j["players"] = nlohmann::json::array();
     for (auto& p : state.players) {
-        j["players"].push_back({{"id", p.id}, {"name", p.name}, {"team", std::string(to_string(p.team))}, {"role", std::string(to_string(p.role))}, {"x", std::round(p.x * 10) / 10}, {"y", std::round(p.y * 10) / 10}, {"vx", std::round(p.vx * 10) / 10}, {"vy", std::round(p.vy * 10) / 10}, {"targetX", std::round(p.targetX * 10) / 10}, {"targetY", std::round(p.targetY * 10) / 10}, {"stamina", std::round(p.stamina)}, {"facing", std::round(renderFacing[p.id] * 1000) / 1000}, {"dribbleType", p.dribbleType}, {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)}, {"diveAnim", std::round(p.diveAnim)}, {"wall", p.wall}, {"slide", p.tackleAnim > 400.0}, {"goals", pStats[p.id].goals}, {"assists", pStats[p.id].assists}, {"shots", pStats[p.id].shots}, {"tackles", pStats[p.id].tackles}, {"yellow", yellowCards[p.id]}, {"passes", pStats[p.id].passes}, {"passesCompleted", pStats[p.id].passesCompleted}, {"injured", p.injurySeverity > 0.05}, {"sentOff", p.sentOff}});
+        j["players"].push_back({{"id", p.id}, {"name", p.name}, {"team", std::string(to_string(p.team))}, {"role", std::string(to_string(p.role))}, {"x", std::round(p.x * 10) / 10}, {"y", std::round(p.y * 10) / 10}, {"vx", std::round(p.vx * 10) / 10}, {"vy", std::round(p.vy * 10) / 10}, {"targetX", std::round(p.targetX * 10) / 10}, {"targetY", std::round(p.targetY * 10) / 10}, {"stamina", std::round(p.stamina)}, {"facing", std::round(renderFacing[p.id] * 1000) / 1000}, {"dribbleType", p.dribbleType}, {"tackleAnim", std::round(p.tackleAnim)}, {"headingAnim", std::round(p.headingAnim)}, {"diveAnim", std::round(p.diveAnim)}, {"wall", p.wall}, {"slide", p.tackleAnim > 400.0}, {"goals", pStats[p.id].goals}, {"assists", pStats[p.id].assists}, {"shots", pStats[p.id].shots}, {"tackles", pStats[p.id].tackles}, {"yellow", runtime[p.id].yellowCards}, {"passes", pStats[p.id].passes}, {"passesCompleted", pStats[p.id].passesCompleted}, {"injured", p.injurySeverity > 0.05}, {"sentOff", p.sentOff}});
     }
 
     // Forward every stats summary metric verbatim. getJSON builds its own
