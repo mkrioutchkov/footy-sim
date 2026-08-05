@@ -411,7 +411,7 @@ void GameEngine::fixedUpdateTick(double sdt) {
             runtime[p.id].lungeDash.dir2X = runtime[p.id].lungeDash.dir2Y = 0.0;
         }
         // Round-23 (carrier burst realism): RAMP the pace up toward the seeded
-        // peak (agent.cpp / engine_actions.cpp) at ~150px/s^2 instead of the old
+        // peak (agent.cpp / engine_tackle.cpp) at ~150px/s^2 instead of the old
         // one-tick snap to a flat 120, and DECAY it back toward the carrier's
         // dribble pace over the last stretch — a burst that accelerates and
         // settles, not an on/off block. The tackler path seeds spd=peak=
@@ -464,7 +464,7 @@ void GameEngine::fixedUpdateTick(double sdt) {
                 double dispStep = dist(p.x, p.y, telemetry.prevX[p.id], telemetry.prevY[p.id]);
                 if (dispStep > maxStep)
                     stats.recordQualityFlag(QualityFlag::OffBallOverspeed);
-                // Exempt the sanctioned DEFENDER-contact dash (engine_actions:
+                // Exempt the sanctioned DEFENDER-contact dash (engine_tackle.cpp:
                 // won tackle → carrier for its 11px/90ms step, seeded peak=120):
                 // round-14 tuned it and the spec keeps it. The take-on carry
                 // ramps to peak <=104, so it stays measured (a regression to
@@ -2021,3 +2021,45 @@ void GameEngine::driveRestartApproach(double sdt, double sec)
     }
     cacheBallState();
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Action plumbing — the residue of engine_actions.cpp after its three subsystems
+// moved to engine_pass_exec / engine_tackle / engine_shot: the rebound block, the
+// ball-impulse census hook, and the one emitEvent every subsystem calls.
+// ══════════════════════════════════════════════════════════════════════════════
+void GameEngine::blockReboundFor(int playerId, double ms) {
+    if (playerId < 0) return;
+    runtime[playerId].duel.contestBlockedUntil = std::max(runtime[playerId].duel.contestBlockedUntil, state.clockMs + ms);
+}
+
+void GameEngine::recordBallImpulse() {
+    double spd = std::hypot(state.ball.vx, state.ball.vy);
+    metrics.peakBallSpeed = std::max(metrics.peakBallSpeed, spd);
+    stats.recordBallSpeedSample(spd);
+    // Round-19 (seed 629 0:48): a kicked ball changes VELOCITY, not position —
+    // resetting prevBallX/prevBallY to the post-impulse position here (mid-tick,
+    // before the jump check runs) blinded the position-continuity tripwire to a
+    // 191px save-punch teleport (jumpDx computed as 0). Reset only the velocity
+    // baseline; position continuity must be measured against the pre-impulse spot.
+    prevBallVx = state.ball.vx;
+    prevBallVy = state.ball.vy;
+    prevControllerId = state.ball.controllerId;
+    ballImpulseGraceTicks = 2;
+}
+
+void GameEngine::emitEvent(const std::string& type, double x, double y, int playerId, int targetId, bool traceOnly, bool ownGoal,
+                           const std::string& outName, const std::string& inName) {
+    VisualEvent ev{type, x, y, state.clockMs, playerId, targetId, ownGoal, outName, inName};
+    traceEventQueue.push_back(ev);
+    // traceOnly events (e.g. kickoff/restart markers) go to the trace log but NOT
+    // the capped renderer ticker — so they can't perturb the getJSON events[] the
+    // golden guard hashes, and don't spam the live ticker with restart lines.
+    if (traceOnly) return;
+    visualEvents.push_back(ev);
+    while (visualEvents.size() > 32) visualEvents.erase(visualEvents.begin());
+}
+
+// ══════════════════════════════════════════════════════════════
+// Dribble — knock-ahead logic
+// ══════════════════════════════════════════════════════════════
+

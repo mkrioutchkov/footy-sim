@@ -960,7 +960,7 @@ Player* GameEngine::findBallContact(double sec, double& contactRadius) {
             // why 97.9% of open-play 30m+ balls were collected at z=0, and why
             // the simulation contained no aerial duel and no second-ball phase
             // at all: the engine already LOFTS long balls (the rawDist>240 and
-            // >350 vz rules in engine_actions), they simply sailed over everyone
+            // >350 vz rules in engine_pass_exec.cpp), they simply sailed over everyone
             // untouchable and were picked up off the deck.
             // A genuine lofted long ball is now contestable in the air by the
             // same z-aware slant reach a cross uses — you can only head what
@@ -1570,7 +1570,7 @@ void GameEngine::updateControlledBall(double sec) {
     // deterministic, no rng; the beaten carrier can't instantly re-collect.
     // Round-27 COMMIT 1 (owner 0:30 "ball magically went loose"): a controller
     // who just won a tackle (or read a feint) holds a possession shield
-    // (receiverShieldUntil / receiverShieldedPlayerId, engine_actions.cpp:1345).
+    // (receiverShieldUntil / receiverShieldedPlayerId, set in attemptTackle, engine_tackle.cpp).
     // The body-block sweep below ignored that shield and stripped Van Dijk 17ms
     // after he won the ball (tackle_won 30.200 -> traceOnly steal 30.217). Honor
     // the shield here exactly like the beaten-defender guard honors an off-balance

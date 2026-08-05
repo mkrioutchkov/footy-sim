@@ -2,7 +2,7 @@
 """Pass-quality census from a binary trace (round-29 owner metric).
 
 Mirrors the engine's shared pass grader (GameEngine::gradePass in
-engine_actions.cpp — keep the two in sync):
+engine_pass_exec.cpp — keep the two in sync):
 
     grade = pComplete * (0.55 + 0.45*threat) - (1 - pComplete) * 0.35 * turnoverDanger
 

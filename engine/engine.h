@@ -850,7 +850,7 @@ private:
         double lastReceiveMs = 0.0;
         // Law 11 'gaining an advantage': whether THIS SLOT was in an offside
         // position when the current shot was struck. Armed as a whole-squad
-        // snapshot at each shot (engine_actions.cpp / engine_gk.cpp) but stored
+        // snapshot at each shot (engine_shot.cpp shootBall / engine_gk.cpp) but stored
         // per slot, because a substitute must not inherit the flag.
         bool   offsideAtShot = false;
     };
