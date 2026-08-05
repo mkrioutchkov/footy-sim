@@ -122,14 +122,24 @@ class Frame:
     agent_ms: float = 0
 
 
-# Known trace event `type` values (mirror of the trace.h comment). Kept in sync
-# whenever the engine emits a new event so downstream tooling has a vocabulary.
-# R28 C3 adds "takeon_lost" (the winner's grant on a read feint); C8 adds "chop"
-# (the two-stage beat cut).
+# Known trace event `type` values — the engine's ACTUAL emit vocabulary. The old
+# hand-maintained list had drifted to 20 entries while the engine emits 42: it was
+# missing every restart/dead-ball type (goal_kick, corner, kickoff, throw_in ...),
+# which made a downstream probe misread goal-kick choreography as a player anomaly
+# until it blanked those events itself (found during the round-35 engagement
+# audit). It also carried 'stuck' and 'freeze', which nothing has emitted for
+# rounds. Regenerate rather than hand-edit:
+#   grep -rhoE 'emitEvent\("([a-z_]+)"' engine/*.cpp | sed 's/emitEvent("//;s/"//' | sort -u
+# plus the variable-typed skill-move emits in agent.cpp (moveType/mv):
+#   dragback, nutmeg, roulette, stepover, skill.
 KNOWN_EVENT_TYPES = frozenset({
-    'goal', 'tackle', 'tackle_won', 'tackle_loose', 'takeon', 'takeon_lost',
-    'chop', 'skill', 'stepover', 'roulette', 'steal', 'pass', 'intercept',
-    'foul', 'stuck', 'freeze', 'throw_in', 'free_kick', 'half_time', 'full_time',
+    'added_time', 'advantage', 'assist', 'block', 'chop', 'claim', 'clearance',
+    'corner', 'corner_short', 'dragback', 'foul', 'free_kick', 'full_time',
+    'gk_punch', 'goal', 'goal_kick', 'half_time', 'handball', 'header', 'injury',
+    'intercept', 'kickoff', 'nutmeg', 'offside', 'pass', 'penalty', 'red',
+    'roulette', 'save', 'shot', 'skill', 'steal', 'stepover', 'sub', 'tackle',
+    'tackle_loose', 'tackle_won', 'takeon', 'takeon_lost', 'throw_in', 'tip',
+    'woodwork', 'yellow',
 })
 
 
