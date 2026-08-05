@@ -116,7 +116,9 @@ Its non-obvious behaviour, all of it earned against a specific observed bug:
   60 fps display sampling): worst single-frame ball-vs-carrier step 2.01 m →
   0.42 m, mean carry motion unchanged (0.59 → 0.57 dm), 2 474 kink-pop frames
   during carries eliminated. The remaining engine-side truth (the knock IS a
-  rate-capped dart — engine_physics.cpp:1509) is an engine tuning item.
+  rate-capped dart — engine_physics.cpp:1509) is an engine tuning item. Ported to
+  the shipping renderer in Round-35 — see the section below, which records how the
+  port had to differ and why a straight copy measured worse there.
 
 ## Relationship to `web/frontend/renderer.ts`
 
@@ -131,15 +133,51 @@ value is that it stays a single dependency-free file.
 Where a fix exists here but not there, it belongs on a follow-up list rather than
 in a copy-paste:
 
-- **`scoreAt` (goal-before-keyframe).** Known divergence, currently latent. The
-  template needs `scoreAt()` because its input is an 80 ms *keyframe* timeline, so
-  a goal event can precede the frame that records the new score. The shipping
-  renderer reads the live per-tick score and, under `replayMode`, suppresses the
-  goal banner outright (`renderer.ts` ~1832, ~1852), so it has nowhere to display
-  a stale scoreline today. The moment a goal card, scoreline, or scrubbable
-  keyframe timeline is added to its replay path, it needs the same correction —
-  port `scoreAt`'s idea (replay the goal list on top of the nearest earlier
-  score), not the code.
+- **Carried-ball magnetization — PORTED** (Round-35). In `renderer.ts` it is the
+  `magnetCtrl` path: the gate sits at the end of `sync()` (right after
+  `ballCurveActive`), the draw is the first branch of the ball tween in
+  `renderFrame()`, and that function now runs its player loop in **two passes** so
+  the carrier's smoothed body exists before the ball is placed against it — while
+  still stepping the position EMA exactly once per tick and still redrawing boots
+  against the *current* tick's ball.
+  Same idea, **deliberately not the same code, and the difference is the whole
+  lesson.** This template interpolates keyframes with a spline, so lerping
+  engine-truth foot offsets between `a` and `b` is seamless. The shipping renderer
+  is a *chase*: every `sync()` re-anchors `ballPrev` and each player's tween on the
+  currently DRAWN position, and players then pass through an EMA the ball does not.
+  Anchoring on engine-truth offsets there would jump the ball at every segment
+  boundary, so the port anchors on the **drawn** offset — which makes the carrier's
+  EMA lag (p99 5.2 units of pitch, worst 33.7) land on the offset in a single
+  segment at each carry onset. Measured on seed 151 re-exported at the live 33 ms
+  cadence (`EXPORT_STEP_MS=33`, i.e. `DEFAULT_FRAME_MS`), the *straight* port made
+  the worst single display-frame ball-vs-carrier step **worse**: 10.03 → 16.32
+  units at 1×. The shipped version therefore rate-caps the chase at 220 units/s of
+  *match* time — the engine's own steady-state glue allowance, against a measured
+  p99 of 214 for the ball's true offset rate over 110 719 carried frame-pairs, so
+  the cap can only clip renderer artefacts. With it, over the full match at 1×:
+  worst step **10.03 → 3.78** units, display frames with a >5-unit pop **426 → 0**,
+  mean carry motion 0.79 → 0.78 (real movement preserved), and the ball's error
+  *on the man* **1.85 → 0.99**. Under fast-forward the win is mostly positional —
+  ball-on-man error 6.19 → 2.42 at 4× and 11.03 → 3.76 at 8× — bought with a
+  slightly heavier upper tail from those onset catch-ups.
+  Both extra guards earn their place: **2.20 %** of controller frames have the ball
+  60+ units from its "carrier" (a set-piece taker walking to the spot — one seed-151
+  stretch runs 353 frames at up to 19 m of separation), and magnetizing those would
+  drag the ball across the pitch rather than glue it to a foot.
+
+- **`scoreAt` (goal-before-keyframe).** Known divergence, still **latent** —
+  re-verified in Round-35 when the magnetization port went in. The template needs
+  `scoreAt()` because its input is an 80 ms *keyframe* timeline, so a goal event can
+  precede the frame that records the new score. The shipping renderer reads the
+  live per-tick score and, under `replayMode`, suppresses the goal banner outright
+  (`renderer.ts` ~1941, ~1961) — and the banner is still the only place it draws a
+  scoreline *at a goal instant* (the goal toast carries a minute and a scorer, no
+  score), so it has nowhere to display a stale scoreline today. Its rewind path
+  replays whole engine frames, each carrying its own score, not downsampled
+  keyframes with separately-timestamped goal events. The moment a goal card,
+  scoreline, or scrubbable keyframe timeline is added to that replay path, it needs
+  the same correction — port `scoreAt`'s idea (replay the goal list on top of the
+  nearest earlier score), not the code.
 
 Anything else found should be appended here, not silently ported.
 

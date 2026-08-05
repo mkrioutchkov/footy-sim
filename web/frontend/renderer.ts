@@ -17,6 +17,36 @@ const TRAIL_LENGTH = 16;
 // the disc edge. Every player-owned graphic (body, shadow, boots/head, chevron, carrier ring, label
 // offset) scales off this; transient effect rings (events, set-piece) stay on the physics PLAYER_R.
 const DISC_R = PLAYER_R * 0.78;
+// A per-player step this big between two ingested frames is a TELEPORT (seek, kickoff, restart, a
+// sent-off body being parked off the touchline), not motion — the tween snaps to the new sample
+// instead of sliding the man across the pitch. Shared by the player tween and by the carried-ball
+// magnetization gate so the two can never disagree about what counts as a teleport.
+const PLAYER_SNAP_DIST = 120;
+// Largest ball-to-carrier separation that still reads as a ball AT THE FEET (carried-ball
+// magnetization gate). This is the engine's own carry/reset line, not a renderer guess: the glue holds
+// a carried ball at CONTROL_DIST (12) plus a knock extension that peaks at 17, and treats a controlled
+// ball more than 60 from that control offset as a deliberate reset it writes OUTRIGHT rather than a
+// carry it steps (engine/engine_physics.cpp, the `md < 60.0` branch). Past it, magnetizing would glue
+// the ball to a man who is no longer really carrying it.
+const CARRY_MAGNET_MAX_OFFSET = 60;
+// …and the magnet's chase toward that offset is itself rate-capped, for the same reason the ENGINE's
+// carry glue is one. A demanded offset change faster than the glue can move a carried ball is not carry
+// motion at all: it is this renderer's own anchoring lag. The drawn carrier trails the engine carrier
+// through the player EMA, and on the FIRST magnetized segment of a carry that whole lag lands on the
+// offset at once — measured p99 5.2, worst 33.7 units of pitch. Uncapped, that one segment renders a
+// bigger pop than the jag being fixed (worst single-frame step 10.0 -> 16.3 at 1x on seed 151), which
+// is why the standalone template's stateless version does not port over as-is.
+// 220 units/sec is the engine's own steady-state glue allowance (engine_physics.cpp `maxStep`, trimmed
+// to +220 in Round-23), and over seed 151's 110 719 carried frame-pairs the p99 of the ball's TRUE
+// offset rate is 214 units/sec — so the cap sits at the very top of the real distribution: it can
+// barely touch engine truth, and whatever it does clip is carried into the next segment's re-anchor
+// rather than dropped.
+const CARRY_MAGNET_CHASE_RATE = 220;   // units of pitch per second of MATCH time
+// Ceiling on the match-time window the chase is allowed to bank, matching the tween window's own 600ms
+// clamp: a longer gap between frames is a seek, not a segment. A zero/backwards gap (a pause, a
+// duplicate frame, a rewind) yields a zero budget, which correctly freezes the offset — no match time
+// passed, so the ball has no business moving on its carrier.
+const CARRY_MAGNET_MAX_CHASE_MS = 600;
 // Gate the per-frame diagnostic logging (first-sync dump + facing-flicker warnings). Off in
 // normal play so the hot path doesn't do per-player bookkeeping or spam the console.
 const RENDER_DEBUG = false;
@@ -180,6 +210,21 @@ export class MatchRenderer {
   private ballPrevVx = 0; private ballPrevVy = 0;    // ball velocity reported at the segment START (prev frame)
   private ballTargetVx = 0; private ballTargetVy = 0; // ball velocity reported at the segment END (this frame)
   private ballCurveActive = false;                    // use the Hermite path this segment (in-flight, not snapped)
+  // ── carried-ball magnetization ── (Round-35; ported from the standalone replay viewer, commit 4513d5e,
+  // whose forensics are written up in tools/replay/README.md). The engine's carry glue is a rate-capped
+  // follower, not a rigid attachment: it closes each knock-touch over 2-4 ticks (~65ms — see the maxStep
+  // cap in engine/engine_physics.cpp), so a whole 0.25-0.5m dart can land INSIDE one broadcast interval,
+  // and every interval above 1x speed is longer than the dart. World-tweening the ball toward that sample
+  // while the CARRIER is drawn through the EMA-smoothed player tween beside it renders the dart as a pop
+  // at the feet (owner, on the template: "the ball seems to teleport a tiny amount while at the feet of
+  // the player"). When both ends of a segment agree on the controller, the ball is instead drawn relative
+  // to the carrier's SMOOTHED body with the foot OFFSET lerped: the dart spreads across the segment and
+  // the ball stays glued to the moving man. magnetCtrl is the carrier this segment is magnetized to, or
+  // null for the plain world tween (ball in flight, control CHANGING this segment, or a snapped segment).
+  private magnetCtrl: number | null = null;
+  private magnetPrevOffX = 0; private magnetPrevOffY = 0;      // ball-minus-carrier as DRAWN at the segment start
+  private magnetTargetOffX = 0; private magnetTargetOffY = 0;  // ball-minus-carrier the engine reports at the segment end
+  private magnetClockMs = 0;                                   // previous frame's match clock (the chase budget is MATCH time, not wall time)
   // Ball velocity heading of the previous ingested frame — a sharp (>45°) swing between consecutive
   // in-flight frames snaps the tween (prev=target) instead of smoothing through the corner, so a
   // first-time pass / deflection reads as a crisp change of direction, not a fake orbiting arc.
@@ -652,6 +697,8 @@ export class MatchRenderer {
     this.lastIngest = 0;
     this.lastControllerId = null;
     this.prevControllerId = null;
+    this.magnetCtrl = null;   // no previous frame to agree with → the first ingest after a reset world-tweens
+    this.magnetClockMs = 0;
     this.trailBuffer = [];
   }
 
@@ -676,13 +723,44 @@ export class MatchRenderer {
     const b = state.ball;
     const byId = this.playerById;
 
-    // ball — tween its position FIRST (renderFrame owns visualBall) so the player loop aims boots at the
-    // CURRENT-tick ball (F7 review: it was reading the previous tick's visualBall → a ~16ms boot-aim lag).
-    // Curve-following: in free flight, cubic-Hermite through the engine's ball velocity at each endpoint
-    // so a curling flight follows its arc instead of the straight chord between the two samples; a straight
-    // pass, a carried ball or a snapped segment falls back to a plain linear lerp (see ballCurveActive).
+    // ── players, pass 1: advance each smoothed visual position ──
+    // Round-35: split out of the draw pass below so the CARRIER's smoothed body exists before the ball is
+    // tweened — a magnetized ball is drawn relative to it. The two passes preserve both of the orderings
+    // this loop already owed: the EMA is stepped exactly ONCE per tick (here), and the boot-aim redraw
+    // still sees the CURRENT tick's ball (pass 2, after the ball tween — the F7 fix).
+    // Iterate .values() (id lives on the record) so the Map iterator doesn't allocate a [k,v] tuple per rAF.
+    for (const tg of this.playerTargets.values()) {
+      if (!this.playerEntries.has(tg.id)) continue;
+      const ix = lerp(tg.px, tg.tx, t);
+      const iy = lerp(tg.py, tg.ty, t);
+      let v = this.visualPlayers.get(tg.id);
+      // Round-27 COMMIT 8b: a light EMA pass over the interpolated position (like
+      // the renderFacing damping) so residual telemetry wobble reads as a smooth
+      // curve, not per-keyframe kinks. A big step (teleport/seek/restart) snaps
+      // through instead of gliding, mirroring the ball's jump handling.
+      if (!v) { v = { x: ix, y: iy }; this.visualPlayers.set(tg.id, v); }
+      else if (Math.abs(ix - v.x) > 40 || Math.abs(iy - v.y) > 40) { v.x = ix; v.y = iy; }
+      else { v.x += (ix - v.x) * 0.4; v.y += (iy - v.y) * 0.4; }
+    }
+
+    // ball — tween its position BEFORE the sprite/boot pass (renderFrame owns visualBall) so the player
+    // loop aims boots at the CURRENT-tick ball (F7 review: it was reading the previous tick's visualBall
+    // → a ~16ms boot-aim lag).
+    // Three paths, in priority order:
+    //  • MAGNETIZED (Round-35): both ends of the segment agree on the controller, so the ball rides the
+    //    carrier's smoothed body and only the foot OFFSET is lerped — the engine's rate-capped knock dart
+    //    spreads across the segment instead of popping at the feet inside it. sync() owns the gate.
+    //  • curve-following: in free flight, cubic-Hermite through the engine's ball velocity at each endpoint
+    //    so a curling flight follows its arc instead of the straight chord between the two samples;
+    //  • plain linear lerp: a straight pass, a released/loose ball or a snapped segment.
+    // A magnetized segment can never also be a curve segment (ballCurveActive requires no controller), so
+    // the ordering is a readability choice, not a tie-break.
     let ibx: number, iby: number;
-    if (this.ballCurveActive) {
+    const magnetVis = this.magnetCtrl !== null ? this.visualPlayers.get(this.magnetCtrl) : undefined;
+    if (magnetVis) {
+      ibx = magnetVis.x + lerp(this.magnetPrevOffX, this.magnetTargetOffX, t);
+      iby = magnetVis.y + lerp(this.magnetPrevOffY, this.magnetTargetOffY, t);
+    } else if (this.ballCurveActive) {
       const dtSec = this.segDur / 1000;
       const p0x = this.ballPrev.x, p0y = this.ballPrev.y, p1x = this.ballTarget.x, p1y = this.ballTarget.y;
       // tangents = velocity·dt, but capped to ~1.25× the chord so a decelerating (friction) or fast-sampled
@@ -708,22 +786,14 @@ export class MatchRenderer {
     if (!this.visualBall) this.visualBall = { x: ibx, y: iby, z: ibz };
     else { this.visualBall.x = ibx; this.visualBall.y = iby; this.visualBall.z = ibz; }
 
-    // players — tween then position body/shadow/arrow/label/dirTag (shapes were drawn in sync).
-    // Iterate .values() (id lives on the record) so the Map iterator doesn't allocate a [k,v] tuple per rAF.
+    // ── players, pass 2: position body/shadow/arrow/label/dirTag (shapes were drawn in sync) ──
+    // Reads only the positions pass 1 advanced — never steps the EMA again (double-stepping it would
+    // change every player's rendered path, not just the ball's).
     for (const tg of this.playerTargets.values()) {
       const id = tg.id;
       const entry = this.playerEntries.get(id);
-      if (!entry) continue;
-      const ix = lerp(tg.px, tg.tx, t);
-      const iy = lerp(tg.py, tg.ty, t);
-      let v = this.visualPlayers.get(id);
-      // Round-27 COMMIT 8b: a light EMA pass over the interpolated position (like
-      // the renderFacing damping) so residual telemetry wobble reads as a smooth
-      // curve, not per-keyframe kinks. A big step (teleport/seek/restart) snaps
-      // through instead of gliding, mirroring the ball's jump handling.
-      if (!v) { v = { x: ix, y: iy }; this.visualPlayers.set(id, v); }
-      else if (Math.abs(ix - v.x) > 40 || Math.abs(iy - v.y) > 40) { v.x = ix; v.y = iy; }
-      else { v.x += (ix - v.x) * 0.4; v.y += (iy - v.y) * 0.4; }
+      const v = this.visualPlayers.get(id);
+      if (!entry || !v) continue;
       const sx = v.x, sy = v.y;
       entry.shadow.position.set(sx, sy);
       entry.body.position.set(sx, sy);
@@ -1025,6 +1095,9 @@ export class MatchRenderer {
     }
     const b = state.ball;
     const ballSpeed = Math.sqrt(b.vx ** 2 + b.vy ** 2);
+    // The controller the PREVIOUS ingested frame reported — read before the change-detect below overwrites
+    // it. The magnetization gate needs BOTH ends of this segment to name the same carrier.
+    const prevFrameCtrl = this.lastControllerId;
     if (b.controllerId !== this.lastControllerId) {
       this.prevControllerId = this.lastControllerId;
       this.trailBuffer = [];
@@ -1062,6 +1135,42 @@ export class MatchRenderer {
     // to a line under Hermite anyway — the endpoint tangents lie along the chord — so this is purely a guard).
     this.ballCurveActive = b.controllerId === null && bSpeedSq > 400 && !snapped;
     (window as unknown as { __ballCurve?: boolean }).__ballCurve = this.ballCurveActive;   // verify hook
+    // ── carried-ball magnetization gate (Round-35) ── decide here, apply in renderFrame (see magnetCtrl).
+    // Magnetize ONLY a segment that is unambiguously one man carrying the ball across both samples:
+    //  • a controller at BOTH ends, and the SAME one — the segment where control changes (a receipt, a
+    //    release, a tackle) must still slide in world space, which is what sells the change of ownership;
+    //  • no ball snap this segment — a kickoff / restart / seek / sharp redirect is a CUT, and gluing the
+    //    ball onto a body through one would drag it across the pitch instead of cutting;
+    //  • the carrier is actually being tweened and drawn (a sent-off man is dropped from playerTargets and
+    //    parked off the touchline — the template's "carrier is on the pitch" guard), and he did not
+    //    teleport himself this segment, or the offset we anchor on is meaningless;
+    //  • the ball reads as AT HIS FEET at both ends. Past the engine's own carry/reset distance this is a
+    //    release the controller flag has not caught up with, and the honest path is the world tween.
+    // The anchor is deliberately the ball as DRAWN (visualBall) against the carrier as DRAWN, so t=0 is
+    // exactly where the previous tick left the ball: magnetization can never introduce a seam of its own.
+    this.magnetCtrl = null;
+    const magCarrier = b.controllerId !== null && b.controllerId === prevFrameCtrl && !snapped
+      ? byId.get(b.controllerId) : undefined;
+    const magVis = magCarrier && !magCarrier.sentOff && this.playerTargets.has(magCarrier.id)
+      ? this.visualPlayers.get(magCarrier.id) : undefined;
+    if (magCarrier && magVis && Math.hypot(magCarrier.x - magVis.x, magCarrier.y - magVis.y) <= PLAYER_SNAP_DIST) {
+      const pOffX = vb.x - magVis.x, pOffY = vb.y - magVis.y;          // where the ball is DRAWN, off the drawn carrier
+      let tOffX = b.x - magCarrier.x, tOffY = b.y - magCarrier.y;      // where the engine puts it, off the real carrier
+      if (Math.hypot(pOffX, pOffY) <= CARRY_MAGNET_MAX_OFFSET && Math.hypot(tOffX, tOffY) <= CARRY_MAGNET_MAX_OFFSET) {
+        // Rate-cap the chase (CARRY_MAGNET_CHASE_RATE): whatever the segment cannot legitimately close
+        // is left for the next one, which re-anchors on the drawn ball again — a follower, like the
+        // engine's own glue, rather than a one-segment ramp that renders this renderer's anchoring lag.
+        const dOffX = tOffX - pOffX, dOffY = tOffY - pOffY;
+        const dOff = Math.hypot(dOffX, dOffY);
+        const budget = CARRY_MAGNET_CHASE_RATE * clamp(state.clockMs - this.magnetClockMs, 0, CARRY_MAGNET_MAX_CHASE_MS) / 1000;
+        if (dOff > budget) { const k = budget / dOff; tOffX = pOffX + dOffX * k; tOffY = pOffY + dOffY * k; }
+        this.magnetCtrl = magCarrier.id;
+        this.magnetPrevOffX = pOffX; this.magnetPrevOffY = pOffY;
+        this.magnetTargetOffX = tOffX; this.magnetTargetOffY = tOffY;
+      }
+    }
+    this.magnetClockMs = state.clockMs;
+    (window as unknown as { __ballMagnet?: number | null }).__ballMagnet = this.magnetCtrl;   // verify hook
 
     // ── trail ──
     if (b.controllerId === null && ballSpeed > 20) {
@@ -1237,7 +1346,7 @@ export class MatchRenderer {
       if (!this.visualPlayers.has(p.id)) this.visualPlayers.set(p.id, { x: p.x, y: p.y });
       let tg = this.playerTargets.get(p.id);
       if (!tg) { tg = { id: p.id, px: p.x, py: p.y, tx: p.x, ty: p.y }; this.playerTargets.set(p.id, tg); }
-      else { tg.px = vp.x; tg.py = vp.y; tg.tx = p.x; tg.ty = p.y; if (Math.hypot(p.x - vp.x, p.y - vp.y) > 120) { tg.px = p.x; tg.py = p.y; } }
+      else { tg.px = vp.x; tg.py = vp.y; tg.tx = p.x; tg.ty = p.y; if (Math.hypot(p.x - vp.x, p.y - vp.y) > PLAYER_SNAP_DIST) { tg.px = p.x; tg.py = p.y; } }
       const diving = p.role === 'GK' && (p.diveAnim ?? 0) > 0;
       // R28 C9 (duel legibility, render-only): latch the tackle POSE for a minimum
       // ~450ms of match clock from tackleAnim ONSET. The engine's 220ms standing win
