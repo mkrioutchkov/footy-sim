@@ -282,7 +282,10 @@ void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
     std::string outName = slot.name;
     std::string inName = std::format("{}{} {}", prefix, slot.id, in.name);
     stats.recordSubstitution();
-    substitutionLog.push_back({state.clockMs, slot.id, slot.team, outName, inName});
+    // Hand the departing player his stat line before the slot is reset, so the
+    // summary can report both men rather than crediting the arrival with both.
+    substitutionLog.push_back({state.clockMs, slot.id, slot.team, outName, inName,
+                               pStats[slot.id]});
     emitEvent("sub", slot.x, slot.y, slot.id, -1, /*traceOnly=*/false, /*ownGoal=*/false, outName, inName);
     slot.name = inName;
     slot.attrs = in.attrs;
@@ -291,6 +294,7 @@ void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
     slot.needsReplacement = false;   // the latched knock leaves with him
     slot.sentOff = false;
     resetSlotRuntime(slot.id);
+    pStats[slot.id] = PlayerTally{};   // the arrival starts on zero; the starter's line rode out above
 }
 
 // Wipe every per-slot runtime record when a new man takes the slot.

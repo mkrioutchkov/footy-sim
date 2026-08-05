@@ -1308,7 +1308,13 @@ std::string GameEngine::getJSON() const {
                                         {"slotId", s.slotId},
                                         {"team", std::string(to_string(s.team))},
                                         {"outName", s.outName},
-                                        {"inName", s.inName}});
+                                        {"inName", s.inName},
+                                        {"outGoals", s.outTally.goals},
+                                        {"outAssists", s.outTally.assists},
+                                        {"outShots", s.outTally.shots},
+                                        {"outTackles", s.outTally.tackles},
+                                        {"outPasses", s.outTally.passes},
+                                        {"outPassesCompleted", s.outTally.passesCompleted}});
     }
     j["possessionPct"] = summary["possessionPct"];
 

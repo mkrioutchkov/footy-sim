@@ -373,17 +373,6 @@ private:
     // with no room for a name, so a .bin replay cannot recover who went off from the
     // event alone. The exporter joins this log to the trace's "sub" events on
     // (clockMs, slotId) — it is published in getJSON as "substitutionLog".
-    struct SubstitutionRecord {
-        double clockMs = 0;
-        int slotId = -1;
-        Team team = Team::Home;
-        std::string outName, inName;
-    };
-
-    // Per-player match tallies for the report (scorers, assists). Indexed by
-    // slot id; a substitution inherits the slot's running tally, which is fine
-    // for a match report keyed on the shirt. One struct per player (was six
-    // parallel arrays) — add a per-player stat by adding ONE field here.
     struct PlayerTally {
         int goals = 0;
         int assists = 0;
@@ -392,6 +381,22 @@ private:
         int passes = 0;           // pass attempts (match-rating input via --summary)
         int passesCompleted = 0;  // ...and completions (credited to pendingPass.fromId)
     };
+    struct SubstitutionRecord {
+        double clockMs = 0;
+        int slotId = -1;
+        Team team = Team::Home;
+        std::string outName, inName;
+        // The DEPARTING player's tally at the moment he came off. A slot has one
+        // stat line but a match can put two men in it, so the summary reports the
+        // slot's remaining line under the arrival's name and the starter's here —
+        // otherwise the substitute is credited with everything his predecessor did.
+        PlayerTally outTally;
+    };
+
+    // Per-player match tallies for the report (scorers, assists). Indexed by
+    // slot id; a substitution inherits the slot's running tally, which is fine
+    // for a match report keyed on the shirt. One struct per player (was six
+    // parallel arrays) — add a per-player stat by adding ONE field here.
     // Round-36 POST-REGAIN SECURING (owner, seed 407 0:26: "7B makes good tackle,
     // why turn into traffic?"). Securing the ball after winning it was a MISSING
     // concept. The 400ms gather lock (stunLockTicks=24) settled the winner along
@@ -850,21 +855,19 @@ private:
         bool   offsideAtShot = false;
     };
     std::array<PlayerRuntime, 22> runtime = {};
-    // NOT in the record, deliberately: pStats (below) is per-slot too, but it must
-    // NOT be wiped when a substitute arrives — that would erase the starter's
-    // contribution instead of attributing it. Fixing that needs the outgoing
-    // tally carried somewhere, not reset. See the note on pStats.
+    // NOT in the record, deliberately: pStats (below) is per-slot too, but it
+    // cannot simply be wiped when a substitute arrives — that would erase the
+    // starter's contribution rather than attribute it. substituteSlot hands it to
+    // the substitution record first, then clears it. See the note on pStats.
 
 
-    // KNOWN BUG (reported, not fixed here — it changes the summary schema): this
-    // is keyed by SLOT, and substituteSlot does not reset or carry it, so the
-    // summary credits the man on the pitch at full time with everything the slot
-    // did all match. Seed 151 @90min: three of seven goals are attributed to the
-    // wrong player — H8 Maldini (on at 62') is credited with Neymar's 57' goal,
-    // A19 Toure (on at 62') with Robben's 4' goal, A20 Cannavaro (on at 66') with
-    // Ronaldo's 50' goal. Same slot-vs-person root cause as the replay-viewer
-    // mislabelling fixed in c117b7a. The fix is to snapshot the outgoing tally
-    // into substitutionLog and reset the slot's, NOT simply to reset it.
+    // Per-SLOT, and a match can put two men in a slot — so substituteSlot hands
+    // the departing player's line to SubstitutionRecord::outTally and resets this,
+    // and the slot's remaining line is reported under the arrival's name. Before
+    // that, seed 151 @90min credited three of its seven goals to the wrong player
+    // (H8 Maldini, on at 62', got Neymar's 57' goal; A19 Toure got Robben's 4';
+    // A20 Cannavaro got Ronaldo's 50') — the same slot-vs-person root cause as the
+    // replay-viewer mislabelling fixed in c117b7a.
     std::array<PlayerTally, 22> pStats = {};
     // Assist chain: who last fed this slot a completed pass, and when.
     // When this player last WON possession off the opponent (intercept/clean
