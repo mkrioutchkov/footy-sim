@@ -13,56 +13,7 @@ void PlayerAI::applyMovement(double sdt) {
     double secs = sdt / 1000.0;
     double spd = std::sqrt(p.vx * p.vx + p.vy * p.vy);
 
-    double staminaSkill = attrFactor(p.attrs.stamina);
-    // Drain scales with sprint intensity (quadratic): cruising just above
-    // jogging pace costs little, flat-out sprinting costs full price. A
-    // binary threshold either emptied midfielders in minutes or never tired
-    // anyone, depending on where it sat relative to their cruise speed.
-    double sprintFrac = clamp((spd - SPEED_SPRINT * 0.55) / (SPEED_SPRINT * 0.45), 0.0, 1.0);
-    if (sprintFrac > 0.0)
-        p.stamina = std::max(0.0, p.stamina - STAMINA_DRAIN_SPRINT * sprintFrac * sprintFrac * (1.12 - staminaSkill * 0.35));
-    else if (spd >= 26.0) {
-        // Match fatigue (FATIGUE_FINDING redesign): a WORKING player tires toward a FLOOR — busier = faster
-        // toward it — and NEVER crashes below it, so SPEED dynamics stay dormant (floor > the 0.35 threshold)
-        // and only the continuous decision gates bite. (The old sprint-only drain pinned everyone ~99; an
-        // un-floored movement drain crashed the busiest player below 35 while others stayed fresh.)
-        double fitFloor = STAMINA_MATCH_FLOOR + staminaSkill * 12.0;   // 50..62: a fitter player floors higher
-        double work = 0.35 + sprintFrac;                              // 0.35 cruising -> 1.35 flat-out
-        p.stamina = std::max(fitFloor, p.stamina - STAMINA_DRAIN_MOVE * work * (1.12 - staminaSkill * 0.35));
-    } else
-        p.stamina = std::min(100.0, p.stamina + STAMINA_RECOVER * (0.80 + staminaSkill * 0.45));
-
-    double slowThreshold = STAMINA_SLOW_THRESHOLD * 100.0;
-    double fatigueFloor = 0.54 + staminaSkill * 0.20;
-    // Round-23 (arena reaudit): a busy player drains only to his fit floor (50-62,
-    // above the 35 crash threshold), so the SPEED curve was dormant — a duelist
-    // sprinted a flat p95 ~72.5px/s from minute 0 to 10. Give a GENTLE, visible
-    // sag as stamina settles onto that floor: ~0.93 (7% off pace) pinned at the
-    // floor, easing back to full pace 15 points above it. A fresh or rotating
-    // player (stamina > floor+15) is untouched, so 11v11 barely moves; the
-    // relentless arena duelist visibly tires.
-    double fitFloor = STAMINA_MATCH_FLOOR + staminaSkill * 12.0;
-    double sf = lerp(0.93, 1.0, clamp((p.stamina - fitFloor) / 15.0, 0.0, 1.0));
-    if (p.stamina < slowThreshold) {
-        // Heavy sprinting can drain below the floor; the steeper legacy crash
-        // curve then takes over (kept as a floor on the gentle band, so the two
-        // are continuous at the threshold).
-        double fatigueBlend = clamp(p.stamina / std::max(1.0, slowThreshold), 0.0, 1.0);
-        sf = std::min(sf, lerp(fatigueFloor, 1.0, fatigueBlend));
-    }
-    // A knock costs pace and fades over ~90s of match time.
-    if (p.injurySeverity > 0.0) {
-        sf *= clamp(1.0 - p.injurySeverity * 0.5, 0.45, 1.0);
-        p.injurySeverity = std::max(0.0, p.injurySeverity - secs / 90.0);
-    }
-    // Morale shades effort/pace a little and decays toward neutral over ~4 min.
-    // Default 0 = no effect (golden-safe). Driven by pre-match morale + shouts later.
-    if (p.moraleBoost != 0.0) {
-        sf *= clamp(1.0 + p.moraleBoost * 0.12, 0.88, 1.10);
-        double dec = secs / 240.0;
-        p.moraleBoost = p.moraleBoost > 0.0 ? std::max(0.0, p.moraleBoost - dec)
-                                            : std::min(0.0, p.moraleBoost + dec);
-    }
+    double sf = updateStaminaAndEffort(secs, spd);
 
     double dx = p.targetX - p.x, dy = p.targetY - p.y;
     double d = std::sqrt(dx * dx + dy * dy);
@@ -197,96 +148,8 @@ void PlayerAI::applyMovement(double sdt) {
                     && bd > 300.0 && bd > PLAYER_AWARE_RANGE * 0.5
                     && !engine.setPiece.armed;
 
-    // Defenders sprint when carrier is in their half
     bool defendSprint = false;
-    if (isDefenderLike() && !isObserving) {
-        auto* task = engine.assignmentFor(p.id);
-        if (task && task->role == DefensiveTask::CloseDown) defendSprint = true;
-        else if (task && (task->role == DefensiveTask::LaneBlock || task->role == DefensiveTask::BoxGuard || task->role == DefensiveTask::FarPostGuard
-            || task->role == DefensiveTask::NearPostGuard
-            || task->role == DefensiveTask::CutbackGuard
-            || task->role == DefensiveTask::ShotLane
-            || task->role == DefensiveTask::CrossLane
-            || task->role == DefensiveTask::MidfieldScreen || task->role == DefensiveTask::BoxScreen || task->role == DefensiveTask::DefensiveLine
-            || task->role == DefensiveTask::WideCover)) {
-            Player* carrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
-            double tdist = dist(p.x, p.y, task->targetX, task->targetY);
-            if (carrier && carrier->team != p.team && pitch::distToOwnGoal(carrier->x, p.team) < PITCH_W * 0.45 && tdist > 32.0) {
-                defendSprint = true;
-            }
-        }
-        else if (engine.state.ball.controllerId >= 0) {
-            Player* carrier = engine.playerById(engine.state.ball.controllerId);
-            if (carrier && carrier->team != p.team && bd < 200.0) defendSprint = true;
-        }
-    }
-    // E1 (user-visible live-watch standout: attackers JOG back on a turnover, leaving a 0v1
-    // breakaway). The sprint gate above is DEFENDERS-ONLY, so a CF/WM ambles back at jog pace
-    // while the defenders bust a gut. Extend the recovery sprint to attackers when an OPPONENT
-    // controls the ball nearby — they hustle back into shape instead of strolling. (defendSprint
-    // just lifts the speed cap to SPEED_SPRINT below; pure state, no rng.)
-    if (!defendSprint && !isObserving && (isCenterForward() || isWideMidfielder())) {
-        Player* oppCarrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
-        if (oppCarrier && oppCarrier->team != p.team && bd < 180.0) defendSprint = true;
-    }
-    // Caught-upfield DEFENDER recovery (FB audit: recoveries ran at 39-44px/s
-    // — 43% of top speed — because being >300px from the ball trips the
-    // observing crawl and defendSprint requires !isObserving, so being caught
-    // FURTHER out DISABLED sprinting; 2:05 Marcelo jogged home 146px behind
-    // the ball line while his target was goal-side the whole way). A defender
-    // on the wrong side of the ball while the opponent has it sprints home,
-    // however far away the play is.
-    bool recoverySprint = false;
-    // Round-25 (2v2 audit defect 2): this caught-upfield recovery is gated
-    // isDefenderLike(), so an arena CF stranded upfield of a counter ambles home
-    // (cover goal-side only 51-65% of possession frames). In a small-sided game
-    // EVERY outfielder is a cover defender, so in arenaMode extend the wrong-side
-    // recovery sprint to any outfielder. 11v11 is unchanged (CFs staying high is
-    // by design there).
-    if ((isDefenderLike() || (engine.arenaMode && p.role != Role::GK))
-        && !defendSprint && engine.state.ball.controllerId >= 0) {
-        Player* oppCarrier = engine.playerById(engine.state.ball.controllerId);
-        if (oppCarrier && oppCarrier->team != p.team) {
-            double fdMe = fdFor(p.team);
-            bool wrongSide = (p.x - engine.state.ball.x) * fdMe > 40.0;   // upfield of the ball line
-            if (wrongSide) { recoverySprint = true; defendSprint = true; }
-        }
-    }
-
-    // ── Step with the pass (anticipation pass, tombstone prerequisite) ── an
-    // opponent pass IN FLIGHT is the defender's cue to move NOW: real defenders
-    // break toward their man as the ball leaves the boot, arriving WITH it.
-    // Here the sprint gates go dead for the whole flight — committedPress keys
-    // on distance to the BALL (mid-flight: far), and every defendSprint branch
-    // above requires a live carrier (controllerId >= 0) — so the man assigned
-    // to the receiver ambled through the flight and only sprinted once the
-    // ball was controlled, always a step late. Whoever is assigned to the
-    // receiver, or already near him, executes his current job at full urgency
-    // for the flight. Target is unchanged (no swarming) — only the weight shift.
-    bool stepWithPass = false;
-    if (!defendSprint && engine.state.ball.controllerId < 0
-        && engine.state.ball.intendedReceiverId >= 0
-        && std::hypot(engine.state.ball.vx, engine.state.ball.vy) > 40.0) {
-        Player* rcv = engine.playerById(engine.state.ball.intendedReceiverId);
-        if (rcv && rcv->team != p.team) {
-            double rd = dist(p.x, p.y, rcv->x, rcv->y);
-            auto* flightTask = engine.assignmentFor(p.id);
-            bool myMan = flightTask && flightTask->opponentId == rcv->id;
-            // 140 -> 115 (round-16 rebalance): step-with-the-pass put a
-            // full-urgency body on EVERY reception within 14m — part of why
-            // build-up suffocated (completion -1.3pp, duels +29% across the
-            // defensive rounds). The assigned man still breaks from anywhere;
-            // bystanders only inside 11.5m.
-            if ((myMan || rd < 115.0) && rd > 20.0) {
-                stepWithPass = true;
-                defendSprint = true;
-            }
-        }
-    }
-
-    double cruiseMul = (isObserving && !recoverySprint && !stepWithPass)
-        ? observingCruiseMul()
-        : 1.0;
+    double cruiseMul = chooseDefensiveGear(bd, isObserving, defendSprint);
 
     Player* carrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
     if (carrier && carrier->team == p.team && carrier->id != p.id
@@ -751,4 +614,178 @@ void PlayerAI::updateFacing(double bd, double bdx, double bdy)
     }
     facing = std::atan2(std::sin(facing), std::cos(facing));
     p.facing = facing;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// updateStaminaAndEffort() — drain, recover, and the resulting pace multiplier
+// ══════════════════════════════════════════════════════════════════════════════
+// The opening ~50 lines of applyMovement, which is otherwise one long
+// accumulating computation with no natural seam (measured: the live-local count
+// only grows, from 4 at the top to 20 at the bottom). This block is the
+// exception — it reads the tick and the current speed, mutates only the player's
+// own stamina and morale, and hands back a single multiplier. Everything below it
+// in applyMovement consumes `sf` and never looks at how it was derived.
+//
+// Returns sf: the pace multiplier from fatigue and morale.
+double PlayerAI::updateStaminaAndEffort(double secs, double spd)
+{
+    auto& p = player;
+
+    double staminaSkill = attrFactor(p.attrs.stamina);
+    // Drain scales with sprint intensity (quadratic): cruising just above
+    // jogging pace costs little, flat-out sprinting costs full price. A
+    // binary threshold either emptied midfielders in minutes or never tired
+    // anyone, depending on where it sat relative to their cruise speed.
+    double sprintFrac = clamp((spd - SPEED_SPRINT * 0.55) / (SPEED_SPRINT * 0.45), 0.0, 1.0);
+    if (sprintFrac > 0.0)
+        p.stamina = std::max(0.0, p.stamina - STAMINA_DRAIN_SPRINT * sprintFrac * sprintFrac * (1.12 - staminaSkill * 0.35));
+    else if (spd >= 26.0) {
+        // Match fatigue (FATIGUE_FINDING redesign): a WORKING player tires toward a FLOOR — busier = faster
+        // toward it — and NEVER crashes below it, so SPEED dynamics stay dormant (floor > the 0.35 threshold)
+        // and only the continuous decision gates bite. (The old sprint-only drain pinned everyone ~99; an
+        // un-floored movement drain crashed the busiest player below 35 while others stayed fresh.)
+        double fitFloor = STAMINA_MATCH_FLOOR + staminaSkill * 12.0;   // 50..62: a fitter player floors higher
+        double work = 0.35 + sprintFrac;                              // 0.35 cruising -> 1.35 flat-out
+        p.stamina = std::max(fitFloor, p.stamina - STAMINA_DRAIN_MOVE * work * (1.12 - staminaSkill * 0.35));
+    } else
+        p.stamina = std::min(100.0, p.stamina + STAMINA_RECOVER * (0.80 + staminaSkill * 0.45));
+
+    double slowThreshold = STAMINA_SLOW_THRESHOLD * 100.0;
+    double fatigueFloor = 0.54 + staminaSkill * 0.20;
+    // Round-23 (arena reaudit): a busy player drains only to his fit floor (50-62,
+    // above the 35 crash threshold), so the SPEED curve was dormant — a duelist
+    // sprinted a flat p95 ~72.5px/s from minute 0 to 10. Give a GENTLE, visible
+    // sag as stamina settles onto that floor: ~0.93 (7% off pace) pinned at the
+    // floor, easing back to full pace 15 points above it. A fresh or rotating
+    // player (stamina > floor+15) is untouched, so 11v11 barely moves; the
+    // relentless arena duelist visibly tires.
+    double fitFloor = STAMINA_MATCH_FLOOR + staminaSkill * 12.0;
+    double sf = lerp(0.93, 1.0, clamp((p.stamina - fitFloor) / 15.0, 0.0, 1.0));
+    if (p.stamina < slowThreshold) {
+        // Heavy sprinting can drain below the floor; the steeper legacy crash
+        // curve then takes over (kept as a floor on the gentle band, so the two
+        // are continuous at the threshold).
+        double fatigueBlend = clamp(p.stamina / std::max(1.0, slowThreshold), 0.0, 1.0);
+        sf = std::min(sf, lerp(fatigueFloor, 1.0, fatigueBlend));
+    }
+    // A knock costs pace and fades over ~90s of match time.
+    if (p.injurySeverity > 0.0) {
+        sf *= clamp(1.0 - p.injurySeverity * 0.5, 0.45, 1.0);
+        p.injurySeverity = std::max(0.0, p.injurySeverity - secs / 90.0);
+    }
+    // Morale shades effort/pace a little and decays toward neutral over ~4 min.
+    // Default 0 = no effect (golden-safe). Driven by pre-match morale + shouts later.
+    if (p.moraleBoost != 0.0) {
+        sf *= clamp(1.0 + p.moraleBoost * 0.12, 0.88, 1.10);
+        double dec = secs / 240.0;
+        p.moraleBoost = p.moraleBoost > 0.0 ? std::max(0.0, p.moraleBoost - dec)
+                                            : std::min(0.0, p.moraleBoost + dec);
+    }
+    return sf;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// chooseDefensiveGear() — does this player sprint back, and does he cruise?
+// ══════════════════════════════════════════════════════════════════════════════
+// The second self-contained block in applyMovement: everything between "am I
+// observing?" and the pace multiplier that follows from it — the defender
+// recovery sprint, the step-with-the-pass anticipation, and the observing-crawl
+// multiplier. It reads two facts and produces two, so it lifts out of the middle
+// of an otherwise unsplittable function.
+//
+// `defendSprint` is written out; the return is the cruise multiplier.
+double PlayerAI::chooseDefensiveGear(double bd, bool isObserving, bool& defendSprint)
+{
+    auto& p = player;
+
+    // Defenders sprint when carrier is in their half
+    if (isDefenderLike() && !isObserving) {
+        auto* task = engine.assignmentFor(p.id);
+        if (task && task->role == DefensiveTask::CloseDown) defendSprint = true;
+        else if (task && (task->role == DefensiveTask::LaneBlock || task->role == DefensiveTask::BoxGuard || task->role == DefensiveTask::FarPostGuard
+            || task->role == DefensiveTask::NearPostGuard
+            || task->role == DefensiveTask::CutbackGuard
+            || task->role == DefensiveTask::ShotLane
+            || task->role == DefensiveTask::CrossLane
+            || task->role == DefensiveTask::MidfieldScreen || task->role == DefensiveTask::BoxScreen || task->role == DefensiveTask::DefensiveLine
+            || task->role == DefensiveTask::WideCover)) {
+            Player* carrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
+            double tdist = dist(p.x, p.y, task->targetX, task->targetY);
+            if (carrier && carrier->team != p.team && pitch::distToOwnGoal(carrier->x, p.team) < PITCH_W * 0.45 && tdist > 32.0) {
+                defendSprint = true;
+            }
+        }
+        else if (engine.state.ball.controllerId >= 0) {
+            Player* carrier = engine.playerById(engine.state.ball.controllerId);
+            if (carrier && carrier->team != p.team && bd < 200.0) defendSprint = true;
+        }
+    }
+    // E1 (user-visible live-watch standout: attackers JOG back on a turnover, leaving a 0v1
+    // breakaway). The sprint gate above is DEFENDERS-ONLY, so a CF/WM ambles back at jog pace
+    // while the defenders bust a gut. Extend the recovery sprint to attackers when an OPPONENT
+    // controls the ball nearby — they hustle back into shape instead of strolling. (defendSprint
+    // just lifts the speed cap to SPEED_SPRINT below; pure state, no rng.)
+    if (!defendSprint && !isObserving && (isCenterForward() || isWideMidfielder())) {
+        Player* oppCarrier = engine.state.ball.controllerId >= 0 ? engine.playerById(engine.state.ball.controllerId) : nullptr;
+        if (oppCarrier && oppCarrier->team != p.team && bd < 180.0) defendSprint = true;
+    }
+    // Caught-upfield DEFENDER recovery (FB audit: recoveries ran at 39-44px/s
+    // — 43% of top speed — because being >300px from the ball trips the
+    // observing crawl and defendSprint requires !isObserving, so being caught
+    // FURTHER out DISABLED sprinting; 2:05 Marcelo jogged home 146px behind
+    // the ball line while his target was goal-side the whole way). A defender
+    // on the wrong side of the ball while the opponent has it sprints home,
+    // however far away the play is.
+    bool recoverySprint = false;
+    // Round-25 (2v2 audit defect 2): this caught-upfield recovery is gated
+    // isDefenderLike(), so an arena CF stranded upfield of a counter ambles home
+    // (cover goal-side only 51-65% of possession frames). In a small-sided game
+    // EVERY outfielder is a cover defender, so in arenaMode extend the wrong-side
+    // recovery sprint to any outfielder. 11v11 is unchanged (CFs staying high is
+    // by design there).
+    if ((isDefenderLike() || (engine.arenaMode && p.role != Role::GK))
+        && !defendSprint && engine.state.ball.controllerId >= 0) {
+        Player* oppCarrier = engine.playerById(engine.state.ball.controllerId);
+        if (oppCarrier && oppCarrier->team != p.team) {
+            double fdMe = fdFor(p.team);
+            bool wrongSide = (p.x - engine.state.ball.x) * fdMe > 40.0;   // upfield of the ball line
+            if (wrongSide) { recoverySprint = true; defendSprint = true; }
+        }
+    }
+
+    // ── Step with the pass (anticipation pass, tombstone prerequisite) ── an
+    // opponent pass IN FLIGHT is the defender's cue to move NOW: real defenders
+    // break toward their man as the ball leaves the boot, arriving WITH it.
+    // Here the sprint gates go dead for the whole flight — committedPress keys
+    // on distance to the BALL (mid-flight: far), and every defendSprint branch
+    // above requires a live carrier (controllerId >= 0) — so the man assigned
+    // to the receiver ambled through the flight and only sprinted once the
+    // ball was controlled, always a step late. Whoever is assigned to the
+    // receiver, or already near him, executes his current job at full urgency
+    // for the flight. Target is unchanged (no swarming) — only the weight shift.
+    bool stepWithPass = false;
+    if (!defendSprint && engine.state.ball.controllerId < 0
+        && engine.state.ball.intendedReceiverId >= 0
+        && std::hypot(engine.state.ball.vx, engine.state.ball.vy) > 40.0) {
+        Player* rcv = engine.playerById(engine.state.ball.intendedReceiverId);
+        if (rcv && rcv->team != p.team) {
+            double rd = dist(p.x, p.y, rcv->x, rcv->y);
+            auto* flightTask = engine.assignmentFor(p.id);
+            bool myMan = flightTask && flightTask->opponentId == rcv->id;
+            // 140 -> 115 (round-16 rebalance): step-with-the-pass put a
+            // full-urgency body on EVERY reception within 14m — part of why
+            // build-up suffocated (completion -1.3pp, duels +29% across the
+            // defensive rounds). The assigned man still breaks from anywhere;
+            // bystanders only inside 11.5m.
+            if ((myMan || rd < 115.0) && rd > 20.0) {
+                stepWithPass = true;
+                defendSprint = true;
+            }
+        }
+    }
+
+    double cruiseMul = (isObserving && !recoverySprint && !stepWithPass)
+        ? observingCruiseMul()
+        : 1.0;
+    return cruiseMul;
 }

@@ -339,6 +339,12 @@ private:
     Perception            getCachedPerception();
     Perception            perceive();
     void                  applyMovement(double sdt);
+    // Stamina drain/recovery + the morale shade, returning the pace multiplier
+    // applyMovement uses from there on. Mutates only the player's own fields.
+    double                updateStaminaAndEffort(double secs, double spd);
+    // Recovery sprint / step-with-the-pass / observing crawl. Writes defendSprint,
+    // returns the cruise multiplier.
+    double                chooseDefensiveGear(double bd, bool isObserving, bool& defendSprint);
     // The facing half of applyMovement: where the player LOOKS once his position
     // and velocity for the tick are settled. Takes the ball's distance and offset.
     void                  updateFacing(double ballDist, double ballDx, double ballDy);
