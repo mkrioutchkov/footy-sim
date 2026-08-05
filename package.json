@@ -23,7 +23,9 @@
     "scenarios": "tsx tools/native-scenarios.ts",
     "prebuild": "npm run native:build",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:game": "tsx tools/_training_test.ts && tsx tools/_market_test.ts && tsx tools/_season_test.ts && tsx tools/_harmony_test.ts && tsx tools/_ai_test.ts",
+    "test:smoke": "tsx tools/_http_smoke.ts"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

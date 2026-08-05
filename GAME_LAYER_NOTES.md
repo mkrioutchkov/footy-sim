@@ -494,3 +494,14 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
 > `nations.ts`), the live-match coordinator (`coordinator.ts`), and a turn-based/autonomous world
 > scheduler; plus the **structured tactics board** (sliders/formation-picker/role-presets;
 > `/api/team/plan-structured`, `/api/lineup/set`) alongside the plain-English plan.
+
+> **2026-08-05 — the verification suite is IN THE REPO now.** Every `tools/_*_test.ts`
+> this ledger cites was git-ignored by `.gitignore`'s blanket `_*` scratch pattern,
+> never committed, and lost with its session container — the replay-viewer story
+> again. Six were recreated from this ledger's own descriptions and committed
+> (training 60 / market 179 / season 76 / harmony 83 / ai 66 / http_smoke 145 =
+> 609 assertions; `npm run test:game`, `npm run test:smoke`), the ignore pattern
+> now carries a `!tools/_*.ts` negation, and each recreated file documents where
+> current code has drifted from this ledger (economy curve, wage %, tier budgets,
+> the S2.1 offer flow). Still lost, worth recreating next: cup, youth, fitness,
+> newgen, contracts, personality, loans.

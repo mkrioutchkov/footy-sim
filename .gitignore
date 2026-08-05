@@ -34,8 +34,14 @@ web/backend/data/
 *.sqlite
 *.sqlite-*
 
-# scratch / debug dumps — leading-underscore is the scratch convention
+# scratch / debug dumps — leading-underscore is the scratch convention.
+# EXCEPT tools/_*.ts: those are the committed game-layer regression tests. This
+# blanket pattern is HOW the original test suite was lost — a dozen test files
+# the ledger cites (46-57 assertions each) were written, git-ignored by this
+# line, never committed, and destroyed with their session containers. The
+# negation makes `git add tools/_foo_test.ts` just work; nothing should need -f.
 _*
+!tools/_*.ts
 /da.json
 /db.json
 /det_*.json
