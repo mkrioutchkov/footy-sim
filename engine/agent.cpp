@@ -1119,6 +1119,164 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
         }
     }
 
+    // The take-on can consume the whole tick (it commits the body and the ball).
+    if (tryTakeOn(nearbyOpps, nearestOppDist, ownDefensiveThird, cp)) return;
+
+
+    steerCarryTarget(nearbyOpps, nearestOppDist, cp);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// gp() — get perception (cached)
+// ══════════════════════════════════════════════════════════════════════════════
+PassSelectionAudit PlayerAI::passSelectionAudit(const Action& choice,
+                                                   const SmallVector<Action, 24>& actions)
+{
+    const auto& chosen = choice.audit;
+    if (!choice.target) return {};
+
+    const Action* safer = nullptr;
+    double saferComp = 0;
+    for (auto& a : actions) {
+        if (a.type != ActionType::Pass || !a.target || a.target->id == choice.target->id) continue;
+        // Must have a valid completion estimate. (The old `|| !a.audit.forwardProgress`
+        // guard also excluded every SQUARE/backward recycle — fwd ~ 0 — i.e. the
+        // classic safer option; drop it so those count.)
+        if (!a.audit.expectedCompletion) continue;
+        // Round-27 COMMIT 9b (observability, trace-only): the "an obviously safer
+        // option existed" test was populated on ~1 of 38 intercepts because it
+        // required the safer ball to score within 0.04 of the chosen one — but
+        // recklessness is exactly picking a lower-scored RISKY ball over a much
+        // safer alternative. Anchor on a clearly higher completion (+0.12) and
+        // relax the forward-loss and score bands so the field is populated on
+        // more decisions and per-role recklessness becomes measurable next round.
+        // Pure audit/stat field — no gameplay/RNG effect.
+        if (a.audit.expectedCompletion >= chosen.expectedCompletion + 0.12
+            && a.audit.forwardProgress >= chosen.forwardProgress - 70.0
+            && a.score >= choice.score - 0.18)
+        {
+            if (!safer || a.audit.expectedCompletion > saferComp) {
+                safer = &a;
+                saferComp = a.audit.expectedCompletion;
+            }
+        }
+    }
+
+    PassSelectionAudit out;
+    out.score             = choice.score;
+    out.distance          = chosen.distance;
+    out.forwardProgress   = chosen.forwardProgress;
+    out.expectedCompletion = chosen.expectedCompletion;
+    out.blockers          = chosen.blockers;
+    out.receiverPressure  = chosen.receiverPressure;
+    out.purpose           = choice.purpose;
+    out.saferOptionTargetId  = safer ? safer->target->id : -1;
+    out.saferOptionScore      = safer ? safer->score : 0;
+    out.saferOptionCompletion = safer ? safer->audit.expectedCompletion : 0;
+    out.saferOptionProgress   = safer ? safer->audit.forwardProgress : 0;
+    return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// shotSelectionAudit()
+// ══════════════════════════════════════════════════════════════════════════════
+ShotSelectionAudit PlayerAI::shotSelectionAudit(const Action& choice,
+                                                    const SmallVector<Action, 24>& actions)
+{
+    const auto& shot = choice.audit;
+    if (choice.score < 0) return {};
+
+    const Action* bestPass = nullptr;
+    for (auto& a : actions) {
+        if (a.type == ActionType::Pass && a.target) {
+            if (!bestPass || a.score > bestPass->score) bestPass = &a;
+        }
+    }
+
+    ShotSelectionAudit out;
+    out.score             = choice.score;
+    out.distance          = shot.distance;
+    out.angleDeg          = shot.angleDeg;
+    out.pressureCount     = shot.pressureCount;
+    out.bestPassTargetId  = bestPass ? bestPass->target->id : -1;
+    out.bestPassScore     = bestPass ? bestPass->score : 0;
+    out.bestPassCompletion = bestPass ? bestPass->audit.expectedCompletion : 0;
+    return out;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// auditDefensiveMovement()
+// ══════════════════════════════════════════════════════════════════════════════
+void PlayerAI::auditDefensiveMovement(const Action& choice) {
+    auto* task = engine.assignmentFor(player.id);
+    Player* controller = engine.playerById(engine.state.ball.controllerId);
+    if (!task || !controller || controller->team == player.team) return;
+    if (task->role != DefensiveTask::PrimaryPress && task->role != DefensiveTask::SecondaryPress) return;
+    if (choice.type == ActionType::Tackle || choice.type == ActionType::Chase
+        || (choice.purpose == ActionPurpose::Task))
+        return;
+
+    double targetX = choice.target ? choice.target->x : (choice.posX != 0 ? choice.posX : player.targetX);
+    double targetY = choice.target ? choice.target->y : (choice.posY != 0 ? choice.posY : player.targetY);
+
+    double currentDistance = dist(player.x, player.y, controller->x, controller->y);
+    double targetDistance = std::hypot(targetX - controller->x, targetY - controller->y);
+
+    double ownGoalX = ownGoalXFor(player.team);
+    bool danger = std::abs(controller->x - ownGoalX) < 240.0;
+
+    if (!danger && targetDistance <= currentDistance + 12.0) return;
+
+    engine.logQualityFlag(QualityFlag::WhyPlayerRunningDirection, player.id, task->role,
+                          controller->id, choice.type, choice.purpose,
+                          currentDistance, targetDistance, danger ? 1.0 : 0.0,
+                          8000.0, std::string("why_player_running_direction:") + std::string(to_string(player.team)));
+    engine.captureDecisionMoment("why_player_running_direction", player,
+                                 choice.type,
+                                 choice.score, 0.0, currentDistance, targetDistance,
+                                 danger ? 1 : 0,
+                                 8000.0, std::string("why_player_running_direction:") + std::string(to_string(player.team)));
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Narrow views onto engine internals, for the role subclasses
+// ══════════════════════════════════════════════════════════════════════════════
+// PlayerAI is GameEngine's only friend. Friendship is not inherited, so the six
+// role subclasses cannot reach engine internals themselves — these are the three
+// things they actually need, and keeping them here is what lets the engine's
+// friend list stay at one entry instead of naming all seven agent classes.
+//
+// Two carry GK vocabulary on a base class every role inherits, which is not
+// lovely; the alternative is friending GKPlayerAI on the engine, and one extra
+// method on PlayerAI is the cheaper of the two. Callers: directiveBallPlaying
+// from CBPlayerAI (role_ai.cpp), the other two from GKPlayerAI (gk_ai.cpp).
+bool PlayerAI::directiveBallPlaying() const {
+    return engine.directiveBias[player.id].ballPlaying;
+}
+double PlayerAI::gkDistributeTimer() const {
+    return engine.goalKickMonitor.distributeTimer;
+}
+void PlayerAI::releaseGkDistribution() {
+    engine.releaseGoalkeeperDistribution(player);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// tryTakeOn() — beat the escorting defender with a feint + explosive burst
+// ══════════════════════════════════════════════════════════════════════════════
+// Lifted out of executeDribble, which was 579 lines of three phases bolted
+// together — skill move, take-on, carry steering — that shared almost nothing:
+// measured across the whole body, only two or three locals are ever live across
+// a phase boundary. This is the middle 300 lines, and it needs exactly three
+// facts from the awareness pass above it.
+//
+// Returns true when the take-on has consumed the tick, i.e. the caller must
+// return immediately: the two early exits it replaces were `return;` out of
+// executeDribble itself.
+bool PlayerAI::tryTakeOn(int nearbyOpps, double nearestOppDist, bool ownDefensiveThird,
+                         const CarrierPressure& cp)
+{
+    auto& p = player;
+
     // ── Take-on: beat the escorting defender with a feint + explosive burst ──
     // Round-21 (arena 1v1; benefits 11v11 wing iso): the ambient skill-move roll
     // above fires ~5% and gains no ground against an equal-pace jockey — a
@@ -1357,7 +1515,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 // only ever read on a controller. Extended 550 -> ~1100ms total.
                 engine.runtime[def->id].duel.beatenSlowUntilMs = engine.state.clockMs + BEATEN_SLOW_TOTAL_MS;
                 engine.markActiveShield(p.id);   // body past him first — no free nick
-                return;
+                return true;
             } else {
                 // Round-21 (take-on audit) COMMIT 3: beaten — a GENUINE turnover.
                 // The old 70px/s nudge stalled ~12px on and the momentum-committed
@@ -1399,7 +1557,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
                 engine.emitEvent("takeon_lost", def->x, def->y, def->id, p.id);
                 p.dribbleType = 0;
                 p.vx = p.vy = 0;
-                return;
+                return true;
             }
           }   // if (committed) — a doomed touchline geometry falls through to jockey
         }
@@ -1420,6 +1578,21 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             p.targetY +=  dxT / dT * sway;
         }
     }
+    return false;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// steerCarryTarget() — where the carry is actually aimed, once the duel is over
+// ══════════════════════════════════════════════════════════════════════════════
+// The closing phase of executeDribble: having decided nobody is being beaten
+// this tick, work out the carry target — sway, edge guards, escort avoidance and
+// the pace class. Reads two facts from the awareness pass and returns nothing;
+// everything it writes is on the player.
+void PlayerAI::steerCarryTarget(int nearbyOpps, double nearestOppDist,
+                                const CarrierPressure& cp)
+{
+    auto& p = player;
+
 
     double distToTarget = std::sqrt((p.targetX - p.x) * (p.targetX - p.x)
                                   + (p.targetY - p.y) * (p.targetY - p.y));
@@ -1549,138 +1722,4 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
             }
         }
     }
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// gp() — get perception (cached)
-// ══════════════════════════════════════════════════════════════════════════════
-PassSelectionAudit PlayerAI::passSelectionAudit(const Action& choice,
-                                                   const SmallVector<Action, 24>& actions)
-{
-    const auto& chosen = choice.audit;
-    if (!choice.target) return {};
-
-    const Action* safer = nullptr;
-    double saferComp = 0;
-    for (auto& a : actions) {
-        if (a.type != ActionType::Pass || !a.target || a.target->id == choice.target->id) continue;
-        // Must have a valid completion estimate. (The old `|| !a.audit.forwardProgress`
-        // guard also excluded every SQUARE/backward recycle — fwd ~ 0 — i.e. the
-        // classic safer option; drop it so those count.)
-        if (!a.audit.expectedCompletion) continue;
-        // Round-27 COMMIT 9b (observability, trace-only): the "an obviously safer
-        // option existed" test was populated on ~1 of 38 intercepts because it
-        // required the safer ball to score within 0.04 of the chosen one — but
-        // recklessness is exactly picking a lower-scored RISKY ball over a much
-        // safer alternative. Anchor on a clearly higher completion (+0.12) and
-        // relax the forward-loss and score bands so the field is populated on
-        // more decisions and per-role recklessness becomes measurable next round.
-        // Pure audit/stat field — no gameplay/RNG effect.
-        if (a.audit.expectedCompletion >= chosen.expectedCompletion + 0.12
-            && a.audit.forwardProgress >= chosen.forwardProgress - 70.0
-            && a.score >= choice.score - 0.18)
-        {
-            if (!safer || a.audit.expectedCompletion > saferComp) {
-                safer = &a;
-                saferComp = a.audit.expectedCompletion;
-            }
-        }
-    }
-
-    PassSelectionAudit out;
-    out.score             = choice.score;
-    out.distance          = chosen.distance;
-    out.forwardProgress   = chosen.forwardProgress;
-    out.expectedCompletion = chosen.expectedCompletion;
-    out.blockers          = chosen.blockers;
-    out.receiverPressure  = chosen.receiverPressure;
-    out.purpose           = choice.purpose;
-    out.saferOptionTargetId  = safer ? safer->target->id : -1;
-    out.saferOptionScore      = safer ? safer->score : 0;
-    out.saferOptionCompletion = safer ? safer->audit.expectedCompletion : 0;
-    out.saferOptionProgress   = safer ? safer->audit.forwardProgress : 0;
-    return out;
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// shotSelectionAudit()
-// ══════════════════════════════════════════════════════════════════════════════
-ShotSelectionAudit PlayerAI::shotSelectionAudit(const Action& choice,
-                                                    const SmallVector<Action, 24>& actions)
-{
-    const auto& shot = choice.audit;
-    if (choice.score < 0) return {};
-
-    const Action* bestPass = nullptr;
-    for (auto& a : actions) {
-        if (a.type == ActionType::Pass && a.target) {
-            if (!bestPass || a.score > bestPass->score) bestPass = &a;
-        }
-    }
-
-    ShotSelectionAudit out;
-    out.score             = choice.score;
-    out.distance          = shot.distance;
-    out.angleDeg          = shot.angleDeg;
-    out.pressureCount     = shot.pressureCount;
-    out.bestPassTargetId  = bestPass ? bestPass->target->id : -1;
-    out.bestPassScore     = bestPass ? bestPass->score : 0;
-    out.bestPassCompletion = bestPass ? bestPass->audit.expectedCompletion : 0;
-    return out;
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// auditDefensiveMovement()
-// ══════════════════════════════════════════════════════════════════════════════
-void PlayerAI::auditDefensiveMovement(const Action& choice) {
-    auto* task = engine.assignmentFor(player.id);
-    Player* controller = engine.playerById(engine.state.ball.controllerId);
-    if (!task || !controller || controller->team == player.team) return;
-    if (task->role != DefensiveTask::PrimaryPress && task->role != DefensiveTask::SecondaryPress) return;
-    if (choice.type == ActionType::Tackle || choice.type == ActionType::Chase
-        || (choice.purpose == ActionPurpose::Task))
-        return;
-
-    double targetX = choice.target ? choice.target->x : (choice.posX != 0 ? choice.posX : player.targetX);
-    double targetY = choice.target ? choice.target->y : (choice.posY != 0 ? choice.posY : player.targetY);
-
-    double currentDistance = dist(player.x, player.y, controller->x, controller->y);
-    double targetDistance = std::hypot(targetX - controller->x, targetY - controller->y);
-
-    double ownGoalX = ownGoalXFor(player.team);
-    bool danger = std::abs(controller->x - ownGoalX) < 240.0;
-
-    if (!danger && targetDistance <= currentDistance + 12.0) return;
-
-    engine.logQualityFlag(QualityFlag::WhyPlayerRunningDirection, player.id, task->role,
-                          controller->id, choice.type, choice.purpose,
-                          currentDistance, targetDistance, danger ? 1.0 : 0.0,
-                          8000.0, std::string("why_player_running_direction:") + std::string(to_string(player.team)));
-    engine.captureDecisionMoment("why_player_running_direction", player,
-                                 choice.type,
-                                 choice.score, 0.0, currentDistance, targetDistance,
-                                 danger ? 1 : 0,
-                                 8000.0, std::string("why_player_running_direction:") + std::string(to_string(player.team)));
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Narrow views onto engine internals, for the role subclasses
-// ══════════════════════════════════════════════════════════════════════════════
-// PlayerAI is GameEngine's only friend. Friendship is not inherited, so the six
-// role subclasses cannot reach engine internals themselves — these are the three
-// things they actually need, and keeping them here is what lets the engine's
-// friend list stay at one entry instead of naming all seven agent classes.
-//
-// Two carry GK vocabulary on a base class every role inherits, which is not
-// lovely; the alternative is friending GKPlayerAI on the engine, and one extra
-// method on PlayerAI is the cheaper of the two. Callers: directiveBallPlaying
-// from CBPlayerAI (role_ai.cpp), the other two from GKPlayerAI (gk_ai.cpp).
-bool PlayerAI::directiveBallPlaying() const {
-    return engine.directiveBias[player.id].ballPlaying;
-}
-double PlayerAI::gkDistributeTimer() const {
-    return engine.goalKickMonitor.distributeTimer;
-}
-void PlayerAI::releaseGkDistribution() {
-    engine.releaseGoalkeeperDistribution(player);
 }

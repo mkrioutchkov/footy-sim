@@ -309,6 +309,13 @@ protected:
 private:
     void                  executeAction(Action& action, double sdt, SmallVector<Action, 24>& actions);
     void                  executeDribble(Action& a, double sdt);
+    // The two big phases of executeDribble. tryTakeOn returns true when it has
+    // consumed the tick and the caller must return. Both read only the awareness
+    // pass's counts; everything else they touch is on the player.
+    bool                  tryTakeOn(int nearbyOpps, double nearestOppDist, bool ownDefensiveThird,
+        const CarrierPressure& cp);
+    void                  steerCarryTarget(int nearbyOpps, double nearestOppDist,
+        const CarrierPressure& cp);
     // The one escape-lane solve, shared by both evade sites in scoreDribble.
     // See agent_shoot_dribble.cpp — round-36's "two bugs" were one bug copied.
     [[nodiscard]] bool    escapeLaneBlocked(double cx, double cy, const Player* evaded) const;
