@@ -193,8 +193,14 @@ try {
     'the keeper is EXCLUDED: a perfectly even outfield stays balanced even though the GK\'s extreme attrs would clear any gap');
   db.prepare("UPDATE teams SET coaching_style = 'balanced' WHERE id = ?").run(tF);   // re-derives (id % 3 == 1) -> balanced
   setOutfield(tF, attrsAll(60, { handling: 40 }));
-  assert(ai.pickTrainingFocus(tF) === 'handling',
-    'FINDING (current behaviour): handling is TRAINABLE, so an outfield handling trough makes the CLUB focus handling — an attribute only the keeper actually trains');
+  // FIXED (was a FINDING): handling is keeper-only (developAttrs gates it to GKs), so the
+  // outfield scan now excludes it — an outfield handling trough must NOT become the club
+  // focus. With every real club focus dead even, the pick stays balanced.
+  assert(ai.pickTrainingFocus(tF) === 'balanced',
+    'a keeper-only skill can no longer win the club focus: outfield handling trough -> balanced');
+  setOutfield(tF, attrsAll(60, { tackling: 40, handling: 40 }));
+  assert(ai.pickTrainingFocus(tF) === 'tackling',
+    'with a REAL outfield trough alongside the handling trough, the real one (tackling) wins');
   const tF2 = mkTeam(lgF, null, 'Four Men FC');
   for (let i = 0; i < 4; i++) { insPlayer.run(tF2, i, `t${i}`, 'CM', attrsAll(50, { tackling: 30 })); }
   assert(ai.pickTrainingFocus(tF2) === 'balanced', 'fewer than 5 outfield rows -> balanced (degenerate squad guard)');
@@ -236,6 +242,15 @@ try {
   ai.aiManagerStaff(tS1);
   assert(coachesOf(tS1).length === 3 && budgetOf(tS1) === budgetAtTarget,
     'idempotent at target: a further cycle never over-hires or spends');
+
+  // FIXED (was a design-time FINDING): seedStaffPool used to derive the top-up role from the
+  // pool COUNT (ROLES[i % 3]), so a pool sitting one short always regrew the same role — at
+  // 11/12 every replacement was a scout and hired coaches were never replenished. It now
+  // refills the role the pool is thinnest on: after Developer FC's 3 coach hires, a re-seed
+  // must restore the coach count, not mint three more scouts.
+  staffMod.seedStaffPool(lgW);
+  const refilled = db.prepare("SELECT COUNT(*) AS n FROM staff WHERE world_id = ? AND team_id IS NULL AND role = 'coach'").get(lgW) as { n: number };
+  assert(refilled.n === 4, `a drained pool regrows COACHES (thinnest role), got ${refilled.n}/4`);
 
   const tS2 = mkTeam(lgW, null, 'Conserve FC');
   db.prepare("UPDATE teams SET coaching_style = 'conservation' WHERE id = ?").run(tS2);

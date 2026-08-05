@@ -58,10 +58,14 @@ export function pickTrainingFocus(teamId: number): string {
   const xi = db.prepare('SELECT attrs FROM players WHERE team_id = ? ORDER BY slot LIMIT 11').all(teamId) as { attrs: string }[];
   const outfield = xi.slice(1).map(p => JSON.parse(p.attrs) as Record<string, number>);
   if (outfield.length < 5) return 'balanced';
+  // 'handling' is keeper-only (developAttrs gates it to GKs) and this scan is over the
+  // OUTFIELD — including it made the keeper's skill a perpetual outfield trough, so the
+  // AI's one specialisation pick could land on a focus no outfielder trains (_ai_test).
+  const clubFoci = TRAINABLE.filter(k => k !== 'handling');
   const avg: Record<string, number> = {};
-  for (const k of TRAINABLE) avg[k] = outfield.reduce((s, a) => s + (a[k] ?? 0), 0) / outfield.length;
-  let lo: string = TRAINABLE[0], hi: string = TRAINABLE[0];
-  for (const k of TRAINABLE) { if (avg[k] < avg[lo]) lo = k; if (avg[k] > avg[hi]) hi = k; }
+  for (const k of clubFoci) avg[k] = outfield.reduce((s, a) => s + (a[k] ?? 0), 0) / outfield.length;
+  let lo: string = clubFoci[0], hi: string = clubFoci[0];
+  for (const k of clubFoci) { if (avg[k] < avg[lo]) lo = k; if (avg[k] > avg[hi]) hi = k; }
   const gap = STYLE_FOCUS_GAP[aiCoachingStyle(teamId)];
   return (avg[hi] - avg[lo]) > gap ? lo : 'balanced';             // only specialise once the gap clears the style's threshold
 }

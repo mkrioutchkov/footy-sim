@@ -29,8 +29,14 @@ function worldOf(teamId: number): number | null {
 export function seedStaffPool(worldId: number): void {
   const have = (db.prepare('SELECT COUNT(*) AS n FROM staff WHERE world_id = ? AND team_id IS NULL').get(worldId) as { n: number }).n;
   const ins = db.prepare('INSERT INTO staff (world_id, team_id, role, name, rating, cost) VALUES (?, NULL, ?, ?, ?, ?)');
+  const countOf = db.prepare('SELECT COUNT(*) AS n FROM staff WHERE world_id = ? AND team_id IS NULL AND role = ?');
   for (let i = have; i < POOL_SIZE; i++) {
-    const role = ROLES[i % ROLES.length];
+    // Replace what is MISSING. The old ROLES[i % 3] keyed the role on the pool COUNT,
+    // so a pool sitting one short always regrew the same role — at 11/12 every top-up
+    // was a scout, hired coaches were never replaced, and a world's coach supply was
+    // finite (found by _ai_test). Refill the role the pool is thinnest on instead.
+    const counts = ROLES.map(r => (countOf.get(worldId, r) as { n: number }).n);
+    const role = ROLES[counts.indexOf(Math.min(...counts))];
     const rating = 45 + Math.floor(Math.random() * 44);   // 45..88
     ins.run(worldId, role, randomPlayerName(), rating, ratingToCost(rating));
   }
