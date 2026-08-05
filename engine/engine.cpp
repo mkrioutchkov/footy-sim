@@ -15,12 +15,24 @@
 // LOITER / CROWD / PLAYER_OVERLAP / PLAYER_OOB anomaly flag at small N came
 // from (they fire on ghosts, not on live players). In arenaMode, where 16-18
 // slots are parked at once, stand them well clear of the canvas and fan them
-// along the row. An 11v11 red card keeps the historic -40 exactly: a body there
-// is still inside some 380px search radii, so moving it is a live-gameplay
-// change, and the ghost-rendering half of D9 is fixed in the renderer instead.
+// along the row.
+//
+// Round-37: 11v11 now parks at the same -400. The round-30 note left it at -40
+// because "a body there is still inside some 380px search radii, so moving it is
+// a live-gameplay change" — true, and now measured rather than assumed. A ghost
+// at y=-40 sits 45px from the top touchline (live players clamp to y>=5), and 10
+// proximity scans filter by team without excluding sentOff, with radii up to
+// 300px. Instrumented over seeds 55/101/151 at 90min, one red card each: the
+// carrier-congestion count in the switch/relief pass term (agent_pass_helpers)
+// is inflated by a ghost 1411/1961/3126 times per match. The marking scan was
+// measured too and selects a ghost ZERO times, so that one was never real.
+//
+// -400 is out of reach of every radius in the engine, which fixes the whole
+// class rather than the two sites that happen to bite. Deliberate balance change
+// — see the commit message for the paired A/B.
 void GameEngine::parkOffPitch(Player& p) const {
     p.x = clamp(p.homeX + (arenaMode ? (p.id % 11) * 3.0 : 0.0), 30.0, PITCH_W - 30.0);
-    p.y = arenaMode ? -400.0 : -40.0;
+    p.y = -400.0;
     p.targetX = p.x;
     p.targetY = p.y;
     p.vx = p.vy = 0;
