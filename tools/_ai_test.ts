@@ -79,7 +79,7 @@ const staffCount = (teamId: number): number =>
   (db.prepare('SELECT COUNT(*) AS n FROM staff WHERE team_id = ?').get(teamId) as { n: number }).n;
 interface PRow { id: number; role: string; attrs: string; slot: number; }
 const rowsBySlot = (teamId: number): PRow[] =>
-  db.prepare('SELECT id, role, attrs, slot FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as PRow[];
+  db.prepare('SELECT id, role, attrs, slot FROM players WHERE team_id = ? ORDER BY slot').all(teamId) as unknown as PRow[];
 const ovrOf = (r: PRow): number => game.overall(JSON.parse(r.attrs), r.role);
 
 try {
