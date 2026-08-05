@@ -653,6 +653,32 @@ Action PlayerAI::scoreChase(const Perception& per) {
     // as abandonsDistantChase() overrides on the role classes.
     if (abandonsDistantChase(per, b)) return Action{ActionType::Chase, 0.0};
 
+    double la = 0.0;
+    double sc = scoreLooseChase(per, ballSpeed, isDef, la);
+    double leadX, leadY;
+    engine.predictBallPos(la, leadX, leadY);
+    return Action{ActionType::Chase, clamp(sc, 0.0, 1.0), nullptr,
+                  clamp(leadX, 10.0, PITCH_W - 10.0),
+                  clamp(leadY, 10.0, PITCH_H - 10.0)};
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// bp() — best-position (off-ball positioning)
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════════
+// scoreLooseChase() — how badly do I want this loose ball, and how far ahead?
+// ══════════════════════════════════════════════════════════════════════════════
+// scoreChase is a 437-line decision cascade with sixteen early returns, so it has
+// no seam to cut at. This is the block that survives the last of them: the plain
+// loose-ball chase, scored by distance and role, with the lead time the flight
+// model then projects. Three facts in, two out.
+//
+// Returns the chase score; `la` receives the lead time.
+double PlayerAI::scoreLooseChase(const Perception& per, double ballSpeed, bool isDef, double& la)
+{
+    auto& b = engine.state.ball;
+
     double sc = per.ballDist < 50.0 ? 0.90 : per.ballDist < 100.0 ? 0.75 : 0.55;
     sc -= per.ballDist / 180.0 * 0.3;
 
@@ -675,7 +701,7 @@ Action PlayerAI::scoreChase(const Perception& per) {
     }
 
     double bs = ballSpeed;
-    double la = bs > 30.0 ? 0.3 + std::min(bs / 200.0, 0.8) : 0.0;
+    la = bs > 30.0 ? 0.3 + std::min(bs / 200.0, 0.8) : 0.0;
 
     if (bs > 15.0 && per.ballDist > 20.0) {
         double toMeX = player.x - b.x, toMeY = player.y - b.y;
@@ -716,13 +742,5 @@ Action PlayerAI::scoreChase(const Perception& per) {
     // Long leads must respect the flight model: linear projection on a fast
     // ball overshoots the real stopping point by 100px+ (drag + the bounce's
     // 30% horizontal kill), which had whole groups overrunning a dying cross.
-    double leadX, leadY;
-    engine.predictBallPos(la, leadX, leadY);
-    return Action{ActionType::Chase, clamp(sc, 0.0, 1.0), nullptr,
-                  clamp(leadX, 10.0, PITCH_W - 10.0),
-                  clamp(leadY, 10.0, PITCH_H - 10.0)};
+    return sc;
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// bp() — best-position (off-ball positioning)
-// ══════════════════════════════════════════════════════════════════════════════

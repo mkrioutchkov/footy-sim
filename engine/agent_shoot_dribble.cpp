@@ -569,57 +569,7 @@ Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/)
     sc += nearGoalDribbleBonus(nearGoal, distToGoal);
     sc += engine.directiveBias[p.id].dribbleBonus;   // "take them on / dribble more"
 
-    if (cp.score > 0.70 && cp.nearestPlayer) {
-        double ax = p.x - cp.nearestPlayer->x;
-        double ay = p.y - cp.nearestPlayer->y;
-        double ad = std::hypot(ax, ay);
-        if (ad > 1.0) {
-            // Round-30: same latch repair as the close-evade branch above — the
-            // side is a LOCAL for this tick, both candidates are evaluated, and a
-            // new sign is committed only once the 750ms latch has expired. The
-            // rescue below used to invert the persistent member every tick, which
-            // is what mirrored the target at 60Hz. Duty cycle, geometry and score
-            // are deliberately unchanged (see the bisect note immediately below).
-            const bool latchLive = engine.state.clockMs <= evadeSideUntilMs;
-            double side = latchLive ? evadeSide : (ay >= 0.0 ? 1.0 : -1.0);
-            // OWN-HALF ONLY (bisected): applied everywhere, this escape turned
-            // pressing episodes that used to END possession (backward retreat →
-            // recycle or dispossession) into retained forward carries, and the
-            // compounding showed up as shots +7/90, goals +2/90 at 30 min (flat
-            // at 10) with the CM-goals/headed-shots signature. The complaint it
-            // fixes (seed 129 0:17-0:24, a 7s backward touchline crawl) was a
-            // DEEP corner trap — attacking-third cornered carriers keep the old
-            // radial retreat and have to release instead of grinding upfield.
-            const bool acrossBranch = (ax / ad) * fd < -0.25 && pitch::forwardProgress(p.x, p.team) < PITCH_W * 0.55;
-            const double lat = acrossBranch ? 72.0 : 48.0;
-            if (acrossBranch) {
-                // Radial retreat from a goal-side presser points BACKWARD —
-                // escape ACROSS the pitch instead (same idea as the committed
-                // lateral escape in the close-evade branch above). The pure
-                // away-vector ran a cornered winger 100px backward along the
-                // touchline for 7 seconds, and because this block runs after
-                // the backward-target pricing, that retreat was never even
-                // scored as backward.
-                tx = p.x + fd * 24.0;
-            } else {
-                double retreat = cp.exposed > 0.35 ? -fd * 34.0 : 0.0;
-                tx = p.x + ax / ad * 44.0 + retreat;
-            }
-            // 2:11 (seed 111): the escape from the ONE presser must not point
-            // into a SECOND defender on the chosen side — prefer the open side,
-            // and if the side we are committed to is shut, shield with a straight
-            // drop-back beat.
-            // THIS is the seed-407 0:26 site (see solveEscapeLane).
-            solveEscapeLane(tx, ty, ay, lat, cp.nearestPlayer, securing, fd);
-            // Re-apply the edge guard — this block runs after it, so the evade
-            // could walk the carry into the touchline pocket the guard exists
-            // to prevent.
-            if (p.y < DRIBBLE_EDGE_MARGIN)           ty = std::max(ty, p.y + 40.0);
-            if (p.y > PITCH_H - DRIBBLE_EDGE_MARGIN) ty = std::min(ty, p.y - 40.0);
-            if (p.x < DRIBBLE_EDGE_MARGIN)           tx = std::max(tx, p.x + 40.0);
-            if (p.x > PITCH_W - DRIBBLE_EDGE_MARGIN) tx = std::min(tx, p.x - 40.0);
-        }
-    }
+    steerCorneredCarry(cp, fd, securing, tx, ty);
 
     if (engine.carrierTracker.backwardCarryCarrierId == p.id) {
         double possessionBackward = (p.x - engine.carrierTracker.backwardCarryStartX) * fd;
@@ -781,5 +731,70 @@ void PlayerAI::solveEscapeLane(double& tx, double& ty, double sideSeedY, double 
             sy2 = p.y + engine.runtime[p.id].duel.secureDirY * 28.0;
         }
         tx = sx2; ty = sy2;
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// steerCorneredCarry() — where to run when a presser has you pinned
+// ══════════════════════════════════════════════════════════════════════════════
+// scoreDribble is one long accumulating score with no seam (its live-local count
+// climbs to 16), but this is a self-contained block in the middle of it: given
+// the pressure read it rewrites the carry target and touches nothing else.
+// It owns the seed-407 0:26 escape-lane site — see solveEscapeLane.
+void PlayerAI::steerCorneredCarry(const CarrierPressure& cp, double fd, bool securing,
+                                  double& tx, double& ty)
+{
+    auto& p = player;
+
+    if (cp.score > 0.70 && cp.nearestPlayer) {
+        double ax = p.x - cp.nearestPlayer->x;
+        double ay = p.y - cp.nearestPlayer->y;
+        double ad = std::hypot(ax, ay);
+        if (ad > 1.0) {
+            // Round-30: same latch repair as the close-evade branch above — the
+            // side is a LOCAL for this tick, both candidates are evaluated, and a
+            // new sign is committed only once the 750ms latch has expired. The
+            // rescue below used to invert the persistent member every tick, which
+            // is what mirrored the target at 60Hz. Duty cycle, geometry and score
+            // are deliberately unchanged (see the bisect note immediately below).
+            const bool latchLive = engine.state.clockMs <= evadeSideUntilMs;
+            double side = latchLive ? evadeSide : (ay >= 0.0 ? 1.0 : -1.0);
+            // OWN-HALF ONLY (bisected): applied everywhere, this escape turned
+            // pressing episodes that used to END possession (backward retreat →
+            // recycle or dispossession) into retained forward carries, and the
+            // compounding showed up as shots +7/90, goals +2/90 at 30 min (flat
+            // at 10) with the CM-goals/headed-shots signature. The complaint it
+            // fixes (seed 129 0:17-0:24, a 7s backward touchline crawl) was a
+            // DEEP corner trap — attacking-third cornered carriers keep the old
+            // radial retreat and have to release instead of grinding upfield.
+            const bool acrossBranch = (ax / ad) * fd < -0.25 && pitch::forwardProgress(p.x, p.team) < PITCH_W * 0.55;
+            const double lat = acrossBranch ? 72.0 : 48.0;
+            if (acrossBranch) {
+                // Radial retreat from a goal-side presser points BACKWARD —
+                // escape ACROSS the pitch instead (same idea as the committed
+                // lateral escape in the close-evade branch above). The pure
+                // away-vector ran a cornered winger 100px backward along the
+                // touchline for 7 seconds, and because this block runs after
+                // the backward-target pricing, that retreat was never even
+                // scored as backward.
+                tx = p.x + fd * 24.0;
+            } else {
+                double retreat = cp.exposed > 0.35 ? -fd * 34.0 : 0.0;
+                tx = p.x + ax / ad * 44.0 + retreat;
+            }
+            // 2:11 (seed 111): the escape from the ONE presser must not point
+            // into a SECOND defender on the chosen side — prefer the open side,
+            // and if the side we are committed to is shut, shield with a straight
+            // drop-back beat.
+            // THIS is the seed-407 0:26 site (see solveEscapeLane).
+            solveEscapeLane(tx, ty, ay, lat, cp.nearestPlayer, securing, fd);
+            // Re-apply the edge guard — this block runs after it, so the evade
+            // could walk the carry into the touchline pocket the guard exists
+            // to prevent.
+            if (p.y < DRIBBLE_EDGE_MARGIN)           ty = std::max(ty, p.y + 40.0);
+            if (p.y > PITCH_H - DRIBBLE_EDGE_MARGIN) ty = std::min(ty, p.y - 40.0);
+            if (p.x < DRIBBLE_EDGE_MARGIN)           tx = std::max(tx, p.x + 40.0);
+            if (p.x > PITCH_W - DRIBBLE_EDGE_MARGIN) tx = std::min(tx, p.x - 40.0);
+        }
     }
 }

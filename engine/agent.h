@@ -321,6 +321,12 @@ private:
     [[nodiscard]] bool    escapeLaneBlocked(double cx, double cy, const Player* evaded) const;
     void                  solveEscapeLane(double& tx, double& ty, double sideSeedY, double lateral,
         const Player* evaded, bool securing, double fd);
+    // Carry target for a pinned carrier (the cornered-escape branch of scoreDribble).
+    void                  steerCorneredCarry(const CarrierPressure& cp, double fd, bool securing,
+        double& tx, double& ty);
+    // The plain loose-ball chase at the end of scoreChase's cascade: returns the
+    // score, writes the lead time.
+    double                scoreLooseChase(const Perception& per, double ballSpeed, bool isDef, double& la);
     std::optional<Action> scorePassToTarget(Player& target, const Perception& per,
         double fd, double ownGoalX, double ownProgress, bool hasClearOutfieldOutlet,
         bool urgentKeeperNeed, bool movingTowardOwnGoal, bool corneredEscape, bool oppClosingSoon);
