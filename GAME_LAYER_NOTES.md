@@ -505,3 +505,55 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
 > current code has drifted from this ledger (economy curve, wage %, tier budgets,
 > the S2.1 offer flow). Still lost, worth recreating next: cup, youth, fitness,
 > newgen, contracts, personality, loans.
+
+> **2026-08-05 (later) — suite recreation FINISHED.** cup (119), youth (58),
+> fitness (94), contracts (108), loans (62), newgen (44) are all recreated,
+> adversarially verified SOLID, and chained into `npm run test:game` — 11 suites,
+> **951 assertions**. Only `personality` remains unrecreated (its behaviours are
+> partially pinned inside harmony/market). Each suite's header documents the
+> ledger-vs-code discrepancies it found; the ones that look like real bugs rather
+> than ledger drift: the **diligence sign bug** (model pros decline ~1.4× faster
+> than lax ones — `training.ts` applies the professionalism modifier with the
+> sign flipped), **optimizeLineup ignores injury/fitness** (`ai.ts` — an AI club
+> will field a man at 3% fitness), **playFixture's summary path** skips
+> `season_apps`/rating tallies, `seedAcademy` only runs in the signup route (AI
+> clubs never restock academies), and contracts' **silent countered-lapse** (a
+> countered offer that expires emits no inbox event).
+
+> **2026-08-05 — engine↔web contract audit** (read-only; docs/CONTRACT.md +
+> `web/frontend/types.ts` vs the real wire). The one drift corrupting output
+> TODAY: **`substitutionLog` has no TypeScript consumer** — engine commit
+> 573675e added per-sub `outTally` precisely so substituted players keep their
+> stats, but `web/backend/report.ts:130-141` still builds ratings from the final
+> frame's 22 slots. Measured seed 151 @90': 26 men played, 22 rating rows, **5 of
+> 7 goals credited to the wrong player**, 68 assists/shots/tackles dropped. Fix:
+> declare `substitutionLog` in types.ts + CONTRACT.md, fold `outTally` into a
+> rating row keyed by the departed man, re-key goal credit by who held the slot
+> at goal time. Lesser drift, same audit: types.ts requires 4 fields the engine
+> never emits (`Player.homeX/homeY/attrs`, `Ball.vz` — delete or mark optional);
+> the MatchEvent union misses `added_time` (which overloads playerId=minute,
+> targetId=half) and carries a dead `punch`; **`gk_up_for_corners` is a live UI
+> toggle the engine silently discards** (`main.cpp` parseDirectives has no
+> branch for it); CONTRACT.md's input block omits the whole `timeline`
+> sub-schema and `when.phase`; top-level `tackles`/`passes` are objects while
+> the per-player keys of the same name are ints — never type them alike.
+
+> **2026-08-05 — engine anomaly hunt** (24 seeds @45', 7 full traces; per-tick
+> proof for each, artifacts were session-local). Three confirmed defects for the
+> next balance rounds: (1) the **loose-ball freeze watchdog re-arms off the
+> goalkeeper's distance** (`engine_audit.cpp:428` — `bestD` scans ALL players,
+> and in 6/6 real fires the arm-time nearest was a GK who then walked off), so
+> it fires mid-chase and rolled the ball to the OPPONENT all 6 times; fix by
+> excluding keepers from the baseline or re-arming on any per-player approach.
+> (2) The **knock-ahead cannot fail**: `engine_shot.cpp:482` releases at ~18.6
+> px/s (DRIBBLE_KNOCK_SPEED_ADVANTAGE = −25) against a 53 px/s runner — median
+> travel 4.4 px, re-collected in 133 ms, 3489 knocks → 1 turnover, so the risky-
+> knock ledger is dead instrumentation. A real knock-into-space needs roughly
+> +65, a deliberate balance change (A/B + golden re-baseline). (3) The **GK save
+> model's `preventable` gate is unreachable** (`engine_gk.cpp:495` tests ≥0.90
+> against a value clamped to GK_SAVE_MAX = 0.76) and 67% of save rolls pin to
+> the GK_SAVE_MIN = 0.09 floor where keeper attributes cancel entirely. Also:
+> 6–10 dead-ball episodes per match (ball at rest, nobody within 40 px, median
+> 1.6 s) — the substrate the watchdog papers over; fix pass weighting, not the
+> watchdog. Turnover-burst census re-run post-Round-35: healthy (max 6 flips
+> per 5 s window across 7 matches).
