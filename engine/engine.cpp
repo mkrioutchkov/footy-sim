@@ -1486,152 +1486,6 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
 // splits off cleanly behind a one-argument interface.
 void GameEngine::runSetPieceChoreography(Team spTeam, double sdt, double sec)
 {
-    auto placeTakerForRestart = [&](Player& taker, bool releaseSpot) {
-        double fd = fdFor(taker.team);
-        double standBack = standBackFor(setPiece.type);
-        double px = clamp(releaseSpot ? setPiece.spotX : setPiece.spotX - fd * standBack, 5.0, PITCH_W - 5.0);
-        double py = clamp(setPiece.spotY, 5.0, PITCH_H - 5.0);
-        if (releaseSpot) {
-            // Step in briskly, don't snap: the one-tick hop from the stand-back
-            // offset onto the spot was the audit's "carrier teleport" (~14px in
-            // 17ms, 2-5×/15min, scan_anomalies PLAYER_TELEPORT). The kick still
-            // launches from the spot this tick — the taker just strides the last
-            // step like a human instead of blinking; kicking from a stride back
-            // is exactly how every open-play kick already looks (CONTROL_DIST).
-            double dx = px - taker.x, dy = py - taker.y;
-            double d = std::hypot(dx, dy);
-            double step = std::min(SPEED_SPRINT * 2.0 * (sdt / 1000.0), d);
-            if (d > 0.5) {
-                taker.x += dx / d * step;
-                taker.y += dy / d * step;
-            }
-        } else {
-            // Steer to the stand-back point; snapping every tick made the taker
-            // vibrate against moveBallCarrier walking him toward the spot.
-            double dx = px - taker.x, dy = py - taker.y;
-            double d = std::hypot(dx, dy);
-            double step = std::min(SPEED_SPRINT * (sdt / 1000.0), d);
-            if (d > 0.5) {
-                taker.x += dx / d * step;
-                taker.y += dy / d * step;
-            }
-        }
-        taker.targetX = px;
-        taker.targetY = py;
-        taker.vx = taker.vy = 0;
-        if (dist(taker.x, taker.y, setPiece.spotX, setPiece.spotY) > 0.5) {
-            taker.facing = std::atan2(setPiece.spotY - taker.y, setPiece.spotX - taker.x);
-        }
-    };
-    auto enforceRestartDistance = [&]() {
-        double minDist = minDistFor(setPiece.type);
-        Team restartTeam = setPiece.team;
-        double maxStep = SPEED_SPRINT * (sdt / 1000.0);
-        bool pen = setPiece.type == SetPiece::Penalty;
-        double fdAtt = fdFor(restartTeam);
-        if (pen) {
-            // The defending keeper belongs ON his line for a penalty — the
-            // agent's GK early-return left him 6m off it.
-            Team defTeam = restartTeam == Team::Home ? Team::Away : Team::Home;
-            if (Player* dgk = findGK(defTeam)) {
-                double gx = ownGoalXFor(defTeam);
-                double lineX = gx + fdFor(defTeam) * 5.0;
-                double mx = lineX - dgk->x, my = PITCH_H / 2.0 - dgk->y;
-                double md = std::hypot(mx, my);
-                double step = std::min(SPEED_SPRINT * 1.5 * (sdt / 1000.0), md);
-                if (md > 0.5) {
-                    dgk->x += mx / md * step;
-                    dgk->y += my / md * step;
-                }
-            }
-        }
-        for (auto& p : state.players) {
-            // For penalties EVERY outfielder obeys the law — attackers too.
-            bool isTaker = p.id == setPiece.takerId;
-            if (p.role == Role::GK || isTaker) continue;
-            if (!pen && p.team == restartTeam) continue;
-            // Wall members stand at a LEGAL spot (91px down the line, slant
-            // ~93px) — the radial re-target here fired on them mid-WALK every
-            // time their path dipped inside the radius, so the wall never
-            // finished forming (seed 107 5:51: one-man wall).
-            if (!pen && p.wall) continue;
-            double dx = p.x - setPiece.spotX;
-            double dy = p.y - setPiece.spotY;
-            double d = std::hypot(dx, dy);
-            // Penalty law: everyone but taker and keeper must be BEHIND the
-            // spot, not just 96px away — radial spacing let defenders stand
-            // on the goal line and wall up the shot.
-            bool goalSide = pen && (p.x - setPiece.spotX) * fdAtt > -12.0;
-            // Law 14 backstop: OUTSIDE the area too — the radial test alone let
-            // the crowd camp in the 55px strip between the box edge and the
-            // mark (watched replay: ten players inside the area at the kick).
-            double boxEdgeBack = PENALTY_AREA_W - PENALTY_SPOT_FROM_GOAL; // 55
-            bool penBoxIntruder = pen && !goalSide
-                && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 8.0
-                && (p.x - (setPiece.spotX - fdAtt * boxEdgeBack)) * fdAtt > -6.0;
-            // Law 16 (2019): opponents stay OUT of the area until a goal kick
-            // is played — they pressed from inside the box before the kick.
-            bool gkBoxIntruder = false;
-            if (setPiece.type == SetPiece::GoalKick && p.team != restartTeam) {
-                double og = ownGoalXFor(restartTeam);
-                gkBoxIntruder = (p.x - og) * fdAtt < PENALTY_AREA_W + 6.0
-                             && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 10.0;
-            }
-            if (d >= minDist && !goalSide && !penBoxIntruder && !gkBoxIntruder) continue;
-            if (d < 1.0) {
-                double fd = fdFor(p.team);
-                dx = -fd;
-                dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
-                d = std::hypot(dx, dy);
-            }
-            // FK defenders clear the ring toward their OWN GOAL, not to the
-            // radial-nearest (often ball-side) arc point — a forward caught
-            // inside otherwise gets parked LEVEL with the ball, velocity
-            // zeroed, target == own position, and stands there for the whole
-            // hold (seed 305 17:31: Bale, statue on the ball-side arc for 5.6s
-            // while a shooting FK was lined up; owner: "should be running back").
-            if (!pen && setPiece.type == SetPiece::FreeKick && p.team != restartTeam) {
-                double gs = ownGoalXFor(p.team) - setPiece.spotX;   // spot -> own goal
-                if (std::abs(gs) > 1.0) {
-                    dx = (gs > 0 ? 1.0 : -1.0) * std::max(std::abs(dx), 20.0);
-                    d = std::hypot(dx, dy);
-                }
-            }
-            double tx = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
-            double ty = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
-            if (goalSide) {
-                // Behind the box EDGE in one move, not just behind the mark —
-                // re-resolving a goal-side player to 40px back still left him
-                // standing inside the area.
-                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
-                double sideOff = p.y >= setPiece.spotY ? 1.0 : -1.0;
-                ty = clamp(setPiece.spotY + sideOff * std::max(std::abs(p.y - setPiece.spotY), 90.0), 5.0, PITCH_H - 5.0);
-            } else if (penBoxIntruder) {
-                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
-                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
-            } else if (gkBoxIntruder) {
-                double og = ownGoalXFor(restartTeam);
-                tx = clamp(og + fdAtt * (PENALTY_AREA_W + 16.0), 5.0, PITCH_W - 5.0);
-                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
-            }
-            // Jog out of the restart radius rather than teleporting there.
-            // Urgent pace: at walking speed the agents' own pull toward the
-            // ball won the tug-of-war and FKs released with opponents at 5m.
-            double mx = tx - p.x, my = ty - p.y;
-            double md = std::hypot(mx, my);
-            if (md > 0.1) {
-                double step = std::min(maxStep * 1.9, md);
-                p.x += mx / md * step;
-                p.y += my / md * step;
-                p.vx = mx / md * SPEED_SPRINT;
-                p.vy = my / md * SPEED_SPRINT;
-            } else {
-                p.vx = p.vy = 0;
-            }
-            p.targetX = tx;
-            p.targetY = ty;
-        }
-    };
 
     if (setPiece.takerId >= 0) {
         for (auto& a : agents) {
@@ -1655,7 +1509,7 @@ void GameEngine::runSetPieceChoreography(Team spTeam, double sdt, double sec)
     }
     moveBallCarrier(sdt);
     separateTeammates(sdt);
-    enforceRestartDistance();
+    enforceRestartDistance(sdt);
 
     // ── Defensive wall / block, that actually FORMS, with hurry ──
     // setPiecePositioning writes the wall + block-shape targets (agent_
@@ -1827,6 +1681,173 @@ void GameEngine::runSetPieceChoreography(Team spTeam, double sdt, double sec)
         }
     }
 
+    driveRestartApproach(sdt, sec);
+}
+
+// Walk the restart taker to (or onto) the spot. Was a lambda inside
+// runSetPieceChoreography; a member function so the choreography can be split.
+void GameEngine::placeTakerForRestart(Player& taker, bool releaseSpot, double sdt) {
+        double fd = fdFor(taker.team);
+        double standBack = standBackFor(setPiece.type);
+        double px = clamp(releaseSpot ? setPiece.spotX : setPiece.spotX - fd * standBack, 5.0, PITCH_W - 5.0);
+        double py = clamp(setPiece.spotY, 5.0, PITCH_H - 5.0);
+        if (releaseSpot) {
+            // Step in briskly, don't snap: the one-tick hop from the stand-back
+            // offset onto the spot was the audit's "carrier teleport" (~14px in
+            // 17ms, 2-5×/15min, scan_anomalies PLAYER_TELEPORT). The kick still
+            // launches from the spot this tick — the taker just strides the last
+            // step like a human instead of blinking; kicking from a stride back
+            // is exactly how every open-play kick already looks (CONTROL_DIST).
+            double dx = px - taker.x, dy = py - taker.y;
+            double d = std::hypot(dx, dy);
+            double step = std::min(SPEED_SPRINT * 2.0 * (sdt / 1000.0), d);
+            if (d > 0.5) {
+                taker.x += dx / d * step;
+                taker.y += dy / d * step;
+            }
+        } else {
+            // Steer to the stand-back point; snapping every tick made the taker
+            // vibrate against moveBallCarrier walking him toward the spot.
+            double dx = px - taker.x, dy = py - taker.y;
+            double d = std::hypot(dx, dy);
+            double step = std::min(SPEED_SPRINT * (sdt / 1000.0), d);
+            if (d > 0.5) {
+                taker.x += dx / d * step;
+                taker.y += dy / d * step;
+            }
+        }
+        taker.targetX = px;
+        taker.targetY = py;
+        taker.vx = taker.vy = 0;
+        if (dist(taker.x, taker.y, setPiece.spotX, setPiece.spotY) > 0.5) {
+            taker.facing = std::atan2(setPiece.spotY - taker.y, setPiece.spotX - taker.x);
+        }
+}
+
+// Law 13: push everyone outside the restart radius, and put the defending keeper
+// on his line for a penalty. Was a lambda inside runSetPieceChoreography.
+void GameEngine::enforceRestartDistance(double sdt) {
+        double minDist = minDistFor(setPiece.type);
+        Team restartTeam = setPiece.team;
+        double maxStep = SPEED_SPRINT * (sdt / 1000.0);
+        bool pen = setPiece.type == SetPiece::Penalty;
+        double fdAtt = fdFor(restartTeam);
+        if (pen) {
+            // The defending keeper belongs ON his line for a penalty — the
+            // agent's GK early-return left him 6m off it.
+            Team defTeam = restartTeam == Team::Home ? Team::Away : Team::Home;
+            if (Player* dgk = findGK(defTeam)) {
+                double gx = ownGoalXFor(defTeam);
+                double lineX = gx + fdFor(defTeam) * 5.0;
+                double mx = lineX - dgk->x, my = PITCH_H / 2.0 - dgk->y;
+                double md = std::hypot(mx, my);
+                double step = std::min(SPEED_SPRINT * 1.5 * (sdt / 1000.0), md);
+                if (md > 0.5) {
+                    dgk->x += mx / md * step;
+                    dgk->y += my / md * step;
+                }
+            }
+        }
+        for (auto& p : state.players) {
+            // For penalties EVERY outfielder obeys the law — attackers too.
+            bool isTaker = p.id == setPiece.takerId;
+            if (p.role == Role::GK || isTaker) continue;
+            if (!pen && p.team == restartTeam) continue;
+            // Wall members stand at a LEGAL spot (91px down the line, slant
+            // ~93px) — the radial re-target here fired on them mid-WALK every
+            // time their path dipped inside the radius, so the wall never
+            // finished forming (seed 107 5:51: one-man wall).
+            if (!pen && p.wall) continue;
+            double dx = p.x - setPiece.spotX;
+            double dy = p.y - setPiece.spotY;
+            double d = std::hypot(dx, dy);
+            // Penalty law: everyone but taker and keeper must be BEHIND the
+            // spot, not just 96px away — radial spacing let defenders stand
+            // on the goal line and wall up the shot.
+            bool goalSide = pen && (p.x - setPiece.spotX) * fdAtt > -12.0;
+            // Law 14 backstop: OUTSIDE the area too — the radial test alone let
+            // the crowd camp in the 55px strip between the box edge and the
+            // mark (watched replay: ten players inside the area at the kick).
+            double boxEdgeBack = PENALTY_AREA_W - PENALTY_SPOT_FROM_GOAL; // 55
+            bool penBoxIntruder = pen && !goalSide
+                && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 8.0
+                && (p.x - (setPiece.spotX - fdAtt * boxEdgeBack)) * fdAtt > -6.0;
+            // Law 16 (2019): opponents stay OUT of the area until a goal kick
+            // is played — they pressed from inside the box before the kick.
+            bool gkBoxIntruder = false;
+            if (setPiece.type == SetPiece::GoalKick && p.team != restartTeam) {
+                double og = ownGoalXFor(restartTeam);
+                gkBoxIntruder = (p.x - og) * fdAtt < PENALTY_AREA_W + 6.0
+                             && std::abs(p.y - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0 + 10.0;
+            }
+            if (d >= minDist && !goalSide && !penBoxIntruder && !gkBoxIntruder) continue;
+            if (d < 1.0) {
+                double fd = fdFor(p.team);
+                dx = -fd;
+                dy = p.homeY < PITCH_H / 2.0 ? -0.35 : 0.35;
+                d = std::hypot(dx, dy);
+            }
+            // FK defenders clear the ring toward their OWN GOAL, not to the
+            // radial-nearest (often ball-side) arc point — a forward caught
+            // inside otherwise gets parked LEVEL with the ball, velocity
+            // zeroed, target == own position, and stands there for the whole
+            // hold (seed 305 17:31: Bale, statue on the ball-side arc for 5.6s
+            // while a shooting FK was lined up; owner: "should be running back").
+            if (!pen && setPiece.type == SetPiece::FreeKick && p.team != restartTeam) {
+                double gs = ownGoalXFor(p.team) - setPiece.spotX;   // spot -> own goal
+                if (std::abs(gs) > 1.0) {
+                    dx = (gs > 0 ? 1.0 : -1.0) * std::max(std::abs(dx), 20.0);
+                    d = std::hypot(dx, dy);
+                }
+            }
+            double tx = clamp(setPiece.spotX + dx / d * minDist, 5.0, PITCH_W - 5.0);
+            double ty = clamp(setPiece.spotY + dy / d * minDist, 5.0, PITCH_H - 5.0);
+            if (goalSide) {
+                // Behind the box EDGE in one move, not just behind the mark —
+                // re-resolving a goal-side player to 40px back still left him
+                // standing inside the area.
+                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
+                double sideOff = p.y >= setPiece.spotY ? 1.0 : -1.0;
+                ty = clamp(setPiece.spotY + sideOff * std::max(std::abs(p.y - setPiece.spotY), 90.0), 5.0, PITCH_H - 5.0);
+            } else if (penBoxIntruder) {
+                tx = clamp(setPiece.spotX - fdAtt * (boxEdgeBack + 16.0), 5.0, PITCH_W - 5.0);
+                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
+            } else if (gkBoxIntruder) {
+                double og = ownGoalXFor(restartTeam);
+                tx = clamp(og + fdAtt * (PENALTY_AREA_W + 16.0), 5.0, PITCH_W - 5.0);
+                ty = clamp(p.y, 5.0, PITCH_H - 5.0);
+            }
+            // Jog out of the restart radius rather than teleporting there.
+            // Urgent pace: at walking speed the agents' own pull toward the
+            // ball won the tug-of-war and FKs released with opponents at 5m.
+            double mx = tx - p.x, my = ty - p.y;
+            double md = std::hypot(mx, my);
+            if (md > 0.1) {
+                double step = std::min(maxStep * 1.9, md);
+                p.x += mx / md * step;
+                p.y += my / md * step;
+                p.vx = mx / md * SPEED_SPRINT;
+                p.vy = my / md * SPEED_SPRINT;
+            } else {
+                p.vx = p.vy = 0;
+            }
+            p.targetX = tx;
+            p.targetY = ty;
+        }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// driveRestartApproach() — the taker's run-up, his strike, and the release gate
+// ══════════════════════════════════════════════════════════════════════════════
+// The second half of runSetPieceChoreography, which was 502 lines doing two
+// separable jobs: arrange the shape (wall, keepers, walk the taker toward the
+// spot, plan his run-up) and then DRIVE the approach — steer him over the ball,
+// dash him through it, strike on arrival, and hold the release until the Law 13
+// restraint zone is clear. Once the two helper lambdas became member functions
+// nothing at all is live across this boundary, so the split needs no parameters
+// beyond the tick the caller already has.
+void GameEngine::driveRestartApproach(double sdt, double sec)
+{
     // ══ Free-kick RUN-UP drive ══ (owner: "free kicks especially shot ones should
     // have run ups"). For the bulk of the hold the taker "sets" at his run-up start
     // a few steps BEHIND the ball; in the final RUNUP_LEAD_MS he accelerates THROUGH
@@ -1919,8 +1940,8 @@ void GameEngine::runSetPieceChoreography(Team spTeam, double sdt, double sec)
             }
         }
         Player* taker = playerById(setPiece.takerId);
-        if (taker) placeTakerForRestart(*taker, true);
-        enforceRestartDistance();
+        if (taker) placeTakerForRestart(*taker, true, sdt);
+        enforceRestartDistance(sdt);
         state.ball.x = setPiece.spotX;
         state.ball.y = setPiece.spotY;
         state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;
@@ -1981,7 +2002,7 @@ void GameEngine::runSetPieceChoreography(Team spTeam, double sdt, double sec)
         // here, which would fight his approach. The ball still pins to the spot
         // until the strike, exactly as for every other held restart.
         bool fkRunUp = setPiece.type == SetPiece::FreeKick && setPiece.runUpActive;
-        if (taker && !fkRunUp) placeTakerForRestart(*taker, false);
+        if (taker && !fkRunUp) placeTakerForRestart(*taker, false, sdt);
         state.ball.x = setPiece.spotX;
         state.ball.y = setPiece.spotY;
         state.ball.vx = state.ball.vy = state.ball.z = state.ball.vz = 0;

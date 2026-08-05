@@ -1185,6 +1185,9 @@ private:
     // The restart-choreography half of updateSetPiecePhase: walk the taker in,
     // arrange wall and support, fire the release.
     void runSetPieceChoreography(Team spTeam, double sdt, double sec);
+    void placeTakerForRestart(Player& taker, bool releaseSpot, double sdt);
+    void enforceRestartDistance(double sdt);
+    void driveRestartApproach(double sdt, double sec);
     void populateThrowInSupport(Team spTeam);
     void updateKickoffPhase(double sdt);
     int  stageKickoffFormation(Team t);   // position-only staging; returns the taker's id
