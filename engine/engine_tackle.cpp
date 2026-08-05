@@ -269,43 +269,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // forced low-% box lunges fouled ~2-3x/match (~10x real).
     bool boxEmergency = carrierGoalDist < EMERGENCY_BOX_DIST - directiveBias[tackler.id].stayOnFeet * 60.0 && !inPenaltyBox && pitch::lateralFromCenter(carrier.y) < PENALTY_AREA_H / 2.0;
     bool ballPushedAhead = carrier.dribbleType == 2 || carrier.dribbleType == 3;
-    // aggression lowers the commit bar: a high-press side dives in on lower-%
-    // challenges (wins it back higher, but is beaten more); a contain side
-    // only commits to a clear chance. Centred at dial 50 = the old 0.30.
-    // tackle_hard lowers the commit bar (dives in on lower-% challenges);
-    // stay_on_feet raises it (jockey, only commit to a clear chance).
-    // Round-24 (largest turnover bucket, contain-first): committed tackles ran
-    // ~830/90 (real 60-90). Measurement showed the exposure auto-commit clauses
-    // below are INERT on tackle volume — even disabling them entirely moved
-    // attempts by ~0 (the chance>=commitBar path drives essentially all
-    // commitment). So the honest contain-first lever is commitBar itself: raise
-    // the base 0.30->0.40 so a defender only commits to a clearer chance and
-    // jockeys the rest. This is NOT the win-chance formula or a scoring term —
-    // it is the commit threshold. Deliberately PARTIAL: 0.40 cuts committed
-    // tackles ~826->704/90 (12-seed A/B, REAL) with marathonCarries and
-    // dizzy_spin still in noise; pushing to 0.45+ reached the 450-550 band but
-    // spiked marathonCarries (carriers running free) — the regression this round
-    // must avoid. Upper clamp 0.50->0.56 to keep the stay_on_feet headroom.
-    double commitBar = clamp(0.40 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.56);
-    // R28 C4: a shepherd-engaged defender is CONTAINING — only commit to a clearly
-    // winnable challenge (bypasses the 0.56 contain-first clamp for this case only,
-    // so the recovery sprint into the shield bubble doesn't inflate incidental
-    // steals). The round-25 long-carry commitBar decay below still overrides it, so
-    // a genuinely stuck escort still resolves.
-    if (tackler.id >= 0 && tackler.id < 22 && runtime[tackler.id].duel.containUntilMs > state.clockMs)
-        commitBar = std::max(commitBar, 0.62);
-    // Round-25 (2v2 audit top defect): with a LONE container, contain-first never
-    // resolves — carriers ride one jockey 15-24s (marathonCarries 14-17/10min; a
-    // 50-rated CM dribbled the full pitch with a defender glued 19-40px away). The
-    // flat 0.40 bar means the container waits forever for a clear chance that a
-    // lone jockey can never manufacture. Decay the bar as the CURRENT carry runs
-    // long: a container who has ridden ONE man >4s progressively commits (fully by
-    // ~12s). Reuses the carryStartMs idiom; deterministic, no rng; near-inert in
-    // 11v11 where >4s single-carries are rare (cover arrives / the ball moves on).
-    if (carrierTracker.carryTrackerId == carrier.id) {
-        double carryMs = state.clockMs - carrierTracker.carryStartMs;
-        commitBar -= clamp((carryMs - 4000.0) / 8000.0, 0.0, 1.0) * 0.18;
-    }
+    double commitBar = tackleCommitBar(tackler, carrier);
     // Deliberate (cynical) foul: the last man, genuinely beaten on a transition
     // break OUTSIDE the box, brings the carrier down to stop the counter. Pure
     // state (no rng); it forces commitment so the challenge reaches the existing
@@ -368,27 +332,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     // of an open-field lunge (a clumsy one is still a penalty, just far rarer).
     double boxFoulScale = inPenaltyBox ? 0.54 : 1.0; // 0.5 -> 0.54: penalties ~0.14 -> ~0.3/match (still careful in the box)
     stats.recordTackleAttempt();
-    // LUNGE (micro audit #3: every duel resolved with the bodies 21-25px apart
-    // and the winner moving 1-2px — the steal happened across a gap). Commit
-    // the tackler's body toward the ball — but as a DASH over the next few
-    // ticks, not the old instant 60%-of-gap snap: that snap was a one-tick
-    // ~900px/s teleport, the biggest visual artifact of the round-13 build
-    // (seed 305 0:09, 0:42). fixedUpdate plays the dash out at LUNGE_DASH_SPEED.
-    {
-        double lx = b.x - tackler.x, ly = b.y - tackler.y, ld = std::hypot(lx, ly);
-        if (ld > 4.0 && tackler.id >= 0 && tackler.id < 22) {
-            runtime[tackler.id].lungeDash.dirX = lx / ld;
-            runtime[tackler.id].lungeDash.dirY = ly / ld;
-            runtime[tackler.id].lungeDash.remainPx = std::min(ld * 0.55, 11.0);   // 16 -> 11px: shorter committed step, same contact read (seed 111 burst complaint)
-            runtime[tackler.id].lungeDash.switchPx = 0.0;   // R28 C8: a tackle step is always single-stage — never inherit a stale chop
-            runtime[tackler.id].lungeDash.dir2X = runtime[tackler.id].lungeDash.dir2Y = 0.0;
-            // Round-23: seed spd=peak=LUNGE_DASH_SPEED so this short defender
-            // contact step stays the flat 11px/90ms hard step round-14 tuned.
-            runtime[tackler.id].lungeDash.spd  = LUNGE_DASH_SPEED;
-            runtime[tackler.id].lungeDash.peak = LUNGE_DASH_SPEED;
-            tackler.facing = std::atan2(ly, lx);
-        }
-    }
+    commitLungeDash(tackler);
     if (rng.random() >= chance) {
         resolveTackleFoul(tackler, carrier, fromBehind, cynical, boxFoulScale);
         return false;
@@ -402,39 +346,7 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     double outcomeRoll = rng.random();
     double controlChance = clamp(0.28 + tackleSkill * 0.35 - carrierControl * 0.18 - (fromBehind ? 0.20 : 0) + (approachDot > 0.15 ? 0.12 : 0) - (carrier.dribbleType == 3 ? 0.08 : 0) + (exposedToFacingTackler ? 0.04 : 0) + (ballExposureDot > 0.40 ? 0.10 : 0.0) - (ballExposureDot < -0.30 ? 0.10 : 0.0), 0.12, 0.74);
     if (outcomeRoll < controlChance) {
-        stats.recordTackleWin(true);
-        if (tackler.id >= 0 && tackler.id < 22) pStats[tackler.id].tackles++;
-        emitEvent("tackle_won", (tackler.x + carrier.x) / 2.0, (tackler.y + carrier.y) / 2.0, tackler.id, carrier.id);
-        // Round-20 (seed 477: an early loss stayed silent): the first-5s-of-kickoff
-        // giveaway census (pass_giveaway_first_5s) only fired on an intercepted
-        // pass — a carrier DISPOSSESSED by a tackle in that window was invisible.
-        // A clean tackle-won is the definitive possession loss (the recordPassIntercepted
-        // analog), so mirror the pass site's kickoff-relative scoping. Census only.
-        if (state.clockMs - phase.lastKickoffMs < 5000.0 && state.clockMs >= phase.lastKickoffMs)
-            stats.recordQualityFlag(QualityFlag::EarlyKickoffGiveaway);
-        b.controllerId = tackler.id;
-        b.vx = b.vy = b.z = b.vz = 0;
-        b.curl = 0;
-        b.lastTouchTeam = tackler.team;
-        b.lastToucherId = tackler.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
-        b.intendedReceiverId = -1;
-        receiverShieldUntil = state.clockMs + 260;
-        receiverShieldedPlayerId = tackler.id;
-        // Round-28 C3(b): amortize the ball across the 17-25px duel gap to the
-        // winner's foot over 2-3 ticks (no knock-ahead, faster pull) instead of
-        // letting it settle at the carry offset far from him.
-        if (tackler.id >= 0 && tackler.id < 22 && !arenaMode) runtime[tackler.id].duel.carrierGatherUntilMs = state.clockMs + 100.0;
-        // Round-36: a won duel is a REGAIN — cache which way to secure it. The
-        // lunge above just set tackler.facing AT the carrier, and the gather lock
-        // settles along a fixed direction; without this it settles into the man
-        // just beaten (owner, seed 407 0:26).
-        noteRegain(tackler, carrier.id, 700.0);
-        lastLooseOrigin = LooseOrigin::None;
-        blockReboundFor(carrier.id, 450);
-        // Round-27 COMMIT 2 (eased stop): don't hard-zero the victim's momentum —
-        // that abrupt one-tick halt was ~8% of the tackle-jitter screengrabs.
-        // Keep his velocity and let applyMovement bleed it over the next ~3 ticks.
-        if (carrier.id >= 0 && carrier.id < 22 && !arenaMode) runtime[carrier.id].duel.tackleStopEaseUntilMs = state.clockMs + 50.0;
+        completeTackleWin(tackler, carrier);
         return true;
     }
     // Carry security — the carrier BEATS the man and keeps it. This outcome was
@@ -453,6 +365,21 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
         agentFor(tackler)->stunLock(12);
         return false;
     }
+    spillTackleLoose(tackler, carrier, angle, outcomeRoll, carrierSpeed);
+    return true;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// spillTackleLoose() — the poke-away: nobody comes out of it with the ball
+// ══════════════════════════════════════════════════════════════════════════════
+// The third outcome of attemptTackle. Unlike the clean win it does depend on
+// the duel's own numbers — the SAME outcome roll that rejected a clean steal
+// also sets how hard the ball is poked — so the roll, the deflection angle and
+// the carrier pace are passed in rather than re-derived. The caller still owns
+// the `return true`.
+void GameEngine::spillTackleLoose(Player& tackler, Player& carrier, double angle,
+                                  double outcomeRoll, double carrierSpeed) {
+    auto& b = state.ball;
     stats.recordTackleWin(false);
     if (tackler.id >= 0 && tackler.id < 22) pStats[tackler.id].tackles++; // a loose-deflection win is still a tackle won by this player (mirrors the clean-win branch); was omitted, under-counting per-player tackles ~46%
     emitEvent("tackle_loose", (tackler.x + carrier.x) / 2.0, (tackler.y + carrier.y) / 2.0, tackler.id, carrier.id);
@@ -484,5 +411,126 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     blockReboundFor(tackler.id, 700);
     blockReboundFor(carrier.id, 700);
     carrier.vx = carrier.vy = 0;
-    return true;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// completeTackleWin() — a clean steal: the tackler comes away with it
+// ══════════════════════════════════════════════════════════════════════════════
+// The winning branch of attemptTackle. It reads nothing from the duel
+// arithmetic — only who won and who lost — so it is the cleanest of the three
+// outcome branches to lift. The caller still owns the `return true`.
+void GameEngine::completeTackleWin(Player& tackler, Player& carrier) {
+    auto& b = state.ball;
+    stats.recordTackleWin(true);
+    if (tackler.id >= 0 && tackler.id < 22) pStats[tackler.id].tackles++;
+    emitEvent("tackle_won", (tackler.x + carrier.x) / 2.0, (tackler.y + carrier.y) / 2.0, tackler.id, carrier.id);
+    // Round-20 (seed 477: an early loss stayed silent): the first-5s-of-kickoff
+    // giveaway census (pass_giveaway_first_5s) only fired on an intercepted
+    // pass — a carrier DISPOSSESSED by a tackle in that window was invisible.
+    // A clean tackle-won is the definitive possession loss (the recordPassIntercepted
+    // analog), so mirror the pass site's kickoff-relative scoping. Census only.
+    if (state.clockMs - phase.lastKickoffMs < 5000.0 && state.clockMs >= phase.lastKickoffMs)
+        stats.recordQualityFlag(QualityFlag::EarlyKickoffGiveaway);
+    b.controllerId = tackler.id;
+    b.vx = b.vy = b.z = b.vz = 0;
+    b.curl = 0;
+    b.lastTouchTeam = tackler.team;
+    b.lastToucherId = tackler.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+    b.intendedReceiverId = -1;
+    receiverShieldUntil = state.clockMs + 260;
+    receiverShieldedPlayerId = tackler.id;
+    // Round-28 C3(b): amortize the ball across the 17-25px duel gap to the
+    // winner's foot over 2-3 ticks (no knock-ahead, faster pull) instead of
+    // letting it settle at the carry offset far from him.
+    if (tackler.id >= 0 && tackler.id < 22 && !arenaMode) runtime[tackler.id].duel.carrierGatherUntilMs = state.clockMs + 100.0;
+    // Round-36: a won duel is a REGAIN — cache which way to secure it. The
+    // lunge above just set tackler.facing AT the carrier, and the gather lock
+    // settles along a fixed direction; without this it settles into the man
+    // just beaten (owner, seed 407 0:26).
+    noteRegain(tackler, carrier.id, 700.0);
+    lastLooseOrigin = LooseOrigin::None;
+    blockReboundFor(carrier.id, 450);
+    // Round-27 COMMIT 2 (eased stop): don't hard-zero the victim's momentum —
+    // that abrupt one-tick halt was ~8% of the tackle-jitter screengrabs.
+    // Keep his velocity and let applyMovement bleed it over the next ~3 ticks.
+    if (carrier.id >= 0 && carrier.id < 22 && !arenaMode) runtime[carrier.id].duel.tackleStopEaseUntilMs = state.clockMs + 50.0;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// commitLungeDash() — the committed tackler steps onto the ball
+// ══════════════════════════════════════════════════════════════════════════════
+// Everything this needs is the tackler and the ball, so it is independent of
+// the duel arithmetic above it. fixedUpdate plays the queued dash out; see the
+// teleport tombstone below for why it is a dash and not a snap.
+void GameEngine::commitLungeDash(Player& tackler) {
+    auto& b = state.ball;
+    // LUNGE (micro audit #3: every duel resolved with the bodies 21-25px apart
+    // and the winner moving 1-2px — the steal happened across a gap). Commit
+    // the tackler's body toward the ball — but as a DASH over the next few
+    // ticks, not the old instant 60%-of-gap snap: that snap was a one-tick
+    // ~900px/s teleport, the biggest visual artifact of the round-13 build
+    // (seed 305 0:09, 0:42). fixedUpdate plays the dash out at LUNGE_DASH_SPEED.
+    {
+        double lx = b.x - tackler.x, ly = b.y - tackler.y, ld = std::hypot(lx, ly);
+        if (ld > 4.0 && tackler.id >= 0 && tackler.id < 22) {
+            runtime[tackler.id].lungeDash.dirX = lx / ld;
+            runtime[tackler.id].lungeDash.dirY = ly / ld;
+            runtime[tackler.id].lungeDash.remainPx = std::min(ld * 0.55, 11.0);   // 16 -> 11px: shorter committed step, same contact read (seed 111 burst complaint)
+            runtime[tackler.id].lungeDash.switchPx = 0.0;   // R28 C8: a tackle step is always single-stage — never inherit a stale chop
+            runtime[tackler.id].lungeDash.dir2X = runtime[tackler.id].lungeDash.dir2Y = 0.0;
+            // Round-23: seed spd=peak=LUNGE_DASH_SPEED so this short defender
+            // contact step stays the flat 11px/90ms hard step round-14 tuned.
+            runtime[tackler.id].lungeDash.spd  = LUNGE_DASH_SPEED;
+            runtime[tackler.id].lungeDash.peak = LUNGE_DASH_SPEED;
+            tackler.facing = std::atan2(ly, lx);
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// tackleCommitBar() — the threshold a challenge must clear to be committed
+// ══════════════════════════════════════════════════════════════════════════════
+// Aggression dial, the two directives, the shepherd-contain floor and the
+// long-carry decay, all in one place. It reads only the two duelists (plus
+// engine state) and produces one number, which is why it is the one clean
+// seam in attemptTackle's commit arbitration.
+double GameEngine::tackleCommitBar(const Player& tackler, const Player& carrier) const {
+    // aggression lowers the commit bar: a high-press side dives in on lower-%
+    // challenges (wins it back higher, but is beaten more); a contain side
+    // only commits to a clear chance. Centred at dial 50 = the old 0.30.
+    // tackle_hard lowers the commit bar (dives in on lower-% challenges);
+    // stay_on_feet raises it (jockey, only commit to a clear chance).
+    // Round-24 (largest turnover bucket, contain-first): committed tackles ran
+    // ~830/90 (real 60-90). Measurement showed the exposure auto-commit clauses
+    // in attemptTackle are INERT on tackle volume — even disabling them entirely moved
+    // attempts by ~0 (the chance>=commitBar path drives essentially all
+    // commitment). So the honest contain-first lever is commitBar itself: raise
+    // the base 0.30->0.40 so a defender only commits to a clearer chance and
+    // jockeys the rest. This is NOT the win-chance formula or a scoring term —
+    // it is the commit threshold. Deliberately PARTIAL: 0.40 cuts committed
+    // tackles ~826->704/90 (12-seed A/B, REAL) with marathonCarries and
+    // dizzy_spin still in noise; pushing to 0.45+ reached the 450-550 band but
+    // spiked marathonCarries (carriers running free) — the regression this round
+    // must avoid. Upper clamp 0.50->0.56 to keep the stay_on_feet headroom.
+    double commitBar = clamp(0.40 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.56);
+    // R28 C4: a shepherd-engaged defender is CONTAINING — only commit to a clearly
+    // winnable challenge (bypasses the 0.56 contain-first clamp for this case only,
+    // so the recovery sprint into the shield bubble doesn't inflate incidental
+    // steals). The round-25 long-carry commitBar decay below still overrides it, so
+    // a genuinely stuck escort still resolves.
+    if (tackler.id >= 0 && tackler.id < 22 && runtime[tackler.id].duel.containUntilMs > state.clockMs)
+        commitBar = std::max(commitBar, 0.62);
+    // Round-25 (2v2 audit top defect): with a LONE container, contain-first never
+    // resolves — carriers ride one jockey 15-24s (marathonCarries 14-17/10min; a
+    // 50-rated CM dribbled the full pitch with a defender glued 19-40px away). The
+    // flat 0.40 bar means the container waits forever for a clear chance that a
+    // lone jockey can never manufacture. Decay the bar as the CURRENT carry runs
+    // long: a container who has ridden ONE man >4s progressively commits (fully by
+    // ~12s). Reuses the carryStartMs idiom; deterministic, no rng; near-inert in
+    // 11v11 where >4s single-carries are rare (cover arrives / the ball moves on).
+    if (carrierTracker.carryTrackerId == carrier.id) {
+        double carryMs = state.clockMs - carrierTracker.carryStartMs;
+        commitBar -= clamp((carryMs - 4000.0) / 8000.0, 0.0, 1.0) * 0.18;
+    }
+    return commitBar;
 }

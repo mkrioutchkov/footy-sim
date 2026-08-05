@@ -148,170 +148,21 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
             a.push_back(cdv);
         }
 
-        // ── Hoof under pressure / panic clearance ── A deep player with the
-        // press ARRIVING (projected along the pressers' velocities, not just
-        // standing near) and no safe outlet boots it long rather than gifting
-        // possession in a dangerous area. Routed through Clear (scattered
-        // forcePassTo) so it's an honest 50/50 clearance toward the forwards,
-        // not a measured pass. Watched replay 3'16-3'18: a full-back received
-        // deep in his own box with the swarm converging, stood on the ball
-        // (static pressureCount hadn't ticked to 2 yet), was tackled — penalty
-        // conceded. The emergency case fires on CLOSING pressure and outbids
-        // everything except a genuinely clean pass out.
         // A tackle genuinely ARRIVING (an opponent sprinting in, not the assigned
         // jockey holding his standoff) — the shared trigger for the deep-carrier
         // release valves below. Proximity/projection variants of this were tried
         // and reverted (see the tempo-brake note).
-        // Deep defenders read an IMMINENT steady closer as trouble too (seed
-        // 111 0:45: pid5 closed 2B at 44-45px/s — under the 50 sprint bar —
-        // so no valve armed, the GK ball never reached the menu, and 2B
-        // turned into the traffic and was stripped). A flat lower bar (38)
-        // was tried and REVERTED: it sits below normal press-approach speed,
-        // the valve went permanent and clearances blew 164 -> 274/90. The
-        // deep-defender clause instead requires the closer already INSIDE
-        // 65px and still coming — contact inside ~1.5s, not a distant cruise.
-        bool deepDefValve = isDefenderLike()
-            && pitch::forwardProgress(player.x, player.team) < PITCH_W * 0.34;
         // NOTE (round 18, seed 111 0:45): wiring a lower/imminence closing bar
         // into tackleComing for deep defenders was tried THREE ways (flat 38,
         // 65px@34, banded 30-65px@34) and each kept the clearance valve
         // near-permanent (+84 to +110 clears/90) — deep defenders always have
         // someone closing at press pace. The 0:45 fix is the DRIBBLE TAX
-        // below instead: same imminence read, but it only demotes turning
+        // in applyCarrierScoreBias instead: same imminence read, but it only demotes turning
         // into the traffic, never mints a hoof.
-        bool imminentDeepCloser = false;
-        if (deepDefValve) {
-            for (auto& o : engine.state.players) {
-                if (!isActiveOpponent(o, player.team)) continue;
-                double dxo = player.x - o.x, dyo = player.y - o.y;
-                double d2 = std::hypot(dxo, dyo);
-                if (d2 < 30.0 || d2 > 65.0) continue;
-                if ((o.vx * dxo + o.vy * dyo) / d2 > 34.0) { imminentDeepCloser = true; break; }
-            }
-        }
+        bool imminentDeepCloser = deepCloserImminent();
         bool tackleComing = tackleArriving(engine.state.players, player.x, player.y, player.team);
-        {
-            double prog = pitch::forwardProgress(player.x, player.team);
-            double oppSoon = 1e9;
-            if (prog < PITCH_W * 0.30) {
-                for (auto& o : engine.state.players) {
-                    if (!isActiveOpponent(o, player.team)) continue;
-                    double now = dist(o.x, o.y, player.x, player.y);
-                    double soon = dist(o.x + o.vx * 0.8, o.y + o.vy * 0.8, player.x, player.y);
-                    oppSoon = std::min(oppSoon, std::min(now, soon));
-                }
-            }
-            // Emergency also covers the WIDENED own-30% band when a tackle is
-            // genuinely arriving (was a hardcoded 200px: the 0:40 FB stood at
-            // x=236 with the press sprinting in and no clearance on the menu);
-            // a lone CAPPED presser sprinting at a defender also counts as
-            // swarmed — the 2-man press cap makes pc>=2 structurally rare, so
-            // the old gate could never fire for the commonest caught-in-
-            // possession shape (one sprinting presser, everyone else marking).
-            bool emergency = (prog < 200.0 && oppSoon < 48.0 && per.nearestOpponentDist < 78.0)
-                || (prog < PITCH_W * 0.30 && tackleComing && per.nearestOpponentDist < 78.0);
-            bool swarmed = prog < PITCH_W * 0.30
-                && (per.pressureCount >= 2 || (isDefenderLike() && per.pressureCount >= 1 && tackleComing));
-            // "Hoof away" (owner, seed 111 1:36: ball dropping in the danger
-            // area — 4R's only concerns should be head it clear / corner /
-            // back to GK, "or to check down and hoof away. really want to see
-            // a hoof away introduced"). A defender holding the ball INSIDE his
-            // own box with bodies anywhere near doesn't need a sprinting
-            // tackler to justify getting rid — the check-down is the bestSafe
-            // test below (a genuinely clean out-ball still wins), the hoof is
-            // the answer when there isn't one.
-            bool boxDanger = isDefenderLike()
-                && pitch::distToOwnGoal(player.x, player.team) < PENALTY_AREA_W + 25.0
-                && pitch::lateralFromCenter(player.y) < PENALTY_AREA_H / 2.0 + 30.0
-                // <140 -> arriving-or-<60 (seed 111 22:37: a LONE presser 64px
-                // away drove three first-touch clears in 0.8s — the pinball.
-                // The hoof needs pressure genuinely ARRIVING, not just present).
-                && (tackleComing || per.nearestOpponentDist < 60.0);
-            if (emergency || swarmed || boxDanger) {
-                double bestSafe = 0.0;
-                // Judge "a genuinely clean pass out" on the PLAYABLE score, not raw
-                // completion: the old check read audit.expectedCompletion, so a pass
-                // the dwell gate had priced to -1.3 still suppressed the clearance —
-                // the carrier got neither the hoof nor the ball out (0:38 Ramos) and
-                // invited the presser to tackling range.
-                for (auto& x : a)
-                    if (x.type == ActionType::Pass && x.score > 0.15) bestSafe = std::max(bestSafe, x.audit.expectedCompletion);
-                // 0.70/0.60 -> 0.78/0.70 (owner, round 14: "too many silly
-                // losses of possession in [the defensive] third, would prefer
-                // more clearances") — a pass out of a swarm must be genuinely
-                // safe to beat the hoof, not merely coin-flip playable.
-                if (bestSafe < (emergency ? 0.78 : swarmed ? 0.70 : 0.66)) {
-                    Player* tgt = nullptr; double bestFx = -1e9;
-                    for (auto& t : engine.state.players) {
-                        // Round-21 (arena audit): a sent-off ghost is parked at
-                        // y=-40 — hoofing the panic clearance at it gifted 85% of
-                        // arena "clearances" straight to the opponent (the owner's
-                        // "0:45 passing to each other"). Skip ejected men; if none
-                        // survive, tgt stays null and the Clear is never pushed —
-                        // the carrier prices dribble/take-on/hold normally instead
-                        // of a blind hoof to nobody. Inert in 11v11.
-                        if (t.team != player.team || t.id == player.id || t.role == Role::GK || t.sentOff) continue;
-                        // The panic ball goes long AND wide — up the channel,
-                        // not through the middle where losing it is fatal.
-                        // (A "directed outlet into a breakaway runner's path"
-                        // variant was A/B'd here and REVERTED: even gated to
-                        // 130px-ahead sprinters projected 70px free, it
-                        // re-tagged ~5 hoofs/match as through balls and
-                        // halved conversion — the lever needs its own pass.)
-                        // Width was REWARDED here (+lat*0.35) and it hooked the
-                        // clear onto a wide man near our own byline: seed 305
-                        // 1:27, 2R hoofed 88 degrees across the face of his own
-                        // box to the touchline corner, entirely on the width
-                        // bonus (the central CF outscored him on forward gain).
-                        // Prefer the CENTRAL forward out-ball — the middle is
-                        // where the danger actually leaves.
-                        double fx = pitch::forwardProgress(t.x, player.team)
-                                  - pitch::lateralFromCenter(t.y) * 0.20;
-                        // Square-hoof guard, on the ball's actual travel RATIO
-                        // (the old forward-gain<50 test passed a ball going
-                        // 320px sideways for 94px forward): far more sideways
-                        // than forward across our own face is never the clear.
-                        double relFwd = (t.x - player.x) * fdFor(player.team);
-                        double relLat = std::abs(t.y - player.y);
-                        if (relLat > relFwd * 1.5 + 120.0) fx -= 400.0;
-                        // Round-26: the clear scan had NO lane check, so it could
-                        // pick a teammate whose lane the pass-scorer's own point-
-                        // blank veto (perp<17, near half, presser within the fresh
-                        // release radius) rejects for identical geometry on the
-                        // same tick — the owner's 0:09 pid3 clear drilled 65px
-                        // straight to an opponent. Penalise (never skip: one
-                        // presser can straddle two lanes and null every target in
-                        // a swarm, the starved-carrier Hold tombstone) any target
-                        // with an opponent point-blank in front of the release
-                        // lane. Same magnitude as the square-hoof guard; the
-                        // guaranteed fallback (least-bad target still wins) holds.
-                        double cdx = t.x - player.x, cdy = t.y - player.y, cls = cdx * cdx + cdy * cdy;
-                        if (cls >= 1.0) {
-                            for (auto& o : engine.state.players) {
-                                if (o.team == player.team || o.role == Role::GK || o.sentOff) continue;
-                                double t2 = clamp(((o.x - player.x) * cdx + (o.y - player.y) * cdy) / cls, 0.0, 1.0);
-                                double perp = std::hypot(o.x - player.x - t2 * cdx, o.y - player.y - t2 * cdy);
-                                if (perp < 17.0 && t2 < 0.5 && dist(o.x, o.y, player.x, player.y) < 70.0) { fx -= 400.0; break; }
-                            }
-                        }
-                        if (fx > bestFx) { bestFx = fx; tgt = &t; }
-                    }
-                    if (tgt) {
-                        ActionAudit au;
-                        au.distance = dist(player.x, player.y, tgt->x, tgt->y);
-                        au.forwardProgress = (tgt->x - player.x) * fdFor(player.team);
-                        au.expectedCompletion = 0.4;
-                        double sc = emergency ? 1.05 + per.pressureCount * 0.05
-                                  : swarmed  ? 0.74 + std::max(0, per.pressureCount - 2) * 0.05
-                                             : 0.68;   // boxDanger: the hoof is on the menu, a truly clean out-ball can still beat it
-                        a.push_back(Action{ActionType::Pass, sc,
-                                           tgt, 0, 0, ActionPurpose::Clear, au});
-                    }
-                }
-            }
-        }
+        considerPanicClearance(a, per, tackleComing);
 
-        int pc = per.pressureCount;
         double fd = fdFor(player.team);
         double progress = (player.x - ownGoalXFor(player.team)) * fd;
         // (Round 14: a blanket deep-third risk tax on sub-0.62-completion
@@ -321,142 +172,8 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
         // The clearance preference lives in the emergency/swarmed thresholds
         // above instead.)
 
-        // ── Back-pressure layoff ── A rider on the carrier's BACK (behind his
-        // line of travel, touch-tight) means: shield it and give it simple —
-        // the short lay-back to a supporting teammate beats carrying on blind
-        // (watched replay 0:12-0:17: a chased carrier ran four seconds without
-        // once considering the free layoff behind him).
-        {
-            double spd = std::hypot(player.vx, player.vy);
-            if (pc >= 1 && spd > 12.0 && per.nearestOpponentDist < 42.0) {
-                double fx = player.vx / spd, fy = player.vy / spd;
-                double bnx = 0, bny = 0, bd2 = 1e9;
-                for (auto& o : engine.state.players) {
-                    if (!isActiveOpponent(o, player.team)) continue;
-                    double d2 = dist(o.x, o.y, player.x, player.y);
-                    if (d2 < bd2) { bd2 = d2; bnx = o.x - player.x; bny = o.y - player.y; }
-                }
-                double bl = std::hypot(bnx, bny);
-                if (bl > 0.5 && (bnx * fx + bny * fy) / bl < -0.25) {
-                    for (auto& x : a) {
-                        if (x.type == ActionType::Pass && x.audit.distance < 190.0
-                            && x.audit.forwardProgress < 40.0 && x.audit.expectedCompletion > 0.70)
-                            x.score += 0.14;
-                        if (x.type == ActionType::Dribble) x.score -= 0.06;
-                    }
-                }
-            }
-        }
-        bool carryLaunchZone = progress > PITCH_W * 0.42 && progress < PITCH_W * 0.78;
-        bool hasGrassToCarry = per.nearestOpponentDist > 90.0 && pc == 0;
-        for (auto& x : a) {
-            if (x.type == ActionType::Pass)    x.score += pc * 0.04;
-            if (x.type == ActionType::Shoot)   x.score += pc * 0.03;
-            if (x.type == ActionType::Dribble && pc == 1) x.score += 0.10;
-            // Seed 111 0:45: a deep defender with a closer arriving does NOT
-            // turn on the ball and carry into him — the pass menu (CB, and
-            // the keeper when the press is real) must win that beat.
-            if (x.type == ActionType::Dribble && imminentDeepCloser) x.score -= 0.22;
-            if (x.type == ActionType::Dribble && pc >= 3) x.score -= 0.10;
-            if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space && carryLaunchZone && hasGrassToCarry) {
-                x.score += spaceCarryRoleBonus();
-            }
-            // ── Tempo brake (composure dwell) ── An UNPRESSURED carrier doesn't
-            // ping the ball on first touch — he scans and carries before releasing.
-            // The old brake excluded Build/Switch/Cross/Cutback/Through, i.e.
-            // nearly every real pass, and lasted 0.2-0.4s — a no-op that left the
-            // match at ~2100 passes (real ~900-1000, one release every ~6s not
-            // ~2.5s). Now every unpressured pass EXCEPT a genuine killer ball
-            // (Through/Cutback — those windows are fleeting) pays a dwell that
-            // decays over ~2s of hold. A quick vertical outlet that genuinely
-            // breaks lines stays exempt (fast transitions are real football).
-            // Pressure lifts the brake entirely (pc>0): being closed down is what
-            // forces tempo — so possession rhythm emerges from the press, not a
-            // timer. Shots/dribbles are never braked; the carrier carries instead
-            // of standing (Dribble outscores the braked pass).
-            // A "Cutback" is only a killer ball when it actually finds a runner
-            // in the penalty-spot band — that window IS fleeting, play it now.
-            // The isCutback classifier is a catch-all (any wide non-cross
-            // delivery), so a ~24m lay-back to a deep CM wears the same purpose;
-            // that one is ordinary recycling and pays the dwell like any other
-            // pass — which keeps the wide carrier CARRYING (byline-seek) while
-            // the box-burst runner arrives, fixing the cutback's timing from the
-            // carrier's side too (runner-side fix: agent_movement.cpp boxBurst).
-            bool spotBandCutback = x.purpose == ActionPurpose::Cutback
-                && x.target
-                && pitch::distToOppGoal(x.target->x, player.team) < 165.0
-                && std::abs(x.target->y - PITCH_H / 2.0) < 120.0;
-            bool killerBall = x.purpose == ActionPurpose::Through || spotBandCutback;
-            bool lineBreakOutlet = x.type == ActionType::Pass
-                && x.target
-                && roles::isAttacker(x.target->role)
-                && x.audit.forwardProgress > 60.0
-                && x.audit.expectedCompletion > 0.72
-                && x.audit.blockers <= 1
-                && x.audit.receiverPressure <= 1;
-            // Only TIGHT pressure lifts the dwell: a jockeying container 3-4m off
-            // (the measured-press standoff) doesn't force a release — a defender
-            // arriving at touching distance, or two bodies closing in, does.
-            // (pc counts opponents within 60px = 6m, which made the brake a no-op
-            // once the assigned presser arrived — i.e. always.)
-            // A tackler SPRINTING IN also lifts it (closing speed, not distance:
-            // proximity/projection variants read as permanently "arriving"
-            // because the assigned presser lives at a 12-30px standoff — pass
-            // volume exploded +55-80% with those). nearestOpp<30 alone opens the
-            // valve only when the tackler is already at contact — measured
-            // match-wide, deep defenders released at 22-28px on all nine holds,
-            // two of them turnovers (seed 129 0:40, 4:01).
-            bool tightPress = per.nearestOpponentDist < 20.0 || pc >= 2
-                || (tackleComing && progress < PITCH_W * 0.42);
-            // A panic Clear is never "composing" — braking it (esp. the −2.0
-            // hard gate below: Clear is a Pass, deep zone, fresh touch — all
-            // three conditions of a panic situation) left the swarmed deep
-            // receiver standing on the ball until the tackle arrived. The keeper
-            // recycle is the same class of escape ball WHEN THE PRESS IS REAL —
-            // exempting it unconditionally made the GK the only playable ball of
-            // every braked deep hold, and build-up degenerated into a
-            // defender→GK→defender loop (measured 28-47 backpasses/match).
-            // A clearance is only "no time to think" when the press is REAL
-            // (seed 111 22:37: dwell-exempt Clears pinballed first-time hoofs
-            // between three own clearers in 0.8s). Un-pressed, the receiver of
-            // a clearance takes a settling touch like anyone else.
-            bool panicClear = (x.purpose == ActionPurpose::Clear && (tightPress || tackleComing))
-                || (x.purpose == ActionPurpose::KeeperBackpass
-                    && (tackleComing || pc >= 2));
-            if (!tightPress && x.type == ActionType::Pass && !killerBall && !lineBreakOutlet && !panicClear) {
-                if      (holdTicks < 60)  x.score -= 0.26;   // <1.0s: just took the touch
-                else if (holdTicks < 110) x.score -= 0.16;   // <1.8s: still composing
-                else if (holdTicks < 170) x.score -= 0.07;   // <2.8s: about ready
-                // Stage-2 dwell gate NOTE (2026-07-02 audit): an extra −0.34 for
-                // holdTicks<40 in the own-40% zone was A/B'd at 48 paired seeds
-                // and came back INERT on volume (passes 1794→1782, dwell u250ms
-                // 15→12%) — good candidates out-bid even −0.60 total. Only real
-                // effect: ping-pong −18% (82→67/match). Penalties don't move this
-                // arbitration; hence the HARD gate below.
-                // Stage-2b HARD dwell gate: in calm own-40% build-up an ordinary
-                // pass is simply not on the menu for the first ~1.3s of holding —
-                // the carrier scans/carries (Dribble always scores, no deadlock).
-                // Killer balls, line-break outlets and any tight press remain
-                // exempt via the conditions above.
-                // Notch-2 NOTE: extending the zone 0.42→0.55·W was A/B'd at 48
-                // paired seeds and FAILED — passes only 1664→1649 (−0.9%) while
-                // goals broke the guard (+0.40 paired, 2.67→3.06). The midfield
-                // band's holds are mostly pressed or already past the floor, so
-                // the wider zone only perturbed. 0.42 is the sweet spot; the next
-                // tempo lever should be receiver-side (first-touch redirects),
-                // not this gate.
-                if (holdTicks < 80 && progress < PITCH_W * 0.42)
-                    x.score -= 2.0;
-                // Return-pass damper NOTE (2026-07-04 audit: PINGPONG A<->B x5
-                // in 5s): a −0.22 penalty for returning the ball to
-                // runtime[me].lastReceiveFrom within 2.5s (unpressed, non-killer,
-                // non-forward) was A/B'd and came back INERT on both counters —
-                // teammatePingPongs 67→70 (6x90min) and decision-level A-B-A
-                // pass chains 39→37 (3x10min traces). Same lesson as Stage-2:
-                // this arbitration out-bids flat penalties; the ping-pong lever
-                // is receiver-side (first-touch redirects), not carrier-side.
-            }
-        }
+        applyBackPressureLayoff(a, per);
+        applyCarrierScoreBias(a, per, progress, imminentDeepCloser, tackleComing);
 
         adjustActionScores(a, ic);
         return a;
@@ -491,6 +208,357 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
 
     adjustActionScores(a, ic);
     return a;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// considerPanicClearance() — the deep-carrier release valve
+// ══════════════════════════════════════════════════════════════════════════════
+// Lifted verbatim out of evaluateActions, where it was 120 of the carrier
+// branch's 353 lines. It reads the action menu and three facts (the menu, the
+// perception, whether a tackle is arriving) and appends at most one Clear —
+// nothing it declares outlives it, which is why it comes out clean.
+//
+// ── Hoof under pressure / panic clearance ── A deep player with the
+// press ARRIVING (projected along the pressers' velocities, not just
+// standing near) and no safe outlet boots it long rather than gifting
+// possession in a dangerous area. Routed through Clear (scattered
+// forcePassTo) so it's an honest 50/50 clearance toward the forwards,
+// not a measured pass. Watched replay 3'16-3'18: a full-back received
+// deep in his own box with the swarm converging, stood on the ball
+// (static pressureCount hadn't ticked to 2 yet), was tackled — penalty
+// conceded. The emergency case fires on CLOSING pressure and outbids
+// everything except a genuinely clean pass out.
+void PlayerAI::considerPanicClearance(SmallVector<Action, 24>& a, const Perception& per,
+                                      bool tackleComing)
+{
+    double prog = pitch::forwardProgress(player.x, player.team);
+    double oppSoon = 1e9;
+    if (prog < PITCH_W * 0.30) {
+        for (auto& o : engine.state.players) {
+            if (!isActiveOpponent(o, player.team)) continue;
+            double now = dist(o.x, o.y, player.x, player.y);
+            double soon = dist(o.x + o.vx * 0.8, o.y + o.vy * 0.8, player.x, player.y);
+            oppSoon = std::min(oppSoon, std::min(now, soon));
+        }
+    }
+    // Emergency also covers the WIDENED own-30% band when a tackle is
+    // genuinely arriving (was a hardcoded 200px: the 0:40 FB stood at
+    // x=236 with the press sprinting in and no clearance on the menu);
+    // a lone CAPPED presser sprinting at a defender also counts as
+    // swarmed — the 2-man press cap makes pc>=2 structurally rare, so
+    // the old gate could never fire for the commonest caught-in-
+    // possession shape (one sprinting presser, everyone else marking).
+    bool emergency = (prog < 200.0 && oppSoon < 48.0 && per.nearestOpponentDist < 78.0)
+        || (prog < PITCH_W * 0.30 && tackleComing && per.nearestOpponentDist < 78.0);
+    bool swarmed = prog < PITCH_W * 0.30
+        && (per.pressureCount >= 2 || (isDefenderLike() && per.pressureCount >= 1 && tackleComing));
+    // "Hoof away" (owner, seed 111 1:36: ball dropping in the danger
+    // area — 4R's only concerns should be head it clear / corner /
+    // back to GK, "or to check down and hoof away. really want to see
+    // a hoof away introduced"). A defender holding the ball INSIDE his
+    // own box with bodies anywhere near doesn't need a sprinting
+    // tackler to justify getting rid — the check-down is the bestSafe
+    // test below (a genuinely clean out-ball still wins), the hoof is
+    // the answer when there isn't one.
+    bool boxDanger = isDefenderLike()
+        && pitch::distToOwnGoal(player.x, player.team) < PENALTY_AREA_W + 25.0
+        && pitch::lateralFromCenter(player.y) < PENALTY_AREA_H / 2.0 + 30.0
+        // <140 -> arriving-or-<60 (seed 111 22:37: a LONE presser 64px
+        // away drove three first-touch clears in 0.8s — the pinball.
+        // The hoof needs pressure genuinely ARRIVING, not just present).
+        && (tackleComing || per.nearestOpponentDist < 60.0);
+    if (emergency || swarmed || boxDanger) {
+        double bestSafe = 0.0;
+        // Judge "a genuinely clean pass out" on the PLAYABLE score, not raw
+        // completion: the old check read audit.expectedCompletion, so a pass
+        // the dwell gate had priced to -1.3 still suppressed the clearance —
+        // the carrier got neither the hoof nor the ball out (0:38 Ramos) and
+        // invited the presser to tackling range.
+        for (auto& x : a)
+            if (x.type == ActionType::Pass && x.score > 0.15) bestSafe = std::max(bestSafe, x.audit.expectedCompletion);
+        // 0.70/0.60 -> 0.78/0.70 (owner, round 14: "too many silly
+        // losses of possession in [the defensive] third, would prefer
+        // more clearances") — a pass out of a swarm must be genuinely
+        // safe to beat the hoof, not merely coin-flip playable.
+        if (bestSafe < (emergency ? 0.78 : swarmed ? 0.70 : 0.66)) {
+            Player* tgt = pickClearanceTarget();
+            if (tgt) {
+                ActionAudit au;
+                au.distance = dist(player.x, player.y, tgt->x, tgt->y);
+                au.forwardProgress = (tgt->x - player.x) * fdFor(player.team);
+                au.expectedCompletion = 0.4;
+                double sc = emergency ? 1.05 + per.pressureCount * 0.05
+                          : swarmed  ? 0.74 + std::max(0, per.pressureCount - 2) * 0.05
+                                     : 0.68;   // boxDanger: the hoof is on the menu, a truly clean out-ball can still beat it
+                a.push_back(Action{ActionType::Pass, sc,
+                                   tgt, 0, 0, ActionPurpose::Clear, au});
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// pickClearanceTarget() — who the hoof goes at
+// ══════════════════════════════════════════════════════════════════════════════
+// The target scan out of considerPanicClearance: every guard the clear has
+// accumulated (sent-off ghosts, the square-hoof ratio, the point-blank lane
+// veto) reads only the arena, so it needs nothing from the valve that calls
+// it. Returns nullptr when no teammate survives — the caller then pushes no
+// Clear at all, which is the documented "hoof to nobody" fallback.
+Player* PlayerAI::pickClearanceTarget() const {
+    Player* tgt = nullptr; double bestFx = -1e9;
+    for (auto& t : engine.state.players) {
+        // Round-21 (arena audit): a sent-off ghost is parked at
+        // y=-40 — hoofing the panic clearance at it gifted 85% of
+        // arena "clearances" straight to the opponent (the owner's
+        // "0:45 passing to each other"). Skip ejected men; if none
+        // survive, tgt stays null and the Clear is never pushed —
+        // the carrier prices dribble/take-on/hold normally instead
+        // of a blind hoof to nobody. Inert in 11v11.
+        if (t.team != player.team || t.id == player.id || t.role == Role::GK || t.sentOff) continue;
+        // The panic ball goes long AND wide — up the channel,
+        // not through the middle where losing it is fatal.
+        // (A "directed outlet into a breakaway runner's path"
+        // variant was A/B'd here and REVERTED: even gated to
+        // 130px-ahead sprinters projected 70px free, it
+        // re-tagged ~5 hoofs/match as through balls and
+        // halved conversion — the lever needs its own pass.)
+        // Width was REWARDED here (+lat*0.35) and it hooked the
+        // clear onto a wide man near our own byline: seed 305
+        // 1:27, 2R hoofed 88 degrees across the face of his own
+        // box to the touchline corner, entirely on the width
+        // bonus (the central CF outscored him on forward gain).
+        // Prefer the CENTRAL forward out-ball — the middle is
+        // where the danger actually leaves.
+        double fx = pitch::forwardProgress(t.x, player.team)
+                  - pitch::lateralFromCenter(t.y) * 0.20;
+        // Square-hoof guard, on the ball's actual travel RATIO
+        // (the old forward-gain<50 test passed a ball going
+        // 320px sideways for 94px forward): far more sideways
+        // than forward across our own face is never the clear.
+        double relFwd = (t.x - player.x) * fdFor(player.team);
+        double relLat = std::abs(t.y - player.y);
+        if (relLat > relFwd * 1.5 + 120.0) fx -= 400.0;
+        // Round-26: the clear scan had NO lane check, so it could
+        // pick a teammate whose lane the pass-scorer's own point-
+        // blank veto (perp<17, near half, presser within the fresh
+        // release radius) rejects for identical geometry on the
+        // same tick — the owner's 0:09 pid3 clear drilled 65px
+        // straight to an opponent. Penalise (never skip: one
+        // presser can straddle two lanes and null every target in
+        // a swarm, the starved-carrier Hold tombstone) any target
+        // with an opponent point-blank in front of the release
+        // lane. Same magnitude as the square-hoof guard; the
+        // guaranteed fallback (least-bad target still wins) holds.
+        double cdx = t.x - player.x, cdy = t.y - player.y, cls = cdx * cdx + cdy * cdy;
+        if (cls >= 1.0) {
+            for (auto& o : engine.state.players) {
+                if (o.team == player.team || o.role == Role::GK || o.sentOff) continue;
+                double t2 = clamp(((o.x - player.x) * cdx + (o.y - player.y) * cdy) / cls, 0.0, 1.0);
+                double perp = std::hypot(o.x - player.x - t2 * cdx, o.y - player.y - t2 * cdy);
+                if (perp < 17.0 && t2 < 0.5 && dist(o.x, o.y, player.x, player.y) < 70.0) { fx -= 400.0; break; }
+            }
+        }
+        if (fx > bestFx) { bestFx = fx; tgt = &t; }
+    }
+    return tgt;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// deepCloserImminent() — a deep defender with contact ~1.5s away
+// ══════════════════════════════════════════════════════════════════════════════
+// The dribble tax's trigger, pulled out of evaluateActions as the named
+// predicate the variable was already called. Pure read of the arena.
+// Deep defenders read an IMMINENT steady closer as trouble too (seed
+// 111 0:45: pid5 closed 2B at 44-45px/s — under the 50 sprint bar —
+// so no valve armed, the GK ball never reached the menu, and 2B
+// turned into the traffic and was stripped). A flat lower bar (38)
+// was tried and REVERTED: it sits below normal press-approach speed,
+// the valve went permanent and clearances blew 164 -> 274/90. The
+// deep-defender clause instead requires the closer already INSIDE
+// 65px and still coming — contact inside ~1.5s, not a distant cruise.
+bool PlayerAI::deepCloserImminent() const {
+    bool deepDefValve = isDefenderLike()
+        && pitch::forwardProgress(player.x, player.team) < PITCH_W * 0.34;
+    bool imminentDeepCloser = false;
+    if (deepDefValve) {
+        for (auto& o : engine.state.players) {
+            if (!isActiveOpponent(o, player.team)) continue;
+            double dxo = player.x - o.x, dyo = player.y - o.y;
+            double d2 = std::hypot(dxo, dyo);
+            if (d2 < 30.0 || d2 > 65.0) continue;
+            if ((o.vx * dxo + o.vy * dyo) / d2 > 34.0) { imminentDeepCloser = true; break; }
+        }
+    }
+    return imminentDeepCloser;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// applyBackPressureLayoff() — a rider on the carrier's back
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Back-pressure layoff ── A rider on the carrier's BACK (behind his
+// line of travel, touch-tight) means: shield it and give it simple —
+// the short lay-back to a supporting teammate beats carrying on blind
+// (watched replay 0:12-0:17: a chased carrier ran four seconds without
+// once considering the free layoff behind him).
+void PlayerAI::applyBackPressureLayoff(SmallVector<Action, 24>& a, const Perception& per) {
+    double spd = std::hypot(player.vx, player.vy);
+    if (per.pressureCount >= 1 && spd > 12.0 && per.nearestOpponentDist < 42.0) {
+        double fx = player.vx / spd, fy = player.vy / spd;
+        double bnx = 0, bny = 0, bd2 = 1e9;
+        for (auto& o : engine.state.players) {
+            if (!isActiveOpponent(o, player.team)) continue;
+            double d2 = dist(o.x, o.y, player.x, player.y);
+            if (d2 < bd2) { bd2 = d2; bnx = o.x - player.x; bny = o.y - player.y; }
+        }
+        double bl = std::hypot(bnx, bny);
+        if (bl > 0.5 && (bnx * fx + bny * fy) / bl < -0.25) {
+            for (auto& x : a) {
+                if (x.type == ActionType::Pass && x.audit.distance < 190.0
+                    && x.audit.forwardProgress < 40.0 && x.audit.expectedCompletion > 0.70)
+                    x.score += 0.14;
+                if (x.type == ActionType::Dribble) x.score -= 0.06;
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// applyCarrierScoreBias() — pressure bias, carry-launch bonus, tempo brake
+// ══════════════════════════════════════════════════════════════════════════════
+// The last 110 lines of evaluateActions' carrier branch: one pass over the
+// menu that shades every action by how pressed the carrier is and how long he
+// has held it. It needs four facts from the branch above and returns nothing —
+// the whole block writes only Action::score.
+void PlayerAI::applyCarrierScoreBias(SmallVector<Action, 24>& a, const Perception& per,
+                                     double progress, bool imminentDeepCloser,
+                                     bool tackleComing)
+{
+    int pc = per.pressureCount;
+    bool carryLaunchZone = progress > PITCH_W * 0.42 && progress < PITCH_W * 0.78;
+    bool hasGrassToCarry = per.nearestOpponentDist > 90.0 && pc == 0;
+    for (auto& x : a) {
+        if (x.type == ActionType::Pass)    x.score += pc * 0.04;
+        if (x.type == ActionType::Shoot)   x.score += pc * 0.03;
+        if (x.type == ActionType::Dribble && pc == 1) x.score += 0.10;
+        // Seed 111 0:45: a deep defender with a closer arriving does NOT
+        // turn on the ball and carry into him — the pass menu (CB, and
+        // the keeper when the press is real) must win that beat.
+        if (x.type == ActionType::Dribble && imminentDeepCloser) x.score -= 0.22;
+        if (x.type == ActionType::Dribble && pc >= 3) x.score -= 0.10;
+        if (x.type == ActionType::Dribble && x.purpose == ActionPurpose::Space && carryLaunchZone && hasGrassToCarry) {
+            x.score += spaceCarryRoleBonus();
+        }
+        applyTempoBrake(x, per, progress, tackleComing);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// applyTempoBrake() — the composure dwell, per candidate action
+// ══════════════════════════════════════════════════════════════════════════════
+// The inner two thirds of applyCarrierScoreBias' loop. It is a per-action
+// verdict — the exemptions (killer ball, line-break outlet, panic clear, tight
+// press) are all read off the one Action — so it lifts out as a body, not as a
+// phase. The A/B tombstones below are why this gate looks the way it does.
+void PlayerAI::applyTempoBrake(Action& x, const Perception& per, double progress,
+                               bool tackleComing)
+{
+    int pc = per.pressureCount;
+    // ── Tempo brake (composure dwell) ── An UNPRESSURED carrier doesn't
+    // ping the ball on first touch — he scans and carries before releasing.
+    // The old brake excluded Build/Switch/Cross/Cutback/Through, i.e.
+    // nearly every real pass, and lasted 0.2-0.4s — a no-op that left the
+    // match at ~2100 passes (real ~900-1000, one release every ~6s not
+    // ~2.5s). Now every unpressured pass EXCEPT a genuine killer ball
+    // (Through/Cutback — those windows are fleeting) pays a dwell that
+    // decays over ~2s of hold. A quick vertical outlet that genuinely
+    // breaks lines stays exempt (fast transitions are real football).
+    // Pressure lifts the brake entirely (pc>0): being closed down is what
+    // forces tempo — so possession rhythm emerges from the press, not a
+    // timer. Shots/dribbles are never braked; the carrier carries instead
+    // of standing (Dribble outscores the braked pass).
+    // A "Cutback" is only a killer ball when it actually finds a runner
+    // in the penalty-spot band — that window IS fleeting, play it now.
+    // The isCutback classifier is a catch-all (any wide non-cross
+    // delivery), so a ~24m lay-back to a deep CM wears the same purpose;
+    // that one is ordinary recycling and pays the dwell like any other
+    // pass — which keeps the wide carrier CARRYING (byline-seek) while
+    // the box-burst runner arrives, fixing the cutback's timing from the
+    // carrier's side too (runner-side fix: agent_movement.cpp boxBurst).
+    bool spotBandCutback = x.purpose == ActionPurpose::Cutback
+        && x.target
+        && pitch::distToOppGoal(x.target->x, player.team) < 165.0
+        && std::abs(x.target->y - PITCH_H / 2.0) < 120.0;
+    bool killerBall = x.purpose == ActionPurpose::Through || spotBandCutback;
+    bool lineBreakOutlet = x.type == ActionType::Pass
+        && x.target
+        && roles::isAttacker(x.target->role)
+        && x.audit.forwardProgress > 60.0
+        && x.audit.expectedCompletion > 0.72
+        && x.audit.blockers <= 1
+        && x.audit.receiverPressure <= 1;
+    // Only TIGHT pressure lifts the dwell: a jockeying container 3-4m off
+    // (the measured-press standoff) doesn't force a release — a defender
+    // arriving at touching distance, or two bodies closing in, does.
+    // (pc counts opponents within 60px = 6m, which made the brake a no-op
+    // once the assigned presser arrived — i.e. always.)
+    // A tackler SPRINTING IN also lifts it (closing speed, not distance:
+    // proximity/projection variants read as permanently "arriving"
+    // because the assigned presser lives at a 12-30px standoff — pass
+    // volume exploded +55-80% with those). nearestOpp<30 alone opens the
+    // valve only when the tackler is already at contact — measured
+    // match-wide, deep defenders released at 22-28px on all nine holds,
+    // two of them turnovers (seed 129 0:40, 4:01).
+    bool tightPress = per.nearestOpponentDist < 20.0 || pc >= 2
+        || (tackleComing && progress < PITCH_W * 0.42);
+    // A panic Clear is never "composing" — braking it (esp. the −2.0
+    // hard gate below: Clear is a Pass, deep zone, fresh touch — all
+    // three conditions of a panic situation) left the swarmed deep
+    // receiver standing on the ball until the tackle arrived. The keeper
+    // recycle is the same class of escape ball WHEN THE PRESS IS REAL —
+    // exempting it unconditionally made the GK the only playable ball of
+    // every braked deep hold, and build-up degenerated into a
+    // defender→GK→defender loop (measured 28-47 backpasses/match).
+    // A clearance is only "no time to think" when the press is REAL
+    // (seed 111 22:37: dwell-exempt Clears pinballed first-time hoofs
+    // between three own clearers in 0.8s). Un-pressed, the receiver of
+    // a clearance takes a settling touch like anyone else.
+    bool panicClear = (x.purpose == ActionPurpose::Clear && (tightPress || tackleComing))
+        || (x.purpose == ActionPurpose::KeeperBackpass
+            && (tackleComing || pc >= 2));
+    if (!tightPress && x.type == ActionType::Pass && !killerBall && !lineBreakOutlet && !panicClear) {
+        if      (holdTicks < 60)  x.score -= 0.26;   // <1.0s: just took the touch
+        else if (holdTicks < 110) x.score -= 0.16;   // <1.8s: still composing
+        else if (holdTicks < 170) x.score -= 0.07;   // <2.8s: about ready
+        // Stage-2 dwell gate NOTE (2026-07-02 audit): an extra −0.34 for
+        // holdTicks<40 in the own-40% zone was A/B'd at 48 paired seeds
+        // and came back INERT on volume (passes 1794→1782, dwell u250ms
+        // 15→12%) — good candidates out-bid even −0.60 total. Only real
+        // effect: ping-pong −18% (82→67/match). Penalties don't move this
+        // arbitration; hence the HARD gate below.
+        // Stage-2b HARD dwell gate: in calm own-40% build-up an ordinary
+        // pass is simply not on the menu for the first ~1.3s of holding —
+        // the carrier scans/carries (Dribble always scores, no deadlock).
+        // Killer balls, line-break outlets and any tight press remain
+        // exempt via the conditions above.
+        // Notch-2 NOTE: extending the zone 0.42→0.55·W was A/B'd at 48
+        // paired seeds and FAILED — passes only 1664→1649 (−0.9%) while
+        // goals broke the guard (+0.40 paired, 2.67→3.06). The midfield
+        // band's holds are mostly pressed or already past the floor, so
+        // the wider zone only perturbed. 0.42 is the sweet spot; the next
+        // tempo lever should be receiver-side (first-touch redirects),
+        // not this gate.
+        if (holdTicks < 80 && progress < PITCH_W * 0.42)
+            x.score -= 2.0;
+        // Return-pass damper NOTE (2026-07-04 audit: PINGPONG A<->B x5
+        // in 5s): a −0.22 penalty for returning the ball to
+        // runtime[me].lastReceiveFrom within 2.5s (unpressed, non-killer,
+        // non-forward) was A/B'd and came back INERT on both counters —
+        // teammatePingPongs 67→70 (6x90min) and decision-level A-B-A
+        // pass chains 39→37 (3x10min traces). Same lesson as Stage-2:
+        // this arbitration out-bids flat penalties; the ping-pong lever
+        // is receiver-side (first-touch redirects), not carrier-side.
+    }
 }
 
 void PlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {

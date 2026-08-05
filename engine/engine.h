@@ -1074,6 +1074,12 @@ private:
     void recordBallImpulse();
     void beginTrackedPass(Player& from, Player& to, bool isCross = false, bool isThrough = false, bool isCutback = false, bool isClear = false);
     bool resolvePendingPass(Player& receiver);
+    // resolvePendingPass pipeline helpers — the two halves of its header branch
+    // and the ledger tail. Each is internal to that resolution; nothing else in
+    // the engine may call them.
+    bool resolveHeaderClearance(Player& receiver, double deliverySpeed);
+    bool resolveAttackingHeader(Player& receiver, double fd, double gx, double shotDistance);
+    void recordPassOutcome(Player& receiver);
     void auditStuckCarrier(double sdt);
     // FOOTY_BLOBDEBUG=1: stderr-log each 6+-players-in-50px knot with every
     // member's chosen action/purpose — the attribution the crowding ticket
@@ -1121,6 +1127,16 @@ private:
     void hoofClearToSpace(Player& f);
     bool attemptTackle(Player& tackler, Player& carrier, double extraReach = 0.0);
     void resolveTackleFoul(Player& tackler, Player& carrier, bool fromBehind, bool cynical, double boxFoulScale);
+    // attemptTackle pipeline helpers. Its 60-line geometry prologue has NO clean
+    // seam — every local it builds stays live to the end (cuts.py: no
+    // function-scope cut under 10 live locals) — so only the phases that own
+    // their state came out: the commit threshold, the lunge step, and the two
+    // terminal outcomes.
+    [[nodiscard]] double tackleCommitBar(const Player& tackler, const Player& carrier) const;
+    void commitLungeDash(Player& tackler);
+    void completeTackleWin(Player& tackler, Player& carrier);
+    void spillTackleLoose(Player& tackler, Player& carrier, double angle,
+                          double outcomeRoll, double carrierSpeed);
     // headerFinish / firstTimeFinish describe HOW this shot is being struck, and
     // are the ONLY source of that truth. Round-31: they used to be inferred from
     // the decaying Player::crossCollected / Player::firstTouchFinish markers,

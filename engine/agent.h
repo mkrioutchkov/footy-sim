@@ -245,6 +245,17 @@ private:
     int    containSideLatch = 0;   // 0 unset, -1 above carrier, +1 below
 
     SmallVector<Action, 24> evaluateActions(const Perception& per, bool isController);
+    // evaluateActions pipeline helpers — the carrier branch's three phases. Each
+    // reads the action menu and appends/adjusts in place; none of their locals
+    // outlive them, which is why they lift out of the 387-line original cleanly.
+    void considerPanicClearance(SmallVector<Action, 24>& a, const Perception& per,
+        bool tackleComing);
+    [[nodiscard]] Player* pickClearanceTarget() const;
+    [[nodiscard]] bool deepCloserImminent() const;
+    void applyBackPressureLayoff(SmallVector<Action, 24>& a, const Perception& per);
+    void applyCarrierScoreBias(SmallVector<Action, 24>& a, const Perception& per,
+        double progress, bool imminentDeepCloser, bool tackleComing);
+    void applyTempoBrake(Action& x, const Perception& per, double progress, bool tackleComing);
     SmallVector<Action, 24> scorePass(const Perception& per);
     virtual Action        scoreShot(const Perception& per);
     virtual Action        scoreDribble(const Perception& per);
