@@ -1,7 +1,7 @@
 #include "engine.h"
 #include "agent.h"
 
-Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
+Action PlayerAI::scoreShot(const Perception& per) {
     const auto& p = player;
     double soIntensity = engine.directiveBias[p.id].shootOnSight;   // directive: shoot-from-range INTENSITY (0..1)
     bool shootOnSight = soIntensity > 0.0;                          // presence gate for the distance-veto exemptions below
@@ -241,7 +241,7 @@ Action PlayerAI::scoreShot(const Perception& per, const GameContext& ctx) {
 // ══════════════════════════════════════════════════════════════════════════════
 // cd() — can-dribble
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAI::scoreDribble(const Perception& per, const GameContext& /*ctx*/) {
+Action PlayerAI::scoreDribble(const Perception& per) {
     const auto& p = player;
     double gx = goalXFor(p.team);
     double fd = fdFor(p.team);

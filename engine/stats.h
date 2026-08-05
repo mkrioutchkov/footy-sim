@@ -100,6 +100,11 @@ class StatsCollector {
     }
     void recordHeaderClearance() { headerClearances++; }
     void recordHeaderLayoff() { headerLayoffs++; }
+    // NOT WIRED: nothing calls this, so summary["headerControls"] is structurally
+    // always 0 — a gap in the measurement, not a measurement of zero. The other two
+    // header outcomes (clearance, layoff) are recorded; "controlled it" is the third
+    // and the engine never classifies it. Left in place as the seam to wire, rather
+    // than deleted, so the reported field and its setter go missing together.
     void recordHeaderControl() { headerControls++; }
     void recordHeadedShot() { headedShots++; }
     void recordPressuredReception(bool failed) {

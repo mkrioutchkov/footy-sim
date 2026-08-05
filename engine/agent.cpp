@@ -53,9 +53,7 @@ void PlayerAI::tick(double sdt) {
     if (engine.state.ball.intendedReceiverId == player.id) cachedPerception.reset();
 
     Perception per = getCachedPerception();
-
-    GameContext gctx = buildContext();
-    SmallVector<Action, 24> aff = evaluateActions(per, ic, gctx);
+    SmallVector<Action, 24> aff = evaluateActions(per, ic);
     Action choice = resolveChoice(aff);
 
     auditDefensiveMovement(choice);
@@ -105,21 +103,9 @@ void PlayerAI::tick(double sdt) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ctx() — game context
-// ══════════════════════════════════════════════════════════════════════════════
-GameContext PlayerAI::buildContext() {
-    int ms = engine.state.homeScore, os = engine.state.awayScore;
-    int my = (player.team == Team::Home) ? ms : os;
-    int op = (player.team == Team::Home) ? os : ms;
-    int d  = my - op;
-    double tl = std::max(0.0, engine.matchDurationMs - engine.state.clockMs);
-    return { d, tl, engine.phase.half };
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
 // ev() — evaluate actions
 // ══════════════════════════════════════════════════════════════════════════════
-SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic, const GameContext& ctx) {
+SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic) {
     SmallVector<Action, 24> a;
     if (ic) {
         if (stunLockTicks > 0) {
@@ -142,21 +128,21 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
         if (shotCooldown > 0) {
             double gx = goalXFor(player.team);
             if (std::abs(player.x - gx) < 150.0) {
-                auto cpv = this->scorePass(per, ctx);
-                auto csv = this->scoreShot(per, ctx);
-                auto cdv = this->scoreDribble(per, ctx);
+                auto cpv = this->scorePass(per);
+                auto csv = this->scoreShot(per);
+                auto cdv = this->scoreDribble(per);
                 a = cpv;
                 a.push_back(csv);
                 a.push_back(cdv);
             } else {
-                Action d = this->scoreDribble(per, ctx);
+                Action d = this->scoreDribble(per);
                 d.score = 0.6;
                 return { d };
             }
         } else {
-            auto cpv = this->scorePass(per, ctx);
-            auto csv = this->scoreShot(per, ctx);
-            auto cdv = this->scoreDribble(per, ctx);
+            auto cpv = this->scorePass(per);
+            auto csv = this->scoreShot(per);
+            auto cdv = this->scoreDribble(per);
             a = cpv;
             a.push_back(csv);
             a.push_back(cdv);
@@ -475,10 +461,10 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
         adjustActionScores(a, ic);
         return a;
     } else {
-        a.push_back(this->scoreTackle(per, ctx));
-        a.push_back(this->scoreMark(per, ctx));
+        a.push_back(this->scoreTackle(per));
+        a.push_back(this->scoreMark(per));
         a.push_back(this->scoreChase(per));
-        auto bpv = this->scorePositioning(per, ctx);
+        auto bpv = this->scorePositioning(per);
         a.insert(a.end(), bpv.begin(), bpv.end());
     }
 

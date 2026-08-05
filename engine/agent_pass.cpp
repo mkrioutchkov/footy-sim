@@ -3,7 +3,7 @@
 #include "agent_helpers.h"
 #include <optional>
 
-SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per, const GameContext& ctx) {
+SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per) {
     const auto& p = player;
     SmallVector<Action, 24> r;
     // Still settling a fierce first touch — no measured pass this tick. He

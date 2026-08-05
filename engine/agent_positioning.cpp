@@ -1,7 +1,7 @@
 #include "engine.h"
 #include "agent.h"
 
-SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per, const GameContext& ctx) {
+SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
     const auto& p = player;
     auto& b = engine.state.ball;
     double fd = fdFor(p.team);

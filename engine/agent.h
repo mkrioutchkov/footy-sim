@@ -49,12 +49,6 @@ struct Action {
     ActionAudit audit;
 };
 
-struct GameContext {
-    int    scoreDiff = 0;
-    double timeLeft  = 0;
-    int    half      = 1;
-};
-
 struct Perception {
     double              ballDist      = 0;
     bool                ballIsLoose   = false;
@@ -250,20 +244,19 @@ private:
     // it -> a limit-cycle lateral shuffle. Only flip once past a ~22px deadband.
     int    containSideLatch = 0;   // 0 unset, -1 above carrier, +1 below
 
-    GameContext           buildContext();
-    SmallVector<Action, 24> evaluateActions(const Perception& per, bool isController, const GameContext& ctx);
-    SmallVector<Action, 24> scorePass(const Perception& per, const GameContext& ctx);
-    virtual Action        scoreShot(const Perception& per, const GameContext& ctx);
-    virtual Action        scoreDribble(const Perception& per, const GameContext& ctx);
-    virtual Action        scoreTackle(const Perception& per, const GameContext& ctx);
-    Action                scoreMark(const Perception& per, const GameContext& ctx);
+    SmallVector<Action, 24> evaluateActions(const Perception& per, bool isController);
+    SmallVector<Action, 24> scorePass(const Perception& per);
+    virtual Action        scoreShot(const Perception& per);
+    virtual Action        scoreDribble(const Perception& per);
+    virtual Action        scoreTackle(const Perception& per);
+    Action                scoreMark(const Perception& per);
     Action                scoreChase(const Perception& per);
     struct PositionCandidate { double x, y; ActionPurpose pur = ActionPurpose::Keep; };
     struct PositioningContext {
         double fd; bool myTeam; double ballAdvance; double pushUp; double widthPush;
         Team inPossession;
     };
-    virtual SmallVector<Action, 24> scorePositioning(const Perception& per, const GameContext& ctx);
+    virtual SmallVector<Action, 24> scorePositioning(const Perception& per);
 
     // scorePositioning pipeline helpers
     void posBaseCandidates(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc);

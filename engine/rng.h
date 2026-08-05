@@ -7,7 +7,6 @@ class SeededRNG {
     bool seeded = false;
 public:
     void setSeed(uint32_t seed) { state = seed; seeded = true; }
-    void clearSeed() { seeded = false; }
     // Snapshot support: the whole PRNG is this one word. Restoring it resumes
     // the exact draw sequence — same-version snapshot resumes replay the same
     // rolls (cross-version still diverges: different code consumes the stream

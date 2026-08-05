@@ -2,7 +2,7 @@
 #include "agent.h"
 #include <cstdio>
 
-Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) {
+Action PlayerAI::scoreTackle(const Perception& per) {
     if (engine.setPiece.armed) return Action{ActionType::Tackle, 0.0};
     if (per.ballIsLoose || per.ballControllerTeam == player.team)
         return Action{ActionType::Tackle, 0.0};
@@ -233,7 +233,7 @@ Action PlayerAI::scoreTackle(const Perception& per, const GameContext& /*ctx*/) 
 // ══════════════════════════════════════════════════════════════════════════════
 // cm() — can-mark
 // ══════════════════════════════════════════════════════════════════════════════
-Action PlayerAI::scoreMark(const Perception& per, const GameContext& /*ctx*/) {
+Action PlayerAI::scoreMark(const Perception& per) {
     if (!isDefenderRole()) return Action{ActionType::Mark, 0.0};
     if (per.ballControllerTeam == player.team && !per.ballIsLoose) return Action{ActionType::Mark, 0.0};
 
