@@ -7,7 +7,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ── Base home-position candidates (always added) ─────────────────────────────
-void PlayerAI::posBaseCandidates(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc) {
+void PlayerAI::posBaseCandidates(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc) {
     const auto& p = player;
     auto& b = engine.state.ball;
 
@@ -35,6 +35,11 @@ void PlayerAI::posBaseCandidates(SmallVector<PositionCandidate, 32>& c, const Po
 
     int topCount = 0, botCount = 0;
     for (auto& o : engine.state.players) {
+        // Axis pre-reject: |dx| or |dy| >= the track radius already proves the
+        // distance >= it (strict-< count below), so the sqrt can be skipped
+        // without changing either count.
+        if (std::abs(o.x - p.x) >= POS_OPPONENT_TRACK_DIST
+            || std::abs(o.y - p.y) >= POS_OPPONENT_TRACK_DIST) continue;
         if (dist(p.x, p.y, o.x, o.y) >= POS_OPPONENT_TRACK_DIST) continue;
         if (o.y < PITCH_H / 2.0) topCount++;
         else                      botCount++;
@@ -44,7 +49,7 @@ void PlayerAI::posBaseCandidates(SmallVector<PositionCandidate, 32>& c, const Po
 }
 
 // ── Defensive retreat when out of possession and ball not loose ──────────────
-void PlayerAI::posDefensiveCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posDefensiveCover(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per) {
     if (pc.myTeam || per.ballIsLoose) return;
 
     const auto& p = player;
@@ -93,7 +98,7 @@ void PlayerAI::posDefensiveCover(SmallVector<PositionCandidate, 32>& c, const Po
 }
 
 // ── Ball-far and very-far distance offers ────────────────────────────────────
-void PlayerAI::posBallFarOffers(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posBallFarOffers(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per) {
     const auto& p = player;
     auto& b = engine.state.ball;
 
@@ -127,7 +132,7 @@ double PlayerAI::clampToLegalX(double x, double fd) const {
 }
 
 // ── All in-possession attacking support and role-specific runs ───────────────
-void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per) {
     const auto& p = player;
     auto& b = engine.state.ball;
 
@@ -151,6 +156,9 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
             }
             int carrierPressure = 0;
             for (auto& o : engine.state.players) {
+                // Axis pre-reject (exact): an axis gap >= 60 proves dist >= 60,
+                // so the strict-< test below cannot count the skipped player.
+                if (std::abs(o.x - carrier->x) >= 60.0 || std::abs(o.y - carrier->y) >= 60.0) continue;
                 if (o.team != p.team && o.role != Role::GK && dist(o.x, o.y, carrier->x, carrier->y) < 60.0) carrierPressure++;
             }
             // ── Anti-swarm-around-keeper (SHELVED) ── the 5:08 seed-105 moment
@@ -526,7 +534,7 @@ void PlayerAI::posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const 
 }
 
 // ── Defensive line management for defender roles ────────────────────────────
-void PlayerAI::posDefensiveLine(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posDefensiveLine(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per) {
     if (pc.myTeam || !isDefenderRole()) return;
 
     const auto& p = player;
@@ -593,7 +601,7 @@ void PlayerAI::posDefensiveLine(SmallVector<PositionCandidate, 32>& c, const Pos
 }
 
 // ── General out-of-possession cover for non-defenders ───────────────────────
-void PlayerAI::posGeneralCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per) {
+void PlayerAI::posGeneralCover(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per) {
     if (pc.myTeam) return;
 
     const auto& p = player;

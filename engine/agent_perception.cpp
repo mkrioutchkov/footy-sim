@@ -28,6 +28,13 @@ Perception PlayerAI::perceive() {
 
     for (auto& o : engine.state.players) {
         if (o.id == p.id || o.sentOff) continue;
+        // Cheap pre-reject before the sqrt: an axis gap beyond RANGE + 0.5 puts
+        // the true distance past RANGE by ~0.5px, dwarfing sqrt rounding (~1e-13
+        // at these magnitudes), so the `d > RANGE` skip below fires regardless —
+        // the 0.5 slack is what makes the shortcut provably decision-identical.
+        // Most of the 21 candidates on a 1050x680 pitch fail this box.
+        if (std::abs(o.x - p.x) > PLAYER_AWARE_RANGE + 0.5
+            || std::abs(o.y - p.y) > PLAYER_AWARE_RANGE + 0.5) continue;
         double d = dist(p.x, p.y, o.x, o.y);
         if (d > PLAYER_AWARE_RANGE) continue;
 
@@ -69,6 +76,10 @@ Perception PlayerAI::perceive() {
 
     for (auto& o : engine.state.players) {
         if (o.id == p.id || o.role == Role::GK || o.sentOff) continue;
+        // Pre-reject before the sqrt: an axis gap of bd + 0.5 puts o's true
+        // ball distance past bd by ~0.5px — far beyond fp rounding — so both
+        // `d < bd` tests below are false regardless and o contributes nothing.
+        if (std::abs(o.x - b.x) >= bd + 0.5 || std::abs(o.y - b.y) >= bd + 0.5) continue;
         double d = dist(o.x, o.y, b.x, b.y);
         if (o.team == p.team && d < bd) { cc++; if (d < ctd) ctd = d; }
         if (o.team != p.team && d < bd) ao = true;

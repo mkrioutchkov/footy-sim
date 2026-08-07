@@ -9,7 +9,7 @@
 class CFPlayerAI : public PlayerAI {
 public:
     CFPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
-    void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
+    void adjustActionScores(SmallVector<Action, 48>& actions, bool isController) override;
     double shotRoleError(bool, double) const override { return -42.0; }
     double nearGoalDribbleBonus(bool nearGoal, double distToGoal) const override { return nearGoal ? (distToGoal < 120.0 ? 0.12 : 0.18) : 0.0; }
     bool   isOffensiveThreat(double depth, bool danger, double) const override { return depth < (danger ? 340.0 : 270.0); }
@@ -28,7 +28,7 @@ public:
 class WMPlayerAI : public PlayerAI {
 public:
     WMPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
-    void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
+    void adjustActionScores(SmallVector<Action, 48>& actions, bool isController) override;
     double shotRoleError(bool freshCross, double) const override { return freshCross ? -8.0 : 0.0; }
     bool   isOffensiveThreat(double depth, bool danger, double yDistFromCenter) const override { return depth < (danger ? 285.0 : 220.0) && yDistFromCenter < (danger ? 245.0 : 200.0); }
     bool   abandonsDistantChase(const Perception& per, const Ball& b) const override {
@@ -47,7 +47,7 @@ public:
 class CMPlayerAI : public PlayerAI {
 public:
     CMPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
-    void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
+    void adjustActionScores(SmallVector<Action, 48>& actions, bool isController) override;
     double shotRoleError(bool freshCross, double shotDistance) const override { return freshCross ? 58.0 : (shotDistance > 130.0 ? 30.0 : 0.0); }
     double shotDistancePenalty(double shotDistance) const override { return shotDistance > 110.0 ? -0.12 : -0.07; }
     double openSpaceDribbleBonus(double nearestOppDist) const override { return nearestOppDist > 80.0 ? 0.08 : 0.0; }
@@ -67,7 +67,7 @@ public:
 class CBPlayerAI : public PlayerAI {
 public:
     CBPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
-    void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
+    void adjustActionScores(SmallVector<Action, 48>& actions, bool isController) override;
     double defensiveLineOffsetX(bool danger, double lineProgress) const override { return danger ? 92.0 : lineProgress; }
     bool   abandonsDistantChase(const Perception& per, const Ball& b) const override {
         if (per.ballDist <= 120.0) return false;
@@ -79,7 +79,7 @@ public:
 class FBPlayerAI : public PlayerAI {
 public:
     FBPlayerAI(Player& p, GameEngine& e) : PlayerAI(p, e) {}
-    void adjustActionScores(SmallVector<Action, 24>& actions, bool isController) override;
+    void adjustActionScores(SmallVector<Action, 48>& actions, bool isController) override;
     double defensiveLineOffsetX(bool danger, double lineProgress) const override { return danger ? 104.0 : lineProgress + 8.0; }
     double defensiveLineTargetY(double homeY, double, double carrierY) const override { return lerp(homeY, carrierY, 0.20); }
     // An OVERLAPPING fullback was the one off-ball runner the defense never

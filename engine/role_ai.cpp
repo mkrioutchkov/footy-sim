@@ -47,7 +47,7 @@ bool PlayerAI::carrierLastManTrapped() const {
         && tackleArriving(engine.state.players, player.x, player.y, player.team, 90.0, 45.0);
 }
 
-void CFPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
+void CFPlayerAI::adjustActionScores(SmallVector<Action, 48>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     if (!isController) return;
     for (auto& a : actions) {
@@ -55,7 +55,7 @@ void CFPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isCon
     }
 }
 
-void WMPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
+void WMPlayerAI::adjustActionScores(SmallVector<Action, 48>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     if (!isController) return;
     for (auto& a : actions) {
@@ -67,7 +67,7 @@ void WMPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isCon
     }
 }
 
-void CMPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
+void CMPlayerAI::adjustActionScores(SmallVector<Action, 48>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     if (!isController) return;
     Action* bestDribble = nullptr;
@@ -83,7 +83,7 @@ void CMPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isCon
     }
 }
 
-void CBPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
+void CBPlayerAI::adjustActionScores(SmallVector<Action, 48>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     for (auto& a : actions) {
         if (a.type == ActionType::Tackle) a.score += 0.05;
@@ -108,7 +108,7 @@ void CBPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isCon
     }
 }
 
-void FBPlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
+void FBPlayerAI::adjustActionScores(SmallVector<Action, 48>& actions, bool isController) {
     PlayerAI::adjustActionScores(actions, isController);
     // Full-backs get the same quick-release valve as CBs — the watched 0:40
     // (seed 129) caught-in-possession was an FB with no equivalent: he chose

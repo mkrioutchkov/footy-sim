@@ -1,7 +1,7 @@
 #include "engine.h"
 #include "agent.h"
 
-SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
+void PlayerAI::scorePositioning(const Perception& per, SmallVector<Action, 48>& options) {
     const auto& p = player;
     auto& b = engine.state.ball;
     double fd = fdFor(p.team);
@@ -28,7 +28,8 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
             if (!pressDuty) {
                 double dropX = clamp(HALF_X + fd * 40.0, 60.0, PITCH_W - 60.0);
                 double dropY = clamp(p.homeY, 40.0, PITCH_H - 40.0);
-                return { Action{ActionType::Position, 0.95, nullptr, dropX, dropY, ActionPurpose::Observe} };
+                options.push_back(Action{ActionType::Position, 0.95, nullptr, dropX, dropY, ActionPurpose::Observe});
+                return;
             }
         }
     }
@@ -56,7 +57,7 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
     }
 
     PositioningContext pc{fd, my, ba, pu, wp, ip};
-    SmallVector<PositionCandidate, 32> c;
+    SmallVector<PositionCandidate, 48> c;
 
     // Delivery imminent: a teammate carries wide in the final third — box
     // runs must spike now or the cross/cutback arrives to an empty box.
@@ -76,14 +77,47 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
     posDefensiveLine(c, pc, per);
     posGeneralCover(c, pc, per);
 
+    // ── Per-call invariants for the scoring loop (perf, 2026-08 profile) ──
+    // scorePositioning was 33% of match wall time, and the loop below runs once
+    // per candidate (~20-30 per call). Everything cached here reads state that
+    // cannot change while this call scores its candidates — same operands, same
+    // results, bit-identical scores; the loop just stops recomputing them.
+    //
+    // Jitter ±6 -> ±2: the deliberate sinusoid moved every target 12px
+    // peak-to-peak per axis EVERY tick — under momentum that renders as
+    // in-place shiver, not liveliness. (Depends only on clockMs + player id,
+    // so it is identical for every candidate this tick — hoisted.)
+    double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 2.0;
+    double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 2.0;
+    // Offside line: an O(players) scan of a roster that does not move during
+    // this call — hoisted from the per-candidate onside adjustment.
+    bool onsideAware = my && !per.iAmController && (isCenterForward() || isWideMidfielder());
+    double onsideLine = onsideAware ? engine.offsideLineFor(p.team) : 0.0;
+    // Teammate spots for the crowding term, filtered ONCE (was a full-roster
+    // scan re-running the team/id/sentOff tests per candidate). Same players,
+    // same order, same hypot operands — the crowding sum is bit-identical.
+    struct MateXY { double x, y; };
+    SmallVector<MateXY, 11> mateXY;
+    for (auto& q : engine.state.players) {
+        if (q.team != p.team || q.id == p.id || q.sentOff) continue;
+        mateXY.push_back(MateXY{q.x, q.y});
+    }
+    // Fellow-CM spots for the CM spacing term — same filter-once rationale.
+    SmallVector<MateXY, 4> cmXY;
+    if (isCentralMidfielder()) {
+        for (auto& tm : engine.state.players) {
+            if (tm.team != p.team || tm.id == p.id || tm.sentOff || tm.role != Role::CM) continue;
+            cmXY.push_back(MateXY{tm.x, tm.y});
+        }
+    }
+
     // ── Score candidates ──
-    SmallVector<Action, 24> options;
     for (auto& cn : c) {
         double targetX = cn.x;
         double targetY = cn.y;
         double onsideScoreAdjust = 0.0;
-        if (my && !per.iAmController && (isCenterForward() || isWideMidfielder())) {
-            double line = engine.offsideLineFor(p.team);
+        if (onsideAware) {
+            double line = onsideLine;
             if (!std::isnan(line)) {
                 bool beyondHalf = fd > 0.0 ? targetX > HALF_X : targetX < HALF_X;
                 bool beyondBall = fd > 0.0 ? targetX > b.x + OFFSIDE_TOLERANCE : targetX < b.x - OFFSIDE_TOLERANCE;
@@ -103,6 +137,9 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
         }
         double sf = 0;
         for (auto* o : per.nearbyOpponents) {
+            // |dx| or |dy| >= 50 already proves the distance >= 50 -> zero term
+            // (the compare below is strict <); skipping the sqrt cannot change sf.
+            if (std::abs(targetX - o->x) >= 50.0 || std::abs(targetY - o->y) >= 50.0) continue;
             double d2 = std::sqrt((targetX - o->x) * (targetX - o->x) + (targetY - o->y) * (targetY - o->y));
             if (d2 < 50.0) sf -= (50.0 - d2) / 50.0;
         }
@@ -115,8 +152,10 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
         // the 55px-notch rejection note designated. Full-roster scan, not the
         // perception cone: a teammate BEHIND me still crowds the spot.
         double tf = 0;
-        for (auto& q : engine.state.players) {
-            if (q.team != p.team || q.id == p.id || q.sentOff) continue;
+        for (auto& q : mateXY) {
+            // Same conservative reject as sf above: hypot(dx, dy) >= max(|dx|, |dy|),
+            // so a skipped teammate contributed exactly 0 — tf is unchanged.
+            if (std::abs(targetX - q.x) >= 50.0 || std::abs(targetY - q.y) >= 50.0) continue;
             double d2 = std::hypot(targetX - q.x, targetY - q.y);
             if (d2 < 50.0) tf -= (50.0 - d2) / 50.0;
         }
@@ -201,8 +240,9 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
         // fellow CM pays for it — the trio spreads instead of stacking.
         double crowd = 0.0;
         if (isCentralMidfielder()) {
-            for (auto& tm : engine.state.players) {
-                if (tm.team != p.team || tm.id == p.id || tm.sentOff || tm.role != Role::CM) continue;
+            for (auto& tm : cmXY) {
+                // dist >= 95 -> zero term (strict <); the reject can't change crowd.
+                if (std::abs(cn.x - tm.x) >= 95.0 || std::abs(cn.y - tm.y) >= 95.0) continue;
                 double cd = dist(cn.x, cn.y, tm.x, tm.y);
                 if (cd < 95.0) crowd += (95.0 - cd) / 95.0 * 0.26;
             }
@@ -217,12 +257,8 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
         // 87 times in 1.5s, velocity flipping ~176deg per tick while standing
         // still). The stronger edge makes a genuinely better spot still win
         // while adjacent ties stay put.
-        double incumbency = dist(cn.x, cn.y, p.targetX, p.targetY) < 70.0 ? 0.12 : 0.0;
-        // Jitter ±6 -> ±2: the deliberate sinusoid moved every target 12px
-        // peak-to-peak per axis EVERY tick — under momentum that renders as
-        // in-place shiver, not liveliness.
-        double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 2.0;
-        double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 2.0;
+        double incumbency = (std::abs(cn.x - p.targetX) < 70.0 && std::abs(cn.y - p.targetY) < 70.0
+                             && dist(cn.x, cn.y, p.targetX, p.targetY) < 70.0) ? 0.12 : 0.0;
 
         options.push_back(Action{
             ActionType::Position,
@@ -328,7 +364,6 @@ SmallVector<Action, 24> PlayerAI::scorePositioning(const Perception& per) {
         }
     }
 
-    return options;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

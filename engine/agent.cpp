@@ -53,14 +53,14 @@ void PlayerAI::tick(double sdt) {
     if (engine.state.ball.intendedReceiverId == player.id) cachedPerception.reset();
 
     Perception per = getCachedPerception();
-    SmallVector<Action, 24> aff = evaluateActions(per, ic);
+    SmallVector<Action, 48> aff = evaluateActions(per, ic);
     Action choice = resolveChoice(aff);
 
     auditDefensiveMovement(choice);
     executeAction(choice, sdt, aff);
 
     if (std::fmod(engine.state.clockMs, 500.0) < 20.0) {
-        SmallVector<Action, 24> top = aff;
+        SmallVector<Action, 48> top = aff;
         std::sort(top.begin(), top.end(),
                   [](const Action& x, const Action& y) { return x.score > y.score; });
         if (top.size() > 5) top.resize(5);
@@ -105,8 +105,8 @@ void PlayerAI::tick(double sdt) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ev() — evaluate actions
 // ══════════════════════════════════════════════════════════════════════════════
-SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic) {
-    SmallVector<Action, 24> a;
+SmallVector<Action, 48> PlayerAI::evaluateActions(const Perception& per, bool ic) {
+    SmallVector<Action, 48> a;
     if (ic) {
         if (stunLockTicks > 0) {
             // Settle along a FIXED direction — a time-rotating target made the
@@ -181,8 +181,7 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
         a.push_back(this->scoreTackle(per));
         a.push_back(this->scoreMark(per));
         a.push_back(this->scoreChase(per));
-        auto bpv = this->scorePositioning(per);
-        a.insert(a.end(), bpv.begin(), bpv.end());
+        this->scorePositioning(per, a);   // appends exactly what the old return+insert appended
     }
 
     double gx = goalXFor(player.team);
@@ -197,7 +196,10 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
     for (auto& x : a) {
         if (x.type == lastActionType && x.target && x.target->id == lastTargetId) x.score += ic ? 0.12 : 0.05;
 
-        if (x.type == ActionType::Position && x.posX != 0 && x.posY != 0) {
+        if (x.type == ActionType::Position && x.posX != 0 && x.posY != 0
+            && std::abs(x.posX - player.targetX) < 50.0 && std::abs(x.posY - player.targetY) < 50.0) {
+            // The box pre-test cannot flip the bonus: an axis gap >= 50 already
+            // proves td >= 50 (strict <), so only genuine candidates pay the sqrt.
             double td = std::sqrt((x.posX - player.targetX) * (x.posX - player.targetX)
                                 + (x.posY - player.targetY) * (x.posY - player.targetY));
             if (td < 50.0) x.score += 0.07;
@@ -228,7 +230,7 @@ SmallVector<Action, 24> PlayerAI::evaluateActions(const Perception& per, bool ic
 // (static pressureCount hadn't ticked to 2 yet), was tackled — penalty
 // conceded. The emergency case fires on CLOSING pressure and outbids
 // everything except a genuinely clean pass out.
-void PlayerAI::considerPanicClearance(SmallVector<Action, 24>& a, const Perception& per,
+void PlayerAI::considerPanicClearance(SmallVector<Action, 48>& a, const Perception& per,
                                       bool tackleComing)
 {
     double prog = pitch::forwardProgress(player.x, player.team);
@@ -401,7 +403,7 @@ bool PlayerAI::deepCloserImminent() const {
 // the short lay-back to a supporting teammate beats carrying on blind
 // (watched replay 0:12-0:17: a chased carrier ran four seconds without
 // once considering the free layoff behind him).
-void PlayerAI::applyBackPressureLayoff(SmallVector<Action, 24>& a, const Perception& per) {
+void PlayerAI::applyBackPressureLayoff(SmallVector<Action, 48>& a, const Perception& per) {
     double spd = std::hypot(player.vx, player.vy);
     if (per.pressureCount >= 1 && spd > 12.0 && per.nearestOpponentDist < 42.0) {
         double fx = player.vx / spd, fy = player.vy / spd;
@@ -430,7 +432,7 @@ void PlayerAI::applyBackPressureLayoff(SmallVector<Action, 24>& a, const Percept
 // menu that shades every action by how pressed the carrier is and how long he
 // has held it. It needs four facts from the branch above and returns nothing —
 // the whole block writes only Action::score.
-void PlayerAI::applyCarrierScoreBias(SmallVector<Action, 24>& a, const Perception& per,
+void PlayerAI::applyCarrierScoreBias(SmallVector<Action, 48>& a, const Perception& per,
                                      double progress, bool imminentDeepCloser,
                                      bool tackleComing)
 {
@@ -561,14 +563,14 @@ void PlayerAI::applyTempoBrake(Action& x, const Perception& per, double progress
     }
 }
 
-void PlayerAI::adjustActionScores(SmallVector<Action, 24>& actions, bool isController) {
+void PlayerAI::adjustActionScores(SmallVector<Action, 48>& actions, bool isController) {
     if (!isController) return;
     for (auto& a : actions) {
         if (a.type == ActionType::Dribble) a.score += 0.10;
     }
 }
 
-Action PlayerAI::resolveChoice(SmallVector<Action, 24>& a) {
+Action PlayerAI::resolveChoice(SmallVector<Action, 48>& a) {
     std::sort(a.begin(), a.end(),
               [](const Action& x, const Action& y) { return x.score > y.score; });
 
@@ -672,7 +674,7 @@ Action PlayerAI::resolveChoice(SmallVector<Action, 24>& a) {
 // ══════════════════════════════════════════════════════════════════════════════
 // ex() — execute chosen action
 // ══════════════════════════════════════════════════════════════════════════════
-void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 24>& actions) {
+void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 48>& actions) {
     auto& p = player;
     auto& b = engine.state.ball;
 
@@ -1184,7 +1186,7 @@ void PlayerAI::executeDribble(Action& a, double /*sdt*/) {
 // gp() — get perception (cached)
 // ══════════════════════════════════════════════════════════════════════════════
 PassSelectionAudit PlayerAI::passSelectionAudit(const Action& choice,
-                                                   const SmallVector<Action, 24>& actions)
+                                                   const SmallVector<Action, 48>& actions)
 {
     const auto& chosen = choice.audit;
     if (!choice.target) return {};
@@ -1235,7 +1237,7 @@ PassSelectionAudit PlayerAI::passSelectionAudit(const Action& choice,
 // shotSelectionAudit()
 // ══════════════════════════════════════════════════════════════════════════════
 ShotSelectionAudit PlayerAI::shotSelectionAudit(const Action& choice,
-                                                    const SmallVector<Action, 24>& actions)
+                                                    const SmallVector<Action, 48>& actions)
 {
     const auto& shot = choice.audit;
     if (choice.score < 0) return {};

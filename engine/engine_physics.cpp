@@ -45,8 +45,13 @@ void GameEngine::separateTeammates(double sdt) {
             // outfielders stand INSIDE the keeper for seconds.
             bool gkPair = a.role == Role::GK || b.role == Role::GK;
             double dx = b.x - a.x, dy = b.y - a.y;
-            double d = std::hypot(dx, dy);
             double minDist = (gkPair || a.team != b.team) ? 24.0 : SEPARATION_DIST;
+            // Pre-reject before the hypot (perf: this O(pairs) loop runs every
+            // tick and nearly every pair is far apart). An axis gap >= minDist
+            // already proves hypot >= minDist, so the `d >= minDist` skip below
+            // fires either way — the shortcut cannot change who gets pushed.
+            if (std::abs(dx) >= minDist || std::abs(dy) >= minDist) continue;
+            double d = std::hypot(dx, dy);
             if (d < 0.1 || d >= minDist) continue;
             double nx = dx / d, ny = dy / d;
             double pushScale = (gkPair || a.team != b.team) ? 0.10 : 0.24;
@@ -152,7 +157,11 @@ void GameEngine::predictBallPos(double tAhead, double& outX, double& outY) const
     for (double t = 0.0; t < tAhead; t += dt) {
         bool airborne = z > 2.0;
         double f = std::pow(airborne ? BALL_AIR_DRAG : BALL_FRICTION, dt);
-        if (airborne && lastLooseOrigin != LooseOrigin::Shot) {
+        if (airborne && lastLooseOrigin != LooseOrigin::Shot
+            && std::abs(vx) + std::abs(vy) > 179.0) {
+            // |vx|+|vy| <= 179 bounds the speed under the 180 gate below with a
+            // 1px/s margin (>> fp rounding), so the skipped hypot could never
+            // have fired the extra drag — per-step cost only, same trajectory.
             double spA = std::hypot(vx, vy);   // mirror applyBallPhysics' speed-dependent air drag (same shot exemption)
             if (spA > 180.0) f *= (1.0 - clamp((spA - 180.0) / 900.0, 0.0, 0.14) * dt);
         }

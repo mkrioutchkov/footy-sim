@@ -244,19 +244,19 @@ private:
     // it -> a limit-cycle lateral shuffle. Only flip once past a ~22px deadband.
     int    containSideLatch = 0;   // 0 unset, -1 above carrier, +1 below
 
-    SmallVector<Action, 24> evaluateActions(const Perception& per, bool isController);
+    SmallVector<Action, 48> evaluateActions(const Perception& per, bool isController);
     // evaluateActions pipeline helpers — the carrier branch's three phases. Each
     // reads the action menu and appends/adjusts in place; none of their locals
     // outlive them, which is why they lift out of the 387-line original cleanly.
-    void considerPanicClearance(SmallVector<Action, 24>& a, const Perception& per,
+    void considerPanicClearance(SmallVector<Action, 48>& a, const Perception& per,
         bool tackleComing);
     [[nodiscard]] Player* pickClearanceTarget() const;
     [[nodiscard]] bool deepCloserImminent() const;
-    void applyBackPressureLayoff(SmallVector<Action, 24>& a, const Perception& per);
-    void applyCarrierScoreBias(SmallVector<Action, 24>& a, const Perception& per,
+    void applyBackPressureLayoff(SmallVector<Action, 48>& a, const Perception& per);
+    void applyCarrierScoreBias(SmallVector<Action, 48>& a, const Perception& per,
         double progress, bool imminentDeepCloser, bool tackleComing);
     void applyTempoBrake(Action& x, const Perception& per, double progress, bool tackleComing);
-    SmallVector<Action, 24> scorePass(const Perception& per);
+    SmallVector<Action, 48> scorePass(const Perception& per);
     virtual Action        scoreShot(const Perception& per);
     virtual Action        scoreDribble(const Perception& per);
     virtual Action        scoreTackle(const Perception& per);
@@ -267,15 +267,18 @@ private:
         double fd; bool myTeam; double ballAdvance; double pushUp; double widthPush;
         Team inPossession;
     };
-    virtual SmallVector<Action, 24> scorePositioning(const Perception& per);
+    // Appends its Position options to `options` (perf: it used to return a
+    // ~3.5KB SmallVector the caller copy-inserted into the menu every off-ball
+    // tick — appending in place emits the same actions in the same order).
+    virtual void scorePositioning(const Perception& per, SmallVector<Action, 48>& options);
 
     // scorePositioning pipeline helpers
-    void posBaseCandidates(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc);
-    void posDefensiveCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
-    void posBallFarOffers(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
-    void posAttackingSupport(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
-    void posDefensiveLine(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
-    void posGeneralCover(SmallVector<PositionCandidate, 32>& c, const PositioningContext& pc, const Perception& per);
+    void posBaseCandidates(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc);
+    void posDefensiveCover(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per);
+    void posBallFarOffers(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per);
+    void posAttackingSupport(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per);
+    void posDefensiveLine(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per);
+    void posGeneralCover(SmallVector<PositionCandidate, 48>& c, const PositioningContext& pc, const Perception& per);
     [[nodiscard]] double clampToLegalX(double x, double fd) const;
 
 protected:
@@ -291,27 +294,27 @@ protected:
     [[nodiscard]] double  gkDistributeTimer() const;      // goal-kick monitor countdown
     void                  releaseGkDistribution();        // keeper plays it away
 
-    virtual void          adjustActionScores(SmallVector<Action, 24>& actions, bool isController);
+    virtual void          adjustActionScores(SmallVector<Action, 48>& actions, bool isController);
     // Tight press now, or arriving within ~0.6s — the defender quick-release trigger.
     bool                  pressedTightOrClosing() const;
     // In-possession last man: no own outfield teammate goal-side of the carrier.
     bool                  carrierIsLastMan() const;
     // Last man, deep, and genuinely pressed — the "cornered" release trigger.
     bool                  carrierLastManTrapped() const;
-    Action                resolveChoice(SmallVector<Action, 24>& actions);
+    Action                resolveChoice(SmallVector<Action, 48>& actions);
 
     // resolveChoice() pipeline helpers — each returns nullptr to continue, or a chosen action
-    Action* tryFreshBallOverride(SmallVector<Action, 24>& a, Action& best, bool ic, bool nearGoal);
-    Action* tryLowScoreFallback(SmallVector<Action, 24>& a, Action& best);
-    Action* tryLongCarryOverride(SmallVector<Action, 24>& a, Action& best, bool ic);
-    Action* managePressSlots(SmallVector<Action, 24>& a, Action& best, TeamBlackboard& bb);
-    void    auditBackpass(SmallVector<Action, 24>& a, Action& best, bool ic);
-    Action* tryClearPathOverride(SmallVector<Action, 24>& a, Action& best, bool ic, double gx);
-    Action* tryPressureSafetyPass(SmallVector<Action, 24>& a, Action& best, bool ic, bool nearGoal);
-    Action* tryFinalThirdOverride(SmallVector<Action, 24>& a, Action& best, bool ic);
-    Action* tryNearGoalShotBias(SmallVector<Action, 24>& a, Action& best, bool ic, bool nearGoal, double gx);
+    Action* tryFreshBallOverride(SmallVector<Action, 48>& a, Action& best, bool ic, bool nearGoal);
+    Action* tryLowScoreFallback(SmallVector<Action, 48>& a, Action& best);
+    Action* tryLongCarryOverride(SmallVector<Action, 48>& a, Action& best, bool ic);
+    Action* managePressSlots(SmallVector<Action, 48>& a, Action& best, TeamBlackboard& bb);
+    void    auditBackpass(SmallVector<Action, 48>& a, Action& best, bool ic);
+    Action* tryClearPathOverride(SmallVector<Action, 48>& a, Action& best, bool ic, double gx);
+    Action* tryPressureSafetyPass(SmallVector<Action, 48>& a, Action& best, bool ic, bool nearGoal);
+    Action* tryFinalThirdOverride(SmallVector<Action, 48>& a, Action& best, bool ic);
+    Action* tryNearGoalShotBias(SmallVector<Action, 48>& a, Action& best, bool ic, bool nearGoal, double gx);
 private:
-    void                  executeAction(Action& action, double sdt, SmallVector<Action, 24>& actions);
+    void                  executeAction(Action& action, double sdt, SmallVector<Action, 48>& actions);
     void                  executeDribble(Action& a, double sdt);
     // The two big phases of executeDribble. tryTakeOn returns true when it has
     // consumed the tick and the caller must return. Both read only the awareness
@@ -360,8 +363,8 @@ private:
     void                  updateFacing(double ballDist, double ballDx, double ballDy);
     void                  tryCollectAfterChase();
     void                  auditDefensiveMovement(const Action& choice);
-    PassSelectionAudit    passSelectionAudit(const Action& choice, const SmallVector<Action, 24>& actions);
-    ShotSelectionAudit    shotSelectionAudit(const Action& choice, const SmallVector<Action, 24>& actions);
+    PassSelectionAudit    passSelectionAudit(const Action& choice, const SmallVector<Action, 48>& actions);
+    ShotSelectionAudit    shotSelectionAudit(const Action& choice, const SmallVector<Action, 48>& actions);
 public:
     virtual void          setPiecePositioning(SetPiece spType, Team spTeam);
     void                  stunLock(int ticks) { stunLockTicks = std::max(stunLockTicks, ticks); }

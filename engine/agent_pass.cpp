@@ -3,9 +3,9 @@
 #include "agent_helpers.h"
 #include <optional>
 
-SmallVector<Action, 24> PlayerAI::scorePass(const Perception& per) {
+SmallVector<Action, 48> PlayerAI::scorePass(const Perception& per) {
     const auto& p = player;
-    SmallVector<Action, 24> r;
+    SmallVector<Action, 48> r;
     // Still settling a fierce first touch — no measured pass this tick. He
     // takes a touch (dribble/shield) or shoots a first-timer instead. Slow
     // receptions carry ~0 settle, so one-twos off a controlled ball survive.
