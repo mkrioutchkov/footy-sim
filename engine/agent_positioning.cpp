@@ -89,9 +89,33 @@ void PlayerAI::scorePositioning(const Perception& per, SmallVector<Action, 48>& 
     // so it is identical for every candidate this tick — hoisted.)
     double jx = std::sin(engine.state.clockMs * 0.007 + p.id * 1.3) * 2.0;
     double jy = std::cos(engine.state.clockMs * 0.009 + p.id * 1.9) * 2.0;
+    // Role identity: these hooks are VIRTUAL (role_ai overrides the AI, not the
+    // role read), so the compiler cannot hoist them itself — it must assume an
+    // override could observe the candidate loop. They answer from player.role,
+    // which no candidate can change, so reading them once per call is the same
+    // answer every time. Round-2 profile: the purpose-bonus ladder below (now
+    // ~209-217) was making up to five indirect calls per candidate, ~40M a match.
+    const bool amCF = isCenterForward();
+    const bool amWM = isWideMidfielder();
+    const bool amCM = isCentralMidfielder();
+    const bool amFB = isFullBack();
+    // The directive row, the team's tactics row and this player's assignment are
+    // all indexed by ids fixed for the call — same rationale, hoisted from the
+    // candidate loop's boost ladder.
+    const auto& myBias = engine.directiveBias[p.id];
+    const auto& myTac  = engine.teamTactics[teamIndex(p.team)];
+    auto* atask = engine.assignmentFor(p.id);
+    const bool ataskIsArrival = atask
+        && (atask->role == DefensiveTask::RunAhead || atask->role == DefensiveTask::InsideRun
+            || atask->role == DefensiveTask::Overlap || atask->role == DefensiveTask::AdvanceMidfield);
+    // Goal geometry and the danger-bias denominator: same operands every
+    // candidate (only the numerator moves), so the division is unchanged.
+    const double oppGx = goalXFor(p.team);
+    const double og2 = ownGoalXFor(p.team);
+    const double dbDenom = std::abs(b.x - og2) + 1.0;
     // Offside line: an O(players) scan of a roster that does not move during
     // this call — hoisted from the per-candidate onside adjustment.
-    bool onsideAware = my && !per.iAmController && (isCenterForward() || isWideMidfielder());
+    bool onsideAware = my && !per.iAmController && (amCF || amWM);
     double onsideLine = onsideAware ? engine.offsideLineFor(p.team) : 0.0;
     // Teammate spots for the crowding term, filtered ONCE (was a full-roster
     // scan re-running the team/id/sentOff tests per candidate). Same players,
@@ -104,7 +128,7 @@ void PlayerAI::scorePositioning(const Perception& per, SmallVector<Action, 48>& 
     }
     // Fellow-CM spots for the CM spacing term — same filter-once rationale.
     SmallVector<MateXY, 4> cmXY;
-    if (isCentralMidfielder()) {
+    if (amCM) {
         for (auto& tm : engine.state.players) {
             if (tm.team != p.team || tm.id == p.id || tm.sentOff || tm.role != Role::CM) continue;
             cmXY.push_back(MateXY{tm.x, tm.y});
@@ -167,11 +191,7 @@ void PlayerAI::scorePositioning(const Perception& per, SmallVector<Action, 48>& 
         // A deliberately-sent runner (woken attacking assignment) reaches the box
         // via a Task candidate, not a RunAhead/InsideRun purpose — waive its
         // proximity penalty too, else we repel the very runner we just assigned.
-        auto* atask = engine.assignmentFor(p.id);
-        bool assignedArrival = cn.pur == ActionPurpose::Task && atask
-            && (atask->role == DefensiveTask::RunAhead || atask->role == DefensiveTask::InsideRun
-                || atask->role == DefensiveTask::Overlap || atask->role == DefensiveTask::AdvanceMidfield);
-        double oppGx = goalXFor(p.team);
+        bool assignedArrival = cn.pur == ActionPurpose::Task && ataskIsArrival;
         bool boxTarget = std::abs(targetX - oppGx) < 200.0 && std::abs(targetY - PITCH_H / 2.0) < 200.0;
         // Graded throttle (was a blanket ×0.06 that repelled every box run): keep
         // runs entering defended space, but let the penalty-spot/cutback band fill
@@ -183,63 +203,62 @@ void PlayerAI::scorePositioning(const Perception& per, SmallVector<Action, 48>& 
         }
         bool counterOutlet = cn.pur == ActionPurpose::CounterOutlet || cn.pur == ActionPurpose::RestForward;
         double tac = my ? (targetX - p.homeX) * fd / PITCH_W * 0.5 : counterOutlet ? 0.0 : -(targetX - p.homeX) * fd / PITCH_W * 0.25;
-        double og2 = ownGoalXFor(p.team);
-        double db = !my ? clamp(((b.x - targetX) * fd) / (std::abs(b.x - og2) + 1.0), 0.0, 0.30) : 0.0;
+        double db = !my ? clamp(((b.x - targetX) * fd) / dbDenom, 0.0, 0.30) : 0.0;
         double bp2 = std::sqrt((targetX - b.x) * (targetX - b.x) + (targetY - b.y) * (targetY - b.y)) / 600.0 * 0.08;
         double ob = counterOutlet ? 0.44 :
-                    (cn.pur == ActionPurpose::RunAhead && isCenterForward() && ba > 0.40) ? 0.44 :
-                    (cn.pur == ActionPurpose::InsideRun && isCenterForward() && ba > 0.42) ? 0.38 :
-                    (cn.pur == ActionPurpose::InsideRun && isWideMidfielder() && ba > 0.36) ? 0.36 :
-                    (cn.pur == ActionPurpose::RunAhead && isWideMidfielder()) ? 0.30 :
+                    (cn.pur == ActionPurpose::RunAhead && amCF && ba > 0.40) ? 0.44 :
+                    (cn.pur == ActionPurpose::InsideRun && amCF && ba > 0.42) ? 0.38 :
+                    (cn.pur == ActionPurpose::InsideRun && amWM && ba > 0.36) ? 0.36 :
+                    (cn.pur == ActionPurpose::RunAhead && amWM) ? 0.30 :
                     (cn.pur == ActionPurpose::CrossLane || cn.pur == ActionPurpose::Overlap) ? 0.28 :
-                    (cn.pur == ActionPurpose::HoldWidth && isWideMidfielder() && ba > 0.45) ? 0.10 :
+                    (cn.pur == ActionPurpose::HoldWidth && amWM && ba > 0.45) ? 0.10 :
                     (cn.pur == ActionPurpose::Observe) ? 0.10 :
-                    (cn.pur == ActionPurpose::Space && isWideMidfielder() && pitch::lateralFromCenter(cn.y) > 150.0 && ba > 0.4) ? 0.12 : 0.0;
-        if (deliveryImminent && boxTarget && (isCenterForward() || isWideMidfielder() || isCentralMidfielder())) ob += 0.56;
+                    (cn.pur == ActionPurpose::Space && amWM && pitch::lateralFromCenter(cn.y) > 150.0 && ba > 0.4) ? 0.12 : 0.0;
+        if (deliveryImminent && boxTarget && (amCF || amWM || amCM)) ob += 0.56;
         // run_in_behind / make_runs: bias this player toward runs in behind.
         if (my && (cn.pur == ActionPurpose::RunAhead || cn.pur == ActionPurpose::InsideRun || cn.pur == ActionPurpose::CrossLane)) {
-            ob += engine.directiveBias[p.id].runAheadBias;
-            ob -= engine.directiveBias[p.id].comeShortBias;  // come_short: suppress runs in behind (the inverse half)
-            ob -= engine.directiveBias[p.id].pocketBias;     // drift_into_pocket: same — drop into the pocket instead of running in behind
+            ob += myBias.runAheadBias;
+            ob -= myBias.comeShortBias;  // come_short: suppress runs in behind (the inverse half)
+            ob -= myBias.pocketBias;     // drift_into_pocket: same — drop into the pocket instead of running in behind
             // Quick transition: sprint in behind while the defence is unset (counters).
             // counter_attack amplifies it symmetrically with the through-ball bonus.
             if (engine.state.clockMs < engine.transitionUntilMs)
-                ob += 0.20 * (1.0 + engine.teamTactics[teamIndex(p.team)].counterAttackBonus)
+                ob += 0.20 * (1.0 + myTac.counterAttackBonus)
                            * clamp((engine.transitionUntilMs - engine.state.clockMs) / 400.0, 0.0, 1.0);
             // play_it_long: the forwards gamble on the over-the-top run so the long
             // ball has a TARGET — the dial hit it long but had no runner, so it was
             // committing to nothing. Gated on longBallBias (0 => no-directive match
             // unchanged); CF/WM, RunAhead purpose only.
-            double longB = engine.teamTactics[teamIndex(p.team)].longBallBias;
-            if (longB > 0.0 && cn.pur == ActionPurpose::RunAhead && (isCenterForward() || isWideMidfielder()))
+            double longB = myTac.longBallBias;
+            if (longB > 0.0 && cn.pur == ActionPurpose::RunAhead && (amCF || amWM))
                 ob += longB * 0.30;
         }
         // come_short: the INVERSE of run_in_behind — favour the to-feet Offer candidate (drop short to
         // link), gated on the directive (default 0 => no-directive match unchanged).
         if (my && cn.pur == ActionPurpose::ComeShort)
-            ob += engine.directiveBias[p.id].comeShortBias;
+            ob += myBias.comeShortBias;
         // overlap: a directed FB bombs forward on the overlap run (boost the existing Overlap candidate alone).
         if (my && cn.pur == ActionPurpose::Overlap) {
-            ob += engine.directiveBias[p.id].overlapBias;
+            ob += myBias.overlapBias;
             // DEFAULT overlap (user feedback #1 "lack of overlapping runs"): even WITHOUT a directive, the
             // BALL-SIDE full-back bombs on when the team is SETTLED in the opp half — offering the width the
             // user found missing (FBs sat at ~5% att-third). Ball-side only (the far FB holds for balance) +
             // gated on ball advancement, so it never bares both flanks; recovery is structural (the boost
             // lapses the moment the ball drops back / possession turns over). Pure geometry, no rng.
-            if (isFullBack() && ba > 0.50 && (p.y >= PITCH_H / 2.0) == (b.y >= PITCH_H / 2.0))
+            if (amFB && ba > 0.50 && (p.y >= PITCH_H / 2.0) == (b.y >= PITCH_H / 2.0))
                 ob += 0.16;
         }
         // drift_into_pocket: boost the dedicated Pocket purpose alone (the deep between-the-lines target
         // would lose to advanced candidates on danger-bias without its own boost — the come_short lesson).
         if (my && cn.pur == ActionPurpose::Pocket)
-            ob += engine.directiveBias[p.id].pocketBias;
+            ob += myBias.pocketBias;
 
         // CM spacing (shape audit: the midfield trio's mean nearest-teammate
         // was 5.4-6.6m vs 10-12m for every other role, and CM-CM-CM was the
         // top clump class at ~7 clusters/min). A candidate that stands on a
         // fellow CM pays for it — the trio spreads instead of stacking.
         double crowd = 0.0;
-        if (isCentralMidfielder()) {
+        if (amCM) {
             for (auto& tm : cmXY) {
                 // dist >= 95 -> zero term (strict <); the reject can't change crowd.
                 if (std::abs(cn.x - tm.x) >= 95.0 || std::abs(cn.y - tm.y) >= 95.0) continue;

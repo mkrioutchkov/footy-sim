@@ -583,10 +583,33 @@ void PlayerAI::updateFacing(double bd, double bdx, double bdy)
     // slow cap models scanning AWAY from the run line. Without this, fast
     // movers could never align body to velocity and glided backward.
     if (spdAfter > 5.0) {
-        double moveAngle = std::atan2(p.vy, p.vx);
-        double nowOff  = std::abs(std::atan2(std::sin(facing - moveAngle), std::cos(facing - moveAngle)));
-        double prevOff = std::abs(std::atan2(std::sin(prevFacing - moveAngle), std::cos(prevFacing - moveAngle)));
-        if (nowOff < prevOff) maxFacingTurn = std::max(maxFacingTurn, 0.28);
+        // nowOff/prevOff exist ONLY to be compared — nothing downstream reads
+        // either — and both are |wrap(angle - moveAngle)|, i.e. a true angular
+        // separation in [0, PI], where cos is strictly decreasing. So
+        // `nowOff < prevOff` is exactly `cos(nowOff) > cos(prevOff)`, and each
+        // cosine is that facing's projection onto the velocity divided by
+        // spdAfter: cos(a - moveAngle) = (cos a * vx + sin a * vy) / spdAfter.
+        // The common positive divisor drops out of the comparison, so two dot
+        // products replace three atan2 calls and two sin/cos pairs. Same guard
+        // discipline as the perception cone: decide on the projections only when
+        // they are separated by more than FACING_PROJ_SLACK * spdAfter, and let
+        // the original atan2 pair arbitrate anything closer than that — so the
+        // shortcut can never be the one that answers a borderline case.
+        // (spdAfter > 5 here, and nothing in this function writes p.vx/p.vy, so
+        // the divisor is the same positive speed both cosines were scaled by.)
+        double projNow  = std::cos(facing)     * p.vx + std::sin(facing)     * p.vy;
+        double projPrev = std::cos(prevFacing) * p.vx + std::sin(prevFacing) * p.vy;
+        double projSep  = projNow - projPrev;
+        bool turningIn;
+        if (std::abs(projSep) > FACING_PROJ_SLACK * spdAfter) {
+            turningIn = projSep > 0.0;
+        } else {
+            double moveAngle = std::atan2(p.vy, p.vx);
+            double nowOff  = std::abs(std::atan2(std::sin(facing - moveAngle), std::cos(facing - moveAngle)));
+            double prevOff = std::abs(std::atan2(std::sin(prevFacing - moveAngle), std::cos(prevFacing - moveAngle)));
+            turningIn = nowOff < prevOff;
+        }
+        if (turningIn) maxFacingTurn = std::max(maxFacingTurn, 0.28);
         // Moonwalk fix (micro audit: 141 backward-at-speed runs, worst 5s of
         // 51px/s backpedal by an attacker) — a sustained RUN turns the body into
         // the travel line. Legit ball-watching backpedal is preserved: only

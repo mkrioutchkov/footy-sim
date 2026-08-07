@@ -26,6 +26,29 @@ Perception PlayerAI::perceive() {
 
     int pc = 0;
 
+    // ── Cone-test invariants (perf, round-2 profile) ──
+    // The cone's half-angle is fixed for the whole scan: isDefenderRole() is a
+    // virtual call and the own-third read looks at the ball, and no candidate
+    // in the loop can change either. (Both were re-evaluated per candidate.)
+    bool isOwnThird = (p.team == Team::Home) ? b.x < PITCH_W / 3.0 : b.x > PITCH_W * 2.0 / 3.0;
+    bool defenderWide = isDefenderRole() && isOwnThird;
+    const double coneLimit  = defenderWide ? PERCEPTION_CONE_DEFENDER : PERCEPTION_CONE_NEAR;
+    const double coneCosIn  = defenderWide ? PERCEPTION_COS_DEFENDER_IN  : PERCEPTION_COS_NEAR_IN;
+    const double coneCosOut = defenderWide ? PERCEPTION_COS_DEFENDER_OUT : PERCEPTION_COS_NEAR_OUT;
+    // The facing direction as a unit vector, so the cone test is a dot product
+    // instead of an atan2 (see PERCEPTION_CONE_SLACK in constants.h). The
+    // shortcut is only sound while `facing` is already wrapped into [-PI, PI]:
+    // that is what makes the original's `diff > PI ? 2PI - diff : diff` the true
+    // angular separation, and the true separation is the only thing cos(nd)
+    // can measure. This guard is NOT theoretical — a carrier's facing is
+    // accumulated unwrapped (engine_physics moveBallCarrier does `c->facing +=`
+    // with no re-wrap), and an instrumented 45-min match found 17.2k of 3.34M
+    // cone tests running on an out-of-range facing, every one of which the two
+    // formulations would have answered differently. Those take the original path.
+    const bool facingWrapped = (facing >= -PI && facing <= PI);
+    const double cosFacing = std::cos(facing);
+    const double sinFacing = std::sin(facing);
+
     for (auto& o : engine.state.players) {
         if (o.id == p.id || o.sentOff) continue;
         // Cheap pre-reject before the sqrt: an axis gap beyond RANGE + 0.5 puts
@@ -42,12 +65,20 @@ Perception PlayerAI::perceive() {
         if (d < PERCEPTION_NEAR_BALL) {
             inCone = true;
         } else {
-            double angleTo = std::atan2(o.y - p.y, o.x - p.x);
-            double diff = std::abs(angleTo - facing);
-            double nd = (diff > PI) ? 2.0 * PI - diff : diff;
-            bool isOwnThird = (p.team == Team::Home) ? b.x < PITCH_W / 3.0 : b.x > PITCH_W * 2.0 / 3.0;
-            bool defenderWide = isDefenderRole() && isOwnThird;
-            inCone = nd < (defenderWide ? PERCEPTION_CONE_DEFENDER : PERCEPTION_CONE_NEAR);
+            // d is in [PERCEPTION_NEAR_BALL, PLAYER_AWARE_RANGE] here, so the
+            // divide is never degenerate.
+            bool decided = false;
+            if (facingWrapped) {
+                double cosNd = ((o.x - p.x) * cosFacing + (o.y - p.y) * sinFacing) / d;
+                if (cosNd > coneCosIn)       { inCone = true;  decided = true; }
+                else if (cosNd < coneCosOut) { inCone = false; decided = true; }
+            }
+            if (!decided) {
+                double angleTo = std::atan2(o.y - p.y, o.x - p.x);
+                double diff = std::abs(angleTo - facing);
+                double nd = (diff > PI) ? 2.0 * PI - diff : diff;
+                inCone = nd < coneLimit;
+            }
         }
         if (!inCone) continue;
 

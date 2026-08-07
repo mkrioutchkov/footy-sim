@@ -355,8 +355,18 @@ void GameEngine::auditBlobPurposes() {
     for (auto& seed : state.players) {
         if (seed.sentOff) continue;
         int n = 0;
-        for (auto& q : state.players)
-            if (!q.sentOff && dist(q.x, q.y, seed.x, seed.y) < 50.0) n++;
+        for (auto& q : state.players) {
+            if (q.sentOff) continue;
+            // Axis pre-reject before the sqrt (perf, round-2 profile: this is an
+            // O(22x22) scan on EVERY tick — 64M dist() calls a match, measured by
+            // instrumenting pristine HEAD at seed 501 @45min — and it runs
+            // in the shipping build because recordBlobMoment fires regardless of
+            // FOOTY_BLOBDEBUG). hypot(dx, dy) >= max(|dx|, |dy|), so an axis gap of
+            // 50 or more already fails the strict `< 50.0` test below; a skipped
+            // pair could never have incremented n.
+            if (std::abs(q.x - seed.x) >= 50.0 || std::abs(q.y - seed.y) >= 50.0) continue;
+            if (dist(q.x, q.y, seed.x, seed.y) < 50.0) n++;
+        }
         if (n < 6) continue;
         telemetry.blobLogNextMs = state.clockMs + 1500.0;
         stats.recordBlobMoment();

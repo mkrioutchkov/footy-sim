@@ -490,8 +490,33 @@ inline constexpr double SHOT_ERROR_CAP_FAR     = 270.0;
 // ── Perception ──
 inline constexpr double PERCEPTION_CONE_NEAR    = PI / 3.0;
 inline constexpr double PERCEPTION_CONE_DEFENDER = PI / 2.0;
+// Cone-test guard bands (perceive). The test `nd < CONE` is decided on cos(nd)
+// instead of nd, because cos is strictly decreasing on [0, PI]: cos(nd) above
+// cos(CONE - SLACK) proves nd < CONE, and cos(nd) below cos(CONE + SLACK)
+// proves nd >= CONE. cos(nd) is the unit dot product, which costs three flops
+// against an atan2 call. SLACK is 1e-7 rad — eight orders of magnitude above
+// the ~1e-15 error in either the dot product or the atan2, and the resulting
+// gap in cosine (sin(CONE) * SLACK/2, i.e. >= 4e-8) dwarfs it just as far — so
+// a candidate inside a band CANNOT be one the atan2 would have decided the
+// other way. A candidate that survives BOTH bands (within 1e-7 rad of the cone
+// edge) falls through to the original atan2 expression, so wherever the two
+// formulations could conceivably disagree the atan2 still arbitrates.
+inline constexpr double PERCEPTION_CONE_SLACK   = 1e-7;
+inline const double PERCEPTION_COS_NEAR_IN      = std::cos(PERCEPTION_CONE_NEAR - PERCEPTION_CONE_SLACK);
+inline const double PERCEPTION_COS_NEAR_OUT     = std::cos(PERCEPTION_CONE_NEAR + PERCEPTION_CONE_SLACK);
+inline const double PERCEPTION_COS_DEFENDER_IN  = std::cos(PERCEPTION_CONE_DEFENDER - PERCEPTION_CONE_SLACK);
+inline const double PERCEPTION_COS_DEFENDER_OUT = std::cos(PERCEPTION_CONE_DEFENDER + PERCEPTION_CONE_SLACK);
 inline constexpr double PERCEPTION_NEAR_BALL    = 40.0;
 inline constexpr double PERCEPTION_PRESSURE_DIST = 60.0;
+
+// Same discipline for updateFacing's "am I turning INTO my run line?" test,
+// which compares two |wrap(facing - moveAngle)| values and reads neither. It
+// is decided on the two facings' projections onto the velocity (the cosines
+// of the same two angles, scaled by the speed), and the shortcut only fires
+// when those projections are separated by more than this fraction of the
+// speed — six orders above the ~1e-15 rounding on either side of the
+// comparison. Anything closer falls back to the original atan2 pair.
+inline constexpr double FACING_PROJ_SLACK       = 1e-9;
 
 // ── Agent decision thresholds ──
 inline constexpr double MIN_FALLBACK_SCORE      = 0.15;
