@@ -107,8 +107,42 @@ try {
   assert(pro.passing === 62.1, `a model professional grows 1.4x: 1.5 -> 2.1/matchday at 19 (got ${pro.passing})`);
   assert(slack.passing === 60.9, `a slacker grows 0.6x: 1.5 -> 0.9/matchday at 19 (got ${slack.passing})`);
   assert(slack.passing < one.passing && one.passing < pro.passing, 'traits order the growth rate: slacker < neutral < professional');
+  // FIXED (was a FINDING pinned right here, "diligence multiplies DECLINE too — a diligent veteran
+  // fades 1.68/matchday"): the 0.6..1.4 diligence multiplier was applied to the drift in BOTH
+  // directions, so a model professional aged ~1.8x FASTER than a slacker — while the very same
+  // report line told the manager "Model professional — learns fast". Decline now takes the MIRROR of
+  // the growth factor, so the band reads the right way round both ways.
+  assert(training.diligenceFactor({ professionalism: 100, consistency: 100 }, true) === 1.4
+      && training.diligenceFactor({ professionalism: 0, consistency: 0 }, true) === 0.6,
+    'growth keeps the original 0.6..1.4 band (a pro learns 1.4x as fast)');
+  assert(training.diligenceFactor({ professionalism: 100, consistency: 100 }, false) === 0.6
+      && training.diligenceFactor({ professionalism: 0, consistency: 0 }, false) === 1.4,
+    'decline takes the MIRROR of that band: the pro fades 0.6x, the slacker 1.4x');
+  assert(training.diligenceFactor(null, true) === 1 && training.diligenceFactor(null, false) === 1,
+    'neutral traits are the identity in both directions — a neutral-personality save is byte-identical');
   const proVet = training.developAttrs(attrsAll(60), 35, 70, { professionalism: 100, consistency: 100 }, 'balanced', 65, 1, 1, 'CM');
-  assert(proVet.passing === 58.3, `current behaviour: diligence multiplies DECLINE too — a diligent veteran fades 1.68/matchday (got ${proVet.passing})`);
+  const slackVet = training.developAttrs(attrsAll(60), 35, 70, { professionalism: 0, consistency: 0 }, 'balanced', 65, 1, 1, 'CM');
+  assert(proVet.passing === 59.3 && proVet.speed === 58.8,
+    `a model professional AGES WELL: 1.2 -> 0.72/matchday at 35 (got passing ${proVet.passing}, speed ${proVet.speed})`);
+  assert(slackVet.passing === 58.3 && slackVet.speed === 57.3,
+    `a slacker fades fastest: 1.2 -> 1.68/matchday at 35 (got passing ${slackVet.passing}, speed ${slackVet.speed})`);
+  assert(proVet.passing > vet.passing && vet.passing > slackVet.passing,
+    'traits order the decline rate the other way up from growth: professional < neutral < slacker');
+  // The mirror property itself, at every dial setting: the two directions are one band read both
+  // ways, so they always sum to 2x the neutral factor. (The stored attrs round to 1 decimal, so
+  // assert this on the factor, not on a ratio of rounded attribute values.)
+  assert([0, 20, 35, 50, 75, 90, 100].every(v => {
+    const t = { professionalism: v, consistency: v };
+    return Math.abs(training.diligenceFactor(t, true) + training.diligenceFactor(t, false) - 2) < 1e-12;
+  }), 'growth and decline factors mirror about the neutral 1.0 at every dial setting (they always sum to 2)');
+  const proVetLine = training.explainTraining(attrsAll(60), proVet, { slot: 5, name: 'Model Pro', role: 'CM' }, 35,
+    { professionalism: 100, consistency: 100 }, 'balanced', false, 65, 1, 1);
+  assert(proVetLine.ovrDelta < 0 && proVetLine.factors.includes('Model professional — ages well'),
+    `the report no longer contradicts the numbers: a DECLINING pro reads "ages well", not "learns fast" (got ${JSON.stringify(proVetLine.factors)})`);
+  const slackVetLine = training.explainTraining(attrsAll(60), slackVet, { slot: 6, name: 'Lax Lad', role: 'CM' }, 35,
+    { professionalism: 0, consistency: 0 }, 'balanced', false, 65, 1, 1);
+  assert(slackVetLine.factors.includes('Poor application — fading fast') && slackVetLine.ovrDelta < proVetLine.ovrDelta,
+    'and the slacker reads "fading fast" against the bigger fall');
 
   // ── CLAMP ───────────────────────────────────────────────────────────────────
   // Ledger: "growth caps at potential, decline floors at 30" — plus the hard 30..95

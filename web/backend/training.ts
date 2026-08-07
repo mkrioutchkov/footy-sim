@@ -184,6 +184,35 @@ export function retrainPenalty(familiarity: number): number {
   return 0.7 + 0.3 * (f / 100);
 }
 
+// Diligence = the professionalism/consistency dials as ONE drift multiplier, spanning
+// DILIGENCE_MIN..DILIGENCE_MIN+DILIGENCE_SPAN (0.6..1.4) and sitting exactly on 1.0 — the identity,
+// in BOTH directions — at the neutral 50/50 dials.
+const DILIGENCE_MIN = 0.6;
+const DILIGENCE_SPAN = 0.8;      // 0.6 at 0/0 dials … 1.4 at 100/100
+
+// The diligence multiplier for one player's drift this matchday. `growing` picks the direction.
+//
+// TOMBSTONE (was a filed bug, "held for owner taste"): this factor used to be applied to the drift
+// in BOTH directions — `drift = ageDrift(age) * diligence * morale` — which meant a model
+// professional DECLINED ~1.8x faster than a slacker (measured: at 35, passing −1.60/matchday for
+// prof/cons 90 vs −0.90 for 20; at 32, −0.80 vs −0.50). That is the opposite of what the trait
+// means, and the training report contradicted the numbers on the same line: a declining model pro
+// was shown "Model professional — learns fast" against the biggest OVR fall in the squad.
+// Decline now reads the dials UPSIDE-DOWN (the complement, `1 - dials`), which is the same 0.6..1.4
+// band mirrored about the neutral 1.0 — so a pro grows 1.4x and fades 0.6x, a slacker grows 0.6x and
+// fades 1.4x, and the two directions always sum to exactly 2. Neutral traits are 1.0 either
+// side, so a neutral-personality save is byte-identical. (Taking the complement of the DIALS
+// rather than subtracting the finished factor also keeps both ends exact in floating point.)
+// Do NOT re-collapse this back to a single multiplication.
+export function diligenceFactor(
+  traits: { professionalism?: number; consistency?: number } | null | undefined, growing: boolean,
+): number {
+  const prof = (traits?.professionalism ?? 50) / 100;
+  const cons = (traits?.consistency ?? 50) / 100;
+  const dials = (prof + cons) / 2;                                                 // 0..1
+  return DILIGENCE_MIN + DILIGENCE_SPAN * (growing ? dials : 1 - dials);           // 0.6..1.4, mirrored on decline
+}
+
 // OVR points of drift per matchday before trait/focus scaling: growth while young,
 // a prime plateau, then decline. TASTE: see GAME_LAYER_NOTES.md.
 function ageDrift(age: number): number {
@@ -205,10 +234,10 @@ export function developAttrs(
   focus: string | null, morale = 65, coachFactor = 1, harmonyF = 1,
   role?: string, growthMul = 1, loadDampenF = 1, retrainPenaltyF = 1,
 ): Record<string, number> {
-  const prof = (traits?.professionalism ?? 50) / 100;
-  const cons = (traits?.consistency ?? 50) / 100;
-  const diligence = 0.6 + 0.8 * ((prof + cons) / 2);          // 0.6..1.4
-  let drift = ageDrift(age) * diligence * moraleDevFactor(morale);   // age x diligence x morale
+  // The age curve decides the DIRECTION; diligence then reads the right way round for that
+  // direction (grow faster / fade slower for a pro — see diligenceFactor's tombstone).
+  const aged = ageDrift(age);
+  let drift = aged * diligenceFactor(traits, aged > 0) * moraleDevFactor(morale);   // age x diligence x morale
   // growthMul = training intensity (1 = normal/identity); coaches + a settled room accelerate growth, not
   // decline; loadDampenF (1 = no burnout) trims gains when load is high; retrainPenaltyF (1 = settled) trims
   // gains while a player adapts to a new role. All default to 1.
@@ -254,9 +283,11 @@ function trainingFactors(
   const f: string[] = [];
   f.push(age <= 20 ? 'Young — rapid growth' : age <= 23 ? 'Developing' : age <= 27 ? 'Approaching prime'
     : age <= 30 ? 'In his peak years' : age <= 33 ? 'Past 30 — starting to decline' : 'Veteran in decline');
+  // Direction-aware since the diligence sign fix: the same dials that make a pro learn fast make him
+  // age well, so the "why" line must not read "learns fast" against a falling OVR (it used to).
   const dil = ((traits?.professionalism ?? 50) + (traits?.consistency ?? 50)) / 2;
-  if (dil >= 75) f.push('Model professional — learns fast');
-  else if (dil <= 35) f.push('Poor application holds him back');
+  if (dil >= 75) f.push(growing ? 'Model professional — learns fast' : 'Model professional — ages well');
+  else if (dil <= 35) f.push(growing ? 'Poor application holds him back' : 'Poor application — fading fast');
   if (morale >= 80) f.push('Buoyant mood lifts his work');
   else if (morale < 50) f.push('Low morale is stalling progress');
   if (growing && coachFactor > 1) f.push(`Coaching staff +${Math.round((coachFactor - 1) * 100)}%`);

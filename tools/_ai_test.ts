@@ -102,9 +102,6 @@ try {
   SQUAD.forEach(([key, role, ovr], i) => {
     pid[key] = Number(insPlayer.run(tA, SQUAD.length - 1 - i, key, role, attrsAll(ovr)).lastInsertRowid);
   });
-  // The best striker is injured AND exhausted before the repack — optimizeLineup has no
-  // availability rule (it scores purely by overall), so he must still start (see FINDINGS).
-  db.prepare('UPDATE players SET injured_matches = 4, fitness = 5 WHERE id = ?').run(pid.cf1);
   ai.optimizeLineup(tA);
 
   const rowsA = rowsBySlot(tA);
@@ -120,11 +117,71 @@ try {
   const expectBench = ['cm4', 'fb3', 'gkB', 'cb3', 'cf2', 'wm3'].map(k => pid[k]);
   assert(rowsA.slice(11).map(r => r.id).join(',') === expectBench.join(','),
     'the rest are benched in descending overall order (slots 11..16)');
-  assert(rowsA[9].id === pid.cf1,
-    'current behaviour: an injured, exhausted top scorer is STILL slotted into the XI — optimizeLineup has no fitness/injury rule');
   const snapA = slotMap(tA);
   ai.optimizeLineup(tA);
   assert(slotMap(tA) === snapA, 'optimizeLineup is deterministic + idempotent: a second run reproduces the identical slot map');
+
+  // ── AVAILABILITY + CONDITION ────────────────────────────────────────────────
+  // FIXED (was a FINDING pinned right here): optimizeLineup scored on raw `overall` alone, so it
+  // slotted an INJURED man into the XI and started a 3%-fit man every week. The repack now mirrors
+  // the game's own model — injury is a hard exclusion (as fitFirstSelection treats it at kickoff and
+  // rotation.ts does on the manager's screen), fitness only WEIGHTS the score (its whole in-game
+  // cost is the rising injury risk in fitness.ts, and the engine never reads it at all).
+  // The XI asserted above was drawn from a fully fit squad, which is the byte-identical baseline:
+  // now knock out the best striker and exhaust the best midfielder and re-pack.
+  db.prepare('UPDATE players SET injured_matches = 4, fitness = 5 WHERE id = ?').run(pid.cf1);
+  db.prepare('UPDATE players SET fitness = 3 WHERE id = ?').run(pid.cm1);
+  ai.optimizeLineup(tA);
+  const rowsInj = rowsBySlot(tA);
+  const xiInj = new Set(rowsInj.slice(0, 11).map(r => r.id));
+  assert(!xiInj.has(pid.cf1), 'an INJURED player is no longer selected: the 75-rated striker is benched while he is out');
+  assert(!xiInj.has(pid.cm1), 'a 3%-fit player is no longer selected: the 72-rated midfielder drops behind a fresh 58-rated reserve');
+  assert(rowsInj.slice(0, 11).map(r => r.role).join(',') === game.ROLE_SLOTS.join(','),
+    'the replacement XI is still role-correct — the CF berth goes to the back-up STRIKER, not to whoever sits in the next slot');
+  const expectInjXI = ['gkA', 'fb1', 'cb1', 'cb2', 'fb2', 'cm2', 'cm3', 'cm4', 'wm1', 'cf2', 'wm2'].map(k => pid[k]);
+  assert(rowsInj.slice(0, 11).map(r => r.id).join(',') === expectInjXI.join(','),
+    'the unavailable pair are replaced by the best available man OF THEIR OWN ROLE, slot by slot');
+  const expectInjBench = ['fb3', 'gkB', 'cb3', 'cm1', 'wm3', 'cf1'].map(k => pid[k]);
+  assert(rowsInj.slice(11).map(r => r.id).join(',') === expectInjBench.join(','),
+    'the bench reads as a depth chart: available men by weighted score, the injured man last of all');
+  db.prepare('UPDATE players SET injured_matches = 0, fitness = 100 WHERE team_id = ?').run(tA);
+  ai.optimizeLineup(tA);
+  assert(slotMap(tA) === snapA, 'once everyone is fit and available again the repack returns to the identical fully-fit XI');
+
+  // Fitness WEIGHTS the score, it never gates it — a 60%-fit star must still out-rank a fresh
+  // reserve, or "rest him" would silently become "drop him" the moment he dipped below fresh.
+  assert(ai.fitnessWeight(100) === 1 && ai.fitnessWeight(70) === 1,
+    'fitnessWeight is exactly 1 at full fitness and at the 70 rest threshold (a fully fit squad is unaffected)');
+  assert(ai.fitnessWeight(0) === 0.6 && ai.fitnessWeight(35) === 0.8,
+    `fitnessWeight tapers linearly from 1.0 at 70 to 0.6 at 0 (got ${ai.fitnessWeight(0)} / ${ai.fitnessWeight(35)})`);
+  const tW = mkTeam(lgA, null, 'Weighted FC');
+  const wSquad: [string, string, number][] = [
+    ['wgk', 'GK', 60], ['wfb1', 'FB', 60], ['wfb2', 'FB', 60], ['wcb1', 'CB', 60], ['wcb2', 'CB', 60],
+    ['wcm1', 'CM', 60], ['wcm2', 'CM', 60], ['wcm3', 'CM', 60], ['wwm1', 'WM', 60], ['wwm2', 'WM', 60],
+    ['wstar', 'CF', 75], ['wsub', 'CF', 65],
+  ];
+  const wid: Record<string, number> = {};
+  wSquad.forEach(([key, role, ovr], i) => { wid[key] = Number(insPlayer.run(tW, i, key, role, attrsAll(ovr)).lastInsertRowid); });
+  db.prepare('UPDATE players SET fitness = 60 WHERE id = ?').run(wid.wstar);
+  ai.optimizeLineup(tW);
+  assert(rowsBySlot(tW)[9].id === wid.wstar,
+    'a 60%-fit 75-rated star still beats a fresh 65-rated reserve (75 x 0.943 = 70.7 > 65) — fitness weights, it does not gate');
+  db.prepare('UPDATE players SET fitness = 3 WHERE id = ?').run(wid.wstar);
+  ai.optimizeLineup(tW);
+  assert(rowsBySlot(tW)[9].id === wid.wsub,
+    'at 3% fitness the same star finally loses the shirt (75 x 0.617 = 46.3 < 65) — the AI now rotates an exhausted man out');
+
+  // A club too injury-hit to field eleven fit men still puts out a team — the same
+  // "only when there are >= 11 fit to cover" guard fitFirstSelection (game.ts) applies.
+  const tI = mkTeam(lgA, null, 'Casualty FC');
+  const iIds = game.ROLE_SLOTS.map((role, i) => Number(insPlayer.run(tI, i, `i${i}`, role, attrsAll(60)).lastInsertRowid));
+  db.prepare('UPDATE players SET injured_matches = 2 WHERE id IN (?, ?, ?)').run(iIds[9], iIds[10], iIds[8]);
+  ai.optimizeLineup(tI);
+  const rowsI = rowsBySlot(tI);
+  assert(rowsI.length === 11 && new Set(rowsI.map(r => r.slot)).size === 11,
+    'a squad of exactly 11 with three injured still fills all 11 slots (the injured are ranked normally again)');
+  assert(rowsI.map(r => r.role).join(',') === game.ROLE_SLOTS.join(','),
+    'and that under-strength XI is still role-correct');
 
   // Fallback: with no keeper at all, slot 0 falls back to the best unused player of ANY role.
   const tB = mkTeam(lgA, null, 'No Keeper FC');

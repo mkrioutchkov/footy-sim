@@ -8,23 +8,68 @@ import { overall, ROLE_SLOTS } from './game.ts';
 import { TRAINABLE } from './training.ts';
 import { seedStaffPool, hireStaff, suggestCoachAssignment, saveCoachAssignment, MAX_STAFF } from './staff.ts';
 
+// How a man's CONDITION discounts his selection score. Fitness WEIGHTS ability, it does not gate it
+// — a 60%-fit star must still be able to out-score a fresh reserve — so a starter keeps full marks
+// down to REST_FITNESS and then tapers linearly to EXHAUSTED_WEIGHT at 0%. These mirror the game's
+// own model rather than inventing a second one: REST_FITNESS is the 70 that rotation.ts calls
+// worth-resting (its REST_THRESHOLD; duplicated because rotation.ts does not export it), and the
+// engine itself never reads fitness — its whole cost is the rising injury risk in fitness.ts
+// (startInjuryRisk: 3% fresh → 13% exhausted), which is exactly what this discount prices in.
+// Fitness 100 (the schema default, and every un-played squad) weighs 1.0, so a fully fit squad
+// repacks byte-identically to before this rule.
+const REST_FITNESS = 70;
+const EXHAUSTED_WEIGHT = 0.6;
+export function fitnessWeight(fitness: number): number {
+  const f = Math.max(0, Math.min(100, fitness));
+  if (f >= REST_FITNESS) { return 1; }
+  return EXHAUSTED_WEIGHT + (1 - EXHAUSTED_WEIGHT) * (f / REST_FITNESS);
+}
+
 // Re-pack an AI squad so its strongest role-correct XI fills slots 0..10 (the default-path
-// starting XI) and the rest sit on the bench. Each XI slot takes the best unused player of
-// that slot's role, falling back to the best unused player of any role when there's no cover.
-// Keeps AI sides fielding their best team as transfers + development reshape the squad.
+// starting XI) and the rest sit on the bench. Each XI slot takes the best unused AVAILABLE player of
+// that slot's role, falling back to the best unused available player of any role when there's no
+// cover. Keeps AI sides fielding their best team as transfers + development reshape the squad.
+//
+// TOMBSTONE (was a filed bug, "held for owner taste"): selection used to score on raw `overall`
+// alone, with no availability or condition rule at all. Two measured consequences on a 17-man squad
+// whose best striker was injured (4 matchdays) and whose best midfielder was at 3% fitness:
+//   1. the 3%-fit midfielder started every week — the AI never rotated, and never has,
+//   2. the injured striker was slotted at his CF position, and although fitFirstSelection (game.ts)
+//      then dropped him at kickoff, it does so by SLOT ORDER — so the CF berth was filled by a
+//      winger and the WM berth by a centre-mid (2/11 positions on the wrong role) while the club's
+//      actual back-up striker sat on the bench.
+// This also fixes the ABSENT-HUMAN path: routes/world.ts calls optimizeLineup on an away manager's
+// club and its comment already promises "Refresh the XI only (injury/fatigue cover)" — cover this
+// function did not previously provide.
 export function optimizeLineup(teamId: number): void {
-  const players = db.prepare('SELECT id, role, attrs FROM players WHERE team_id = ?').all(teamId) as { id: number; role: string; attrs: string }[];
-  if (players.length < 11) return;
-  const pool = players.map(p => ({ id: p.id, role: p.role, ovr: overall(JSON.parse(p.attrs), p.role) }));
+  const players = db.prepare('SELECT id, role, attrs, fitness, injured_matches AS injuredMatches FROM players WHERE team_id = ?')
+    .all(teamId) as unknown as { id: number; role: string; attrs: string; fitness: number | null; injuredMatches: number | null }[];
+  if (players.length < 11) { return; }
+  const pool = players.map(p => ({
+    id: p.id, role: p.role,
+    injured: (p.injuredMatches ?? 0) > 0,
+    score: overall(JSON.parse(p.attrs), p.role) * fitnessWeight(p.fitness ?? 100),   // ability, discounted by condition
+  }));
+  // An INJURED man is unavailable, full stop — but only while there are 11 fit men to cover him,
+  // exactly the rule fitFirstSelection (game.ts) applies at kickoff. A club too injury-hit to field
+  // eleven ranks everyone again, so it still puts out a team instead of an under-strength one.
+  const cover = pool.filter(p => !p.injured).length >= 11;
+  const selectable = cover ? pool.filter(p => !p.injured) : pool;
+  const byScore = (a: { score: number }, b: { score: number }): number => b.score - a.score;
   const used = new Set<number>();
   const order: number[] = [];                                   // player ids in slot order
   for (let i = 0; i < 11; i++) {
     const want = ROLE_SLOTS[i];
-    const byRole = pool.filter(p => !used.has(p.id) && p.role === want);
-    const pick = (byRole.length ? byRole : pool.filter(p => !used.has(p.id))).sort((a, b) => b.ovr - a.ovr)[0];
+    const free = selectable.filter(p => !used.has(p.id));
+    const byRole = free.filter(p => p.role === want);
+    const pick = (byRole.length ? byRole : free).sort(byScore)[0];
     used.add(pick.id); order.push(pick.id);
   }
-  for (const p of pool.filter(p => !used.has(p.id)).sort((a, b) => b.ovr - a.ovr)) order.push(p.id);
+  // Bench: the available men by score, then the unavailable behind them (so an injured man returning
+  // to fitness is the nearest call-up, and the bench order still reads as a depth chart).
+  const rest = pool.filter(p => !used.has(p.id));
+  for (const p of rest.filter(p => !(cover && p.injured)).sort(byScore)) order.push(p.id);
+  for (const p of rest.filter(p => cover && p.injured).sort(byScore)) order.push(p.id);
   const upd = db.prepare('UPDATE players SET slot = ? WHERE id = ?');
   order.forEach((id, slot) => upd.run(slot, id));
 }
