@@ -42,8 +42,8 @@ export function fitnessWeight(fitness: number): number {
 // club and its comment already promises "Refresh the XI only (injury/fatigue cover)" — cover this
 // function did not previously provide.
 export function optimizeLineup(teamId: number): void {
-  const players = db.prepare('SELECT id, role, attrs, fitness, injured_matches AS injuredMatches FROM players WHERE team_id = ?')
-    .all(teamId) as unknown as { id: number; role: string; attrs: string; fitness: number | null; injuredMatches: number | null }[];
+  const players = db.prepare('SELECT id, slot, role, attrs, fitness, injured_matches AS injuredMatches FROM players WHERE team_id = ?')
+    .all(teamId) as unknown as { id: number; slot: number; role: string; attrs: string; fitness: number | null; injuredMatches: number | null }[];
   if (players.length < 11) { return; }
   const pool = players.map(p => ({
     id: p.id, role: p.role,
@@ -70,8 +70,14 @@ export function optimizeLineup(teamId: number): void {
   const rest = pool.filter(p => !used.has(p.id));
   for (const p of rest.filter(p => !(cover && p.injured)).sort(byScore)) order.push(p.id);
   for (const p of rest.filter(p => cover && p.injured).sort(byScore)) order.push(p.id);
+  // Round-perf: write only the slots that actually MOVED. A settled AI squad re-derives the same depth
+  // chart every matchday, so the unconditional write re-stored ~22 rows a week per club that already held
+  // the value being written — 18,059 of a 30-matchday workload's 82,287 advance statements came through
+  // here. The final table state is identical either way (`slot` is the only column touched, there are no
+  // triggers on players, and nothing reads the update's change count); the skipped rows are pure no-ops.
+  const slotNow = new Map(players.map(p => [p.id, p.slot]));
   const upd = db.prepare('UPDATE players SET slot = ? WHERE id = ?');
-  order.forEach((id, slot) => upd.run(slot, id));
+  order.forEach((id, slot) => { if (slotNow.get(id) !== slot) { upd.run(slot, id); } });
 }
 
 // AI development philosophy (pillar-4, Phase 2). Each AI club carries a coaching_style that shapes

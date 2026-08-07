@@ -50,9 +50,15 @@ export function fitnessTick(leagueId: number): InjuryEvent[] {
     const starterIds = new Set(xiIdx.map(i => players[i].id));
     const physio = physioEffect(id);   // identity (injuryMult 1, recoverBonus 0) for a club with no physios
     // 1. drain the starters, recover everyone else (a good physio recovers the rested faster)
+    //    Round-perf: a rested man already at 100 clamps straight back to 100, so most of a squad's rows
+    //    were written their own current value every matchday. Skip the write when the clamped result is
+    //    the value already stored — `fitness` is INTEGER NOT NULL and this is its only writer here, so a
+    //    skipped row is bit-for-bit what the UPDATE would have left behind. The Math.random() draw stays
+    //    unconditional (it is part of the RNG stream, not of the write).
     for (const p of players) {
       const next = starterIds.has(p.id) ? p.fitness - (DRAIN_MIN + Math.floor(Math.random() * DRAIN_VAR)) : p.fitness + RECOVER + physio.recoverBonus;
-      setFit.run(Math.max(0, Math.min(100, next)), p.id);
+      const clamped = Math.max(0, Math.min(100, next));
+      if (clamped !== p.fitness) { setFit.run(clamped, p.id); }
     }
     // 2. standing injuries heal a matchday
     for (const p of players) if (p.injured_matches > 0) setInj.run(p.injured_matches - 1, p.id);

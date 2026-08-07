@@ -46,7 +46,13 @@ export function moraleTick(leagueId: number): void {
     const leaderBonus = Math.max(-2, Math.min(2, Math.round((captainLeadership(id) - 50) / 25)));
     const players = db.prepare('SELECT id, morale FROM players WHERE team_id = ?').all(id) as { id: number; morale: number }[];
     const upd = db.prepare('UPDATE players SET morale = ? WHERE id = ?');
-    for (const p of players) upd.run(Math.max(0, Math.min(100, Math.round(p.morale * DRIFT + 50 * (1 - DRIFT) + delta + leaderBonus))), p.id);
+    // Round-perf: the drift has fixed points (a squad on 65 taking a draw rounds straight back to 65), so a
+    // settled dressing room re-wrote every row with the value it already held. Skip those — `morale` is
+    // INTEGER NOT NULL, so an unchanged row is byte-identical whether or not the UPDATE runs.
+    for (const p of players) {
+      const next = Math.max(0, Math.min(100, Math.round(p.morale * DRIFT + 50 * (1 - DRIFT) + delta + leaderBonus)));
+      if (next !== p.morale) { upd.run(next, p.id); }
+    }
   }
 }
 

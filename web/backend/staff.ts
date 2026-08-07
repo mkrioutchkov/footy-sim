@@ -51,9 +51,15 @@ export function getStaffView(teamId: number): {
   const mine = db.prepare('SELECT id, role, name, rating, cost, specialty FROM staff WHERE team_id = ? ORDER BY role, rating DESC').all(teamId) as unknown as StaffRow[];
   const pool = wid == null ? [] : db.prepare('SELECT id, role, name, rating, cost, specialty FROM staff WHERE world_id = ? AND team_id IS NULL ORDER BY role, rating DESC').all(wid) as unknown as StaffRow[];
   const budget = (db.prepare('SELECT budget FROM teams WHERE id = ?').get(teamId) as { budget: number }).budget;
+  // One backroom load feeds the effects summary, the board AND the suggestion (Round-perf note on
+  // loadClubStaff below); the assignment is read once and shared with categoryBoard rather than re-read
+  // for `assignmentSet`. `mine`'s own SELECT is left alone deliberately — it is the payload the staff
+  // screen renders, and widening its column list would change the JSON the API returns.
+  const club = loadClubStaff(teamId);
+  const assignment = getCoachAssignment(teamId);
   // the 4-category coaching board + a by-specialty suggestion + whether the manager has explicitly assigned (vs flat)
-  return { staff: mine, pool, budget, max: MAX_STAFF, effects: staffEffectsSummary(teamId),
-    categories: categoryBoard(teamId), suggestion: suggestCoachAssignment(teamId), assignmentSet: getCoachAssignment(teamId) != null };
+  return { staff: mine, pool, budget, max: MAX_STAFF, effects: staffEffectsSummary(club),
+    categories: boardFrom(club, assignment), suggestion: suggestFrom(club), assignmentSet: assignment != null };
 }
 
 export function hireStaff(teamId: number, staffId: number): { ok: boolean; error?: string; name?: string } {
@@ -85,27 +91,67 @@ export function fireStaff(teamId: number, staffId: number): { ok: boolean; error
   return { ok: true };
 }
 
+// ── the club's backroom, loaded ONCE ────────────────────────────────────────
+// Round-perf: every figure below (role strengths, the per-category board, the by-specialty suggestion)
+// is a projection of the SAME row set, but each used to fetch its own slice. One staff screen ran
+// ~30 queries for one club: `... AND id IN (...)` five times per category (categoryStars, categoryCoverage,
+// and categoryCoachFactor re-deriving both), a squad COUNT twice per category, three `SELECT rating`
+// strength scans and two `SELECT coach_assignment`. Measured on a 30-matchday workload that was 57k of
+// the read burst's 75k statements. Load the club's staff once and project in JS instead.
+//
+// Kept faithful to the SQL it replaces: `ORDER BY id` reproduces the ascending-rowid order an index scan
+// on idx_staff_team already yielded (suggestFrom's output order is PERSISTED by ai.ts, so it is not free
+// to change), and `wantedIds` runs candidate ids through Number() the way SQLite's INTEGER column
+// affinity did for `id IN (...)`.
+interface CoachRow { id: number; role: StaffRole; rating: number; specialty: string | null; attrs: string | null; }
+type ClubStaff = { teamId: number; rows: CoachRow[]; squad: number | null };
+
+function loadClubStaff(teamId: number): ClubStaff {
+  const rows = db.prepare('SELECT id, role, rating, specialty, attrs FROM staff WHERE team_id = ? ORDER BY id')
+    .all(teamId) as unknown as CoachRow[];
+  return { teamId, rows, squad: null };
+}
+
+// Squad size is only needed by a category that HAS coaches, so it stays lazy — an unassigned club
+// still runs no COUNT at all, exactly as before.
+function squadSize(club: ClubStaff): number {
+  if (club.squad == null) {
+    club.squad = (db.prepare('SELECT COUNT(*) AS n FROM players WHERE team_id = ?').get(club.teamId) as { n: number }).n;
+  }
+  return club.squad;
+}
+
 // ── effects (each capped; identity when the club has no staff of that role) ──
 // Combined quality of a role: each member contributes (rating−40)/50, so an elite (~90) ≈ +1.
+// The formulas live here ONCE; the two access paths below differ only in where the ratings come from —
+// a narrow per-role query (for the one-shot callers in fitness/rotation/market/scout/training) or the
+// club's already-loaded row set (for the staff screen, which needs all three roles anyway).
+const ratingWeight = (rating: number): number => Math.max(0, rating - 40) / 50;
+const coachFactorOfStrength = (s: number): number => 1 + Math.min(0.30, s * 0.10);
+const physioOfStrength = (s: number): { injuryMult: number; recoverBonus: number } =>
+  ({ injuryMult: Math.max(0.55, 1 - Math.min(0.45, s * 0.15)), recoverBonus: Math.min(15, Math.round(s * 5)) });
+const scoutOfStrength = (s: number): number => Math.min(3, Math.round(s));
+
 function strength(teamId: number, role: StaffRole): number {
   const rows = db.prepare('SELECT rating FROM staff WHERE team_id = ? AND role = ?').all(teamId, role) as { rating: number }[];
-  return rows.reduce((sum, r) => sum + Math.max(0, r.rating - 40) / 50, 0);
+  return rows.reduce((sum, r) => sum + ratingWeight(r.rating), 0);
+}
+function strengthOf(club: ClubStaff, role: StaffRole): number {
+  return club.rows.reduce((sum, r) => sum + (r.role === role ? ratingWeight(r.rating) : 0), 0);
 }
 
-export function coachingFactor(teamId: number): number { return 1 + Math.min(0.30, strength(teamId, 'coach') * 0.10); }
-export function physioEffect(teamId: number): { injuryMult: number; recoverBonus: number } {
-  const s = strength(teamId, 'physio');
-  return { injuryMult: Math.max(0.55, 1 - Math.min(0.45, s * 0.15)), recoverBonus: Math.min(15, Math.round(s * 5)) };
-}
-export function scoutDepth(teamId: number): number { return Math.min(3, Math.round(strength(teamId, 'scout'))); }
+export function coachingFactor(teamId: number): number { return coachFactorOfStrength(strength(teamId, 'coach')); }
+function coachingFactorOf(club: ClubStaff): number { return coachFactorOfStrength(strengthOf(club, 'coach')); }
+export function physioEffect(teamId: number): { injuryMult: number; recoverBonus: number } { return physioOfStrength(strength(teamId, 'physio')); }
+export function scoutDepth(teamId: number): number { return scoutOfStrength(strength(teamId, 'scout')); }
 
-function staffEffectsSummary(teamId: number): { training: number; injuryReduction: number; recoverBonus: number; scoutDepth: number } {
-  const pe = physioEffect(teamId);
+function staffEffectsSummary(club: ClubStaff): { training: number; injuryReduction: number; recoverBonus: number; scoutDepth: number } {
+  const pe = physioOfStrength(strengthOf(club, 'physio'));
   return {
-    training: Math.round((coachingFactor(teamId) - 1) * 100),   // +X% training growth
+    training: Math.round((coachingFactorOf(club) - 1) * 100),   // +X% training growth
     injuryReduction: Math.round((1 - pe.injuryMult) * 100),     // −X% injury risk
     recoverBonus: pe.recoverBonus,                              // +condition for rested players
-    scoutDepth: scoutDepth(teamId),                            // extra key players revealed
+    scoutDepth: scoutOfStrength(strengthOf(club, 'scout')),     // extra key players revealed
   };
 }
 
@@ -119,8 +165,6 @@ const CATEGORY_COACH_ATTR: Record<string, string> = {
 };
 const COACH_CAPACITY = 8;   // players one coach can effectively cover in a category
 
-interface CoachRow { id: number; role: StaffRole; rating: number; specialty: string | null; attrs: string | null; }
-
 // A coach's 7-dimension attrs — parsed from staff.attrs, or lazily spread from his flat rating (byte-safe legacy).
 export function coachAttrs(s: { rating: number; attrs?: string | null }): Record<string, number> {
   if (s.attrs) { try { const j = JSON.parse(s.attrs) as Record<string, number>; if (j && typeof j === 'object') return j; } catch { /* fall through to backfill */ } }
@@ -128,21 +172,37 @@ export function coachAttrs(s: { rating: number; attrs?: string | null }): Record
   return { attacking: r, defending: r, technical: r, tactical: r, fitness: r, gk: r, youth: r };
 }
 
-// The coaches a club has assigned to a category (parsed from teams.coach_assignment JSON).
-function assignedCoaches(teamId: number, assignment: string | null, category: string): CoachRow[] {
-  if (!assignment) return [];
+// The assignment travels as raw JSON across the exported seam (categoryStars/Coverage/CoachFactor take the
+// string the caller read off teams.coach_assignment) and as an already-parsed object internally, so the
+// board parses it once instead of once per category.
+type AssignmentJson = string | Record<string, number[]> | null;
+
+// The ids a category is assigned, parsed from teams.coach_assignment JSON. Number() mirrors the INTEGER
+// column affinity SQLite applied when these ids were bound into `id IN (...)`, so a numeric string still
+// resolves to the same coach it always did.
+function wantedIds(assignment: AssignmentJson, category: string): Set<number> | null {
+  if (!assignment) return null;
   let map: Record<string, number[]>;
-  try { map = JSON.parse(assignment) as Record<string, number[]>; } catch { return []; }
+  if (typeof assignment === 'string') {
+    try { map = JSON.parse(assignment) as Record<string, number[]>; } catch { return null; }
+  } else { map = assignment; }
   const ids = map[category];
-  if (!Array.isArray(ids) || !ids.length) return [];
-  return db.prepare(`SELECT id, role, rating, specialty, attrs FROM staff WHERE team_id = ? AND id IN (${ids.map(() => '?').join(',')})`)
-    .all(teamId, ...ids) as unknown as CoachRow[];
+  if (!Array.isArray(ids) || !ids.length) return null;
+  return new Set(ids.map(Number));
+}
+
+// The coaches a club has assigned to a category. Filtering the club's one loaded row set reproduces
+// `... WHERE team_id = ? AND id IN (...)` exactly: same membership (an id the club does not own is simply
+// absent), same de-duplication (a repeated id yields one row either way), same ascending-id order.
+function assignedFrom(club: ClubStaff, assignment: AssignmentJson, category: string): CoachRow[] {
+  const want = wantedIds(assignment, category);
+  if (want == null) return [];
+  return club.rows.filter(r => want.has(r.id));
 }
 
 // Star rating 0.5..5.0 for a category — the weighted mean of the assigned coaches' relevant attr (50 → 2.5★, 100 → 5★).
 // An assistant_manager is a generalist (0.6 weight); specialists pull full weight. No coaches → a neutral 2.5★.
-export function categoryStars(teamId: number, assignment: string | null, category: string): number {
-  const coaches = assignedCoaches(teamId, assignment, category);
+function starsFrom(coaches: CoachRow[], category: string): number {
   if (!coaches.length) return 2.5;
   const attrKey = CATEGORY_COACH_ATTR[category] ?? 'technical';
   let sum = 0, w = 0;
@@ -153,34 +213,44 @@ export function categoryStars(teamId: number, assignment: string | null, categor
   }
   return Math.max(0.5, Math.min(5, (sum / Math.max(1e-6, w)) / 20));
 }
+export function categoryStars(teamId: number, assignment: string | null, category: string): number {
+  if (!assignment) return 2.5;                                   // no load needed for the unassigned path
+  return starsFrom(assignedFrom(loadClubStaff(teamId), assignment, category), category);
+}
 
 // Coverage 0.55..1.0 — how well the assigned coaches cover the squad's load in this category (a lone coach spread
 // across a big squad covers less than a dedicated one). Load is proxied by an even split of the squad over 4 categories.
-export function categoryCoverage(teamId: number, assignment: string | null, category: string): number {
-  const coaches = assignedCoaches(teamId, assignment, category);
+function coverageFrom(club: ClubStaff, coaches: CoachRow[]): number {
   if (!coaches.length) return 0.55;
-  const squad = (db.prepare('SELECT COUNT(*) AS n FROM players WHERE team_id = ?').get(teamId) as { n: number }).n;
-  const load = Math.max(1, Math.round(squad / 4));
+  const load = Math.max(1, Math.round(squadSize(club) / 4));
   return Math.max(0.55, Math.min(1, (coaches.length * COACH_CAPACITY) / load));
+}
+export function categoryCoverage(teamId: number, assignment: string | null, category: string): number {
+  if (!assignment) return 0.55;
+  const club = loadClubStaff(teamId);
+  return coverageFrom(club, assignedFrom(club, assignment, category));
 }
 
 // The per-category development multiplier [0.90, 1.30]. UNASSIGNED (NULL coach_assignment, or no coaches for the
 // category) FALLS BACK to the flat club-wide coachingFactor — the byte-identical legacy path. A great coach lifts
 // toward 1.30, a poor one toward 0.90; a neutral 2.5★ at full coverage is exactly 1.0 (no change).
-export function categoryCoachFactor(teamId: number, assignment: string | null, category: string): number {
-  if (!assignment || !assignedCoaches(teamId, assignment, category).length) return coachingFactor(teamId);
-  const stars = categoryStars(teamId, assignment, category);
-  const coverage = categoryCoverage(teamId, assignment, category);
+function factorFrom(club: ClubStaff, assignment: AssignmentJson, category: string): number {
+  const coaches = assignedFrom(club, assignment, category);
+  if (!coaches.length) return coachingFactorOf(club);
+  const stars = starsFrom(coaches, category);
+  const coverage = coverageFrom(club, coaches);
   return Math.max(0.90, Math.min(1.30, 1 + ((stars - 2.5) / 2.5) * 0.30 * coverage));
+}
+export function categoryCoachFactor(teamId: number, assignment: string | null, category: string): number {
+  return factorFrom(loadClubStaff(teamId), assignment, category);
 }
 
 // A suggested category→coach assignment by specialty, for the staff screen's default view. Does NOT persist —
 // development keeps using the flat coachingFactor until the manager explicitly saves an assignment.
-export function suggestCoachAssignment(teamId: number): Record<string, number[]> {
-  const coaches = db.prepare("SELECT id, specialty FROM staff WHERE team_id = ? AND role = 'coach'")
-    .all(teamId) as { id: number; specialty: string | null }[];
+function suggestFrom(club: ClubStaff): Record<string, number[]> {
   const map: Record<string, number[]> = {};
-  for (const c of coaches) {
+  for (const c of club.rows) {
+    if (c.role !== 'coach') continue;
     const spec = c.specialty ?? 'first_team_coach';
     const cats = spec === 'fitness_coach' ? ['Fitness']
       : spec === 'gk_coach' || spec === 'set_piece_coach' ? []   // GK / set-piece categories deferred in the MVP
@@ -189,6 +259,9 @@ export function suggestCoachAssignment(teamId: number): Record<string, number[]>
     for (const cat of cats) (map[cat] ??= []).push(c.id);
   }
   return map;
+}
+export function suggestCoachAssignment(teamId: number): Record<string, number[]> {
+  return suggestFrom(loadClubStaff(teamId));
 }
 
 // The current persisted coach assignment (parsed), or null when unassigned (flat development — byte-identical).
@@ -216,14 +289,18 @@ export function saveCoachAssignment(teamId: number, assignment: Record<string, n
 
 // The 4-category coaching board for the staff screen: stars / coverage / development factor + the assigned coach ids.
 export interface CategoryBoard { category: string; stars: number; coverage: number; factor: number; assigned: number[]; }
+function boardFrom(club: ClubStaff, assignment: Record<string, number[]> | null): CategoryBoard[] {
+  return Object.keys(CATEGORY_COACH_ATTR).map(category => {
+    const coaches = assignedFrom(club, assignment, category);
+    return {
+      category,
+      stars: starsFrom(coaches, category),
+      coverage: coverageFrom(club, coaches),
+      factor: factorFrom(club, assignment, category),
+      assigned: assignment?.[category] ?? [],
+    };
+  });
+}
 export function categoryBoard(teamId: number): CategoryBoard[] {
-  const assignment = getCoachAssignment(teamId);
-  const json = assignment ? JSON.stringify(assignment) : null;
-  return Object.keys(CATEGORY_COACH_ATTR).map(category => ({
-    category,
-    stars: categoryStars(teamId, json, category),
-    coverage: categoryCoverage(teamId, json, category),
-    factor: categoryCoachFactor(teamId, json, category),
-    assigned: assignment?.[category] ?? [],
-  }));
+  return boardFrom(loadClubStaff(teamId), getCoachAssignment(teamId));
 }

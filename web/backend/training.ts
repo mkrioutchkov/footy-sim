@@ -378,7 +378,12 @@ export function developmentTick(leagueId: number): { players: number; improved: 
     const after = developAttrs(before, r.age, r.potential, traits, focus, r.morale, coachF, harmonyF, r.role, iFac.growthMul, dampen, retrainPen);
     // accrue/bleed the load: it decays each matchday and rises with the intensity's loadAdd (0 at normal).
     const nextLoad = Math.max(0, Math.min(120, load * LOAD_DECAY + iFac.loadAdd));
-    upd.run(JSON.stringify(after), nextLoad, r.id);
+    // Round-perf: a matchday where nobody grew and the load is already at rest writes the row its own
+    // bytes back. Compare the SERIALISED attrs (not the parsed objects) so a re-ordered or reformatted
+    // JSON string still counts as a change and is written, and compare training_load strictly against the
+    // raw stored value so a NULL→0 normalisation is never skipped.
+    const afterJson = JSON.stringify(after);
+    if (afterJson !== r.attrs || nextLoad !== r.training_load) { upd.run(afterJson, nextLoad, r.id); }
     // position retrain: climb familiarity in the target role; once fully comfortable, commit the new role.
     if (r.retrain_role) {
       const fam = Math.min(100, (r.role_familiarity ?? 0) + roleAdaptation(r.role, r.retrain_role));
