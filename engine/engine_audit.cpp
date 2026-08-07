@@ -419,8 +419,12 @@ void GameEngine::detectSimulationFreeze(double sdt) {
         // LOOSE_BALL_STALL_MS, give it to the nearest player so play restarts.
         double bs = std::hypot(fb.vx, fb.vy);
         // Nearest player to the loose ball right now (deterministic: min dist, tie -> lower id).
+        // `best` is who the ball is HANDED to when the watchdog fires — every player,
+        // keeper included, because a ball that has died in his own six-yard box
+        // belongs to him. `chaseD` is a different question (see the closing test).
         Player* best = nullptr;
         double bestD = 1e9;
+        double chaseD = 1e9;   // ...nearest OUTFIELDER: the man who would actually chase it
         for (auto& p : state.players) {
             if (p.sentOff) continue;
             double d = dist(fb.x, fb.y, p.x, p.y);
@@ -428,19 +432,43 @@ void GameEngine::detectSimulationFreeze(double sdt) {
                 bestD = d;
                 best = &p;
             }
+            if (p.role != Role::GK && d < chaseD) {
+                chaseD = d;
+            }
         }
         bool wasLoose = freezeDetector.freezeLastController == -1; // loose last tick too
         bool travelling = bs >= LOOSE_BALL_STALL_SPEED || dist(fb.x, fb.y, freezeDetector.freezeBallX, freezeDetector.freezeBallY) >= 5.0;
         // A ball a player is CLOSING IN ON is not stuck — it's about to be collected.
         // Only a ball nobody has moved toward for the whole window is genuinely
-        // abandoned. Re-arm whenever the nearest player gets >5px closer than the
-        // baseline set when the watch armed.
-        bool someoneClosing = wasLoose && bestD < freezeDetector.looseNearestD - 5.0;
+        // abandoned. Re-arm whenever the nearest OUTFIELDER gets LOOSE_BALL_CLOSING_EPS
+        // closer than the baseline set when the watch armed.
+        //
+        // Round-38 KEEPERS ARE NOT CHASERS. This baseline used to be the minimum over
+        // ALL players. A keeper's distance to a dead ball is a coincidence of where
+        // his line is, not evidence that anyone is coming — and a ball that dies near
+        // a goal (exactly what this watchdog is for) has a keeper as its nearest body
+        // almost by construction. So `looseNearestD` armed on the GK's small distance,
+        // the GK then walked back to his line, and no genuine chaser closing from 300px
+        // could ever beat that floor: `someoneClosing` was pinned false and the watchdog
+        // fired ON TOP OF a live chase, rolling the ball away from the man about to
+        // reach it. Censused over seeds 101-140 @90min with the old logic: 13 fires
+        // (0.33/match) and ALL THIRTEEN happened while the nearest outfielder had
+        // closed since the watch armed — median 224px at arm time down to 66px at the
+        // fire. Not one fire in 60 hours of football was a genuinely abandoned ball;
+        // 3 of the 13 shoved it to a keeper. Scoping the baseline to outfielders takes
+        // those 13 to 0 while leaving the abandoned-ball path exactly as it was.
+        //
+        // NOT per-player best-ever (the audit's other suggestion): with 22 men milling
+        // about, somebody improves his own record almost every tick, which suppresses
+        // the watchdog entirely and brings back the dead-ball hang it exists to break.
+        // The nearest outfielder is the man most likely to collect it — that is the
+        // one distance whose trend actually answers "is this ball being chased?".
+        bool someoneClosing = wasLoose && chaseD < freezeDetector.looseNearestD - LOOSE_BALL_CLOSING_EPS;
         if (!wasLoose || travelling || someoneClosing) {
             freezeDetector.freezeWatchMs = 0;
             freezeDetector.freezeBallX = fb.x;
             freezeDetector.freezeBallY = fb.y;
-            freezeDetector.looseNearestD = bestD;
+            freezeDetector.looseNearestD = chaseD;
         } else {
             freezeDetector.freezeWatchMs += sdt;
             if (freezeDetector.freezeWatchMs > LOOSE_BALL_STALL_MS && best && state.clockMs - freezeDetector.lastFreezeAlertMs > 5000) {

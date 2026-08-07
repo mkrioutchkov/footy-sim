@@ -492,7 +492,12 @@ void GameEngine::tryGKSave() {
                            shot.type, saveChance, (int)trajectoryOffset, (int)b.z, (int)speed, (int)timeToLineMs);
     shot.active = false;   // #1b: KEEP this (removing it re-rolls the save 20-30×/shot)
     if (rng.random() >= saveChance) {
-        shot.preventable = saveChance >= 0.90 && trajectoryOffset < PLAYER_R + BALL_R && timeToLineMs > 420 && speed < 240;
+        // STAT ONLY — shot.preventable is read by nothing but recordGkAssessment
+        // below; it consumes no RNG and never changes whether the save is made.
+        // The gate is a fraction of the roll CEILING, not an absolute: saveChance
+        // is clamped to [GK_SAVE_MIN, GK_SAVE_MAX] above, so the old `>= 0.90`
+        // could not fire and preventableGoals was silently always 0.
+        shot.preventable = saveChance >= GK_SAVE_MAX * GK_PREVENTABLE_SAVE_FRAC && trajectoryOffset < PLAYER_R + BALL_R && timeToLineMs > 420 && speed < 240;
         stats.recordGkAssessment(false, shot.preventable);
         return;
     }

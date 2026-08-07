@@ -284,8 +284,10 @@ void GameEngine::substituteSlot(Player& slot, BenchPlayer& in) {
     stats.recordSubstitution();
     // Hand the departing player his stat line before the slot is reset, so the
     // summary can report both men rather than crediting the arrival with both.
+    // runtime[] is read HERE and reset by resetSlotRuntime() below — the yellow
+    // count has to ride out with the tally or it leaves with the man.
     substitutionLog.push_back({state.clockMs, slot.id, slot.team, outName, inName,
-                               pStats[slot.id]});
+                               pStats[slot.id], runtime[slot.id].yellowCards});
     emitEvent("sub", slot.x, slot.y, slot.id, -1, /*traceOnly=*/false, /*ownGoal=*/false, outName, inName);
     slot.name = inName;
     slot.attrs = in.attrs;

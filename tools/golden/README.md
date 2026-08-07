@@ -1,6 +1,38 @@
 # Golden baseline — engine determinism reference
 
-> **Baseline generation:** 2026-07-07, after the ghost-corner fix (a cut-near-line
+> **Baseline generation:** 2026-08-07, after the three-defect audit round (the
+> defects recorded in GAME_LAYER_NOTES.md's 2026-08-05 anomaly hunt). **(1)** The
+> loose-ball freeze watchdog now arms its "is anyone actually coming for it?"
+> baseline on the nearest **outfielder** instead of the nearest player. A keeper
+> standing near a dead ball pinned that baseline so low no genuine chaser could
+> ever beat it, so the watchdog fired on top of live chases and rolled the ball
+> away from the man about to reach it. Censused over seeds 101-140 @90min, pre-fix:
+> **13 fires, 13/13** with an outfielder who had closed since the watch armed
+> (median 224px at arm time down to 66px at the fire), 3 of them shoving the ball
+> to a keeper; post-fix **0**. **(2)** `preventableGoals` was structurally
+> unreachable — `saveChance >= 0.90` against a value clamped to GK_SAVE_MAX = 0.76 —
+> and now gates on `GK_SAVE_MAX * GK_PREVENTABLE_SAVE_FRAC` (0.95). Stat-only, and
+> proven so: 39/40 seeds @90min byte-identical, the 40th differing in that one
+> field and nothing else. **(3)** `SubstitutionRecord` gained `outYellowCards` so a
+> booked-then-substituted man's card survives the swap; purely additive, 40/40
+> @10min and 12/12 @90min identical once the new key is stripped.
+>
+> Only the watchdog moves the RNG stream, and only on seeds where it used to fire:
+> **2 of the 40 golden seeds drift at 10min** (106, 129), 11 of 40 at 90min — those
+> are the seeds where the WATCHDOG fired; at 90min a 12th row (seed 116) also moves,
+> from the preventableGoals flag, which is stat-only and reshuffles nothing. At
+> 10min×40 not one of 282 metrics clears noise and goals is identical seed-for-seed.
+> At 90min×40 the only REAL** verdict is `simulationFreezes` 0.325 → 0.000 (the
+> intended effect, and it replicates: 0.42 → 0.00 on seeds 141-180). Goals +0.375
+> was the largest headline movement but **did not replicate** — an independent batch
+> (141-180) gave −0.25, pooling to +0.06 over 80 paired seeds; goal count remains the
+> noisiest stat and this is a chaotic re-draw in 11 matches, not a scoring change.
+> Match length is unchanged (mean clockMs +0.05%, longest match +1.5s), so silencing
+> the watchdog does **not** bring back the dead-ball hang it exists to break, and
+> stuckCarrierAlerts / invariantViolations / unknownLooseGoals / ownPassGoals are 0
+> before and after. `npm run scenarios` passes.
+>
+> Prior baseline note: 2026-07-07, after the ghost-corner fix (a cut-near-line
 > corner is only awarded when the ball is genuinely heading behind the goal line,
 > in bounds, off a goal-side defender — not for an overhit cross drifting out by
 > the flag). Corners 5.28 -> 4.47 per 30min (clear ghosts removed); goals/shots

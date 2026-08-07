@@ -311,7 +311,11 @@ private:
         double freezeBallX = 0, freezeBallY = 0;
         int freezeLastController = -1;
         double lastFreezeAlertMs = -1e9;
-        double looseNearestD = 1e9;   // closest player to a stalled loose ball while it is watched
+        // Closest OUTFIELDER to a stalled loose ball while it is watched — the
+        // "is anyone actually coming for it?" baseline. Round-38: was closest of
+        // ALL players, which let a keeper standing near a dead ball pin the
+        // baseline so low that no real chaser could ever beat it (engine_audit).
+        double looseNearestD = 1e9;
     };
 
     struct GoalInfo {
@@ -391,6 +395,13 @@ private:
         // slot's remaining line under the arrival's name and the starter's here —
         // otherwise the substitute is credited with everything his predecessor did.
         PlayerTally outTally;
+        // ...and his card count, which lives in runtime[] rather than PlayerTally
+        // and is therefore wiped by resetSlotRuntime a few lines after the record
+        // is pushed. Without it a booked-then-substituted man's rating came out
+        // 0.3 too high in the web layer: the slot's `yellow` reports the ARRIVAL's
+        // 0, and the departing man's booking was unrecoverable from engine state
+        // (web/backend/match.ts carried a note saying exactly that).
+        int outYellowCards = 0;
     };
 
     // Per-player match tallies for the report (scorers, assists). Indexed by

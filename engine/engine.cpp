@@ -1326,7 +1326,8 @@ std::string GameEngine::getJSON() const {
                                         {"outShots", s.outTally.shots},
                                         {"outTackles", s.outTally.tackles},
                                         {"outPasses", s.outTally.passes},
-                                        {"outPassesCompleted", s.outTally.passesCompleted}});
+                                        {"outPassesCompleted", s.outTally.passesCompleted},
+                                        {"outYellowCards", s.outYellowCards}});
     }
     j["possessionPct"] = summary["possessionPct"];
 

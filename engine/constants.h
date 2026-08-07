@@ -174,6 +174,9 @@ inline constexpr double THIRD_2         = 2.0 * PITCH_W / 3.0; // 700
 // watches a stationary loose ball and, after this long, hands it to the nearest player.
 inline constexpr double LOOSE_BALL_STALL_MS    = 3000.0;
 inline constexpr double LOOSE_BALL_STALL_SPEED = 24.0;   // px/s below which a loose ball counts as 'at rest'
+// How much closer the nearest OUTFIELDER has to get before the watch re-arms —
+// the "somebody is actually coming for it" test. Was a bare 5.0 in engine_audit.
+inline constexpr double LOOSE_BALL_CLOSING_EPS = 5.0;    // px of approach that counts as a live chase
 // Round-21 (take-on audit) COMMIT 4b: a defender beaten by a take-on is off-balance
 // for this long — a two-stage stun applied to his pursuit pace (see agent_movement).
 inline constexpr double BEATEN_SLOW_TOTAL_MS = 1100.0;   // total off-balance window
@@ -313,6 +316,21 @@ inline constexpr double GK_SAVE_MIN             = 0.09;   // 0.05->0.09: even a 
 // mostly by physically COLLECTING the ball (the tracker), not this roll, so this
 // is NOT the scoring throttle. Kept named (was a stray 0.84 literal in engine_gk).
 inline constexpr double GK_SAVE_MAX             = 0.76;   // 0.72->0.76: real keepers stop ~2/3 of on-target; engine conceded 38% per SoT (real 30-34)
+// "He should have saved that" — the saveChance gate on shot.preventable, as a
+// FRACTION of the roll ceiling rather than an absolute. The test in engine_gk
+// used to read `saveChance >= 0.90`, an absolute written against an implicit
+// [0,1] scale; saveChance is clamp()ed to [GK_SAVE_MIN, GK_SAVE_MAX] just above
+// the test and the only later write (the penalty path) LOWERS it, so 0.90 was
+// structurally unreachable and preventableGoals reported 0 for every match ever
+// simulated. Keyed off the ceiling it survives a re-tune of GK_SAVE_MAX.
+// 0.95 measured, not guessed: over 30 matches @90min (seeds 101-130, 498 save
+// rolls) 16 rolls passed the other three clauses, and their saveChance splits
+// into a top group of 3 (0.730/0.760/0.760 — all at 185px/s, a shot speed one
+// unit off the census minimum, with 1.1-1.8s of flight: gentle balls at him)
+// and a body from 0.366 to 0.608. GK_SAVE_MAX*0.95 = 0.722 lands in the widest
+// gap in that distribution and selects exactly the unambiguous group. Expect a
+// rare flag (~0.03/match at 90min) — a genuine howler should be rare.
+inline constexpr double GK_PREVENTABLE_SAVE_FRAC = 0.95;
 inline constexpr double GK_CATCH_HANDLING_BASE  = 0.22;
 // ── Realistic reach envelope (10px = 1m) ── replaces the flat isotropic circle.
 // A keeper has a short STANDING reach but can EXTEND into a dive; a dive covers
