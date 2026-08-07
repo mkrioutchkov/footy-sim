@@ -164,7 +164,8 @@ removing one breaks reports / ratings / news:
 - **`substitutionLog`** (on every frame; cumulative — the final frame carries the
   whole match): one record per substitution, `{clockMs, slotId, team, outName,
   inName, outGoals, outAssists, outShots, outTackles, outPasses,
-  outPassesCompleted}` (typed as `SubstitutionRecord` in `web/frontend/types.ts`).
+  outPassesCompleted, outYellowCards}` (typed as `SubstitutionRecord` in
+  `web/frontend/types.ts`).
   A substitution is an **in-place slot identity swap** (`engine_squad.cpp`
   `substituteSlot`): the pitch slot keeps its `id`/`role`, the engine renames it to
   the arrival **in the same tick** and zeroes the slot's stat tally — so the
@@ -175,8 +176,11 @@ removing one breaks reports / ratings / news:
   yields 26 rating rows, not 22). The replay exporter joins the log to the `.bin`
   trace's `sub` events on `(clockMs, slotId)`. Recordings persisted before engine
   573675e have no `substitutionLog`; readers must degrade (22 rows), not crash.
-  ⚠️ The `out*` tally does **not** carry cards — a departed man's `yellow`/`sentOff`
-  must be tracked from the frames before the swap.
+  ⚠️ Cards do not ride in the `out*` tally, because they live in per-slot *runtime*
+  state that the swap wipes: a departed man's yellow count comes from the separate
+  **`outYellowCards`** field instead. `sentOff` needs no field — `pickSubstitutions`
+  skips a sent-off man, so he is never substituted. Recordings made before
+  `outYellowCards` landed omit it; readers must degrade to 0, not crash.
 
 ### ⚠️ Same name, different type — top-level vs per-player stats
 

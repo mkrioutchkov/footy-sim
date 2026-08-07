@@ -87,6 +87,10 @@ export interface SubstitutionRecord {
   outTackles: number;
   outPasses: number;
   outPassesCompleted: number;
+  // Cards live in per-slot RUNTIME state, which the swap wipes, so they cannot ride in the
+  // out* tally with the rest — hence the separate field (engine.h SubstitutionRecord). Absent
+  // on recordings made before it landed; readers should treat a missing value as 0.
+  outYellowCards?: number;
 }
 
 export interface EngineState {

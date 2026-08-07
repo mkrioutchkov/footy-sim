@@ -248,12 +248,12 @@ const numF = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v
 // sits after all 22 final holders, so `players[i]`/`find(p => p.id === slot)` still resolve to the
 // slot's final holder exactly as before.
 //
-// yellow/sentOff: the outTally carries no card fields, so a departed man's mid-stint booking is
-// unrecoverable from a --summary run (the recording path recovers it from the frames — see
-// report.ts). `sentOff` is exact rather than assumed: pickSubstitutions skips `p.sentOff`
-// (engine_squad.cpp:354), so a sent-off man is never substituted. `yellow` is a known 0 — it costs
-// a booked departed man the -0.3 card dent on his rating. Fixing it needs an engine field (see
-// GAME_LAYER_NOTES / the front's findings), NOT a web-side guess.
+// yellow/sentOff: `yellow` comes from the engine's `outYellowCards`, added to SubstitutionRecord
+// for exactly this reason — the slot's card count is runtime state that resetSlotRuntime wipes at
+// the swap, so before that field existed a booked departed man lost the -0.3 card dent on his
+// rating. Older recordings predate it and degrade to 0, which is the pre-fix behaviour rather than
+// a crash. `sentOff` is exact rather than assumed: pickSubstitutions skips `p.sentOff`
+// (engine_squad.cpp:354), so a sent-off man is never substituted.
 export function withSubstitutionStints(finalPlayers: SummaryPlayer[], substitutionLog: unknown): SummaryPlayer[] {
   if (!Array.isArray(substitutionLog) || substitutionLog.length === 0) return finalPlayers;
   const roleOfSlot = new Map(finalPlayers.map(p => [p.id, p.role] as const));   // the role stays with the slot
@@ -270,7 +270,7 @@ export function withSubstitutionStints(finalPlayers: SummaryPlayer[], substituti
       team: rec.team === 'away' ? 'away' : 'home',
       goals: numF(rec.outGoals), assists: numF(rec.outAssists), shots: numF(rec.outShots), tackles: numF(rec.outTackles),
       passes: numF(rec.outPasses), passesCompleted: numF(rec.outPassesCompleted),
-      yellow: 0, sentOff: false,
+      yellow: numF(rec.outYellowCards), sentOff: false,
     });
   }
   return out;
