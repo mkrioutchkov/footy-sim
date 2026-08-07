@@ -25,7 +25,7 @@ Both shapes live in `web/backend/manager/index.ts`.
 setTacticsAndXI(teamId: number): void              // formation + XI + deterministic fallbackPlan (no transfers)
 prepareMatchdayHeuristic(teamId, autonomy): void   // same, plus transfers/renewals for the 'full' tier
 ```
-`web/backend/index.ts` imports **only these two** (line 29) and calls them from `runManagerPrePass`
+`web/backend/routes/world.ts` imports **only these two** (line 13) and calls them from `runManagerPrePass`
 (see Integration). Both persist the four columns synchronously; the plan they write is the deterministic
 `fallbackPlan` (`plan.ts`), never the LLM.
 
@@ -80,7 +80,7 @@ take minutes-to-fail.
   (`aiManagerTick`) before its plans go live.
 
 ## Integration — the wired hook
-`web/backend/index.ts` calls **`runManagerPrePass(fixtureIds)`** from `advanceWorldCore` (line 1294,
+`web/backend/routes/world.ts` calls **`runManagerPrePass(fixtureIds)`** from `advanceWorldCore` (line 112,
 right before the synchronous fire path `mapPool(toPlay, playFixture)`), gated by **`FOOTY_MANAGER_AI`**
 (default on; `FOOTY_MANAGER_AI=0` reverts to the old XI-only `aiManagerTick` behaviour). Per distinct
 club about to play it dispatches:
