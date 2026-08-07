@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { PrepareOptions, StatementSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
@@ -9,6 +10,27 @@ const DB_PATH = process.env.FOOTY_DB ?? path.join(DATA_DIR, 'footy.sqlite');
 export const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
+
+// ── Connection tuning ───────────────────────────────────────────────────────
+// synchronous = NORMAL is the WAL-safe setting: SQLite stops fsync-ing the WAL on every commit and
+// only syncs at a checkpoint. DURABILITY TRADE-OFF, said out loud: the database can NEVER be
+// corrupted by this (WAL framing + checksums still guarantee a consistent file), and an application
+// crash / SIGKILL loses nothing, because the committed frames are already in the OS page cache. What
+// it does risk is losing the LAST few committed transactions if the OS panics or the machine loses
+// power mid-write. For a single-player football save that is a matchday, not a bank ledger — and the
+// game re-advances a lost turn happily. FULL (the default) buys power-loss durability at the cost of
+// two fsyncs per commit; a matchday commits hundreds of times, so that is the single most expensive
+// default here. If this ever grows into something where losing a turn is unacceptable, put it back.
+db.exec('PRAGMA synchronous = NORMAL;');
+// MEASURED AND REJECTED (tombstone — don't re-add them without a measurement that says otherwise).
+// Each was A/B'd on the same 30-matchday, 2-season workload, ABBA-ordered so run order can't bias the
+// pair. Median delta on total wall time, negative = faster; the box's run-to-run noise is ~5%:
+//   cache_size = -16000   -1.4%  (8 runs/variant). Inside the noise. A 2-season world's sqlite file is
+//                         ~0.5 MB, so it already fits in the 2 MB default page cache — nothing to buy.
+//   temp_store = MEMORY   +1.1%  (8 runs/variant) — i.e. very slightly SLOWER. No query here spills a
+//                         temp b-tree that matters (the biggest sort in the game is an 8-row table).
+//   mmap_size = 256 MB    +1.1%  (4 runs/variant), and it trades a clean I/O error for a SIGBUS on a
+//                         truncated file. Not worth a rounding error.
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -544,6 +566,25 @@ CREATE TABLE IF NOT EXISTS staff (
 );
 CREATE INDEX IF NOT EXISTS idx_staff_world ON staff(world_id, team_id);
 `);
+// idx_staff_world leads on world_id, so it cannot serve the CLUB-scoped lookups, and every one of
+// those was a full table SCAN. Measured with a real query log (FOOTY_DB_STATS=1): 30 matchdays of a
+// 2-division world executed 2,879 "... FROM staff WHERE team_id = ?" statements, and a screen-read
+// burst on top of that pushed it to 15,239. EXPLAIN QUERY PLAN, before -> after:
+//   SELECT rating FROM staff WHERE team_id=? AND role=?          SCAN staff -> SEARCH staff USING INDEX idx_staff_team (team_id=?)
+//   SELECT id, specialty FROM staff WHERE team_id=? AND role=..  SCAN staff -> SEARCH staff USING INDEX idx_staff_team (team_id=?)
+//   SELECT ... FROM staff WHERE team_id=? ORDER BY role, rating  SCAN staff -> SEARCH staff USING INDEX idx_staff_team (team_id=?)
+//   SELECT COUNT(*) FROM staff WHERE team_id=?                   SCAN (covering idx_staff_world) -> SEARCH (covering idx_staff_team)
+// The world hire-pool queries (world_id=? AND team_id IS NULL) still pick idx_staff_world, so nothing
+// regresses. This is the ONLY index this pass adds: every other hot query already SEARCHes, and the
+// remaining SCANs are over tables of a few dozen rows that no index would pay for.
+// HONEST SCALE NOTE: staff is 41 rows for ONE world, and at that size the end-to-end workload cannot
+// tell the difference (8 ABBA-ordered runs: 0.5% either way, i.e. noise). What this buys is the
+// removal of an O(rows) term that grows with every world on the server — replaying the same query mix
+// against a grown table: 41 rows 1.50x, 217 rows 2.61x, 877 rows 7.14x, 2,637 rows 18.93x. One extra
+// b-tree on a table that takes ~12 inserts per world created is a cheap way to never meet that curve.
+db.exec(`
+CREATE INDEX IF NOT EXISTS idx_staff_team ON staff(team_id);
+`);
 
 // ── Club finances ledger ────────────────────────────────────────────────────
 // A record of the club's cash movements (prize money, transfer fees in/out, staff fees) for the
@@ -691,3 +732,109 @@ CREATE INDEX IF NOT EXISTS idx_contract_offers_player ON contract_offers(player_
 // a crash/SIGKILL mid-advance would otherwise wedge the world forever (dueSharedWorlds filters
 // advancing=0 and /api/advance 409s). Any lock alive at boot is by definition stale: clear them.
 try { db.exec('UPDATE worlds SET advancing = 0'); } catch { /* pre-migration boot: table may not exist yet */ }
+
+// ── Prepared-statement cache ────────────────────────────────────────────────
+// The backend calls db.prepare(SQL).get/.all/.run(...) at 504 sites across 47 modules, almost always
+// INLINE — so every single execution re-compiled its SQL. Measured on this box (20k point queries):
+// prepare-each-time 174ms vs a reused statement 70ms, i.e. compilation was ~60% of the cost of a
+// small query. Caching the StatementSync by its SQL text makes every one of those call sites reuse a
+// compiled statement WITHOUT touching a single one of them.
+//
+// INSTALLED HERE, AT THE BOTTOM OF THE FILE, ON PURPOSE: everything above is schema + migrations
+// (ensureColumn's PRAGMA table_info + ALTER TABLE, the one-time backfills). Nothing they prepare can
+// ever enter the cache, so a statement compiled against a pre-migration table shape cannot be handed
+// out afterwards. (SQLite would in fact re-prepare it for us — sqlite3_prepare_v2 auto-reprepares on
+// SQLITE_SCHEMA, verified: a cached `SELECT *` DOES pick up a column added by a later ALTER, and a
+// statement over a DROPped table throws "no such table" rather than serving stale rows. This ordering
+// plus the DDL guard on exec() below are belt and braces on top of that.)
+//
+// WHY A PATCHED INSTANCE, NOT A PROXY OR A WRAPPER OBJECT:
+//   * A Proxy would put a trap on EVERY property access at all ~500 call sites and would have to hand
+//     back bound methods; it buys nothing here, since only three methods need new behaviour.
+//   * A hand-written wrapper object would have to re-declare the whole DatabaseSync surface, and would
+//     silently lose any method a future call site reaches for (function/aggregate/createSession/...).
+//   * Replacing three methods on the instance keeps `db` the very same DatabaseSync — same type, same
+//     `instanceof`, every other method native and untouched — so `import { db } from './db.ts'` and
+//     .prepare/.exec/.close/anything-else keep working and keep their exact types.
+//
+// SHARING SAFETY — the thing that makes this sound. A StatementSync is reusable: it resets on every
+// call, so .get()/.all()/.run() can be interleaved freely on one instance, and a NESTED .all() on the
+// same statement is fine because .all() materialises its rows before returning (verified: the outer
+// array stayed [1,2,3,4,5] while an inner .all() ran the same statement). What is NOT safe is
+// .iterate(): it hands out a live cursor. Two iterations of ONE shared statement silently corrupt each
+// other — verified on node v22.22.2, an outer loop that nests an inner iterate() sees [1,2,1,2,3,4,5]
+// and no error is thrown. That is the one way this change could quietly return wrong reads, so the
+// cache never lets it happen: a cached statement's .iterate() is overridden to compile a FRESH,
+// uncached statement and iterate that, giving every cursor its own instance. (Nothing in the codebase
+// calls .iterate() today — this keeps it that way for whoever adds the first caller.)
+//
+// A full 30-matchday, 2-season workload over the real backend (every module, plus a read burst over
+// the screen queries) executed 108,762 statements drawn from just 337 DISTINCT SQL strings — 337 misses,
+// 108,425 hits, 0 evictions. The cap is ~6x that steady-state working set, so eviction only ever fires
+// for pathological dynamic SQL (a query text built per row), which is exactly what it is here to bound.
+const STMT_CACHE_MAX = 2048;
+const stmtCache = new Map<string, StatementSync>();
+let cacheHits = 0, cacheMisses = 0, cacheEvictions = 0;
+// Per-SQL execution counts, for finding hot queries / missing indices. Off by default (one branch on
+// the hot path); FOOTY_DB_STATS=1 turns it on. prepare-count == execution-count here, because every
+// call site prepares immediately before it executes.
+const STMT_STATS = process.env.FOOTY_DB_STATS === '1';
+const stmtCounts = new Map<string, number>();
+
+const rawPrepare = db.prepare.bind(db);
+const rawExec = db.exec.bind(db);
+const rawClose = db.close.bind(db);
+
+db.prepare = function cachedPrepare(sql: string, options?: PrepareOptions): StatementSync {
+  if (STMT_STATS) { stmtCounts.set(sql, (stmtCounts.get(sql) ?? 0) + 1); }
+  // Per-statement flags (readBigInts / returnArrays / bare-named-parameters) change what a statement
+  // RETURNS, so an options-bearing prepare is never shared and never cached.
+  if (options !== undefined) { return rawPrepare(sql, options); }
+  const hit = stmtCache.get(sql);
+  if (hit !== undefined) {
+    cacheHits++;
+    stmtCache.delete(sql); stmtCache.set(sql, hit);   // LRU touch: Map keeps insertion order
+    return hit;
+  }
+  cacheMisses++;
+  const stmt = rawPrepare(sql);
+  // See SHARING SAFETY above: a shared statement must never expose its own cursor.
+  stmt.iterate = ((...args: unknown[]) => (rawPrepare(sql).iterate as (...a: unknown[]) => unknown)(...args)) as typeof stmt.iterate;
+  if (stmtCache.size >= STMT_CACHE_MAX) {
+    // Bounded so pathological dynamic SQL (a query built per row) can't grow the cache without limit.
+    // Evicting the least-recently-used key keeps the hot working set resident under that churn.
+    const lru = stmtCache.keys().next().value;
+    if (lru !== undefined) { stmtCache.delete(lru); cacheEvictions++; }
+  }
+  stmtCache.set(sql, stmt);
+  return stmt;
+};
+
+// DDL invalidates the shape a cached statement was compiled against. SQLite auto-reprepares (see
+// above), but dropping the cache on DDL costs nothing and removes the question entirely. The runtime
+// callers of exec() are only the BEGIN/COMMIT/ROLLBACK helpers in season.ts / market.ts / staff.ts —
+// they never match, so transactions stay on the fast path.
+const DDL_RE = /\b(?:alter|create|drop|reindex|vacuum|attach|detach)\b/i;
+db.exec = function execWithDdlGuard(sql: string): void {
+  if (DDL_RE.test(sql)) { stmtCache.clear(); }
+  rawExec(sql);
+};
+
+// Closing the handle finalizes every statement it produced; a cached one would be a use-after-close
+// ("statement has been finalized") if the handle were reopened. The test suites all close at exit.
+db.close = function closeAndClearCache(): void {
+  stmtCache.clear();
+  rawClose();
+};
+
+// Diagnostics for the cache (and, with FOOTY_DB_STATS=1, the per-SQL execution counts that show which
+// queries are hot enough to be worth an index). Read-only — nothing in the game depends on it.
+export function stmtCacheStats(): {
+  size: number; max: number; hits: number; misses: number; evictions: number;
+  top: { sql: string; calls: number }[];
+} {
+  return {
+    size: stmtCache.size, max: STMT_CACHE_MAX, hits: cacheHits, misses: cacheMisses, evictions: cacheEvictions,
+    top: [...stmtCounts].sort((a, b) => b[1] - a[1]).map(([sql, calls]) => ({ sql, calls })),
+  };
+}
