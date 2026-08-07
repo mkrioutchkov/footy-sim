@@ -611,3 +611,50 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
 > string keys off the rounded-OVR delta, so a player whose attributes are falling
 > too slowly to move his OVR still reads "learns fast" (216 cases in a sweep) —
 > both predate this round.
+
+> **2026-08-07 (round 4) — the suite recreation is FINISHED.** `personality` was the
+> last of the fourteen suites lost to `.gitignore`'s blanket `_*`. `npm run test:game`
+> now chains **14 suites / 1,204 assertions**. What the personality suite found and
+> pinned as CURRENT behaviour (owner to rule, not for a test to assert away): **three
+> personality down-cues are dead code and a fourth leaks**, all from substring
+> shadowing in the cue table; the **wage formula uses 8% where this ledger says 10%**;
+> the **reassure range is ~3..13 where this ledger says 1..15**; and `manager/plan.ts`
+> uses 60/40 prose bands against 65/35 directive bands.
+
+> **2026-08-07 — TWO CROSS-TENANT LEAKS, now closed.** Splitting the route monolith
+> is what made these visible. `GET /ws/match?fixture=N` had **no ownership check at
+> all** — an anonymous socket, or any user in a different world, could stream another
+> tenant's private match. `POST /api/shortlist` accepted any global `players.id`, so
+> id-scanning read another world's player records. Both reproduced with a two-user
+> HTTP/WS exercise before and after. A third, found by a verifier: `market.ts` `loanIn`
+> ran its world check AFTER two rejections that interpolate the player's NAME, so
+> posting a foreign id told you who he was. **Lesson worth keeping: `players.id` is
+> GLOBAL, not world-scoped — any route taking one must check world membership BEFORE
+> any error message that names the row.**
+
+> **2026-08-07 — the golden baseline moved for the first time in this session's work**
+> (`d9330e30` → `96f4b18a`), for three intended engine fixes measured in isolation.
+> The one that changes what you SEE: the loose-ball freeze watchdog re-armed off the
+> **goalkeeper's** distance, so a keeper who happened to be nearest when the watch
+> armed pinned the baseline and wandering off made "nobody is closing" read true —
+> **13 of 13 fires across 60 hours of football landed on top of a live chase**, and 3
+> of them handed the ball to a keeper. Now 0 fires, with the watch timer peaking at
+> 400ms against its 3000ms trigger. Also: `preventableGoals` is reachable at last
+> (threshold keyed off the ceiling, 0.95 picked from a 498-roll census), and
+> `outYellowCards` now rides `SubstitutionRecord` so a booked-then-substituted man
+> keeps his -0.3 rating dent — the web side reads it as of this round, so that
+> follow-up is CLOSED.
+>
+> **Method note for the next behaviour change:** goals moved +0.375 at 90min x40 and
+> it looked real until an independent batch (seeds 141-180) gave −0.25, pooling to
+> +0.06 over 80 paired seeds. One batch is not a result. The watchdog fix's own
+> effect (`simulationFreezes` 0.325 → 0.000) DID replicate, which is what a real
+> effect looks like.
+
+> **2026-08-07 — frontend profiled for the first time.** The boot/head arrow was the
+> pitch's largest per-rAF cost: up to 22 Graphics re-tessellations per animation
+> frame, and under fast-forward the ~2° dirty-check never engages so every one
+> rebuilt every frame. For a non-carrying player the whole drawing is a **rigid
+> rotation of one template**, so it is now painted once per pose and rides
+> `arrow.rotation` — fill ops/sec −93% at 1x, renderFrame main-thread time −43%.
+> Carriers still repaint (boots swing toward the BALL, genuinely two angles).
