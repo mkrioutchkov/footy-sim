@@ -6,7 +6,7 @@ import { db } from '../db.ts';
 import { playerValue } from '../game.ts';
 import { deriveTraits, defaultPersonality, type Personality } from '../personality.ts';
 import { previewRenewal, proposeRenewal, contractOffersForTeam, matchContractCounter, withdrawContractOffer } from '../contracts.ts';
-import { requireTeam } from './shared.ts';
+import { requireTeam, idParam } from './shared.ts';
 
 export function registerPlayerRoutes(app: FastifyInstance): void {
   // Rewrite a player's backstory/tagline and RE-DERIVE their trait dials from the new text
@@ -15,8 +15,7 @@ export function registerPlayerRoutes(app: FastifyInstance): void {
   // player's underlying weights). LLM-primary with a deterministic keyword fallback.
   app.put('/api/player/:slot/story', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.params.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+    const slot = idParam(reply, req.params?.slot, 'slot'); if (slot == null) return;
     const backstory = String(req.body?.backstory ?? '').trim().slice(0, 400);
     const tagline = String(req.body?.tagline ?? '').trim().slice(0, 80);
     if (!backstory) return reply.code(400).send({ error: 'a backstory is required' });
@@ -24,7 +23,12 @@ export function registerPlayerRoutes(app: FastifyInstance): void {
       .get(teamId, slot) as { name: string; role: string; attrs: string; age: number; personality: string | null } | undefined;
     if (!row) return reply.code(404).send({ error: 'player not found' });
     let prev: Personality | null = null;
-    try { prev = row.personality ? JSON.parse(row.personality) : null; } catch { /* ignore */ }
+    // Not ambient — a corrupt personality blob is why this swallow exists AND what it costs: prev stays
+    // null, so the nationality below falls back to defaultPersonality() and the player QUIETLY CHANGES
+    // NATION. Recovering the rest of the rewrite still beats 500-ing the edit, but the operator needs to
+    // know a stored row is unreadable, so log it rather than shrugging.
+    try { prev = row.personality ? JSON.parse(row.personality) : null; }
+    catch (e) { console.warn(`[player] unreadable personality JSON for team ${teamId} slot ${slot} — nationality will be re-derived:`, e); }
     const traits = await deriveTraits(row.name, row.role, backstory, tagline);
     const personality: Personality = { traits, nationality: prev?.nationality ?? defaultPersonality(row.name, row.role).nationality, backstory, tagline };
     db.prepare('UPDATE players SET personality = ? WHERE team_id = ? AND slot = ?').run(JSON.stringify(personality), teamId, slot);
@@ -36,9 +40,8 @@ export function registerPlayerRoutes(app: FastifyInstance): void {
   // matchday (accept / counter / reject). Replaces the old instant one-click renewal with a negotiation.
   app.post('/api/player/:slot/renew-offer', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.params.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
-    const wage = Number(req.body?.wage);
+    const slot = idParam(reply, req.params?.slot, 'slot'); if (slot == null) return;
+    const wage = Number(req.body?.wage);   // proposeRenewal rejects a non-positive wage with its own copy
     const years = req.body?.years != null ? Number(req.body.years) : 3;
     const r = proposeRenewal(teamId, slot, wage, years);
     if (!r.ok) return reply.code(400).send({ error: r.error });
@@ -54,7 +57,7 @@ export function registerPlayerRoutes(app: FastifyInstance): void {
   // Match the player's counter — strike the renewal at his terms (budget permitting).
   app.post('/api/contract-offer/:id/match', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const id = Number(req.params.id);
+    const id = idParam(reply, req.params?.id, 'offer id'); if (id == null) return;
     const r = matchContractCounter(teamId, id);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return r;
@@ -63,7 +66,7 @@ export function registerPlayerRoutes(app: FastifyInstance): void {
   // Withdraw a live renewal offer.
   app.post('/api/contract-offer/:id/withdraw', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const id = Number(req.params.id);
+    const id = idParam(reply, req.params?.id, 'offer id'); if (id == null) return;
     const r = withdrawContractOffer(teamId, id);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return r;
@@ -72,8 +75,7 @@ export function registerPlayerRoutes(app: FastifyInstance): void {
   // Preview a renewal (§1.14): the recomputed wage + delta + affordability, WITHOUT committing.
   app.get('/api/player/:slot/renew-preview', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.params.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+    const slot = idParam(reply, req.params?.slot, 'slot'); if (slot == null) return;
     const r = previewRenewal(teamId, slot, 3);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return r;

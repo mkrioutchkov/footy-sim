@@ -6,7 +6,7 @@ import { getFinances } from '../finances.ts';
 import { getSquadHarmony } from '../harmony.ts';
 import { getRotationView, applyRotation } from '../rotation.ts';
 import { getHistory, getClubRecords } from '../history.ts';
-import { requireTeam } from './shared.ts';
+import { requireTeam, idParam } from './shared.ts';
 
 export function registerClubRoutes(app: FastifyInstance): void {
   // Backroom staff: the club's coaches/physios/scouts + the world's hire pool + current effects.
@@ -16,16 +16,14 @@ export function registerClubRoutes(app: FastifyInstance): void {
   });
   app.post('/api/staff/hire', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const staffId = Number(req.body?.staffId);
-    if (!Number.isInteger(staffId)) return reply.code(400).send({ error: 'staffId required' });
+    const staffId = idParam(reply, req.body?.staffId, 'staffId'); if (staffId == null) return;
     const r = hireStaff(teamId, staffId);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, ...getStaffView(teamId) };
   });
   app.post('/api/staff/fire', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const staffId = Number(req.body?.staffId);
-    if (!Number.isInteger(staffId)) return reply.code(400).send({ error: 'staffId required' });
+    const staffId = idParam(reply, req.body?.staffId, 'staffId'); if (staffId == null) return;
     const r = fireStaff(teamId, staffId);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, ...getStaffView(teamId) };
@@ -68,7 +66,11 @@ export function registerClubRoutes(app: FastifyInstance): void {
   // Apply one rotation swap (bench a starter, start a bench player) by editing the stored XI directly.
   app.post('/api/rotation/apply', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const r = applyRotation(teamId, Number(req.body?.outSlot), Number(req.body?.inSlot));
+    // Validate at the boundary: a MISSING slot used to reach applyRotation as NaN and come back as
+    // 'pick two different players' (NaN !== NaN), which blames the user for a request the UI never sent.
+    const outSlot = idParam(reply, req.body?.outSlot, 'outSlot'); if (outSlot == null) return;
+    const inSlot = idParam(reply, req.body?.inSlot, 'inSlot'); if (inSlot == null) return;
+    const r = applyRotation(teamId, outSlot, inSlot);
     if (!r.ok) return reply.code(400).send({ error: r.error ?? 'could not apply' });
     return { ...r, rotation: getRotationView(teamId) };
   });

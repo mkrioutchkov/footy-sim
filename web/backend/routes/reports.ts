@@ -10,6 +10,7 @@ import { buildMatchReport } from '../report.ts';
 import { buildScoutReport } from '../scout.ts';
 import { recentNews } from '../news.ts';
 import { getInbox, countUnread, markInboxRead } from '../inbox.ts';
+import { worldForTeam } from '../worlds.ts';
 import { requireTeam } from './shared.ts';
 
 export function registerReportRoutes(app: FastifyInstance): void {
@@ -21,8 +22,11 @@ export function registerReportRoutes(app: FastifyInstance): void {
     if (req.query?.cup != null) {
       const tie = db.prepare('SELECT * FROM cup_ties WHERE id = ?').get(Number(req.query.cup)) as { id: number; world_id: number; home_team_id: number | null; away_team_id: number | null; seed: number; played: number; home_score: number | null; away_score: number | null; home_pens: number | null; away_pens: number | null; winner_team_id: number | null } | undefined;
       if (!tie || !tie.played || tie.home_team_id == null || tie.away_team_id == null) return reply.code(404).send({ error: 'cup tie not found' });
-      const lg = db.prepare('SELECT id, world_id FROM leagues WHERE id = (SELECT league_id FROM teams WHERE id = ?)').get(teamId) as { id: number; world_id: number | null };
-      if (tie.world_id !== (lg.world_id ?? lg.id)) return reply.code(403).send({ error: 'not your world' });
+      // The caller's world, via worlds.worldForTeam (COALESCE(world_id, id)) rather than a third
+      // hand-rolled copy of that query. The copy this replaces cast its row WITHOUT `| undefined` and
+      // then dereferenced it — unreachable today (requireTeam guarantees the team, and a team always
+      // has a league) but a 500 waiting for the first schema change that makes it reachable.
+      if (tie.world_id !== worldForTeam(teamId)) return reply.code(403).send({ error: 'not your world' });
       const cnm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(tie.home_team_id, tie.away_team_id) as { id: number; name: string }[];
       const chome = cnm.find(t => t.id === tie.home_team_id)?.name ?? 'Home';
       const caway = cnm.find(t => t.id === tie.away_team_id)?.name ?? 'Away';
@@ -64,6 +68,13 @@ export function registerReportRoutes(app: FastifyInstance): void {
     if (!fx) return reply.code(404).send({ error: 'fixture not found' });
     const team = getTeamWithPlayers(teamId)!;
     if (fx.league_id !== team.leagueId) return reply.code(403).send({ error: 'not your league' });
+    // PARTICIPANT scope, not league scope (the sibling POST /api/fixtures/:id/play already draws the
+    // line here). A shout log is the manager's own in-match instructions in his own words; only the
+    // two clubs in the tie ever produce one, so a league-wide guard leaked a RIVAL HUMAN's shouts in
+    // a shared world — read straight off the league screen's Report button. Nothing legitimate is
+    // lost: for any other fixture there is no log, and the frontend already falls back to an empty
+    // review on error (app.ts `api.tactics(...).catch(() => ({ shouts: [] }))`).
+    if (fx.home_team_id !== teamId && fx.away_team_id !== teamId) return reply.code(403).send({ error: 'not your fixture' });
     const log = loadEventsLog('fixture', fx.id);
     if (!log) return { shouts: [] };
     return tacticsReview(log);

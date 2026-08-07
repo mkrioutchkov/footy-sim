@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { getMarket, buyFreeAgent, listPlayer, unlistPlayer, bidForPlayer, loanIn, loanOut, endLoan, offersForTeam, withdrawOffer, matchCounter, incomingOffersForTeam, acceptIncomingOffer, rejectIncomingOffer, offerToFreeAgent, freeAgentOffersForTeam } from '../market.ts';
 import { getObjective } from '../objectives.ts';
 import { getConfidence, recruitmentBacking } from '../confidence.ts';
-import { requireTeam } from './shared.ts';
+import { requireTeam, idParam, optionalIdParam } from './shared.ts';
 
 export function registerMarketRoutes(app: FastifyInstance): void {
   // ── transfer market (pillar 1) ──
@@ -20,8 +20,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
 
   app.post('/api/market/buy', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const agentId = Number(req.body?.agentId);
-    if (!Number.isInteger(agentId)) return reply.code(400).send({ error: 'agentId required' });
+    const agentId = idParam(reply, req.body?.agentId, 'agentId'); if (agentId == null) return;
     const r = buyFreeAgent(teamId, agentId);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, market: getMarket(teamId) };
@@ -29,8 +28,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
 
   app.post('/api/market/list', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.body?.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
+    const slot = idParam(reply, req.body?.slot, 'slot'); if (slot == null) return;
     const price = req.body?.price != null ? Number(req.body.price) : undefined;
     const r = listPlayer(teamId, slot, price);
     if (!r.ok) return reply.code(400).send({ error: r.error });
@@ -39,8 +37,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
 
   app.post('/api/market/unlist', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.body?.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
+    const slot = idParam(reply, req.body?.slot, 'slot'); if (slot == null) return;
     unlistPlayer(teamId, slot);
     return { ok: true, market: getMarket(teamId) };
   });
@@ -49,8 +46,8 @@ export function registerMarketRoutes(app: FastifyInstance): void {
   // counter is a normal outcome (200 + status), only a malformed/illegal bid is a 4xx.
   app.post('/api/transfer/bid', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const playerId = Number(req.body?.playerId), fee = Number(req.body?.fee);
-    if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
+    const playerId = idParam(reply, req.body?.playerId, 'playerId'); if (playerId == null) return;
+    const fee = Number(req.body?.fee);   // bidForPlayer rejects a non-finite / non-positive fee with its own copy
     const r = bidForPlayer(teamId, playerId, fee);
     if (r.status === 'error') return reply.code(400).send({ error: r.error });
     return { ...r, market: getMarket(teamId) };
@@ -59,8 +56,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
   // Loan in another club's player for the season (no fee, window-gated).
   app.post('/api/transfer/loan', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const playerId = Number(req.body?.playerId);
-    if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
+    const playerId = idParam(reply, req.body?.playerId, 'playerId'); if (playerId == null) return;
     const r = loanIn(teamId, playerId);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, market: getMarket(teamId) };
@@ -70,8 +66,8 @@ export function registerMarketRoutes(app: FastifyInstance): void {
   // next matchday — and the manager's free-agent negotiations in progress.
   app.post('/api/freeagent/offer', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const agentId = Number(req.body?.agentId), wage = Number(req.body?.wage), years = Number(req.body?.years);
-    if (!Number.isInteger(agentId)) return reply.code(400).send({ error: 'agentId required' });
+    const agentId = idParam(reply, req.body?.agentId, 'agentId'); if (agentId == null) return;
+    const wage = Number(req.body?.wage), years = Number(req.body?.years);   // range-checked inside offerToFreeAgent
     const r = offerToFreeAgent(teamId, agentId, wage, years);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, market: getMarket(teamId), faOffers: freeAgentOffersForTeam(teamId) };
@@ -85,10 +81,9 @@ export function registerMarketRoutes(app: FastifyInstance): void {
   // returns at rollover). Optional clubId picks the destination; otherwise a club short in his role is chosen.
   app.post('/api/transfer/loan-out', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.body?.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
-    const clubId = req.body?.clubId != null ? Number(req.body.clubId) : undefined;
-    const r = loanOut(teamId, slot, Number.isInteger(clubId) ? clubId : undefined);
+    const slot = idParam(reply, req.body?.slot, 'slot'); if (slot == null) return;
+    const clubId = optionalIdParam(reply, req.body?.clubId, 'clubId'); if (clubId === null) return;
+    const r = loanOut(teamId, slot, clubId);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, market: getMarket(teamId) };
   });
@@ -96,8 +91,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
   // §2.12: send a loaned-in player back to his parent club early (frees the slot + wage).
   app.post('/api/transfer/loan/end', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.body?.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot required' });
+    const slot = idParam(reply, req.body?.slot, 'slot'); if (slot == null) return;
     const r = endLoan(teamId, slot);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, market: getMarket(teamId) };
@@ -111,13 +105,15 @@ export function registerMarketRoutes(app: FastifyInstance): void {
   });
   app.post('/api/offer/:id/withdraw', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const r = withdrawOffer(teamId, Number(req.params.id));
+    const offerId = idParam(reply, req.params?.id, 'offer id'); if (offerId == null) return;
+    const r = withdrawOffer(teamId, offerId);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, offers: offersForTeam(teamId) };
   });
   app.post('/api/offer/:id/match', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const r = matchCounter(teamId, Number(req.params.id));
+    const offerId = idParam(reply, req.params?.id, 'offer id'); if (offerId == null) return;
+    const r = matchCounter(teamId, offerId);
     if (r.status === 'error') return reply.code(400).send({ error: r.error });
     return { ...r, market: getMarket(teamId), offers: offersForTeam(teamId) };
   });
@@ -129,13 +125,15 @@ export function registerMarketRoutes(app: FastifyInstance): void {
   });
   app.post('/api/offer/:id/accept', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const r = acceptIncomingOffer(teamId, Number(req.params.id));
+    const offerId = idParam(reply, req.params?.id, 'offer id'); if (offerId == null) return;
+    const r = acceptIncomingOffer(teamId, offerId);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, market: getMarket(teamId), incoming: incomingOffersForTeam(teamId) };
   });
   app.post('/api/offer/:id/reject', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const r = rejectIncomingOffer(teamId, Number(req.params.id));
+    const offerId = idParam(reply, req.params?.id, 'offer id'); if (offerId == null) return;
+    const r = rejectIncomingOffer(teamId, offerId);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, incoming: incomingOffersForTeam(teamId) };
   });

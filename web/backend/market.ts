@@ -77,9 +77,11 @@ function worldLeagueIds(leagueId: number): number[] {
 // mapping is invalidated by a removal, and silently corrupting it is worse than the
 // (surfaced) reset to the default XI.
 function renumberSquad(teamId: number): void {
-  const rows = db.prepare('SELECT id FROM players WHERE team_id = ? ORDER BY slot, id').all(teamId) as { id: number }[];
+  const rows = db.prepare('SELECT id, slot FROM players WHERE team_id = ? ORDER BY slot, id').all(teamId) as { id: number; slot: number }[];
   const upd = db.prepare('UPDATE players SET slot = ? WHERE id = ?');
-  rows.forEach((r, i) => upd.run(i, r.id));
+  // Only the rows the compaction actually moves need writing — a squad with no hole is already 0..N-1,
+  // so the common case writes nothing. (Same reasoning as optimizeLineup in ai.ts.)
+  rows.forEach((r, i) => { if (r.slot !== i) { upd.run(i, r.id); } });
   // lineup + set-piece takers are slot-keyed (like the per-player directives below) — a renumber invalidates
   // them, so reset both to the default rather than have a taker silently land on whoever now fills that slot.
   db.prepare('UPDATE teams SET lineup = NULL, set_piece_takers = NULL WHERE id = ?').run(teamId);
@@ -592,9 +594,13 @@ export function loanIn(borrowerTeamId: number, targetPlayerId: number): LoanResu
       .get(targetPlayerId) as { id: number; team_id: number; name: string; parent_team_id: number | null; wage: number | null; listed: number; club: string; owner_league: number; owner_count: number } | undefined;
     if (!t) return { ok: false, error: 'player not found' };
     if (t.team_id === borrowerTeamId) return { ok: false, error: 'already your player' };
+    // The world check comes BEFORE any error that names the player. players.id is global, so the
+    // two `${t.name}` messages below were a cross-tenant read: post another world's id and the
+    // rejection told you who he was. Same outcome for a legitimate same-world loan — only the
+    // answer given to someone reaching outside their world changes.
+    if (!worldLeagueIds(borrower.league_id).includes(t.owner_league)) return { ok: false, error: 'player is outside your world' };
     if (!t.listed) return { ok: false, error: `${t.name} isn't available to loan` };   // §1.16: gate to transfer-listed (the UI already only offers listed players)
     if (t.parent_team_id != null) return { ok: false, error: `${t.name} is already out on loan` };
-    if (!worldLeagueIds(borrower.league_id).includes(t.owner_league)) return { ok: false, error: 'player is outside your world' };
     if (t.owner_count <= SQUAD_MIN) return { ok: false, error: `${t.club} won't loan ${t.name} out — their squad is at the minimum` };
     if (teamPlayers(borrowerTeamId).length >= SQUAD_MAX) return { ok: false, error: `squad full (max ${SQUAD_MAX})` };
     if (wageBill(borrowerTeamId) + (t.wage ?? 0) > borrower.wage_budget) return { ok: false, error: 'not enough wage budget for his wages' };

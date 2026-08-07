@@ -11,7 +11,7 @@ import { pendingCupRound, advanceCupRound, cupTieFor } from '../cup.ts';
 import { worldLeagues, pendingMatchday, seasonComplete, rolloverSeason } from '../season.ts';
 import { worldForTeam, getWorld, ensureWorldForLeague, claimAdvanceLock, releaseAdvanceLock, recordWorldAdvanced, dueSharedWorlds, listJoinableWorlds } from '../worlds.ts';
 import { prepareMatchdayHeuristic, setTacticsAndXI } from '../manager/index.ts';
-import { NATIONS, CONFED_NAME } from '../nations.ts';
+import { NATIONS, NATION_BY_KEY, CONFED_NAME } from '../nations.ts';
 import { runInternationalTournaments, getWorldTournaments, selectNationalSquad, fieldableNations } from '../national.ts';
 import { aiManagerTick, optimizeLineup } from '../ai.ts';
 import { processContractOffers } from '../contracts.ts';
@@ -22,7 +22,7 @@ import { payMatchdayIncome } from '../finances.ts';
 import { processMatchAftermath, tallyDivisionRatings } from '../news.ts';
 import { fitnessTick } from '../fitness.ts';
 import { moraleTick } from '../morale.ts';
-import { requireUser, requireAdmin, requireTeam } from './shared.ts';
+import { requireUser, requireAdmin, requireTeam, idParam } from './shared.ts';
 
 // Advance a matchday: play my next unplayed round across EVERY division of my world (so
 // both tables move together), then run the market + training ticks for each division. If
@@ -111,7 +111,10 @@ async function advanceWorldCore(worldLeagueId: number): Promise<WorldTurnCore> {
 
   runManagerPrePass(toPlay);   // §manager-ai: AI clubs + absent humans get their formation/XI/plan set now
   const results = await mapPool(toPlay, id => playFixture(id));   // core-capped: the whole world's matchday
-  for (const r of results) { if (r && r.players) { try { tallyDivisionRatings(r.fixtureId, r.players); } catch { /* ambient */ } } }
+  // Ambient by design: the ratings tally is a derived season stat, not match state. The fixtures are
+  // already played and persisted at this point, so a failure here loses one matchday of leaderboard
+  // input — it must never abort a turn that has real results in it.
+  for (const r of results) { if (r && r.players) { try { tallyDivisionRatings(r.fixtureId, r.players); } catch { /* see above */ } } }
 
   // per-human result + side + opponent, resolved BEFORE rollover purges the fixtures
   const snap = new Map<number, { myFixtureId: number | null; myResult: any; myHome: boolean | null; myOpponent: string }>();
@@ -153,7 +156,9 @@ async function advanceWorldCore(worldLeagueId: number): Promise<WorldTurnCore> {
   for (const tid of humanIds) {
     const s = snap.get(tid)!;
     if (s.myFixtureId != null) {
-      void processMatchAftermath(tid, s.myFixtureId, injuries, s.myResult?.players ?? []).catch(() => { /* ambient */ });
+      // Ambient by design: aftermath is the flavour pass (news lines, story beats) and is deliberately
+      // fire-and-forget so the advance response isn't held on it. It owns no money, table or squad state.
+      void processMatchAftermath(tid, s.myFixtureId, injuries, s.myResult?.players ?? []).catch(e => console.warn(`[aftermath] team ${tid} fixture ${s.myFixtureId}:`, e));
       if (!s.myResult?.alreadyPlayed) recordReplay(s.myFixtureId);
     }
   }
@@ -273,16 +278,20 @@ export function registerWorldRoutes(app: FastifyInstance): void {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
     const wid = worldForTeam(teamId);
     if (wid == null) return reply.code(404).send({ error: 'no world' });
-    const xi = selectNationalSquad(wid, String(req.params?.key));
+    // An UNKNOWN key used to 200 with an empty squad — indistinguishable from a real nation that
+    // simply can't field an XI in this world, so a typo'd/stale link showed "no players" forever.
+    // Validate against the fixed registry (the same list GET /api/nations serves) and 404 instead.
+    const key = String(req.params?.key ?? '');
+    if (!NATION_BY_KEY.has(key)) return reply.code(404).send({ error: 'no such nation' });
+    const xi = selectNationalSquad(wid, key);
     return { squad: (xi ?? []).map(p => ({ name: p.name, role: p.role, overall: overall(p.attrs, p.role) })) };
   });
 
   // §national-teams: admin — run this world's internationals now (testing; normally fires at rollover).
   app.post('/api/admin/run-internationals', async (req: any, reply) => {
     const user = requireAdmin(req, reply); if (!user) return;
-    const wid = Number(req.body?.worldId);
-    const season = Number(req.body?.season);
-    if (!Number.isInteger(wid) || !Number.isInteger(season)) return reply.code(400).send({ error: 'worldId + season required' });
+    const wid = idParam(reply, req.body?.worldId, 'worldId'); if (wid == null) return;
+    const season = idParam(reply, req.body?.season, 'season'); if (season == null) return;
     const held = await runInternationalTournaments(wid, season);
     return { ok: true, held };
   });
@@ -299,8 +308,7 @@ export function registerWorldRoutes(app: FastifyInstance): void {
   // §autonomous: the teams in a shared world (claimable = unclaimed AI seats), with OVR + division.
   app.get('/api/worlds/:id/teams', async (req: any, reply) => {
     const user = requireUser(req, reply); if (!user) return;
-    const worldId = Number(req.params?.id);
-    if (!Number.isInteger(worldId)) return reply.code(400).send({ error: 'bad world' });
+    const worldId = idParam(reply, req.params?.id, 'world id'); if (worldId == null) return;
     // Shared worlds only: without this gate any logged-in user could enumerate every club,
     // manager name and squad strength of every OTHER user's private solo world by iterating ids.
     const w = getWorld(worldId);
@@ -332,9 +340,8 @@ export function registerWorldRoutes(app: FastifyInstance): void {
   // already manage a (non-sacked) club — one active team per user (the locked decision).
   app.post('/api/worlds/:id/claim', async (req: any, reply) => {
     const user = requireUser(req, reply); if (!user) return;
-    const worldId = Number(req.params?.id);
-    const teamId = Number(req.body?.teamId);
-    if (!Number.isInteger(worldId) || !Number.isInteger(teamId)) return reply.code(400).send({ error: 'world + teamId required' });
+    const worldId = idParam(reply, req.params?.id, 'world id'); if (worldId == null) return;
+    const teamId = idParam(reply, req.body?.teamId, 'teamId'); if (teamId == null) return;
     const existing = teamForUser(user.id);
     if (existing != null && !((db.prepare('SELECT sacked FROM teams WHERE id = ?').get(existing) as { sacked: number } | undefined)?.sacked)) {
       return reply.code(409).send({ error: 'you already manage a club — leave it first' });

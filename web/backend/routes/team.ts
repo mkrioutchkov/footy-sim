@@ -11,7 +11,7 @@ import { compileInitialPlan, QUICK_TACTICS, buildQuickPlan, type QuickTactic } f
 import { sanitizeStructuredDirectives } from '../tactics.ts';
 import { seedAcademy, getAcademy, promoteProspect } from '../youth.ts';
 import { TALK_TONES, isTalkTone, setTeamTalk, pendingTalk, previewTalk } from '../teamtalk.ts';
-import { requireUser, requireTeam, validTactics } from './shared.ts';
+import { requireUser, requireTeam, validTactics, idParam } from './shared.ts';
 
 export function registerTeamRoutes(app: FastifyInstance): void {
   // ── team / league ──
@@ -58,8 +58,7 @@ export function registerTeamRoutes(app: FastifyInstance): void {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
     const raw = req.body?.slot;
     if (raw == null || Number(raw) === -1) { db.prepare('UPDATE teams SET captain_slot = NULL WHERE id = ?').run(teamId); return { ok: true, captainSlot: null }; }
-    const slot = Number(raw);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+    const slot = idParam(reply, raw, 'slot'); if (slot == null) return;   // (the null / -1 "clear" sentinels are handled above)
     if (!db.prepare('SELECT 1 FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot)) return reply.code(404).send({ error: 'no such player in your squad' });
     db.prepare('UPDATE teams SET captain_slot = ? WHERE id = ?').run(slot, teamId);
     return { ok: true, captainSlot: slot };
@@ -112,7 +111,8 @@ export function registerTeamRoutes(app: FastifyInstance): void {
   });
   app.post('/api/academy/:id/promote', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const r = promoteProspect(teamId, Number(req.params.id));
+    const prospectId = idParam(reply, req.params?.id, 'prospect id'); if (prospectId == null) return;
+    const r = promoteProspect(teamId, prospectId);
     if (!r.ok) return reply.code(400).send({ error: r.error });
     return { ...r, prospects: getAcademy(teamId) };
   });

@@ -17,7 +17,7 @@ import { getPlayerCareer } from '../history.ts';
 import { getAttrProgression } from '../training.ts';
 import { getObjective } from '../objectives.ts';
 import { getConfidence } from '../confidence.ts';
-import { requireUser, requireTeam } from './shared.ts';
+import { requireUser, requireTeam, idParam, playerInMyWorld } from './shared.ts';
 
 export function registerManagerRoutes(app: FastifyInstance): void {
   // Hold a press conference: the manager's statement (free text) is judged against each
@@ -88,9 +88,16 @@ export function registerManagerRoutes(app: FastifyInstance): void {
   });
   app.post('/api/shortlist', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const playerId = Number(req.body?.playerId);
-    if (!Number.isInteger(playerId)) return reply.code(400).send({ error: 'playerId required' });
+    const playerId = idParam(reply, req.body?.playerId, 'playerId'); if (playerId == null) return;
     const add = req.body?.add !== false;   // default to add unless explicitly false
+    // World scope. toggleShortlist stores whatever id it is handed and getShortlist resolves ids
+    // GLOBALLY, so an unchecked add let any logged-in user read name/club/role/age/overall/value/
+    // release-clause for any player in any OTHER user's private solo world by scanning ids — the
+    // same enumeration hole GET /api/worlds/:id/teams already gates. searchPlayers (the only place
+    // the UI gets an id for this route) is world-scoped, so this rejects nothing the UI can send.
+    // Only the ADD is gated: a REMOVE must always work, or an id that predates this check (or a
+    // player who has since moved worlds) would be un-deletable from the list.
+    if (add && !playerInMyWorld(teamId, playerId)) return reply.code(404).send({ error: 'no such player' });
     const r = toggleShortlist(teamId, playerId, add);
     return { ...r, shortlist: getShortlist(teamId), ids: shortlistIds(teamId) };
   });
@@ -123,8 +130,7 @@ export function registerManagerRoutes(app: FastifyInstance): void {
   // his morale via his personality dials. One chat per player per matchday (cooldown enforced in the module).
   app.post('/api/player/:slot/interact', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.params?.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+    const slot = idParam(reply, req.params?.slot, 'slot'); if (slot == null) return;
     if (!isInteractTone(req.body?.tone)) return reply.code(400).send({ error: 'unknown tone' });
     const r = interactWithPlayer(teamId, slot, req.body.tone);
     if (!r.ok) return reply.code(400).send({ error: r.error });
@@ -135,8 +141,7 @@ export function registerManagerRoutes(app: FastifyInstance): void {
   // resolved slot → stable players.id within the user's own club (career only for players you manage).
   app.get('/api/player/:slot/career', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.params?.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+    const slot = idParam(reply, req.params?.slot, 'slot'); if (slot == null) return;
     const row = db.prepare('SELECT id FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as { id: number } | undefined;
     if (!row) return reply.code(404).send({ error: 'no such player in your squad' });
     return { career: getPlayerCareer(row.id) };
@@ -146,8 +151,7 @@ export function registerManagerRoutes(app: FastifyInstance): void {
   // for the Development graph. Same slot → stable players.id resolution as /career (auth boundary).
   app.get('/api/player/:slot/progression', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.params?.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'bad slot' });
+    const slot = idParam(reply, req.params?.slot, 'slot'); if (slot == null) return;
     const row = db.prepare('SELECT id FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as { id: number } | undefined;
     if (!row) return reply.code(404).send({ error: 'no such player in your squad' });
     return { progression: getAttrProgression(row.id) };
@@ -161,8 +165,7 @@ export function registerManagerRoutes(app: FastifyInstance): void {
 
   app.post('/api/concerns/:slot', async (req: any, reply) => {
     const teamId = requireTeam(req, reply); if (teamId == null) return;
-    const slot = Number(req.params?.slot);
-    if (!Number.isInteger(slot)) return reply.code(400).send({ error: 'slot must be an integer' });   // reject a bad param at the boundary (matches every other slot route)
+    const slot = idParam(reply, req.params?.slot, 'slot'); if (slot == null) return;   // reject a bad param at the boundary (matches every other slot route — see shared.idParam)
     const action = String(req.body?.action ?? '') as ConcernAction;
     if (!['reassure', 'accept', 'reject'].includes(action)) return reply.code(400).send({ error: 'unknown action' });
     const r = resolveConcern(teamId, slot, action);

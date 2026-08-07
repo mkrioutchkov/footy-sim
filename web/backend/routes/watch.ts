@@ -9,6 +9,7 @@ import { getUserBySession } from '../auth.ts';
 import { getTeamWithPlayers, teamForUser } from '../game.ts';
 import { getFixture, writeSpec, MatchStream, ReplayStream, EventsReplayStream, recordingFor, loadRecording, hasHumanStake, loadEventsLog } from '../match.ts';
 import { joinLiveMatch, liveKey, type Seat } from '../coordinator.ts';
+import { worldForTeam, worldRootId } from '../worlds.ts';
 
 // ── match-watch WebSocket: /ws/match?fixture=ID (re-runs the deterministic sim) ──
 export function registerMatchWatch(server: Server): void {
@@ -16,6 +17,15 @@ export function registerMatchWatch(server: Server): void {
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url ?? '', `http://${request.headers.host}`);
     if (url.pathname !== '/ws/match') { socket.destroy(); return; }
+    // Who is on the other end of this socket? A WS upgrade never reaches a fastify handler, so the
+    // session is read straight off the Cookie header. Resolved ONCE up front because BOTH branches
+    // below need it — the cup branch for its world guard, the fixture branch for its world guard and
+    // for the seat. (Pre-split these were two separate copies of the same three lines, and only the
+    // cup one carried a guard; see the fixture branch.)
+    const sid = request.headers.cookie?.match(/(?:^|;\s*)sid=([^;]+)/)?.[1];
+    const user = sid ? getUserBySession(sid) : null;
+    const myTeamId = user ? teamForUser(user.id) : null;
+    const myWorldId = myTeamId != null ? worldForTeam(myTeamId) : null;
     // §cup-watch: replay a recorded cup tie (?cup=TIE_ID). The user's own ties are recorded (human stake);
     // a cup tie with no recording (AI-vs-AI) sends an error frame rather than a blank pitch. Replay-only —
     // cup ties aren't shout-driven, so no live re-sim / coordinator path.
@@ -26,11 +36,7 @@ export function registerMatchWatch(server: Server): void {
       // World-scope guard (mirrors the cup-report REST branch's 403): only a manager in the tie's own world
       // may watch it back. Cup ties are personal — only your own club's ties are recorded — so this never
       // blocks a legitimate watch, but it stops another tenant streaming your replay by guessing a tie id.
-      const wsSid = request.headers.cookie?.match(/(?:^|;\s*)sid=([^;]+)/)?.[1];
-      const wsUser = wsSid ? getUserBySession(wsSid) : null;
-      const wsTeamId = wsUser ? teamForUser(wsUser.id) : null;
-      const wsWorld = wsTeamId ? db.prepare('SELECT id, world_id FROM leagues WHERE id = (SELECT league_id FROM teams WHERE id = ?)').get(wsTeamId) as { id: number; world_id: number | null } | undefined : undefined;
-      if (!wsWorld || tie.world_id !== (wsWorld.world_id ?? wsWorld.id)) { socket.destroy(); return; }
+      if (myWorldId == null || tie.world_id !== myWorldId) { socket.destroy(); return; }
       wss.handleUpgrade(request, socket, head, (ws) => {
         try {
           const cnm = db.prepare('SELECT id, name FROM teams WHERE id IN (?, ?)').all(tie.home_team_id, tie.away_team_id) as { id: number; name: string }[];
@@ -41,22 +47,39 @@ export function registerMatchWatch(server: Server): void {
           if (frames.length) { new ReplayStream(ws as any, frames, tie.seed, chome, caway); return; }
           ws.send(JSON.stringify({ error: 'This cup tie wasn’t recorded — only ties your club played can be watched back.' }));
           ws.close();
-        } catch { try { ws.close(); } catch { /* */ } }
+        } catch (e) {
+          // Setting up the replay threw (a missing team row, an unreadable recording file). Say so —
+          // both to the watcher, who otherwise sits on a blank pitch, and to the server log, which is
+          // the only place a maintainer can see WHY. The inner catch is genuinely ambient: the socket
+          // may already be gone, and there is nothing left to do about it either way.
+          console.warn(`[watch] cup tie ${tieId} replay failed:`, e);
+          try { ws.send(JSON.stringify({ error: 'Could not open this cup tie — the server hit an error setting up the replay.' })); } catch { /* socket already gone */ }
+          try { ws.close(); } catch { /* socket already gone */ }
+        }
       });
       return;
     }
     const fixtureId = Number(url.searchParams.get('fixture'));
     const fx = getFixture(fixtureId);
     if (!fx) { socket.destroy(); return; }
-    // Which side is the human watching? Resolve their team from the session cookie
-    // so "we/us/all" and team-wide tactics ("park the bus") target the right side.
-    const sid = request.headers.cookie?.match(/(?:^|;\s*)sid=([^;]+)/)?.[1];
-    const user = sid ? getUserBySession(sid) : null;
-    const myTeamId = user ? teamForUser(user.id) : null;
+    // World-scope guard — the SAME check the cup branch above has carried all along, which this path
+    // was simply missing (the b9767c0 split put the two branches side by side and made that visible).
+    // Without it /ws/match?fixture=N had no ownership check of any kind: an ANY-world user, or a socket
+    // with no session at all, could stream a full match out of another user's private solo save just by
+    // guessing a fixture id — and on a fixture with no stored recording the server SPAWNED THE ENGINE to
+    // re-simulate it for them. Reproduced pre-fix: an anonymous socket received 74 frames of another
+    // tenant's match, while the same probe against ?cup= was refused. World scope (not the narrower
+    // league scope) is deliberate: it is what the cup branch uses, and it is strictly wider than the UI
+    // needs, since the watch buttons only ever offer fixtures from /api/league (the caller's division).
+    if (myWorldId == null || worldRootId(fx.league_id) !== myWorldId) { socket.destroy(); return; }
+    // Which side is the human watching? Their team is resolved from the session cookie above, so
+    // "we/us/all" and team-wide tactics ("park the bus") target the right side.
     // This socket's seat. A manager of one of the TWO teams in this fixture gets that side (and may
-    // shout); anyone else — a spectator, a manager of a different club, or an unauthenticated socket
-    // — is a spectator: watch only, NO tactics. (§1.2: the watch socket had no ownership check and
-    // defaulted everyone to 'home', so a crafted message could tweak the home team's tactics live.)
+    // shout); anyone else — a manager of a different club in the same world — is a spectator: watch
+    // only, NO tactics. (§1.2: the watch socket had no ownership check and defaulted everyone to
+    // 'home', so a crafted message could tweak the home team's tactics live. §1.2 called an
+    // unauthenticated socket a spectator; the world guard above now refuses it outright, which is
+    // strictly stronger — the seat logic below is unchanged and still the guard against shouting.)
     const seat: Seat = myTeamId === fx.home_team_id ? 'home' : myTeamId === fx.away_team_id ? 'away' : 'spectator';
     const myTeam: 'home' | 'away' = seat === 'away' ? 'away' : 'home';
     const canShout = seat !== 'spectator';
@@ -100,7 +123,16 @@ export function registerMatchWatch(server: Server): void {
           return;
         }
         new MatchStream(ws as any, writeSpec(fx), fx.seed, homeName, awayName, myTeam, seedPlan, canShout, 'fixture', fixtureId);
-      } catch (e) { ws.close(); }
+      } catch (e) {
+        // This bound-but-unused `e` was the whole bug: a throw anywhere in the setup above (writeSpec
+        // failing to reach the engine binary, a missing team row, the coordinator refusing a seat) closed
+        // the socket with NO frame and NO log. The watcher got the frontend's generic "The match could not
+        // be started." and a maintainer got nothing at all. Ambient this is not — it is the one place a
+        // watch can fail outright, so name the fixture in the log and tell the client what happened.
+        console.warn(`[watch] fixture ${fixtureId} watch failed:`, e);
+        try { ws.send(JSON.stringify({ error: 'Could not start this match — the server hit an error setting up the stream.' })); } catch { /* socket already gone */ }
+        try { ws.close(); } catch { /* socket already gone */ }
+      }
     });
   });
 
