@@ -557,3 +557,57 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
 > 1.6 s) — the substrate the watchdog papers over; fix pass weighting, not the
 > watchdog. Turnover-burst census re-run post-Round-35: healthy (max 6 flips
 > per 5 s window across 7 matches).
+
+> **2026-08-07 — performance round.** The game layer got **3.02x faster** and the
+> engine **1.9x** (round one) **+ 1.03x** (round two), all measured, none of it
+> guessed. Game layer: `db.ts` had no prepared-statement caching across 504
+> `db.prepare()` sites — a transparent LRU cache plus `synchronous = NORMAL`
+> (the default's two fsyncs per commit were the single biggest cost, hundreds of
+> commits per matchday) took a 30-matchday workload 7519ms → 2486ms, verified by
+> a byte-identical whole-DB fingerprint across every variant. The one real hazard
+> was `.iterate()` on a shared statement silently advancing another loop's cursor
+> — closed by construction and pinned by `tools/_db_test.ts`. Engine: the
+> `scorePositioning` candidate loop was recomputing a jitter sinusoid and an
+> offside scan per candidate (~150M sin/cos a match), and two atan2 angle-wraps
+> that feed only a BOOLEAN were reformulated onto monotone cheaper tests with a
+> fallback band (−11.2M atan2 a match). **Every engine change was gated
+> BYTE-IDENTICAL 40/40 before being judged on speed** — two correct-but-slower
+> changes were implemented, measured and reverted.
+>
+> **Round three's map, with numbers** (from the round-two profile): `resolveChoice`'s
+> sort is still ~23% of a match and the ONLY restructure with headroom is never
+> materializing the permutation (capped at ~3–4%, touches every ranked scan);
+> `std::hypot` is now the largest libm consumer at **45.6M calls/match** and is
+> entirely unexamined — classify its ~40 sites value-producing vs comparison-only,
+> the same lens that worked on atan2. `auditBlobPurposes` costs **64M dist() calls
+> a match in the SHIPPING build** (recordBlobMoment fires regardless of
+> FOOTY_BLOBDEBUG) and can only be gated at the cost of the `blobMoments` summary
+> stat — an owner call, since it breaks byte-identity by construction.
+
+> **2026-08-07 — stat attribution is now consistent across all three paths.**
+> The substitutionLog bug existed in three places; 031680e fixed reports, and
+> this round fixed the `--summary` path (`match.ts`, pure LOSS of every
+> substituted man — seed 19960: season_apps 9→11 human, 8→11 AI, players 22→27)
+> and the live-watch path (`coordinator.ts`, which would otherwise have become a
+> NEW asymmetry: simmed matches crediting everyone, watched ones not). Cached
+> pre-fix reports now self-heal via `REPORT_FORMAT_VERSION` on read.
+> **Still open, engine-side:** a departed man's yellow is unrecoverable web-side
+> (`--summary` carries no frame history and the slot's card count resets at the
+> swap), leaving his rating 0.3 too high — the fix is ONE int, `int outYellowCards`
+> on `SubstitutionRecord` (engine.h) written at `substituteSlot` (engine_squad.cpp).
+> Also latent: the engine's bench is its own fixed reserve-name list rather than
+> the club's real bench, so an ARRIVING substitute matches no DB row and his
+> contributions cannot be credited to a real player at all.
+
+> **2026-08-07 — two "held for owner taste" AI bugs settled as real bugs.**
+> The **diligence sign was flipped**: model professionals declined faster than
+> slackers (age 35: pro −1.60 vs lax −0.90 per matchday), contradicting the
+> game's own UI copy. Fixed, with neutral personalities byte-identical either
+> way. **optimizeLineup ignored injury and fitness** — an AI club would field a
+> man at 3% fitness; injury now excludes, fitness weights (a 60%-fit star can
+> still beat a fresh reserve), and a fully fit squad repacks byte-identically.
+> **Deliberately NOT changed, do not re-litigate without an owner call:** MORALE
+> has the same inverted shape diligence did; and the training report's "why"
+> string keys off the rounded-OVR delta, so a player whose attributes are falling
+> too slowly to move his OVR still reads "learns fast" (216 cases in a sweep) —
+> both predate this round.
