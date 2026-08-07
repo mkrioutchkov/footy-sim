@@ -98,15 +98,42 @@ export function drawPlayerBody(entry: PlayerEntry, p: EngineState['players'][num
 // F7: draw the player's boot/head arrow at a given facing — called PER TICK from renderFrame (was drawn at
 // keyframe rate in sync → boots lagged a turn by up to ~250ms). Local coords; the arrow Graphics is
 // positioned at the tweened player pos by renderFrame. vp/vb are the interpolated player + ball positions.
+//
+// Round: frontend-profile — the arrow was the pitch's largest per-rAF cost — up to 22 Graphics
+// clear()+re-tessellate per animation frame, and at fast-forward the ~2° dirty-check below never engages
+// (every man turns further than that between frames), so ALL of them rebuilt every frame. But for a player
+// who is NOT carrying, every primitive here is built from `forward`/`feetSide` = (cos a, sin a)/(-sin a,
+// cos a) times CONSTANT radii — i.e. the whole drawing is a rigid rotation of the same template about the
+// player's centre. So the non-carrier path now paints the template ONCE per POSE (header / knock-dribble /
+// GK dive) and rides `arrow.rotation`, which is free: renderFrame already re-writes arrow.position every
+// tick, so the transform was being rebuilt anyway. Side benefit: the drawn facing is no longer quantised to
+// the 2° dirty-check step, so boots and chevron track the turn exactly. A CARRIER still repaints — his
+// boots swing toward the BALL independently of his facing, so his geometry is genuinely two angles and
+// cannot be one rotation.
 export function drawPlayerArrow(entry: PlayerEntry, p: EngineState['players'][number], angle: number,
                                 vpx: number, vpy: number, vbx: number, vby: number, state: EngineState | null): void {
-  const r = DISC_R;
   const hasBall = state?.ball.controllerId === p.id;
   const heading = (p.headingAnim ?? 0) > 0;
   const knockDribble = p.dribbleType === 3;
-  const diving = p.role === 'GK' && (p.diveAnim ?? 0) > 0;   // gates the GK ready-gloves (the dive body draws its own reach glove)
+  const isGk = p.role === 'GK';
+  const diving = isGk && (p.diveAnim ?? 0) > 0;   // gates the GK ready-gloves (the dive body draws its own reach glove)
   const controlDx = hasBall ? vbx - vpx : 0;
   const controlDy = hasBall ? vby - vpy : 0;
+  if (!hasBall) {
+    // Rigid-rotation path. The template is drawn at angle 0 and only re-tessellated when a POSE input
+    // flips (or the man has just released the ball, which invalidates the carrier geometry sitting in
+    // this Graphics). Everything else is a transform write.
+    if (!entry.armDrawn || entry.armHasBall
+      || heading !== entry.armHeading || knockDribble !== entry.armKnock || diving !== entry.armDive
+      || isGk !== entry.armGk) {
+      paintArrow(entry, p, 0, false, 0, 0);
+      entry.armDrawn = true; entry.armHasBall = false; entry.armDive = diving; entry.armGk = isGk;
+      entry.armHeading = heading; entry.armKnock = knockDribble; entry.armCtrlX = 0; entry.armCtrlY = 0;
+    }
+    entry.armAngle = angle;         // kept current so the carrier dirty-check below is honest on pick-up
+    entry.arrow.rotation = angle;
+    return;
+  }
   // Dirty-check: the arrow's local geometry is a pure function of (facing angle, hasBall, the ball-relative
   // control vector while carrying, header pose, knock-dribble). renderFrame still repositions arrow.position
   // every tick, so skipping the clear()+re-tessellate here when nothing changed is invisible — it just spares
@@ -114,10 +141,24 @@ export function drawPlayerArrow(entry: PlayerEntry, p: EngineState['players'][nu
   // players still redraw (their angle / ball-vector move each tick).
   if (entry.armDrawn
     && Math.abs(angle - entry.armAngle) < 0.035   // ~2° — sub-pixel at PLAYER_R scale; 0.01 was below the per-tick lerp delta, so the skip never engaged during play
-    && hasBall === entry.armHasBall && heading === entry.armHeading && knockDribble === entry.armKnock && diving === entry.armDive
+    && hasBall === entry.armHasBall && heading === entry.armHeading && knockDribble === entry.armKnock && diving === entry.armDive && isGk === entry.armGk
     && Math.abs(controlDx - entry.armCtrlX) < 0.5 && Math.abs(controlDy - entry.armCtrlY) < 0.5) return;
-  entry.armDrawn = true; entry.armAngle = angle; entry.armHasBall = hasBall; entry.armDive = diving;
+  entry.armDrawn = true; entry.armAngle = angle; entry.armHasBall = hasBall; entry.armDive = diving; entry.armGk = isGk;
   entry.armHeading = heading; entry.armKnock = knockDribble; entry.armCtrlX = controlDx; entry.armCtrlY = controlDy;
+  entry.arrow.rotation = 0;   // the carrier draws in world-aligned local space (the template rotation must not linger)
+  paintArrow(entry, p, angle, true, controlDx, controlDy);
+}
+
+// The arrow's actual primitives. Split out of drawPlayerArrow (Round: frontend-profile) so the non-carrier path can call
+// it once at angle 0 to build the rotatable template; every line below is unchanged from when it lived
+// inline, and `hasBall`/`controlD*` are passed in rather than re-derived so the template call can force the
+// non-carrying branch.
+function paintArrow(entry: PlayerEntry, p: EngineState['players'][number], angle: number,
+                    hasBall: boolean, controlDx: number, controlDy: number): void {
+  const r = DISC_R;
+  const heading = (p.headingAnim ?? 0) > 0;
+  const knockDribble = p.dribbleType === 3;
+  const diving = p.role === 'GK' && (p.diveAnim ?? 0) > 0;
   const a = entry.arrow;
   a.clear();
   const forwardX = Math.cos(angle);

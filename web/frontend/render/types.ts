@@ -36,4 +36,7 @@ export type PlayerEntry = {
   armHeading: boolean;   // last header-pose state
   armKnock: boolean;     // last knock-dribble state
   armDive: boolean;      // last GK dive-pose state (gates the ready-glove draw so it redraws when a dive starts/ends)
+  armGk: boolean;        // last role==='GK' state — paintArrow gates the ready-gloves on it, and a slot's role
+                         // is not immutable in principle (a layout directive rewrites roles), so it must
+                         // invalidate the cached template or the gloves stick on the wrong man
 };

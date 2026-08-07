@@ -1141,7 +1141,7 @@ export class MatchRenderer {
           pokeAngle: p.team === 'home' ? 0 : Math.PI,
           lastDribbleType: p.dribbleType,
           wasSprinting: false,
-          armDrawn: false, armAngle: 0, armCtrlX: 0, armCtrlY: 0, armHasBall: false, armHeading: false, armKnock: false, armDive: false,
+          armDrawn: false, armAngle: 0, armCtrlX: 0, armCtrlY: 0, armHasBall: false, armHeading: false, armKnock: false, armDive: false, armGk: false,
         };
         this.playerEntries.set(p.id, entry);
         this.syncNeedsImmediateDraw = true;   // position the just-created shapes this sync (else they'd flash at the origin)
