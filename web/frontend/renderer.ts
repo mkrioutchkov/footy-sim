@@ -2,89 +2,28 @@ import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js';
 import { cappedResolution } from './util';
 import {
   PITCH_W, PITCH_H, PLAYER_R, BALL_R,
-  LINE_COLOR, PITCH_GREEN, HOME_COLOR, AWAY_COLOR, HOME_GK_COLOR, AWAY_GK_COLOR, GOAL_COLOR,
-  GOAL_W, GOAL_DEPTH,
-  PENALTY_AREA_W, PENALTY_AREA_H,
-  GOAL_AREA_W, GOAL_AREA_H,
-  CENTER_CIRCLE_R, CORNER_ARC_R,
+  HOME_COLOR, AWAY_COLOR, HOME_GK_COLOR, AWAY_GK_COLOR,
+  GOAL_DEPTH,
   clamp, lerp,
 } from './constants';
 import type { EngineState } from './types';
-
-const TRAIL_LENGTH = 16;
-// Render-only player disc radius. Smaller than the physics PLAYER_R (12) so the pitch reads less
-// crowded, the ball stays legible against a pack, and there's room for the facing chevron drawn at
-// the disc edge. Every player-owned graphic (body, shadow, boots/head, chevron, carrier ring, label
-// offset) scales off this; transient effect rings (events, set-piece) stay on the physics PLAYER_R.
-const DISC_R = PLAYER_R * 0.78;
-// A per-player step this big between two ingested frames is a TELEPORT (seek, kickoff, restart, a
-// sent-off body being parked off the touchline), not motion — the tween snaps to the new sample
-// instead of sliding the man across the pitch. Shared by the player tween and by the carried-ball
-// magnetization gate so the two can never disagree about what counts as a teleport.
-const PLAYER_SNAP_DIST = 120;
-// Largest ball-to-carrier separation that still reads as a ball AT THE FEET (carried-ball
-// magnetization gate). This is the engine's own carry/reset line, not a renderer guess: the glue holds
-// a carried ball at CONTROL_DIST (12) plus a knock extension that peaks at 17, and treats a controlled
-// ball more than 60 from that control offset as a deliberate reset it writes OUTRIGHT rather than a
-// carry it steps (engine/engine_physics.cpp, the `md < 60.0` branch). Past it, magnetizing would glue
-// the ball to a man who is no longer really carrying it.
-const CARRY_MAGNET_MAX_OFFSET = 60;
-// …and the magnet's chase toward that offset is itself rate-capped, for the same reason the ENGINE's
-// carry glue is one. A demanded offset change faster than the glue can move a carried ball is not carry
-// motion at all: it is this renderer's own anchoring lag. The drawn carrier trails the engine carrier
-// through the player EMA, and on the FIRST magnetized segment of a carry that whole lag lands on the
-// offset at once — measured p99 5.2, worst 33.7 units of pitch. Uncapped, that one segment renders a
-// bigger pop than the jag being fixed (worst single-frame step 10.0 -> 16.3 at 1x on seed 151), which
-// is why the standalone template's stateless version does not port over as-is.
-// 220 units/sec is the engine's own steady-state glue allowance (engine_physics.cpp `maxStep`, trimmed
-// to +220 in Round-23), and over seed 151's 110 719 carried frame-pairs the p99 of the ball's TRUE
-// offset rate is 214 units/sec — so the cap sits at the very top of the real distribution: it can
-// barely touch engine truth, and whatever it does clip is carried into the next segment's re-anchor
-// rather than dropped.
-const CARRY_MAGNET_CHASE_RATE = 220;   // units of pitch per second of MATCH time
-// Ceiling on the match-time window the chase is allowed to bank, matching the tween window's own 600ms
-// clamp: a longer gap between frames is a seek, not a segment. A zero/backwards gap (a pause, a
-// duplicate frame, a rewind) yields a zero budget, which correctly freezes the offset — no match time
-// passed, so the ball has no business moving on its carrier.
-const CARRY_MAGNET_MAX_CHASE_MS = 600;
-// Gate the per-frame diagnostic logging (first-sync dump + facing-flicker warnings). Off in
-// normal play so the hot path doesn't do per-player bookkeeping or spam the console.
-const RENDER_DEBUG = false;
-
-type PlayerEntry = {
-  shadow: Graphics;      // a soft drop-shadow under the body → reads as a lit 3D figure, not a flat disc
-  body: Graphics;
-  arrow: Graphics;
-  label: Text;
-  dirTag: Text;          // the player's ACTIVE tactical directive (shown when the overlay is on; "type it → see it work")
-  dirShown: string;      // last directive text written (dirty-check)
-  drawn: boolean;
-  wasSliding: boolean;
-  wasDiving: boolean;
-  hadBall: boolean;
-  slideAngle: number;
-  diveAngle: number;
-  // ── R28 C9 duel legibility (render-only) ──
-  wasRawSliding: boolean;   // raw engine tackleAnim>0 last keyframe (latch onset detector)
-  slideLatchUntil: number;  // match-clock ms: keep displaying the tackle pose until then (min ~450ms —
-                            // a 220ms standing win is ~2.6 keyframes at 12fps, sub-perceptual without it)
-  latchSlideKind: boolean;  // latched pose: true = grounded slide, false = standing poke
-  pokeAngle: number;        // locked at onset — the poked leg aims at the BALL contact point, not the run direction
-  lastDribbleType: number;
-  wasSprinting: boolean;
-  name: string;          // the label's base (short) name — the live rating is appended to it
-  ratingShown: number;   // last rating written to the label (dirty-check; -1 = none yet)
-  statusShown: string;   // last condition marker (🟥/🤕/🟨) written to the label (dirty-check)
-  // ── boot-arrow dirty-check (the arrow redraws in the 60fps ticker; skip it when its inputs are unchanged) ──
-  armDrawn: boolean;     // has the arrow been drawn at least once
-  armAngle: number;      // last facing angle drawn
-  armCtrlX: number;      // last ball-relative control vector drawn (a carrier aims his boots at the ball)
-  armCtrlY: number;
-  armHasBall: boolean;
-  armHeading: boolean;   // last header-pose state
-  armKnock: boolean;     // last knock-dribble state
-  armDive: boolean;      // last GK dive-pose state (gates the ready-glove draw so it redraws when a dive starts/ends)
-};
+import {
+  TRAIL_LENGTH, DISC_R, PLAYER_SNAP_DIST,
+  CARRY_MAGNET_MAX_OFFSET, CARRY_MAGNET_CHASE_RATE, CARRY_MAGNET_MAX_CHASE_MS,
+  RENDER_DEBUG,
+} from './render/constants';
+import type { PlayerEntry } from './render/types';
+import { drawPitchMarkings } from './render/pitch';
+import { drawPlayerBody, drawPlayerArrow } from './render/players';
+import { drawEventOverlays, drawSetPiece } from './render/events';
+import { MatchStats, liveRating } from './render/stats';
+import type { HudRefs } from './render/hud';
+import {
+  buildHud, buildFeed, buildGoalBanner, injectOverlayKeyframes,
+  buildToastStack, buildMomentPanel, buildAddedTimeBoard,
+} from './render/hud';
+import type { CommentaryCounter } from './render/labels';
+import { clipName, zoneLabel, shortName, restartLabel, commentary, ratingTint } from './render/labels';
 
 export class MatchRenderer {
   app: Application;
@@ -108,8 +47,7 @@ export class MatchRenderer {
   // DOM (not canvas Text) so it's crisp, styleable from styles.css, and can never be occluded by
   // the floating controls (the old canvas HUD sat under the top-left button pile).
   private hudEl: HTMLDivElement | null = null;
-  private hudRefs: { home: HTMLElement; score: HTMLElement; away: HTMLElement; half: HTMLElement; time: HTMLElement;
-    added: HTMLElement; shots: HTMLElement; poss: HTMLElement; state: HTMLElement; possHome: HTMLElement } | null = null;
+  private hudRefs: HudRefs | null = null;
   private prevHud: Record<string, string> = {};   // dirty-check — don't rewrite scoreboard text nodes every sync
   private tickerEl: HTMLDivElement | null = null;
   private feedRowsEl: HTMLDivElement | null = null;
@@ -121,32 +59,12 @@ export class MatchRenderer {
   private lastGoalScorer = '';   // most recent goal-event scorer name — fed to the goal banner
   private lastGoalScorerId: number | null = null;   // most recent goal-event scorer id — fed to the celebration (dot flash)
   private lastGoalOwn = false;   // most recent goal-event ownGoal flag — the banner must not celebrate the defender
-  private commentaryNth = 0;     // advances per rotated commentary line so same-minute events don't repeat phrasing
-  // ── live stats + momentum ("PRESSURE" panel) ── per-team tallies accumulated off the SAME
-  // de-duped event loop as the feed (so a goal counts once), plus a signed momentum scalar.
-  private statPanelEl: HTMLDivElement | null = null;
-  private statCells: Record<'ot' | 'xg' | 'big' | 'cor' | 'foul' | 'off', HTMLSpanElement | null> = { ot: null, xg: null, big: null, cor: null, foul: null, off: null };
-  private statBarHome: HTMLDivElement | null = null;   // grows right from centre (home leading)
-  private statBarAway: HTMLDivElement | null = null;   // grows left from centre (away leading)
-  private statBarWrap: HTMLDivElement | null = null;    // pulsed on a goal
-  private prevStatStr: Record<string, string> = {};     // dirty-check so textContent isn't rewritten 60fps
-  private otH = 0; private otA = 0;       // shots on target
-  private xgH = 0; private xgA = 0;       // expected-goals proxy
-  private bigH = 0; private bigA = 0;     // big chances (xg >= .30)
-  private corH = 0; private corA = 0;     // corners (from set-piece transitions)
-  private foulH = 0; private foulA = 0;   // fouls committed
-  private offH = 0; private offA = 0;     // offsides called
-  // Shot map + xG timeline data (for the 📊 Stats panel). Each shot: pitch xy + its xG + side + goal flag;
-  // the series samples cumulative xG per side at each shot's clock. Bounded naturally (~30 shots/match).
-  private shots: { x: number; y: number; xg: number; side: number; goal: boolean }[] = [];
-  private xgSeries: { t: number; h: number; a: number }[] = [];
-  private momentum = 0;                   // signed pressure, [-100 home .. +0 .. neutral], +home
-  private displayMomentum = 0;            // eased toward `momentum` for a gliding bar
-  private ballXEma = PITCH_W / 2;         // smoothed ball x for the territory term
-  private momPrevClock = 0;               // own dt source (the ticker overwrites lastClockMs first)
-  private homeAttacksX: number | null = null;   // 0 or PITCH_W — derived from the home keeper's side
-  private goalFlashUntil = 0;             // performance.now() deadline for the bar pulse
-  private lastSetPieceType: string | null = null;   // corner edge-detection
+  private commentaryCounter: CommentaryCounter = { n: 0 };   // advances per rotated commentary line so same-minute events don't repeat phrasing
+  // ── live stats + momentum ("PRESSURE" panel) ── the whole subsystem (tallies, xG/shot series, the
+  // momentum integrator and its panel) lives in render/stats.ts. The renderer owns one instance, feeds it
+  // the SAME de-duped event stream as the match feed, and reads back the panel node, the attacking
+  // direction and the shot/xG series.
+  private stats = new MatchStats();
   private bannerEl: HTMLDivElement | null = null;
   private bannerHideAt = 0;
   // ── goal celebration (canvas FX) ── a time-based sequence painted in renderFrame (non-blocking): a
@@ -355,69 +273,22 @@ export class MatchRenderer {
     this.app.stage.sortableChildren = true;
     // scoreboard — full-width DOM strip along the top (teams + score + BIG clock + shots/poss);
     // styled from styles.css (.watch-hud). Replaces the old in-canvas hudText/hudBg.
-    this.buildHud();
+    const hud = buildHud();
+    this.hudEl = hud.el; this.hudRefs = hud.refs;
     // commentary ticker (DOM — crisp text, fixed bottom-left; styled from styles.css like the other panels)
-    this.tickerEl = document.createElement('div');
-    this.tickerEl.className = 'watch-feed';
-    const feedHead = document.createElement('div'); feedHead.className = 'wf-head'; feedHead.textContent = 'Match Feed';
-    const feedRows = document.createElement('div'); feedRows.className = 'wf-rows';
-    feedRows.innerHTML = '<div class="wf-empty">— kick-off awaited —</div>';
-    this.tickerEl.appendChild(feedHead); this.tickerEl.appendChild(feedRows);
-    document.body.appendChild(this.tickerEl);
-    this.feedRowsEl = feedRows;
+    const feed = buildFeed();
+    this.tickerEl = feed.el;
+    this.feedRowsEl = feed.rows;
     // ── PRESSURE panel ── built detached; screenWatch docks it into the right column via dockStats()
     // (it used to float top-left over the scoreboard + timeline).
-    this.buildStatPanel();
+    this.stats.buildPanel();
     // goal banner (center) and half/full-time stats panel
-    this.bannerEl = document.createElement('div');
-    Object.assign(this.bannerEl.style, {
-      position: 'fixed', top: '18%', left: '50%', transform: 'translateX(-50%) scale(1)',
-      zIndex: '30', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '34px',
-      color: '#ffe97a', background: 'rgba(8,12,20,0.85)', padding: '14px 34px',
-      borderRadius: '10px', border: '2px solid #ffe97a', pointerEvents: 'none',
-      display: 'none', textAlign: 'center', letterSpacing: '2px',
-    } as Partial<CSSStyleDeclaration>);
-    document.body.appendChild(this.bannerEl);
-    // a one-time celebratory "pop" keyframe for the GOAL banner (goals are the watch highlight) — injected
-    // once, re-triggered per goal by resetting the animation. CSS-only, no per-frame cost.
-    if (!document.getElementById('footy-goalpop-kf')) {
-      const st = document.createElement('style');
-      st.id = 'footy-goalpop-kf';
-      // goal-banner pop + the score-bug pulse (a quick scale/glow on the DOM scoreboard) + the toast
-      // slide-in — CSS keyframes so they cost nothing per frame and re-trigger by resetting the animation.
-      st.textContent =
-        '@keyframes footyGoalPop{0%{transform:translateX(-50%) scale(.5);opacity:0}55%{transform:translateX(-50%) scale(1.12);opacity:1}100%{transform:translateX(-50%) scale(1);opacity:1}}'
-        + '@keyframes footyScorePulse{0%{transform:scale(1)}30%{transform:scale(1.35)}100%{transform:scale(1)}}'
-        + '@keyframes footyToastIn{0%{transform:translateX(18px);opacity:0}100%{transform:translateX(0);opacity:1}}';
-      document.head.appendChild(st);
-    }
-    // ── event-popup toast stack ── renderer-owned (like the HUD/feed/banner), fixed top-right of the pitch.
-    // setReservedTop/Right keep it clear of the scoreboard/control bar and the docked tactics panel.
-    this.toastEl = document.createElement('div');
-    this.toastEl.className = 'watch-toasts';
-    document.body.appendChild(this.toastEl);
+    this.bannerEl = buildGoalBanner();
+    injectOverlayKeyframes();
+    this.toastEl = buildToastStack();
     this.positionToasts();
-    this.panelEl = document.createElement('div');
-    Object.assign(this.panelEl.style, {
-      position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-      zIndex: '29', fontFamily: 'monospace', fontSize: '15px', lineHeight: '1.8',
-      color: '#e8edf2', background: 'rgba(8,12,20,0.92)', padding: '20px 34px',
-      borderRadius: '10px', border: '1px solid #3a4a5f', pointerEvents: 'none',
-      display: 'none', whiteSpace: 'pre', textAlign: 'center',
-    } as Partial<CSSStyleDeclaration>);
-    document.body.appendChild(this.panelEl);
-    // ── added-time board ── a 4th-official "+N" board that pops when the stoppage minutes are
-    // announced at a half-end (mirrors the replay-viewer board). The persistent HUD "+N" (wh-added)
-    // remains the ongoing ADDED-TIME indicator while the clock runs past 45'/90'. Dormant until the
-    // engine sets state.addedTime — coded defensively so a frame without it still type-checks.
-    this.atBoardEl = document.createElement('div');
-    Object.assign(this.atBoardEl.style, {
-      position: 'fixed', top: '46%', left: '50%', transform: 'translate(-50%,-50%)',
-      zIndex: '31', fontFamily: 'monospace', fontWeight: 'bold', color: '#ffe97a',
-      background: 'rgba(8,12,20,0.9)', padding: '14px 30px', borderRadius: '10px',
-      border: '2px solid #ffcf5c', pointerEvents: 'none', display: 'none', textAlign: 'center',
-    } as Partial<CSSStyleDeclaration>);
-    document.body.appendChild(this.atBoardEl);
+    this.panelEl = buildMomentPanel();
+    this.atBoardEl = buildAddedTimeBoard();
     // version display — engine + UI
     const versionText = new Text({ text: '...', style: new TextStyle({ fill: 0xffffff, fontSize: 8, fontFamily: 'monospace' }) });
     versionText.position.set(this.app.screen.width - 6, this.app.screen.height - 12);
@@ -455,7 +326,7 @@ export class MatchRenderer {
     try { delete (window as unknown as { __app?: Application }).__app; } catch { /* */ }
     try { this.hudEl?.remove(); } catch { /* */ }
     try { this.tickerEl?.remove(); } catch { /* */ }
-    try { this.statPanelEl?.remove(); } catch { /* */ }   // may be docked inside the tactics panel — remove() is safe either way
+    try { this.stats.statPanelEl?.remove(); } catch { /* */ }   // may be docked inside the tactics panel — remove() is safe either way
     try { this.bannerEl?.remove(); } catch { /* */ }
     try { this.panelEl?.remove(); } catch { /* */ }
     // toasts hold no timers (deadline-pruned in renderFrame), so tearing down is just detaching the nodes
@@ -552,7 +423,7 @@ export class MatchRenderer {
   // Dock the live-stats block (ON-TGT/xG/BIG-CH/CORNERS + PRESSURE) into a host container —
   // screenWatch puts it at the top of the right column instead of floating it over the timeline.
   dockStats(host: HTMLElement): void {
-    if (this.statPanelEl && !this.destroyed) host.appendChild(this.statPanelEl);
+    if (this.stats.statPanelEl && !this.destroyed) host.appendChild(this.stats.statPanelEl);
   }
 
   // Enter/leave goal-replay mode. While on, a persistent "⚽ GOAL REPLAY" overlay marks the rewound
@@ -605,36 +476,6 @@ export class MatchRenderer {
     // early-returns on !lastState). Geometry + entities are built once in the constructor's drawPitch().
   }
 
-  // Build the DOM scoreboard: [teams + score] · [BIG clock, centred — the visual anchor] · [shots/poss]
-  // with a thin possession split strip along the bottom edge. Values update per sync (dirty-checked).
-  private buildHud(): void {
-    const el = document.createElement('div');
-    el.className = 'watch-hud';
-    const mk = (cls: string, parent: HTMLElement, text = ''): HTMLElement => {
-      const s = document.createElement('span'); s.className = cls; s.textContent = text; parent.appendChild(s); return s;
-    };
-    const teams = document.createElement('div'); teams.className = 'wh-teams';
-    const home = mk('wh-name home', teams, 'HOME');
-    const score = mk('wh-score', teams, '0–0');
-    const away = mk('wh-name away', teams, 'AWAY');
-    const clock = document.createElement('div'); clock.className = 'wh-clock';
-    const half = mk('wh-half', clock, 'H1');
-    const time = mk('wh-time', clock, '00:00');
-    const added = mk('wh-added', clock); added.style.display = 'none';
-    const meta = document.createElement('div'); meta.className = 'wh-meta';
-    const shots = mk('wh-shots', meta, 'Shots 0–0');
-    const poss = mk('wh-poss', meta, 'Poss 50%');
-    const state = mk('wh-state', meta); state.style.display = 'none';
-    const possbar = document.createElement('div'); possbar.className = 'wh-possbar';
-    const ph = document.createElement('div'); ph.className = 'ph'; ph.style.width = '50%';
-    const pa = document.createElement('div'); pa.className = 'pa';
-    possbar.appendChild(ph); possbar.appendChild(pa);
-    el.appendChild(teams); el.appendChild(clock); el.appendChild(meta); el.appendChild(possbar);
-    document.body.appendChild(el);
-    this.hudEl = el;
-    this.hudRefs = { home, score, away, half, time, added, shots, poss, state, possHome: ph };
-  }
-
   private drawPitch(): void {
     this.pitchContainer.removeChildren();
     this.pitchContainer.addChild(this.weatherGfx);   // wet-pitch overlay: above the pitch g (index 0), below everything else
@@ -662,29 +503,7 @@ export class MatchRenderer {
     this.pitchContainer.addChild(this.ballBody);
 
     const g = this.pitchGfx;   // reused (clear + redraw) so a resize/recalc doesn't leak a Graphics each time
-    g.clear();
-    g.rect(-GOAL_DEPTH, 0, PITCH_W + GOAL_DEPTH * 2, PITCH_H); g.fill(PITCH_GREEN);
-    // mowing stripes — alternating subtle light/dark bands (a real mown-pitch look; the old single
-    // white-at-0.05 overlay was nearly invisible). Conservative alphas so it reads as texture, not garish.
-    const stripeCount = 14;
-    const stripeW = PITCH_W / stripeCount;
-    for (let i = 0; i < stripeCount; i++) {
-      g.rect(i * stripeW, 0, stripeW, PITCH_H);
-      g.fill(i % 2 === 0 ? { color: 0xffffff, alpha: 0.055 } : { color: 0x000000, alpha: 0.05 });
-    }
-    g.rect(0, 0, PITCH_W, PITCH_H); g.stroke({ width: 3, color: LINE_COLOR });
-    g.moveTo(PITCH_W / 2, 0); g.lineTo(PITCH_W / 2, PITCH_H); g.stroke({ width: 2, color: LINE_COLOR });
-    g.circle(PITCH_W / 2, PITCH_H / 2, CENTER_CIRCLE_R); g.stroke({ width: 2, color: LINE_COLOR });
-    g.circle(PITCH_W / 2, PITCH_H / 2, 3); g.fill(LINE_COLOR);
-    this.drawGoal(g, 0, PITCH_H / 2, 1);
-    this.drawGoal(g, PITCH_W, PITCH_H / 2, -1);
-    this.drawPenaltyArea(g, 0); this.drawPenaltyArea(g, PITCH_W);
-    this.drawGoalArea(g, 0); this.drawGoalArea(g, PITCH_W);
-    this.drawPenaltyDetail(g, 0); this.drawPenaltyDetail(g, PITCH_W);   // penalty spots + the "D" arcs
-    this.drawMarkingArc(g, 0, 0, CORNER_ARC_R, 0, Math.PI / 2);
-    this.drawMarkingArc(g, PITCH_W, 0, CORNER_ARC_R, Math.PI / 2, Math.PI);
-    this.drawMarkingArc(g, 0, PITCH_H, CORNER_ARC_R, -Math.PI / 2, 0);
-    this.drawMarkingArc(g, PITCH_W, PITCH_H, CORNER_ARC_R, Math.PI, -Math.PI / 2);
+    drawPitchMarkings(g);
     this.pitchContainer.addChildAt(g, 0);
     for (const child of this.playerLayer.removeChildren()) child.destroy();
     this.playerEntries.clear();
@@ -800,7 +619,7 @@ export class MatchRenderer {
       entry.arrow.position.set(sx, sy);
       // F7: redraw the boot/head arrow at the LERPED facing every tick (was keyframe-rate → boots lagged turns).
       const pp = byId.get(id);
-      if (pp) this.drawPlayerArrow(entry, pp, this.lerpedFacing(id, t, pp.team), sx, sy, ibx, iby);
+      if (pp) drawPlayerArrow(entry, pp, this.lerpedFacing(id, t, pp.team), sx, sy, ibx, iby, this.lastState);
       entry.label.position.set(sx, sy + DISC_R + 3);
       if (entry.dirTag.visible) entry.dirTag.position.set(sx, sy + DISC_R + 16);
     }
@@ -863,8 +682,8 @@ export class MatchRenderer {
         }
         // byline-run cue: a WIDE carrier driving onto the ATTACKING byline gets a lime glow (the box-finish
         // build-up reads from the approach). Geometric (attacking goal-line + a wide channel).
-        if (this.homeAttacksX !== null) {
-          const attackX = ctrl.team === 'home' ? this.homeAttacksX : (this.homeAttacksX === 0 ? PITCH_W : 0);
+        if (this.stats.homeAttacksX !== null) {
+          const attackX = ctrl.team === 'home' ? this.stats.homeAttacksX : (this.stats.homeAttacksX === 0 ? PITCH_W : 0);
           // use the TWEENED carrier pos (vc) so the lime byline glow stays glued to the ring, not the
           // ~4fps-stale raw ctrl.x/ctrl.y (caught in adversarial review).
           if (Math.abs(vc.x - attackX) < 60 && (vc.y < PITCH_H * 0.22 || vc.y > PITCH_H * 0.78)) {
@@ -1034,8 +853,8 @@ export class MatchRenderer {
     this.goalCelebHome = homeScored;
     this.goalCelebScorerId = this.lastGoalScorerId;
     let gx: number;
-    if (this.homeAttacksX !== null) {
-      const homeGoalMouth = this.homeAttacksX;   // the goal HOME attacks toward = where a home goal is scored
+    if (this.stats.homeAttacksX !== null) {
+      const homeGoalMouth = this.stats.homeAttacksX;   // the goal HOME attacks toward = where a home goal is scored
       gx = homeScored ? homeGoalMouth : (homeGoalMouth === 0 ? PITCH_W : 0);
     } else {
       const v = this.goalCelebScorerId != null ? this.visualPlayers.get(this.goalCelebScorerId) : undefined;
@@ -1338,7 +1157,6 @@ export class MatchRenderer {
         ? (p.team === 'home' ? HOME_GK_COLOR : AWAY_GK_COLOR)
         : (p.team === 'home' ? HOME_COLOR : AWAY_COLOR);
       const hasBall = b.controllerId === p.id;
-      const r = DISC_R;
       // P0: store this player's prev→target for the 60fps tween (snap a teleport so we don't slide across
       // the pitch). vp = the CURRENT interpolated pos — renderFrame owns the actual position.set; vp is used
       // here only for shape references (dive reach, boot-toward-ball direction).
@@ -1390,81 +1208,7 @@ export class MatchRenderer {
       entry.shadow.visible = !diving;          // a diving keeper is airborne — no ground shadow (positioned in renderFrame)
       entry.body.alpha = hasBall ? 1 : 0.82; // consistent alpha: carriers pop, others uniform (positioned in renderFrame)
       if (needsRedraw) {
-        entry.body.clear();
-        if (diving) {
-          // diving save: full-length body stretched toward the ball with bright
-          // gloves outstretched at the reach tip + a motion smear behind. The
-          // stretch grows with dive intensity (p.diveAnim, peaks at the save).
-          const t = Math.min((p.diveAnim ?? 0) / 480, 1);
-          const reach = r * (1.45 + t * 0.95);
-          entry.body.rotation = entry.diveAngle;
-          // body — elongated oval offset toward the ball
-          entry.body.ellipse(r * 0.35, 0, reach, r * 0.55);
-          entry.body.fill({ color, alpha: 0.92 });
-          entry.body.ellipse(r * 0.35, 0, reach, r * 0.55);
-          entry.body.stroke({ width: 1.5, color: 0x000000 });
-          // outstretched gloves at the reach tip
-          const tipX = r * 0.35 + reach;
-          entry.body.circle(tipX, 0, r * 0.5);
-          entry.body.fill({ color: 0xffe27a });
-          entry.body.circle(tipX, 0, r * 0.5);
-          entry.body.stroke({ width: 1, color: 0x000000 });
-          // motion smear trailing the dive
-          entry.body.moveTo(-reach * 0.7, -r * 0.3);
-          entry.body.lineTo(-reach * 1.15, -r * 0.3);
-          entry.body.moveTo(-reach * 0.7, r * 0.3);
-          entry.body.lineTo(-reach * 1.15, r * 0.3);
-          entry.body.stroke({ width: 2, color: 0xffffff, alpha: 0.4 });
-        } else if (sliding) {
-          // C9: pose kind is LATCHED (p.slide drops with tackleAnim before the
-          // display latch expires); the grounded slide keeps the movement-locked
-          // slideAngle (dust trails the run), the standing poke aims at the ball.
-          const slideKind = entry.latchSlideKind || p.slide === true;
-          entry.body.rotation = slideKind ? entry.slideAngle : entry.pokeAngle;
-          if (slideKind) {
-            // committed GROUNDED slide (engine flags p.slide = tackleAnim>400): long flat body + a dust trail
-            entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
-            entry.body.fill({ color, alpha: 0.7 });
-            entry.body.ellipse(0, 0, r * 1.8, r * 0.6);
-            entry.body.stroke({ width: 1, color: 0x000000 });
-            entry.body.circle(-r * 0.8, 0, r * 0.4);
-            entry.body.fill({ color: 0xcccccc, alpha: 0.5 });
-            entry.body.circle(-r * 1.3, 0, r * 0.25);
-            entry.body.fill({ color: 0xdddddd, alpha: 0.3 });
-            (window as unknown as { __lastSlide?: unknown }).__lastSlide = { id: p.id, x: Math.round(vp.x), y: Math.round(vp.y) };   // verify hook
-          } else {
-            // standing POKE (a lesser tackle, tackleAnim 1-400): a slight upright lunge + an outstretched
-            // leg toward the ball — NOT a grounded slide, no dust.
-            entry.body.ellipse(0, 0, r * 1.25, r * 0.85);
-            entry.body.fill({ color, alpha: 0.85 });
-            entry.body.ellipse(0, 0, r * 1.25, r * 0.85);
-            entry.body.stroke({ width: 1.5, color: 0x000000 });
-            entry.body.circle(r * 1.15, 0, r * 0.28);   // the poked leg/foot reaching for the ball
-            entry.body.fill({ color, alpha: 0.85 });
-          }
-        } else {
-          entry.body.rotation = 0;
-          entry.body.circle(0, 0, r);
-          entry.body.fill({ color });
-          entry.body.circle(0, 0, r);
-          entry.body.stroke({ width: knockDribble ? 3 : hasBall ? 2.5 : 1.5, color: knockDribble ? 0xfff1a8 : 0x000000 });
-          if (sprinting) {
-            const runAngle = speed > 1 ? Math.atan2(p.vy, p.vx) : (p.team === 'home' ? 0 : Math.PI);
-            const backX = -Math.cos(runAngle);
-            const backY = -Math.sin(runAngle);
-            const sideX = -backY;
-            const sideY = backX;
-            for (let i = 0; i < 3; i++) {
-              const offset = (i - 1) * r * 0.55;
-              const startX = backX * (r * 0.95 + i * 2.6) + sideX * offset;
-              const startY = backY * (r * 0.95 + i * 2.6) + sideY * offset;
-              entry.body.moveTo(startX, startY);
-              entry.body.lineTo(startX + backX * (knockDribble ? 11 : 7), startY + backY * (knockDribble ? 11 : 7));
-            }
-            entry.body.stroke({ width: knockDribble ? 2 : 1.5, color: knockDribble ? 0xfff1a8 : 0xffffff, alpha: knockDribble ? 0.78 : 0.45 });
-          }
-        }
-        if (!sliding && !diving) entry.drawn = true;
+        drawPlayerBody(entry, p, { color, diving, sliding, knockDribble, sprinting, hasBall, speed, vp });
       }
 
       // F7: advance the TARGET facing here (per keyframe); the boot/head arrow is now redrawn PER TICK at a
@@ -1498,7 +1242,7 @@ export class MatchRenderer {
 
       // live rating ticks beside the name (dirty-checked — the value only moves on a stat/score change).
       // label + dirTag are positioned in renderFrame (they ride the tweened player position).
-      const rt = this.liveRating(p, state.homeScore ?? 0, state.awayScore ?? 0);
+      const rt = liveRating(p, state.homeScore ?? 0, state.awayScore ?? 0);
       // Condition marker on the name label — sent-off / injured / booked. All three ride on the frame
       // (types.ts Player) but were previously invisible on the pitch (they only nudged the rating). A
       // sent-off man's label also reds. Priority red > injury > yellow; folded into the label dirty-check.
@@ -1506,7 +1250,7 @@ export class MatchRenderer {
       if (rt !== entry.ratingShown || status !== entry.statusShown) {
         entry.ratingShown = rt; entry.statusShown = status;
         entry.label.text = `${status}${entry.name} ${rt.toFixed(1)}`;
-        entry.label.tint = p.sentOff ? 0xff6b6b : this.ratingTint(rt);
+        entry.label.tint = p.sentOff ? 0xff6b6b : ratingTint(rt);
       }
       // directive overlay: the player's active tactical instruction below his name (toggleable)
       const dir = this.showDirectives ? (this.directiveMap.get(p.id) ?? '') : '';
@@ -1531,320 +1275,10 @@ export class MatchRenderer {
     //    the tweened positions instead of jumping at ~4fps with the keyframes. ──
 
     // ── events ──
-    this.eventGfx.clear();
-    for (const label of this.eventLabels) label.visible = false;
-    let labelIdx = 0;
-    for (const ev of (state.events ?? [])) {
-      const skillLike = ev.type === 'skill' || ev.type === 'dragback';
-      const lifetime = ev.type === 'pass' ? 700 : ev.type === 'header' ? 600 : ev.type === 'nutmeg' ? 1000
-        : ev.type === 'tip' ? 1600 : ev.type === 'stepover' ? 450 : ev.type === 'roulette' ? 520 : ev.type === 'gk_punch' ? 460
-        : ev.type === 'takeon_lost' ? 900 : ev.type === 'chop' ? 700
-        : skillLike ? 650 : 2200;
-      const alpha = clamp(1 - ev.age / lifetime, 0, 1) * 0.8;
-      if (alpha <= 0) continue;
-      if (ev.type === 'pass') {
-        const target = ev.targetId != null ? byId.get(ev.targetId) : undefined;
-        if (target) {
-          // draw to the receiver's SMOOTHED position (matches the gliding player graphic; the raw engine
-          // position steps per-frame, so the line snapped while the player lerped — same pattern as below)
-          const toV = (ev.targetId != null ? this.visualPlayers.get(ev.targetId) : undefined) ?? { x: target.x, y: target.y };
-          this.eventGfx.moveTo(ev.x, ev.y);
-          this.eventGfx.lineTo(toV.x, toV.y);
-          this.eventGfx.stroke({ width: 2, color: 0x9ed7ff, alpha: alpha * 0.75 });
-        }
-        continue;
-      }
-      if (ev.type === 'nutmeg') {
-        // A dedicated nutmeg: the ball punches THROUGH the beaten opponent (targetId) — a gold streak in
-        // the trickster→victim direction, two red "leg" ticks marking the gap it went through, an
-        // embarrassed pulse ring on the victim, and a "NUTMEG!" call. Robust to the payload: falls back to
-        // the event spot + a horizontal streak if Boris omits playerId/targetId.
-        const t = ev.age / lifetime;
-        const victim = ev.targetId != null ? byId.get(ev.targetId) : undefined;
-        const cx = victim ? (this.visualPlayers.get(victim.id)?.x ?? victim.x) : ev.x;
-        const cy = victim ? (this.visualPlayers.get(victim.id)?.y ?? victim.y) : ev.y;
-        let dx = 1, dy = 0;
-        const tm = ev.playerId != null ? byId.get(ev.playerId) : undefined;
-        if (tm) {
-          const mx = this.visualPlayers.get(tm.id)?.x ?? tm.x, my = this.visualPlayers.get(tm.id)?.y ?? tm.y;
-          const a = Math.atan2(cy - my, cx - mx); dx = Math.cos(a); dy = Math.sin(a);
-        }
-        const reach = PLAYER_R + 10 + t * 16;
-        this.eventGfx.moveTo(cx - dx * reach * 0.5, cy - dy * reach * 0.5);
-        this.eventGfx.lineTo(cx + dx * reach, cy + dy * reach);
-        this.eventGfx.stroke({ width: 3, color: 0xffd24d, alpha });
-        const px = -dy, py = dx;   // perpendicular = the two "legs" the ball threaded
-        for (const s of [1, -1]) {
-          this.eventGfx.moveTo(cx + px * s * (PLAYER_R - 1) - dx * 2, cy + py * s * (PLAYER_R - 1) - dy * 2);
-          this.eventGfx.lineTo(cx + px * s * (PLAYER_R - 1) + dx * 3, cy + py * s * (PLAYER_R - 1) + dy * 3);
-          this.eventGfx.stroke({ width: 2, color: 0xff6b6b, alpha: alpha * 0.85 });
-        }
-        this.eventGfx.circle(cx, cy, PLAYER_R + 2 + t * 9);
-        this.eventGfx.stroke({ width: 2, color: 0xff6b6b, alpha: alpha * 0.7 });
-        // a bright flash ON the beaten defender for the first third — the ball went THROUGH him.
-        if (t < 0.33) {
-          this.eventGfx.circle(cx, cy, PLAYER_R + 1);
-          this.eventGfx.fill({ color: 0xffffff, alpha: (0.33 - t) * 1.9 });
-        }
-        if (labelIdx < this.eventLabels.length) {
-          const label = this.eventLabels[labelIdx++];
-          label.text = 'NUTMEG!';
-          label.position.set(cx, Math.max(18, cy - reach - 12));
-          label.style.fill = 0xffd24d;
-          label.alpha = clamp(1 - t, 0, 1);
-          label.visible = true;
-        }
-        continue;
-      }
-      if (skillLike) {
-        // Swirl around the trickster: two counter-rotating arcs that expand and fade
-        const mover = ev.playerId != null ? byId.get(ev.playerId) : undefined;
-        const cx = mover ? (this.visualPlayers.get(mover.id)?.x ?? mover.x) : ev.x;
-        const cy = mover ? (this.visualPlayers.get(mover.id)?.y ?? mover.y) : ev.y;
-        const t = ev.age / lifetime;
-        const sr = PLAYER_R + 4 + t * 10;
-        const spin = this.animTime * 0.25;
-        const swirlColor = this.eventColor(ev.type);
-        for (const dir of [1, -1]) {
-          const a0 = spin * dir + (dir > 0 ? 0 : Math.PI);
-          this.eventGfx.arc(cx, cy, sr, a0, a0 + Math.PI * 0.85);
-          this.eventGfx.stroke({ width: 2.5, color: swirlColor, alpha: alpha * 0.9 });
-        }
-        continue;
-      }
-      if (ev.type === 'stepover') {
-        // Quick left-right feint: two small ellipses sweeping to either side of the carrier's feet (the
-        // shimmy), plus a light foot-flick tick trailing the current swing side. Anchored to the carrier's
-        // smoothed position (playerId), falling back to the event spot. ~450ms, subtle (no callout).
-        const mover = ev.playerId != null ? byId.get(ev.playerId) : undefined;
-        const cx = mover ? (this.visualPlayers.get(mover.id)?.x ?? mover.x) : ev.x;
-        const cy = mover ? (this.visualPlayers.get(mover.id)?.y ?? mover.y) : ev.y;
-        const t = ev.age / lifetime;
-        const col = this.eventColor('stepover');
-        const swing = Math.sin(t * Math.PI * 3);          // ~1.5 left-right cycles across the move
-        for (const s of [1, -1]) {
-          const ox = s * swing * (PLAYER_R + 5);
-          this.eventGfx.ellipse(cx + ox, cy + PLAYER_R * 0.35, 6.5, 3.4);
-          this.eventGfx.stroke({ width: 2, color: col, alpha: alpha * (0.9 - t * 0.35) });
-        }
-        this.eventGfx.moveTo(cx, cy + PLAYER_R * 0.35);
-        this.eventGfx.lineTo(cx + swing * (PLAYER_R + 9), cy + PLAYER_R * 0.35);
-        this.eventGfx.stroke({ width: 1.5, color: col, alpha: alpha * 0.5 });
-        continue;
-      }
-      if (ev.type === 'roulette') {
-        // Zidane roulette: a comet arc whose leading edge sweeps a full 360° around the carrier over the
-        // move, with a bright spin-dot (the ball dragged round on the sole) riding the leading edge. ~520ms.
-        const mover = ev.playerId != null ? byId.get(ev.playerId) : undefined;
-        const cx = mover ? (this.visualPlayers.get(mover.id)?.x ?? mover.x) : ev.x;
-        const cy = mover ? (this.visualPlayers.get(mover.id)?.y ?? mover.y) : ev.y;
-        const t = ev.age / lifetime;
-        const col = this.eventColor('roulette');
-        const rr = PLAYER_R + 5 + t * 6;
-        const head = -Math.PI / 2 + t * Math.PI * 2;      // leading edge → one full turn
-        this.eventGfx.arc(cx, cy, rr, head - Math.PI * 1.25, head);
-        this.eventGfx.stroke({ width: 3, color: col, alpha });
-        this.eventGfx.circle(cx + Math.cos(head) * rr, cy + Math.sin(head) * rr, 2.6);
-        this.eventGfx.fill({ color: 0xffffff, alpha });
-        continue;
-      }
-      if (ev.type === 'takeon_lost') {
-        // R28 C9: a LOST take-on — the defender READ the feint and was granted the
-        // ball (engine C3). The possession-ring cross-fade (COMMIT 8a, renderFrame)
-        // already animates the ring swap on the controller change, so this cue is
-        // deliberately event-scoped and ring-free (no double-firing): a closing
-        // pincer on the winner (playerId) — "he clamped it" — plus stumble skid
-        // ticks trailing off the beaten carrier (targetId).
-        const winner = ev.playerId != null ? byId.get(ev.playerId) : undefined;
-        const wx = winner ? (this.visualPlayers.get(winner.id)?.x ?? winner.x) : ev.x;
-        const wy = winner ? (this.visualPlayers.get(winner.id)?.y ?? winner.y) : ev.y;
-        const t = ev.age / lifetime;
-        const rr = PLAYER_R + 11 - Math.min(t * 2, 1) * 7;   // pincer closes over the first half
-        for (const s of [1, -1]) {
-          const a0 = (s > 0 ? 0 : Math.PI) - 0.55;
-          this.eventGfx.arc(wx, wy, rr, a0, a0 + 1.1);
-          this.eventGfx.stroke({ width: 2.5, color: 0x7fe08a, alpha: alpha * 0.9 });
-        }
-        const loser = ev.targetId != null ? byId.get(ev.targetId) : undefined;
-        if (loser) {
-          const lx = this.visualPlayers.get(loser.id)?.x ?? loser.x;
-          const ly = this.visualPlayers.get(loser.id)?.y ?? loser.y;
-          const aa = Math.atan2(ly - wy, lx - wx);   // stumble trails away from the duel
-          for (let i = 0; i < 3; i++) {
-            const d0 = PLAYER_R + 2 + i * 4.5;
-            this.eventGfx.moveTo(lx + Math.cos(aa) * d0, ly + Math.sin(aa) * d0);
-            this.eventGfx.lineTo(lx + Math.cos(aa) * (d0 + 4), ly + Math.sin(aa) * (d0 + 4));
-          }
-          this.eventGfx.stroke({ width: 2, color: 0xff9d6b, alpha: alpha * 0.6 });
-        }
-        if (t < 0.55 && labelIdx < this.eventLabels.length) {
-          const label = this.eventLabels[labelIdx++];
-          label.text = 'READ!';
-          label.position.set(wx, Math.max(18, wy - rr - 14));
-          label.style.fill = 0x7fe08a;
-          label.alpha = clamp(1 - t / 0.55, 0, 1);
-          label.visible = true;
-        }
-        continue;
-      }
-      if (ev.type === 'chop') {
-        // R28 C9: the two-stage beat cut (engine C8 emits 'chop' at the dash's
-        // switch point). Anchored to the CUT POINT — the event spot, deliberately
-        // not the moving carrier — so the kink in the run stays marked while the
-        // carrier explodes away: a chevron across the new heading + a short flare
-        // along it + a fading scuff at the spot.
-        const t = ev.age / lifetime;
-        const mover = ev.playerId != null ? byId.get(ev.playerId) : undefined;
-        let ha = 0;
-        if (mover && Math.hypot(mover.vx, mover.vy) > 5) ha = Math.atan2(mover.vy, mover.vx);
-        else if (mover) { const mx = this.visualPlayers.get(mover.id)?.x ?? mover.x, my = this.visualPlayers.get(mover.id)?.y ?? mover.y; ha = Math.atan2(my - ev.y, mx - ev.x); }
-        const col = 0xffd24d;
-        const hx = Math.cos(ha), hy = Math.sin(ha), px = -hy, py = hx;
-        // chevron (the cut) across the exit heading
-        for (const s of [1, -1]) {
-          this.eventGfx.moveTo(ev.x + px * s * 7 - hx * 4, ev.y + py * s * 7 - hy * 4);
-          this.eventGfx.lineTo(ev.x, ev.y);
-        }
-        this.eventGfx.stroke({ width: 3, color: col, alpha });
-        // flare along the new heading (grows then fades — the explode-away)
-        const reach = 8 + t * 18;
-        this.eventGfx.moveTo(ev.x + hx * 4, ev.y + hy * 4);
-        this.eventGfx.lineTo(ev.x + hx * reach, ev.y + hy * reach);
-        this.eventGfx.stroke({ width: 2.5, color: 0xffffff, alpha: alpha * 0.7 });
-        // scuff at the cut point
-        this.eventGfx.circle(ev.x, ev.y, 2.4 + t * 2.5);
-        this.eventGfx.fill({ color: col, alpha: alpha * 0.5 });
-        continue;
-      }
-      if (ev.type === 'gk_punch') {
-        // Keeper punch: a short radial burst of spokes from the fists + a bright deflection streak sending
-        // the ball away along its heading (or clearing toward midfield if it's momentarily slow), with a
-        // ball-glint at the streak tip and a "PUNCH!" call. Anchored to the keeper (playerId). ~460ms.
-        const gk = ev.playerId != null ? byId.get(ev.playerId) : undefined;
-        const cx = gk ? (this.visualPlayers.get(gk.id)?.x ?? gk.x) : ev.x;
-        const cy = gk ? (this.visualPlayers.get(gk.id)?.y ?? gk.y) : ev.y;
-        const t = ev.age / lifetime;
-        const col = this.eventColor('gk_punch');
-        const r0 = PLAYER_R + 2, r1 = PLAYER_R + 6 + t * 16;
-        for (let s = 0; s < 8; s++) {
-          const a = (s / 8) * Math.PI * 2;
-          this.eventGfx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
-          this.eventGfx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
-        }
-        this.eventGfx.stroke({ width: 2, color: col, alpha });
-        let da = Math.atan2(b.vy, b.vx);
-        if (b.vx * b.vx + b.vy * b.vy < 400) da = cx < PITCH_W / 2 ? 0 : Math.PI;   // slow ball → clear to midfield
-        const dfx = Math.cos(da), dfy = Math.sin(da), reach = 20 + t * 34;
-        this.eventGfx.moveTo(cx + dfx * r0, cy + dfy * r0);
-        this.eventGfx.lineTo(cx + dfx * reach, cy + dfy * reach);
-        this.eventGfx.stroke({ width: 3, color: col, alpha });
-        this.eventGfx.circle(cx + dfx * reach, cy + dfy * reach, 3);
-        this.eventGfx.fill({ color: 0xffffff, alpha });
-        if (labelIdx < this.eventLabels.length) {
-          const label = this.eventLabels[labelIdx++];
-          label.text = 'PUNCH!';
-          label.position.set(cx, Math.max(18, cy - r1 - 12));
-          label.style.fill = col;
-          label.alpha = clamp(1 - t, 0, 1);
-          label.visible = true;
-        }
-        continue;
-      }
-      if (ev.type === 'tip') {
-        // Keeper (playerId) tips a shot over/around the bar for a corner. A top-down pitch can't show
-        // HEIGHT, so the iconic save reads as: a reflex-save pulse on the keeper + a fingertip reach +
-        // a bright deflection streak arcing out past the goal-line toward the post (a ball-glint at its
-        // leading edge), plus a "TIPPED OVER!" call. Robust to the payload (falls back to the event spot).
-        const t = ev.age / lifetime;
-        const gk = ev.playerId != null ? byId.get(ev.playerId) : undefined;
-        const cx = gk ? (this.visualPlayers.get(gk.id)?.x ?? gk.x) : ev.x;
-        const cy = gk ? (this.visualPlayers.get(gk.id)?.y ?? gk.y) : ev.y;
-        const toGoal = cx < PITCH_W / 2 ? -1 : 1;          // toward the keeper's own goal-line
-        const cornerDir = cy < PITCH_H / 2 ? -1 : 1;        // toward the nearer post / corner
-        const COL = 0x8fe3ff;
-        const reach = 26 + t * 34;
-        const ex = cx + toGoal * reach, ey = cy + cornerDir * (8 + t * 18);
-        // the deflected ball — a curved streak that bows "up & over" before dropping out near the post
-        this.eventGfx.moveTo(cx, cy);
-        this.eventGfx.quadraticCurveTo(cx + toGoal * reach * 0.4, cy - cornerDir * 12, ex, ey);
-        this.eventGfx.stroke({ width: 3, color: COL, alpha });
-        this.eventGfx.circle(ex, ey, 3.5); this.eventGfx.fill({ color: 0xffffff, alpha });   // ball glint
-        for (const s of [0.6, 1.0, 1.4]) {                  // fingertip reach off the keeper
-          this.eventGfx.moveTo(cx, cy);
-          this.eventGfx.lineTo(cx + toGoal * 9 * s, cy - cornerDir * 4 * s);
-        }
-        this.eventGfx.stroke({ width: 1.5, color: COL, alpha: alpha * 0.8 });
-        this.eventGfx.circle(cx, cy, PLAYER_R + 2 + t * 10);   // reflex-save pulse
-        this.eventGfx.stroke({ width: 2, color: COL, alpha: alpha * 0.7 });
-        if (labelIdx < this.eventLabels.length) {
-          const label = this.eventLabels[labelIdx++];
-          label.text = 'TIPPED OVER!';
-          label.position.set(cx, Math.max(18, cy - reach - 12));
-          label.style.fill = COL;
-          label.alpha = clamp(1 - t, 0, 1);
-          label.visible = true;
-        }
-        continue;
-      }
-      const er = 14 + (ev.age / lifetime) * (ev.type === 'header' ? 15 : 30);
-      const ec = this.eventColor(ev.type);
-      this.eventGfx.circle(ev.x, ev.y, er);
-      this.eventGfx.stroke({ width: ev.type === 'header' ? 3 : 2, color: ec, alpha });
-      if (labelIdx < this.eventLabels.length) {
-        const label = this.eventLabels[labelIdx++];
-        label.text = this.eventLabel(ev.type);
-        label.position.set(ev.x, Math.max(18, ev.y - er - 12));
-        label.style.fill = ec;
-        label.alpha = clamp(1 - ev.age / lifetime, 0, 1);
-        label.visible = true;
-      }
-    }
+    drawEventOverlays({ gfx: this.eventGfx, labels: this.eventLabels, events: state.events,
+      byId, visual: this.visualPlayers, b, animTime: this.animTime });
 
-    this.setPieceGfx.clear();
-    this.setPieceText.visible = false;
-    const restart = state.setPieceState;
-    if (restart) {
-      const label = this.restartLabel(restart.reason ?? restart.type);
-      const teamLabel = restart.team === 'home' ? 'HOME' : 'AWAY';
-      // At a free kick, mark the 9.15m (~91px in pitch coords, per the engine) legal distance — the
-      // defensive WALL lines up on this ring, so the wall formation reads on screen (user ask: SEE walls).
-      if (restart.type === 'free_kick') {
-        this.setPieceGfx.circle(restart.spotX, restart.spotY, 91);
-        this.setPieceGfx.stroke({ width: 1.5, color: 0xffffff, alpha: 0.26 });
-        // highlight the defensive WALL — the players Boris flags with p.wall, lined up on the 9.15m ring
-        // (the user's core "SEE wall formations" want). Cyan rings, distinct from the gold taker ring.
-        // No-ops until the engine serialises `wall` into the frame (p.wall undefined → empty).
-        const wall = state.players.filter(p => p.wall);
-        if (wall.length) {
-          for (const wp of wall) {
-            this.setPieceGfx.circle(wp.x, wp.y, 12);
-            this.setPieceGfx.stroke({ width: 2.5, color: 0x5cd6ff, alpha: 0.95 });
-          }
-          (window as unknown as { __lastWall?: unknown }).__lastWall = { n: wall.length, ids: wall.map(p => p.id), atMs: state.clockMs };   // verify hook
-        }
-      }
-      this.setPieceGfx.circle(restart.spotX, restart.spotY, 18);
-      this.setPieceGfx.stroke({ width: 3, color: restart.team === 'home' ? HOME_COLOR : AWAY_COLOR, alpha: 0.95 });
-      this.setPieceGfx.circle(restart.spotX, restart.spotY, 4);
-      this.setPieceGfx.fill({ color: 0xffffff, alpha: 0.95 });
-      // mark the designated TAKER (who's taking the set piece) with a gold ring — completes the FK setup read
-      const taker = restart.takerId != null ? byId.get(restart.takerId) : undefined;
-      if (taker) {
-        this.setPieceGfx.circle(taker.x, taker.y, 13);
-        this.setPieceGfx.stroke({ width: 2, color: 0xffe066, alpha: 0.85 });
-        (window as unknown as { __lastTaker?: unknown }).__lastTaker = { id: restart.takerId, x: Math.round(taker.x), y: Math.round(taker.y), type: restart.type };   // verify hook
-      }
-      this.setPieceText.text = `${label} ${teamLabel}`;
-      this.setPieceText.position.set(restart.spotX, Math.max(22, restart.spotY - 30));
-      this.setPieceText.anchor.set(0.5, 0.5);
-      this.setPieceText.visible = true;
-    }
-    // headless verify hook: confirm the FK 9.15m wall ring drew with the right centre/radius (eval, no screenshot)
-    (window as unknown as { __spDraw?: unknown }).__spDraw = restart
-      ? { type: restart.type, wallRingDrawn: restart.type === 'free_kick', cx: restart.spotX, cy: restart.spotY, r: restart.type === 'free_kick' ? 91 : 0 }
-      : null;
-    // accumulate the last free kick's ring draw so a single later eval can confirm it fired (FKs are sporadic)
-    if (restart?.type === 'free_kick') (window as unknown as { __lastFK?: unknown }).__lastFK = { cx: restart.spotX, cy: restart.spotY, r: 91, atMs: state.clockMs };
+    drawSetPiece(this.setPieceGfx, this.setPieceText, state, byId);
 
     // ── HUD (DOM scoreboard) ── all writes dirty-checked so nothing re-lays-out at 30-37Hz.
     if (this.hudRefs) {
@@ -1884,7 +1318,7 @@ export class MatchRenderer {
       // half-time / full-time) + the current restart (FREE KICK HOME…) show as a gold tag.
       const stateTag = state.matchState && state.matchState !== 'running' ? String(state.matchState).replace(/_/g, ' ').toUpperCase() : '';
       const restartTag = state.setPieceState
-        ? `${this.restartLabel(state.setPieceState.reason ?? state.setPieceState.type)} ${(state.setPieceState.team ?? '').toUpperCase()}`
+        ? `${restartLabel(state.setPieceState.reason ?? state.setPieceState.type)} ${(state.setPieceState.team ?? '').toUpperCase()}`
         : '';
       const tag = [stateTag, restartTag].filter(Boolean).join(' · ');
       if (this.prevHud.tag !== tag) { this.prevHud.tag = tag; r.state.textContent = tag; r.state.style.display = tag ? '' : 'none'; }
@@ -1894,8 +1328,8 @@ export class MatchRenderer {
     }
 
     this.updateTicker(state);
-    this.updateMomentum(state);   // PRESSURE: integrate after the ticker folds in event impulses
-    this.renderStatPanel();
+    this.stats.updateMomentum(state);   // PRESSURE: integrate after the ticker folds in event impulses
+    this.stats.renderStatPanel();
     this.updateMoments(state);
     // Draw the positional layer immediately ONLY when something new exists (first ingest / a just-created
     // player shape would sit at the origin for a frame otherwise). Every other sync leaves the draw to the
@@ -1904,18 +1338,11 @@ export class MatchRenderer {
     if (this.syncNeedsImmediateDraw) { this.syncNeedsImmediateDraw = false; this.renderFrame(); }
   }
 
-  // Clip a team name to the HUD width, falling back to a default — shared by the HUD + the
-  // goal banner + the HT/FT panel so big moments show the real club names, not 'HOME'/'AWAY'.
-  private clipName(s: string | undefined, fallback: string): string {
-    const n = s ?? fallback;
-    return (n.length > 16 ? n.slice(0, 16) : n).toUpperCase();
-  }
-
   private updateMoments(state: EngineState): void {
     if (!this.bannerEl || !this.panelEl) return;
     const now = performance.now();
     const hs = state.homeScore ?? 0, as = state.awayScore ?? 0;
-    const hn = this.clipName(state.homeName, 'HOME'), an = this.clipName(state.awayName, 'AWAY');
+    const hn = clipName(state.homeName, 'HOME'), an = clipName(state.awayName, 'AWAY');
     if (state.clockMs < 1500 && hs === 0 && as === 0) {
       // fresh match/restart
       this.prevHomeScore = 0; this.prevAwayScore = 0; this.prevHalf = 1; this.shownFullTime = false;
@@ -2022,7 +1449,7 @@ export class MatchRenderer {
       this.lastGoalScorerId = null;
       this.lastGoalOwn = false;
       this.clearToasts();
-      this.resetMatchStats(state.clockMs);
+      this.stats.resetMatchStats(state.clockMs);
     }
     this.lastClockMs = state.clockMs;
     const notable = new Set(['goal', 'shot', 'save', 'claim', 'tip', 'foul', 'offside', 'skill', 'nutmeg', 'dragback', 'stepover', 'roulette', 'gk_punch', 'header', 'block', 'penalty', 'punch', 'yellow', 'sub', 'injury', 'assist', 'advantage', 'red', 'woodwork', 'handball']);
@@ -2032,7 +1459,7 @@ export class MatchRenderer {
       const key = `${ev.type}:${ev.playerId}:${Math.round(evClock / 400)}`;
       if (this.seenEventKeys.has(key)) continue;
       this.seenEventKeys.add(key);
-      this.accStatEvent(ev, evClock);   // PRESSURE panel: same de-dup → counts match the feed exactly
+      this.stats.accStatEvent(ev, this.playerById, evClock);   // PRESSURE panel: same de-dup → counts match the feed exactly
       const half = state.half ?? 1;
       const halfMs = half === 1 ? evClock : evClock - 45 * 60 * 1000;
       const minute = Math.max(0, Math.floor(halfMs / 60000)) + (half === 2 ? 45 : 0);
@@ -2045,7 +1472,7 @@ export class MatchRenderer {
       if (ev.type === 'sub' && (ev.inName || ev.outName)) { who = ev.inName ?? who; target = ev.outName ?? ''; }
       if (ev.type === 'goal') { this.lastGoalScorer = who; this.lastGoalScorerId = ev.playerId ?? null; this.lastGoalOwn = !!ev.ownGoal; }   // banner + celebration read these
       // newest on top — a chronological feed row: minute stamp · team-coloured dot · commentary
-      this.feedEntries.unshift({ minute, team: actor?.team ?? null, text: this.commentary(ev.type, who, target), goal: ev.type === 'goal' });
+      this.feedEntries.unshift({ minute, team: actor?.team ?? null, text: commentary(ev.type, who, target, this.lastClockMs, this.commentaryCounter), goal: ev.type === 'goal' });
       // ── reporting toast (top-right) ── fires off the SAME de-duped event stream as the feed, so a toast
       // shows exactly once per event. Only the "big moment" subset gets one; pushToast no-ops under replay.
       this.maybeToast(ev, who, minute, target);
@@ -2068,9 +1495,9 @@ export class MatchRenderer {
   // when the engine flags it), yellow/red card, penalty awarded, substitution. 'sub' is wired ahead of the
   // engine emitting it — harmless if never fired. pushToast itself no-ops under replay.
   private maybeToast(ev: EngineState['events'][number], who: string, minute: number, target = ''): void {
-    const nm = this.shortName(who);
+    const nm = shortName(who);
     const m = `${minute}'`;
-    const where = (ev.x != null && ev.y != null) ? ` · ${this.zoneLabel(ev.x, ev.y)}` : '';
+    const where = (ev.x != null && ev.y != null) ? ` · ${zoneLabel(ev.x, ev.y)}` : '';
     switch (ev.type) {
       case 'goal':    this.pushToast('⚽', ev.ownGoal ? `${m}  ${nm || 'Own goal'} (O.G.)` : `${m}  ${nm || 'Goal'}`, ev.ownGoal ? 'og' : 'goal'); break;
       case 'yellow':  this.pushToast('🟨', `${m}  ${nm}`, 'card'); break;
@@ -2081,7 +1508,7 @@ export class MatchRenderer {
       // off. Round-31: the engine now ships both names on the event (outName/inName), so name both;
       // fall back to the id-derived name (= the arriving man) if an old payload lacks them.
       case 'sub': {
-        const off = this.shortName(ev.outName ?? ''), on = this.shortName(ev.inName ?? '') || nm;
+        const off = shortName(ev.outName ?? ''), on = shortName(ev.inName ?? '') || nm;
         this.pushToast('🔁', off && on ? `${m}  ${off} off, ${on} on` : `${m}  ${on ? on + ' comes on' : 'Substitution'}`, 'sub');
         break;
       }
@@ -2089,7 +1516,7 @@ export class MatchRenderer {
       // who/what/where popups. 'foul' names the offender + the fouled player (ev.targetId) when known;
       // an 'advantage' event reads "play on"; offside/injury name the player.
       case 'foul': {
-        const vic = this.shortName(target);
+        const vic = shortName(target);
         this.pushToast('⚑', `${m}  Foul — ${nm}${vic ? ' on ' + vic : ''}${where}`, 'foul'); break;
       }
       case 'advantage': this.pushToast('▶', `${m}  Advantage — ${nm ? nm + ' plays on' : 'play on'}${where}`, 'adv'); break;
@@ -2099,406 +1526,25 @@ export class MatchRenderer {
     }
   }
 
-  // brief spatial tag for an event popup ("who, what, WHERE") — thirds + penalty boxes, engine coords.
-  private zoneLabel(x: number, y: number): string {
-    const cy = PITCH_H / 2, inBox = Math.abs(y - cy) <= 201.5;
-    if (x <= 165 && inBox) return 'left box';
-    if (x >= PITCH_W - 165 && inBox) return 'right box';
-    if (x < PITCH_W / 3) return 'left third';
-    if (x > PITCH_W * 2 / 3) return 'right third';
-    return 'midfield';
-  }
-
-  // Compact display name for a toast: prefer the parenthetical short name the frame carries
-  // ("Firstname Lastname (Lastname)"), else strip a leading squad-number/team prefix.
-  private shortName(raw: string): string {
-    if (!raw) return '';
-    const paren = raw.match(/\(([^)]+)\)/);
-    return (paren ? paren[1] : raw.replace(/^[HA]?\d+\s*/, '')).trim();
-  }
-
-  private restartLabel(type: string): string {
-    switch (type) {
-      case 'offside': return 'OFFSIDE';
-      case 'free_kick': return 'FREE KICK';
-      case 'penalty': return 'PENALTY';
-      case 'throw_in': return 'THROW IN';
-      case 'corner': return 'CORNER';
-      case 'goal_kick': return 'GOAL KICK';
-      default: return type.replace(/_/g, ' ').toUpperCase();
-    }
-  }
-
-  private eventLabel(type: string): string {
-    switch (type) {
-      case 'offside': return 'OFFSIDE';
-      case 'foul': return 'FOUL';
-      case 'intercept': return 'INTERCEPTION';
-      case 'tackle_won': return 'TACKLE WON';
-      case 'tackle_loose': return 'TACKLE LOOSE';
-      case 'tackle': return 'TACKLE';
-      case 'save': return 'SAVE';
-      case 'claim': return 'CLAIMED';
-      case 'penalty': return 'PENALTY!';
-      case 'yellow': return 'YELLOW';
-      case 'red': return 'RED CARD';
-      case 'assist': return 'ASSIST';
-      case 'advantage': return 'ADVANTAGE';
-      case 'sub': return 'SUB';
-      case 'injury': return 'INJURY';
-      case 'goal': return 'GOAL';
-      case 'shot': return 'SHOT';
-      case 'header': return 'HEADER';
-      case 'punch': return 'PUNCH';
-      case 'woodwork': return 'WOODWORK';
-      case 'dragback': return 'DRAG-BACK';
-      case 'nutmeg': return 'NUTMEG!';
-      case 'stepover': return 'STEP-OVER';
-      case 'roulette': return 'ROULETTE';
-      case 'gk_punch': return 'PUNCH!';
-      case 'tip': return 'TIP OVER';
-      default: return type.replace(/_/g, ' ').toUpperCase();
-    }
-  }
-
-  // Turn a raw event into a line of broadcast-style commentary for the feed.
-  // `who` is the actor; `target` the player acted upon (nutmeg victim, fouled man).
-  // A few high-frequency events rotate through phrasings (keyed on the match minute,
-  // so it's deterministic) so a run of saves/shots doesn't read identically.
-  private commentary(type: string, who: string, target: string): string {
-    const w = who || 'someone';
-    // rotate by minute AND a per-line counter so a run of saves/shots in one minute doesn't read identically
-    // (still deterministic for a given replay: same event sequence → same counter sequence; display-only)
-    const pick = (arr: string[]): string => arr[Math.abs(Math.floor(this.lastClockMs / 60000) + this.commentaryNth++) % arr.length];
-    switch (type) {
-      case 'goal':       return pick([`⚽ GOAL! ${w} buries it!`, `⚽ GOAL! ${w} finds the net!`, `⚽ GOAL!! ${w} scores!`]);
-      case 'shot':       return pick([`${w} has a crack`, `${w} lets fly`, `${w} tries his luck`]);
-      case 'save':       return pick([`🧤 SAVE! ${w} denies it`, `🧤 Big stop from ${w}`, `🧤 ${w} keeps it out!`]);
-      case 'tip':        return `🧤 ${w} tips it over the bar!`;
-      case 'claim':      return `🧤 ${w} claims it confidently`;
-      case 'punch':      return `🧤 ${w} punches clear`;
-      case 'header':     return `${w} gets his head on it`;
-      case 'nutmeg':     return target ? `😱 Nutmeg! ${w} slips it through ${target}` : `😱 Nutmeg by ${w}!`;
-      case 'dragback':   return `${w} with a slick drag-back`;
-      case 'skill':      return `${w} shows a bit of skill`;
-      case 'stepover':   return `${w} dances past with a step-over`;
-      case 'roulette':   return `${w} spins away — Zidane roulette!`;
-      case 'gk_punch':   return `🧤 ${w} punches it clear`;
-      case 'block':      return `🧱 Blocked! ${w} throws a body in the way`;
-      case 'tackle_won': return `${w} wins the tackle`;
-      case 'intercept':  return `${w} reads it — intercepted`;
-      case 'foul':       return target ? `Foul by ${w} on ${target}` : `Foul by ${w}`;
-      case 'yellow':     return `🟨 Booked — ${w}`;
-      case 'red':        return `🟥 RED CARD! ${w} is off!`;
-      case 'penalty':    return `❗ PENALTY!`;
-      case 'offside':    return `🚩 Offside against ${w}`;
-      case 'handball':   return `✋ Handball! ${w}`;
-      case 'woodwork':   return `😬 Off the woodwork! ${w}`;
-      // Round-31: `target` carries the OUTGOING man for a sub (the event's single id
-      // is the slot, which resolves to the arriving player — see maybeToast).
-      case 'sub':        return target ? `🔁 Sub — ${target} off, ${w} on` : `🔁 Sub — ${w} comes on`;
-      case 'injury':     return `🤕 ${w} is down injured`;
-      case 'assist':     return `🅰 Assist — ${w}`;
-      case 'advantage':  return `Referee waves play on — advantage`;
-      default:           return `${this.eventLabel(type)} ${w}`.trim();
-    }
-  }
-
-  // ── PRESSURE panel: build, accumulate, animate ──────────────────────────────
-  // Built DETACHED and docked into the right column by screenWatch (dockStats) — it used to float
-  // fixed at top-left, where it overlapped the scoreboard and the timeline slider.
-  private buildStatPanel(): void {
-    const HOME_CSS = '#e63946', AWAY_CSS = '#457b9d';   // = HOME_COLOR / AWAY_COLOR
-    const panel = document.createElement('div');
-    Object.assign(panel.style, {
-      width: '100%', padding: '8px 10px', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: '12px',
-      lineHeight: '1.5', color: '#e8edf2', background: 'rgba(255,255,255,0.035)', borderRadius: '8px',
-      border: '1px solid rgba(255,255,255,0.06)', pointerEvents: 'none',
-    } as Partial<CSSStyleDeclaration>);
-    const grid = document.createElement('div');
-    Object.assign(grid.style, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1px 10px', marginBottom: '6px' } as Partial<CSSStyleDeclaration>);
-    const cell = (label: string, key: 'ot' | 'xg' | 'big' | 'cor' | 'foul' | 'off'): HTMLDivElement => {
-      const c = document.createElement('div');
-      const l = document.createElement('span');
-      l.textContent = label;
-      Object.assign(l.style, { color: '#8b97a6', fontSize: '9px', letterSpacing: '.5px' } as Partial<CSSStyleDeclaration>);
-      const v = document.createElement('span');
-      v.textContent = '0-0';
-      Object.assign(v.style, { fontSize: '13px', marginLeft: '5px' } as Partial<CSSStyleDeclaration>);
-      c.appendChild(l); c.appendChild(v);
-      this.statCells[key] = v;
-      return c;
-    };
-    grid.appendChild(cell('ON-TGT', 'ot')); grid.appendChild(cell('xG', 'xg'));
-    grid.appendChild(cell('BIG-CH', 'big')); grid.appendChild(cell('CORNERS', 'cor'));
-    grid.appendChild(cell('FOULS', 'foul')); grid.appendChild(cell('OFFSIDE', 'off'));
-    panel.appendChild(grid);
-    const cap = document.createElement('div');
-    cap.textContent = 'PRESSURE';
-    Object.assign(cap.style, { color: '#8b97a6', fontSize: '9px', letterSpacing: '1px', textAlign: 'center', marginBottom: '2px' } as Partial<CSSStyleDeclaration>);
-    panel.appendChild(cap);
-    const wrap = document.createElement('div');
-    Object.assign(wrap.style, { position: 'relative', height: '12px', borderRadius: '3px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden', transition: 'height .12s' } as Partial<CSSStyleDeclaration>);
-    const away = document.createElement('div');   // left half — away leading (blue)
-    Object.assign(away.style, { position: 'absolute', right: '50%', top: '0', height: '100%', width: '0px', background: AWAY_CSS } as Partial<CSSStyleDeclaration>);
-    const home = document.createElement('div');   // right half — home leading (red)
-    Object.assign(home.style, { position: 'absolute', left: '50%', top: '0', height: '100%', width: '0px', background: HOME_CSS } as Partial<CSSStyleDeclaration>);
-    const tick = document.createElement('div');   // centre hairline
-    Object.assign(tick.style, { position: 'absolute', left: '50%', top: '-1px', width: '1px', height: '14px', background: 'rgba(232,237,242,0.4)' } as Partial<CSSStyleDeclaration>);
-    wrap.appendChild(away); wrap.appendChild(home); wrap.appendChild(tick);
-    panel.appendChild(wrap);
-    this.statBarHome = home; this.statBarAway = away; this.statBarWrap = wrap;
-    this.statPanelEl = panel;
-    // NOT appended here — screenWatch docks it (dockStats) into the right column after init.
-  }
-
-  // Tally one NEW (de-duped) notable event into the stat counters + momentum. Called from
-  // updateTicker inside the seenEventKeys guard, so each event lands exactly once.
-  private accStatEvent(ev: EngineState['events'][number], evClock = 0): void {
-    const sideOf = (id: number | null | undefined): number => {
-      const t = id != null ? this.playerById.get(id)?.team : undefined;
-      return t === 'home' ? 1 : t === 'away' ? -1 : 0;
-    };
-    const type = ev.type;
-    // Round-30: on an OWN goal the event's playerId is a defender of the side that
-    // CONCEDED, so the raw side credits xG, the shot-map dot and shots-on-target to
-    // the wrong team. Flip it for that one case; every other event is unaffected.
-    const scoringSideOf = (id: number | null | undefined): number => {
-      const s = sideOf(id);
-      return ev.ownGoal ? -s : s;
-    };
-    // xG proxy (direction-agnostic: distance to the NEAREST goal, since shots go toward a goal)
-    if (type === 'shot' || type === 'goal') {
-      const dy = ev.y - PITCH_H / 2;
-      const d = Math.min(Math.hypot(ev.x - 0, dy), Math.hypot(ev.x - PITCH_W, dy));
-      const ang = 1 - Math.min(1, Math.abs(dy) / (GOAL_W * 1.6));
-      const xg = Math.max(0.01, Math.min(0.95, 1.05 * Math.exp(-d / 95) * (0.32 + 0.68 * ang)));
-      const s = scoringSideOf(ev.playerId);   // shot/goal playerId = the shooter (own goal: the other side)
-      if (s > 0) { this.xgH += xg; if (xg >= 0.30) this.bigH++; }
-      else if (s < 0) { this.xgA += xg; if (xg >= 0.30) this.bigA++; }
-      // record the shot (shot map) + a cumulative-xG timeline sample (after the tallies update)
-      if (s !== 0) { this.shots.push({ x: ev.x, y: ev.y, xg, side: s, goal: type === 'goal' }); this.xgSeries.push({ t: evClock, h: this.xgH, a: this.xgA }); }
-    }
-    // on-target: goal → scorer side; save/tip/punch/claim → keeper side, so credit the OTHER team
-    if (type === 'goal') { const s = scoringSideOf(ev.playerId); if (s > 0) this.otH++; else if (s < 0) this.otA++; }
-    else if (type === 'save' || type === 'tip' || type === 'punch' || type === 'gk_punch' || type === 'claim') {
-      const k = sideOf(ev.playerId); if (k > 0) this.otA++; else if (k < 0) this.otH++;
-    }
-    // momentum impulse — favours the team named in the comment; skip if the side can't be resolved
-    const s = sideOf(ev.playerId);
-    const add = (sign: number, w: number): void => { if (sign !== 0) this.momentum += sign * w; };
-    switch (type) {
-      case 'goal':     add(s, 55); this.goalFlashUntil = performance.now() + 600; break;
-      case 'shot':     add(s, 10); break;                                  // shooter
-      case 'woodwork': add(s, 20); break;                                  // shooter (unlucky but dominant)
-      case 'save': case 'tip': case 'punch': case 'gk_punch': case 'claim': add(s, 6); break; // s = keeper/defending side
-      case 'block':    add(s, 6); break;                                   // blocker (defending)
-      case 'penalty':  add(s, 20); break;                                  // taker/attacker
-      case 'nutmeg': case 'skill': case 'dragback': case 'stepover': case 'roulette': add(s, 4); break;   // attacker flair
-      case 'yellow':   add(-s, 7); break;                                  // toward the carded player's opponent
-      case 'red':      add(-s, 22); break;
-      case 'foul':     add(-s, 4); if (s > 0) this.foulH++; else if (s < 0) this.foulA++; break;   // playerId = fouler → favour the fouled side
-      case 'handball': add(-s, 4); if (s > 0) this.foulH++; else if (s < 0) this.foulA++; break;   // offender penalised → favours the other side
-      case 'offside':  add(-s, 5); if (s > 0) this.offH++; else if (s < 0) this.offA++; break;     // against the offside attacker
-      default:         break;                                              // header/assist/sub/injury/advantage → neutral
-    }
-  }
-
-  // Per-frame momentum integration (decay + possession/territory pull + corner detection + ease).
-  // Impulses were already folded into `momentum` by accStatEvent during updateTicker.
-  private updateMomentum(state: EngineState): void {
-    if (this.homeAttacksX === null) {                 // derive attacking direction from the home keeper
-      const gk = state.players.find(p => p.team === 'home' && p.role === 'GK');
-      if (gk) this.homeAttacksX = gk.x < PITCH_W / 2 ? PITCH_W : 0;
-    }
-    const sp = state.setPieceState;                   // corners via set-piece transitions (clean)
-    const spType = sp ? (sp.reason ?? sp.type) : null;
-    if (spType === 'corner' && this.lastSetPieceType !== 'corner' && sp) {
-      if (sp.team === 'home') { this.corH++; this.momentum += 9; }
-      else if (sp.team === 'away') { this.corA++; this.momentum -= 9; }
-    }
-    this.lastSetPieceType = spType;
-    const dt = Math.max(0, Math.min(100, state.clockMs - this.momPrevClock));   // own dt source
-    this.momPrevClock = state.clockMs;
-    this.momentum *= Math.pow(0.5, dt / 9000);        // decay toward 0 (~9s half-life)
-    const poss = ((state.possessionPct ?? 50) - 50) / 50;                       // [-1,1], +home
-    this.ballXEma += 0.02 * (state.ball.x - this.ballXEma);
-    let terr = 0;
-    if (this.homeAttacksX !== null) {
-      const raw = Math.max(-1, Math.min(1, (this.ballXEma - PITCH_W / 2) / (PITCH_W / 2)));
-      terr = raw * (this.homeAttacksX === PITCH_W ? 1 : -1);                    // + = home's attacking half
-    }
-    const target = 100 * (0.6 * poss + 0.4 * terr);
-    this.momentum += 0.0008 * dt * (target - this.momentum);
-    this.momentum = Math.max(-100, Math.min(100, this.momentum));
-    this.displayMomentum += 0.15 * (this.momentum - this.displayMomentum);      // glide, not jitter
-  }
-
-  // Paint the stat grid (dirty-checked) + the momentum bar (width/flash only — no reflow).
-  private renderStatPanel(): void {
-    if (!this.statPanelEl) return;
-    const set = (key: string, el: HTMLSpanElement | null, txt: string): void => {
-      if (el && this.prevStatStr[key] !== txt) { el.textContent = txt; this.prevStatStr[key] = txt; }
-    };
-    set('ot', this.statCells.ot, `${this.otH}-${this.otA}`);
-    set('xg', this.statCells.xg, `${this.xgH.toFixed(1)}-${this.xgA.toFixed(1)}`);
-    set('big', this.statCells.big, `${this.bigH}-${this.bigA}`);
-    set('cor', this.statCells.cor, `${this.corH}-${this.corA}`);
-    set('foul', this.statCells.foul, `${this.foulH}-${this.foulA}`);
-    set('off', this.statCells.off, `${this.offH}-${this.offA}`);
-    const m = Math.max(-100, Math.min(100, this.displayMomentum));
-    // % of the wrap (the panel is container-width now that it docks into the right column)
-    const w = `${(Math.abs(m) / 100 * 50).toFixed(1)}%`;
-    if (this.statBarHome) this.statBarHome.style.width = m > 0 ? w : '0%';
-    if (this.statBarAway) this.statBarAway.style.width = m < 0 ? w : '0%';
-    if (this.statBarWrap) {
-      const flash = performance.now() < this.goalFlashUntil;
-      this.statBarWrap.style.height = flash ? '16px' : '12px';
-      this.statBarWrap.style.filter = flash ? 'brightness(1.7)' : 'none';
-    }
-  }
-
-  // Zero everything on a match restart / replay so a fresh match starts clean.
-  private resetMatchStats(clockMs: number): void {
-    this.otH = this.otA = this.xgH = this.xgA = this.bigH = this.bigA = this.corH = this.corA = 0;
-    this.foulH = this.foulA = this.offH = this.offA = 0;
-    this.shots = []; this.xgSeries = [];
-    this.momentum = 0; this.displayMomentum = 0; this.ballXEma = PITCH_W / 2;
-    this.momPrevClock = clockMs; this.homeAttacksX = null; this.goalFlashUntil = 0;
-    this.lastSetPieceType = null; this.prevStatStr = {};
-  }
-
-  // FM-style live player rating, ticking off the SAME model as the post-match report
-  // (report.ts ratePlayer) but from the frame's running per-player stats: base 6.5, lifted by
-  // attacking returns + tackles, with clean-sheet / GK-concession / result / card adjustments.
-  // The frame carries no per-player passes, so the (bounded ±0.5) distribution term is dropped;
-  // win/lose/conceded read the LIVE scoreline, so a rating shifts the moment the score does.
-  private liveRating(p: EngineState['players'][number], homeScore: number, awayScore: number): number {
-    let r = 6.5;
-    r += (p.goals ?? 0) * 1.2 + (p.assists ?? 0) * 0.8 + (p.shots ?? 0) * 0.08 + (p.tackles ?? 0) * 0.06;
-    const conceded = p.team === 'home' ? awayScore : homeScore;
-    const ahead = p.team === 'home' ? homeScore > awayScore : awayScore > homeScore;
-    const behind = p.team === 'home' ? homeScore < awayScore : awayScore < homeScore;
-    const defensive = p.role === 'GK' || p.role === 'CB' || p.role === 'FB';
-    if (defensive && conceded === 0) r += 0.8;
-    if (p.role === 'GK') r -= conceded * 0.25;
-    r += ahead ? 0.3 : (behind ? -0.3 : 0);
-    r -= (p.yellow ?? 0) > 0 ? 0.3 : 0;
-    r -= p.sentOff ? 2.0 : 0;
-    return Math.max(1, Math.min(10, Math.round(r * 10) / 10));
-  }
-
-  // Tint a player label by its rating band — green for a strong game, amber for a poor one.
-  private ratingTint(r: number): number {
-    return r >= 7.5 ? 0x57e08a : r >= 6.5 ? 0xffffff : r >= 5.5 ? 0xcdd6df : 0xf3b06b;
-  }
-
   // ── Live analysis getters (read by the app's 📊 Stats panel) ──────────────────────────
   // Every-player live rating off the latest ingested frame (same model as the on-pitch tags).
   getRatings(): { id: number; name: string; team: 'home' | 'away'; role: string; rating: number }[] {
     const s = this.lastState;
     if (!s) return [];
-    return s.players.map(p => ({ id: p.id, name: p.name, team: p.team, role: p.role, rating: this.liveRating(p, s.homeScore ?? 0, s.awayScore ?? 0) }));
+    return s.players.map(p => ({ id: p.id, name: p.name, team: p.team, role: p.role, rating: liveRating(p, s.homeScore ?? 0, s.awayScore ?? 0) }));
   }
   // The accumulated shot list (pitch xy + xG + side + goal) and the cumulative-xG timeline. Read-only
   // views — the panel renders a shot map + an xG race line from them; both reset with the match.
-  getShots(): ReadonlyArray<{ x: number; y: number; xg: number; side: number; goal: boolean }> { return this.shots; }
-  getXgSeries(): ReadonlyArray<{ t: number; h: number; a: number }> { return this.xgSeries; }
+  getShots(): ReadonlyArray<{ x: number; y: number; xg: number; side: number; goal: boolean }> { return this.stats.shots; }
+  getXgSeries(): ReadonlyArray<{ t: number; h: number; a: number }> { return this.stats.xgSeries; }
   // Latest team names (for the panel's home/away column headers) — off the frame, blank until known.
   getTeamNames(): { home: string; away: string } {
     const s = this.lastState as (EngineState & { homeName?: string; awayName?: string }) | null;
     return { home: s?.homeName ?? 'Home', away: s?.awayName ?? 'Away' };
   }
 
-  private eventColor(type: string): number {
-    switch (type) {
-      case 'goal': return 0xffdd44;
-      case 'save': return 0x44ddff;
-      case 'tip': return 0x8fe3ff;     // keeper tip over the bar — bright reflex-save cyan
-      case 'claim': return 0x66e0a0;   // confident catch — distinct from the reflex-save cyan
-      case 'woodwork': return 0xffa033;
-      case 'foul': return 0xff4444;
-      case 'yellow': return 0xffd900;
-      case 'red': return 0xff3030;
-      case 'sub': return 0x66dd66;
-      case 'injury': return 0xff8844;
-      case 'offside': return 0xfff1a8;
-      case 'intercept': return 0xffb347;
-      case 'tackle_won': return 0x66ff99;
-      case 'tackle_loose':
-      case 'tackle': return 0xff6644;
-      case 'shot': return 0xffffff;
-      case 'header': return 0xfff1a8;
-      case 'punch': return 0xff9944;
-      case 'skill': return 0x7df9ff;
-      case 'nutmeg': return 0xffd24d;
-      case 'dragback': return 0xc9a0ff;
-      case 'stepover': return 0x5cf2c0;   // teal shimmy — a cousin of the cyan skill swirl
-      case 'roulette': return 0xb98cff;   // spin purple — flair, like the drag-back
-      case 'gk_punch': return 0xff9944;   // keeper orange — matches the plain 'punch'
-      case 'block': return 0x9aff9a;
-      default: return 0xffffff;
-    }
-  }
-
   // (smoothPlayer/smoothBall removed — the per-frame exponential chase was replaced by the 60fps
   // prev→target tween in renderFrame, which gives true inter-frame motion instead of a 4fps step.)
-
-  private drawGoal(g: Graphics, x: number, y: number, dir: number): void {
-    const hw = GOAL_W / 2;
-    const d = GOAL_DEPTH;
-    // goal box fill — behind the goal line
-    const rx = dir > 0 ? x - d : x;
-    g.rect(rx, y - hw, d, GOAL_W); g.fill({ color: GOAL_COLOR, alpha: 0.08 });
-    // 3 perimeter lines behind goal
-    g.moveTo(x, y - hw); g.lineTo(x - dir * d, y - hw); g.stroke({ width: 2, color: 0xcccccc });
-    g.moveTo(x, y + hw); g.lineTo(x - dir * d, y + hw); g.stroke({ width: 2, color: 0xcccccc });
-    g.moveTo(x - dir * d, y - hw); g.lineTo(x - dir * d, y + hw); g.stroke({ width: 2, color: 0xcccccc });
-    // net lines
-    const netX = x - dir * 3;
-    for (let ny = y - hw + 4; ny <= y + hw - 4; ny += 6) {
-      g.moveTo(netX, ny); g.lineTo(netX - dir * (d - 6), ny); g.stroke({ width: 0.5, color: 0xcccccc, alpha: 0.55 });
-    }
-    for (let nx = netX; dir > 0 ? nx <= x - d + 2 : nx >= x + d - 2; nx -= dir * 6) {
-      g.moveTo(nx, y - hw + 2); g.lineTo(nx, y + hw - 2); g.stroke({ width: 0.5, color: 0xcccccc, alpha: 0.55 });
-    }
-    g.circle(x, y - hw, 3.5); g.fill(GOAL_COLOR);
-    g.circle(x, y + hw, 3.5); g.fill(GOAL_COLOR);
-    g.circle(x, y - hw, 4); g.stroke({ width: 1, color: 0x333333 });
-    g.circle(x, y + hw, 4); g.stroke({ width: 1, color: 0x333333 });
-  }
-  private drawGoalArea(g: Graphics, x: number): void {
-    const l = x === 0 ? 0 : PITCH_W - GOAL_AREA_W;
-    const t = (PITCH_H - GOAL_AREA_H) / 2;
-    g.rect(l, t, GOAL_AREA_W, GOAL_AREA_H); g.stroke({ width: 2, color: LINE_COLOR });
-  }
-
-  private drawPenaltyArea(g: Graphics, x: number): void {
-    const l = x === 0 ? 0 : PITCH_W - PENALTY_AREA_W;
-    const t = (PITCH_H - PENALTY_AREA_H) / 2;
-    g.rect(l, t, PENALTY_AREA_W, PENALTY_AREA_H); g.stroke({ width: 2, color: LINE_COLOR });
-  }
-
-  // The penalty spot + the "D" (the arc of centre-circle radius around the spot that falls OUTSIDE the box).
-  // Standard pitch markings the renderer was missing — pure geometry off the existing constants.
-  private drawPenaltyDetail(g: Graphics, x: number): void {
-    const side = x === 0 ? 1 : -1;
-    const spotX = x + side * PENALTY_AREA_W * 0.66;     // ~11m from the goal line (16.5m box)
-    const cy = PITCH_H / 2;
-    g.circle(spotX, cy, 2.5); g.fill(LINE_COLOR);       // penalty spot
-    const dx = Math.abs((x + side * PENALTY_AREA_W) - spotX);   // spot → front edge of the box
-    if (dx < CENTER_CIRCLE_R) {
-      const half = Math.acos(dx / CENTER_CIRCLE_R);
-      const base = x === 0 ? 0 : Math.PI;               // the D bulges toward midfield
-      this.drawMarkingArc(g, spotX, cy, CENTER_CIRCLE_R, base - half, base + half);
-    }
-  }
-
-  private drawMarkingArc(g: Graphics, x: number, y: number, radius: number, start: number, end: number): void {
-    g.moveTo(x + Math.cos(start) * radius, y + Math.sin(start) * radius);
-    g.arc(x, y, radius, start, end);
-    g.stroke({ width: 2, color: LINE_COLOR });
-  }
 
   private turnTowards(current: number, target: number, maxStep: number): number {
     const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current));
@@ -2518,104 +1564,5 @@ export class MatchRenderer {
     const target = this.facingAngles.get(id) ?? (team === 'home' ? 0 : Math.PI);
     const prev = this.facingPrev.get(id) ?? target;
     return this.lerpAngle(prev, target, t);
-  }
-
-  // F7: draw the player's boot/head arrow at a given facing — called PER TICK from renderFrame (was drawn at
-  // keyframe rate in sync → boots lagged a turn by up to ~250ms). Local coords; the arrow Graphics is
-  // positioned at the tweened player pos by renderFrame. vp/vb are the interpolated player + ball positions.
-  private drawPlayerArrow(entry: PlayerEntry, p: EngineState['players'][number], angle: number, vpx: number, vpy: number, vbx: number, vby: number): void {
-    const r = DISC_R;
-    const hasBall = this.lastState?.ball.controllerId === p.id;
-    const heading = (p.headingAnim ?? 0) > 0;
-    const knockDribble = p.dribbleType === 3;
-    const diving = p.role === 'GK' && (p.diveAnim ?? 0) > 0;   // gates the GK ready-gloves (the dive body draws its own reach glove)
-    const controlDx = hasBall ? vbx - vpx : 0;
-    const controlDy = hasBall ? vby - vpy : 0;
-    // Dirty-check: the arrow's local geometry is a pure function of (facing angle, hasBall, the ball-relative
-    // control vector while carrying, header pose, knock-dribble). renderFrame still repositions arrow.position
-    // every tick, so skipping the clear()+re-tessellate here when nothing changed is invisible — it just spares
-    // ~22 Graphics rebuilds/rAF for a still, same-facing pitch (e.g. any pause/stoppage). Carrier + turning
-    // players still redraw (their angle / ball-vector move each tick).
-    if (entry.armDrawn
-      && Math.abs(angle - entry.armAngle) < 0.035   // ~2° — sub-pixel at PLAYER_R scale; 0.01 was below the per-tick lerp delta, so the skip never engaged during play
-      && hasBall === entry.armHasBall && heading === entry.armHeading && knockDribble === entry.armKnock && diving === entry.armDive
-      && Math.abs(controlDx - entry.armCtrlX) < 0.5 && Math.abs(controlDy - entry.armCtrlY) < 0.5) return;
-    entry.armDrawn = true; entry.armAngle = angle; entry.armHasBall = hasBall; entry.armDive = diving;
-    entry.armHeading = heading; entry.armKnock = knockDribble; entry.armCtrlX = controlDx; entry.armCtrlY = controlDy;
-    const a = entry.arrow;
-    a.clear();
-    const forwardX = Math.cos(angle);
-    const forwardY = Math.sin(angle);
-    const controlDist = Math.hypot(controlDx, controlDy);
-    const feetX = hasBall && controlDist > 2 ? controlDx / controlDist : forwardX;
-    const feetY = hasBall && controlDist > 2 ? controlDy / controlDist : forwardY;
-    const feetSideX = -feetY;
-    const feetSideY = feetX;
-    const bootForward = hasBall ? Math.max(r * 0.62, Math.min(r * 0.94, controlDist - BALL_R * 0.5)) : r * 0.74;
-    const bootSpread = hasBall ? BALL_R + 2.3 : r * 0.37;
-    const leftBootX = feetX * bootForward + feetSideX * bootSpread;
-    const leftBootY = feetY * bootForward + feetSideY * bootSpread;
-    const rightBootX = feetX * bootForward - feetSideX * bootSpread;
-    const rightBootY = feetY * bootForward - feetSideY * bootSpread;
-    a.moveTo(feetSideX * r * 0.22, feetSideY * r * 0.22);
-    a.lineTo(leftBootX, leftBootY);
-    a.moveTo(-feetSideX * r * 0.22, -feetSideY * r * 0.22);
-    a.lineTo(rightBootX, rightBootY);
-    a.stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
-    a.circle(leftBootX, leftBootY, hasBall ? 2.8 : 2.4);
-    a.circle(rightBootX, rightBootY, hasBall ? 2.8 : 2.4);
-    a.fill({ color: 0x171717 });
-    a.circle(0, 0, heading ? r * 0.47 : r * 0.41);
-    a.fill({ color: 0xffdfbb });
-    a.circle(0, 0, heading ? r * 0.47 : r * 0.41);
-    a.stroke({ width: 1, color: 0x33261c });
-    // ── facing chevron ── a small filled arrowhead at the disc edge pointing along `facing`. Augments the
-    // boots/head so orientation stays legible at the smaller disc size (owner ask). Points along the facing
-    // angle (forwardX/Y), NOT the boot-aim (which swings toward the ball while carrying), so it always reads
-    // as "where the player is looking". Bright with a thin dark outline to pop against any shirt/turf.
-    {
-      const tipR = r + 3.6, baseR = r + 0.6, spread = 0.44;
-      const tX = forwardX * tipR, tY = forwardY * tipR;
-      const blX = Math.cos(angle + spread) * baseR, blY = Math.sin(angle + spread) * baseR;
-      const brX = Math.cos(angle - spread) * baseR, brY = Math.sin(angle - spread) * baseR;
-      a.moveTo(tX, tY); a.lineTo(blX, blY); a.lineTo(brX, brY); a.closePath();
-      a.fill({ color: 0xffffff, alpha: 0.95 });
-      a.moveTo(tX, tY); a.lineTo(blX, blY); a.lineTo(brX, brY); a.closePath();
-      a.stroke({ width: 0.8, color: 0x1a1a1a, alpha: 0.85 });
-    }
-    // ── keeper ready-gloves ── a standing keeper (not carrying, not diving, not heading) holds two bright
-    // glove pads out IN FRONT along his facing, one to each side of the chevron, with a short wrist line back
-    // to the shoulders. They are built from the SAME lerped `angle` as the boots/chevron, so as the engine
-    // turns the GK to track the ball the gloves rotate with him and always sit at his front — never detached,
-    // never pointing backward/sideways. (When he holds the ball, the ball-held clasp cue draws the hands on
-    // the ball instead, so this is suppressed via !hasBall.)
-    if (p.role === 'GK' && !hasBall && !heading && !diving) {
-      const gloveFwd = r * 0.98, gloveSpread = r * 0.6;
-      const sideX = -forwardY, sideY = forwardX;          // facing-perpendicular (keeper's left/right)
-      for (const s of [1, -1]) {
-        const gx = forwardX * gloveFwd + sideX * s * gloveSpread;
-        const gy = forwardY * gloveFwd + sideY * s * gloveSpread;
-        // wrist/arm from the shoulder out to the glove
-        a.moveTo(forwardX * r * 0.34 + sideX * s * r * 0.42, forwardY * r * 0.34 + sideY * s * r * 0.42);
-        a.lineTo(gx, gy);
-        a.stroke({ width: 2, color: 0xffe27a, alpha: 0.55 });
-        // glove pad — matches the dive/held-ball glove palette
-        a.circle(gx, gy, 2.9);
-        a.fill({ color: 0xffe27a, alpha: 0.95 });
-        a.circle(gx, gy, 2.9);
-        a.stroke({ width: 1, color: 0x33261c, alpha: 0.85 });
-      }
-    }
-    if (heading) {
-      a.circle(forwardX * r * 1.65, forwardY * r * 1.65, r * 0.82);
-      a.stroke({ width: 2, color: 0xfff1a8, alpha: 0.75 });
-    }
-    if (knockDribble) {
-      a.moveTo(forwardX * r * 1.18 + feetSideX * r * 0.56, forwardY * r * 1.18 + feetSideY * r * 0.56);
-      a.lineTo(forwardX * r * 2.0 + feetSideX * r * 0.56, forwardY * r * 2.0 + feetSideY * r * 0.56);
-      a.moveTo(forwardX * r * 1.18 - feetSideX * r * 0.56, forwardY * r * 1.18 - feetSideY * r * 0.56);
-      a.lineTo(forwardX * r * 2.0 - feetSideX * r * 0.56, forwardY * r * 2.0 - feetSideY * r * 0.56);
-      a.stroke({ width: 2, color: 0xfff1a8, alpha: 0.8 });
-    }
   }
 }
