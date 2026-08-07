@@ -223,8 +223,58 @@ async function drainRecordQueue(): Promise<void> {
 // The per-player line from a --summary run — the cheap STATS the aftermath rates off (the same fields
 // analyzeRecording reads from the final frame), so ratings/news/morale never need the frame recording.
 export interface SummaryPlayer { id: number; name: string; role: string; team: 'home' | 'away'; goals: number; assists: number; shots: number; tackles: number; passes: number; passesCompleted: number; yellow: number; sentOff: boolean }
-export interface SummaryResult { homeScore: number; awayScore: number; players: SummaryPlayer[] }
+// `players` is ONE ROW PER MAN WHO PLAYED, not per pitch slot — see withSubstitutionStints. Rows
+// 0..21 are still the 22 FINAL slot holders in engine-id order (so anything indexing or `find`-ing
+// by slot id gets exactly what it got before), and every row after them is a man who was
+// substituted OFF, rebuilt from the engine's substitutionLog. `finalPlayers` keeps the old 22-slot
+// view explicitly for a consumer that genuinely wants the shirts rather than the men; it is ABSENT
+// on the fast-sim path (fastsim.ts never substitutes, so there `players` IS the final-slot view).
+export interface SummaryResult { homeScore: number; awayScore: number; players: SummaryPlayer[]; finalPlayers?: SummaryPlayer[] }
 const numF = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+// Fold the engine's `substitutionLog` into the --summary player list: a row per MAN, not per slot.
+//
+// A substitution is an IN-PLACE slot swap (engine_squad.cpp substituteSlot): the slot keeps its id
+// and role, is renamed to the arrival in the same tick, and `pStats[slot.id]` is ZEROED — the
+// departing man's line survives only in the frame-/summary-borne substitutionLog (engine.cpp
+// getJSON, the `out*` fields). --summary reports the FINAL 22 slots, so before this every man who
+// came off was simply absent from the aftermath: measured on a real fixture (seed 19960, 7-3, 5
+// substitutions, 27 men) the leaderboard tallied 9 of the 10 goals (a departed man's goal lost),
+// the human club logged 9 season_apps for 13 men, the AI club 8 for 14. Note the arrivals are
+// engine-invented bench names ("H8 Maldini", engine_squad.cpp:283) that resolve to no DB player, so
+// their rows drop downstream on the name lookup — the men this restores are the real starters.
+//
+// The departed row keeps the SLOT id (same shirt, two men — matching report.ts's stint rows) and
+// sits after all 22 final holders, so `players[i]`/`find(p => p.id === slot)` still resolve to the
+// slot's final holder exactly as before.
+//
+// yellow/sentOff: the outTally carries no card fields, so a departed man's mid-stint booking is
+// unrecoverable from a --summary run (the recording path recovers it from the frames — see
+// report.ts). `sentOff` is exact rather than assumed: pickSubstitutions skips `p.sentOff`
+// (engine_squad.cpp:354), so a sent-off man is never substituted. `yellow` is a known 0 — it costs
+// a booked departed man the -0.3 card dent on his rating. Fixing it needs an engine field (see
+// GAME_LAYER_NOTES / the front's findings), NOT a web-side guess.
+export function withSubstitutionStints(finalPlayers: SummaryPlayer[], substitutionLog: unknown): SummaryPlayer[] {
+  if (!Array.isArray(substitutionLog) || substitutionLog.length === 0) return finalPlayers;
+  const roleOfSlot = new Map(finalPlayers.map(p => [p.id, p.role] as const));   // the role stays with the slot
+  const out = finalPlayers.slice();
+  for (const rec of substitutionLog as Record<string, unknown>[]) {
+    if (!rec || typeof rec !== 'object') { continue; }
+    const slotId = rec.slotId;
+    const name = typeof rec.outName === 'string' ? rec.outName : '';
+    // A record with no slot or no departing name identifies nobody — skip it rather than invent a
+    // row keyed to slot 0 (numF would turn a missing slotId into a real player's id).
+    if (typeof slotId !== 'number' || !Number.isInteger(slotId) || slotId < 0 || !name) { continue; }
+    out.push({
+      id: slotId, name, role: roleOfSlot.get(slotId) ?? '',
+      team: rec.team === 'away' ? 'away' : 'home',
+      goals: numF(rec.outGoals), assists: numF(rec.outAssists), shots: numF(rec.outShots), tackles: numF(rec.outTackles),
+      passes: numF(rec.outPasses), passesCompleted: numF(rec.outPassesCompleted),
+      yellow: 0, sentOff: false,
+    });
+  }
+  return out;
+}
 
 // Run a written spec through the engine (--summary, deterministic via its seed) and return the score +
 // the per-player stats. Async (spawn) so a ~1-2s sim never blocks the event loop. Shared by league
@@ -251,15 +301,19 @@ function runEngineSummary(specPath: string): Promise<SummaryResult> {
       clearTimeout(to);
       try {
         const lines = out.split(/\r?\n/).filter(l => l.trim().startsWith('{'));
-        const summary = JSON.parse(lines[lines.length - 1]) as { homeScore?: number; awayScore?: number; players?: Record<string, unknown>[] };
-        const players: SummaryPlayer[] = (summary.players ?? []).map(p => ({
+        const summary = JSON.parse(lines[lines.length - 1]) as { homeScore?: number; awayScore?: number; players?: Record<string, unknown>[]; substitutionLog?: unknown };
+        const finalPlayers: SummaryPlayer[] = (summary.players ?? []).map(p => ({
           id: numF(p.id), name: String(p.name ?? ''), role: String(p.role ?? ''),
           team: p.team === 'away' ? 'away' : 'home',
           goals: numF(p.goals), assists: numF(p.assists), shots: numF(p.shots), tackles: numF(p.tackles),
           passes: numF(p.passes), passesCompleted: numF(p.passesCompleted),
           yellow: numF(p.yellow), sentOff: !!p.sentOff,
         }));
-        resolve({ homeScore: summary.homeScore ?? 0, awayScore: summary.awayScore ?? 0, players });
+        // The 22 final slots are only the men STILL on the pitch — fold the substitutionLog in so the
+        // aftermath rates every man who played (a pre-substitutionLog engine emits none and degrades
+        // to the old 22-row behaviour).
+        const players = withSubstitutionStints(finalPlayers, summary.substitutionLog);
+        resolve({ homeScore: summary.homeScore ?? 0, awayScore: summary.awayScore ?? 0, players, finalPlayers });
       } catch (e) { reject(new Error(`engine parse failed: ${err || String(e)}`)); }
     });
   });

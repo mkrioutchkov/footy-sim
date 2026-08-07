@@ -27,6 +27,7 @@ import { FORMATIONS, normalizeFormation, engineRole, PITCH_W } from './formation
 import { ROLE_SLOTS } from './game.ts';
 import {
   type RecKind, type Command, type SummaryPlayer, captureLineStream, writeEventsLog, hasHumanStake, getFixture, weatherForSeed, REPLAY_SAMPLE,
+  withSubstitutionStints,
 } from './match.ts';
 import { db } from './db.ts';
 import { consumeTeamTalk } from './teamtalk.ts';
@@ -400,7 +401,10 @@ export class LiveMatch {
       // Aftermath (ratings → morale + season tally + news) for each HUMAN side, off the final frame's
       // per-player stats. A frame carries no per-player passes, so the bounded distribution term is
       // dropped (same approximation as the live ratings); injuries aren't tracked live yet → [].
-      const players = this.finalSummaryPlayers(st);
+      // Fold substituted men back in, exactly as the simmed path does (match.ts): the final frame
+      // carries only the 22 slots, so without this a live-WATCHED match loses every man who came
+      // off — the same bug 031680e fixed for reports and this round fixed for --summary.
+      const players = withSubstitutionStints(this.finalSummaryPlayers(st), st.substitutionLog);
       for (const teamId of [this.homeTeamId, this.awayTeamId]) {
         const human = (db.prepare('SELECT user_id FROM teams WHERE id = ?').get(teamId) as { user_id: number | null } | undefined)?.user_id != null;
         if (human) void processMatchAftermath(teamId, this.refId, [], players).catch(() => { /* ambient */ });

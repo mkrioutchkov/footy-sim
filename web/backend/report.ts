@@ -20,8 +20,22 @@ export interface MatchFacts {
   shotsOnTarget: number; saves: number; corners: number;
   timeline: TimelineEvent[];           // goals + cards, in order
   ratings: PlayerRating[];
+  version?: number;                    // REPORT_FORMAT_VERSION this analysis was produced by; absent = 1
 }
 export interface MatchReport { headline: string; body: string; facts: MatchFacts; ratings: PlayerRating[] }
+
+// The report FORMAT VERSION — a CORRECTNESS stamp on the match_reports cache, not a schema tag.
+// A report is generated once, on first view, and read forever after: without this, every report
+// generated BEFORE a fix to analyzeRecording keeps its wrong rows for the life of the save (the
+// 2026-08 substitutionLog fix left every pre-fix row at 22 slot-keyed ratings with cross-
+// substitution goal mis-credits, and the narrative was written FROM those facts, so the prose named
+// wrong scorers too). Rows carry this number inside `facts`; a row stamped older than
+// REPORT_FORMAT_VERSION is regenerated ON READ — lazily, one match at a time, so the expensive LLM
+// narrative is only re-paid for the reports a user actually opens (never a boot-time cache purge).
+// BUMP THIS whenever a change to analyzeRecording/ratePlayer changes what a CORRECT report is.
+//   1 = pre-2026-08: ratings off the final frame's 22 slots, goal credit keyed by engine slot id.
+//   2 = 2026-08 substitutionLog fix: a rating row per stint, goal credit follows the man.
+export const REPORT_FORMAT_VERSION = 2;
 
 const num = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const minuteOf = (clockMs: unknown): number => Math.max(1, Math.floor(num(clockMs) / 60000) + 1);
@@ -171,7 +185,7 @@ export function analyzeRecording(frames: Iterable<string>): MatchFacts {
     }
     last = f;
   }
-  if (!last) return { homeScore: 0, awayScore: 0, possessionHome: 50, shots: { home: 0, away: 0 }, shotsOnTarget: 0, saves: 0, corners: 0, timeline: [], ratings: [] };
+  if (!last) return { homeScore: 0, awayScore: 0, possessionHome: 50, shots: { home: 0, away: 0 }, shotsOnTarget: 0, saves: 0, corners: 0, timeline: [], ratings: [], version: REPORT_FORMAT_VERSION };
 
   const homeScore = num(last.homeScore), awayScore = num(last.awayScore);
   const players: any[] = Array.isArray(last.players) ? last.players : [];
@@ -209,7 +223,7 @@ export function analyzeRecording(frames: Iterable<string>): MatchFacts {
     possessionHome: Math.round(num(last.possessionPct, 50)),
     shots: { home: num(last.homeShots), away: num(last.awayShots) },
     shotsOnTarget: num(last.shotsOnTarget), saves: num(last.saves), corners: num(last.cornersAwarded),
-    timeline, ratings,
+    timeline, ratings, version: REPORT_FORMAT_VERSION,
   };
 }
 
@@ -286,14 +300,24 @@ export function buildMatchReport(kind: RecKind, refId: number, homeName: string,
 async function generateMatchReport(kind: RecKind, refId: number, homeName: string, awayName: string): Promise<MatchReport | null> {
   const cached = db.prepare('SELECT headline, body, ratings, facts FROM match_reports WHERE kind = ? AND ref_id = ?')
     .get(kind, refId) as { headline: string; body: string; ratings: string; facts: string } | undefined;
+  // A cached row is served AS-IS only while it was produced by the CURRENT report format. A row from
+  // an older format is wrong, not merely old (see REPORT_FORMAT_VERSION), so it falls through and is
+  // regenerated here — on read, for this one match, rather than by purging the table at boot.
+  let stale: MatchReport | null = null;
   if (cached) {
-    try { return { headline: cached.headline, body: cached.body, ratings: JSON.parse(cached.ratings), facts: JSON.parse(cached.facts) }; }
-    catch { /* corrupt cache row — regenerate below */ }
+    try {
+      const facts = JSON.parse(cached.facts) as MatchFacts;
+      const report = { headline: cached.headline, body: cached.body, ratings: JSON.parse(cached.ratings) as PlayerRating[], facts };
+      if (num(facts.version, 1) >= REPORT_FORMAT_VERSION) return report;
+      stale = report;   // outdated: regenerate below, but keep it as the fallback (see below)
+    } catch { /* corrupt cache row — regenerate below */ }
   }
   const rec = recordingFor(kind, refId);
-  if (!rec) return null;
+  // A stale report whose recording is gone can't be regenerated — serve the old one rather than
+  // turning "an out-of-date report" into "no report", which is the worse failure for a played match.
+  if (!rec) return stale;
   const frames = loadRecording(rec);
-  if (!frames.length) return null;
+  if (!frames.length) return stale;
   const facts = analyzeRecording(frames);
   const { headline, body } = await writeNarrative(facts, homeName, awayName);
   db.prepare(`INSERT INTO match_reports (kind, ref_id, headline, body, ratings, facts, created_at)

@@ -17,6 +17,14 @@
 // match_recordings row + gzipped NDJSON) and read back through the real buildMatchReport — no
 // forked copy of report logic.
 //
+// It also pins the two follow-ups that fix left open:
+//   * the --summary path had the SAME bug class — match.ts mapped the engine's final 22 slots and
+//     never read the substitutionLog, so every man who came off vanished from the aftermath
+//     (season_goals / season_apps / ratings / morale). withSubstitutionStints folds him back in.
+//   * match_reports rows are written once and read forever, so a report generated BEFORE the fix
+//     kept its 22 wrong rows for the life of the save. Rows now carry REPORT_FORMAT_VERSION inside
+//     `facts` and an older stamp regenerates lazily on read (no boot-time cache purge).
+//
 // Run: cd <repo> && npx tsx tools/_report_test.ts   (exits non-zero on any failure).
 
 import { mkdirSync, rmSync } from 'node:fs';
@@ -215,6 +223,101 @@ try {
   const legacyFacts = report.analyzeRecording(legacy);
   assert(legacyFacts.ratings.length === 22, `no substitutionLog -> the old 22-row behaviour (got ${legacyFacts.ratings.length})`);
   assert(legacyFacts.homeScore === 3 && legacyFacts.awayScore === 1, 'legacy analysis still reads the score');
+
+  // ── THE --summary PATH (match.ts withSubstitutionStints) ────────────────────
+  // Same bug class, other path: runEngineSummary mapped the engine's FINAL 22 slots and dropped the
+  // substitutionLog, so every man who came off vanished from the aftermath (tallyFixtureStats'
+  // season_goals, processMatchAftermath's season_apps/morale, tallyDivisionRatings). Measured on a
+  // real fixture (seed 19960, 7-3, 5 substitutions): 9 of 10 goals tallied, 9 season_apps for the
+  // human club's 11 DB-resolvable men, 8 for the AI club's 11. This pins the fold that fixed it.
+  const finalSlots = Array.from({ length: 22 }, (_, i) => ({
+    id: i, name: `Final${i}`, role: ROLES[i % 11], team: (i < 11 ? 'home' : 'away') as 'home' | 'away',
+    goals: i === 3 ? 2 : 0, assists: 0, shots: 1, tackles: 2, passes: 10, passesCompleted: 8, yellow: i === 4 ? 1 : 0, sentOff: false,
+  }));
+  // Wire-shaped records (engine.cpp:1317-1330). Slot 20's man was booked before he came off — the
+  // outTally has no card field, so that booking is NOT recoverable from a --summary run.
+  const wireLog = [
+    { clockMs: 3_660_000, slotId: 9, team: 'home', outName: 'Departed Nine', inName: 'H9 Bench', outGoals: 2, outAssists: 1, outShots: 6, outTackles: 4, outPasses: 40, outPassesCompleted: 33 },
+    { clockMs: 4_200_000, slotId: 20, team: 'away', outName: 'Departed Twenty', inName: 'A20 Bench', outGoals: 0, outAssists: 3, outShots: 2, outTackles: 9, outPasses: 51, outPassesCompleted: 44 },
+    { clockMs: 4_800_000, slotId: 2, team: 'home', outName: 'Departed Two', inName: 'H2 Bench', outGoals: 1, outAssists: 0, outShots: 1, outTackles: 12, outPasses: 60, outPassesCompleted: 55 },
+  ];
+  const folded = match.withSubstitutionStints(finalSlots, wireLog);
+  assert(folded.length === 25, `a 3-sub --summary yields 22 final slots + 3 departed men = 25 rows (got ${folded.length})`);
+  assert(folded.slice(0, 22).every((p, i) => p === finalSlots[i]),
+    'rows 0..21 are still the 22 FINAL slot holders, untouched and in engine-id order');
+  assert(folded.find(p => p.id === 9)!.name === 'Final9',
+    'find-by-slot-id still resolves to the slot\'s FINAL holder (the departed rows sit after all 22)');
+  const dep9 = folded.slice(22).find(p => p.name === 'Departed Nine')!;
+  assert(dep9 !== undefined && dep9.id === 9 && dep9.team === 'home' && dep9.role === ROLES[9],
+    'the departed man keeps his slot id + team and inherits the slot\'s role (the role stays with the shirt)');
+  assert(dep9.goals === 2 && dep9.assists === 1 && dep9.shots === 6 && dep9.tackles === 4 && dep9.passes === 40 && dep9.passesCompleted === 33,
+    'the outTally becomes the departed man\'s own stat line, field for field');
+  const dep20 = folded.slice(22).find(p => p.name === 'Departed Twenty')!;
+  assert(dep20.team === 'away' && dep20.id === 20 && dep20.assists === 3 && dep20.tackles === 9,
+    'the away departed man folds in with his own line too');
+  assert(folded.slice(22).every(p => p.yellow === 0 && p.sentOff === false),
+    'a departed row carries no card: the outTally has no card fields (sentOff is exact — pickSubstitutions skips a sent-off man, engine_squad.cpp:354)');
+  const summaryGoals = folded.reduce((a, p) => a + p.goals, 0);
+  assert(summaryGoals === 5 && finalSlots.reduce((a, p) => a + p.goals, 0) === 2,
+    `every goal is attributable again: 5 with the fold vs 2 on the final slots alone (got ${summaryGoals})`);
+  // Degradation + hostile input: no log ⇒ the exact 22-slot array back; junk records identify
+  // nobody and must be skipped rather than minted onto slot 0 (numF(undefined) === 0).
+  assert(match.withSubstitutionStints(finalSlots, []) === finalSlots && match.withSubstitutionStints(finalSlots, undefined) === finalSlots,
+    'no substitutionLog (pre-573675e engine / fast-sim) -> the untouched 22-slot list');
+  const junk = match.withSubstitutionStints(finalSlots, [{ outName: 'No Slot' }, { slotId: 4 }, { slotId: -1, outName: 'Bad Slot' }, null]);
+  assert(junk.length === 22, `a record with no slotId / no outName is skipped, never minted onto slot 0 (got ${junk.length} rows)`);
+
+  // ── CACHE CORRECTNESS: a pre-fix report row regenerates ON READ ─────────────
+  // match_reports is written once and read forever, so before this a report generated by an older
+  // (wrong) analyzeRecording kept its rows for the life of the save. Rows now carry the format
+  // version inside `facts`; an older stamp regenerates lazily on the next read.
+  assert(rep!.facts.version === report.REPORT_FORMAT_VERSION && report.REPORT_FORMAT_VERSION >= 2,
+    `a freshly built report is stamped with the current format version (got ${rep!.facts.version})`);
+  const storedVersion = () => JSON.parse((db.prepare('SELECT facts FROM match_reports WHERE kind = ? AND ref_id = ?').get('fixture', REF) as { facts: string }).facts).version;
+  assert(storedVersion() === report.REPORT_FORMAT_VERSION, 'the stamp is persisted on the cache row, not just on the returned object');
+
+  // A CURRENT row is served as-is and never regenerated — prove it by poisoning the cached prose:
+  // if it came back rewritten, the cache had been re-derived from the recording.
+  db.prepare('UPDATE match_reports SET body = ? WHERE kind = ? AND ref_id = ?').run('CACHED-PROSE-MARKER', 'fixture', REF);
+  const cacheHit = await report.buildMatchReport('fixture', REF, 'Home FC', 'Away FC');
+  assert(cacheHit!.body === 'CACHED-PROSE-MARKER', 'a row at the current version is served from cache untouched (the expensive narrative is not re-paid)');
+
+  // Now age the row exactly as a pre-fix save looks: format 1, the old 22 slot-keyed rating rows.
+  const oldFacts = { ...JSON.parse(JSON.stringify(rep!.facts)), version: 1, ratings: rep!.facts.ratings.slice(0, 22) };
+  db.prepare('UPDATE match_reports SET headline = ?, body = ?, ratings = ?, facts = ? WHERE kind = ? AND ref_id = ?')
+    .run('STALE HEADLINE', 'STALE PROSE', JSON.stringify(oldFacts.ratings), JSON.stringify(oldFacts), 'fixture', REF);
+  const staleRead = db.prepare('SELECT ratings FROM match_reports WHERE kind = ? AND ref_id = ?').get('fixture', REF) as { ratings: string };
+  assert(JSON.parse(staleRead.ratings).length === 22, 'the aged row really does hold the old 22-row shape before the read');
+  const regenerated = await report.buildMatchReport('fixture', REF, 'Home FC', 'Away FC');
+  assert(regenerated !== null && regenerated.ratings.length === 25,
+    `reading an older-format row regenerates it: 22 stale rows -> 25 stint rows (got ${regenerated?.ratings.length})`);
+  assert(regenerated!.headline === 'Home FC 3–1 Away FC' && regenerated!.body !== 'STALE PROSE',
+    'the narrative is regenerated too — a pre-fix body was written from the wrong facts');
+  assert(storedVersion() === report.REPORT_FORMAT_VERSION && JSON.parse((db.prepare('SELECT ratings FROM match_reports WHERE kind = ? AND ref_id = ?').get('fixture', REF) as { ratings: string }).ratings).length === 25,
+    'the regenerated report is written back, so the next read is a plain cache hit');
+
+  // A row with NO version at all is a pre-versioning row -> treated as format 1 -> regenerated.
+  const noVersion = JSON.parse(JSON.stringify(rep!.facts)) as Record<string, unknown>;
+  delete noVersion.version;
+  db.prepare('UPDATE match_reports SET ratings = ?, facts = ? WHERE kind = ? AND ref_id = ?')
+    .run(JSON.stringify(rep!.facts.ratings.slice(0, 22)), JSON.stringify({ ...noVersion, ratings: rep!.facts.ratings.slice(0, 22) }), 'fixture', REF);
+  const unversioned = await report.buildMatchReport('fixture', REF, 'Home FC', 'Away FC');
+  assert(unversioned !== null && unversioned.ratings.length === 25, `an unstamped (pre-versioning) row regenerates too (got ${unversioned?.ratings.length})`);
+
+  // Availability guard: a stale row whose RECORDING is gone can't be regenerated — it must still
+  // serve the old report rather than degrade a played match to "no report available".
+  const REF_NOREC = 424243;
+  await match.persistRecording('fixture', REF_NOREC, lines);
+  const orphan = await report.buildMatchReport('fixture', REF_NOREC, 'Home FC', 'Away FC');
+  assert(orphan !== null && orphan.ratings.length === 25, 'the second match reports normally while its recording exists');
+  db.prepare('UPDATE match_reports SET facts = ? WHERE kind = ? AND ref_id = ?')
+    .run(JSON.stringify({ ...JSON.parse(JSON.stringify(orphan!.facts)), version: 1 }), 'fixture', REF_NOREC);
+  db.prepare('DELETE FROM match_recordings WHERE kind = ? AND ref_id = ?').run('fixture', REF_NOREC);
+  const rescued = await report.buildMatchReport('fixture', REF_NOREC, 'Home FC', 'Away FC');
+  assert(rescued !== null && rescued.ratings.length === 25 && rescued.headline === 'Home FC 3–1 Away FC',
+    'an out-of-date report whose recording is gone still serves the cached copy (never null)');
+  assert(await report.buildMatchReport('fixture', 999999, 'Home FC', 'Away FC') === null,
+    'a match with neither a cached report nor a recording is still null');
 
   console.log(`_report_test: ${assertions} assertions passed`);
 } finally {
