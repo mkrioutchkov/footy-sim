@@ -13,6 +13,10 @@ export type Team = 'home' | 'away';
 export type MatchState = 'not_started' | 'running' | 'paused' | 'finished';
 export type TacticalPhase = 'loose_ball' | 'possession' | 'attacking_transition' | 'defending' | 'defensive_transition';
 
+// Wire-exact frame player (engine.cpp getJSON players[]). 2026-08 contract audit:
+// homeX/homeY/attrs were REQUIRED here but the engine has never emitted them on a
+// frame (formation anchors travel in the spec/lineup API, attrs never leave the
+// engine) — deleted rather than marked optional; no TS consumer read them.
 export interface Player {
   id: number;
   name: string;
@@ -24,39 +28,65 @@ export interface Player {
   vy: number;
   targetX: number;
   targetY: number;
-  homeX: number;
-  homeY: number;
   stamina: number;
-  attrs: PlayerAttributes;
   tackleAnim: number;
   headingAnim: number;
   diveAnim: number;
   facing: number;
-  dribbleType: number;
+  dribbleType: number; // 0=none, 1=close, 2=medium, 3=fast/knock-forward
   goals?: number;
   assists?: number;
   shots?: number;
   tackles?: number;
   yellow?: number;
+  passes?: number;           // pass attempts (rides on every frame; report.ts rating input)
+  passesCompleted?: number;
   injured?: boolean;
-  sentOff?: boolean; // 0=none, 1=close, 2=medium, 3=fast/knock-forward
+  sentOff?: boolean;
   wall?: boolean;    // render-hint (Boris): this player is in the defensive FK wall — drives the wall highlight
   slide?: boolean;   // render-hint (Boris): a committed grounded slide tackle (tackleAnim>400) vs a standing poke
 }
 
+// Wire-exact frame ball (engine.cpp getJSON "ball"). 2026-08 contract audit: `vz`
+// was REQUIRED here but the engine emits only z (height), never the vertical
+// velocity — deleted; no TS consumer read it.
 export interface Ball {
   x: number;
   y: number;
   vx: number;
   vy: number;
   z: number;
-  vz: number;
   curl?: number;   // render-hint (Boris): sideways curl/spin magnitude — drives the trail curl tint
-  cutback?: boolean;   // render-hint (Boris, pending serialization): this ball is a cutback (pull-back into the box) — drives a distinct cutback trail cue
+  cutback?: boolean;   // render-hint (Boris): this ball is a cutback (pull-back into the box) — drives a distinct cutback trail cue. SHIPS on the wire (engine.cpp getJSON: pendingPass.active && isCutback) — an older note here said "pending serialization"; that landed.
   controllerId: number | null;
   intendedReceiverId: number | null;
   lastTouchTeam: Team | null;
   lastToucherId: number | null;
+}
+
+// One substitution, as emitted in every frame's `substitutionLog` (engine.cpp getJSON,
+// engine commit 573675e). A sub is an IN-PLACE slot identity swap (engine_squad.cpp
+// substituteSlot): the pitch slot keeps its id/role, only name/attrs/freshness change,
+// and the slot's stat tally is zeroed for the arrival — so the departing man's line
+// exists ONLY here, in the outGoals..outPassesCompleted snapshot taken the moment he
+// came off. Any consumer that builds per-person stats (report.ts ratings) MUST fold
+// these records in, and re-key any slot-id-keyed credit by who held the slot at the
+// event's clockMs — the slot id alone survives the swap and silently transfers a
+// starter's goals to his replacement. The log is CUMULATIVE (subs so far), so the
+// final frame carries the whole match; the replay exporter joins it to the .bin
+// trace's "sub" events on (clockMs, slotId).
+export interface SubstitutionRecord {
+  clockMs: number;
+  slotId: number;             // the engine slot (0-21) whose identity changed
+  team: Team;
+  outName: string;            // the departing man (unrecoverable from any later frame)
+  inName: string;             // the arrival — also the slot's `name` from this clockMs on
+  outGoals: number;           // ── the departing man's tally at the moment he came off ──
+  outAssists: number;
+  outShots: number;
+  outTackles: number;
+  outPasses: number;
+  outPassesCompleted: number;
 }
 
 export interface EngineState {
@@ -71,6 +101,17 @@ export interface EngineState {
   homeShots: number;
   awayShots: number;
   possessionPct: number;
+  // Team stats merged into every frame from the --summary stats object (engine.cpp
+  // j.update(summary)) — declared here since report.ts reads them off the recorded
+  // final frame (closes the CONTRACT.md "chip filed for Boris": these three rode the
+  // wire untyped while homeShots/awayShots/possessionPct were already declared).
+  shotsOnTarget: number;
+  saves: number;
+  cornersAwarded: number;
+  // Whole-match-so-far substitution log (see SubstitutionRecord). Emitted on every
+  // frame since engine 573675e; optional because recordings persisted before that
+  // commit are storage-frozen without it (readers must degrade, not crash).
+  substitutionLog?: SubstitutionRecord[];
   half: number;
   addedTime: boolean;
   addedTimeAnnouncedMin?: number;
@@ -87,6 +128,9 @@ export interface SetPieceState {
   type: 'free_kick' | 'penalty' | 'throw_in' | 'corner' | 'goal_kick' | string;
   reason?: 'offside' | 'free_kick' | 'penalty' | 'throw_in' | 'corner' | 'goal_kick' | string;
   team: Team;
+  // On the wire this is a RAW int (engine.cpp emits setPiece.takerId unwrapped, unlike
+  // controllerId): -1 = no taker assigned yet, never null. `null` stays in the type for
+  // TS-side constructors; treat takerId == null || takerId < 0 as "no taker".
   takerId: number | null;
   takerArrived: boolean;
   spotX: number;
@@ -98,7 +142,14 @@ export interface MatchEvent {
   // NB: the string set is the wire contract with the engine — the C++ trace/WS emitter writes these
   // exact `type` names and the renderer keys its animations off them. `stepover` / `roulette` / `gk_punch`
   // are wired ahead of the engine commit that emits them; an unknown type degrades to the generic ring.
-  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'takeon_lost' | 'chop' | 'foul' | 'offside' | 'intercept' | 'save' | 'claim' | 'tip' | 'goal' | 'header' | 'punch' | 'skill' | 'nutmeg' | 'dragback' | 'stepover' | 'roulette' | 'gk_punch' | 'block' | 'penalty' | 'yellow' | 'sub' | 'injury' | 'assist' | 'advantage' | 'red' | 'woodwork' | 'handball' | 'corner_short' | 'clearance';
+  // `punch` is NEVER emitted by the engine (2026-08 audit: the keeper punch ships as `gk_punch`,
+  // engine_gk.cpp) — it stays in the union only because renderer.ts still branches on it
+  // (accStatEvent's `type === 'punch'` / `case 'punch':` arms type-check against this union);
+  // drop both together if the renderer arms are ever cleaned up.
+  // `added_time` OVERLOADS the id fields (engine.cpp added-time announce): playerId = the
+  // announced added MINUTES (1-5), targetId = the HALF (1|2) — neither is a player id. Any
+  // consumer resolving playerId to a player must skip this type.
+  type: 'pass' | 'shot' | 'tackle' | 'tackle_won' | 'tackle_loose' | 'takeon_lost' | 'chop' | 'foul' | 'offside' | 'intercept' | 'save' | 'claim' | 'tip' | 'goal' | 'header' | 'punch' | 'skill' | 'nutmeg' | 'dragback' | 'stepover' | 'roulette' | 'gk_punch' | 'block' | 'penalty' | 'yellow' | 'sub' | 'injury' | 'assist' | 'advantage' | 'red' | 'woodwork' | 'handball' | 'corner_short' | 'clearance' | 'added_time';
   x: number;
   y: number;
   age: number;

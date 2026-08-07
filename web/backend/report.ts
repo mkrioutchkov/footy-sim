@@ -70,36 +70,84 @@ export function ratePlayers(players: SummaryPlayer[], homeScore: number, awaySco
 // own goal, but this path stays correct either way). Only goals that coincide with the player's own side scoring count
 // toward his ratings, so an own goal isn't rewarded. (Iterates once, holding only running state +
 // the last frame — never all frames — so it's safe to stream over a long recording.)
+//
+// SUBSTITUTIONS (2026-08, the fix for engine 573675e's outTally going unconsumed): a sub is an
+// IN-PLACE slot swap — the engine renames the slot, zeroes its tally for the arrival, and snapshots
+// the departing man's line into the frame-borne, cumulative `substitutionLog` (engine.cpp getJSON;
+// engine_squad.cpp substituteSlot). The slot id therefore SURVIVES the swap, and anything keyed by
+// it alone hands a starter's goals to his replacement and drops his stat line entirely (measured
+// seed 151 @90': 26 men, 22 rows, 5/7 goals mis-credited before this fix). So: each slot is split
+// into STINTS keyed `${slotId}#${stint}` — goal credit follows the person — and every sub record
+// is folded into its own rating row for the departed man (goals from person-keyed credit; assists/
+// shots/tackles/passes from the outTally; yellow/sentOff from the frame-tracked snapshot, since the
+// outTally doesn't carry cards). A match with 4 subs yields 26 rows. Recordings that predate the
+// engine's substitutionLog have no records to fold and degrade to the old 22-row behaviour.
 export function analyzeRecording(frames: Iterable<string>): MatchFacts {
   let last: any = null;
   let prevHome = 0, prevAway = 0;
-  const prevStat = new Map<number, { goals: number; yellow: number; sentOff: boolean }>();
-  const legitGoals = new Map<number, number>();   // goals scored WITH the player's own side scoring
+  const prevStat = new Map<number, { goals: number; yellow: number; sentOff: boolean; role: string }>();
+  const stintOf = new Map<number, number>();                     // slot id → current stint (0 = starter)
+  const personKey = (id: number): string => `${id}#${stintOf.get(id) ?? 0}`;
+  const legitGoals = new Map<string, number>();   // person-keyed goals scored WITH the player's own side scoring
+  // Departed men, finalized in substitution order. The outTally is the ONLY surviving record of a
+  // substituted player's stats — the slot's frame counters are zeroed the tick he leaves.
+  const departed: { key: string; id: number; name: string; team: 'home' | 'away'; role: string; assists: number; shots: number; tackles: number; passes: number; passesCompleted: number; yellow: number; sentOff: boolean }[] = [];
+  let subsSeen = 0;
   const timeline: TimelineEvent[] = [];
   const seenEv = new Set<string>();   // dedup a transient event (it lingers ~78 frames) by type:player:evClock-bucket
   for (const line of frames) {
     let f: any; try { f = JSON.parse(line); } catch { continue; }
     if (!Array.isArray(f.players)) continue;
     const minute = minuteOf(f.clockMs);
-    const inc: { home: { id: number; name: string }[]; away: { id: number; name: string }[] } = { home: [], away: [] };
+    const inc: { home: { key: string; name: string }[]; away: { key: string; name: string }[] } = { home: [], away: [] };
+    // Fold NEW substitution records FIRST: the engine renames the slot in the same tick it appends
+    // the record, so this frame's players[] already shows the arrival — the departed man's baseline
+    // must be finalized and the slot re-keyed BEFORE this frame's counters are read as the new man's.
+    if (Array.isArray(f.substitutionLog)) {
+      for (let i = subsSeen; i < f.substitutionLog.length; i++) {
+        const s = f.substitutionLog[i];
+        const id = num(s.slotId, -1);
+        if (id < 0) continue;
+        const team: 'home' | 'away' = s.team === 'away' ? 'away' : 'home';
+        const was = prevStat.get(id);
+        const key = personKey(id);
+        // A goal in the gap between kept frames by the man now leaving: the slot counter was zeroed
+        // before any frame showed it, but the outTally still carries it — queue the credit here.
+        for (let g = num(s.outGoals) - (was?.goals ?? 0); g > 0; g--) inc[team].push({ key, name: String(s.outName ?? `#${id}`) });
+        departed.push({
+          key, id, name: String(s.outName ?? `#${id}`), team,
+          role: was?.role ?? String(f.players.find((p: any) => num(p.id) === id)?.role ?? ''),   // role stays with the slot
+          assists: num(s.outAssists), shots: num(s.outShots), tackles: num(s.outTackles),
+          passes: num(s.outPasses), passesCompleted: num(s.outPassesCompleted),
+          yellow: was?.yellow ?? 0, sentOff: was?.sentOff ?? false,
+        });
+        stintOf.set(id, (stintOf.get(id) ?? 0) + 1);
+        // Fresh baseline: the engine zeroes the slot's tally AND cards for the arrival, so this very
+        // frame's counters diff against zero (an instant goal/yellow by the new man still registers).
+        prevStat.set(id, { goals: 0, yellow: 0, sentOff: false, role: was?.role ?? '' });
+      }
+      subsSeen = Math.max(subsSeen, f.substitutionLog.length);
+    }
     for (const p of f.players) {
       const team: 'home' | 'away' = p.team === 'away' ? 'away' : 'home';
       const name = String(p.name ?? `#${p.id}`);
-      const was = prevStat.get(p.id);
+      const id = num(p.id);
+      const was = prevStat.get(id);
       const goals = num(p.goals), yellow = num(p.yellow), sentOff = !!p.sentOff;
       if (was) {
-        if (goals > was.goals) inc[team].push({ id: num(p.id), name });
+        if (goals > was.goals) inc[team].push({ key: personKey(id), name });
         if (yellow > was.yellow) timeline.push({ minute, team, name, type: 'yellow', clockMs: num(f.clockMs) });
         if (sentOff && !was.sentOff) timeline.push({ minute, team, name, type: 'red', clockMs: num(f.clockMs) });
       }
-      prevStat.set(p.id, { goals, yellow, sentOff });
+      prevStat.set(id, { goals, yellow, sentOff, role: String(p.role ?? '') });
     }
     // Attribute each goal to the side whose score rose; name it from a same-side increment (else
-    // "Own goal"), and credit a legit goal only to a player whose side actually scored.
+    // "Own goal"), and credit a legit goal only to a player whose side actually scored. The credit
+    // key is the PERSON (slot#stint) holding the slot at this frame's clock, not the bare slot id.
     const credit = (side: 'home' | 'away', n: number) => {
       for (let i = 0; i < n; i++) {
         const scorer = inc[side].shift();
-        if (scorer) legitGoals.set(scorer.id, (legitGoals.get(scorer.id) ?? 0) + 1);
+        if (scorer) legitGoals.set(scorer.key, (legitGoals.get(scorer.key) ?? 0) + 1);
         timeline.push({ minute, team: side, name: scorer?.name ?? 'Own goal', type: 'goal', clockMs: num(f.clockMs) });
       }
     };
@@ -127,18 +175,35 @@ export function analyzeRecording(frames: Iterable<string>): MatchFacts {
 
   const homeScore = num(last.homeScore), awayScore = num(last.awayScore);
   const players: any[] = Array.isArray(last.players) ? last.players : [];
+  const resultFor = (team: 'home' | 'away') => ({
+    conceded: team === 'home' ? awayScore : homeScore,
+    won: team === 'home' ? homeScore > awayScore : awayScore > homeScore,
+    lost: team === 'home' ? homeScore < awayScore : awayScore < homeScore,
+  });
+  // One row per MAN, not per slot: the 22 final-frame holders first (their frame counters are
+  // their own — the tally was zeroed when they came on), then every departed stint in sub order.
+  // Both row kinds feed passes/passesCompleted into the rating, matching the --summary path
+  // (ratePlayers) — the final-frame path used to omit them, so a recording-path rating ignored
+  // pass quality while the aftermath path rewarded it.
   const ratings: PlayerRating[] = players.map(p => {
     const team: 'home' | 'away' = p.team === 'away' ? 'away' : 'home';
-    const conceded = team === 'home' ? awayScore : homeScore;
-    const won = team === 'home' ? homeScore > awayScore : awayScore > homeScore;
-    const lost = team === 'home' ? homeScore < awayScore : awayScore < homeScore;
-    const goals = legitGoals.get(num(p.id)) ?? 0;   // own goals excluded from the player's credit
+    const { conceded, won, lost } = resultFor(team);
+    const goals = legitGoals.get(personKey(num(p.id))) ?? 0;   // own goals excluded from the player's credit
     return {
       id: num(p.id), name: String(p.name ?? `#${p.id}`), team, role: String(p.role ?? ''),
       goals, assists: num(p.assists), shots: num(p.shots), tackles: num(p.tackles),
-      rating: ratePlayer({ role: String(p.role ?? ''), goals, assists: num(p.assists), shots: num(p.shots), tackles: num(p.tackles), yellow: num(p.yellow), sentOff: !!p.sentOff }, won, lost, conceded),
+      rating: ratePlayer({ role: String(p.role ?? ''), goals, assists: num(p.assists), shots: num(p.shots), tackles: num(p.tackles), passes: num(p.passes), passesCompleted: num(p.passesCompleted), yellow: num(p.yellow), sentOff: !!p.sentOff }, won, lost, conceded),
     };
   });
+  for (const d of departed) {
+    const { conceded, won, lost } = resultFor(d.team);
+    const goals = legitGoals.get(d.key) ?? 0;   // person-keyed: HIS goals, not the slot's
+    ratings.push({
+      id: d.id, name: d.name, team: d.team, role: d.role,
+      goals, assists: d.assists, shots: d.shots, tackles: d.tackles,
+      rating: ratePlayer({ role: d.role, goals, assists: d.assists, shots: d.shots, tackles: d.tackles, passes: d.passes, passesCompleted: d.passesCompleted, yellow: d.yellow, sentOff: d.sentOff }, won, lost, conceded),
+    });
+  }
   return {
     homeScore, awayScore,
     possessionHome: Math.round(num(last.possessionPct, 50)),

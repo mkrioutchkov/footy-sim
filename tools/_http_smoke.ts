@@ -488,8 +488,10 @@ async function main(): Promise<void> {
   assert(typeof report!.body.headline === 'string' && report!.body.headline.length > 0 && typeof report!.body.body === 'string', 'the report carries a headline + narrative');
   assert(report!.body.homeName === myFx1.home && report!.body.awayName === myFx1.away, 'the report names both clubs');
   assert(Number.isInteger(report!.body.facts?.homeScore) && Number.isInteger(report!.body.facts?.awayScore) && Array.isArray(report!.body.facts.timeline), 'the facts block carries a scoreline + timeline');
-  assert(Array.isArray(report!.body.ratings) && report!.body.ratings.length === 22
-    && report!.body.ratings.every((p: any) => p.rating >= 1 && p.rating <= 10), 'all 22 players draw a 1-10 rating');
+  // Since the substitutionLog fix, ratings carry one row per STINT — 22 slots plus one
+  // extra row per substitution — so the count is >=22 and every man who played is rated.
+  assert(Array.isArray(report!.body.ratings) && report!.body.ratings.length >= 22
+    && report!.body.ratings.every((p: any) => p.rating >= 1 && p.rating <= 10), 'every man who played draws a 1-10 rating (a row per stint, >=22)');
   r = await GET(`/api/tactics?fixture=${myRound1.id}`, sid);
   assert(r.status === 200 && Array.isArray(r.body.shouts) && r.body.shouts.length === 0, 'an unwatched match has an empty shout review');
   const myRound14 = lg1.fixtures.find((f: any) => f.involvesMe && f.round === 14);

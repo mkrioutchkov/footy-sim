@@ -69,6 +69,20 @@ Written by `web/backend/match.ts → buildSpec()`; consumed by the engine's
   "directives": [
     { "playerId": 3, "kind": "man_mark", "targetId": 19, "intensity": 0.9,
       "when": { "fromMin": 70, "toMin": 90, "scoreState": "losing", "scoreBy": 1 } }
+  ],
+
+  // OPTIONAL — timed plan changes (the watch flow's mid-match edits, recorded so a
+  // match REPLAYS identically). Parse ground truth: engine/main.cpp --match reader
+  // ("timeline" block). Entries are sorted by atMs and applied when the clock
+  // reaches atMs.
+  "timeline": [
+    {
+      "atMs": 2700000,                       // when this entry fires (ms; default 0)
+      "directives": [ /* same shape + parser as the top-level block */ ],
+      "morale":    [ { "playerId": 3, "delta": 8 } ],   // per-player moraleBoost deltas (id 0..21)
+      "layout":    [ { "playerId": 3, "role": "CB", "homeX": 300, "homeY": 200 } ],
+      "team": 0                              // 0=home, 1=away, -1=both (default; back-compat)
+    }
   ]
 }
 ```
@@ -83,7 +97,24 @@ Written by `web/backend/match.ts → buildSpec()`; consumed by the engine's
   documented in [docs/TACTICS.md](TACTICS.md) — don't duplicate it here. `targetId`
   for man_mark/target_player. `when` (all optional): `fromMin` (default 0) / `toMin`
   (default 1000) minute window, `scoreState` ∈ `winning|drawing|losing` + `scoreBy`
-  N. Conditions are evaluated each tick from clock+score (pure, deterministic).
+  N, and `phase` ∈ `in_possession` (alias `attacking`) | `out_of_possession` (alias
+  `defending`) | `transition` — a live tactical-phase gate on top of the clock/score
+  ones. Conditions are evaluated each tick from clock+score+phase (pure,
+  deterministic).
+- ⚠️ **Unknown `kind`s are dropped SILENTLY** (`parseDirectives`: `else continue`).
+  **KNOWN-INERT: `gk_up_for_corners`** — `web/backend/tactics.ts` lists it and the UI
+  offers it as a live toggle, but `engine/main.cpp parseDirectives` has no branch for
+  it, so the engine discards it without a warning. Wiring it up (or pulling it from
+  the vocabulary) is an open cross-boundary chore; until then the toggle does nothing.
+- `timeline[]` (2026-08, documented from `engine/main.cpp`'s reader): each entry
+  carries optional `directives` (same parser as the top-level block), `morale`
+  (`{playerId, delta}` per-player moraleBoost deltas, ids 0..21), and `layout` —
+  a mid-match formation change (`{playerId, role, homeX, homeY}`, engine-frame
+  coordinates). **`layout` rows are all-or-nothing: `role` + `homeX` + `homeY` must
+  ALL be present or the row is skipped** (with a stderr warning) — a partial row
+  would default role to GK / homeY to 0 and corrupt the player. `team` selects which
+  side an entry replaces (0=home, 1=away, -1=both, the back-compat default) so a
+  recorded two-sided match replays per-team byte-identically to the live frames.
 
 ## OUTPUT — summary JSON (engine → web)
 
@@ -123,12 +154,42 @@ per-player `Player`) — do not duplicate it; import from there.
 removing one breaks reports / ratings / news:
 
 - **Per-player** (off every frame's `players[]`): `goals`, `assists`, `shots`,
-  `tackles`, `yellow`, `sentOff` (+ `id`, `name`, `team`, `role`).
+  `tackles`, `yellow`, `sentOff`, `passes`, `passesCompleted` (+ `id`, `name`,
+  `team`, `role`).
 - **Team** (read off the **final** frame): `homeScore`, `awayScore`, `possessionPct`,
   `homeShots`, `awayShots`, `shotsOnTarget`, `saves`, `cornersAwarded`. These team
   stats are the **`--summary` stats object merged into every frame** by the engine
   (`engine.cpp` `j.update(summary)`), so they ride on the live frame as well as the
   summary.
+- **`substitutionLog`** (on every frame; cumulative — the final frame carries the
+  whole match): one record per substitution, `{clockMs, slotId, team, outName,
+  inName, outGoals, outAssists, outShots, outTackles, outPasses,
+  outPassesCompleted}` (typed as `SubstitutionRecord` in `web/frontend/types.ts`).
+  A substitution is an **in-place slot identity swap** (`engine_squad.cpp`
+  `substituteSlot`): the pitch slot keeps its `id`/`role`, the engine renames it to
+  the arrival **in the same tick** and zeroes the slot's stat tally — so the
+  departing man's line survives ONLY in this record's `out*` snapshot, and the slot
+  id alone identifies a *shirt*, not a *person*. `report.ts` splits each slot into
+  stints on these records (goal credit follows whoever held the slot at the goal's
+  `clockMs`; the `out*` tally becomes the departed man's rating row — a 4-sub match
+  yields 26 rating rows, not 22). The replay exporter joins the log to the `.bin`
+  trace's `sub` events on `(clockMs, slotId)`. Recordings persisted before engine
+  573675e have no `substitutionLog`; readers must degrade (22 rows), not crash.
+  ⚠️ The `out*` tally does **not** carry cards — a departed man's `yellow`/`sentOff`
+  must be tracked from the frames before the swap.
+
+### ⚠️ Same name, different type — top-level vs per-player stats
+
+The summary merge (`j.update(summary)`) puts whole-match TEAM aggregates at the
+frame's top level under names that collide with per-player keys — **never type or
+read them alike**:
+- top-level `tackles` is an **object** (`{attempts, wins, cleanControls,
+  looseDeflections, fouls}`, `stats.cpp`) while `players[].tackles` is an **int**;
+- top-level `passes` is an **int**, but it is the *whole-match, both-teams attempt
+  count* (e.g. 1367), while `players[].passes` is that player's attempts.
+A reader that grabs `frame.tackles` expecting a number gets `[object Object]`; one
+that sums `frame.passes` per player double-counts the match. Read team stats from
+the documented team list above and player stats only off `players[]`.
 
 ### Own-goal attribution — the SCORE is authoritative
 
@@ -159,13 +220,14 @@ Adding an engine event means adding it to the `MatchEvent` union in
 Current set includes: `pass, shot, save, goal, header, woodwork, penalty, foul,
 offside, yellow, red, sub, …` (full list in types.ts).
 
-### ⚠️ Known contract gap — chip filed for Boris
-`shotsOnTarget`, `saves`, and `cornersAwarded` ride on the recorded frame (merged
-from `--summary`) and `report.ts` reads them off the last frame, but they are **not
-declared on `EngineState`/`Player` in `web/frontend/types.ts`** — the type lags the
-wire. **Boris → add `shotsOnTarget`, `saves`, `cornersAwarded` to `EngineState` in
-`web/frontend/types.ts`** so the recorded-frame contract is fully typed. (EngineState
-already types `homeShots`/`awayShots`/`possessionPct`; these three are the omission.)
+### ~~Known contract gap — chip filed for Boris~~ CLOSED 2026-08
+`shotsOnTarget`, `saves`, and `cornersAwarded` are now declared on `EngineState` in
+`web/frontend/types.ts`, alongside the already-typed `homeShots`/`awayShots`/
+`possessionPct` — the recorded-frame team stats `report.ts` reads are fully typed.
+The same audit fixed the reverse drift: `Player.homeX/homeY/attrs` and `Ball.vz`
+were *required* in types.ts but never emitted by the engine (deleted; no consumer
+read them), and `substitutionLog` (emitted since engine 573675e) is typed as
+`SubstitutionRecord[]`.
 
 ## Tactics (the 5 dials + the plain-English layer)
 
