@@ -41,7 +41,7 @@ Perception PlayerAI::perceive() {
     // that is what makes the original's `diff > PI ? 2PI - diff : diff` the true
     // angular separation, and the true separation is the only thing cos(nd)
     // can measure. This guard is NOT theoretical — a carrier's facing is
-    // accumulated unwrapped (engine_physics moveBallCarrier does `c->facing +=`
+    // accumulated unwrapped (engine_carry moveBallCarrier does `c->facing +=`
     // with no re-wrap), and an instrumented 45-min match found 17.2k of 3.34M
     // cone tests running on an out-of-range facing, every one of which the two
     // formulations would have answered differently. Those take the original path.

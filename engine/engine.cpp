@@ -1446,7 +1446,7 @@ Player GameEngine::mkPlayer(int id, Team t, Role r, double hx, double hy) {
     a.stamina = form(a.stamina);
     a.handling = a.positioning; // legend keepers: handling = positioning (no extra rng roll — preserves the stream)
     // Distinct per-legend aerial height (0-100) so the EXISTING height-weighted aerial duel
-    // (engine_physics.cpp:395, 0.5 positioning + 0.5 height) actually bites: tall CBs / target-men
+    // (engine_ball_contest.cpp, 0.5 positioning + 0.5 height) actually bites: tall CBs / target-men
     // win headers vs small playmakers, instead of a flat positioning-only ~50/50. NOT cz-compressed
     // (height drives aerial contests, not the over-conversion the cz targets) and no rng draw (the
     // stream is preserved). Legend-only — spec/golden teams return above with their own attrs, so

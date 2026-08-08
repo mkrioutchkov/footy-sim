@@ -369,7 +369,7 @@ class StatsCollector {
     // ── Round-34 census (opt-in: FOOTY_CENSUS=1) ──────────────────────────────
     // Three round-34 verifiers independently found that the engine has NO
     // detector for the defects this round fixes: the carried-ball touch cadence
-    // (CarriedBallOverspeed at engine_physics.cpp fires at carrierSpeed+320 while
+    // (CarriedBallOverspeed at engine_carry.cpp fires at carrierSpeed+320 while
     // the glue cap clamps every converging tick to carrierSpeed+220, so it is
     // structurally blind to the class), the keeper's pace profile, the restart
     // walk-in, the passer-proximity interception and the loose-ball episode.
@@ -396,7 +396,7 @@ class StatsCollector {
         // is granted, split by whether he was the intended receiver (who gets
         // INTENDED_COLLECT_DIST 26px against everyone else's COLLECT_DIST 8px),
         // plus the count of >=60px outright offset writes (the glue's snap
-        // branch, engine_physics.cpp).
+        // branch, engine_carry.cpp).
         long grants = 0, grantsIntended = 0;
         double grantDistSum = 0.0, grantDistMax = 0.0;
         double grantIntendedDistSum = 0.0;
