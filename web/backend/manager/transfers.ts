@@ -7,28 +7,14 @@
 //
 // NEVER called for the 'assistant' tier — we never spend a human's money. The caller gates it.
 import { db } from '../db.ts';
-import { overall, ROLE_SLOTS, type Role } from '../game.ts';
+import { overall } from '../game.ts';
 import { buyFreeAgent, SQUAD_MAX } from '../market.ts';
+// One shared implementation — this file used to carry its own copy with a different tie-break.
+import { weakestRole } from '../market/shared.ts';
 
 interface PRow { id: number; slot: number; role: string; attrs: string; wage: number | null; contract_years: number; age: number; }
 interface FARow { id: number; role: string; attrs: string; value: number; wage: number | null; }
 
-// The role whose weakest XI starter is poorest — the upgrade target (mirrors market.ts'
-// private weakestRole, re-implemented here so manager_ai owns its own copy without exporting
-// internals from market.ts). Deterministic: scans the 11 starters by their FORMATION-slot role.
-function weakestRole(players: PRow[]): { role: Role; target: number } | null {
-  const xi = players.slice(0, 11);
-  if (xi.length < 11) return null;
-  const worstByRole = new Map<Role, number>();
-  xi.forEach((p, i) => {
-    const role = ROLE_SLOTS[i];
-    const ov = overall(JSON.parse(p.attrs), role);
-    worstByRole.set(role, Math.min(worstByRole.get(role) ?? 999, ov));
-  });
-  let weak: { role: Role; target: number } | null = null;
-  for (const [role, t] of worstByRole) if (!weak || t < weak.target || (t === weak.target && role < weak.role)) weak = { role, target: t };
-  return weak;
-}
 
 export interface TransferOutcome { signed: boolean; player?: string; role?: string; fee?: number; renewed: number; }
 
