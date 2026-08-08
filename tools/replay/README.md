@@ -116,7 +116,7 @@ Its non-obvious behaviour, all of it earned against a specific observed bug:
   60 fps display sampling): worst single-frame ball-vs-carrier step 2.01 m →
   0.42 m, mean carry motion unchanged (0.59 → 0.57 dm), 2 474 kink-pop frames
   during carries eliminated. The remaining engine-side truth (the knock IS a
-  rate-capped dart — engine_physics.cpp:1509) is an engine tuning item. Ported to
+  rate-capped dart — engine_carry.cpp:173) is an engine tuning item. Ported to
   the shipping renderer in Round-35 — see the section below, which records how the
   port had to differ and why a straight copy measured worse there.
 

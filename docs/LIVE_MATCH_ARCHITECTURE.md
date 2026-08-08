@@ -8,7 +8,7 @@ This doc is the cross-team contract. Owners: **Boris** (engine), **Gaylord** (we
 
 ## 0. The one correction vs the naive design (read first)
 
-The current engine runs the **whole match flat-out (~12–31s)** and Node's `FramePacer` paces the *output* (match.ts:378–444). **That model is incompatible with live injection**: if the engine sprints to minute 90 in ~20s, a command issued when the human is watching minute 60 arrives in the engine's *past* and cannot be applied without re-sim.
+The current engine runs the **whole match flat-out (~12–31s)** and Node's `FramePacer` paces the *output* (`web/backend/match/pacer.ts` — `paceStep` + `FramePacer`). **That model is incompatible with live injection**: if the engine sprints to minute 90 in ~20s, a command issued when the human is watching minute 60 arrives in the engine's *past* and cannot be applied without re-sim.
 
 **So in live mode the engine paces ITSELF to the wall-clock.** It advances whole `FIXED_DT` ticks only as fast as `wall-elapsed × speed` allows, sleeping between, so the engine's `clockMs` ≈ what the viewer is watching. A command then lands on the **current live tick** — no re-sim, no stall. Node's `FramePacer` becomes a **thin relay / jitter-buffer** in live mode, not the pacer. (The flat-out + Node-paces model remains correct for no-stake spectating and replay.)
 
@@ -58,11 +58,11 @@ Express the tick as a public **`bool step()`** (one `fixedUpdate`, returns false
 
 ## 2. Web shared match-coordinator (Gaylord)
 
-**Today's bug (verified):** each WebSocket spawns its *own* `MatchStream`+engine, and `.watch.json` is keyed only by `fixtureId` (match.ts:503/511, index.ts:597), so two managers on one fixture **overwrite each other's timeline**. Fix = one shared coordinator per fixture.
+**Today's bug (verified):** each WebSocket spawns its *own* `MatchStream`+engine, and `.watch.json` is keyed only by `fixtureId` (`web/backend/match/streams.ts` `sessionSpecPath`, `web/backend/routes/watch.ts`), so two managers on one fixture **overwrite each other's timeline**. Fix = one shared coordinator per fixture.
 
 - **One engine per fixture**, keyed in an `activeMatches` registry. The first connection spawns `live.exe` with `FOOTY_LIVE=1`; the opposite-team manager and spectators **attach to the same instance** (`MatchStream.join`). Frames are produced once and **fanned out** to all subscribers.
 - **`editLock` serialization:** every shout chains on a per-fixture promise (`editLock = editLock.then(() => applyEdit(...))`) so concurrent home/away shouts append to **one canonical timeline** monotonically — no race, no out-of-order `atMs`.
-- **Per-team routing & isolation:** a connection's team is resolved from its session (`index.ts:580–581`); `onCommand` **drops any command whose `team !== myTeam`** (a manager can only affect their own side; the LLM is already scoped to one squad, plan.ts:53). playerId 0–10 = home, 11–21 = away; `teamScope` 0/1.
+- **Per-team routing & isolation:** a connection's team is resolved from its session (`web/backend/routes/watch.ts`); `onCommand` **drops any command whose `team !== myTeam`** (a manager can only affect their own side; the LLM is already scoped to one squad, plan.ts:53). playerId 0–10 = home, 11–21 = away; `teamScope` 0/1.
 - **Shared speed / pause:** speed and pause are **match-global** (both touchlines share one clock — you can't have two managers at different speeds in a live contest). Changing it broadcasts to all subscribers.
 - **Reconnection:** a dropped socket just unsubscribes; the engine stays alive while anyone is attached. Re-opening re-attaches to the live `MatchStream` and resumes at the current frame (no seek in live mode). The coordinator disposes the engine when the last subscriber leaves (or at full-time).
 - **`FramePacer` in live mode = thin relay** (a small jitter buffer), since the engine self-paces. Keep the existing pacer only for no-stake spectating/replay.

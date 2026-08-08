@@ -155,7 +155,7 @@ All additions use the existing `ensureColumn(table, col, ddl)` lazy migration (e
 ## 5. Backend logic + the precise tick hook
 
 ### Where development runs (unchanged hook)
-`/api/advance` → per league: `fitnessTick` → `moraleTick` → `marketTick` → FA/contract offers → `aiManagerTick` → **`developmentTick(l.id)`** (`index.ts:1322`). Once per matchday. Season-level work (intake, facilities upkeep) would run in **`season.ts:rolloverSeason`** (`season.ts:95`) alongside the existing `youthAndRetirement` (defined in `youth.ts:61`, called at `season.ts:199`).
+`/api/advance` → per league: `fitnessTick` → `moraleTick` → `marketTick` → FA/contract offers → `aiManagerTick` → **`developmentTick(l.id)`** (`routes/world.ts`, in `advanceWorldCore`). Once per matchday. Season-level work (intake, facilities upkeep) would run in **`season.ts:rolloverSeason`** (`season.ts:95`) alongside the existing `youthAndRetirement` (defined in `youth.ts:61`, called at `season.ts:199`).
 
 ### New/extended functions
 
@@ -186,13 +186,13 @@ All additions use the existing `ensureColumn(table, col, ddl)` lazy migration (e
 
 ---
 
-## 6. Frontend screens (`web/frontend/app.ts`)
+## 6. Frontend screens (`web/frontend/screens/`)
 
-### Training schedule view — `screenTraining()` (extend the existing screen at app.ts:2943)
+### Training schedule view — `screenTraining()` (extend the existing screen in `web/frontend/screens/training.ts`)
 - **Phase 1:** per-player row keeps the FOCUS dropdown; **add an INTENSITY segmented control** (Double · Normal · Half · Rest) with a one-line trade-off hint, and a **"learn a trait"** picker with a progress bar when active. The category **★ stars** for the active focus shown inline (`Shooting focus → Attacking ★★★★☆, full coverage, +24% growth`). Report card lines render the per-player programme (intensity badge, trait %, category star, coverage).
 - **Phase 2:** a **preset button row** (Balanced / Fitness / Attacking / Defending / Tactical / Recovery) writing intensity+mix in one click; an optional collapsed 6-category mix control behind "Customize"; a per-player **retrain** affordance (role picker + familiarity bar + "unsettled — match penalty" warning); a squad load-at-a-glance count of players on Double/Rest (reuses `rotation.ts` fitness bands); "Tapering for next fixture" / "Managed recovery" badges.
 
-### Coaches hire/assign view — `screenStaff()` (extend at app.ts:3944)
+### Coaches hire/assign view — `screenStaff()` (extend `web/frontend/screens/staff.ts`)
 - Per-coach **specialty badge** + 7-attribute mini-bar.
 - A **CATEGORY BOARD**: 6 rows (Attacking/Possession/Defending/Fitness/Goalkeeping/SetPieces) each showing ★ stars, a green/amber/red **coverage bar**, assigned-coach chips, and `load: N players / capacity: M slots`.
 - **Assign** dropdown per category; amber-warn when a coach is spread over >2 categories; live star delta.

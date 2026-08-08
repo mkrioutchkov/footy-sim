@@ -198,7 +198,7 @@ the documented team list above and player stats only off `players[]`.
 ### Own-goal attribution — the SCORE is authoritative
 
 The engine credits per-player **`goals`/`assists` only to a last toucher on the
-*scoring* team** (`engine_physics.cpp finishGoal` gates `creditGoal` — and the goal's
+*scoring* team** (`engine_ball_bounds.cpp finishGoal` gates `creditGoal` — and the goal's
 role/header attribution — on `lastGoal.touchTeam == scoringTeam`; an own goal credits
 no player and is recorded with role "unknown"). The web layer still does not
 reconstruct attribution from per-player `goals`: `report.ts analyzeRecording`

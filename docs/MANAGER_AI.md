@@ -50,7 +50,7 @@ the synchronous fire path). All entries are **idempotent** (safe to re-run).
 - **`full`** — a fully-AI club (`user_id IS NULL`). Decide **everything**: formation + XI + a
   personality-flavoured plan + transfers/renewals to address the weakest role within budget. The old
   XI-only `aiManagerTick` (`ai.ts`) still **coexists** — it runs in the post-match world tick each
-  matchday (`index.ts:1321`), while the manager pre-pass sets shape/XI/plan before kickoff. manager_ai
+  matchday (`routes/world.ts`, in `advanceWorldCore`), while the manager pre-pass sets shape/XI/plan before kickoff. manager_ai
   does not remove it; `FOOTY_MANAGER_AI=0` reverts to `aiManagerTick`-only.
 
 ## Heuristic vs LLM split

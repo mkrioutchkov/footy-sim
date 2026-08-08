@@ -141,7 +141,10 @@ export function setTacticsAndXI(teamId: number): void {
 }
 
 // ── The integration convenience: prepare every club playing this matchday ───────
-// This is what the matchday tick calls — ONE await before the synchronous fire path. Given the
+// The batched pre-matchday entry. NOT wired into the world tick — routes/world.ts calls the
+// synchronous setTacticsAndXI / prepareMatchdayHeuristic instead (see docs/MANAGER_AI.md, which
+// lists both async entries as exercised only by manager_test.ts and tools/manager_balance.ts).
+// Kept for when the LLM plan pass is wired: ONE await before the synchronous fire path. Given the
 // pending fixture ids, it resolves the distinct teams about to play and prepares each at the right
 // tier: 'full' for an AI club (user_id IS NULL), 'assistant' for a HUMAN club that left no standing
 // plan (plan_text IS NULL — they didn't set tactics this matchday; we fill the gap, they can still

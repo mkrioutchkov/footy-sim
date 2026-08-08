@@ -27,7 +27,10 @@ import { fileURLToPath } from 'node:url';
 const startedAt = Date.now();
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRATCH = '/tmp/claude-0/-home-user-footy-sim/710ecd1a-f780-5b5f-a4ef-27543513423b/scratchpad';
-const TESTDB_DIR = path.join(SCRATCH, 'testdb');
+// Per-RUN directory, not a shared one: the backend writes recordings alongside the DB, so two
+// concurrent smoke runs raced on one recordings/ path and each could rename away the other's
+// in-flight .tmp — surfacing as a bogus 'the match report became available' failure.
+const TESTDB_DIR = path.join(SCRATCH, 'testdb', `run_${process.pid}`);
 const SANDBOX = path.join(SCRATCH, `httpsmoke_${process.pid}`);
 const DB_PATH = path.join(TESTDB_DIR, `http_smoke_${process.pid}.sqlite`);
 const PORT = 14000 + (process.pid % 900);

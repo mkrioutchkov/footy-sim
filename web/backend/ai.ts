@@ -1,6 +1,6 @@
 // AI managers (pillar 4). Each matchday every AI club makes management decisions so the
 // league world manages itself: it sets a training focus and fields its strongest XI.
-// (Transfers are the market's job — marketTick in market.ts signs the AI's weakest role
+// (Transfers are the market's job — marketTick in market/tick.ts signs the AI's weakest role
 // and buys listed players.) Rule-based + cheap; no LLM in the hot path. AI-only — a human
 // manager's training focus and hand-picked lineup are never touched.
 import { db } from './db.ts';

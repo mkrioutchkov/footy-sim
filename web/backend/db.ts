@@ -812,7 +812,7 @@ db.prepare = function cachedPrepare(sql: string, options?: PrepareOptions): Stat
 
 // DDL invalidates the shape a cached statement was compiled against. SQLite auto-reprepares (see
 // above), but dropping the cache on DDL costs nothing and removes the question entirely. The runtime
-// callers of exec() are only the BEGIN/COMMIT/ROLLBACK helpers in season.ts / market.ts / staff.ts —
+// callers of exec() are only the BEGIN/COMMIT/ROLLBACK helpers in season.ts / market/shared.ts / staff.ts —
 // they never match, so transactions stay on the fast path.
 const DDL_RE = /\b(?:alter|create|drop|reindex|vacuum|attach|detach)\b/i;
 db.exec = function execWithDdlGuard(sql: string): void {

@@ -612,9 +612,15 @@ runs the tick, and asserts state — then a commit with a WHY + Co-authored-by t
 > too slowly to move his OVR still reads "learns fast" (216 cases in a sweep) —
 > both predate this round.
 
-> **2026-08-07 (round 4) — the suite recreation is FINISHED.** `personality` was the
-> last of the fourteen suites lost to `.gitignore`'s blanket `_*`. `npm run test:game`
-> now chains **14 suites / 1,204 assertions**. What the personality suite found and
+> **2026-08-07 (round 4) — fourteen suites are recreated; the recreation is NOT finished.**
+> `npm run test:game` chains **14 suites / 1,204 assertions**. ⚠️ CORRECTION (round 5, by
+> audit): this entry originally read "the suite recreation is FINISHED" and called
+> `personality` "the last of the fourteen suites lost". That was wrong — it generalised from
+> ONE earlier list ("still lost: cup, youth, fitness, newgen, contracts, personality, loans")
+> to the whole incident. A missing-path scan of this ledger's own citations finds **at least
+> eight more suites still absent**: `_morale_test`, `_press_test`, `_replay_test`,
+> `_transfer_test`, `_news_test`, `_plan_test`, `_scout_test`, `_history_test`. The gap stays
+> named here rather than reading as closed. What the personality suite found and
 > pinned as CURRENT behaviour (owner to rule, not for a test to assert away): **three
 > personality down-cues are dead code and a fourth leaks**, all from substring
 > shadowing in the cue table; the **wage formula uses 8% where this ledger says 10%**;
