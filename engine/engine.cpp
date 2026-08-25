@@ -176,6 +176,7 @@ void GameEngine::kickoff(Team t, double holdMs, bool walkIn) {
         b.controllerId = takerId;
         b.lastTouchTeam = t;
         b.lastToucherId = takerId; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+        runtime[takerId].controlStartMs = state.clockMs;   // Round-38: restart possession is fresh control — stamp for the panic-clear grace
     }
     // Post-goal walk-in: the formation above is now the TARGET. Send every dot
     // back to where it stood at the goal and let updateKickoffPhase stroll it to
@@ -1646,6 +1647,7 @@ void GameEngine::runSetPieceChoreography(Team spTeam, double sdt, double sec)
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
                 state.ball.lastToucherId = taker->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+                runtime[taker->id].controlStartMs = state.clockMs;   // Round-38: restart possession is fresh control — stamp for the panic-clear grace
                 // Goal kick: the 6s award budget (awardSetPiece: "6s total") keeps
                 // counting through the keeper's walk — re-arming on arrival stacked
                 // another full hold on top (observed 10-13s frozen restarts).
@@ -1990,6 +1992,7 @@ void GameEngine::driveRestartApproach(double sdt, double sec)
                 state.ball.controllerId = taker->id;
                 state.ball.lastTouchTeam = taker->team;
                 state.ball.lastToucherId = taker->id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+                runtime[taker->id].controlStartMs = state.clockMs;   // Round-38: restart possession is fresh control — stamp for the panic-clear grace
                 taker->x = state.ball.x;
                 taker->y = state.ball.y;
                 taker->targetX = state.ball.x;

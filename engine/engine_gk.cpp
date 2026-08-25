@@ -583,6 +583,7 @@ void GameEngine::applySaveOutcome(Player& gk, int shooterId, double reach) {
         b.intendedReceiverId = -1;
         blockReboundFor(shooterId, 250);
         b.lastTouchTeam = gk.team; b.lastToucherId = gk.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+        runtime[gk.id].controlStartMs = state.clockMs;   // Round-38: control without collectBall — stamp for the panic-clear grace
         goalKickMonitor.distributeTimer = gkDistributeMs(gk);
         lastLooseOrigin = LooseOrigin::GoalkeeperCatch;
         recordBallImpulse();
@@ -701,6 +702,7 @@ void GameEngine::resolveCrossClaim(Player& gk, double claimD) {
         b.controllerId = gk.id;
         b.intendedReceiverId = -1;
         b.lastTouchTeam = gk.team; b.lastToucherId = gk.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
+        runtime[gk.id].controlStartMs = state.clockMs;   // Round-38: control without collectBall — stamp for the panic-clear grace
         goalKickMonitor.distributeTimer = gkDistributeMs(gk);
         lastLooseOrigin = LooseOrigin::GoalkeeperClaim;
         stats.recordClaimCatch();

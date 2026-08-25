@@ -527,6 +527,11 @@ inline const double PERCEPTION_COS_DEFENDER_OUT = std::cos(PERCEPTION_CONE_DEFEN
 inline constexpr double PERCEPTION_NEAR_BALL    = 40.0;
 inline constexpr double PERCEPTION_PRESSURE_DIST = 60.0;
 
+// Panic-clearance side tests (considerPanicClearance): how far BEHIND the
+// facing half-plane a body may sit and still count as pressure — a shoulder
+// at his hip is pressure; a trail chaser a metre further back is not.
+inline constexpr double PANIC_REAR_SHOULDER_PX = 12.0;
+
 // Same discipline for updateFacing's "am I turning INTO my run line?" test,
 // which compares two |wrap(facing - moveAngle)| values and reads neither. It
 // is decided on the two facings' projections onto the velocity (the cosines

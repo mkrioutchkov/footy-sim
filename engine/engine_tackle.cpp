@@ -439,6 +439,11 @@ void GameEngine::completeTackleWin(Player& tackler, Player& carrier) {
     b.intendedReceiverId = -1;
     receiverShieldUntil = state.clockMs + 260;
     receiverShieldedPlayerId = tackler.id;
+    // Round-38: this path grants control WITHOUT collectBall, so without the
+    // stamp the panic-clear first-touch grace reads a stale controlStartMs and
+    // a fresh tackle winner could still hoof on his next decision tick — the
+    // exact "won it then hooved it" the grace exists to stop.
+    if (tackler.id >= 0 && tackler.id < 22) runtime[tackler.id].controlStartMs = state.clockMs;
     // Round-28 C3(b): amortize the ball across the 17-25px duel gap to the
     // winner's foot over 2-3 ticks (no knock-ahead, faster pull) instead of
     // letting it settle at the carry offset far from him.

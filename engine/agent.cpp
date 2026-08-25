@@ -243,26 +243,48 @@ void PlayerAI::considerPanicClearance(SmallVector<Action, 48>& a, const Percepti
     if (engine.state.clockMs - engine.runtime[player.id].controlStartMs < 450.0)
         return;
     double prog = pitch::forwardProgress(player.x, player.team);
-    double oppSoon = 1e9;
-    if (prog < PITCH_W * 0.30) {
-        for (auto& o : engine.state.players) {
-            if (!isActiveOpponent(o, player.team)) continue;
-            double now = dist(o.x, o.y, player.x, player.y);
-            double soon = dist(o.x + o.vx * 0.8, o.y + o.vy * 0.8, player.x, player.y);
-            oppSoon = std::min(oppSoon, std::min(now, soon));
-        }
+    // Round-38 (owner, seed 13 ~0:59 "4B ... completely pointless clearance
+    // ... not being pressured (apart from 6R but 6R was behind him as he faced
+    // the enemies goal)"): every gate below read PROXIMITY —
+    // nearestOpponentDist / pressureCount / tackleComing — and none asked WHICH
+    // SIDE the bodies are on. The perception scan auto-includes anyone within
+    // PERCEPTION_NEAR_BALL regardless of the cone, so a trail chaser BEHIND a
+    // carrier facing open field read as full pressure; worse, tackleArriving
+    // fires on any closing projection > 50px/s within 120px, so the assigned
+    // jockey's lateral shuffle at his rear made "a tackle is arriving" true
+    // while nobody stood in front of the ball. Pressure that can force a hoof
+    // is pressure the carrier must play THROUGH: re-read the same crowd split
+    // by the FACING half-plane. Dot-product form is wrap-safe — the perception
+    // module's wrapped-facing concern only affects angular-difference tests;
+    // cos/sin of an unwrapped angle still point the correct way.
+    const double fcx = std::cos(player.facing), fcy = std::sin(player.facing);
+    double oppSoonAny = 1e9, oppFrontSoon = 1e9;
+    int frontPressers = 0;
+    bool tackleFromFront = false;
+    for (auto& o : engine.state.players) {
+        if (!isActiveOpponent(o, player.team)) continue;
+        double dx = o.x - player.x, dy = o.y - player.y;
+        double d = dist(o.x, o.y, player.x, player.y);
+        double soon = dist(o.x + o.vx * 0.8, o.y + o.vy * 0.8, player.x, player.y);
+        oppSoonAny = std::min(oppSoonAny, std::min(d, soon));
+        if (dx * fcx + dy * fcy <= -PANIC_REAR_SHOULDER_PX) continue;   // clearly behind: not his problem
+        if (d < PERCEPTION_PRESSURE_DIST) frontPressers++;
+        oppFrontSoon = std::min(oppFrontSoon, std::min(d, soon));
+        if (d >= 1.0 && d <= 120.0 && (o.vx * dx + o.vy * dy) / d > 50.0) tackleFromFront = true;
     }
     // Emergency also covers the WIDENED own-30% band when a tackle is
-    // genuinely arriving (was a hardcoded 200px: the 0:40 FB stood at
-    // x=236 with the press sprinting in and no clearance on the menu);
-    // a lone CAPPED presser sprinting at a defender also counts as
-    // swarmed — the 2-man press cap makes pc>=2 structurally rare, so
-    // the old gate could never fire for the commonest caught-in-
-    // possession shape (one sprinting presser, everyone else marking).
-    bool emergency = (prog < 200.0 && oppSoon < 48.0 && per.nearestOpponentDist < 78.0)
-        || (prog < PITCH_W * 0.30 && tackleComing && per.nearestOpponentDist < 78.0);
+    // genuinely arriving FROM THE FRONT (was a hardcoded 200px: the 0:40 FB
+    // stood at x=236 with the press sprinting in and no clearance on the menu);
+    // a lone CAPPED presser sprinting at a defender also counts as swarmed —
+    // the 2-man press cap makes pc>=2 structurally rare, so the old gate could
+    // never fire for the commonest caught-in-possession shape (one sprinting
+    // presser, everyone else marking). The deep-box scramble arm (<200px prog)
+    // keeps its any-side read: pinned at your own byline, a body anywhere near
+    // the ball is pressure.
+    bool emergency = (prog < 200.0 && oppSoonAny < 48.0 && per.nearestOpponentDist < 78.0)
+        || (prog < PITCH_W * 0.30 && tackleFromFront && oppFrontSoon < 78.0);
     bool swarmed = prog < PITCH_W * 0.30
-        && (per.pressureCount >= 2 || (isDefenderLike() && per.pressureCount >= 1 && tackleComing));
+        && (frontPressers >= 2 || (isDefenderLike() && frontPressers >= 1 && tackleFromFront));
     // "Hoof away" (owner, seed 111 1:36: ball dropping in the danger
     // area — 4R's only concerns should be head it clear / corner /
     // back to GK, "or to check down and hoof away. really want to see
@@ -274,10 +296,9 @@ void PlayerAI::considerPanicClearance(SmallVector<Action, 48>& a, const Percepti
     bool boxDanger = isDefenderLike()
         && pitch::distToOwnGoal(player.x, player.team) < PENALTY_AREA_W + 25.0
         && pitch::lateralFromCenter(player.y) < PENALTY_AREA_H / 2.0 + 30.0
-        // <140 -> arriving-or-<60 (seed 111 22:37: a LONE presser 64px
-        // away drove three first-touch clears in 0.8s — the pinball.
-        // The hoof needs pressure genuinely ARRIVING, not just present).
-        && (tackleComing || per.nearestOpponentDist < 60.0);
+        // Round-38: front-side only (seed 13 ~0:59 again — the nearest body
+        // was BEHIND the facing). Pressure you cannot see need not panic you.
+        && (tackleFromFront || oppFrontSoon < 60.0);
     if (emergency || swarmed || boxDanger) {
         double bestSafe = 0.0;
         // Judge "a genuinely clean pass out" on the PLAYABLE score, not raw
@@ -1598,6 +1619,9 @@ bool PlayerAI::tryTakeOn(int nearbyOpps, double nearestOppDist, bool ownDefensiv
                 b.lastToucherId = def->id;
                 b.intendedReceiverId = -1;
                 engine.lastRicochetMs = -1e9;
+                // Round-38: control granted without collectBall — stamp it so
+                // the panic-clear first-touch grace covers this winner too.
+                engine.runtime[def->id].controlStartMs = engine.state.clockMs;
                 // C4: shield the winner for the FULL 400ms gather stun (was 260) —
                 // a stunned winner left challengeable at 260-400ms was drawing
                 // incidental re-challenges (inflated tackle count).
