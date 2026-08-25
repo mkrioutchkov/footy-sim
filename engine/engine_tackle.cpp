@@ -437,7 +437,14 @@ void GameEngine::completeTackleWin(Player& tackler, Player& carrier) {
     b.lastTouchTeam = tackler.team;
     b.lastToucherId = tackler.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
     b.intendedReceiverId = -1;
-    receiverShieldUntil = state.clockMs + 260;
+    // Round-39: 260 -> 450ms — the hot-potato census (25% of possessions die
+    // <3s after the gain, 51% to a tackle_won, chains up to 10 deep; avg hot
+    // life ~1.2s) says fresh tackle winners are being re-stabbed inside the
+    // old shield. 450ms = parity with the take-on winner's 400ms settle and
+    // the R37 panic-clear first-touch grace: a man who JUST won it gets one
+    // touch to play. attemptTackle hard-refuses shielded carriers, so this is
+    // the direct lever on the chain.
+    receiverShieldUntil = state.clockMs + 450;
     receiverShieldedPlayerId = tackler.id;
     // Round-38: this path grants control WITHOUT collectBall, so without the
     // stamp the panic-clear first-touch grace reads a stale controlStartMs and
@@ -521,7 +528,11 @@ double GameEngine::tackleCommitBar(const Player& tackler, const Player& carrier)
     // HALF the remaining documented-safe step toward the 0.45 marathon threshold —
     // paired with a longer post-miss re-lunge lockout (below) so volume comes down
     // without freeing carriers.
-    double commitBar = clamp(0.43 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.56);
+    // Round-39 (hot-potato census: 25% of all possessions die <3s after the gain,
+    // 51% of them to a tackle_won, flip chains up to 10 deep): take the OTHER half.
+    // The 0.45 marathon fear predates R37's 900ms re-lunge lockout + the hoof clamp;
+    // re-measured below (marathonCarries/longBackwardCarries watched in the A/B).
+    double commitBar = clamp(0.45 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.56);
     // R28 C4: a shepherd-engaged defender is CONTAINING — only commit to a clearly
     // winnable challenge (bypasses the 0.56 contain-first clamp for this case only,
     // so the recovery sprint into the shield bubble doesn't inflate incidental

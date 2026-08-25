@@ -435,6 +435,23 @@ bool PlayerAI::deepCloserImminent() const {
 // once considering the free layoff behind him).
 void PlayerAI::applyBackPressureLayoff(SmallVector<Action, 48>& a, const Perception& per) {
     double spd = std::hypot(player.vx, player.vy);
+    // Round-39b (hot-potato forensics): of 42 sub-3s possession deaths traced,
+    // NINE victims even attempted a pass and ZERO completed one — fresh
+    // winners hold into the swarm because scrum lanes price every pass below
+    // the old 0.70 completion bar, making this whole rider inert exactly where
+    // chains breed (midfield pinball). A FRESH winner (first ~700ms of
+    // control) with a body on him gets a simpler deal: any shortish pass with
+    // a coin-flip-or-better completion is boosted hard, dribbling docked.
+    // Completing the outlet is what breaks a flip chain.
+    double controlAge = engine.state.clockMs - engine.runtime[player.id].controlStartMs;
+    if (per.pressureCount >= 1 && controlAge < 700.0 && per.nearestOpponentDist < 50.0) {
+        for (auto& x : a) {
+            if (x.type == ActionType::Pass && x.audit.distance < 230.0
+                && x.audit.expectedCompletion > 0.60)
+                x.score += 0.20;
+            if (x.type == ActionType::Dribble) x.score -= 0.10;
+        }
+    }
     if (per.pressureCount >= 1 && spd > 12.0 && per.nearestOpponentDist < 42.0) {
         double fx = player.vx / spd, fy = player.vy / spd;
         double bnx = 0, bny = 0, bd2 = 1e9;
@@ -472,7 +489,14 @@ void PlayerAI::applyCarrierScoreBias(SmallVector<Action, 48>& a, const Perceptio
     for (auto& x : a) {
         if (x.type == ActionType::Pass)    x.score += pc * 0.04;
         if (x.type == ActionType::Shoot)   x.score += pc * 0.03;
-        if (x.type == ActionType::Dribble && pc == 1) x.score += 0.10;
+        // Round-39b: the flat pc==1 dribble bonus paid a man with a presser ON
+        // HIS BACK to hold into the tackle (hot-potato census: 9/42 fresh
+        // winners tried a pass before dying, 0 completed — the +0.10 was part
+        // of why). The bonus is for DRIVING INTO GRASS at a distant single
+        // presser, not for standing still against one.
+        bool closePresser = per.nearestOpponentDist < 55.0;
+        if (x.type == ActionType::Dribble && pc == 1 && !closePresser) x.score += 0.10;
+        if (x.type == ActionType::Dribble && pc == 1 && closePresser) x.score -= 0.08;
         // Seed 111 0:45: a deep defender with a closer arriving does NOT
         // turn on the ball and carry into him — the pass menu (CB, and
         // the keeper when the press is real) must win that beat.
