@@ -446,8 +446,15 @@ void PlayerAI::applyBackPressureLayoff(SmallVector<Action, 48>& a, const Percept
     double controlAge = engine.state.clockMs - engine.runtime[player.id].controlStartMs;
     if (per.pressureCount >= 1 && controlAge < 700.0 && per.nearestOpponentDist < 50.0) {
         for (auto& x : a) {
-            if (x.type == ActionType::Pass && x.audit.distance < 230.0
-                && x.audit.expectedCompletion > 0.60)
+            // Round-40: the outlet boost used to pay for rolling it back to the
+            // KEEPER too — keeperBackpasses jumped 6.2 -> 8.1 per 10min (+30%,
+            // batch census) and fresh winners read passive, feeding the last
+            // man instead of the free midfielder. The boost now buys an
+            // OUTLET only: outfield targets. A genuinely right backpass to the
+            // GK still wins on its base score — it just stops collecting the
+            // chain-breaking bonus.
+            if (x.type == ActionType::Pass && x.target && x.target->role != Role::GK
+                && x.audit.distance < 230.0 && x.audit.expectedCompletion > 0.60)
                 x.score += 0.20;
             if (x.type == ActionType::Dribble) x.score -= 0.10;
         }
