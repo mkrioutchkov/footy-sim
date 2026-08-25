@@ -855,6 +855,7 @@ private:
         // repeat-offender damping in resolveTackleFoul (11v11 never reads it).
         int    arenaFouls = 0;
         double firstTouchUntilMs = 0.0;
+        double controlStartMs = -1e9;   // Round-37: the tick THIS player last gained control (set in collectBall) — the panic-clear first-touch grace reads it
         double knockAheadCooldownUntil = 0.0;
         double lastTurnoverWinMs = 0.0;
         int    lastReceiveFrom = -1;   // -1 = nobody; initWithSeed used to fill() this

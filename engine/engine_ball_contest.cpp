@@ -651,6 +651,20 @@ void GameEngine::resolveBallContact(double sec) {
                 return;
             }
         }
+        // Round-37 (owner, seed 13 0:56 "7B has possession then it just fumbled
+        // out"): a lane interceptor's ONLY outcome vs a driven pass was the
+        // shin-ricochet below — he could never take it down, so every
+        // interception read as a fumble straight back toward the passer. A
+        // genuinely positioned interceptor gets a control roll first
+        // (positioning-led, taxed by ball pace): win and he SECURES it (a real
+        // interception); lose and it's the same ricochet as before. Passes
+        // only — shot blocking is untouched (gated on the tracked pass).
+        if (pendingPass.active && pendingPass.team == b.lastTouchTeam
+            && contact->team != b.lastTouchTeam && bs < 260.0) {
+            double ctlChance = clamp(0.30 + attrFactor(contact->attrs.positioning) * 0.45
+                                     - (bs - COLLISION_SPEED_THRESH) / 400.0, 0.05, 0.75);
+            if (rng.random() < ctlChance) { collectBall(*contact); return; }
+        }
         b.x = contact->x + nx * contactRadius;
         b.y = contact->y + ny * contactRadius;
         b.vx -= COLLISION_REFLECT_FACTOR * dot * nx;

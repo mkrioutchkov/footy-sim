@@ -125,7 +125,7 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
             b.lastTouchTeam = carrier.team;
             b.lastToucherId = carrier.id; lastRicochetMs = -1e9;   // genuine touch supersedes ricochet restart memory
             lastLooseOrigin = LooseOrigin::None;
-            blockReboundFor(tackler.id, 650);
+            blockReboundFor(tackler.id, 900);   // Round-37: 650->900 — a beaten lunge can't instantly re-stab (tackle-volume diet)
             double defendingGoalX = ownGoalXFor(tackler.team);
             double defendingFd = fdFor(tackler.team);
             bool foulInBox = std::abs(foulX - defendingGoalX) < PENALTY_AREA_W && std::abs(foulY - PITCH_H / 2.0) < PENALTY_AREA_H / 2.0;
@@ -144,7 +144,7 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
             setPiece.spotX = b.x;
             setPiece.spotY = b.y;
         } else {
-            blockReboundFor(tackler.id, 650);
+            blockReboundFor(tackler.id, 900);   // Round-37: 650->900 — same diet for a clean miss
         }
 }
 
@@ -512,7 +512,11 @@ double GameEngine::tackleCommitBar(const Player& tackler, const Player& carrier)
     // dizzy_spin still in noise; pushing to 0.45+ reached the 450-550 band but
     // spiked marathonCarries (carriers running free) — the regression this round
     // must avoid. Upper clamp 0.50->0.56 to keep the stay_on_feet headroom.
-    double commitBar = clamp(0.40 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.56);
+    // Round-37 (owner: "too many turnovers and tackles — unrealistic"): 0.40->0.43,
+    // HALF the remaining documented-safe step toward the 0.45 marathon threshold —
+    // paired with a longer post-miss re-lunge lockout (below) so volume comes down
+    // without freeing carriers.
+    double commitBar = clamp(0.43 - (configFor(tackler.team).aggression - 50.0) / 50.0 * 0.13 - directiveBias[tackler.id].tackleAggression * 0.13 + directiveBias[tackler.id].stayOnFeet * 0.15, 0.10, 0.56);
     // R28 C4: a shepherd-engaged defender is CONTAINING — only commit to a clearly
     // winnable challenge (bypasses the 0.56 contain-first clamp for this case only,
     // so the recovery sprint into the shield bubble doesn't inflate incidental

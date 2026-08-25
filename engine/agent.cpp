@@ -233,6 +233,15 @@ SmallVector<Action, 48> PlayerAI::evaluateActions(const Perception& per, bool ic
 void PlayerAI::considerPanicClearance(SmallVector<Action, 48>& a, const Perception& per,
                                       bool tackleComing)
 {
+    // First-touch grace (owner, seed 13 0:56 + 1:02): an interception/regain was
+    // hooved on the VERY SAME tick it was won — the "clearance" read as the winner
+    // FUMBLING it straight back out, and the box-hoof launch (>=320px/s) made the
+    // 1:02 one a rocket into touch. A man who just won the ball takes a touch
+    // first; even a real emergency can't develop inside the ~450ms the receiver
+    // shield already protects him for. Stamped at collectBall — the carrierTracker
+    // idiom still points at the PREVIOUS carrier on the gain tick itself.
+    if (engine.state.clockMs - engine.runtime[player.id].controlStartMs < 450.0)
+        return;
     double prog = pitch::forwardProgress(player.x, player.team);
     double oppSoon = 1e9;
     if (prog < PITCH_W * 0.30) {

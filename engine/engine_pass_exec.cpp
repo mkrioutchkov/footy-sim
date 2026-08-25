@@ -1144,7 +1144,18 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
         double sc = (rng.random() - 0.5) * 200.0;
         double perpx = -tdy / tDist, perpy = tdx / tDist;
         tdx += perpx * sc; tdy += perpy * sc; tDist = std::hypot(tdx, tdy);
+        // Don't LAUNCH it out of play at full hoof pace (owner, seed 13 1:02: a
+        // first-touch box-hoof exited at ~290px/s into touch by the corner —
+        // "ball just flew out at unrealistic speeds, absolutely bizarre"). The
+        // +-200px scatter takes NO account of where the lines are, so a wide
+        // box hoof could be aimed at row Z. Clamp the aim point inside the
+        // pitch margin and scale the boot to the room that remains — a hoof
+        // that stays in play is a clearance; one aimed out is a shank.
+        double aimX = clamp(f.x + tdx, 25.0, PITCH_W - 25.0);
+        double aimY = clamp(f.y + tdy, 45.0, PITCH_H - 45.0);
+        tdx = aimX - f.x; tdy = aimY - f.y; tDist = std::hypot(tdx, tdy);
         speed = std::max(speed, 320.0);   // real hoof pace, clears the danger zone
+        speed = std::min(speed, std::max(200.0, tDist * 0.85));
     }
     // Body mechanics (post-tackle audit: all 5 complaint-class releases were
     // THIS path — a 320px/s hoof 267ms after a tackle win, up to 173 degrees

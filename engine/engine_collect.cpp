@@ -103,6 +103,7 @@ void GameEngine::collectBall(Player& c) {
         settle *= 1.0 + (1.0 - staminaFrac(c.stamina)) * 0.5;
         runtime[c.id].firstTouchUntilMs = state.clockMs + settle;
     }
+    if (c.id >= 0 && c.id < 22) runtime[c.id].controlStartMs = state.clockMs;   // Round-37: control-gain stamp (panic-clear grace)
     // Law 11 rebound judgment: a shot-time-offside teammate collecting the
     // rebound off the frame or the keeper is offside (the poacher tap-in the
     // normal snapshot missed because shootBall killed pendingPass).
