@@ -22,7 +22,8 @@ const market = await import('../web/backend/market.ts');
 
 const u = registerUser('scout', 'secret');
 const { leagueId, teamId } = game.newSeasonForUser(u.id, u.username, 'Bidders FC', game.DEFAULT_TACTICS);
-const ovr = (a: string) => game.overall(JSON.parse(a));
+// Role-weighted, as aiListSurplus rates players (903f192 folded keeper handling into overall).
+const ovr = (a: string, role: string) => game.overall(JSON.parse(a), role);
 const listedRows = (tid: number) => db.prepare('SELECT slot, ask_price FROM players WHERE team_id = ? AND listed = 1').all(tid) as { slot: number; ask_price: number }[];
 const aiTeams = (db.prepare('SELECT id FROM teams WHERE league_id = ? AND user_id IS NULL', ).all(leagueId) as { id: number }[]).map(t => t.id);
 
@@ -35,9 +36,11 @@ check(aiTeams.every(id => listedRows(id).length === 1), 'every AI club lists exa
 check(aiTeams.every(id => listedRows(id)[0].slot >= 11), 'the listed player is a bench man, not a starter');
 // it's the WEAKEST bench man
 for (const id of aiTeams) {
-  const bench = db.prepare('SELECT slot, attrs FROM players WHERE team_id = ? AND slot >= 11').all(id) as { slot: number; attrs: string }[];
-  const weakest = bench.map(b => ({ slot: b.slot, o: ovr(b.attrs) })).sort((a, b) => a.o - b.o)[0];
-  check(listedRows(id)[0].slot === weakest.slot, `AI club ${id} listed its weakest bench man`);
+  const bench = db.prepare('SELECT slot, attrs, role FROM players WHERE team_id = ? AND slot >= 11').all(id) as { slot: number; attrs: string; role: string }[];
+  const weakest = Math.min(...bench.map(b => ovr(b.attrs, b.role)));
+  const listed = bench.find(b => b.slot === listedRows(id)[0].slot)!;
+  // compare overalls, not slots, so two equally weak bench men cannot flake the check
+  check(ovr(listed.attrs, listed.role) === weakest, `AI club ${id} listed its weakest bench man`);
   break;   // one representative check is enough
 }
 check(market.transferTargets(teamId).length >= aiTeams.length, 'the listings surface to the human as transfer targets');
