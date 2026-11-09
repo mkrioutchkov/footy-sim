@@ -25,7 +25,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:game": "tsx tools/_db_test.ts && tsx tools/_training_test.ts && tsx tools/_market_test.ts && tsx tools/_season_test.ts && tsx tools/_harmony_test.ts && tsx tools/_ai_test.ts && tsx tools/_youth_test.ts && tsx tools/_contracts_test.ts && tsx tools/_cup_test.ts && tsx tools/_fitness_test.ts && tsx tools/_loans_test.ts && tsx tools/_newgen_test.ts && tsx tools/_report_test.ts && tsx tools/_personality_test.ts",
-    "test:smoke": "tsx tools/_http_smoke.ts"
+    "test:smoke": "tsx tools/_http_smoke.ts",
+    "test:all": "tsx tools/run-tests.ts"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
