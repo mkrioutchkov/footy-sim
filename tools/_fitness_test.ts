@@ -389,4 +389,5 @@ assert(eq(injuredBySlot(T4), [...rep(1, 6), ...rep(0, 10)]),
   'the depleted league, still un-reset, keeps its standing injuries');
 
 console.log(`_fitness_test: ${assertions} assertions passed`);
+db.close();   // Windows cannot delete a database file that is still open
 for (const suffix of ['', '-wal', '-shm']) rmSync(dbPath + suffix, { force: true });
