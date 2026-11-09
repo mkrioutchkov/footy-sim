@@ -308,5 +308,6 @@ try {
 } finally {
   try { db.close(); } catch { /* already closed */ }
   for (const suffix of ['', '-wal', '-shm']) { rmSync(DB_PATH + suffix, { force: true }); }
+  process.chdir(os.tmpdir());   // step out first: Windows refuses to delete the current directory
   rmSync(CWD_DIR, { recursive: true, force: true });
 }

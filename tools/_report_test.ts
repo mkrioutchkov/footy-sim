@@ -322,5 +322,6 @@ try {
   console.log(`_report_test: ${assertions} assertions passed`);
 } finally {
   try { db.close(); } catch { /* already closed */ }
+  process.chdir(os.tmpdir());   // step out first: Windows refuses to delete the current directory
   rmSync(WORK, { recursive: true, force: true });
 }
