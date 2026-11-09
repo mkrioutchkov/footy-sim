@@ -25,6 +25,15 @@ const news = await import('../web/backend/news.ts');
 const u = registerUser('hack', 'secret');
 const { teamId } = game.newSeasonForUser(u.id, u.username, 'Newsy FC', game.DEFAULT_TACTICS);
 const leagueId = game.getTeamWithPlayers(teamId)!.leagueId;
+// news.ts matches players by name and skips any name the squad shares, and the random name
+// generator sometimes repeats one: rename later namesakes so the three players followed here count.
+{
+  const seen = new Set<string>();
+  for (const p of game.getTeamWithPlayers(teamId)!.players) {
+    if (seen.has(p.name)) db.prepare('UPDATE players SET name = ? WHERE team_id = ? AND slot = ?').run(`${p.name} ${p.slot}`, teamId, p.slot);
+    else seen.add(p.name);
+  }
+}
 const squad = game.getTeamWithPlayers(teamId)!.players;
 const A = squad[0].name, B = squad[1].name, C = squad[2].name;   // scorer, sent-off, injured
 const traitsOf = (slot: number) => JSON.parse((db.prepare('SELECT personality FROM players WHERE team_id = ? AND slot = ?').get(teamId, slot) as { personality: string | null }).personality ?? '{"traits":{}}').traits ?? {};
