@@ -30,6 +30,7 @@
 
 import { mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 import path from 'node:path';
 
 // db.ts resolves FOOTY_DB at IMPORT time (and mkdirs cwd/web/backend/data), so pin both BEFORE any
@@ -37,7 +38,7 @@ import path from 'node:path';
 // provider config (read per-call, but set it first for clarity): http provider + no key means
 // llmReady() is {ok:false} and every generateSquadPersonalities/deriveTraits call takes the
 // deterministic neutral/keyword fallback — the ledger's "With no LLM" branch.
-const SCRATCH = '/tmp/claude-0/-home-user-footy-sim/710ecd1a-f780-5b5f-a4ef-27543513423b/scratchpad';
+const SCRATCH = path.join(os.tmpdir(), 'footy-test');
 const TESTDB_DIR = path.join(SCRATCH, 'testdb');
 const CWD_DIR = path.join(SCRATCH, `newgen_cwd_${process.pid}`);
 mkdirSync(TESTDB_DIR, { recursive: true });

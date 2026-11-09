@@ -52,6 +52,7 @@
 
 import { mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 import path from 'node:path';
 import type { Traits } from '../web/backend/personality.ts';
 import type { TalkTone } from '../web/backend/teamtalk.ts';
@@ -60,7 +61,7 @@ import type { InteractTone } from '../web/backend/interaction.ts';
 // db.ts resolves FOOTY_DB and mkdirs <cwd>/web/backend/data at IMPORT time, so pin both BEFORE any
 // backend module loads — which is why every backend import below is dynamic. The no-LLM provider
 // config (http + no key) is read per call; set here so llmReady() is {ok:false} throughout.
-const SCRATCH = '/tmp/claude-0/-home-user-footy-sim/710ecd1a-f780-5b5f-a4ef-27543513423b/scratchpad';
+const SCRATCH = path.join(os.tmpdir(), 'footy-test');
 const TESTDB_DIR = path.join(SCRATCH, 'testdb');
 const CWD_DIR = path.join(SCRATCH, `personality_cwd_${process.pid}`);
 mkdirSync(TESTDB_DIR, { recursive: true });

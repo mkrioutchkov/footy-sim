@@ -28,11 +28,12 @@
 // scratchpad too — the repo's web/backend/data/ is never touched.
 
 import { mkdirSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 // db.ts resolves FOOTY_DB at IMPORT time and match.ts resolves its spec dir from process.cwd()
 // at IMPORT time — so pin both BEFORE any backend module loads (all backend imports are dynamic).
-const SCRATCH = '/tmp/claude-0/-home-user-footy-sim/710ecd1a-f780-5b5f-a4ef-27543513423b/scratchpad';
+const SCRATCH = path.join(os.tmpdir(), 'footy-test');
 const TESTDB_DIR = path.join(SCRATCH, 'testdb');
 const CWD_DIR = path.join(SCRATCH, `season_cwd_${process.pid}`);
 mkdirSync(TESTDB_DIR, { recursive: true });

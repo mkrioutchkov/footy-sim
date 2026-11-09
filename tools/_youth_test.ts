@@ -34,11 +34,12 @@
 // youthAndRetirement only reads teams/players/youth_prospects, so the season stays unplayed.
 
 import { mkdirSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 // db.ts resolves FOOTY_DB at IMPORT time (and mkdirs cwd/web/backend/data), so pin both
 // BEFORE any backend module loads — which is why every backend import below is dynamic.
-const SCRATCH = '/tmp/claude-0/-home-user-footy-sim/710ecd1a-f780-5b5f-a4ef-27543513423b/scratchpad';
+const SCRATCH = path.join(os.tmpdir(), 'footy-test');
 const TESTDB_DIR = path.join(SCRATCH, 'testdb');
 const CWD_DIR = path.join(SCRATCH, `youth_cwd_${process.pid}`);
 mkdirSync(TESTDB_DIR, { recursive: true });
