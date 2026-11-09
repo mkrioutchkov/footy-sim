@@ -61,7 +61,7 @@ ENGINE = os.path.join(ROOT, "build", "live.exe")
 # after every change" ritual four docs prescribe was impossible to follow.
 # TACTICS_SPEC still points it at a real league fixture when you want one.
 SPEC = os.environ.get("TACTICS_SPEC", os.path.join(ROOT, "tools", "tactics_fixture.json"))
-BASE = json.load(open(SPEC))
+BASE = json.load(open(SPEC, encoding="utf-8"))
 PITCH_H = 680.0
 RECORD = bool(os.environ.get("BENCH_RECORD"))
 # Subprocess-bound work, so oversubscribing the core count is a win — and on a box
@@ -78,9 +78,9 @@ def _spec(seed, minutes, directives):
 def _run(args):
     seed, minutes, directives, stream = args
     fp = os.path.join(ROOT, f"_b_{seed}_{abs(hash(json.dumps(directives)))%99999}.json")
-    json.dump(_spec(seed, minutes, directives), open(fp, "w"))
+    json.dump(_spec(seed, minutes, directives), open(fp, "w", encoding="utf-8"))
     cmd = [ENGINE, "--match", fp, "--no-debug"] + ([] if stream else ["--summary"])
-    out = subprocess.run(cmd, capture_output=True, text=True, timeout=240).stdout
+    out = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=240).stdout
     os.remove(fp)
     return out
 
@@ -110,8 +110,8 @@ def avg_pos(args):
     # Sample every 4th frame to cut JSON-parse CPU; the average is unaffected.
     seed, minutes, directives, pid = args
     fp = os.path.join(ROOT, f"_p_{seed}_{abs(hash(json.dumps(directives)))%99999}.json")
-    json.dump(_spec(seed, minutes, directives), open(fp, "w"))
-    proc = subprocess.Popen([ENGINE, "--match", fp, "--no-debug"], stdout=subprocess.PIPE, text=True, bufsize=1 << 16)
+    json.dump(_spec(seed, minutes, directives), open(fp, "w", encoding="utf-8"))
+    proc = subprocess.Popen([ENGINE, "--match", fp, "--no-debug"], stdout=subprocess.PIPE, text=True, encoding="utf-8", bufsize=1 << 16)
     sx = say = n = i = 0
     needle = f'"id":{pid},'
     for line in proc.stdout:

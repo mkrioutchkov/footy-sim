@@ -93,7 +93,7 @@ spec = {
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tactics_fixture.json')
 if len(os.sys.argv) > 1:
     out = os.sys.argv[1]
-with open(out, 'w') as f:
+with open(out, 'w', encoding='utf-8') as f:
     json.dump(spec, f, indent=1)
     f.write('\n')
 print('wrote', out, os.path.getsize(out), 'bytes')

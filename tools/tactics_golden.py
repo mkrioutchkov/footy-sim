@@ -20,14 +20,14 @@ SEEDS = [40985, 1, 7, 13, 22, 99, 314]
 MINUTES = 90
 
 def summary_for(seed):
-    base = json.load(open(SPEC)); base["minutes"] = MINUTES; base["seed"] = seed
+    base = json.load(open(SPEC, encoding="utf-8")); base["minutes"] = MINUTES; base["seed"] = seed
     base.pop("directives", None); base.pop("timeline", None)   # DEFAULT match: no tactics
     fp = os.path.join(ROOT, f"_golden_{seed}.json")
-    json.dump(base, open(fp, "w"))
+    json.dump(base, open(fp, "w", encoding="utf-8"))
     line = None
     for _attempt in range(3):   # retry: a stray live.exe lock can leave a run with no summary line
         out = subprocess.run([ENGINE, "--match", fp, "--summary", "--no-debug"],
-                             capture_output=True, text=True, timeout=180).stdout
+                             capture_output=True, text=True, encoding="utf-8", timeout=180).stdout
         cand = [l for l in out.splitlines() if l.strip().startswith("{")]
         if cand:
             line = cand[-1]; break
@@ -46,14 +46,14 @@ if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "check"
     cur = run()
     if mode == "save":
-        json.dump({s: h for s, (h, _) in cur.items()}, open(GOLDEN, "w"), indent=2)
+        json.dump({s: h for s, (h, _) in cur.items()}, open(GOLDEN, "w", encoding="utf-8"), indent=2)
         print(f"saved golden for {len(cur)} seeds -> {GOLDEN}")
         for s, (h, d) in cur.items():
             print(f"  seed {s:>6}: {h}  {d.get('homeScore')}-{d.get('awayScore')}")
     else:
         if not os.path.exists(GOLDEN):
             print("NO GOLDEN — run `save` first"); sys.exit(2)
-        gold = json.load(open(GOLDEN))
+        gold = json.load(open(GOLDEN, encoding="utf-8"))
         bad = []
         for s, (h, d) in cur.items():
             ok = gold.get(s) == h
