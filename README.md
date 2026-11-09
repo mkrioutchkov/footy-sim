@@ -44,6 +44,14 @@ wipe all accounts/leagues; override the path with `FOOTY_DB`). `tsx` does **not*
 hot-reload: restart `npm run game` after any `web/backend/` or `engine/` change
 (rebuild the engine first).
 
+Checks for the game layer:
+```
+npm run typecheck               # frontend + backend tsconfigs
+npm run test:all                # every tools/_*_test.ts suite, one line each (~30 s)
+npm run test:all -- press news  # only suites whose file name contains a word
+```
+Each suite runs on a throwaway `FOOTY_DB`, so it never touches your real league.
+
 ## Engine development
 
 The engine is a standalone deterministic binary:
