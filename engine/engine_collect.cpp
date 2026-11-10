@@ -152,7 +152,28 @@ void GameEngine::collectBall(Player& c) {
     // A teammate's ball is not a regain and is left alone.
     {
         const Player* prev = prevToucherId >= 0 ? playerById(prevToucherId) : nullptr;
-        if (prev && prev->team != c.team) noteRegain(c, prevToucherId, 700.0);
+        const bool regain = prev && prev->team != c.team;
+        if (regain) noteRegain(c, prevToucherId, 700.0);
+        // Round-42 (owner, seed 1110 77:53: Chiellini is tackled a tenth of a second
+        // after his first touch; and 0:09-0:12, the regain that is lost before the
+        // winner has moved). The shields above (300 / 150 / 220ms) are shorter than
+        // the settle that follows a collection (270ms hurried, 750ms calm), so a man
+        // with an opponent beside him was open to a challenge while still unable to
+        // act: the audit put 27 dispossessions a match inside 0.7s of a regain, and
+        // 24% of all regains lost before any pass. Cover the two cases where that
+        // is costly rather than every touch on the pitch: a REGAIN (the first touch
+        // of a new possession — the same 450ms a tackle win has had since Round-39),
+        // and a reception DEEP in his own territory with a marker on him. Midfield
+        // receptions off a team-mate keep the old numbers; they are where the press
+        // is supposed to bite.
+        if (c.role != Role::GK) {
+            const bool deepUnderMarker = pitch::forwardProgress(c) < DEEP_RECEIVE_PROGRESS
+                && nearestOpponentTo(c).dist < DEEP_RECEIVE_MARKER_DIST;
+            if (regain || deepUnderMarker) {
+                receiverShieldUntil = std::max(receiverShieldUntil, state.clockMs + REGAIN_SHIELD_MS);
+                receiverShieldedPlayerId = c.id;
+            }
+        }
     }
 }
 

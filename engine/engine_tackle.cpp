@@ -453,7 +453,14 @@ void GameEngine::completeTackleWin(Player& tackler, Player& carrier) {
     // the R37 panic-clear first-touch grace: a man who JUST won it gets one
     // touch to play. attemptTackle hard-refuses shielded carriers, so this is
     // the direct lever on the chain.
-    receiverShieldUntil = state.clockMs + 450;
+    // Round-42: 450 -> TACKLE_WIN_SHIELD_MS (600). The winner cannot act for the
+    // 400ms gather (agent.cpp, stunLockTicks = 24 — lengthened on purpose, see
+    // there), so 450 left him 50ms of decision under protection, and a pass more
+    // than ~54 degrees off his facing needs longer than that just to turn. Seed
+    // 1110 0:09.20 -> 0:09.65: Busquets wins it and is tackled 450ms later to
+    // the tick, by the nearest opponent, having done nothing. The Round-39
+    // fresh-winner outlet needs a window to be played in.
+    receiverShieldUntil = state.clockMs + TACKLE_WIN_SHIELD_MS;
     receiverShieldedPlayerId = tackler.id;
     // Round-38: this path grants control WITHOUT collectBall, so without the
     // stamp the panic-clear first-touch grace reads a stale controlStartMs and

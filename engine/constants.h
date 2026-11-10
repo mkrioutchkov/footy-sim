@@ -587,6 +587,20 @@ inline constexpr double POS_OPPONENT_TRACK_DIST  = 200.0;
 // ── Timing / cooldowns ──
 inline constexpr double GK_SAVE_MIN_BALL_SPEED  = 100.0;
 
+// ── Round-42: protection must outlast the decision lock ──
+// A man who has just taken the ball is briefly unable to act (gather / settle
+// stun) and briefly protected from challenge (receiver shield). The two were set
+// independently and the lock was the longer, so every adjacent opponent's
+// challenge was in effect queued and landed on the first tick the shield lapsed,
+// before the man on the ball had been allowed a decision.
+inline constexpr double REGAIN_SHIELD_MS         = 450.0;  // interception / loose ball won off the opposition: parity with the Round-39 tackle-win shield
+inline constexpr double TACKLE_WIN_SHIELD_MS     = 600.0;  // the 400ms tackle-win gather + one release window (was 450: 50ms of free decision under protection)
+inline constexpr double REGAIN_MARKER_DIST       = 45.0;   // an opponent this close to a regain means the first decision comes now, not after the calm settle
+inline constexpr double DEEP_RECEIVE_PROGRESS    = PITCH_W * 0.36;   // own territory where being robbed on the first touch is a shot (the keeper-recycle zone)
+inline constexpr double DEEP_RECEIVE_MARKER_DIST = 60.0;   // a marker within 6m of a deep reception: hurry the touch and cover it
+inline constexpr int    HURRIED_SETTLE_TICKS     = 16;     // ~270ms, the existing press-arriving settle
+inline constexpr int    CALM_SETTLE_TICKS        = 45;     // ~750ms, the existing calm settle
+
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every
 // summary are untouched whether or not the flag is given.

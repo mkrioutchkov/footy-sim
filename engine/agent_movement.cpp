@@ -437,7 +437,19 @@ void PlayerAI::tryCollectAfterChase() {
         // reception — the press retargets to the receive point on every pass —
         // and inflated match pass volume.)
         bool pressArriving = tackleArriving(engine.state.players, p.x, p.y, p.team);
-        stunLockTicks = pressArriving ? 16 : 45;  // ~270ms hurried / ~750ms calm
+        // Round-42: two more cases get the hurried touch, each narrow on purpose —
+        // the tombstone above is about a near-marker test that fired on every
+        // midfield reception. (1) A REGAIN with an opponent right there: he has
+        // just taken it off them, the man he took it from is beside him, and
+        // 750ms of standing still is how the regain is lost before it is used.
+        // (2) A reception deep in his own territory with a marker within 6m: the
+        // one place a calm touch under a standing marker ends in a shot. Both now
+        // sit inside the 450ms shield collectBall gives the same two cases, so the
+        // first decision is made under protection instead of after it.
+        double nearestOpp = engine.nearestOpponentTo(p).dist;
+        bool regainUnderMarker = engine.securing(p.id) && nearestOpp < REGAIN_MARKER_DIST;
+        bool deepUnderMarker = pitch::forwardProgress(p) < DEEP_RECEIVE_PROGRESS && nearestOpp < DEEP_RECEIVE_MARKER_DIST;
+        stunLockTicks = (pressArriving || regainUnderMarker || deepUnderMarker) ? HURRIED_SETTLE_TICKS : CALM_SETTLE_TICKS;  // ~270ms hurried / ~750ms calm
         shotCooldown = 15;   // ~250ms — brief cooldown after collect
     }
 }
