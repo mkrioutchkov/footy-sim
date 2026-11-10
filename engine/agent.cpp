@@ -390,6 +390,15 @@ Player* PlayerAI::pickClearanceTarget() const {
                 double perp = std::hypot(o.x - player.x - t2 * cdx, o.y - player.y - t2 * cdy);
                 if (perp < 17.0 && t2 < 0.5 && dist(o.x, o.y, player.x, player.y) < 70.0) { fx -= 400.0; break; }
             }
+            // Round-47: the same test for a TEAM-MATE standing in the kick line (the
+            // keeper roll has had one since the 0:36 fix) — clearances were hitting
+            // the man in front and dying 2-7m out.
+            for (auto& m : engine.state.players) {
+                if (m.team != player.team || m.id == player.id || m.id == t.id || m.sentOff) continue;
+                double t2 = clamp(((m.x - player.x) * cdx + (m.y - player.y) * cdy) / cls, 0.0, 1.0);
+                double perp = std::hypot(m.x - player.x - t2 * cdx, m.y - player.y - t2 * cdy);
+                if (perp < CLEAR_MATE_LANE_PERP && dist(m.x, m.y, player.x, player.y) < CLEAR_MATE_LANE_RANGE) { fx -= 400.0; break; }
+            }
         }
         if (fx > bestFx) { bestFx = fx; tgt = &t; }
     }

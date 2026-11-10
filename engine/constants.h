@@ -640,6 +640,12 @@ inline constexpr double FRESH_REGAIN_OPP_DIST  = 55.0;
 inline constexpr double DRIBBLE_STUCK_RATE     = 20.0;     // px/s of net forward progress over the carry below which a 1s+ carry is "stuck"
 inline constexpr double DRIBBLE_SEVERE_RATE    = 25.0;     // ... and below which a 3s+ carry pays the severe tax
 
+// ── Round-47: pass flight and clearance launch (engine_pass_exec.cpp) ──
+inline constexpr double LOFT_MIN_FORWARD_GAIN = 60.0;    // a long pass is lofted only if it gains ground (or something is in the lane)
+inline constexpr double CLEAR_MIN_VZ          = 230.0;   // every clearance leaves fast enough to clear head height (AERIAL_HEIGHT 20) within ~30px
+inline constexpr double CLEAR_MATE_LANE_PERP  = 14.0;    // a team-mate this close to the clearance line, within CLEAR_MATE_LANE_RANGE, is in the way
+inline constexpr double CLEAR_MATE_LANE_RANGE = 120.0;
+
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every
 // summary are untouched whether or not the flag is given.

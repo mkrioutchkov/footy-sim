@@ -753,7 +753,13 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
             double eff = PASS_BLOCKER_PERP + clamp(closing / 50.0, 0.0, 1.0) * 13.0;
             if (std::hypot(o.x - cx, o.y - cy) < eff) blockers++;
         }
-    if (rawDist > 240) b.vz = speed * 0.55;
+    // Round-47 (seed-1110 audit: every pass over 24m was lofted, ~94 a match of them
+    // square or backward down an empty lane): height was decided on distance alone.
+    // A long ball that gains ground, a through ball, or one with a body in the lane
+    // goes in the air; a switch or recycle along an empty lane stays on the turf.
+    const double execFwdGain = (predX - f.x) * fdFor(f.team);
+    const bool loftWorthy = throughBall || blockers > 0 || execFwdGain > LOFT_MIN_FORWARD_GAIN;
+    if (rawDist > 240 && loftWorthy) b.vz = speed * 0.55;
     // CHIP over a blocker in the lane onto the receiver. Only for a NORMAL pass:
     // a THROUGH ball is aimed well BEYOND the receiver (predX leads his run), so
     // the land-on-target arc computed from that far aim point over-lofts into a
@@ -779,7 +785,7 @@ bool GameEngine::passBallTo(Player& f, Player& t, bool throughBall, bool lob, co
     }
     // Cleared heads is enough: vz >= speed turned every 350px+ ball into a
     // hanging mortar whose flight time invited the arrival contest (0:26.4).
-    if (rawDist > 350) b.vz = std::max(b.vz, speed * 0.72);
+    if (rawDist > 350 && loftWorthy) b.vz = std::max(b.vz, speed * 0.72);
     const auto* audit = selectionAudit;
     double goalX = goalXFor(f.team);
     bool fromWide = std::abs(f.y - PITCH_H / 2) > 130;
@@ -1195,6 +1201,11 @@ void GameEngine::forcePassTo(Player& f, Player& t, const PassSelectionAudit* aud
     // a 49-degree mortar that "zapped up like crazy out of nowhere"). A
     // shanked hoof is a scuff in EVERY axis.
     b.vz = boxHoof ? std::max(speed * 0.62, 200.0 * shankMul) : speed * 0.40;   // high, up and over the presser
+    // Round-47 (audit: 34% of clearances travelled under 12m): at speed*0.40 a
+    // ~320px/s flat clear never reaches head height at all (vz 128 against gravity
+    // 500 tops out at z 16 < AERIAL_HEIGHT 20), so the first body on the line took
+    // it. A clearance clears heads.
+    b.vz = std::max(b.vz, CLEAR_MIN_VZ * shankMul);
     // Round-26: audit != nullptr uniquely identifies the ActionPurpose::Clear
     // path (agent.cpp is the only caller that passes an audit; the engine-internal
     // calm outlets pass nullptr). Flag it so the completion ledger skips it —
