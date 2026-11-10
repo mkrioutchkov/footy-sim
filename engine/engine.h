@@ -213,6 +213,17 @@ public:
     [[nodiscard]] uint32_t rngState() const { return rng.getState(); }
     void setRngState(uint32_t v) { rng.setState(v); }
     std::string getJSON() const;
+    // --frame-sample N (main.cpp): 0 = every frame is emitted, the default, and getJSON is
+    // then byte-identical to before. When > 0 getJSON stamps each frame "frameSample": N so a
+    // consumer can tell an already-thinned stream from a full one — the web capture thins a
+    // full stream itself (an engine binary older than the flag ignores it) and must not thin
+    // a thinned one twice.
+    int frameSample = 0;
+    // True while a penalty or woodwork visual event is younger than
+    // FRAME_SAMPLE_FRESH_EVENT_MS — the one frame-pinning condition the sampler cannot read
+    // off EngineState. It mirrors the events[] block of getJSON (same rounded age), which is
+    // why it is declared and defined beside it: change one, change the other.
+    [[nodiscard]] bool hasFreshNotableEvent() const;
     // Full event log for the trace file — the host drains it every tick
     // (visualEvents is renderer-facing and capped, so it drops history). Handed
     // over as a drain rather than a bare vector: the caller used to read the

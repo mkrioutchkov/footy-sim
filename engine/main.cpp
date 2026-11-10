@@ -8,6 +8,7 @@
 #include <mutex>
 #include <algorithm>
 #include <cstdlib>
+#include <limits>
 
 namespace {
 // Load one team from a match-spec JSON object into a roster override + Config.
@@ -145,6 +146,34 @@ void parseDirectives(const nlohmann::json& arr, std::vector<GameEngine::Directiv
         out.push_back(dir);
     }
 }
+
+// ── --frame-sample N: thin the frame stream the way a recorded replay is stored ──
+// Keeps the FIRST line, every Nth after it, and any frame that must not be lost: a score
+// change, a matchState change (kickoff / half-time / FINISHED), or a fresh penalty/woodwork
+// event. This is captureLineStream's rule (web/backend/match/capture.ts) moved to where it
+// is cheap: deciding BEFORE getJSON runs skips the serialisation of the dropped frames,
+// which is where a full-frame run spends its time (see FRAME_SAMPLE_* in constants.h).
+// `seen` counts every line the unsampled run would have printed — the final-state line
+// included — so the kept set is exactly the one the web layer used to keep, and a recording
+// made either way is the same bytes bar the "frameSample" stamp. Output-only: it reads the
+// engine and never writes to it.
+struct FrameSampler {
+    int every = 0;                 // 0 = off: every frame is printed (the default path, untouched)
+    long long seen = 0;
+    int homeScore = 0, awayScore = 0;
+    std::string matchState;        // "" until the first frame, so the first frame always counts as a change
+    bool keep(const GameEngine& engine) {
+        if (every <= 0) return true;
+        const auto& st = engine.state;
+        ++seen;
+        const bool scoreChanged = st.homeScore != homeScore || st.awayScore != awayScore;
+        const bool stateChanged = st.matchState != matchState;
+        homeScore = st.homeScore;
+        awayScore = st.awayScore;
+        matchState = st.matchState;
+        return scoreChanged || stateChanged || engine.hasFreshNotableEvent() || (seen % every == 1);
+    }
+};
 }
 
 int main(int argc, char* argv[]) {
@@ -161,6 +190,7 @@ int main(int argc, char* argv[]) {
     bool forceLive = false;    // --live (or FOOTY_LIVE env): self-pace the engine to wall-clock (§1.1)
     bool arenaFlag = false;    // --arena [N]: small-sided exhibition (GK + N outfielders a side)
     int arenaSize = 1;
+    int frameSample = 0;       // --frame-sample N: print ~1 frame in N (see FrameSampler); 0 = every frame
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -193,6 +223,19 @@ int main(int argc, char* argv[]) {
         else if (arg == "--snapshot-at" && i + 1 < argc) snapshotAtMs = std::atof(argv[++i]);
         else if (arg == "--match" && i + 1 < argc) matchPath = argv[++i];
         else if (arg == "--stream-from" && i + 1 < argc) streamFromMs = std::atof(argv[++i]);
+        else if (arg == "--frame-sample") {
+            // Fail loudly on a missing or bad N, as --arena does: a silently ignored value
+            // would hand a recorder the full ~166k-frame stream it asked to be spared.
+            const char* tok = (i + 1 < argc) ? argv[++i] : "";
+            char* end = nullptr;
+            long v = std::strtol(tok, &end, 10);
+            if (end == tok || *end != '\0' || v < FRAME_SAMPLE_MIN || v > std::numeric_limits<int>::max()) {
+                std::cerr << "--frame-sample needs an integer >= " << FRAME_SAMPLE_MIN
+                          << " (keep 1 frame in N); got \"" << tok << "\"\n";
+                return 1;
+            }
+            frameSample = static_cast<int>(v);
+        }
         else if (i == 1 && arg[0] != '-') seed = std::atoi(argv[i]);
         else if (i == 2 && arg[0] != '-') minutes = std::atoi(argv[i]);
     }
@@ -205,6 +248,9 @@ int main(int argc, char* argv[]) {
     double liveSpeed = 1.0;   // wall->sim scalar; FOOTY_LIVE_SPEED tunes it (CRITICAL for fast tests; the §1.2 channel makes it mutable)
     if (const char* fs = std::getenv("FOOTY_LIVE_SPEED")) { double v = std::atof(fs); if (v > 0.0) liveSpeed = v; }
     if (isLiveMode && summaryOnly) { std::cerr << "FOOTY_LIVE/--live is incompatible with --summary\n"; return 1; }
+    // --summary prints one line; sampling it would only stamp "frameSample" into a summary
+    // that tools/golden and every stats consumer compare byte for byte.
+    if (frameSample > 0 && summaryOnly) { std::cerr << "--frame-sample is incompatible with --summary\n"; return 1; }
 
     GameEngine engine;
 
@@ -374,6 +420,9 @@ int main(int argc, char* argv[]) {
     auto start = std::chrono::high_resolution_clock::now();
 
     double lastOutput = 0;
+    FrameSampler sampler;
+    sampler.every = frameSample;
+    engine.frameSample = frameSample;
 
     // The per-frame work (trace write + throttled JSON output), shared by both loops below.
     auto emit = [&]() {
@@ -401,7 +450,7 @@ int main(int argc, char* argv[]) {
         // Output JSON every ~33ms (30fps) for real-time display
         if (streamFrames && engine.state.clockMs >= streamFromMs && engine.state.clockMs - lastOutput >= 33.0) {
             lastOutput = engine.state.clockMs;
-            std::cout << engine.getJSON() << std::endl;
+            if (sampler.keep(engine)) std::cout << engine.getJSON() << std::endl;
         }
     };
 
@@ -516,8 +565,10 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Final state
-    std::cout << engine.getJSON() << std::endl;
+    // Final state. Under --frame-sample it goes through the sampler like any other line — the
+    // web layer's rule made no exception for it, and it never needed one: the first "finished"
+    // frame is a matchState change, so a thinned stream always ends on a finished frame.
+    if (sampler.keep(engine)) std::cout << engine.getJSON() << std::endl;
 
     if (trace.isOpen()) {
         trace.close();

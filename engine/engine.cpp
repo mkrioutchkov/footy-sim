@@ -1274,6 +1274,7 @@ std::string GameEngine::getJSON() const {
     j["homeScore"] = state.homeScore;
     j["awayScore"] = state.awayScore;
     j["attrsEqualized"] = attrsEqualized;   // Round-21 (arena audit): true when equalizeAttributes ran (bare-CLI debug default)
+    if (frameSample > 0) j["frameSample"] = frameSample;   // --frame-sample only: marks the stream as already thinned (see engine.h)
 
     j["ball"] = {
         {"x", std::round(b.x * 10) / 10}, {"y", std::round(b.y * 10) / 10}, {"vx", std::round(b.vx * 10) / 10}, {"vy", std::round(b.vy * 10) / 10}, {"z", std::round(b.z * 10) / 10}, {"curl", std::round(b.curl * 1000) / 1000}, {"cutback", pendingPass.active && pendingPass.isCutback}, {"controllerId", b.controllerId >= 0 ? nlohmann::json(b.controllerId) : nlohmann::json(nullptr)}, {"intendedReceiverId", b.intendedReceiverId >= 0 ? nlohmann::json(b.intendedReceiverId) : nlohmann::json(nullptr)}, {"lastTouchTeam", std::string(to_string(b.lastTouchTeam))}, {"lastToucherId", b.lastToucherId >= 0 ? nlohmann::json(b.lastToucherId) : nlohmann::json(nullptr)}};
@@ -1345,6 +1346,18 @@ std::string GameEngine::getJSON() const {
     }
 
     return j.dump();
+}
+
+// The --frame-sample pin for transient events. Reads the SAME list with the SAME rounded age
+// as the events[] block above, so "this frame would carry a fresh penalty/woodwork event" is
+// decided without serialising the frame. No upper age bound is needed here: getJSON drops an
+// event from events[] past 2600ms, far above the freshness window.
+bool GameEngine::hasFreshNotableEvent() const {
+    for (const auto& ev : visualEvents) {
+        if (ev.type != "penalty" && ev.type != "woodwork") continue;
+        if (std::round(state.clockMs - ev.clockMs) < FRAME_SAMPLE_FRESH_EVENT_MS) return true;
+    }
+    return false;
 }
 
 // ══════════════════════════════════════════════════════════════

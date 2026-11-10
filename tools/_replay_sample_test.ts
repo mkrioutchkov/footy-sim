@@ -43,6 +43,16 @@ check(kept[0].t === 0, 'the first frame is kept');
 const full = await match.captureLineStream('fixture', 990002, Readable.from([frames()]), 1, 0);
 check(full.frames === N, `default sampleEvery=0 keeps every frame (${full.frames} == ${N})`);
 
+check(sampled.sourceThinned === false && full.sourceThinned === false, 'an unstamped stream is reported as thinned here, not by its source');
+
+// ── a source that already thinned itself (engine --frame-sample stamps every frame) is NOT thinned again ──
+// 25 frames is what 1-in-8 leaves of 200; asking for 1-in-8 once more must keep all 25, not ~4.
+const pre: string[] = [];
+for (let t = 0; t < 25; t++) pre.push(JSON.stringify({ t, frameSample: 8, matchState: t === 0 ? 'kickoff' : t === 24 ? 'finished' : 'playing', homeScore: 0, awayScore: 0 }));
+const passthrough = await match.captureLineStream('fixture', 990003, Readable.from([pre.join('\n')]), 1, 8);
+check(passthrough.frames === 25, `a stamped stream passes through whole (${passthrough.frames} == 25)`);
+check(passthrough.sourceThinned === true, 'and is reported as thinned by its source');
+
 console.log(`\n${fail === 0 ? '✓ PASS' : '✗ FAIL'} — ${pass} passed, ${fail} failed`);
 try { const { db } = await import('../web/backend/db.ts'); db.close(); } catch { /* */ }   // release the FOOTY_DB lock before rm (Windows EPERM)
 try { rmSync(tmp, { recursive: true, force: true }); } catch { /* OS reaps the temp dir */ }

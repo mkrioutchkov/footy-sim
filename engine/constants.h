@@ -586,3 +586,16 @@ inline constexpr double POS_OPPONENT_TRACK_DIST  = 200.0;
 
 // ── Timing / cooldowns ──
 inline constexpr double GK_SAVE_MIN_BALL_SPEED  = 100.0;
+
+// ── Replay frame sampling (main.cpp --frame-sample N) ──
+// Output-only: nothing here is read by the simulation, so the RNG stream and every
+// summary are untouched whether or not the flag is given.
+// The thinning rule a recorded replay is stored under lives in the engine because a
+// full-frame run spends its time SERIALISING frames, not simulating them: measured
+// 2026-11-10 on the dev box, one 90' capture ran 389s (~166k frames, ~2.3ms each)
+// where --summary runs 10 simulated minutes in ~2.4s. Thinning afterwards in the web
+// layer paid for seven frames in eight only to drop them. The rule itself is the web
+// layer's, unchanged (web/backend/match/capture.ts, captureLineStream); the two must
+// agree, and tools/_frame_sample_test.ts holds them to it byte for byte.
+inline constexpr int    FRAME_SAMPLE_MIN            = 2;      // 1-in-1 is "no sampling" — ask for that by omitting the flag
+inline constexpr double FRAME_SAMPLE_FRESH_EVENT_MS = 150.0;  // a penalty/woodwork event this young pins its frame: it moves no score or state, so nothing else would keep it

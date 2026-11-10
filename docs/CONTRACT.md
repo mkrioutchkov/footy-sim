@@ -24,6 +24,7 @@ reads TS.
 build/live.exe SEED MINUTES --summary --no-debug                 # legend teams
 build/live.exe --match <spec.json> --summary --no-debug          # data-driven teams
 build/live.exe --match <spec.json> --trace out.bin               # + binary frame trace
+build/live.exe --match <spec.json> --no-debug --frame-sample 8   # frames for a recording: ~1 in 8
 build/live.exe SEED MINUTES --snapshot-out m.json --snapshot-at 58000   # freeze a moment (+ RNG)
 build/live.exe SEED MINUTES --snapshot-in m.json                        # reload a moment (cross-version)
 ```
@@ -33,6 +34,17 @@ build/live.exe SEED MINUTES --snapshot-in m.json                        # reload
   forever and locks the binary).
 - Without `--summary`, the engine streams per-tick frames (`EngineState`, below)
   to stdout — this is what the live-watch path consumes and paces to the client.
+- `--frame-sample N` (N ≥ 2, not with `--summary`) thins that stream at the source,
+  for a **recording**: the first frame, every Nth after it, and every frame carrying a
+  score change, a `matchState` change or a fresh penalty/woodwork event. Each frame it
+  emits is stamped `"frameSample": N`. Serialising frames is what a full-frame run
+  costs (a 90' capture: 389s unsampled, 62–69s at N=8, ~36s of that the simulation),
+  so the recorder asks the engine to drop them before they are built. The rule is the
+  one `captureLineStream` (`web/backend/match/capture.ts`) applies to an unstamped
+  stream, and `tools/_frame_sample_test.ts` holds the two byte-identical — **change
+  them together**. A binary older than the flag ignores it and sends every frame;
+  the capture sees no stamp, thins the stream itself, and logs a warning to rebuild.
+  The simulation never reads the flag: summaries and the golden are untouched.
 - Determinism: same `SEED` + same `spec.json` + same binary ⇒ byte-identical
   output. The web side relies on this (a fixture replays identically).
 - **Cross-version moment replay** (snapshots): `--snapshot-out <f> --snapshot-at <ms>`

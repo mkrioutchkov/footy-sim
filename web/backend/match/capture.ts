@@ -51,7 +51,12 @@ async function drainRecordQueue(): Promise<void> {
 // the capture requires a 'finished' last state) and any non-frame/event line. A full capture is ~200k frames
 // (~97MB gz) which floods the replay renderer + balloons load-time memory; thinning the OPT-IN matchday capture
 // makes its replay screenshot-able + light. Default 0 = keep every line (the live-watch recorder is unchanged).
-export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.ReadableStream, format = 1, sampleEvery = 0): Promise<{ homeScore: number; awayScore: number; frames: number }> {
+// A source that has ALREADY thinned itself is passed through untouched: the engine's --frame-sample applies
+// this same rule before it serialises a frame (engine/main.cpp FrameSampler) and stamps each frame it emits
+// with "frameSample", and thinning a 1-in-8 stream 1-in-8 again would leave 1 frame in 64. The stamp is read
+// per line rather than promised by the caller because an engine binary older than the flag ignores it and
+// sends the full stream — which then still gets thinned here, as before. `sourceThinned` reports which happened.
+export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.ReadableStream, format = 1, sampleEvery = 0): Promise<{ homeScore: number; awayScore: number; frames: number; sourceThinned: boolean }> {
   return new Promise((resolve, reject) => {
     const rel = recRel(kind, refId);
     const abs = path.join(DATA_DIR, rel);
@@ -59,7 +64,7 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
     const gz = createGzip();
     const out = createWriteStream(tmp);
     gz.pipe(out);
-    let buffer = '', frames = 0, seen = 0, homeScore = 0, awayScore = 0, lastState = '', settled = false, ended = false;
+    let buffer = '', frames = 0, seen = 0, homeScore = 0, awayScore = 0, lastState = '', settled = false, ended = false, sourceThinned = false;
     const fail = (e: Error): void => {
       if (settled) return; settled = true;
       gz.destroy(); out.destroy();
@@ -69,9 +74,10 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
     const writeLine = (l: string): void => {
       if (!l.length) return;
       // parse EVERY line for score/state first (a dropped frame still advances the tally), then decide KEEP.
-      let isFrame = false, scoreChanged = false, stateChanged = false, eventful = false;
+      let isFrame = false, scoreChanged = false, stateChanged = false, eventful = false, thinned = false;
       try {
         const f = JSON.parse(l); isFrame = true;
+        if (typeof f.frameSample === 'number' && f.frameSample > 1) { thinned = true; sourceThinned = true; }
         if (typeof f.homeScore === 'number') { if (f.homeScore !== homeScore || (f.awayScore ?? 0) !== awayScore) scoreChanged = true; homeScore = f.homeScore; awayScore = f.awayScore ?? 0; }
         if (typeof f.matchState === 'string') { if (f.matchState !== lastState) stateChanged = true; lastState = f.matchState; }
         // Always keep a frame carrying a FRESH notable transient event (a saved/missed penalty, woodwork) so
@@ -80,8 +86,8 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
         if (Array.isArray(f.events)) eventful = f.events.some((e: any) => (e.type === 'penalty' || e.type === 'woodwork') && (typeof e.age === 'number' ? e.age : 999) < 150);
       } catch { /* a non-frame/event line — always kept */ }
       seen++;
-      // keep everything (no sampling), or any non-frame/score-change/state-change/notable-event, or every Nth frame
-      if (!(sampleEvery <= 0 || !isFrame || scoreChanged || stateChanged || eventful || (seen % sampleEvery === 1))) return;
+      // keep everything (no sampling, or the source already thinned itself), or any non-frame/score-change/state-change/notable-event, or every Nth frame
+      if (!(sampleEvery <= 0 || thinned || !isFrame || scoreChanged || stateChanged || eventful || (seen % sampleEvery === 1))) return;
       frames++;
       if (!gz.write(l + '\n')) src.pause();   // backpressure -> bounded memory
     };
@@ -109,7 +115,7 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
         try {
           renameSync(tmp, abs);   // atomic publish: the recording appears only once fully written
           upsertRecordingRow(kind, refId, homeScore, awayScore, rel, frames, statSync(abs).size, format);
-          resolve({ homeScore, awayScore, frames });
+          resolve({ homeScore, awayScore, frames, sourceThinned });
         } catch (e) {
           try { if (existsSync(tmp)) rmSync(tmp, { force: true }); } catch { /* best effort */ }
           reject(e as Error);
@@ -161,15 +167,25 @@ export function watchEngineOutput(out: NodeJS.ReadableStream, onLapse: (why: str
 // Exported so tools/_record_fixture.ts records through THIS path rather than a copy of it — the copy
 // carried its own 180s cap and timed out on the very capture that exposed the cap.
 export const REPLAY_SAMPLE = 8;   // exported: the live coordinator's capture thins with the same rate (unthinned live matches stored ~160-200k frames)
-export function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ homeScore: number; awayScore: number; frames: number }> {
+// The engine is ASKED to do the thinning (--frame-sample): serialising a frame is the expensive part of
+// a full-frame run, so dropping seven in eight after they cross the pipe saved disk and nothing else — the
+// 389s capture above was that. With the flag the same fixture records in 62-69s (2026-11-10, three runs,
+// one outlier at 118s on a busy box), against a floor of ~36s for the simulation alone — and the frames
+// are the same bytes. captureLineStream still gets REPLAY_SAMPLE so a binary too old to know the flag
+// yields the same recording the slow way; the warning below is how the owner finds out it did.
+export function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ homeScore: number; awayScore: number; frames: number; sourceThinned: boolean }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(ENGINE, ['--match', specPath, '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(ENGINE, ['--match', specPath, '--no-debug', '--frame-sample', String(REPLAY_SAMPLE)], { stdio: ['ignore', 'pipe', 'pipe'] });
     let err = '';
     child.stderr.on('data', (d: Buffer) => { err += d.toString(); });
     const disarm = watchEngineOutput(child.stdout, why => { try { child.kill(); } catch { /* gone */ } child.stdout.destroy(new Error(`engine timeout (${why}): ${err}`)); });
     child.on('error', e => { try { child.stdout.destroy(e); } catch { /* gone */ } });
     captureLineStream(kind, refId, child.stdout, 1, REPLAY_SAMPLE).then(
-      r => { disarm(); resolve(r); },
+      r => {
+        disarm();
+        if (!r.sourceThinned) console.warn(`[match] ${ENGINE} ignored --frame-sample (a build older than the flag?) — ${kind} ${refId} was recorded the slow way. Rebuild it: npm run native:build`);
+        resolve(r);
+      },
       e => { disarm(); try { child.kill(); } catch { /* gone */ } reject(e); },
     );
   });
