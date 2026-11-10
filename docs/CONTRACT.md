@@ -38,7 +38,7 @@ build/live.exe SEED MINUTES --snapshot-in m.json                        # reload
   for a **recording**: the first frame, every Nth after it, and every frame carrying a
   score change, a `matchState` change or a fresh penalty/woodwork event. Each frame it
   emits is stamped `"frameSample": N`. Serialising frames is what a full-frame run
-  costs (a 90' capture: 389s unsampled, 62–69s at N=8, ~36s of that the simulation),
+  costs (a 90' capture: 389s unsampled, 62–118s at N=8, ~36s of that the simulation),
   so the recorder asks the engine to drop them before they are built. The rule is the
   one `captureLineStream` (`web/backend/match/capture.ts`) applies to an unstamped
   stream, and `tools/_frame_sample_test.ts` holds the two byte-identical — **change

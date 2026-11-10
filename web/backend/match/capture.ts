@@ -169,9 +169,9 @@ export function watchEngineOutput(out: NodeJS.ReadableStream, onLapse: (why: str
 export const REPLAY_SAMPLE = 8;   // exported: the live coordinator's capture thins with the same rate (unthinned live matches stored ~160-200k frames)
 // The engine is ASKED to do the thinning (--frame-sample): serialising a frame is the expensive part of
 // a full-frame run, so dropping seven in eight after they cross the pipe saved disk and nothing else — the
-// 389s capture above was that. With the flag the same fixture records in 62-69s (2026-11-10, three runs,
-// one outlier at 118s on a busy box), against a floor of ~36s for the simulation alone — and the frames
-// are the same bytes. captureLineStream still gets REPLAY_SAMPLE so a binary too old to know the flag
+// 389s capture above was that. With the flag the same fixture records in 62-118s (2026-11-10, four runs:
+// 62, 69, 113, 118 — two clusters, cause not found), against a floor of ~36s for the simulation
+// alone — and the frames are the same bytes. captureLineStream still gets REPLAY_SAMPLE so a binary too old to know the flag
 // yields the same recording the slow way; the warning below is how the owner finds out it did.
 export function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ homeScore: number; awayScore: number; frames: number; sourceThinned: boolean }> {
   return new Promise((resolve, reject) => {
