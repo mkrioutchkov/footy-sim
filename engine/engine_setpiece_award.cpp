@@ -45,6 +45,20 @@ void GameEngine::awardThrowIn(Team lastTouchTeam, double y) {
     setPiece.takerArrived = false;
     setPiece.placeBallAtMs = state.clockMs + OUT_BALL_GLIDE_MS;
     Player* best = findNearestOutfieldPlayer(atTeam, sx, sy);
+    // Round-51 (seed-1110 audit: the far-side winger walked 32m to take a throw
+    // and was force-placed on the ball): the full-back or wide man on THIS flank
+    // takes it if he is reasonably near.
+    {
+        Player* flank = nullptr;
+        double flankD = THROW_TAKER_FLANK_RANGE;
+        for (auto& p : state.players) {
+            if (p.team != atTeam || p.sentOff || (p.role != Role::FB && p.role != Role::WM)) continue;
+            if ((p.homeY < PITCH_H / 2.0) != (sy < PITCH_H / 2.0)) continue;
+            double d = dist(p.x, p.y, sx, sy);
+            if (d < flankD) { flankD = d; flank = &p; }
+        }
+        if (flank) best = flank;
+    }
     setPiece.takerId = best ? best->id : -1;
 }
 

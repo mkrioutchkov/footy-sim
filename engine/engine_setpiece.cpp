@@ -328,7 +328,7 @@ void GameEngine::releaseThrowIn(Player& holder) {
     for (auto& p : state.players) {
         if (p.team != holder.team || p.id == holder.id || p.role == Role::GK || p.sentOff) continue;
         double d = dist(holder.x, holder.y, p.x, p.y);
-        if (d < 30.0 || d > 400.0) continue;
+        if (d < THROW_IN_MIN_TARGET || d > 400.0) continue;   // Round-51: was 30px — throws were 2-3m hand-offs, never lost
         double nearestOpp = 1e9;
         for (auto& o : state.players) {
             if (!isActiveOpponent(o, holder.team)) continue;
@@ -501,7 +501,11 @@ void GameEngine::releaseCornerKick(Player& holder) {
                     if (o.team != holder.team) nearestDef = std::min(nearestDef, dd);
                     else if (o.id != holder.id && o.role != Role::GK) nearestAtt = std::min(nearestAtt, dd);
                 }
-                double sc = nearestDef - 0.5 * nearestAtt;
+                // Round-51 (seed-1110 audit: no attacker ever contested a corner in
+                // the air): weighting the nearest attacker at half the nearest
+                // defender sent the ball to the EMPTIEST spot, i.e. where nobody
+                // was. Weight the man who can attack it more than the space.
+                double sc = nearestDef - CORNER_AIM_ATTACKER_W * nearestAtt;
                 if (sc > bestAim) { bestAim = sc; tx = candX; ty = candY; }
             }
         }

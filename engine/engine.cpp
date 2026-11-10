@@ -766,8 +766,13 @@ static double minDistFor(SetPiece sp) {
 // game-friendly fractions of that (a watched match shouldn't be half dead air),
 // and double as the window where the box crowd / wall / spread actually forms
 // on screen before the ball comes in.
-static double actionTimerFor(SetPiece sp, double spotDistToOppGoal) {
-    if (sp == SetPiece::ThrowIn) return 4000.0;
+static double actionTimerFor(SetPiece sp, double spotDistToOppGoal, double clockMs = 0.0) {
+    // Round-51 (seed-1110 audit: every one of 34 throw-ins waited exactly 4.0s):
+    // vary it 2.8-5.2s, keyed on the match clock (deterministic, no rng).
+    if (sp == SetPiece::ThrowIn) {
+        long long k = static_cast<long long>(clockMs) / 7;
+        return THROW_IN_HOLD_MIN_MS + static_cast<double>(k % 25) / 24.0 * THROW_IN_HOLD_SPREAD_MS;
+    }
     if (sp == SetPiece::Penalty) return 9000.0;
     // Deep own-half free kick: no box routine to stage, so the full 7s hold is
     // just dead air (seed 103 @41s sat 9.6s on a kick that was always a short pass).
@@ -1735,7 +1740,7 @@ void GameEngine::runSetPieceChoreography(Team spTeam, double sdt, double sec)
                 if (setPiece.type != SetPiece::GoalKick) {
                     double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
                     phase.actionTimer = setPiece.fast ? 300.0
-                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX))
+                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX), state.clockMs)
                               * (arenaMode ? ARENA_RESTART_SCALE : 1.0);   // Round-21 (arena audit): tighter restart pacing in the duel
                 }
                 // ── Plan the FREE-KICK RUN-UP (owner: "free kicks especially shot
@@ -2098,7 +2103,7 @@ void GameEngine::driveRestartApproach(double sdt, double sec)
                 if (setPiece.type != SetPiece::GoalKick) {
                     double oppGoalX = (setPiece.team == Team::Home) ? PITCH_W : 0.0;
                     phase.actionTimer = setPiece.fast ? 300.0
-                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX))
+                        : actionTimerFor(setPiece.type, std::abs(setPiece.spotX - oppGoalX), state.clockMs)
                               * (arenaMode ? ARENA_RESTART_SCALE : 1.0);   // Round-21 (arena audit): tighter restart pacing in the duel
                 }
             }

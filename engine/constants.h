@@ -434,8 +434,8 @@ inline constexpr double GK_CLAIM_PACE_PUNCH  = 320.0;  // above this, force a pu
 // ── Tackle ── (the old tackle-outcome model — TACKLE_BASE/SKILL_WEIGHT/
 // CARRIER_CONTROL/CONTROL_BASE/CONTROL_MAX — was removed as dead after the rework;
 // only the live foul-probability constants remain.)
-inline constexpr double TACKLE_FOUL_FROM_BEHIND = 0.11;   // audit #3: fouls measured ~10/match (½ real 20-24) -> raise 0.06->0.11; reckless, carries the 0.28 card
-inline constexpr double TACKLE_FOUL_NORMAL      = 0.048;   // audit #3: raise 0.023->0.048 toward real 20-24 fouls; clean foul, low 0.075 card so cards rise gently toward 3-4
+inline constexpr double TACKLE_FOUL_FROM_BEHIND = 0.19;   // Round-51: 0.11 -> 0.19. Set when committed tackles ran ~700-830/90; Rounds 24-39 cut them to ~415 and fouls fell with them to ~11.6/match (real ~21)
+inline constexpr double TACKLE_FOUL_NORMAL      = 0.085;  // Round-51: 0.048 -> 0.085, re-anchored to the post-Round-39 tackle volume (see FROM_BEHIND)
 // Deliberate (cynical) foul: the last man, beaten on a transition break OUTSIDE
 // the box, hauls the carrier down to stop the counter — a yellow, never a
 // penalty (the band starts beyond the box, so the award path is always a free
@@ -659,6 +659,13 @@ inline constexpr double CENTRAL_RUN_BALL_ADVANCE   = 0.62;    // a central carry
 // ── Round-50: the flank (agent_shoot_dribble.cpp, engine_defense_helpers.cpp) ──
 inline constexpr double TOUCHLINE_SOFT_OUTER = 110.0;   // from here to TOUCHLINE_SOFT_INNER the carry's OUTWARD component fades to nothing
 inline constexpr double TOUCHLINE_SOFT_INNER = 45.0;
+
+// ── Round-51: restarts ──
+inline constexpr double THROW_IN_HOLD_MIN_MS   = 2800.0;   // throw-in hold varies 2.8-5.2s (was a flat 4.0s on every throw)
+inline constexpr double THROW_IN_HOLD_SPREAD_MS = 2400.0;
+inline constexpr double THROW_IN_MIN_TARGET    = 60.0;     // no 2-3m hand-offs: a throw goes at least 6m (was 30px)
+inline constexpr double THROW_TAKER_FLANK_RANGE = 260.0;   // a same-flank FB/WM within this takes the throw before the merely-nearest man
+inline constexpr double CORNER_AIM_ATTACKER_W  = 1.25;     // corner landing spot: weight of "an attacker is near it" against "no defender is near it" (was 0.5)
 
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every

@@ -52,7 +52,7 @@ void GameEngine::resolveTackleFoul(Player& tackler, Player& carrier, bool fromBe
             // Card-per-foul was ~32% (≈2× real ~17%): a foul fired a card far too
             // often, so raising fouls toward real exploded yellows/reds. Lowered to
             // calibrate cards to the higher foul volume (cynical fouls stay bookable).
-            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.42 : 0.13); // recalibrated after DOGSO: cynical-yellow volume became (rare) reds; fouls sit at ~21.5/90 (real band), card-per-foul was ~10% vs real ~17%
+            double cardChance = cynical ? CYNICAL_CARD : (fromBehind ? 0.26 : 0.08);   // Round-51: 0.42/0.13 -> 0.26/0.08 with the foul constants raised ~1.75x (yellows 3.75 -> 6.0/match at the old rates; real ~3.7) // recalibrated after DOGSO: cynical-yellow volume became (rare) reds; fouls sit at ~21.5/90 (real band), card-per-foul was ~10% vs real ~17%
             // A booked player's borderline SECOND foul: a real ref usually warns
             // rather than firing the automatic second yellow. Second-yellow reds were
             // measured ~0.62/match (≈2.5× real ~0.25), piled up in chippy high-yellow
