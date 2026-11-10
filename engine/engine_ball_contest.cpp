@@ -51,6 +51,11 @@ bool GameEngine::tryCutbackFirstTimeFinish(double bs) {
             // attack the penalty-spot band (80-140px), not hang at the edge;
             // until then this fires only on the (correctly) well-positioned few.
             bool inBox = tgd < 175.0 && std::abs(rcv->y - PITCH_H / 2.0) < 200.0;
+            // Round-48: tgd is x-depth only, so "in the box" reached 17.5-26m from
+            // goal on the diagonal and the first-time finish fired from the D into a
+            // crowd. It is a penalty-spot chance with a clear line, or it is not one.
+            inBox = inBox && pitch::distToGoalMouth(rcv->x, rcv->y, rcv->team) < FIRST_TIME_FINISH_MAX_RADIAL
+                && shotLaneBody(*rcv) == 0;
             bool reachable = dRcv <= MEET_REACH_GROUND + 10.0;
             bool keeperCloser = false;
             int frontPress = 0;

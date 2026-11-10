@@ -245,7 +245,13 @@ void GameEngine::updateOneGK(Player& gk, double secs) {
         gk.targetX = goalX + fd * depth;
         gk.targetY = clamp(gk.homeY + (state.ball.y - gk.homeY) * lineT,
                            gk.homeY - GOAL_W * 0.55, gk.homeY + GOAL_W * 0.55);
-    } else if (ballGoalDist < GK_RUSH_DIST && ballLoose) {
+    } else if (ballGoalDist < GK_RUSH_DIST && ballLoose && !(pendingPass.active && pendingPass.team != gk.team)) {
+        // Round-48: an OPPONENT'S PASS IN FLIGHT is not a loose ball. It has no
+        // controller, so every opposition pass within 20m used to land here and
+        // pull the keeper 6-10m off his line, often outside his posts (seed-1110
+        // audit: 28 of 31 shots faced from 6m+ out) — the Round-28 anticipation
+        // branch just below, written for exactly that ball, was unreachable inside
+        // 20m. Same bug class as the Round-34 far-half fix further down.
         gk.targetX = goalX + fd * clamp(ballGoalDist * 0.55, 24.0, 155.0);
         gk.targetY = clamp(lerp(gk.homeY, state.ball.y, 0.38), PITCH_H * 0.16, PITCH_H * 0.84);
     } else if (ballLoose && state.ball.intendedReceiverId >= 0

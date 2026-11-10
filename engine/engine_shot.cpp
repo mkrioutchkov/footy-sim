@@ -4,6 +4,27 @@
 // (accuracy, pressure, placement error, header vs foot, the release), and the
 // knock-ahead pair is the sprint touch that trades control for pace.
 #include "engine.h"
+
+// Round-48 (seed-1110 audit: shots into a defender 2-4m away or into a
+// team-mate's back; 12 of 31 shots were the auto first-time finish from the D
+// into a crowd). Nothing in the shot decision looked at who stood on the line.
+int GameEngine::shotLaneBody(const Player& shooter) const {
+    double gx = goalXFor(shooter.team), gy = PITCH_H / 2.0;
+    double dx = gx - shooter.x, dy = gy - shooter.y, len = std::hypot(dx, dy);
+    if (len < 1.0) return 0;
+    dx /= len; dy /= len;
+    int found = 0;
+    for (const auto& o : state.players) {
+        if (o.id == shooter.id || o.role == Role::GK || o.sentOff) continue;
+        double along = (o.x - shooter.x) * dx + (o.y - shooter.y) * dy;
+        if (along < 10.0 || along > SHOT_LANE_NEAR_PX) continue;
+        double perp = std::abs(-(o.x - shooter.x) * dy + (o.y - shooter.y) * dx);
+        if (perp >= SHOT_LANE_PERP_PX) continue;
+        if (o.team == shooter.team) return 1;
+        found = 2;
+    }
+    return found;
+}
 #include "agent.h"
 #include "agent_helpers.h"
 #include <cmath>

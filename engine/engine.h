@@ -1142,6 +1142,9 @@ private:
                                  int pressureCount, const std::string& choiceType);
 
     [[nodiscard]] double goalOpeningAngleDeg(double x, double y, double gx) const;
+    // Round-48: who stands on the shooter's line to goal within SHOT_LANE_NEAR_PX?
+    // 0 = nobody, 1 = a team-mate, 2 = an opponent (keepers excluded: saving it is their job).
+    [[nodiscard]] int shotLaneBody(const Player& shooter) const;
 
     void placeBallForRelease(Player& kicker, double dx, double dy, double maxOffset=CONTROL_DIST+BALL_R+4.0);
     void passBallTo(Player& f, Player& t);

@@ -646,6 +646,12 @@ inline constexpr double CLEAR_MIN_VZ          = 230.0;   // every clearance leav
 inline constexpr double CLEAR_MATE_LANE_PERP  = 14.0;    // a team-mate this close to the clearance line, within CLEAR_MATE_LANE_RANGE, is in the way
 inline constexpr double CLEAR_MATE_LANE_RANGE = 120.0;
 
+// ── Round-48: the shot lane (engine_shot.cpp shotLaneBody) ──
+inline constexpr double SHOT_LANE_NEAR_PX       = 90.0;    // bodies this far along the shot line are the ones the ball cannot get past
+inline constexpr double SHOT_LANE_PERP_PX       = 16.0;    // body (12) + ball (4.5)
+inline constexpr double SHOT_LANE_OPP_FREE_DIST = 110.0;   // inside this a striker may still hit it through a defender's legs
+inline constexpr double FIRST_TIME_FINISH_MAX_RADIAL = 140.0;   // the first-time cut-back finish is a penalty-spot chance, not one from the D
+
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every
 // summary are untouched whether or not the flag is given.

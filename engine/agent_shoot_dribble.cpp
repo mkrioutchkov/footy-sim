@@ -39,6 +39,13 @@ Action PlayerAI::scoreShot(const Perception& per) {
 
     if (!freshThrough && angleDeg < SHOT_ACUTE_SOFT_THRESH && shotDistance > 120.0)
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    // Round-48: never shoot into a team-mate's back; from range, never straight
+    // into a defender standing on the line.
+    {
+        int laneBody = engine.shotLaneBody(p);
+        if (laneBody == 1 || (laneBody == 2 && shotDistance > SHOT_LANE_OPP_FREE_DIST))
+            return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
+    }
 
     if (shotDistance > (shootOnSight ? 360.0 : windfall ? 345.0 : 310.0) || (!shootOnSight && !windfall && acuteGeometry))
         return Action{ActionType::Shoot, -1.0, nullptr, 0, 0, ActionPurpose::Keep, audit};
