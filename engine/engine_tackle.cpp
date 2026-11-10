@@ -361,8 +361,17 @@ bool GameEngine::attemptTackle(Player& tackler, Player& carrier, double extraRea
     double retainChance = clamp(carrierControl * 0.70 + (carrier.dribbleType == 3 ? 0.12 : 0.0) + (carrierShielded ? 0.24 : 0.0) + (fromBehind ? 0.10 : 0.0) - tackleSkill * 0.15, 0.0, 0.72);   // round-18: third retention step (owner: still too many turnovers)
     if (rng.random() < retainChance) {
         emitEvent("skill", carrier.x, carrier.y, carrier.id, tackler.id);
-        blockReboundFor(tackler.id, 520);
+        // Round-41: RIDE PARITY. A man who commits and is beaten is out of the duel
+        // for as long as one who commits and misses (900ms, the Round-37 re-lunge
+        // lockout) — he had 520, so the beaten tackler was back on the carrier
+        // before the missed one. And the carrier who rode it gets the same 450ms
+        // on the ball that a tackle WINNER gets: the shield was cleared a few lines
+        // up for the roll, which left the man who had just beaten one challenge
+        // open to the next presser on the very next tick.
+        blockReboundFor(tackler.id, 900);
         agentFor(tackler)->stunLock(12);
+        receiverShieldUntil = state.clockMs + 450;
+        receiverShieldedPlayerId = carrier.id;
         return false;
     }
     spillTackleLoose(tackler, carrier, angle, outcomeRoll, carrierSpeed);

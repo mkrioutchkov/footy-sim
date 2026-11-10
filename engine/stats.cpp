@@ -232,6 +232,7 @@ std::string StatsCollector::summaryJSON() const {
 
     j["goalkeeping"] = {{"assessedShots", gkAssessed}, {"unlikelySaves", unlikelySaves}, {"preventableGoals", preventableGoals}};
     j["tackles"] = {{"attempts", tackleAttempts}, {"wins", tackleWins}, {"cleanControls", tackleClean}, {"looseDeflections", tackleLoose}, {"fouls", tackleFouls}};
+    j["bodyBlock"] = {{"steals", bodyBlockSteals}, {"slides", bodyBlockSlides}};
 
     j["dribbleTypes"] = {
         {"fast", dribbleFast}, {"medium", dribbleMedium}, {"close", dribbleClose}, {"dribble20mShots", dribble20mShots}, {"dribble20mGoals", dribble20mGoals}, {"knockAheads", knockAheads}, {"recovered", knockAheadRecovered}, {"retainedByTeammate", knockAheadRetained}, {"turnovers", knockAheadTurnovers}, {"outOfPlay", knockAheadOutOfPlay}, {"risky", riskyKnockAheads}, {"riskyTurnovers", riskyKnockAheadTurnovers}, {"launchSpeedAvg", std::round((knockAheads > 0 ? knockAheadSpeedTotal / knockAheads : 0) * 10) / 10}, {"pending", 0}};

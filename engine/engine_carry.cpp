@@ -263,6 +263,29 @@ void GameEngine::updateControlledBall(double sec) {
                 double nx = state.ball.x - o.x, ny = state.ball.y - o.y, nd = std::hypot(nx, ny);
                 if (nd < 1e-6) { nx = -dx; ny = -dy; nd = 1.0; }
                 nx /= nd; ny /= nd;
+                // Round-41 (owner, seed 1110 0:11: Busquets "steals" it off Ronaldinho with
+                // no tackle, Ronaldinho has it back 0.35s later — one of four changes of
+                // control in 2.5s): A LOST DUEL STAYS LOST. attemptTackle steps the tackler
+                // onto the ball (commitLungeDash) BEFORE it rolls, so on a miss or a ridden
+                // tackle his body still arrives on the ball — and this sweep, which reads
+                // neither the roll nor the lockout it set, knocked the ball loose anyway.
+                // The audit counted 106 of these a match (a third of all challenge events,
+                // none of them in any summary stat), 61 changing nothing but a 0.3-1.7s
+                // loose-ball stutter, and 11 of the 26 "rode the tackle" outcomes reversed
+                // inside 133ms. A man who is contest-blocked — his own challenge just
+                // resolved against him, or he is still mid-lunge — cannot win with his
+                // shins what he has just lost with his feet. This is the third case of an
+                // exemption that already exists twice above (the take-on-beaten defender,
+                // the freshly shielded winner), not a new rule. The ball is still eased
+                // round his body so the seed-437 artefact (ball dragged THROUGH a man)
+                // cannot come back; the carrier simply keeps it.
+                if (runtime[o.id].duel.contestBlockedUntil > state.clockMs || runtime[o.id].lungeDash.remainPx > 0.0) {
+                    state.ball.x = o.x + nx * (PLAYER_R + BALL_R);
+                    state.ball.y = o.y + ny * (PLAYER_R + BALL_R);
+                    stats.recordBodyBlockSlide();
+                    continue;
+                }
+                stats.recordBodyBlockSteal();
                 state.ball.x = o.x + nx * (PLAYER_R + BALL_R);
                 state.ball.y = o.y + ny * (PLAYER_R + BALL_R);
                 state.ball.vx = nx * 90.0;

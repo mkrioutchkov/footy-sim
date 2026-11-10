@@ -186,6 +186,12 @@ class StatsCollector {
 
     // ── Tackle events ──
     void recordTackleAttempt() { tackleAttempts++; }
+    // Round-41: the controlled-ball body-block (engine_carry.cpp). `Steals` = the ball was
+    // knocked loose off an opponent's body; `Slides` = the contact was with a man who had just
+    // lost his own challenge, so the ball was eased round him and the carrier kept it.
+    void recordBodyBlockSteal() { bodyBlockSteals++; }
+    void recordBodyBlockSlide() { bodyBlockSlides++; }
+    int bodyBlockSteals = 0, bodyBlockSlides = 0;
     void recordTackleWin(bool cleanControl) {
         tackleWins++;
         if (cleanControl)
