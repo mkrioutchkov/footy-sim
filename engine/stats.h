@@ -244,6 +244,8 @@ class StatsCollector {
     void recordClearance() { clearances++; }           // Clear-purpose releases (both the hoof gate and relabeled candidates); real ~30-40/match both teams
     void recordBlobMoment() { blobMoments++; }         // 6+ players within 50px, open play, 1.5s throttle
     void recordMarathonCarry() { marathonCarries++; }  // outfield single-possession carry >= 8s
+    void recordWatchdogRelease() { watchdogReleases++; }   // Round-43: the 5.2s moving-marathon backstop took the ball off a carrier
+    void recordJockeyLockPass() { jockeyLockPasses++; }    // Round-43: a carrier chose a pass while jockey-locked
     void recordShuttleCarry() { shuttleCarries++; }    // >= 6s carry with >= 3 lateral reversals
     void recordLineTooDeep() { lineTooDeepSamples++; } // 1s samples: back line <110px, ball far, no deep threat
     void noteLongestCarry(double ms) {
@@ -507,6 +509,9 @@ class StatsCollector {
     int clearances = 0;
     int blobMoments = 0;
     int marathonCarries = 0, shuttleCarries = 0, lineTooDeepSamples = 0;
+    // Round-43. marathonCarries counts carries of 8s+, but the backstop release ends
+    // them at 5.2s, so that counter could not see the stand-off it was guarding.
+    int watchdogReleases = 0, jockeyLockPasses = 0;
     double longestCarryMs = 0;
     int ballJumps = 0;
     int teammatePingPongs = 0;

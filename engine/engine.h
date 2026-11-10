@@ -309,6 +309,11 @@ private:
         double carryPivotY = 0;
         bool marathonRecorded = false, shuttleRecorded = false;
         bool marathonReleased = false;   // one-shot: forced-release of a stuck long carry already fired
+        // Round-43: the opponent escorting this carry — the same man, inside
+        // JOCKEY_LOCK_RADIUS throughout — and since when. -1 = nobody. Maintained
+        // every tick by trackCarrierPossession; read through jockeyLockEscort().
+        int escortId = -1;
+        double escortSinceMs = 0;
 
         int stationaryHoldCarrierId = -1;
         double stationaryHoldMs = 0;
@@ -1219,6 +1224,8 @@ private:
     void updatePlayerAnimations(double sdt);
     void updatePossessionTracking(double sdt);
     void trackCarrierPossession(Player* c, double sdt);
+    // Round-43: the id of the opponent who has this carrier jockey-locked, or -1.
+    [[nodiscard]] int jockeyLockEscort(const Player& carrier) const;
     void detectSimulationFreeze(double sdt);
     void updateSetPiecePhase(double sdt, double sec);
     // The restart-choreography half of updateSetPiecePhase: walk the taker in,

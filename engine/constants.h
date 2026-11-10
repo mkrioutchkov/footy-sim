@@ -601,6 +601,18 @@ inline constexpr double DEEP_RECEIVE_MARKER_DIST = 60.0;   // a marker within 6m
 inline constexpr int    HURRIED_SETTLE_TICKS     = 16;     // ~270ms, the existing press-arriving settle
 inline constexpr int    CALM_SETTLE_TICKS        = 45;     // ~750ms, the existing calm settle
 
+// ── Round-43: the jockey lock (engine_audit.cpp jockeyLockEscort, agent_pass_helpers.cpp) ──
+// One opponent shadowing the carrier at arm's length, neither closing nor
+// tackling. The lock ARMS after a sustained escort — time, not proximity: every
+// proximity- or closing-keyed version of "he is pressed" in this codebase either
+// never fired for a man who simply holds his distance, or fired permanently.
+inline constexpr double JOCKEY_LOCK_RADIUS       = 45.0;   // within this of the carrier = on him (the jockey parks at ~22px; the on-boot test is 42)
+inline constexpr double JOCKEY_LOCK_MIN_MS       = 1500.0; // earliest the lock arms: shield, look up, lay it off. 900 was A/B'd and also cured the stand-off but armed on ordinary midfield touches too (passes +13.6% vs +6.7%)
+inline constexpr double JOCKEY_LOCK_SPREAD_MS    = 1000.0; // plus up to this, keyed on carrier + carry start, so releases never land on one beat
+inline constexpr double JOCKEY_LOCK_MAX_PROGRESS = 40.0;   // px of net forward gain this carry: a carry that is going somewhere is not a stand-off
+inline constexpr double JOCKEY_LOCK_OPP_GOAL_MIN = 340.0;  // not in the final third — the same line the marathon release spares, for the same reason (shots are built there)
+inline constexpr double JOCKEY_ESCORT_LANE_PERP  = 17.0;   // the escort blocks a lane only if the ball would physically have to pass him: body (12) + ball (4.5), the point-blank veto's own radius
+
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every
 // summary are untouched whether or not the flag is given.

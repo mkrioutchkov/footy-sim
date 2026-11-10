@@ -113,6 +113,11 @@ bool PlayerAI::passTargetGates(Player& t, const Perception& per,
     bool freshRelease = (engine.carrierTracker.carryTrackerId == p.id && heldPb < 500.0)
         || (p.id >= 0 && p.id < 22 && engine.runtime[p.id].firstTouchUntilMs > engine.state.clockMs);
     double pbRadius = freshRelease ? 70.0 : 42.0;
+    // Round-43: the man jockey-locking this carrier, or -1 (GameEngine::jockeyLockEscort
+    // has the whole story). He is dropped from the blocker count below on every
+    // lane the ball would not physically have to pass him on.
+    const int jockeyEscortId = engine.jockeyLockEscort(p);
+    const double laneLen = std::sqrt(ls);
     for (auto& o : engine.state.players) {
         if (!isActiveOpponent(o, p.team)) continue;
         double t2 = clamp(((o.x - p.x) * dx + (o.y - p.y) * dy) / ls, 0.0, 1.0);
@@ -129,6 +134,21 @@ bool PlayerAI::passTargetGates(Player& t, const Perception& per,
         double closing = tld > 1.0 ? (o.vx * tlx + o.vy * tly) / tld : 0.0;   // px/s toward the lane
         double effBlocker = PASS_BLOCKER_PERP + clamp(closing / 50.0, 0.0, 1.0) * 13.0;
         bool onBootPresser = t2 < 0.05 && dist(o.x, o.y, p.x, p.y) < 42.0;
+        // Round-43: PASS_BLOCKER_PERP (36px) is a DOWNSTREAM radius — how far off
+        // a lane a defender can stand and still cut the ball out as it travels.
+        // Applied to a man 22px from the PASSER it is meaningless: his perp to any
+        // lane cannot exceed his distance to the passer, so he "blocks" all of
+        // them, in every direction (measured, seed 1110: a locked centre-back's
+        // menu came back with ZERO candidates, tick after tick, for four seconds).
+        // For the escort of a jockey-locked carrier ask the physical question
+        // instead: would the ball have to go THROUGH him? Only then — in front of
+        // the kick and within JOCKEY_ESCORT_LANE_PERP of the lane, which is the
+        // point-blank veto's own radius — is he a blocker; the veto below still
+        // kills that lane outright. Every other lane he is simply not in.
+        // `along` is his projection on the lane, unclamped, in px.
+        double along = ((o.x - p.x) * dx + (o.y - p.y) * dy) / laneLen;
+        bool escortOffLane = o.id == jockeyEscortId && dist(o.x, o.y, p.x, p.y) < JOCKEY_LOCK_RADIUS
+            && (along <= 0.0 || perp >= JOCKEY_ESCORT_LANE_PERP);
         // Step-in RACE (watched replay seed 111 1:13): an ALREADY-CLOSING mid-lane
         // defender who reaches his gate before the ball does is a blocker, however
         // far his static perp is. Messi at perp 58.6 closing 47px/s sat ~10px
@@ -148,7 +168,7 @@ bool PlayerAI::passTargetGates(Player& t, const Perception& per,
             double sprint = std::max(80.0, attrFactor(o.attrs.speed) * SPEED_SPRINT);
             stepInWins = (perp - 18.0) / sprint + 0.05 < tGate;
         }
-        if (perp < effBlocker || stepInWins) {
+        if ((perp < effBlocker || stepInWins) && !escortOffLane) {
             bl++;
             if (onBootPresser) onBootBl++;
             // C2(b): dead-center bodies (perp -> 0) sit fully in the lane; a
@@ -386,8 +406,13 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // honest: the turn-then-release path rotates the body over 2-3 ticks before
     // the ball goes, so this never releases an actual 160° no-looker — the calm
     // no-look bombs the veto was built for (seed 133 0:04/0:56) stay vetoed.
+    // Round-43: a jockey-locked carrier is shielding — his body is turned AWAY
+    // from his own support by construction, so the hard veto deleted exactly the
+    // lay-off he needs. Priced (x0.76) instead, and the turn-then-release path
+    // still rotates him before the ball goes.
+    const bool jockeyLocked = engine.jockeyLockEscort(p) >= 0;
     bool pressedDeepTurn = (oppClosingSoon && ownProgress < PITCH_W * 0.42)
-        || keeperOutlet || corneredEscape;
+        || keeperOutlet || corneredEscape || jockeyLocked;
     if (!engine.setPiece.armed) {
         if (offFacing > 2.45 && !pressedDeepTurn) return std::nullopt;
         if (offFacing > 2.45)      completion *= 0.76;
@@ -407,7 +432,7 @@ std::optional<Action> PlayerAI::scorePassToTarget(Player& t, const Perception& p
     // Under an arriving press the safe valve set must include the short escape
     // to an unmarked man with a clean lane, or the carrier stands holding
     // unplayable options until he's tackled (seed 129 0:37-0:40).
-    bool pressedSafeOut = oppClosingSoon && d < 260.0 && receiverPressure == 0 && bl == 0;
+    bool pressedSafeOut = (oppClosingSoon || jockeyLocked) && d < 260.0 && receiverPressure == 0 && bl == 0;   // Round-43: a sustained escort is a press too
     // Led-runner bypass (seed 437 0:40: the clearly-on over-the-top to Neymar
     // was FLOORED here before the killer-ball classes ever evaluated it — his
     // CURRENT feet read near-lateral while his run was a line-break). A ball

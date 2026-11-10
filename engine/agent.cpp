@@ -832,6 +832,7 @@ void PlayerAI::executeAction(Action& a, double sdt, SmallVector<Action, 48>& act
             // one hoof. The clearance is the true label; skip the pass emit.
             if (a.purpose != ActionPurpose::Clear)
                 engine.emitEvent("pass", p.x, p.y, p.id, a.target->id);
+            if (engine.jockeyLockEscort(p) >= 0) engine.stats.recordJockeyLockPass();   // Round-43 census: the stand-off ended as a decision
             double passDist = dist(p.x, p.y, a.target->x, a.target->y);
             bool combinationZone = (fdFor(p.team) > 0.0 ? p.x > HALF_X - 90.0 : p.x < HALF_X + 90.0);
             double passFwd = (a.target->x - p.x) * fdFor(p.team);

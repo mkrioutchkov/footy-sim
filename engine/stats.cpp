@@ -198,6 +198,8 @@ std::string StatsCollector::summaryJSON() const {
     j["clearances"] = clearances;
     j["blobMoments"] = blobMoments;
     j["marathonCarries"] = marathonCarries;
+    j["watchdogReleases"] = watchdogReleases;
+    j["jockeyLockPasses"] = jockeyLockPasses;
     j["shuttleCarries"] = shuttleCarries;
     j["lineTooDeepSamples"] = lineTooDeepSamples;
     j["longestCarryMs"] = std::round(longestCarryMs);

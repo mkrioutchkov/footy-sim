@@ -12,6 +12,45 @@
 #include <cmath>
 #include <numbers>
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Round-43: jockeyLockEscort() — is this carrier being escorted, and by whom?
+// ══════════════════════════════════════════════════════════════════════════════
+// Owner, seed 1110: "it needs to look smooth like a real game". The audit of that
+// match found the single largest thing wrong with how it looks: 75-85 times a
+// match a player on the ball shield-walked for EXACTLY 5.2 seconds with one
+// opponent parked 2.2m off him, neither man doing anything, until the
+// moving-marathon release below took the ball away — about 4.5% of all passes
+// and seven to eight minutes of every match spent in the stand-off. Three
+// separate readings of the code reached the same cause:
+//   - the pass menu is emptied by the escort himself. passTargetGates clamps an
+//     opponent's projection onto the lane to [0,1], so a man standing within
+//     PASS_BLOCKER_PERP of the PASSER counts as a blocker on every lane,
+//     including the ones pointing directly away from him;
+//   - every waiver that restores a pressed carrier's outlets keys on a CLOSING
+//     presser, two pressers, or a touchline — a man holding his distance in open
+//     midfield trips none of them;
+//   - the escort never resolves it either: a shielded ball prices his tackle at
+//     the 0.06 floor against a 0.45 commit bar.
+// So the only exit was the timer. This predicate is what the gates were missing:
+// a stand-off defined by TIME UNDER ESCORT rather than by closing speed. It arms
+// JOCKEY_LOCK_MIN_MS..+SPREAD after the same opponent first came within
+// JOCKEY_LOCK_RADIUS, the offset keyed on (carrier, carry start) so the releases
+// it produces are spread out instead of moving the 5.2s spike to a new beat.
+// Pure state: no rng, nothing steered here. Tombstones this is NOT: exempting the
+// on-boot presser from every lane from the first touch (+50% pass volume), the
+// "pressured release valve" score boost (barely fired — the outlets were vetoed,
+// not under-scored), pricing him harder (carriers held longer), widening the
+// stand-off, moving the commit bar.
+int GameEngine::jockeyLockEscort(const Player& carrier) const {
+    const auto& ct = carrierTracker;
+    if (ct.carryTrackerId != carrier.id || ct.escortId < 0 || setPiece.armed || carrier.role == Role::GK) return -1;
+    if (pitch::distToOppGoal(carrier.x, carrier.team) <= JOCKEY_LOCK_OPP_GOAL_MIN) return -1;
+    if ((carrier.x - ct.carryStartX) * fdFor(carrier.team) >= JOCKEY_LOCK_MAX_PROGRESS) return -1;
+    long long key = static_cast<long long>(carrier.id) * 7919LL + static_cast<long long>(ct.carryStartMs);
+    double armAfterMs = JOCKEY_LOCK_MIN_MS + static_cast<double>(key % 9) / 8.0 * JOCKEY_LOCK_SPREAD_MS;
+    return state.clockMs - ct.escortSinceMs >= armAfterMs ? ct.escortId : -1;
+}
+
 // Per-tick ball-carrier diagnostics for the current controller: possession clock,
 // stuck / backward-carry / carry-distance / marathon-shuttle / stationary-hold
 // trackers. Feeds quality stats; does not steer play.
@@ -35,6 +74,8 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
             carrierTracker.marathonRecorded = false;
             carrierTracker.shuttleRecorded = false;
             carrierTracker.marathonReleased = false;
+            carrierTracker.escortId = -1;
+            carrierTracker.escortSinceMs = state.clockMs;
         } else {
             double step = dist(c->x, c->y, carrierTracker.carryLastX, carrierTracker.carryLastY);
             if (step < 45.0) carrierTracker.carryPathDistance += step;
@@ -86,6 +127,25 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
                 stats.recordShuttleCarry();
             }
             stats.noteLongestCarry(carryMs);
+        }
+        // Round-43: who is escorting him. The SAME man must stay inside the radius
+        // for the clock to keep running; if he drops off, the nearest man inside it
+        // (if any) becomes the escort and the clock restarts. Read by jockeyLockEscort.
+        {
+            const Player* nearest = nullptr;
+            double nearestD = JOCKEY_LOCK_RADIUS;
+            bool escortStillOn = false;
+            for (auto& o : state.players) {
+                if (!isActiveOpponent(o, c->team)) continue;
+                double od = dist(o.x, o.y, c->x, c->y);
+                if (od >= JOCKEY_LOCK_RADIUS) continue;
+                if (o.id == carrierTracker.escortId) escortStillOn = true;
+                if (od < nearestD) { nearestD = od; nearest = &o; }
+            }
+            if (!escortStillOn) {
+                carrierTracker.escortId = nearest ? nearest->id : -1;
+                carrierTracker.escortSinceMs = state.clockMs;
+            }
         }
         if (c->id != carrierTracker.backwardCarryCarrierId) {
             carrierTracker.backwardCarryCarrierId = c->id;
@@ -216,6 +276,7 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
                     c->facing = std::atan2(best->y - c->y, best->x - c->x);   // square up with the release, not a no-looker
                     forcePassTo(*c, *best, nullptr);
                     carrierTracker.marathonReleased = true;
+                    stats.recordWatchdogRelease();
                 } else if (desperate) {
                     // Round-29: no receiver clears the grade floor and the carry
                     // has dragged past 6.5s — clear to space rather than either
@@ -223,6 +284,7 @@ void GameEngine::trackCarrierPossession(Player* c, double sdt) {
                     // unfired-release tombstone above).
                     hoofClearToSpace(*c);
                     carrierTracker.marathonReleased = true;
+                    stats.recordWatchdogRelease();
                 }
             }
             // ── Pressured-circling release ── the 7s/final-third guard above misses
