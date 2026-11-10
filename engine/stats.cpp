@@ -234,6 +234,7 @@ std::string StatsCollector::summaryJSON() const {
 
     j["goalkeeping"] = {{"assessedShots", gkAssessed}, {"unlikelySaves", unlikelySaves}, {"preventableGoals", preventableGoals}};
     j["tackles"] = {{"attempts", tackleAttempts}, {"wins", tackleWins}, {"cleanControls", tackleClean}, {"looseDeflections", tackleLoose}, {"fouls", tackleFouls}};
+    j["restartMoveCapped"] = restartMoveCapped;
     j["bodyBlock"] = {{"steals", bodyBlockSteals}, {"slides", bodyBlockSlides}};
 
     j["dribbleTypes"] = {

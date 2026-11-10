@@ -186,6 +186,10 @@ class StatsCollector {
 
     // ── Tackle events ──
     void recordTackleAttempt() { tackleAttempts++; }
+    // Round-44: player-ticks in which restart repositioning asked for more than a sprint
+    // and was held to one (capRestartMovement). A census of how hard the stacked movers pull.
+    void recordRestartMoveCapped() { restartMoveCapped++; }
+    long restartMoveCapped = 0;
     // Round-41: the controlled-ball body-block (engine_carry.cpp). `Steals` = the ball was
     // knocked loose off an opponent's body; `Slides` = the contact was with a man who had just
     // lost his own challenge, so the ball was eased round him and the carrier kept it.

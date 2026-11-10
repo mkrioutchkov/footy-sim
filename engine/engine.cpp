@@ -982,6 +982,49 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     populateThrowInSupport(spTeam);
 
     runSetPieceChoreography(spTeam, sdt, sec);
+    capRestartMovement(sdt);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Round-44: capRestartMovement() — one speed limit for the walk to a restart
+// ══════════════════════════════════════════════════════════════════════════════
+// Owner: "it needs to look smooth like a real game". The seed-1110 audit found
+// that 233 of the 238 player-frames above 15 m/s in the whole match, and 429 of
+// the 613 above 10 m/s, fall inside restart holds: at 23:00.83 a centre-forward
+// covers 29m in 1.6s (peak 26.9 m/s) to join a wall, twelve players are above
+// 10 m/s at once, and all of them then stand still for five seconds waiting for
+// the kick. 28 of the 58 restarts in the match had a player above 10 m/s.
+// Cause: three movers push the same man in the same tick while a set piece is
+// armed — his own applyMovement toward the choreography target, the Law-13 /
+// goal-kick-area shove in enforceRestartDistance (x1.9 sprint, raised to win a
+// tug-of-war with the first) and, on a dangerous free kick, the wall mover
+// (x1.5 sprint). They add: 68 + 129 + 102 = 299 px/s, the measured peak. Each
+// was tuned on its own and each is doing its job, so rather than re-tune three
+// multipliers against each other, bound their SUM: whatever they ask for between
+// them, a non-taker's net displacement this tick is at most a sprint. Direction
+// is preserved, so the shove still wins the tug-of-war; it just cannot teleport.
+// ("A sprint" here is RESTART_MOVE_MAX_SPEED, a quarter above SPEED_SPRINT — see
+// the tombstone on that constant for why not SPEED_SPRINT itself.)
+// telemetry.prevX/Y hold every player's position at the top of this tick.
+// The taker is exempt — his run-up and its placement backstop are a separate
+// mechanism (driveRestartApproach). The hold timers are unchanged: the men who
+// used to arrive in a second and wait five now arrive in three and wait three.
+// When that is not enough, the release gate in driveRestartApproach waits for
+// them (restartCappedLastTick), so a kick is not taken past men still retreating.
+void GameEngine::capRestartMovement(double sdt) {
+    const double cap = RESTART_MOVE_MAX_SPEED * (sdt / 1000.0);
+    restartCappedLastTick = 0;
+    if (cap <= 0.0) return;
+    for (auto& p : state.players) {
+        if (p.sentOff || p.id == setPiece.takerId) continue;
+        double dx = p.x - telemetry.prevX[p.id], dy = p.y - telemetry.prevY[p.id];
+        double step = std::hypot(dx, dy);
+        if (step <= cap) continue;
+        p.x = telemetry.prevX[p.id] + dx / step * cap;
+        p.y = telemetry.prevY[p.id] + dy / step * cap;
+        stats.recordRestartMoveCapped();
+        restartCappedLastTick++;
+    }
 }
 
 // Round-30: the half-time interval. Exactly the post-goal walk-in motion model
@@ -1959,6 +2002,20 @@ void GameEngine::driveRestartApproach(double sdt, double sec)
                 }
             }
         }
+    }
+    // Round-44: the men being moved for this restart — out of the Law-13 radius, out of
+    // the area, into the wall — now travel at a sprint instead of sliding there, so they
+    // can still be on their way when the kick comes due. Hold while anyone was held to
+    // the cap last tick, bounded so a crowd that can never comply cannot freeze the
+    // match. Quick free kicks are exempt: catching the other side out is the point of
+    // them. (This wait did NOT cure the interception rise measured at a x1.0 cap — see
+    // RESTART_MOVE_MAX_SPEED — it is here so a kick is not struck through a wall that
+    // is still forming.)
+    if (setPiece.takerArrived && phase.actionTimer <= 0 && !setPiece.fast
+        && phase.actionTimer > -RESTART_ARRIVAL_MAX_WAIT_MS && restartCappedLastTick > 0) {
+        phase.actionTimer -= sdt;
+        cacheBallState();
+        return;
     }
     if (setPiece.takerArrived && phase.actionTimer <= 0) {
         for (auto& a : agents) {

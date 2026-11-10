@@ -1228,6 +1228,8 @@ private:
     [[nodiscard]] int jockeyLockEscort(const Player& carrier) const;
     void detectSimulationFreeze(double sdt);
     void updateSetPiecePhase(double sdt, double sec);
+    void capRestartMovement(double sdt);
+    int restartCappedLastTick = 0;   // Round-44: how many men capRestartMovement had to hold back on the previous tick
     // The restart-choreography half of updateSetPiecePhase: walk the taker in,
     // arrange wall and support, fire the release.
     void runSetPieceChoreography(Team spTeam, double sdt, double sec);

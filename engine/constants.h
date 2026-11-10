@@ -613,6 +613,19 @@ inline constexpr double JOCKEY_LOCK_MAX_PROGRESS = 40.0;   // px of net forward 
 inline constexpr double JOCKEY_LOCK_OPP_GOAL_MIN = 340.0;  // not in the final third — the same line the marathon release spares, for the same reason (shots are built there)
 inline constexpr double JOCKEY_ESCORT_LANE_PERP  = 17.0;   // the escort blocks a lane only if the ball would physically have to pass him: body (12) + ball (4.5), the point-blank veto's own radius
 
+// ── Round-44: restart repositioning (engine.cpp capRestartMovement) ──
+// The most any non-taker may travel in one tick while a set piece is armed, as a
+// speed: a flat-out 8.5 m/s. TOMBSTONE: the obvious value, SPEED_SPRINT itself (the
+// open-play command ceiling), was A/B'd over 48 paired seeds and cost
+// passesIntercepted +19/90 ** and tackles.attempts +23/90 * — with or without the
+// arrival wait below, so it was not kicks being taken early; the men walked out of
+// a restart zone simply stood nearer the play when it resumed. At x1.25 both are
+// noise (+1.5, +3.0) and the slides are still gone.
+inline constexpr double RESTART_MOVE_MAX_SPEED = SPEED_SPRINT * 1.25;
+// With everyone held to a sprint, a restart can come due before the men being moved have
+// arrived. The taker waits for them, up to this long past his scheduled release.
+inline constexpr double RESTART_ARRIVAL_MAX_WAIT_MS = 2500.0;
+
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every
 // summary are untouched whether or not the flag is given.
