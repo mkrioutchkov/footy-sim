@@ -311,9 +311,27 @@ Action PlayerAI::scoreDribble(const Perception& per) {
         }
     }
 
-    // Keep away from pitch edges
-    if (p.y < DRIBBLE_EDGE_MARGIN)           ty = std::max(ty, p.y + 40.0);
-    if (p.y > PITCH_H - DRIBBLE_EDGE_MARGIN) ty = std::min(ty, p.y - 40.0);
+    // Keep away from pitch edges. Round-50 (seed-1110 audit: 63 of 309 challenges
+    // landed on a carrier 52-68px from the touchline): the evade target pointed AWAY
+    // from an inside presser, i.e. at the line, and this guard flipped it 40px
+    // INFIELD the moment he crossed 60px — a stable rail at close-dribble pace,
+    // every flip swinging the ball into the presser. Along the touchlines the
+    // OUTWARD part of the carry now fades smoothly to nothing between 110px and
+    // 45px from the line; along and infield movement is untouched, and nothing
+    // throws him back into the man. The goal-line guards are unchanged.
+    // TOMBSTONE (same round): adding a goal-side term to rankDefenders so the full-back,
+    // not the winger behind the play, takes the carrier (1.2 rank-px per px upfield)
+    // raised 5s+ holds 70 -> 89/90 and escorted 3s+ holds +10% (16 paired seeds):
+    // the goal-side man jockeys where the chaser lunged, and the stand-off Round-43
+    // cured came back. Needs the jockey to resolve first.
+    {
+        double nearSide = std::min(p.y, PITCH_H - p.y);
+        double outward = p.y < PITCH_H / 2.0 ? -(ty - p.y) : (ty - p.y);   // > 0 = toward the nearer touchline
+        if (outward > 0.0 && nearSide < TOUCHLINE_SOFT_OUTER) {
+            double keep = clamp((nearSide - TOUCHLINE_SOFT_INNER) / (TOUCHLINE_SOFT_OUTER - TOUCHLINE_SOFT_INNER), 0.0, 1.0);
+            ty = p.y + (ty - p.y) * keep;
+        }
+    }
     if (p.x < DRIBBLE_EDGE_MARGIN)           tx = std::max(tx, p.x + 40.0);
     if (p.x > PITCH_W - DRIBBLE_EDGE_MARGIN) tx = std::min(tx, p.x - 40.0);
 
@@ -570,7 +588,11 @@ Action PlayerAI::scoreDribble(const Perception& per) {
     if (canUseWideDribble()) {
         bool inWide = pitch::lateralFromCenter(p.y) > 140.0;
         bool nearOppBox = distToGoal < 350.0;
-        if (inWide) {
+        // Round-50: the wide bonuses paid a winger to carry straight at a set
+        // defender (the +0.08 even grew with the man closer). Only for a carry
+        // with a lane in front of it.
+        bool laneShut = escapeLaneBlocked(clamp(p.x + fd * 70.0, 35.0, PITCH_W - 35.0), p.y, nullptr);
+        if (inWide && !laneShut) {
             sc += 0.15;
             if (per.nearestOpponentDist < 60.0) sc += 0.08;
         }

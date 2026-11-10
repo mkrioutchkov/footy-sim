@@ -656,6 +656,10 @@ inline constexpr double FIRST_TIME_FINISH_MAX_RADIAL = 140.0;   // the first-tim
 inline constexpr double SHAPE_POSSESSION_SETTLE_MS = 300.0;   // a team must hold the ball this long before the other ten change shape
 inline constexpr double CENTRAL_RUN_BALL_ADVANCE   = 0.62;    // a central carry commits the FB overlap / CM box run only this far up (was 0.45)
 
+// ── Round-50: the flank (agent_shoot_dribble.cpp, engine_defense_helpers.cpp) ──
+inline constexpr double TOUCHLINE_SOFT_OUTER = 110.0;   // from here to TOUCHLINE_SOFT_INNER the carry's OUTWARD component fades to nothing
+inline constexpr double TOUCHLINE_SOFT_INNER = 45.0;
+
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every
 // summary are untouched whether or not the flag is given.
