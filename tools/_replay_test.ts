@@ -2,12 +2,13 @@
 // store + the pure pacer, asserting: capture writes a file whose gzip round-trips, the stored
 // score equals the final frame's score, the replay source yields the same frames in order, the
 // source selector picks replay-vs-resim, re-recording REPLACES (no dup), the fast-forward pacer
-// actually skips frames at >1× (the 4× bug fix), and the GC prunes by retention.
+// actually skips frames at >1× (the 4× bug fix), the GC prunes by retention, and the engine
+// watchdog ends a capture on silence — not on a slow host.
 //
 //   npx tsx tools/_replay_test.ts
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { Readable } from 'node:stream';
+import { Readable, PassThrough } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -129,6 +130,39 @@ check(m.pruneRecordings({ keep: 100 }).pruned === 0, 'GC is a no-op when under t
 await m.persistRecording('fixture', 7, lines.slice(0, 5));
 const aged = m.pruneRecordings({ keep: 100, maxAgeDays: 1, now: Date.now() + 3 * 86_400_000 });
 check(aged.pruned >= 1, 'GC max-age prunes recordings older than the cutoff');
+
+// ── engine watchdog: a capture is ended by SILENCE (or by never finishing), never by being slow ──
+// The regression this guards: a fixed wall-clock cap (120s, then 180s) killed healthy captures on a
+// slow host. So the first case is the one that matters — a stream that outlives the stall limit
+// several times over, but keeps talking, must NOT lapse.
+const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms));
+{
+  const out = new PassThrough(); let why = '';
+  const disarm = m.watchEngineOutput(out, w => { why = w; }, 400, 60_000);
+  for (let i = 0; i < 12; i++) { out.write('frame\n'); await sleep(100); }   // ~1.2s of output = 3× the stall limit
+  check(why === '', `a slow but talking engine is left alone (ran 3× the stall limit${why ? `, lapsed: ${why}` : ''})`);
+  await sleep(900);                                                          // ...then it goes quiet
+  check(/^no output for 0\.4s$/.test(why), `silence lapses the stall timer ("${why}")`);
+  disarm();
+}
+{
+  const out = new PassThrough(); let why = '', lapses = 0;
+  const disarm = m.watchEngineOutput(out, w => { why = w; lapses++; }, 60_000, 400);
+  const chatter = setInterval(() => out.write('frame\n'), 50);               // never stalls, never finishes
+  await sleep(1000);
+  clearInterval(chatter);
+  check(/^still running after 0\.4s$/.test(why), `an engine that never finishes lapses the overall cap ("${why}")`);
+  check(lapses === 1, `the lapse fires once (${lapses})`);
+  disarm();
+}
+{
+  const out = new PassThrough(); let lapsed = false;
+  m.watchEngineOutput(out, () => { lapsed = true; }, 200, 200)();            // armed, then disarmed at once (a finished capture)
+  await sleep(500);
+  check(!lapsed, 'a disarmed watchdog never fires');
+  check(out.listenerCount('data') === 0, 'disarming removes its stdout listener');
+}
+check(m.RECORD_STALL_MS < m.RECORD_CAP_MS && m.RECORD_CAP_MS >= 4 * 389_000, 'the shipped cap clears the slowest healthy capture seen (389s) at least 4× over');
 
 db.close();
 rmSync(tmp, { recursive: true, force: true });

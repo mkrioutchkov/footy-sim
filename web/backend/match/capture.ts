@@ -119,24 +119,58 @@ export function captureLineStream(kind: RecKind, refId: number, src: NodeJS.Read
   });
 }
 
+// ── The engine watchdog: detect a HANG, not a slow host ──
+// A full-frame run is dominated by the engine SERIALISING its frames, not by simulating them, so
+// how long a healthy capture takes is a property of the host. Measured on the dev box 2026-11-10:
+// 389s for one whole 90' capture (~166k frames of ~13.5KB, so ~2.3ms each), where --summary runs
+// 10 simulated minutes in ~2.4s.
+// History: this was a single wall-clock cap — 120s (198aec3), then 180s (7c44102), which read:
+//   "180s: a full-frame capture is heavier than --summary, so give a slow host room to finish (and
+//    earn a watchable replay) before the playFixture fallback drops it to --summary. A real hang
+//    still lapses."
+// Both lapsed on healthy captures: the engine was killed mid-match with frames still flowing and
+// the fixture silently lost its replay. Raising the number a third time would only move the cliff
+// to the next slower host, so the guard now watches for the failure itself:
+//   RECORD_STALL_MS — no stdout at all for this long IS a hang. A live engine emits a frame every
+//                     few ms, and capture backpressure pauses it only for the length of a gzip drain.
+//   RECORD_CAP_MS   — bounds the other failure, an engine that keeps emitting but never reaches
+//                     "finished". Several times the slowest healthy capture seen, so it is never
+//                     the thing that ends a real one.
+export const RECORD_STALL_MS = 60_000;
+export const RECORD_CAP_MS = 30 * 60_000;
+// Arms both timers on an engine's stdout and returns the disarm. `onLapse` fires at most once, with
+// the reason. Exported (and the limits injectable) so a synthetic-stream test exercises it in ms.
+export function watchEngineOutput(out: NodeJS.ReadableStream, onLapse: (why: string) => void, stallMs = RECORD_STALL_MS, capMs = RECORD_CAP_MS): () => void {
+  let done = false;
+  const seconds = (ms: number): string => `${Math.round(ms / 100) / 10}s`;
+  const lapse = (why: string): void => { if (done) return; disarm(); onLapse(why); };
+  const stall = setTimeout(() => lapse(`no output for ${seconds(stallMs)}`), stallMs);
+  const cap = setTimeout(() => lapse(`still running after ${seconds(capMs)}`), capMs);
+  const alive = (): void => { if (!done) stall.refresh(); };
+  const disarm = (): void => { done = true; clearTimeout(stall); clearTimeout(cap); out.off('data', alive); };
+  out.on('data', alive);
+  return disarm;
+}
+
 // Run a match through the engine FULL-FRAME (no --summary) and capture it. Wires the child's
-// lifecycle to the stream: a spawn error or a 120s hang destroys stdout (→ the capture rejects +
-// cleans up); a crash EOFs stdout without a "finished" frame, which captureLineStream rejects.
+// lifecycle to the stream: a spawn error or a hang (the watchdog above) destroys stdout (→ the
+// capture rejects + cleans up); a crash EOFs stdout without a "finished" frame, which
+// captureLineStream rejects.
 // Captured SAMPLED (1-in-REPLAY_SAMPLE frames + every score/state change) so the matchday replay is
 // light enough to load + screenshot — a full ~200k-frame capture floods the renderer (the QA "catch-22").
+// Exported so tools/_record_fixture.ts records through THIS path rather than a copy of it — the copy
+// carried its own 180s cap and timed out on the very capture that exposed the cap.
 export const REPLAY_SAMPLE = 8;   // exported: the live coordinator's capture thins with the same rate (unthinned live matches stored ~160-200k frames)
-function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ homeScore: number; awayScore: number }> {
+export function recordMatch(kind: RecKind, refId: number, specPath: string): Promise<{ homeScore: number; awayScore: number; frames: number }> {
   return new Promise((resolve, reject) => {
     const child = spawn(ENGINE, ['--match', specPath, '--no-debug'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let err = '';
     child.stderr.on('data', (d: Buffer) => { err += d.toString(); });
-    // 180s: a full-frame capture is heavier than --summary, so give a slow host room to finish (and earn
-    // a watchable replay) before the playFixture fallback drops it to --summary. A real hang still lapses.
-    const to = setTimeout(() => { try { child.kill(); } catch { /* gone */ } child.stdout.destroy(new Error(`engine timeout: ${err}`)); }, 180000);
+    const disarm = watchEngineOutput(child.stdout, why => { try { child.kill(); } catch { /* gone */ } child.stdout.destroy(new Error(`engine timeout (${why}): ${err}`)); });
     child.on('error', e => { try { child.stdout.destroy(e); } catch { /* gone */ } });
     captureLineStream(kind, refId, child.stdout, 1, REPLAY_SAMPLE).then(
-      r => { clearTimeout(to); resolve({ homeScore: r.homeScore, awayScore: r.awayScore }); },
-      e => { clearTimeout(to); try { child.kill(); } catch { /* gone */ } reject(e); },
+      r => { disarm(); resolve(r); },
+      e => { disarm(); try { child.kill(); } catch { /* gone */ } reject(e); },
     );
   });
 }

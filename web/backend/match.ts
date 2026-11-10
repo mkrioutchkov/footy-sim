@@ -26,7 +26,7 @@ export {
   type RecKind, type Recording,
   hasHumanStake, persistRecording, recordingFor, loadRecording, pruneRecordings, purgeRecordings,
 } from './match/recordings.ts';
-export { REPLAY_SAMPLE, captureLineStream } from './match/capture.ts';
+export { REPLAY_SAMPLE, captureLineStream, recordMatch, watchEngineOutput, RECORD_STALL_MS, RECORD_CAP_MS } from './match/capture.ts';
 export {
   type Command, type EventsLog, type ShoutReviewEntry,
   writeEventsLog, loadEventsLog, commandsToTimeline, buildReplaySpec, tacticsReview, replayViaTimeline,
