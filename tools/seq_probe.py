@@ -71,7 +71,10 @@ def sequences_from_trace(path):
 def run_match(seed, minutes, engine):
     engine = os.path.normpath(engine)   # Windows CreateProcess rejects forward-slash relative paths
     fd, path = tempfile.mkstemp(suffix=f"_seq{seed}.bin"); os.close(fd)
-    subprocess.run([engine, str(seed), str(minutes), "--no-debug", "--trace", path],
+    # --frame-sample: we only read the trace; without it the engine serialises every JSON
+    # frame to stdout and capture_output buffers hundreds of MB (older engines ignore the flag).
+    subprocess.run([engine, str(seed), str(minutes), "--no-debug", "--trace", path,
+                    "--frame-sample", "1000000"],
                    capture_output=True, timeout=600)
     try:
         return sequences_from_trace(path)

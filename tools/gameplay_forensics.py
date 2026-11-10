@@ -22,12 +22,18 @@ import subprocess
 import sys
 import tempfile
 
-ENGINE, SEED = sys.argv[1], int(sys.argv[2])
+# abspath: Windows CreateProcess rejects a forward-slash relative path such as build/live.exe.
+ENGINE, SEED = os.path.abspath(sys.argv[1]), int(sys.argv[2])
 MINUTES = int(sys.argv[3]) if len(sys.argv) > 3 else 20
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TRACE = os.path.join(tempfile.gettempdir(), "_footy_forensics.bin")
 
-subprocess.run([ENGINE, str(SEED), str(MINUTES), "--trace", TRACE, "--no-debug"],
+# --frame-sample: only the trace is wanted, but without it the engine also serialises
+# every JSON frame to stdout (~13.5 KB each, ~1,800 a simulated minute) and
+# capture_output holds all of it in memory — about 500 MB for the default 20 minutes.
+# An engine older than the flag ignores it and behaves as before.
+subprocess.run([ENGINE, str(SEED), str(MINUTES), "--trace", TRACE, "--no-debug",
+                "--frame-sample", "1000000"],
                capture_output=True, check=True)
 
 sys.path.insert(0, REPO)

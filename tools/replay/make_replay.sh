@@ -25,23 +25,31 @@ if [ ! -f "$BIN" ]; then
   BIN=build/live.exe
 fi
 
+# Only the trace is read, so ask the engine not to serialise its JSON frames as well: that
+# was ~7 of the ~9 minutes a 90' replay took (403s for the trace run alone, 2026-11-10).
+# An engine built before --frame-sample ignores the flag and just runs the slow way.
+QUIET_FRAMES="--frame-sample 1000000"
+# "python3" on Windows is usually the Microsoft Store stub, which exists but cannot run.
+PY=python3
+"$PY" --version >/dev/null 2>&1 || PY=python
+
 TRACE="$OUTDIR/s${SEED}.bin"
 JSON="$OUTDIR/match.json"
 HTML="${REPLAY_OUT:-$OUTDIR/replay.html}"
 
 if [ -n "${ARENA:-}" ]; then
   echo "→ simulating seed $SEED, ${MINUTES}min, arena $ARENA ..."
-  "./$BIN" "$SEED" "$MINUTES" --arena "$ARENA" --trace "$TRACE" --no-debug >/dev/null
+  "./$BIN" "$SEED" "$MINUTES" --arena "$ARENA" --trace "$TRACE" --no-debug $QUIET_FRAMES >/dev/null
   EXPORT_BIN="$TRACE" EXPORT_SEED="$SEED" EXPORT_MINUTES="$MINUTES" EXPORT_ARENA="$ARENA" \
-    EXPORT_OUT="$JSON" python3 tools/replay/export_arena.py
+    EXPORT_OUT="$JSON" "$PY" tools/replay/export_arena.py
 else
   echo "→ simulating seed $SEED, ${MINUTES}min ..."
-  "./$BIN" "$SEED" "$MINUTES" --trace "$TRACE" --no-debug >/dev/null
+  "./$BIN" "$SEED" "$MINUTES" --trace "$TRACE" --no-debug $QUIET_FRAMES >/dev/null
   EXPORT_BIN="$TRACE" EXPORT_SEED="$SEED" EXPORT_MINUTES="$MINUTES" \
-    EXPORT_OUT="$JSON" python3 tools/replay/export_match.py
+    EXPORT_OUT="$JSON" "$PY" tools/replay/export_match.py
 fi
 
-python3 tools/replay/build_viewer.py "$JSON" "$HTML"
+"$PY" tools/replay/build_viewer.py "$JSON" "$HTML"
 
 if [ "${KEEP_TRACE:-0}" != "1" ]; then
   rm -f "$TRACE"
