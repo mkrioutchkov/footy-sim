@@ -652,6 +652,10 @@ inline constexpr double SHOT_LANE_PERP_PX       = 16.0;    // body (12) + ball (
 inline constexpr double SHOT_LANE_OPP_FREE_DIST = 110.0;   // inside this a striker may still hit it through a defender's legs
 inline constexpr double FIRST_TIME_FINISH_MAX_RADIAL = 140.0;   // the first-time cut-back finish is a penalty-spot chance, not one from the D
 
+// ── Round-49: settled possession for the off-ball shape (engine.cpp updateShapePossession) ──
+inline constexpr double SHAPE_POSSESSION_SETTLE_MS = 300.0;   // a team must hold the ball this long before the other ten change shape
+inline constexpr double CENTRAL_RUN_BALL_ADVANCE   = 0.62;    // a central carry commits the FB overlap / CM box run only this far up (was 0.45)
+
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every
 // summary are untouched whether or not the flag is given.

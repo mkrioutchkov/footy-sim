@@ -417,8 +417,11 @@ void GameEngine::assignAttackingRoles(Team team, Player& carrier) {
     // AdvanceMidfield CM — only the CF (+ weak-side WM) ever attacked the
     // box. A genuinely advanced carry commits the midfield runner wherever
     // the carrier stands.
+    // Round-49 (seed-1110 audit: box runs fired with the ball still near halfway,
+    // leaving a 2-1-7 shape and an isolated carrier in 5 of 12 watched windows):
+    // the central clause now waits for a carry genuinely in the final third.
     if ((ballAdvance > 0.32 && carrierWide) || wingerCarryWide || (allOut && ballAdvance > 0.30)
-        || ballAdvance > 0.45) {
+        || ballAdvance > CENTRAL_RUN_BALL_ADVANCE) {
         Player* fbOver = nullptr; double bestFb = -1e9;
         for (auto& p : state.players) {
             if (p.team != team || p.id == carrier.id || p.role != Role::FB) continue;

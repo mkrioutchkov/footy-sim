@@ -1278,5 +1278,13 @@ private:
     void awardSetPiece(SetPiece t, Team tm);
     void awardCorner(Team attackingTeam, bool atHomeEnd, double y);
     void updateGoalKickMonitor();
+    // Round-49: which team the OFF-BALL SHAPE treats as in possession. Lags the raw
+    // controller flag by SHAPE_POSSESSION_SETTLE_MS; ignores loose balls; immediate
+    // on restarts and keeper control. Read only by scorePositioning — tackling,
+    // chasing and pressing keep reacting to the raw flag.
+    Team shapePossession = Team::Home;
+    Team shapeCandidate = Team::Home;
+    double shapeCandidateSinceMs = 0.0;
+    void updateShapePossession();
 
 };

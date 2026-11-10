@@ -919,6 +919,27 @@ void GameEngine::populateThrowInSupport(Team spTeam) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Round-49: updateShapePossession() — possession as the OFF-BALL shape sees it
+// ══════════════════════════════════════════════════════════════════════════════
+// Seed-1110 audit: whole teams U-turned in a single frame whenever the "who has
+// it" flag flipped — 577 flips a match, 98 team-wide lurches, 19 of them a
+// double U-turn off a half-second deflection (34:06: three midfielders from +4
+// to -5 m/s and back inside 0.58s). Cause: scorePositioning's `my` is binary
+// and, with the ball loose, follows lastTouchTeam — a brush off a shin flips
+// it — and every base target steps by up to 22m with it. A real team does not
+// reshape until the other side actually has the ball. Loose balls change
+// nothing here; a new team must CONTROL it for SHAPE_POSSESSION_SETTLE_MS; a
+// keeper's control and restarts count at once.
+void GameEngine::updateShapePossession() {
+    const Player* c = playerById(state.ball.controllerId);
+    if (!c) return;   // loose: keep the shape we have
+    if (c->team == shapePossession) { shapeCandidate = shapePossession; return; }
+    if (c->role == Role::GK) { shapePossession = shapeCandidate = c->team; shapeCandidateSinceMs = state.clockMs; return; }
+    if (shapeCandidate != c->team) { shapeCandidate = c->team; shapeCandidateSinceMs = state.clockMs; return; }
+    if (state.clockMs - shapeCandidateSinceMs >= SHAPE_POSSESSION_SETTLE_MS) shapePossession = c->team;
+}
+
 void GameEngine::updateSetPiecePhase(double sdt, double sec) {
     phase.actionTimer -= sdt;
     Team spTeam = setPiece.team;
@@ -980,6 +1001,8 @@ void GameEngine::updateSetPiecePhase(double sdt, double sec) {
 
     // Populate throw-in support targets once per set piece.
     populateThrowInSupport(spTeam);
+    shapePossession = shapeCandidate = spTeam;   // Round-49: a restart settles possession at once
+    shapeCandidateSinceMs = state.clockMs;
 
     runSetPieceChoreography(spTeam, sdt, sec);
     capRestartMovement(sdt);
@@ -1158,6 +1181,7 @@ void GameEngine::updateOpenPlayPhase(double sdt, double sec) {
         bb.pressingPlayerId = bb.pressingPlayerId2 = -1;
         bb.markedOpponents.fill(-1);
     }
+    updateShapePossession();
     updateTeamAssignments();
     applyDirectives(); // §1.3b: applyLiveCommands now runs INSIDE applyDirectives (after the timeline
                        // loop, before the dials) so live-inject ≡ timeline-replay — no 1-tick offset.

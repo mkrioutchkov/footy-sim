@@ -6,7 +6,8 @@ void PlayerAI::scorePositioning(const Perception& per, SmallVector<Action, 48>& 
     auto& b = engine.state.ball;
     double fd = fdFor(p.team);
     Team ip = engine.teamInPossession();
-    bool my = (per.ballControllerTeam == p.team);
+    // Round-49: settled possession, not the raw flag (see updateShapePossession).
+    bool my = (engine.shapePossession == p.team);
     // DEFENSIVE-SHAPE REDESIGN §8: when my team holds a mid-block, my forwards DROP
     // to the halfway line — OUT of the opponent's build-up zone — instead of pressing
     // high. This is what lets the opponent play out cleanly and string a long
