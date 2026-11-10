@@ -626,6 +626,12 @@ inline constexpr double RESTART_MOVE_MAX_SPEED = SPEED_SPRINT * 1.25;
 // arrived. The taker waits for them, up to this long past his scheduled release.
 inline constexpr double RESTART_ARRIVAL_MAX_WAIT_MS = 2500.0;
 
+// ── Round-45: keeper distribution under a press (engine_gk_restart.cpp) ──
+inline constexpr double GK_OUTLET_DEEP_PROGRESS = 300.0;   // receptions nearer the own goal line than this are the ones a first-touch tackle turns into a shot
+inline constexpr double GK_OUTLET_ROLL_SPEED    = 300.0;   // the secure roll's pace, as the outlet ETA has always assumed
+inline constexpr double GK_OUTLET_SETTLE_S      = 0.45;    // one settling touch: parity with the regain shield
+inline constexpr double GK_RETURN_OPEN_DIST     = 110.0;   // the man who just played it back to the keeper is an outlet again only this free
+
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every
 // summary are untouched whether or not the flag is given.

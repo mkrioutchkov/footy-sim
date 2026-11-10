@@ -276,7 +276,11 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         // Feet-only hold (back-pass law): the long ball is a driven low punt
         // off the deck, never the from-hands launch. Both launches are decided
         // here because the arena punt has to SOLVE for its speed (below).
-        double puntVz = gkHoldFeetOnly ? 120.0 : 300.0;
+        // Round-45: with the back-pass law finally live this branch runs ~3x as often,
+        // and the driven 120 vz ball travelled at head height through midfield: 84%
+        // of them were lost (16-seed probe). A keeper clearing off the deck still
+        // gets under it — lofted, just not the from-hands drop-kick height.
+        double puntVz = gkHoldFeetOnly ? 260.0 : 300.0;
         double puntZ  = gkHoldFeetOnly ? 0.0 : 28.0;
         // Round-30 (arena audit D3): driveBall normalises the direction and
         // DISCARDS d, so a flat 300 always carried the ball ~575px — exactly
@@ -383,6 +387,33 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         // his escape bubble means the ball comes straight back under
         // pressure — that's not a safe outlet, punt instead.
         bool trapped = progress < 260.0 && (escapePressure >= 2 || capacityPressure >= 2);
+        // Round-45 (a) ARRIVES WITH THE BALL (owner, seed 1110 77:52: "why would a
+        // defender get caught like that? it's a one-in-500 games event"). Neuer
+        // rolled it 14m to Chiellini with Messi 5.7m off the centre-back; Messi
+        // arrived with the ball and won it on the first touch at the edge of the
+        // box. Every gate here passed by a hair: nearestOpp read ~58px against the
+        // 58px bar because Messi was drifting toward the OTHER centre-back at
+        // release; the under-more-pressure guard below stopped at 140px and the
+        // roll was 142; `trapped` wants TWO bodies. In the keeper's own third ONE
+        // presser who can sprint to the receiver inside the roll plus a settling
+        // touch is enough to make the ball unsafe — being wrong there is a shot.
+        bool metOnArrival = false;
+        if (progress < GK_OUTLET_DEEP_PROGRESS) {
+            double arriveS = d / GK_OUTLET_ROLL_SPEED + GK_OUTLET_SETTLE_S;
+            for (auto& o : state.players) {
+                if (!isActiveOpponent(o, holder.team)) continue;
+                double sprint = std::max(40.0, attrFactor(o.attrs.speed) * SPEED_SPRINT);
+                if ((dist(o.x, o.y, p.x, p.y) - TACKLE_RANGE) / sprint < arriveS) {
+                    metOnArrival = true;
+                    break;
+                }
+            }
+        }
+        // Round-45 (b) RETURN TO SENDER. 7-8 times a match the keeper rolled it
+        // straight back to the man who had just given it to him BECAUSE he was
+        // pressed — and the press was still on him. He is an outlet again only
+        // once he has genuinely got free.
+        bool returnToPressedSender = p.id == runtime[holder.id].lastReceiveFrom && nearestOpp < GK_RETURN_OPEN_DIST;
         // "Safe" = near-certain to complete AND playable on arrival: a clean
         // lane, a receiver still open when the ball gets there, a short-to-mid
         // ball. The keeper releases only on these and otherwise HOLDS (he can't
@@ -391,14 +422,15 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
         // rises: a marginal short ball into a packed box is how the 3'16
         // penalty happened.
         double openNeed = closeKeeperPressure >= 2 ? 85.0 : 58.0;
-        bool safe = clearLane && nearestOpp > openNeed && d < 320.0 && !trapped;
+        bool safe = clearLane && nearestOpp > openNeed && d < 320.0 && !trapped && !metOnArrival && !returnToPressedSender;
         // An UNPRESSURED keeper must not shovel a short ball to a man under
         // MORE pressure than himself (seed 111 22:37: a comfortable 1.68s
         // hold ended in a short pass to a pressed man in the box corner —
         // three first-touch clears and a turnover followed). Holding costs a
         // keeper nothing; a short ball must IMPROVE the picture.
-        if (nearestKeeperPressure > 60.0 && d < 140.0
-            && nearestOpp < nearestKeeperPressure - 10.0) safe = false;
+        // Round-45: the d < 140 scope let a 142px roll into exactly this situation
+        // through (seed 1110 77:52). A short ball must improve the picture at any range.
+        if (nearestKeeperPressure > 60.0 && nearestOpp < nearestKeeperPressure - 10.0) safe = false;
         double roleBonus = sp::weight(sp::DIST_SAFE, p.role);
         double openness = clamp(nearestOpp / 90.0, 0.0, 1.0);
         double prox = 1.0 - clamp(d / 520.0, 0.0, 1.0); // shorter = safer
@@ -426,13 +458,11 @@ void GameEngine::releaseGoalkeeperDistribution(Player& holder) {
     // 2) No clean lane, and he's genuinely swarmed (a real high press, 3+ bodies
     //    on him) — holding achieves nothing, so clear it long. Prefer the best
     //    short outlet over a blind hoof; punt only if there's no one at all.
+    // Round-45: the swarmed branch used to feed the top-scored outlet WITHOUT the
+    // safety test — no safe outlet existed (step 1 just tried them all), so by
+    // construction it rolled the ball to a pressed man inside a crowded box.
+    // Swarmed with nothing safe, a keeper clears his lines.
     if (closeKeeperPressure >= 3) {
-        for (auto& o : outs) {
-            if (passBallTo(holder, *o.p, false, false, nullptr)) {
-                onRelease(o.p->id);
-                return;
-            }
-        }
         puntLong();
         return;
     }

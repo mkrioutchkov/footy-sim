@@ -35,6 +35,16 @@ void GameEngine::collectBall(Player& c) {
             return;
     }
     runtime[c.id].duel.contestBlockedUntil = 0;
+    // Round-45: is this a keeper collecting a deliberate kicked back-pass (Law 12)?
+    // Read HERE, before resolvePendingPass below closes the pending pass. Since the
+    // law went in (15d6558, round 9) the test sat in the keeper branch further down,
+    // AFTER that call, where pendingPass.active is always false — so gkHoldFeetOnly
+    // was never once true and every back-pass got the protected 700-1500ms hold,
+    // the both-teams goal-kick choreography and the from-hands punt the law exists
+    // to deny. Found tracing a 19-pass back-line/keeper loop (seed 2, 10:16): every
+    // keeper release in the match logged feet-only = 0.
+    const bool keeperBackPass = c.role == Role::GK && pendingPass.active && pendingPass.team == c.team
+        && b.intendedReceiverId == c.id && b.lastTouchTeam == c.team;
     bool intended = receiverShieldTargetId == c.id;
     bool teammateTarget = receiverShieldTargetId >= 0 && b.lastTouchTeam == c.team;
     resolveKnockAhead(&c);
@@ -86,8 +96,7 @@ void GameEngine::collectBall(Player& c) {
         // picked up — the keeper plays it with his feet: a short feet window
         // instead of the protected 700-1500ms hold, and the release paths
         // keep it on the ground (no from-hands punt).
-        gkHoldFeetOnly = b.intendedReceiverId == c.id && b.lastTouchTeam == c.team
-            && pendingPass.active && pendingPass.team == c.team;
+        gkHoldFeetOnly = keeperBackPass;   // computed at the top of this function — see the Round-45 note there
         goalKickMonitor.distributeTimer = std::max(goalKickMonitor.distributeTimer,
                                                    gkHoldFeetOnly ? 380.0
                                                                   : clamp(700.0 + incoming * 1.2, 700.0, 1500.0));
