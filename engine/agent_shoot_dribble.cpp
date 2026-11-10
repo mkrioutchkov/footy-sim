@@ -498,10 +498,18 @@ Action PlayerAI::scoreDribble(const Perception& per) {
         ty = lerp(p.y, PITCH_H / 2.0, 0.28);
     }
 
-    // Stuck detection
-    double m = std::sqrt((p.x - lastPosX) * (p.x - lastPosX) + (p.y - lastPosY) * (p.y - lastPosY));
-    if (holdTicks > DRIBBLE_STUCK_HOLD_TICKS && m < 3.0)  sc -= 0.20;
-    if (holdTicks > DRIBBLE_STUCK_SEVERE)                 sc -= 0.30;
+    // Stuck detection. Round-46: `m` used to be the displacement since the PREVIOUS
+    // TICK (lastPosX is rewritten every tick), whose maximum is ~1.7px — so `m < 3`
+    // was always true and EVERY carry paid -0.20 after 1s and -0.50 after 3s, going
+    // somewhere or not. That is why nobody ran with the ball (audit: 0 of 498 carries
+    // of 2s+ above 5 m/s) and why carries ended at ~3s by construction. Judge the
+    // CARRY instead: net forward progress since it started, per second held.
+    double heldS = std::max(holdTicks / 60.0, 1e-3);
+    double carryFwd = engine.carrierTracker.carryTrackerId == p.id
+        ? (p.x - engine.carrierTracker.carryStartX) * fd : 0.0;
+    double fwdRate = carryFwd / heldS;
+    if (holdTicks > DRIBBLE_STUCK_HOLD_TICKS && fwdRate < DRIBBLE_STUCK_RATE)  sc -= 0.20;
+    if (holdTicks > DRIBBLE_STUCK_SEVERE && fwdRate < DRIBBLE_SEVERE_RATE)     sc -= 0.30;
 
     // Open space ahead bonus: check if target area is clear
     int densityAtTarget = densityAt(tx, ty);

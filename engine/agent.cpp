@@ -589,10 +589,28 @@ void PlayerAI::applyTempoBrake(Action& x, const Perception& per, double progress
     bool panicClear = (x.purpose == ActionPurpose::Clear && (tightPress || tackleComing))
         || (x.purpose == ActionPurpose::KeeperBackpass
             && (tackleComing || pc >= 2));
+    // Round-46 (seed-1110 audit: one in five own-third touches lasted EXACTLY 80
+    // ticks, 52% of clearances fired on the gate tick, deep build-up released on a
+    // 1.33s beat): every threshold below was a constant, so every calm receiver in
+    // the match released on the same tick. Shift the whole ladder per possession
+    // (keyed on player + carry start: deterministic, no rng), and let a man who has
+    // just won it back with an opponent on him play the outlet straight away — the
+    // Round-39 fresh-winner +0.20 could never outbid the -2.0 gate.
+    int dwellShift = 0;
+    if (engine.carrierTracker.carryTrackerId == player.id) {
+        long long key = static_cast<long long>(player.id) * 7919LL + static_cast<long long>(engine.carrierTracker.carryStartMs);
+        dwellShift = static_cast<int>(key % (2 * DWELL_JITTER_TICKS + 1)) - DWELL_JITTER_TICKS;
+    }
+    const int ht = holdTicks - dwellShift;
+    bool freshRegain = engine.runtime[player.id].lastTurnoverWinMs > 0.0
+        && engine.state.clockMs - engine.runtime[player.id].lastTurnoverWinMs < FRESH_REGAIN_DWELL_MS
+        && per.nearestOpponentDist < FRESH_REGAIN_OPP_DIST;
+    if (freshRegain && x.type == ActionType::Pass && x.target && x.target->role != Role::GK
+        && x.audit.distance < 230.0 && x.audit.expectedCompletion > 0.60) return;
     if (!tightPress && x.type == ActionType::Pass && !killerBall && !lineBreakOutlet && !panicClear) {
-        if      (holdTicks < 60)  x.score -= 0.26;   // <1.0s: just took the touch
-        else if (holdTicks < 110) x.score -= 0.16;   // <1.8s: still composing
-        else if (holdTicks < 170) x.score -= 0.07;   // <2.8s: about ready
+        if      (ht < 60)  x.score -= 0.26;   // <1.0s: just took the touch
+        else if (ht < 110) x.score -= 0.16;   // <1.8s: still composing
+        else if (ht < 170) x.score -= 0.07;   // <2.8s: about ready
         // Stage-2 dwell gate NOTE (2026-07-02 audit): an extra −0.34 for
         // holdTicks<40 in the own-40% zone was A/B'd at 48 paired seeds
         // and came back INERT on volume (passes 1794→1782, dwell u250ms
@@ -611,7 +629,7 @@ void PlayerAI::applyTempoBrake(Action& x, const Perception& per, double progress
         // the wider zone only perturbed. 0.42 is the sweet spot; the next
         // tempo lever should be receiver-side (first-touch redirects),
         // not this gate.
-        if (holdTicks < 80 && progress < PITCH_W * 0.42)
+        if (ht < 80 && progress < PITCH_W * 0.42)
             x.score -= 2.0;
         // Return-pass damper NOTE (2026-07-04 audit: PINGPONG A<->B x5
         // in 5s): a −0.22 penalty for returning the ball to

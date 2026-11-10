@@ -163,6 +163,9 @@ void GameEngine::collectBall(Player& c) {
         const Player* prev = prevToucherId >= 0 ? playerById(prevToucherId) : nullptr;
         const bool regain = prev && prev->team != c.team;
         if (regain) noteRegain(c, prevToucherId, 700.0);
+        // Round-46: a loose ball won off the opposition is a turnover win like a
+        // tackle — stamp it so the fresh-regain dwell exemption sees it too.
+        if (regain && c.id >= 0 && c.id < 22) runtime[c.id].lastTurnoverWinMs = state.clockMs;
         // Round-42 (owner, seed 1110 77:53: Chiellini is tackled a tenth of a second
         // after his first touch; and 0:09-0:12, the regain that is lost before the
         // winner has moved). The shields above (300 / 150 / 220ms) are shorter than

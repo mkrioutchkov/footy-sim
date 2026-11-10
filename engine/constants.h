@@ -632,6 +632,14 @@ inline constexpr double GK_OUTLET_ROLL_SPEED    = 300.0;   // the secure roll's 
 inline constexpr double GK_OUTLET_SETTLE_S      = 0.45;    // one settling touch: parity with the regain shield
 inline constexpr double GK_RETURN_OPEN_DIST     = 110.0;   // the man who just played it back to the keeper is an outlet again only this free
 
+// ── Round-46: the composure dwell without a metronome (agent.cpp applyTempoBrake) ──
+inline constexpr int    DWELL_JITTER_TICKS     = 30;       // the dwell steps and the own-42% hard gate shift by -JITTER..+JITTER per possession
+inline constexpr double FRESH_REGAIN_DWELL_MS  = 1500.0;   // a man who has just won it back with an opponent on him plays the outlet, not a composed pass
+inline constexpr double FRESH_REGAIN_OPP_DIST  = 55.0;
+// ── Round-46: the dribble stuck test (agent_shoot_dribble.cpp) ──
+inline constexpr double DRIBBLE_STUCK_RATE     = 20.0;     // px/s of net forward progress over the carry below which a 1s+ carry is "stuck"
+inline constexpr double DRIBBLE_SEVERE_RATE    = 25.0;     // ... and below which a 3s+ carry pays the severe tax
+
 // ── Replay frame sampling (main.cpp --frame-sample N) ──
 // Output-only: nothing here is read by the simulation, so the RNG stream and every
 // summary are untouched whether or not the flag is given.
